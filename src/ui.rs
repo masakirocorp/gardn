@@ -586,7 +586,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_workspace_right_border_uses_accent_near_right_sidebar() {
+    fn right_sidebar_divider_uses_accent_for_empty_workspace() {
         let mut app = crate::app::state::AppState::test_new();
         app.mode = Mode::Terminal;
 
@@ -596,16 +596,10 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|frame| render(&app, frame)).unwrap();
         let buffer = terminal.backend().buffer();
-        let border_x = app.view.terminal_area.x + app.view.terminal_area.width.saturating_sub(1);
         let divider_x = app.view.right_sidebar_rect.x;
-        let row = app.view.terminal_area.y + 1;
 
-        assert_eq!(buffer[(border_x, row)].symbol(), "│");
-        assert_eq!(buffer[(border_x, row)].style().fg, Some(app.palette.accent));
-        assert_eq!(
-            buffer[(divider_x, row)].style().fg,
-            Some(app.palette.surface_dim)
-        );
+        assert_eq!(buffer[(divider_x, 1)].symbol(), "│");
+        assert_eq!(buffer[(divider_x, 1)].style().fg, Some(app.palette.accent));
     }
 
     #[test]
