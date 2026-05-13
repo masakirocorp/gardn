@@ -355,6 +355,14 @@ fn render_empty(app: &AppState, frame: &mut Frame, area: Rect) {
         ),
         area,
     );
+
+    if app.view.right_sidebar_rect != Rect::default() && area.width > 1 && area.height > 2 {
+        let right_x = area.x + area.width.saturating_sub(1);
+        let buf = frame.buffer_mut();
+        for y in area.y + 1..area.y + area.height.saturating_sub(1) {
+            buf[(right_x, y)].set_style(Style::default().fg(p.accent));
+        }
+    }
 }
 
 #[cfg(test)]
