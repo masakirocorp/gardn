@@ -654,6 +654,11 @@ impl AppState {
     }
 
     pub(super) fn group_menu_item_at(&self, col: u16, row: u16) -> Option<usize> {
+        let row_idx = self.group_menu_row_at(col, row)?;
+        self.group_menu_action_for_row(row_idx)
+    }
+
+    pub(super) fn group_menu_row_at(&self, col: u16, row: u16) -> Option<usize> {
         let rect = self.group_menu_rect();
         if col <= rect.x
             || col >= rect.x + rect.width.saturating_sub(1)
@@ -663,7 +668,7 @@ impl AppState {
             return None;
         }
         let idx = (row - rect.y - 1) as usize;
-        self.group_menu_action_for_row(idx)
+        (idx < self.group_menu_labels().len()).then_some(idx)
     }
 }
 

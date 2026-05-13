@@ -715,6 +715,36 @@ mod tests {
     }
 
     #[test]
+    fn hovering_group_menu_action_rows_highlights_visual_row() {
+        let mut app = app_for_mouse_test();
+        app.state.create_group("Work".to_string());
+        app.state.switch_group(1);
+        let selector = app.state.group_selector_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            selector.x + 1,
+            selector.y,
+        ));
+
+        let menu = app.state.group_menu_rect();
+        let new_group_row = app.state.groups.len() as u16 + 2;
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            menu.x + 2,
+            menu.y + new_group_row,
+        ));
+        assert_eq!(app.state.group_menu.highlighted, new_group_row as usize - 1);
+
+        let delete_row = app.state.groups.len() as u16 + 3;
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            menu.x + 2,
+            menu.y + delete_row,
+        ));
+        assert_eq!(app.state.group_menu.highlighted, delete_row as usize - 1);
+    }
+
+    #[test]
     fn confirming_group_delete_deletes_group_and_its_workspaces() {
         let mut app = app_for_mouse_test();
         let work_group = app.state.create_group("Work".to_string());

@@ -99,8 +99,10 @@ impl AppState {
         }
 
         if matches!(mouse.kind, MouseEventKind::Moved) && self.mode == Mode::GroupMenu {
-            self.group_menu
-                .hover(self.group_menu_item_at(mouse.column, mouse.row));
+            self.group_menu.hover(
+                self.group_menu_row_at(mouse.column, mouse.row)
+                    .filter(|idx| self.group_menu_action_for_row(*idx).is_some()),
+            );
             return None;
         }
 
