@@ -192,6 +192,91 @@ pub(super) fn render_confirm_close_overlay(app: &AppState, frame: &mut Frame, ar
     }
 }
 
+pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
+    let group_idx = app.confirm_delete_group.unwrap_or(app.active_group);
+    let group_name = app
+        .groups
+        .get(group_idx)
+        .map(|group| group.name.as_str())
+        .unwrap_or("?");
+    let space_count = app
+        .groups
+        .get(group_idx)
+        .map(|group| {
+            app.workspaces
+                .iter()
+                .filter(|workspace| workspace.group_id == group.id)
+                .count()
+        })
+        .unwrap_or(0);
+    let spaces = if space_count == 1 {
+        "1 space".to_string()
+    } else {
+        format!("{space_count} spaces")
+    };
+
+    super::dim_background(frame, area);
+
+    let Some(popup) = confirm_close_popup_rect(area) else {
+        return;
+    };
+
+    let warn = Style::default()
+        .fg(app.palette.red)
+        .add_modifier(Modifier::BOLD);
+    let dim = Style::default().fg(app.palette.overlay0);
+
+    let title_line = Line::from(vec![Span::styled(" Delete group?", warn)]);
+    let detail_line = Line::from(vec![
+        Span::styled(
+            format!(" {group_name}"),
+            Style::default()
+                .fg(app.palette.text)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(format!(" — closes {spaces}"), dim),
+    ]);
+
+    let Some(inner) = render_panel_shell(frame, popup, app.palette.red, app.palette.panel_bg)
+    else {
+        return;
+    };
+
+    if inner.height >= 3 {
+        let rows = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .areas::<3>(inner);
+
+        frame.render_widget(Paragraph::new(title_line), rows[0]);
+        frame.render_widget(Paragraph::new(detail_line), rows[1]);
+
+        let (confirm_rect, cancel_rect) = confirm_close_button_rects(inner);
+        render_action_button(
+            frame,
+            confirm_rect,
+            Some("↵"),
+            "confirm",
+            Style::default()
+                .fg(panel_contrast_fg(&app.palette))
+                .bg(app.palette.red)
+                .add_modifier(Modifier::BOLD),
+        );
+        render_action_button(
+            frame,
+            cancel_rect,
+            Some("esc"),
+            "cancel",
+            Style::default()
+                .fg(app.palette.text)
+                .bg(app.palette.surface0)
+                .add_modifier(Modifier::BOLD),
+        );
+    }
+}
+
 pub(crate) fn confirm_close_popup_rect(area: Rect) -> Option<Rect> {
     centered_popup_rect(area, 44, 5)
 }

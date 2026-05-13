@@ -345,6 +345,7 @@ impl App {
             creating_new_group: false,
             requested_new_tab_name: None,
             rename_pane_target: None,
+            confirm_delete_group: None,
             request_complete_onboarding: false,
             name_input: String::new(),
             name_input_replace_on_type: false,
@@ -926,6 +927,9 @@ impl App {
             }
             Mode::ConfirmClose => {
                 input::handle_confirm_close_key(&mut self.state, key_event);
+            }
+            Mode::ConfirmDeleteGroup => {
+                input::handle_confirm_delete_group_key(&mut self.state, key_event);
             }
             Mode::ContextMenu => {
                 input::handle_context_menu_key(&mut self.state, key_event);

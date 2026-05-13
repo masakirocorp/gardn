@@ -169,8 +169,7 @@ pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
             } else if idx == state.groups.len() {
                 open_new_group_dialog(state);
             } else if idx == state.groups.len() + 1 && state.groups.len() > 1 {
-                let _ = state.delete_group(state.active_group);
-                leave_modal(state);
+                open_confirm_delete_group(state, state.active_group);
             }
         }
         _ => {}
@@ -464,6 +463,13 @@ pub(super) fn open_confirm_close(state: &mut AppState) {
     state.mode = Mode::ConfirmClose;
 }
 
+pub(super) fn open_confirm_delete_group(state: &mut AppState, group_idx: usize) {
+    if group_idx < state.groups.len() && state.groups.len() > 1 {
+        state.confirm_delete_group = Some(group_idx);
+        state.mode = Mode::ConfirmDeleteGroup;
+    }
+}
+
 pub(super) fn confirm_close_accept(state: &mut AppState) {
     state.close_selected_workspace();
     if state.workspaces.is_empty() {
@@ -477,10 +483,34 @@ pub(super) fn confirm_close_cancel(state: &mut AppState) {
     state.mode = Mode::Navigate;
 }
 
+pub(super) fn confirm_delete_group_accept(state: &mut AppState) {
+    if let Some(group_idx) = state.confirm_delete_group.take() {
+        let _ = state.delete_group(group_idx);
+    }
+    if state.active.is_some() {
+        state.mode = Mode::Terminal;
+    } else {
+        state.mode = Mode::Navigate;
+    }
+}
+
+pub(super) fn confirm_delete_group_cancel(state: &mut AppState) {
+    state.confirm_delete_group = None;
+    state.mode = Mode::Navigate;
+}
+
 pub(crate) fn handle_confirm_close_key(state: &mut AppState, key: KeyEvent) {
     match modal_action_from_key(&key, CONFIRM_CLOSE_ACTIONS) {
         Some(ModalAction::Confirm) => confirm_close_accept(state),
         Some(ModalAction::Cancel) => confirm_close_cancel(state),
+        _ => {}
+    }
+}
+
+pub(crate) fn handle_confirm_delete_group_key(state: &mut AppState, key: KeyEvent) {
+    match modal_action_from_key(&key, CONFIRM_CLOSE_ACTIONS) {
+        Some(ModalAction::Confirm) => confirm_delete_group_accept(state),
+        Some(ModalAction::Cancel) => confirm_delete_group_cancel(state),
         _ => {}
     }
 }

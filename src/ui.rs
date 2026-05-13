@@ -19,7 +19,9 @@ mod status;
 mod tabs;
 mod widgets;
 
-use self::dialogs::{render_confirm_close_overlay, render_rename_overlay};
+use self::dialogs::{
+    render_confirm_close_overlay, render_confirm_delete_group_overlay, render_rename_overlay,
+};
 use self::keybind_help::render_keybind_help_overlay;
 use self::menus::{
     render_context_menu, render_global_launcher_menu, render_group_menu, render_navigate_overlay,
@@ -313,6 +315,7 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         Mode::Navigate => render_navigate_overlay(app, frame, terminal_area),
         Mode::Resize => render_resize_overlay(app, frame, terminal_area),
         Mode::ConfirmClose => render_confirm_close_overlay(app, frame, terminal_area),
+        Mode::ConfirmDeleteGroup => render_confirm_delete_group_overlay(app, frame, terminal_area),
         Mode::ContextMenu => {
             render_context_menu(app, frame);
         }

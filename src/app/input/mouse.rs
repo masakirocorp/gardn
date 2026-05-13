@@ -17,8 +17,9 @@ use super::WheelRouting;
 use super::{
     modal::{
         apply_context_menu_action, apply_global_menu_action, apply_rename_action,
-        confirm_close_accept, confirm_close_cancel, global_menu_actions, leave_modal,
-        modal_action_from_buttons, open_global_menu, open_new_tab_dialog, ModalAction,
+        confirm_close_accept, confirm_close_cancel, confirm_delete_group_accept,
+        confirm_delete_group_cancel, global_menu_actions, leave_modal, modal_action_from_buttons,
+        open_confirm_delete_group, open_global_menu, open_new_tab_dialog, ModalAction,
     },
     settings::SettingsAction,
     ScrollbarClickTarget, TAB_DRAG_THRESHOLD, WORKSPACE_DRAG_THRESHOLD,
@@ -132,8 +133,7 @@ impl AppState {
                     } else if idx == self.groups.len() {
                         super::modal::open_new_group_dialog(self);
                     } else if idx == self.groups.len() + 1 && self.groups.len() > 1 {
-                        let _ = self.delete_group(self.active_group);
-                        leave_modal(self);
+                        open_confirm_delete_group(self, self.active_group);
                     }
                 } else {
                     leave_modal(self);
@@ -180,6 +180,30 @@ impl AppState {
                     ) {
                         Some(ModalAction::Confirm) => confirm_close_accept(self),
                         Some(ModalAction::Cancel) | None => confirm_close_cancel(self),
+                        _ => {}
+                    }
+                    return None;
+                }
+
+                if self.mode == Mode::ConfirmDeleteGroup {
+                    let popup = self.confirm_close_rect();
+                    let inner = Rect::new(
+                        popup.x + 1,
+                        popup.y + 1,
+                        popup.width.saturating_sub(2),
+                        popup.height.saturating_sub(2),
+                    );
+                    let (confirm, cancel) = crate::ui::confirm_close_button_rects(inner);
+                    match modal_action_from_buttons(
+                        mouse.column,
+                        mouse.row,
+                        &[
+                            (confirm, ModalAction::Confirm),
+                            (cancel, ModalAction::Cancel),
+                        ],
+                    ) {
+                        Some(ModalAction::Confirm) => confirm_delete_group_accept(self),
+                        Some(ModalAction::Cancel) | None => confirm_delete_group_cancel(self),
                         _ => {}
                     }
                     return None;

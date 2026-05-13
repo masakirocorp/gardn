@@ -417,6 +417,7 @@ impl AppState {
                 | Mode::RenameWorkspace
                 | Mode::Resize
                 | Mode::ConfirmClose
+                | Mode::ConfirmDeleteGroup
                 | Mode::ContextMenu
                 | Mode::Settings
                 | Mode::GlobalMenu
@@ -644,7 +645,7 @@ mod tests {
     }
 
     #[test]
-    fn clicking_delete_group_menu_item_deletes_group_and_its_workspaces() {
+    fn clicking_delete_group_menu_item_opens_confirmation() {
         let mut app = app_for_mouse_test();
         let work_group = app.state.create_group("Work".to_string());
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
@@ -663,6 +664,34 @@ mod tests {
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
             menu.y + app.state.groups.len() as u16 + 2,
+        ));
+
+        assert_eq!(app.state.mode, Mode::ConfirmDeleteGroup);
+        assert_eq!(app.state.confirm_delete_group, Some(work_group));
+    }
+
+    #[test]
+    fn confirming_group_delete_deletes_group_and_its_workspaces() {
+        let mut app = app_for_mouse_test();
+        let work_group = app.state.create_group("Work".to_string());
+        app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
+        app.state.workspaces[1].group_id = app.state.groups[work_group].id.clone();
+        app.state.switch_group(work_group);
+        app.state.confirm_delete_group = Some(work_group);
+        app.state.mode = Mode::ConfirmDeleteGroup;
+
+        let popup = app.state.confirm_close_rect();
+        let inner = Rect::new(
+            popup.x + 1,
+            popup.y + 1,
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
+        );
+        let (confirm, _) = crate::ui::confirm_close_button_rects(inner);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            confirm.x,
+            confirm.y,
         ));
 
         assert_eq!(app.state.groups.len(), 1);
