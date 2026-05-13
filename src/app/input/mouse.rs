@@ -19,7 +19,7 @@ use super::{
         apply_context_menu_action, apply_global_menu_action, apply_rename_action,
         confirm_close_accept, confirm_close_cancel, confirm_delete_group_accept,
         confirm_delete_group_cancel, global_menu_actions, leave_modal, modal_action_from_buttons,
-        open_confirm_delete_group, open_global_menu, open_new_tab_dialog, ModalAction,
+        open_global_menu, open_new_tab_dialog, ModalAction,
     },
     settings::SettingsAction,
     ScrollbarClickTarget, TAB_DRAG_THRESHOLD, WORKSPACE_DRAG_THRESHOLD,
@@ -127,6 +127,24 @@ impl AppState {
         }
 
         if self.mode == Mode::GroupMenu {
+            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right)) {
+                if let Some(row_idx) = self.group_menu_row_at(mouse.column, mouse.row) {
+                    if row_idx < self.groups.len() {
+                        self.context_menu = Some(ContextMenuState {
+                            kind: ContextMenuKind::Group {
+                                group_idx: row_idx,
+                                can_delete: self.groups.len() > 1,
+                            },
+                            x: mouse.column,
+                            y: mouse.row,
+                            list: MenuListState::new(0),
+                        });
+                        self.mode = Mode::ContextMenu;
+                    }
+                }
+                return None;
+            }
+
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
                 if let Some(idx) = self.group_menu_item_at(mouse.column, mouse.row) {
                     if idx < self.groups.len() {
@@ -134,8 +152,6 @@ impl AppState {
                         leave_modal(self);
                     } else if idx == self.groups.len() {
                         super::modal::open_new_group_dialog(self);
-                    } else if idx == self.groups.len() + 1 && self.groups.len() > 1 {
-                        open_confirm_delete_group(self, self.active_group);
                     }
                 } else {
                     let rect = self.group_menu_rect();

@@ -346,6 +346,7 @@ impl App {
             creating_new_group: false,
             group_icon_input: state::DEFAULT_GROUP_ICON.to_string(),
             group_icon_picker_open: false,
+            rename_group_target: None,
             requested_new_tab_name: None,
             rename_pane_target: None,
             confirm_delete_group: None,

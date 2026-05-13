@@ -193,8 +193,6 @@ pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
                 leave_modal(state);
             } else if idx == state.groups.len() {
                 open_new_group_dialog(state);
-            } else if idx == state.groups.len() + 1 && state.groups.len() > 1 {
-                open_confirm_delete_group(state, state.active_group);
             }
         }
         _ => {}
@@ -220,6 +218,7 @@ pub(super) fn open_rename_workspace(state: &mut AppState, ws_idx: usize) {
     state.creating_new_group = false;
     state.group_icon_picker_open = false;
     state.requested_new_tab_name = None;
+    state.rename_group_target = None;
     state.rename_pane_target = None;
     state.name_input = state.workspaces[ws_idx].display_name();
     state.name_input_replace_on_type = false;
@@ -227,13 +226,22 @@ pub(super) fn open_rename_workspace(state: &mut AppState, ws_idx: usize) {
 }
 
 pub(super) fn open_rename_group(state: &mut AppState) {
+    open_rename_group_at(state, state.active_group);
+}
+
+pub(super) fn open_rename_group_at(state: &mut AppState, group_idx: usize) {
+    let Some(group) = state.groups.get(group_idx) else {
+        return;
+    };
     state.creating_new_tab = false;
     state.creating_new_group = false;
-    state.group_icon_input = state.active_group_icon().to_string();
+    state.group_icon_input = group.icon.clone();
     state.group_icon_picker_open = false;
     state.requested_new_tab_name = None;
+    state.rename_group_target = None;
     state.rename_pane_target = None;
-    state.name_input = state.active_group_name().to_string();
+    state.rename_group_target = Some(group_idx);
+    state.name_input = group.name.clone();
     state.name_input_replace_on_type = false;
     state.mode = Mode::RenameGroup;
 }
@@ -243,6 +251,7 @@ pub(super) fn open_rename_active_tab(state: &mut AppState, replace_on_type: bool
     state.creating_new_group = false;
     state.group_icon_picker_open = false;
     state.requested_new_tab_name = None;
+    state.rename_group_target = None;
     state.rename_pane_target = None;
     if let Some(ws) = state.active.and_then(|i| state.workspaces.get(i)) {
         if let Some(name) = ws.active_tab_display_name() {
@@ -287,6 +296,7 @@ pub(super) fn open_new_tab_dialog(state: &mut AppState) {
     state.creating_new_group = false;
     state.group_icon_picker_open = false;
     state.requested_new_tab_name = None;
+    state.rename_group_target = None;
     state.rename_pane_target = None;
     state.name_input = next_new_tab_default_name(state);
     state.name_input_replace_on_type = true;
@@ -298,6 +308,7 @@ pub(super) fn open_new_group_dialog(state: &mut AppState) {
     state.creating_new_tab = false;
     state.group_icon_input = DEFAULT_GROUP_ICON.to_string();
     state.group_icon_picker_open = false;
+    state.rename_group_target = None;
     state.requested_new_tab_name = None;
     state.rename_pane_target = None;
     state.name_input = next_new_group_default_name(state);
@@ -387,8 +398,9 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
                     state.switch_group(group_idx);
                 }
                 Mode::RenameGroup if !new_name.is_empty() => {
-                    state.rename_group(state.active_group, new_name);
-                    state.set_group_icon(state.active_group, state.group_icon_input.clone());
+                    let group_idx = state.rename_group_target.unwrap_or(state.active_group);
+                    state.rename_group(group_idx, new_name);
+                    state.set_group_icon(group_idx, state.group_icon_input.clone());
                 }
                 Mode::RenameTab if state.creating_new_tab => {
                     state.request_new_tab = true;
@@ -434,6 +446,7 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
             state.creating_new_tab = false;
             state.creating_new_group = false;
             state.group_icon_picker_open = false;
+            state.rename_group_target = None;
             state.rename_pane_target = None;
             state.name_input.clear();
             state.name_input_replace_on_type = false;
@@ -447,6 +460,7 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
             state.creating_new_tab = false;
             state.creating_new_group = false;
             state.group_icon_picker_open = false;
+            state.rename_group_target = None;
             state.requested_new_tab_name = None;
             state.rename_pane_target = None;
             state.name_input.clear();
@@ -570,6 +584,18 @@ pub(super) fn apply_context_menu_action(state: &mut AppState, menu: ContextMenuS
     match (menu.kind, item) {
         (ContextMenuKind::Workspace { ws_idx }, Some("Rename")) => {
             open_rename_workspace(state, ws_idx);
+        }
+        (ContextMenuKind::Group { group_idx, .. }, Some("Rename")) => {
+            open_rename_group_at(state, group_idx);
+        }
+        (
+            ContextMenuKind::Group {
+                group_idx,
+                can_delete: true,
+            },
+            Some("Delete"),
+        ) => {
+            open_confirm_delete_group(state, group_idx);
         }
         (ContextMenuKind::Workspace { ws_idx }, Some("Close")) => {
             state.selected = ws_idx;

@@ -605,6 +605,10 @@ pub(crate) struct TabPressState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextMenuKind {
+    Group {
+        group_idx: usize,
+        can_delete: bool,
+    },
     Workspace {
         ws_idx: usize,
     },
@@ -629,6 +633,12 @@ pub struct ContextMenuState {
 impl ContextMenuState {
     pub fn items(&self) -> &'static [&'static str] {
         match self.kind {
+            ContextMenuKind::Group {
+                can_delete: true, ..
+            } => &["Rename", "Delete"],
+            ContextMenuKind::Group {
+                can_delete: false, ..
+            } => &["Rename"],
             ContextMenuKind::Workspace { .. } => &["Rename", "Close"],
             ContextMenuKind::Tab { .. } => &["New tab", "Rename", "Close"],
             ContextMenuKind::Pane {
@@ -724,6 +734,7 @@ pub struct AppState {
     pub creating_new_group: bool,
     pub group_icon_input: String,
     pub group_icon_picker_open: bool,
+    pub rename_group_target: Option<usize>,
     pub requested_new_tab_name: Option<String>,
     pub rename_pane_target: Option<PaneId>,
     pub confirm_delete_group: Option<usize>,
@@ -964,6 +975,7 @@ impl AppState {
             creating_new_group: false,
             group_icon_input: DEFAULT_GROUP_ICON.to_string(),
             group_icon_picker_open: false,
+            rename_group_target: None,
             requested_new_tab_name: None,
             rename_pane_target: None,
             confirm_delete_group: None,

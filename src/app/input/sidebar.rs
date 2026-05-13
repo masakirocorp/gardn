@@ -270,9 +270,6 @@ impl AppState {
             .collect();
         labels.push("---".to_string());
         labels.push("+ new group".to_string());
-        if self.groups.len() > 1 {
-            labels.push(format!("- delete {}", self.active_group_name()));
-        }
         labels
     }
 
@@ -289,11 +286,6 @@ impl AppState {
         let new_group_idx = separator_idx + 1;
         if row_idx == new_group_idx {
             return Some(self.groups.len());
-        }
-
-        let delete_idx = new_group_idx + 1;
-        if self.groups.len() > 1 && row_idx == delete_idx {
-            return Some(self.groups.len() + 1);
         }
 
         None
@@ -595,7 +587,7 @@ mod tests {
 
     use super::super::{app_for_mouse_test, capture_snapshot, mouse, unique_temp_path};
     use crate::{
-        app::state::{AgentPanelScope, DragTarget, Mode},
+        app::state::{AgentPanelScope, ContextMenuKind, DragTarget, Mode},
         detect::Agent,
         workspace::Workspace,
     };
@@ -677,12 +669,11 @@ mod tests {
     }
 
     #[test]
-    fn clicking_delete_group_menu_item_opens_confirmation() {
+    fn right_clicking_group_menu_item_opens_group_context_menu() {
         let mut app = app_for_mouse_test();
         let work_group = app.state.create_group("Work".to_string());
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
         app.state.workspaces[1].group_id = app.state.groups[work_group].id.clone();
-        app.state.switch_group(work_group);
 
         let selector = app.state.group_selector_rect();
         app.handle_mouse(mouse(
@@ -693,13 +684,78 @@ mod tests {
 
         let menu = app.state.group_menu_rect();
         app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Right),
+            menu.x + 2,
+            menu.y + 2,
+        ));
+
+        assert_eq!(app.state.mode, Mode::ContextMenu);
+        let context = app.state.context_menu.as_ref().unwrap();
+        assert_eq!(context.items(), &["Rename", "Delete"]);
+        assert_eq!(
+            context.kind,
+            ContextMenuKind::Group {
+                group_idx: work_group,
+                can_delete: true
+            }
+        );
+    }
+
+    #[test]
+    fn group_context_menu_renames_target_group_without_switching() {
+        let mut app = app_for_mouse_test();
+        let work_group = app.state.create_group("Work".to_string());
+        app.state.active_group = 0;
+        app.state.context_menu = Some(crate::app::state::ContextMenuState {
+            kind: ContextMenuKind::Group {
+                group_idx: work_group,
+                can_delete: true,
+            },
+            x: 2,
+            y: 2,
+            list: crate::app::state::MenuListState::new(0),
+        });
+        app.state.mode = Mode::ContextMenu;
+
+        let menu = app.state.context_menu_rect().unwrap();
+        app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + app.state.groups.len() as u16 + 3,
+            menu.y + 1,
+        ));
+
+        assert_eq!(app.state.mode, Mode::RenameGroup);
+        assert_eq!(app.state.rename_group_target, Some(work_group));
+        assert_eq!(app.state.name_input, "Work");
+        assert_eq!(app.state.active_group, 0);
+    }
+
+    #[test]
+    fn group_context_menu_delete_opens_confirmation_for_target_group() {
+        let mut app = app_for_mouse_test();
+        let work_group = app.state.create_group("Work".to_string());
+        app.state.active_group = 0;
+        app.state.context_menu = Some(crate::app::state::ContextMenuState {
+            kind: ContextMenuKind::Group {
+                group_idx: work_group,
+                can_delete: true,
+            },
+            x: 2,
+            y: 2,
+            list: crate::app::state::MenuListState::new(1),
+        });
+        app.state.mode = Mode::ContextMenu;
+
+        let menu = app.state.context_menu_rect().unwrap();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + 2,
         ));
 
         assert_eq!(app.state.mode, Mode::ConfirmDeleteGroup);
         assert_eq!(app.state.confirm_delete_group, Some(work_group));
+        assert_eq!(app.state.active_group, 0);
     }
 
     #[test]
@@ -742,14 +798,11 @@ mod tests {
             menu.y + new_group_row,
         ));
         assert_eq!(app.state.group_menu.highlighted, new_group_row as usize - 1);
-
-        let delete_row = app.state.groups.len() as u16 + 3;
-        app.handle_mouse(mouse(
-            MouseEventKind::Moved,
-            menu.x + 2,
-            menu.y + delete_row,
-        ));
-        assert_eq!(app.state.group_menu.highlighted, delete_row as usize - 1);
+        assert!(!app
+            .state
+            .group_menu_labels()
+            .iter()
+            .any(|label| label.contains("delete")));
     }
 
     #[test]
