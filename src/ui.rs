@@ -58,9 +58,9 @@ pub(crate) use self::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_scroll_metrics,
         agent_panel_scrollbar_rect, agent_panel_toggle_rect, collapsed_group_header_rect,
         collapsed_sidebar_sections, collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect,
-        compute_workspace_card_areas, expanded_sidebar_sections, sidebar_section_divider_rect,
-        workspace_drop_indicator_row, workspace_list_rect, workspace_list_scroll_metrics,
-        workspace_list_scrollbar_rect,
+        compute_workspace_card_areas, expanded_sidebar_sections, expanded_sidebar_toggle_rect,
+        sidebar_section_divider_rect, workspace_drop_indicator_row, workspace_list_rect,
+        workspace_list_scroll_metrics, workspace_list_scrollbar_rect,
     },
 };
 pub(crate) use self::{
@@ -73,7 +73,7 @@ pub(crate) use self::{
     tabs::compute_tab_bar_view,
     widgets::{centered_popup_rect, modal_stack_areas},
 };
-use crate::app::state::ViewLayout;
+use crate::app::state::{ContextMenuKind, ViewLayout};
 use crate::app::{AppState, Mode};
 
 const COLLAPSED_WIDTH: u16 = 4; // num + space + dot + separator
@@ -321,6 +321,9 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         Mode::ConfirmClose => render_confirm_close_overlay(app, frame, terminal_area),
         Mode::ConfirmDeleteGroup => render_confirm_delete_group_overlay(app, frame, terminal_area),
         Mode::ContextMenu => {
+            if context_menu_keeps_group_menu_visible(app) {
+                render_group_menu(app, frame);
+            }
             render_context_menu(app, frame);
         }
         Mode::Settings => render_settings_overlay(app, frame, frame.area()),
@@ -359,6 +362,12 @@ pub fn render(app: &AppState, frame: &mut Frame) {
     }
 }
 
+fn context_menu_keeps_group_menu_visible(app: &AppState) -> bool {
+    app.context_menu
+        .as_ref()
+        .is_some_and(|menu| matches!(menu.kind, ContextMenuKind::Group { .. }))
+}
+
 fn dim_background(frame: &mut Frame, area: Rect) {
     let buf = frame.buffer_mut();
     for y in area.y..area.y + area.height {
@@ -390,7 +399,7 @@ mod tests {
     use super::scrollbar::scrollbar_thumb;
     use super::*;
     use crate::{
-        app::state::{Palette, ViewLayout},
+        app::state::{ContextMenuState, MenuListState, Palette, ViewLayout},
         layout::PaneInfo,
         workspace::Workspace,
     };
@@ -479,6 +488,31 @@ mod tests {
         let active_style = buffer[(rows.x, active_row)].style();
 
         assert_eq!(active_style.bg, Some(app.palette.surface_dim));
+    }
+
+    #[test]
+    fn group_context_menu_keeps_group_menu_visible() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.context_menu = Some(ContextMenuState {
+            kind: ContextMenuKind::Group {
+                group_idx: 0,
+                can_delete: false,
+            },
+            x: 2,
+            y: 2,
+            list: MenuListState::new(0),
+        });
+
+        assert!(context_menu_keeps_group_menu_visible(&app));
+
+        app.context_menu = Some(ContextMenuState {
+            kind: ContextMenuKind::Workspace { ws_idx: 0 },
+            x: 2,
+            y: 2,
+            list: MenuListState::new(0),
+        });
+
+        assert!(!context_menu_keeps_group_menu_visible(&app));
     }
 
     #[test]

@@ -939,6 +939,15 @@ pub(crate) fn collapsed_sidebar_toggle_rect(area: Rect) -> Rect {
     Rect::new(x, bottom_y, 1, 1)
 }
 
+pub(crate) fn expanded_sidebar_toggle_rect(area: Rect) -> Rect {
+    let bottom_y = area.y + area.height.saturating_sub(1);
+    let content_w = area.width.saturating_sub(1);
+    if content_w == 0 || area.height == 0 {
+        return Rect::default();
+    }
+    Rect::new(area.x + content_w.saturating_sub(1), bottom_y, 1, 1)
+}
+
 fn render_sidebar_toggle(
     app: &AppState,
     frame: &mut Frame,
@@ -946,7 +955,11 @@ fn render_sidebar_toggle(
     collapsed: bool,
     p: &Palette,
 ) {
-    let toggle_area = collapsed_sidebar_toggle_rect(area);
+    let toggle_area = if collapsed {
+        collapsed_sidebar_toggle_rect(area)
+    } else {
+        expanded_sidebar_toggle_rect(area)
+    };
     if toggle_area == Rect::default() {
         return;
     }

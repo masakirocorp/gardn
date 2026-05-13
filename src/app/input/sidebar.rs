@@ -359,7 +359,11 @@ impl AppState {
         if self.view.layout == ViewLayout::Mobile {
             return false;
         }
-        let rect = crate::ui::collapsed_sidebar_toggle_rect(self.view.sidebar_rect);
+        let rect = if self.sidebar_collapsed {
+            crate::ui::collapsed_sidebar_toggle_rect(self.view.sidebar_rect)
+        } else {
+            crate::ui::expanded_sidebar_toggle_rect(self.view.sidebar_rect)
+        };
         rect.width > 0
             && col >= rect.x
             && col < rect.x + rect.width
@@ -1295,7 +1299,7 @@ mod tests {
         app.state.view.sidebar_rect = Rect::new(0, 0, 26, 20);
         app.state.view.terminal_area = Rect::new(26, 0, 80, 20);
 
-        let toggle = crate::ui::collapsed_sidebar_toggle_rect(app.state.view.sidebar_rect);
+        let toggle = crate::ui::expanded_sidebar_toggle_rect(app.state.view.sidebar_rect);
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             toggle.x,
@@ -1303,6 +1307,10 @@ mod tests {
         ));
 
         assert!(app.state.sidebar_collapsed);
+        assert_eq!(
+            toggle.x,
+            app.state.view.sidebar_rect.x + app.state.view.sidebar_rect.width - 2
+        );
     }
 
     #[test]
