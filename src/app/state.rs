@@ -31,7 +31,7 @@ impl Group {
     pub fn default_group() -> Self {
         Self {
             id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
-            name: "Default".to_string(),
+            name: "group 1".to_string(),
         }
     }
 }
@@ -784,7 +784,7 @@ impl AppState {
         self.groups
             .get(self.active_group)
             .map(|group| group.name.as_str())
-            .unwrap_or("Default")
+            .unwrap_or("group 1")
     }
 
     pub fn workspace_in_active_group(&self, ws_idx: usize) -> bool {

@@ -25,7 +25,7 @@ impl App {
         let has_only_default_group = self.state.groups.len() == 1
             && self.state.active_group == 0
             && self.state.groups[0].id == crate::workspace::DEFAULT_GROUP_ID
-            && self.state.groups[0].name == "Default";
+            && self.state.groups[0].name == "group 1";
         if self.state.workspaces.is_empty() && has_only_default_group {
             crate::persist::clear();
         } else {

@@ -131,7 +131,7 @@ for backward compatibility, requests also accept the older positional forms like
 {
   "group_id": "default",
   "number": 1,
-  "name": "Default",
+  "name": "group 1",
   "focused": true,
   "workspace_count": 2
 }

@@ -58,7 +58,7 @@ fn default_group_id() -> String {
 fn default_groups() -> Vec<GroupSnapshot> {
     vec![GroupSnapshot {
         id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
-        name: "Default".to_string(),
+        name: "group 1".to_string(),
     }]
 }
 
