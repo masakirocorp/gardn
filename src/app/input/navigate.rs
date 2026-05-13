@@ -31,36 +31,6 @@ pub(crate) fn terminal_direct_navigation_action(
         return Some(NavigateAction::NextWorkspace);
     }
     if kb
-        .open_group_menu
-        .is_some_and(|(code, mods)| key_matches(key, code, mods))
-    {
-        return Some(NavigateAction::OpenGroupMenu);
-    }
-    if kb
-        .new_group
-        .is_some_and(|(code, mods)| key_matches(key, code, mods))
-    {
-        return Some(NavigateAction::NewGroup);
-    }
-    if kb
-        .rename_group
-        .is_some_and(|(code, mods)| key_matches(key, code, mods))
-    {
-        return Some(NavigateAction::RenameGroup);
-    }
-    if kb
-        .delete_group
-        .is_some_and(|(code, mods)| key_matches(key, code, mods))
-    {
-        return Some(NavigateAction::DeleteGroup);
-    }
-    if kb
-        .toggle_group_filter
-        .is_some_and(|(code, mods)| key_matches(key, code, mods))
-    {
-        return Some(NavigateAction::ToggleGroupFilter);
-    }
-    if kb
         .previous_group
         .is_some_and(|(code, mods)| key_matches(key, code, mods))
     {
@@ -477,6 +447,48 @@ fn navigate_action_for_key(state: &AppState, key: &KeyEvent) -> Option<NavigateA
         return Some(NavigateAction::NextWorkspace);
     }
     if kb
+        .open_group_menu
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::OpenGroupMenu);
+    }
+    if kb
+        .new_group
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::NewGroup);
+    }
+    if kb
+        .rename_group
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::RenameGroup);
+    }
+    if kb
+        .delete_group
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::DeleteGroup);
+    }
+    if kb
+        .toggle_group_filter
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::ToggleGroupFilter);
+    }
+    if kb
+        .previous_group
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::PreviousGroup);
+    }
+    if kb
+        .next_group
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::NextGroup);
+    }
+    if kb
         .previous_agent
         .is_some_and(|(code, mods)| key_matches(key, code, mods))
     {
@@ -862,6 +874,89 @@ mod tests {
         );
 
         assert_eq!(action, Some(NavigateAction::FocusPaneLeft));
+    }
+
+    #[test]
+    fn navigate_group_shortcuts_map_to_navigation_actions() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.keybinds.open_group_menu = Some((KeyCode::Char('g'), KeyModifiers::CONTROL));
+        state.keybinds.new_group = Some((KeyCode::Char('g'), KeyModifiers::ALT));
+        state.keybinds.rename_group = Some((KeyCode::Char('g'), KeyModifiers::SHIFT));
+        state.keybinds.delete_group = Some((
+            KeyCode::Char('g'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        ));
+        state.keybinds.toggle_group_filter = Some((KeyCode::F(6), KeyModifiers::empty()));
+        state.keybinds.previous_group = Some((KeyCode::Char('['), KeyModifiers::CONTROL));
+        state.keybinds.next_group = Some((KeyCode::Char(']'), KeyModifiers::CONTROL));
+
+        let cases = [
+            (
+                KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL),
+                NavigateAction::OpenGroupMenu,
+            ),
+            (
+                KeyEvent::new(KeyCode::Char('g'), KeyModifiers::ALT),
+                NavigateAction::NewGroup,
+            ),
+            (
+                KeyEvent::new(KeyCode::Char('g'), KeyModifiers::SHIFT),
+                NavigateAction::RenameGroup,
+            ),
+            (
+                KeyEvent::new(
+                    KeyCode::Char('g'),
+                    KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+                ),
+                NavigateAction::DeleteGroup,
+            ),
+            (
+                KeyEvent::new(KeyCode::F(6), KeyModifiers::empty()),
+                NavigateAction::ToggleGroupFilter,
+            ),
+            (
+                KeyEvent::new(KeyCode::Char('['), KeyModifiers::CONTROL),
+                NavigateAction::PreviousGroup,
+            ),
+            (
+                KeyEvent::new(KeyCode::Char(']'), KeyModifiers::CONTROL),
+                NavigateAction::NextGroup,
+            ),
+        ];
+
+        for (key, expected) in cases {
+            assert_eq!(navigate_action_for_key(&state, &key), Some(expected));
+        }
+    }
+
+    #[test]
+    fn terminal_direct_group_shortcuts_only_switch_groups() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.keybinds.open_group_menu = Some((KeyCode::Char('g'), KeyModifiers::CONTROL));
+        state.keybinds.previous_group = Some((KeyCode::Char('['), KeyModifiers::CONTROL));
+        state.keybinds.next_group = Some((KeyCode::Char(']'), KeyModifiers::CONTROL));
+
+        assert_eq!(
+            terminal_direct_navigation_action(
+                &state,
+                &KeyEvent::new(KeyCode::Char('['), KeyModifiers::CONTROL),
+            ),
+            Some(NavigateAction::PreviousGroup)
+        );
+        assert_eq!(
+            terminal_direct_navigation_action(
+                &state,
+                &KeyEvent::new(KeyCode::Char(']'), KeyModifiers::CONTROL),
+            ),
+            Some(NavigateAction::NextGroup)
+        );
+        assert_eq!(
+            terminal_direct_navigation_action(
+                &state,
+                &KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL),
+            ),
+            None
+        );
     }
 
     #[tokio::test]
