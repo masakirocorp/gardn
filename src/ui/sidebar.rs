@@ -610,7 +610,7 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
         );
         frame.render_widget(
             Paragraph::new(Span::styled(
-                "all",
+                app.group_filter_toggle_label(),
                 Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
             ))
             .alignment(Alignment::Right),

@@ -314,7 +314,7 @@ impl AppState {
                     }
 
                     if self.on_group_all_toggle(mouse.column, mouse.row) {
-                        self.show_all_groups();
+                        self.toggle_group_filter();
                         return None;
                     }
 

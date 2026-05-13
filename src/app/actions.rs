@@ -125,6 +125,16 @@ impl AppState {
         self.ensure_workspace_visible(self.selected);
     }
 
+    pub fn toggle_group_filter(&mut self) {
+        if self.group_filter_enabled {
+            self.show_all_groups();
+        } else {
+            self.group_filter_enabled = true;
+            self.select_first_visible_workspace();
+            self.mark_session_dirty();
+        }
+    }
+
     fn select_first_visible_workspace(&mut self) {
         self.workspace_scroll = 0;
         self.agent_panel_scroll = 0;

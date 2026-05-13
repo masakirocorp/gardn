@@ -244,7 +244,8 @@ impl AppState {
         if ws_area == Rect::default() {
             return Rect::default();
         }
-        let width = 3u16.min(ws_area.width.max(1));
+        let width = self.group_filter_toggle_label().chars().count() as u16;
+        let width = width.min(ws_area.width.max(1));
         Rect::new(
             ws_area.x + ws_area.width.saturating_sub(width),
             ws_area.y,
@@ -262,6 +263,14 @@ impl AppState {
                 format!("{marker} {}", group.name)
             })
             .collect()
+    }
+
+    pub(crate) fn group_filter_toggle_label(&self) -> &'static str {
+        if self.group_filter_enabled {
+            "current"
+        } else {
+            "all"
+        }
     }
 
     pub(crate) fn group_menu_rect(&self) -> Rect {
@@ -614,12 +623,29 @@ mod tests {
         app.state.workspaces[1].group_id = app.state.groups[work_group].id.clone();
         app.state.switch_group(work_group);
         assert_eq!(app.state.visible_workspace_indices(), vec![1]);
+        assert_eq!(app.state.group_filter_toggle_label(), "current");
 
-        let all = app.state.group_all_toggle_rect();
-        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), all.x, all.y));
+        let toggle = app.state.group_all_toggle_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            toggle.x,
+            toggle.y,
+        ));
 
         assert!(!app.state.group_filter_enabled);
+        assert_eq!(app.state.group_filter_toggle_label(), "all");
         assert_eq!(app.state.visible_workspace_indices(), vec![0, 1]);
+
+        let toggle = app.state.group_all_toggle_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            toggle.x,
+            toggle.y,
+        ));
+
+        assert!(app.state.group_filter_enabled);
+        assert_eq!(app.state.group_filter_toggle_label(), "current");
+        assert_eq!(app.state.visible_workspace_indices(), vec![1]);
     }
 
     #[test]
