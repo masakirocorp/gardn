@@ -222,6 +222,29 @@ impl AppState {
                     self.mode,
                     Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane
                 ) {
+                    if self.mode == Mode::RenameGroup {
+                        if let Some(inner) = self.rename_modal_inner() {
+                            if self.group_icon_picker_open {
+                                for (rect, icon) in crate::ui::group_icon_picker_rects(inner) {
+                                    if rect_contains(rect, mouse.column, mouse.row) {
+                                        self.group_icon_input = icon.to_string();
+                                        self.group_icon_picker_open = false;
+                                        return None;
+                                    }
+                                }
+                            }
+
+                            if rect_contains(
+                                crate::ui::group_icon_button_rect(inner),
+                                mouse.column,
+                                mouse.row,
+                            ) {
+                                self.group_icon_picker_open = !self.group_icon_picker_open;
+                                return None;
+                            }
+                        }
+                    }
+
                     let action = self
                         .rename_modal_inner()
                         .map(crate::ui::rename_button_rects)
@@ -1482,6 +1505,52 @@ mod tests {
 
         assert_eq!(app.state.workspaces.len(), 1);
         assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn group_icon_picker_sets_icon_for_new_group() {
+        let mut app = app_for_mouse_test();
+        super::super::modal::open_new_group_dialog(&mut app.state);
+        assert_eq!(
+            app.state.group_icon_input,
+            crate::app::state::DEFAULT_GROUP_ICON
+        );
+
+        let inner = app.state.rename_modal_inner().unwrap();
+        let icon_button = crate::ui::group_icon_button_rect(inner);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            icon_button.x,
+            icon_button.y,
+        ));
+
+        assert!(app.state.group_icon_picker_open);
+
+        let (diamond, _) = crate::ui::group_icon_picker_rects(inner)
+            .into_iter()
+            .find(|(_, icon)| *icon == "◆")
+            .expect("diamond icon should be offered");
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            diamond.x,
+            diamond.y,
+        ));
+
+        assert_eq!(app.state.group_icon_input, "◆");
+        assert!(!app.state.group_icon_picker_open);
+
+        app.state.name_input = "showcode".to_string();
+        app.state.name_input_replace_on_type = false;
+        let (save, _, _) = crate::ui::rename_button_rects(inner);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            save.x,
+            save.y,
+        ));
+
+        assert_eq!(app.state.groups[1].name, "showcode");
+        assert_eq!(app.state.groups[1].icon, "◆");
+        assert_eq!(app.state.active_group, 1);
     }
 
     #[test]

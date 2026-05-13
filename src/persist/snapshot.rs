@@ -49,16 +49,23 @@ pub struct WorkspaceSnapshot {
 pub struct GroupSnapshot {
     pub id: String,
     pub name: String,
+    #[serde(default = "default_group_icon")]
+    pub icon: String,
 }
 
 fn default_group_id() -> String {
     crate::workspace::DEFAULT_GROUP_ID.to_string()
 }
 
+fn default_group_icon() -> String {
+    crate::app::state::DEFAULT_GROUP_ICON.to_string()
+}
+
 fn default_groups() -> Vec<GroupSnapshot> {
     vec![GroupSnapshot {
         id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
         name: "group 1".to_string(),
+        icon: default_group_icon(),
     }]
 }
 
@@ -254,6 +261,7 @@ fn capture_group(group: &crate::app::state::Group) -> GroupSnapshot {
     GroupSnapshot {
         id: group.id.clone(),
         name: group.name.clone(),
+        icon: group.icon.clone(),
     }
 }
 
@@ -412,6 +420,7 @@ mod tests {
         state.groups.push(crate::app::state::Group {
             id: group_id.clone(),
             name: "Side".to_string(),
+            icon: "◆".to_string(),
         });
         state.active_group = 1;
         state.workspaces[1].group_id = group_id.clone();
@@ -421,6 +430,7 @@ mod tests {
 
         assert_eq!(restored.groups.len(), 2);
         assert_eq!(restored.groups[1].name, "Side");
+        assert_eq!(restored.groups[1].icon, "◆");
         assert_eq!(restored.active_group, 1);
         assert_eq!(restored.workspaces[1].group_id, group_id);
     }

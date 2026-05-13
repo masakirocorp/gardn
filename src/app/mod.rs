@@ -197,6 +197,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
         .map(|group| state::Group {
             id: group.id.clone(),
             name: group.name.clone(),
+            icon: state::normalize_group_icon(&group.icon),
         })
         .collect()
 }
@@ -343,6 +344,8 @@ impl App {
             request_clipboard_write: None,
             creating_new_tab: false,
             creating_new_group: false,
+            group_icon_input: state::DEFAULT_GROUP_ICON.to_string(),
+            group_icon_picker_open: false,
             requested_new_tab_name: None,
             rename_pane_target: None,
             confirm_delete_group: None,

@@ -435,7 +435,7 @@ pub(crate) fn collapsed_workspace_rows_rect(area: Rect) -> Rect {
 
 fn collapsed_group_label(app: &AppState) -> String {
     if app.group_filter_enabled {
-        format!("g{}", app.active_group + 1)
+        app.active_group_icon().to_string()
     } else {
         "all".to_string()
     }
@@ -642,12 +642,12 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
         let selector_rect = app.group_selector_rect();
         let all_rect = app.group_all_toggle_rect();
         let selector_label = if app.group_filter_enabled {
-            app.active_group_name()
+            format!("{} {}", app.active_group_icon(), app.active_group_name())
         } else {
-            "all spaces"
+            "all spaces".to_string()
         };
         let name_width = selector_rect.width.saturating_sub(3) as usize;
-        let name = truncate_text(selector_label, name_width);
+        let name = truncate_text(&selector_label, name_width);
         let selector = format!("{name} v");
 
         frame.render_widget(

@@ -568,6 +568,7 @@ pub struct GroupInfo {
     pub group_id: String,
     pub number: usize,
     pub name: String,
+    pub icon: String,
     pub focused: bool,
     pub workspace_count: usize,
 }

@@ -174,9 +174,14 @@ impl AppState {
     }
 
     pub fn create_group(&mut self, name: String) -> usize {
+        self.create_group_with_icon(name, super::state::DEFAULT_GROUP_ICON.to_string())
+    }
+
+    pub fn create_group_with_icon(&mut self, name: String, icon: String) -> usize {
         self.groups.push(Group {
             id: super::state::generate_group_id(),
             name,
+            icon: super::state::normalize_group_icon(&icon),
         });
         self.mark_session_dirty();
         self.groups.len() - 1
@@ -187,6 +192,15 @@ impl AppState {
             return false;
         };
         group.name = name;
+        self.mark_session_dirty();
+        true
+    }
+
+    pub fn set_group_icon(&mut self, group_idx: usize, icon: String) -> bool {
+        let Some(group) = self.groups.get_mut(group_idx) else {
+            return false;
+        };
+        group.icon = super::state::normalize_group_icon(&icon);
         self.mark_session_dirty();
         true
     }

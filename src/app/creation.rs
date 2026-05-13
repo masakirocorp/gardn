@@ -307,6 +307,7 @@ impl App {
             group_id: group.id.clone(),
             number: index + 1,
             name: group.name.clone(),
+            icon: group.icon.clone(),
             focused: self.state.active_group == index,
             workspace_count,
         }

@@ -12,6 +12,12 @@ use crate::workspace::Workspace;
 
 static NEXT_GROUP_ID: AtomicU64 = AtomicU64::new(1);
 
+pub const DEFAULT_GROUP_ICON: &str = "●";
+pub const GROUP_ICONS: &[&str] = &[
+    "●", "◆", "■", "▲", "○", "◇", "□", "△", "✦", "✚", "*", "#", "@", "+", "~", "=", "$", "%", "&",
+    "?",
+];
+
 pub(crate) fn generate_group_id() -> String {
     let micros = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -25,6 +31,7 @@ pub(crate) fn generate_group_id() -> String {
 pub struct Group {
     pub id: String,
     pub name: String,
+    pub icon: String,
 }
 
 impl Group {
@@ -32,8 +39,18 @@ impl Group {
         Self {
             id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
             name: "group 1".to_string(),
+            icon: DEFAULT_GROUP_ICON.to_string(),
         }
     }
+}
+
+pub fn normalize_group_icon(icon: &str) -> String {
+    GROUP_ICONS
+        .iter()
+        .copied()
+        .find(|candidate| *candidate == icon)
+        .unwrap_or(DEFAULT_GROUP_ICON)
+        .to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -705,6 +722,8 @@ pub struct AppState {
     pub request_clipboard_write: Option<Vec<u8>>,
     pub creating_new_tab: bool,
     pub creating_new_group: bool,
+    pub group_icon_input: String,
+    pub group_icon_picker_open: bool,
     pub requested_new_tab_name: Option<String>,
     pub rename_pane_target: Option<PaneId>,
     pub confirm_delete_group: Option<usize>,
@@ -789,6 +808,13 @@ impl AppState {
             .get(self.active_group)
             .map(|group| group.name.as_str())
             .unwrap_or("group 1")
+    }
+
+    pub fn active_group_icon(&self) -> &str {
+        self.groups
+            .get(self.active_group)
+            .map(|group| group.icon.as_str())
+            .unwrap_or(DEFAULT_GROUP_ICON)
     }
 
     pub fn workspace_in_active_group(&self, ws_idx: usize) -> bool {
@@ -936,6 +962,8 @@ impl AppState {
             request_clipboard_write: None,
             creating_new_tab: false,
             creating_new_group: false,
+            group_icon_input: DEFAULT_GROUP_ICON.to_string(),
+            group_icon_picker_open: false,
             requested_new_tab_name: None,
             rename_pane_target: None,
             confirm_delete_group: None,

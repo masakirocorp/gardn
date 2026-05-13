@@ -265,7 +265,7 @@ impl AppState {
             .enumerate()
             .map(|(idx, group)| {
                 let marker = if idx == self.active_group { "*" } else { " " };
-                format!("{marker} {}", group.name)
+                format!("{marker} {} {}", group.icon, group.name)
             })
             .collect();
         labels.push("---".to_string());

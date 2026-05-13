@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Constraint, Layout, Rect},
+    layout::{Alignment, Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Clear, Paragraph},
@@ -30,9 +30,61 @@ pub(crate) fn rename_button_rects(inner: Rect) -> (Rect, Rect, Rect) {
             },
         ],
         2,
-        3,
+        inner.height.saturating_sub(1),
     );
     (rects[0], rects[1], rects[2])
+}
+
+pub(crate) fn rename_modal_size(app: &AppState) -> (u16, u16) {
+    if matches!(app.mode, Mode::RenameGroup) {
+        (56, 12)
+    } else {
+        (56, 7)
+    }
+}
+
+pub(crate) fn group_icon_button_rect(inner: Rect) -> Rect {
+    if inner.width < 5 || inner.height < 4 {
+        return Rect::default();
+    }
+    Rect::new(inner.x, inner.y + 2, 3, 1)
+}
+
+pub(crate) fn group_name_input_rect(inner: Rect) -> Rect {
+    let icon = group_icon_button_rect(inner);
+    if icon == Rect::default() {
+        return Rect::new(inner.x, inner.y + 2, inner.width, 1);
+    }
+    Rect::new(
+        icon.x + icon.width + 1,
+        icon.y,
+        inner.width.saturating_sub(icon.width + 1),
+        1,
+    )
+}
+
+pub(crate) fn group_icon_picker_rects(inner: Rect) -> Vec<(Rect, &'static str)> {
+    let start = Rect::new(inner.x, inner.y + 4, inner.width.min(24), 4);
+    if start.width < 3 || start.height == 0 {
+        return Vec::new();
+    }
+
+    crate::app::state::GROUP_ICONS
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, icon)| {
+            let col = (idx % 5) as u16;
+            let row = (idx / 5) as u16;
+            if row >= start.height {
+                return None;
+            }
+            let x = start.x + col * 4;
+            if x >= start.x + start.width {
+                return None;
+            }
+            Some((Rect::new(x, start.y + row, 3, 1), *icon))
+        })
+        .collect()
 }
 
 pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -48,7 +100,8 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         _ => return,
     };
 
-    let Some(inner) = render_modal_shell(frame, area, 56, 7, &app.palette) else {
+    let (popup_w, popup_h) = rename_modal_size(app);
+    let Some(inner) = render_modal_shell(frame, area, popup_w, popup_h, &app.palette) else {
         return;
     };
     if inner.height < 4 {
@@ -66,7 +119,29 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
 
     render_modal_header(frame, rows[0], title, &app.palette);
 
-    let input_rect = Rect::new(rows[2].x, rows[2].y, rows[2].width, 1);
+    let input_rect = if matches!(app.mode, Mode::RenameGroup) {
+        let icon_rect = group_icon_button_rect(inner);
+        let icon_style = if app.group_icon_picker_open {
+            Style::default()
+                .fg(panel_contrast_fg(&app.palette))
+                .bg(app.palette.accent)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+                .fg(app.palette.text)
+                .bg(app.palette.surface0)
+                .add_modifier(Modifier::BOLD)
+        };
+        frame.render_widget(
+            Paragraph::new(format!(" {} ", app.group_icon_input))
+                .style(icon_style)
+                .alignment(ratatui::layout::Alignment::Center),
+            icon_rect,
+        );
+        group_name_input_rect(inner)
+    } else {
+        Rect::new(rows[2].x, rows[2].y, rows[2].width, 1)
+    };
     frame.render_widget(Clear, input_rect);
     frame.render_widget(
         Paragraph::new(format!(" {}█", app.name_input)).style(
@@ -76,6 +151,28 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         ),
         input_rect,
     );
+
+    if matches!(app.mode, Mode::RenameGroup) && app.group_icon_picker_open {
+        for (rect, icon) in group_icon_picker_rects(inner) {
+            let selected = app.group_icon_input == icon;
+            let style = if selected {
+                Style::default()
+                    .fg(panel_contrast_fg(&app.palette))
+                    .bg(app.palette.accent)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+                    .fg(app.palette.text)
+                    .bg(app.palette.surface0)
+            };
+            frame.render_widget(
+                Paragraph::new(format!(" {icon} "))
+                    .style(style)
+                    .alignment(Alignment::Center),
+                rect,
+            );
+        }
+    }
 
     let (save_rect, clear_rect, cancel_rect) = rename_button_rects(inner);
 

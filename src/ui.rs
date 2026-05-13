@@ -49,7 +49,10 @@ use self::sidebar::{render_sidebar, render_sidebar_collapsed};
 use self::status::{render_config_diagnostic, render_toast_notification, toast_notification_rect};
 use self::tabs::render_tab_bar;
 pub(crate) use self::{
-    dialogs::{confirm_close_button_rects, confirm_close_popup_rect, rename_button_rects},
+    dialogs::{
+        confirm_close_button_rects, confirm_close_popup_rect, group_icon_button_rect,
+        group_icon_picker_rects, rename_button_rects, rename_modal_size,
+    },
     settings::settings_button_rects,
     sidebar::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_scroll_metrics,
