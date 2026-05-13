@@ -328,6 +328,7 @@ impl App {
         let mut state = AppState {
             groups,
             active_group,
+            group_filter_enabled: true,
             workspaces,
             active,
             selected,

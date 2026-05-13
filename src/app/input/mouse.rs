@@ -313,6 +313,11 @@ impl AppState {
                         return None;
                     }
 
+                    if self.on_group_all_toggle(mouse.column, mouse.row) {
+                        self.show_all_groups();
+                        return None;
+                    }
+
                     if self.on_group_selector(mouse.column, mouse.row) {
                         super::modal::open_group_menu(self);
                         return None;

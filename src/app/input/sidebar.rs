@@ -229,7 +229,28 @@ impl AppState {
         if ws_area == Rect::default() {
             return Rect::default();
         }
-        Rect::new(ws_area.x, ws_area.y, ws_area.width, 1)
+        let all = self.group_all_toggle_rect();
+        let width = ws_area.width.saturating_sub(all.width.saturating_add(1));
+        Rect::new(ws_area.x, ws_area.y, width, 1)
+    }
+
+    pub(crate) fn group_all_toggle_rect(&self) -> Rect {
+        if self.sidebar_collapsed || self.view.layout == ViewLayout::Mobile {
+            return Rect::default();
+        }
+
+        let ws_area =
+            crate::ui::workspace_list_rect(self.view.sidebar_rect, self.sidebar_section_split);
+        if ws_area == Rect::default() {
+            return Rect::default();
+        }
+        let width = 3u16.min(ws_area.width.max(1));
+        Rect::new(
+            ws_area.x + ws_area.width.saturating_sub(width),
+            ws_area.y,
+            width,
+            1,
+        )
     }
 
     pub(crate) fn group_menu_labels(&self) -> Vec<String> {
@@ -279,6 +300,15 @@ impl AppState {
 
     pub(super) fn on_group_selector(&self, col: u16, row: u16) -> bool {
         let rect = self.group_selector_rect();
+        rect.width > 0
+            && col >= rect.x
+            && col < rect.x + rect.width
+            && row >= rect.y
+            && row < rect.y + rect.height
+    }
+
+    pub(super) fn on_group_all_toggle(&self, col: u16, row: u16) -> bool {
+        let rect = self.group_all_toggle_rect();
         rect.width > 0
             && col >= rect.x
             && col < rect.x + rect.width
@@ -574,6 +604,22 @@ mod tests {
 
         assert_eq!(app.state.active_group, 1);
         assert_ne!(app.state.mode, Mode::GroupMenu);
+    }
+
+    #[test]
+    fn clicking_group_all_toggle_shows_every_workspace() {
+        let mut app = app_for_mouse_test();
+        let work_group = app.state.create_group("Work".to_string());
+        app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
+        app.state.workspaces[1].group_id = app.state.groups[work_group].id.clone();
+        app.state.switch_group(work_group);
+        assert_eq!(app.state.visible_workspace_indices(), vec![1]);
+
+        let all = app.state.group_all_toggle_rect();
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), all.x, all.y));
+
+        assert!(!app.state.group_filter_enabled);
+        assert_eq!(app.state.visible_workspace_indices(), vec![0, 1]);
     }
 
     #[test]

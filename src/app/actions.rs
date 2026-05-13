@@ -108,8 +108,21 @@ impl AppState {
         }
 
         self.active_group = group_idx;
+        self.group_filter_enabled = true;
         self.select_first_visible_workspace();
         self.mark_session_dirty();
+    }
+
+    pub fn show_all_groups(&mut self) {
+        self.group_filter_enabled = false;
+        self.workspace_scroll = 0;
+        self.agent_panel_scroll = 0;
+        if self.active.is_none() {
+            self.active = self.first_visible_workspace();
+            self.selected = self.active.unwrap_or(0);
+        }
+        self.mark_session_dirty();
+        self.ensure_workspace_visible(self.selected);
     }
 
     fn select_first_visible_workspace(&mut self) {

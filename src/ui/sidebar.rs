@@ -593,31 +593,28 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
 
     let list_bottom = area.y + area.height.saturating_sub(1);
     if area.height > 0 {
-        let count = app.visible_workspace_indices().len();
-        let count_label = if count == 1 { "1 space" } else { "spaces" };
-        let right = if count == 1 {
-            count_label.to_string()
+        let selector_rect = app.group_selector_rect();
+        let all_rect = app.group_all_toggle_rect();
+        let selector_label = if app.group_filter_enabled {
+            app.active_group_name()
         } else {
-            format!("{count} {count_label}")
+            "all spaces"
         };
-        let right_width = right.chars().count();
-        let available = area.width.saturating_sub(2) as usize;
-        let name_width = available.saturating_sub(right_width + 3);
-        let name = truncate_text(app.active_group_name(), name_width);
+        let name_width = selector_rect.width.saturating_sub(3) as usize;
+        let name = truncate_text(selector_label, name_width);
         let selector = format!("{name} v");
-        let spacer_width = available.saturating_sub(selector.chars().count() + right_width);
-        let spacer = " ".repeat(spacer_width);
 
         frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(
-                    format!(" {selector}"),
-                    Style::default().fg(p.text).add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(spacer),
-                Span::styled(right, Style::default().fg(p.overlay0)),
-            ])),
-            Rect::new(area.x, area.y, area.width, 1),
+            Paragraph::new(Span::styled(selector, Style::default().fg(p.overlay0))),
+            selector_rect,
+        );
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "all",
+                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+            ))
+            .alignment(Alignment::Right),
+            all_rect,
         );
     }
 

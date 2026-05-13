@@ -681,6 +681,7 @@ pub enum SidebarWidthSource {
 pub struct AppState {
     pub groups: Vec<Group>,
     pub active_group: usize,
+    pub group_filter_enabled: bool,
     pub workspaces: Vec<Workspace>,
     pub active: Option<usize>,
     pub selected: usize,
@@ -787,12 +788,20 @@ impl AppState {
     }
 
     pub fn workspace_in_active_group(&self, ws_idx: usize) -> bool {
+        if !self.group_filter_enabled {
+            return self.workspaces.get(ws_idx).is_some();
+        }
+
         self.workspaces
             .get(ws_idx)
             .is_some_and(|workspace| workspace.group_id == self.active_group_id())
     }
 
     pub fn visible_workspace_indices(&self) -> Vec<usize> {
+        if !self.group_filter_enabled {
+            return (0..self.workspaces.len()).collect();
+        }
+
         let active_group_id = self.active_group_id();
         self.workspaces
             .iter()
@@ -802,6 +811,10 @@ impl AppState {
     }
 
     pub fn first_visible_workspace(&self) -> Option<usize> {
+        if !self.group_filter_enabled {
+            return (!self.workspaces.is_empty()).then_some(0);
+        }
+
         let active_group_id = self.active_group_id();
         self.workspaces
             .iter()
@@ -904,6 +917,7 @@ impl AppState {
         Self {
             groups: vec![Group::default_group()],
             active_group: 0,
+            group_filter_enabled: true,
             workspaces: Vec::new(),
             active: None,
             selected: 0,
