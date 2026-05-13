@@ -588,6 +588,9 @@ pub(super) fn apply_context_menu_action(state: &mut AppState, menu: ContextMenuS
         (ContextMenuKind::Group { group_idx, .. }, Some("Rename")) => {
             open_rename_group_at(state, group_idx);
         }
+        (ContextMenuKind::Group { group_idx, .. }, Some("Theme")) => {
+            super::settings::open_group_theme_settings(state, group_idx);
+        }
         (
             ContextMenuKind::Group {
                 group_idx,

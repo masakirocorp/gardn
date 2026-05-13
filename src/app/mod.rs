@@ -198,6 +198,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             id: group.id.clone(),
             name: group.name.clone(),
             icon: state::normalize_group_icon(&group.icon),
+            theme_name: group.theme_name.clone(),
         })
         .collect()
 }
@@ -318,6 +319,12 @@ impl App {
 
         let agent_panel_scope = agent_panel_scope_from_config(config.ui.agent_panel_scope);
         let active_group = active_group.min(groups.len().saturating_sub(1));
+        let global_palette = resolve_palette(config);
+        let global_theme_name = config
+            .theme
+            .name
+            .clone()
+            .unwrap_or_else(|| "catppuccin".to_string());
 
         info!(
             pane_scrollback_limit_bytes = config.advanced.scrollback_limit_bytes,
@@ -430,17 +437,16 @@ impl App {
             toast_config: config.ui.toast.clone(),
             keybinds: config.keybinds(),
             spinner_tick: 0,
-            palette: resolve_palette(config),
-            theme_name: config
-                .theme
-                .name
-                .clone()
-                .unwrap_or_else(|| "catppuccin".to_string()),
+            palette: global_palette.clone(),
+            global_palette,
+            theme_name: global_theme_name.clone(),
+            global_theme_name,
             settings: state::SettingsState {
                 section: state::SettingsSection::Theme,
                 list: state::SelectionListState::new(0),
                 original_palette: None,
                 original_theme: None,
+                group_theme_target: None,
             },
             global_menu: state::MenuListState::new(0),
             group_menu: state::MenuListState::new(0),
@@ -462,6 +468,7 @@ impl App {
                 state.mode = state::Mode::Navigate;
             }
         }
+        state.apply_effective_theme();
 
         // Background auto-update is disabled in monolithic no-session mode
         // and in debug/test builds so local development never mutates the
@@ -793,12 +800,14 @@ impl App {
         }
 
         if !invalid_section("theme") {
-            self.state.palette = resolve_palette_with_legacy_accent(config, !invalid_section("ui"));
-            self.state.theme_name = config
+            self.state.global_palette =
+                resolve_palette_with_legacy_accent(config, !invalid_section("ui"));
+            self.state.global_theme_name = config
                 .theme
                 .name
                 .clone()
                 .unwrap_or_else(|| "catppuccin".to_string());
+            self.state.apply_effective_theme();
         }
 
         let status = if diagnostics.is_empty() {

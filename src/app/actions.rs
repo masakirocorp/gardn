@@ -109,8 +109,48 @@ impl AppState {
 
         self.active_group = group_idx;
         self.group_filter_enabled = true;
+        self.apply_effective_theme();
         self.select_first_visible_workspace();
         self.mark_session_dirty();
+    }
+
+    pub fn apply_effective_theme(&mut self) {
+        let Some(theme_name) = self
+            .groups
+            .get(self.active_group)
+            .and_then(|group| group.theme_name.as_deref())
+        else {
+            self.palette = self.global_palette.clone();
+            self.theme_name = self.global_theme_name.clone();
+            return;
+        };
+
+        if let Some(palette) = super::state::Palette::from_name(theme_name) {
+            self.palette = palette;
+            self.theme_name = theme_name.to_string();
+        } else {
+            self.palette = self.global_palette.clone();
+            self.theme_name = self.global_theme_name.clone();
+        }
+    }
+
+    pub fn preview_theme(&mut self, theme_name: &str) -> bool {
+        let Some(palette) = super::state::Palette::from_name(theme_name) else {
+            return false;
+        };
+        self.palette = palette;
+        self.theme_name = theme_name.to_string();
+        true
+    }
+
+    pub fn set_group_theme(&mut self, group_idx: usize, theme_name: Option<String>) -> bool {
+        let Some(group) = self.groups.get_mut(group_idx) else {
+            return false;
+        };
+        group.theme_name = theme_name;
+        self.mark_session_dirty();
+        self.apply_effective_theme();
+        true
     }
 
     pub fn show_all_groups(&mut self) {
@@ -182,6 +222,7 @@ impl AppState {
             id: super::state::generate_group_id(),
             name,
             icon: super::state::normalize_group_icon(&icon),
+            theme_name: None,
         });
         self.mark_session_dirty();
         self.groups.len() - 1
@@ -1074,6 +1115,7 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::state::Palette;
     use crate::detect::{Agent, AgentState};
     use crate::workspace::Workspace;
     use ratatui::layout::Direction;
@@ -1104,6 +1146,38 @@ mod tests {
         assert_eq!(state.visible_workspace_indices(), vec![1]);
         assert_eq!(state.active, Some(1));
         assert_eq!(state.selected, 1);
+    }
+
+    #[test]
+    fn switching_group_applies_group_theme_override() {
+        let mut state = app_with_workspaces(&["one", "two"]);
+        let side_group = state.create_group("Side".to_string());
+        state.move_workspace_to_group(1, side_group);
+        state.set_group_theme(side_group, Some("nord".to_string()));
+        state.switch_group(0);
+
+        assert_eq!(state.theme_name, state.global_theme_name);
+
+        state.switch_group(side_group);
+
+        assert_eq!(state.theme_name, "nord");
+        assert_eq!(state.palette.accent, Palette::nord().accent);
+    }
+
+    #[test]
+    fn clearing_group_theme_follows_global_theme() {
+        let mut state = app_with_workspaces(&["one", "two"]);
+        let side_group = state.create_group("Side".to_string());
+        state.move_workspace_to_group(1, side_group);
+        state.set_group_theme(side_group, Some("nord".to_string()));
+        state.switch_group(side_group);
+
+        state.global_palette = Palette::dracula();
+        state.global_theme_name = "dracula".to_string();
+        state.set_group_theme(side_group, None);
+
+        assert_eq!(state.theme_name, "dracula");
+        assert_eq!(state.palette.accent, Palette::dracula().accent);
     }
 
     #[test]

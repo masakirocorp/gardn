@@ -179,18 +179,34 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
     use crate::app::state::THEME_NAMES;
 
     let p = &app.palette;
-    let items: Vec<ListItem> = THEME_NAMES
-        .iter()
-        .map(|name| {
-            let is_current = name.to_lowercase().replace([' ', '_'], "-")
-                == app.theme_name.to_lowercase().replace([' ', '_'], "-");
-            let marker = if is_current { " ✓" } else { "" };
-            ListItem::new(Line::from(vec![
-                Span::styled(*name, Style::default().fg(p.subtext0)),
-                Span::styled(marker, Style::default().fg(p.green)),
-            ]))
-        })
-        .collect();
+    let mut items: Vec<ListItem> = Vec::new();
+    if app.settings.group_theme_target.is_some() {
+        let marker = if app.settings.list.selected == 0 {
+            " ✓"
+        } else {
+            ""
+        };
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled(
+                format!("default ({})", app.global_theme_name),
+                Style::default().fg(p.subtext0),
+            ),
+            Span::styled(marker, Style::default().fg(p.green)),
+        ])));
+    }
+
+    let offset = usize::from(app.settings.group_theme_target.is_some());
+    items.extend(THEME_NAMES.iter().enumerate().map(|(idx, name)| {
+        let marker = if app.settings.list.selected == idx + offset {
+            " ✓"
+        } else {
+            ""
+        };
+        ListItem::new(Line::from(vec![
+            Span::styled(*name, Style::default().fg(p.subtext0)),
+            Span::styled(marker, Style::default().fg(p.green)),
+        ]))
+    }));
 
     let list = List::new(items)
         .highlight_style(

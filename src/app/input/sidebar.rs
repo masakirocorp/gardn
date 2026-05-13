@@ -770,7 +770,7 @@ mod tests {
 
         assert_eq!(app.state.mode, Mode::ContextMenu);
         let context = app.state.context_menu.as_ref().unwrap();
-        assert_eq!(context.items(), &["Rename", "Delete"]);
+        assert_eq!(context.items(), &["Rename", "Theme", "Delete"]);
         assert_eq!(
             context.kind,
             ContextMenuKind::Group {
@@ -821,6 +821,34 @@ mod tests {
             },
             x: 2,
             y: 2,
+            list: crate::app::state::MenuListState::new(2),
+        });
+        app.state.mode = Mode::ContextMenu;
+
+        let menu = app.state.context_menu_rect().unwrap();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + 3,
+        ));
+
+        assert_eq!(app.state.mode, Mode::ConfirmDeleteGroup);
+        assert_eq!(app.state.confirm_delete_group, Some(work_group));
+        assert_eq!(app.state.active_group, 0);
+    }
+
+    #[test]
+    fn group_context_menu_theme_opens_theme_picker_for_target_group() {
+        let mut app = app_for_mouse_test();
+        let work_group = app.state.create_group("Work".to_string());
+        app.state.active_group = 0;
+        app.state.context_menu = Some(crate::app::state::ContextMenuState {
+            kind: ContextMenuKind::Group {
+                group_idx: work_group,
+                can_delete: true,
+            },
+            x: 2,
+            y: 2,
             list: crate::app::state::MenuListState::new(1),
         });
         app.state.mode = Mode::ContextMenu;
@@ -832,8 +860,8 @@ mod tests {
             menu.y + 2,
         ));
 
-        assert_eq!(app.state.mode, Mode::ConfirmDeleteGroup);
-        assert_eq!(app.state.confirm_delete_group, Some(work_group));
+        assert_eq!(app.state.mode, Mode::Settings);
+        assert_eq!(app.state.settings.group_theme_target, Some(work_group));
         assert_eq!(app.state.active_group, 0);
     }
 

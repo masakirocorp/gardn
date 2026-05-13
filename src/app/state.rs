@@ -32,6 +32,7 @@ pub struct Group {
     pub id: String,
     pub name: String,
     pub icon: String,
+    pub theme_name: Option<String>,
 }
 
 impl Group {
@@ -40,6 +41,7 @@ impl Group {
             id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
             name: "group 1".to_string(),
             icon: DEFAULT_GROUP_ICON.to_string(),
+            theme_name: None,
         }
     }
 }
@@ -549,6 +551,8 @@ pub struct SettingsState {
     pub original_palette: Option<Palette>,
     /// The theme name before opening settings.
     pub original_theme: Option<String>,
+    /// Group whose theme is being edited, if settings was opened from a group menu.
+    pub group_theme_target: Option<usize>,
 }
 
 pub(crate) enum DragTarget {
@@ -637,10 +641,10 @@ impl ContextMenuState {
         match self.kind {
             ContextMenuKind::Group {
                 can_delete: true, ..
-            } => &["Rename", "Delete"],
+            } => &["Rename", "Theme", "Delete"],
             ContextMenuKind::Group {
                 can_delete: false, ..
-            } => &["Rename"],
+            } => &["Rename", "Theme"],
             ContextMenuKind::Workspace { .. } => &["Rename", "Close"],
             ContextMenuKind::Tab { .. } => &["New tab", "Rename", "Close"],
             ContextMenuKind::Pane {
@@ -796,8 +800,12 @@ pub struct AppState {
     pub spinner_tick: u32,
     /// UI color palette — all sidebar/UI colors centralized for theming.
     pub palette: Palette,
+    /// Default app palette from config, used when the active group has no override.
+    pub global_palette: Palette,
     /// Currently applied theme name (for settings UI).
     pub theme_name: String,
+    /// Default app theme name from config.
+    pub global_theme_name: String,
     /// Settings panel state.
     pub settings: SettingsState,
     /// Highlight state for the bottom-right global launcher menu.
@@ -1115,12 +1123,15 @@ impl AppState {
             },
             spinner_tick: 0,
             palette: Palette::catppuccin(),
+            global_palette: Palette::catppuccin(),
             theme_name: "catppuccin".to_string(),
+            global_theme_name: "catppuccin".to_string(),
             settings: SettingsState {
                 section: SettingsSection::Theme,
                 list: SelectionListState::new(0),
                 original_palette: None,
                 original_theme: None,
+                group_theme_target: None,
             },
             global_menu: MenuListState::new(0),
             group_menu: MenuListState::new(0),

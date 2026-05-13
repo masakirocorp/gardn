@@ -163,6 +163,9 @@ impl App {
         if let Some(action) = self.state.handle_mouse(mouse) {
             match action {
                 SettingsAction::SaveTheme(name) => self.save_theme(&name),
+                SettingsAction::SaveGroupTheme { group_idx, name } => {
+                    self.state.set_group_theme(group_idx, name);
+                }
                 SettingsAction::SaveSound(enabled) => self.save_sound(enabled),
                 SettingsAction::SaveToastDelivery(delivery) => self.save_toast_delivery(delivery),
                 SettingsAction::SaveAgentBorderLabels(enabled) => {

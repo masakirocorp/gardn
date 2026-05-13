@@ -14,6 +14,10 @@ use crate::{
 #[allow(clippy::enum_variant_names)]
 pub(super) enum SettingsAction {
     SaveTheme(String),
+    SaveGroupTheme {
+        group_idx: usize,
+        name: Option<String>,
+    },
     SaveSound(bool),
     SaveToastDelivery(ToastDelivery),
     SaveAgentBorderLabels(bool),
@@ -24,6 +28,9 @@ impl App {
         if let Some(action) = update_settings_state(&mut self.state, key) {
             match action {
                 SettingsAction::SaveTheme(name) => self.save_theme(&name),
+                SettingsAction::SaveGroupTheme { group_idx, name } => {
+                    self.state.set_group_theme(group_idx, name);
+                }
                 SettingsAction::SaveSound(enabled) => self.save_sound(enabled),
                 SettingsAction::SaveToastDelivery(delivery) => self.save_toast_delivery(delivery),
                 SettingsAction::SaveAgentBorderLabels(enabled) => {
@@ -62,13 +69,40 @@ fn toast_delivery_for_index(idx: usize) -> ToastDelivery {
     }
 }
 
-fn preview_selected_theme(state: &mut AppState) {
-    use crate::app::state::Palette;
+fn theme_list_len(state: &AppState) -> usize {
+    THEME_NAMES.len() + usize::from(state.settings.group_theme_target.is_some())
+}
 
-    let name = THEME_NAMES[state.settings.list.selected];
-    if let Some(palette) = Palette::from_name(name) {
-        state.palette = palette;
-        state.theme_name = name.to_string();
+fn selected_group_theme_name(state: &AppState) -> Option<String> {
+    if state.settings.group_theme_target.is_some() {
+        if state.settings.list.selected == 0 {
+            None
+        } else {
+            Some(THEME_NAMES[state.settings.list.selected - 1].to_string())
+        }
+    } else {
+        Some(THEME_NAMES[state.settings.list.selected].to_string())
+    }
+}
+
+fn target_theme_index(state: &AppState) -> usize {
+    let Some(group_idx) = state.settings.group_theme_target else {
+        return current_theme_index(&state.theme_name);
+    };
+    state
+        .groups
+        .get(group_idx)
+        .and_then(|group| group.theme_name.as_deref())
+        .map(|theme_name| current_theme_index(theme_name) + 1)
+        .unwrap_or(0)
+}
+
+fn preview_selected_theme(state: &mut AppState) {
+    if let Some(name) = selected_group_theme_name(state) {
+        state.preview_theme(&name);
+    } else {
+        let theme_name = state.global_theme_name.clone();
+        state.preview_theme(&theme_name);
     }
 }
 
@@ -79,6 +113,7 @@ fn cancel_settings(state: &mut AppState) {
     if let Some(theme_name) = state.settings.original_theme.take() {
         state.theme_name = theme_name;
     }
+    state.settings.group_theme_target = None;
     super::modal::leave_modal(state);
 }
 
@@ -86,12 +121,21 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
     match state.settings.section {
         SettingsSection::Theme => {
             let theme_name = state.theme_name.clone();
+            let group_theme_name = selected_group_theme_name(state);
+            let group_theme_target = state.settings.group_theme_target.take();
             state.settings.original_palette = None;
             state.settings.original_theme = None;
             super::modal::leave_modal(state);
+            if let Some(group_idx) = group_theme_target {
+                return Some(SettingsAction::SaveGroupTheme {
+                    group_idx,
+                    name: group_theme_name,
+                });
+            }
             Some(SettingsAction::SaveTheme(theme_name))
         }
         _ => {
+            state.settings.group_theme_target = None;
             super::modal::leave_modal(state);
             None
         }
@@ -110,7 +154,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 let previous = state.settings.list.selected;
-                state.settings.list.move_next(THEME_NAMES.len());
+                state.settings.list.move_next(theme_list_len(state));
                 if state.settings.list.selected != previous {
                     preview_selected_theme(state);
                 }
@@ -139,7 +183,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::Theme;
-                state.settings.list.selected = current_theme_index(&state.theme_name);
+                state.settings.list.selected = target_theme_index(state);
             }
             _ => {
                 if let Some(super::modal::ModalAction::Close) =
@@ -186,7 +230,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 state.settings.section = SettingsSection::Theme;
-                state.settings.list.selected = current_theme_index(&state.theme_name);
+                state.settings.list.selected = target_theme_index(state);
             }
             _ => {
                 if let Some(super::modal::ModalAction::Close) =
@@ -204,8 +248,34 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
 pub(crate) fn open_settings(state: &mut AppState) {
     state.settings.original_palette = Some(state.palette.clone());
     state.settings.original_theme = Some(state.theme_name.clone());
+    state.settings.group_theme_target = None;
     state.settings.section = SettingsSection::Theme;
-    state.settings.list.selected = current_theme_index(&state.theme_name);
+    let theme_name = state.global_theme_name.clone();
+    state.settings.list.selected = current_theme_index(&theme_name);
+    state.preview_theme(&theme_name);
+    state.mode = Mode::Settings;
+}
+
+pub(crate) fn open_group_theme_settings(state: &mut AppState, group_idx: usize) {
+    let Some(group) = state.groups.get(group_idx) else {
+        return;
+    };
+    state.settings.original_palette = Some(state.palette.clone());
+    state.settings.original_theme = Some(state.theme_name.clone());
+    state.settings.group_theme_target = Some(group_idx);
+    state.settings.section = SettingsSection::Theme;
+
+    let theme_name = group.theme_name.clone();
+    state.settings.list.selected = theme_name
+        .as_deref()
+        .map(|name| current_theme_index(name) + 1)
+        .unwrap_or(0);
+    if let Some(theme_name) = theme_name {
+        state.preview_theme(&theme_name);
+    } else {
+        let theme_name = state.global_theme_name.clone();
+        state.preview_theme(&theme_name);
+    }
     state.mode = Mode::Settings;
 }
 
@@ -262,7 +332,7 @@ impl AppState {
                     0
                 };
                 let idx = scroll + (row - area.y) as usize;
-                (idx < THEME_NAMES.len()).then_some(idx)
+                (idx < theme_list_len(self)).then_some(idx)
             }
             SettingsSection::Sound => {
                 let list_y = area.y + 3;
@@ -297,7 +367,7 @@ impl AppState {
                 if let Some(section) = self.settings_tab_at(mouse.column, mouse.row) {
                     self.settings.section = section;
                     self.settings.list.select(match section {
-                        SettingsSection::Theme => current_theme_index(&self.theme_name),
+                        SettingsSection::Theme => target_theme_index(self),
                         SettingsSection::Sound => usize::from(!self.sound_enabled()),
                         SettingsSection::Toast => toast_delivery_index(self.toast_delivery()),
                         SettingsSection::PaneLabels => {
@@ -392,6 +462,53 @@ mod tests {
         assert_eq!(state.theme_name, original_theme);
         assert_eq!(state.palette.accent, original_palette.accent);
         assert_eq!(state.palette.panel_bg, original_palette.panel_bg);
+    }
+
+    #[test]
+    fn group_theme_settings_apply_returns_group_theme_action() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Side".to_string());
+
+        open_group_theme_settings(&mut state, group_idx);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        let theme_name = state.theme_name.clone();
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::SaveGroupTheme {
+                group_idx,
+                name: Some(theme_name),
+            })
+        );
+        assert_eq!(state.settings.group_theme_target, None);
+    }
+
+    #[test]
+    fn group_theme_settings_default_keeps_group_on_global_theme() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Side".to_string());
+
+        open_group_theme_settings(&mut state, group_idx);
+        assert_eq!(state.settings.list.selected, 0);
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::SaveGroupTheme {
+                group_idx,
+                name: None,
+            })
+        );
     }
 
     #[test]
