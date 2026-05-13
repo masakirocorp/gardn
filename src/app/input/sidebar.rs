@@ -10,10 +10,16 @@ impl AppState {
         if self.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
             return Rect::default();
         }
+        if self.view.right_sidebar_rect != Rect::default() {
+            return crate::ui::left_sidebar_workspace_rect(sidebar);
+        }
         crate::ui::workspace_list_rect(sidebar, self.sidebar_section_split)
     }
 
     pub(super) fn agent_panel_rect(&self) -> Rect {
+        if self.view.right_sidebar_rect != Rect::default() {
+            return crate::ui::right_sidebar_content_rect(self.view.right_sidebar_rect);
+        }
         let sidebar = self.view.sidebar_rect;
         if self.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
             return Rect::default();
@@ -182,7 +188,13 @@ impl AppState {
             6
         }
         .min(footer.width.max(1));
-        let x = footer.x + footer.width.saturating_sub(width);
+        let x = if !self.sidebar_collapsed && footer.width > width.saturating_add(2) {
+            crate::ui::expanded_sidebar_toggle_rect(self.view.sidebar_rect)
+                .x
+                .saturating_sub(width + 1)
+        } else {
+            footer.x + footer.width.saturating_sub(width)
+        };
         Rect::new(x, footer.y, width, footer.height)
     }
 
@@ -381,7 +393,7 @@ impl AppState {
     }
 
     pub(super) fn on_sidebar_section_divider(&self, col: u16, row: u16) -> bool {
-        if self.sidebar_collapsed {
+        if self.sidebar_collapsed || self.view.right_sidebar_rect != Rect::default() {
             return false;
         }
         let rect = crate::ui::sidebar_section_divider_rect(
@@ -396,6 +408,9 @@ impl AppState {
     }
 
     pub(super) fn set_sidebar_section_split(&mut self, row: u16) {
+        if self.view.right_sidebar_rect != Rect::default() {
+            return;
+        }
         let sidebar = self.view.sidebar_rect;
         let content_height = sidebar.height;
         if content_height < 6 {
@@ -528,14 +543,10 @@ impl AppState {
     }
 
     pub(super) fn on_agent_panel_scope_toggle(&self, col: u16, row: u16) -> bool {
-        if self.sidebar_collapsed {
+        if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
             return false;
         }
-
-        let (_, detail_area) = crate::ui::expanded_sidebar_sections(
-            self.view.sidebar_rect,
-            self.sidebar_section_split,
-        );
+        let detail_area = self.agent_panel_rect();
         let rect = crate::ui::agent_panel_toggle_rect(detail_area, self.agent_panel_scope);
         rect.width > 0
             && col >= rect.x
@@ -1139,6 +1150,47 @@ mod tests {
     }
 
     #[test]
+    fn clicking_right_sidebar_agent_row_switches_to_correct_workspace() {
+        let mut app = app_for_mouse_test();
+        let mut first = Workspace::test_new("one");
+        let first_pane = first.tabs[0].root_pane;
+        first.tabs[0]
+            .panes
+            .get_mut(&first_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Pi);
+
+        let mut second = Workspace::test_new("two");
+        let second_pane = second.tabs[0].root_pane;
+        second.tabs[0]
+            .panes
+            .get_mut(&second_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Claude);
+
+        app.state.workspaces = vec![first, second];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+
+        let detail_area = app.state.agent_panel_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            detail_area.x + 2,
+            detail_area.y + 6,
+        ));
+
+        assert_eq!(app.state.active, Some(1));
+        assert_eq!(app.state.selected, 1);
+        assert_eq!(
+            app.state.workspaces[1].tabs[0].layout.focused(),
+            second_pane
+        );
+    }
+
+    #[test]
     fn scrolling_agent_panel_with_wheel_updates_agent_panel_scroll() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
@@ -1311,6 +1363,19 @@ mod tests {
             toggle.x,
             app.state.view.sidebar_rect.x + app.state.view.sidebar_rect.width - 2
         );
+    }
+
+    #[test]
+    fn expanded_sidebar_menu_stays_left_of_collapse_toggle() {
+        let mut app = app_for_mouse_test();
+        app.state.sidebar_collapsed = false;
+        app.state.view.sidebar_rect = Rect::new(0, 0, 26, 20);
+        app.state.view.terminal_area = Rect::new(26, 0, 80, 20);
+
+        let menu = app.state.global_launcher_rect();
+        let toggle = crate::ui::expanded_sidebar_toggle_rect(app.state.view.sidebar_rect);
+
+        assert!(menu.x + menu.width < toggle.x);
     }
 
     #[test]

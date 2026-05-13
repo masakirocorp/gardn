@@ -229,6 +229,26 @@ pub(crate) fn workspace_list_rect(area: Rect, split_ratio: f32) -> Rect {
     ws_area
 }
 
+pub(crate) fn left_sidebar_workspace_rect(area: Rect) -> Rect {
+    let content = Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height);
+    if content.width == 0 || content.height == 0 {
+        return Rect::default();
+    }
+    content
+}
+
+pub(crate) fn right_sidebar_content_rect(area: Rect) -> Rect {
+    if area.width <= 1 || area.height == 0 {
+        return Rect::default();
+    }
+    Rect::new(
+        area.x + 1,
+        area.y,
+        area.width.saturating_sub(1),
+        area.height,
+    )
+}
+
 pub(crate) fn workspace_list_body_rect(area: Rect, has_scrollbar: bool) -> Rect {
     if area.width == 0 || area.height <= WORKSPACE_SECTION_HEADER_ROWS {
         return Rect::default();
@@ -352,6 +372,13 @@ pub(crate) fn compute_workspace_card_areas(
     area: Rect,
 ) -> Vec<crate::app::state::WorkspaceCardArea> {
     let ws_area = workspace_list_rect(area, app.sidebar_section_split);
+    compute_workspace_card_areas_in_list(app, ws_area)
+}
+
+pub(crate) fn compute_workspace_card_areas_in_list(
+    app: &AppState,
+    ws_area: Rect,
+) -> Vec<crate::app::state::WorkspaceCardArea> {
     if ws_area == Rect::default() {
         return Vec::new();
     }
@@ -614,11 +641,29 @@ pub(super) fn render_sidebar(app: &AppState, frame: &mut Frame, area: Rect) {
         buf[(sep_x, y)].set_style(sep_style);
     }
 
-    let (ws_area, detail_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
-
+    let ws_area = if app.view.right_sidebar_rect == Rect::default() {
+        let (ws_area, detail_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
+        render_agent_detail(app, frame, detail_area, true);
+        ws_area
+    } else {
+        left_sidebar_workspace_rect(area)
+    };
     render_workspace_list(app, frame, ws_area, is_navigating);
-    render_agent_detail(app, frame, detail_area);
     render_sidebar_toggle(app, frame, area, false, p);
+}
+
+pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect) {
+    if area == Rect::default() {
+        return;
+    }
+    let p = &app.palette;
+    let sep_style = Style::default().fg(p.surface_dim);
+    let buf = frame.buffer_mut();
+    for y in area.y..area.y + area.height {
+        buf[(area.x, y)].set_symbol("│");
+        buf[(area.x, y)].set_style(sep_style);
+    }
+    render_agent_detail(app, frame, right_sidebar_content_rect(area), false);
 }
 
 fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navigating: bool) {
@@ -819,18 +864,20 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
     }
 }
 
-fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect) {
+fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_separator: bool) {
     let p = &app.palette;
 
     if area.height < 3 {
         return;
     }
 
-    let sep_line = "─".repeat(area.width as usize);
-    frame.render_widget(
-        Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.surface_dim))),
-        Rect::new(area.x, area.y, area.width, 1),
-    );
+    if leading_separator {
+        let sep_line = "─".repeat(area.width as usize);
+        frame.render_widget(
+            Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.surface_dim))),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+    }
 
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(

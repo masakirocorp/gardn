@@ -45,7 +45,7 @@ pub(crate) use self::scrollbar::{
     scrollbar_offset_from_row, scrollbar_thumb_grab_offset, should_show_scrollbar,
 };
 use self::settings::render_settings_overlay;
-use self::sidebar::{render_sidebar, render_sidebar_collapsed};
+use self::sidebar::{render_right_sidebar, render_sidebar, render_sidebar_collapsed};
 use self::status::{render_config_diagnostic, render_toast_notification, toast_notification_rect};
 use self::tabs::render_tab_bar;
 pub(crate) use self::{
@@ -58,9 +58,10 @@ pub(crate) use self::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_scroll_metrics,
         agent_panel_scrollbar_rect, agent_panel_toggle_rect, collapsed_group_header_rect,
         collapsed_sidebar_sections, collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect,
-        compute_workspace_card_areas, expanded_sidebar_sections, expanded_sidebar_toggle_rect,
-        sidebar_section_divider_rect, workspace_drop_indicator_row, workspace_list_rect,
-        workspace_list_scroll_metrics, workspace_list_scrollbar_rect,
+        compute_workspace_card_areas, compute_workspace_card_areas_in_list,
+        expanded_sidebar_sections, expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
+        right_sidebar_content_rect, sidebar_section_divider_rect, workspace_drop_indicator_row,
+        workspace_list_rect, workspace_list_scroll_metrics, workspace_list_scrollbar_rect,
     },
 };
 pub(crate) use self::{
@@ -77,6 +78,8 @@ use crate::app::state::{ContextMenuKind, ViewLayout};
 use crate::app::{AppState, Mode};
 
 const COLLAPSED_WIDTH: u16 = 4; // num + space + dot + separator
+const RIGHT_SIDEBAR_WIDTH: u16 = 28;
+const RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH: u16 = 56;
 pub(crate) const MIN_SIDEBAR_WIDTH: u16 = 18;
 pub(crate) const MAX_SIDEBAR_WIDTH: u16 = 36;
 
@@ -156,8 +159,23 @@ fn compute_view_internal(
             .clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH)
     };
 
-    let [sidebar_area, main_area] =
-        Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Min(1)]).areas(area);
+    let show_right_sidebar = area.width
+        >= sidebar_w
+            .saturating_add(RIGHT_SIDEBAR_WIDTH)
+            .saturating_add(RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH);
+    let (sidebar_area, main_area, right_sidebar_area) = if show_right_sidebar {
+        let [sidebar_area, main_area, right_sidebar_area] = Layout::horizontal([
+            Constraint::Length(sidebar_w),
+            Constraint::Min(RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH),
+            Constraint::Length(RIGHT_SIDEBAR_WIDTH),
+        ])
+        .areas(area);
+        (sidebar_area, main_area, right_sidebar_area)
+    } else {
+        let [sidebar_area, main_area] =
+            Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Min(1)]).areas(area);
+        (sidebar_area, main_area, Rect::default())
+    };
 
     let has_tabs = app.active.and_then(|i| app.workspaces.get(i)).is_some();
     let (tab_bar_rect, terminal_area) = if has_tabs && main_area.height > 1 {
@@ -171,9 +189,14 @@ fn compute_view_internal(
     app.workspace_scroll = app
         .workspace_scroll
         .min(app.visible_workspace_indices().len().saturating_sub(1));
-    if !app.sidebar_collapsed {
+    if right_sidebar_area != Rect::default() || !app.sidebar_collapsed {
         let (_, detail_area) = expanded_sidebar_sections(sidebar_area, app.sidebar_section_split);
-        let max_agent_scroll = agent_panel_scroll_metrics(app, detail_area).max_offset_from_bottom;
+        let agent_area = if right_sidebar_area == Rect::default() {
+            detail_area
+        } else {
+            right_sidebar_content_rect(right_sidebar_area)
+        };
+        let max_agent_scroll = agent_panel_scroll_metrics(app, agent_area).max_offset_from_bottom;
         app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
     } else {
         app.agent_panel_scroll = 0;
@@ -181,6 +204,8 @@ fn compute_view_internal(
 
     let workspace_card_areas = if app.sidebar_collapsed {
         Vec::new()
+    } else if right_sidebar_area != Rect::default() {
+        compute_workspace_card_areas_in_list(app, left_sidebar_workspace_rect(sidebar_area))
     } else {
         compute_workspace_card_areas(app, sidebar_area)
     };
@@ -220,6 +245,7 @@ fn compute_view_internal(
     app.view = crate::app::ViewState {
         layout: ViewLayout::Desktop,
         sidebar_rect: sidebar_area,
+        right_sidebar_rect: right_sidebar_area,
         workspace_card_areas,
         tab_bar_rect,
         tab_hit_areas: tab_bar_view.tab_hit_areas,
@@ -277,6 +303,7 @@ fn compute_mobile_view(
     app.view = crate::app::ViewState {
         layout: ViewLayout::Mobile,
         sidebar_rect: Rect::default(),
+        right_sidebar_rect: Rect::default(),
         workspace_card_areas: Vec::new(),
         tab_bar_rect: Rect::default(),
         tab_hit_areas: Vec::new(),
@@ -295,6 +322,7 @@ fn compute_mobile_view(
 /// Render the UI — reads AppState but does not mutate it.
 pub fn render(app: &AppState, frame: &mut Frame) {
     let sidebar_area = app.view.sidebar_rect;
+    let right_sidebar_area = app.view.right_sidebar_rect;
     let tab_bar_area = app.view.tab_bar_rect;
     let terminal_area = app.view.terminal_area;
 
@@ -309,6 +337,9 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         render_tab_bar(app, frame, tab_bar_area);
     }
     render_panes(app, frame, terminal_area);
+    if right_sidebar_area != Rect::default() {
+        render_right_sidebar(app, frame, right_sidebar_area);
+    }
 
     match app.mode {
         Mode::Onboarding => render_onboarding_overlay(app, frame, frame.area()),
@@ -465,6 +496,40 @@ mod tests {
             app.view.mobile_menu_hit_area.x + app.view.mobile_menu_hit_area.width,
             44
         );
+    }
+
+    #[test]
+    fn wide_desktop_uses_right_sidebar_for_agents() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("one")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        compute_view(&mut app, Rect::new(0, 0, 140, 20));
+
+        assert_eq!(app.view.sidebar_rect, Rect::new(0, 0, 26, 20));
+        assert_eq!(app.view.right_sidebar_rect, Rect::new(112, 0, 28, 20));
+        assert_eq!(app.view.terminal_area, Rect::new(26, 1, 86, 19));
+    }
+
+    #[test]
+    fn right_sidebar_agents_start_without_top_separator() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("one")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        compute_view(&mut app, Rect::new(0, 0, 140, 20));
+
+        let backend = TestBackend::new(140, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let content = right_sidebar_content_rect(app.view.right_sidebar_rect);
+
+        assert_ne!(buffer[(content.x, content.y)].symbol(), "─");
     }
 
     #[test]

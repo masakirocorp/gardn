@@ -180,6 +180,13 @@ impl AppState {
             && mouse.column < sidebar.x + sidebar.width
             && mouse.row >= sidebar.y
             && mouse.row < sidebar.y + sidebar.height;
+        let right_sidebar = self.view.right_sidebar_rect;
+        let in_right_sidebar = right_sidebar != Rect::default()
+            && mouse.column >= right_sidebar.x
+            && mouse.column < right_sidebar.x + right_sidebar.width
+            && mouse.row >= right_sidebar.y
+            && mouse.row < right_sidebar.y + right_sidebar.height;
+        let in_chrome = in_sidebar || in_right_sidebar;
 
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
@@ -308,7 +315,7 @@ impl AppState {
                     return None;
                 }
 
-                if !in_sidebar {
+                if !in_chrome {
                     if let Some(border) = self.find_border_at(mouse.column, mouse.row) {
                         self.drag = Some(DragState {
                             target: DragTarget::PaneSplit {
@@ -368,7 +375,42 @@ impl AppState {
                     return None;
                 }
 
-                if in_sidebar {
+                if in_right_sidebar {
+                    if self.on_agent_panel_scope_toggle(mouse.column, mouse.row) {
+                        self.agent_panel_scope = match self.agent_panel_scope {
+                            AgentPanelScope::CurrentWorkspace => AgentPanelScope::AllWorkspaces,
+                            AgentPanelScope::AllWorkspaces => AgentPanelScope::CurrentWorkspace,
+                        };
+                        self.agent_panel_scroll = 0;
+                        self.mark_session_dirty();
+                        return None;
+                    }
+
+                    if let Some(target) =
+                        self.agent_panel_scrollbar_target_at(mouse.column, mouse.row)
+                    {
+                        match target {
+                            ScrollbarClickTarget::Thumb { grab_row_offset } => {
+                                self.drag = Some(DragState {
+                                    target: DragTarget::AgentPanelScrollbar { grab_row_offset },
+                                });
+                            }
+                            ScrollbarClickTarget::Track { offset_from_bottom } => {
+                                self.set_agent_panel_offset_from_bottom(offset_from_bottom);
+                            }
+                        }
+                        return None;
+                    }
+
+                    if let Some((ws_idx, tab_idx, pane_id)) = self.agent_detail_target_at(mouse.row)
+                    {
+                        self.switch_workspace(ws_idx);
+                        self.switch_tab(tab_idx);
+                        self.focus_pane(pane_id);
+                        self.mode = Mode::Terminal;
+                        return None;
+                    }
+                } else if in_sidebar {
                     if self.on_sidebar_toggle(mouse.column, mouse.row) {
                         self.sidebar_collapsed = !self.sidebar_collapsed;
                         return None;
@@ -709,7 +751,7 @@ impl AppState {
             }
 
             MouseEventKind::Up(MouseButton::Middle) | MouseEventKind::Drag(MouseButton::Middle)
-                if !in_sidebar =>
+                if !in_chrome =>
             {
                 if let Some(info) = self.pane_mouse_target(mouse.column, mouse.row).cloned() {
                     let _ = self.forward_pane_mouse_button(&info, mouse);
@@ -727,11 +769,28 @@ impl AppState {
             }
 
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
-                if !in_sidebar && self.scroll_selection_with_wheel(mouse) => {}
+                if !in_chrome && self.scroll_selection_with_wheel(mouse) => {}
 
-            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown if !in_sidebar => {
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown if !in_chrome => {
                 self.selection = None;
                 self.handle_terminal_wheel(mouse);
+            }
+
+            MouseEventKind::ScrollUp if in_right_sidebar => {
+                let agent_area = self.agent_panel_rect();
+                if crate::ui::should_show_scrollbar(crate::ui::agent_panel_scroll_metrics(
+                    self, agent_area,
+                )) {
+                    self.scroll_agent_panel(-1);
+                }
+            }
+            MouseEventKind::ScrollDown if in_right_sidebar => {
+                let agent_area = self.agent_panel_rect();
+                if crate::ui::should_show_scrollbar(crate::ui::agent_panel_scroll_metrics(
+                    self, agent_area,
+                )) {
+                    self.scroll_agent_panel(1);
+                }
             }
 
             MouseEventKind::ScrollUp if in_sidebar => {
@@ -828,7 +887,7 @@ impl AppState {
                 }
             }
 
-            MouseEventKind::Down(MouseButton::Right) if !in_sidebar => {
+            MouseEventKind::Down(MouseButton::Right) if !in_chrome => {
                 if let Some(info) = self.pane_mouse_target(mouse.column, mouse.row).cloned() {
                     self.focus_pane(info.id);
                     let has_manual_label = self
@@ -940,11 +999,16 @@ impl AppState {
 
     pub(super) fn screen_rect(&self) -> Rect {
         let sidebar = self.view.sidebar_rect;
+        let right_sidebar = self.view.right_sidebar_rect;
         let terminal = self.view.terminal_area;
-        let x = sidebar.x.min(terminal.x);
-        let y = sidebar.y.min(terminal.y);
-        let right = (sidebar.x + sidebar.width).max(terminal.x + terminal.width);
-        let bottom = (sidebar.y + sidebar.height).max(terminal.y + terminal.height);
+        let x = sidebar.x.min(terminal.x).min(right_sidebar.x);
+        let y = sidebar.y.min(terminal.y).min(right_sidebar.y);
+        let right = (sidebar.x + sidebar.width)
+            .max(terminal.x + terminal.width)
+            .max(right_sidebar.x + right_sidebar.width);
+        let bottom = (sidebar.y + sidebar.height)
+            .max(terminal.y + terminal.height)
+            .max(right_sidebar.y + right_sidebar.height);
         Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
     }
 
