@@ -157,12 +157,34 @@ pub(crate) fn handle_global_menu_key(state: &mut AppState, key: KeyEvent) {
 pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => leave_modal(state),
-        KeyCode::Up | KeyCode::Char('k') => state.group_menu.move_prev(),
+        KeyCode::Up | KeyCode::Char('k') => {
+            let len = state.group_menu_labels().len();
+            for _ in 0..len {
+                state.group_menu.move_prev();
+                if state
+                    .group_menu_action_for_row(state.group_menu.highlighted)
+                    .is_some()
+                {
+                    break;
+                }
+            }
+        }
         KeyCode::Down | KeyCode::Char('j') => {
-            state.group_menu.move_next(state.group_menu_labels().len())
+            let len = state.group_menu_labels().len();
+            for _ in 0..len {
+                state.group_menu.move_next(len);
+                if state
+                    .group_menu_action_for_row(state.group_menu.highlighted)
+                    .is_some()
+                {
+                    break;
+                }
+            }
         }
         KeyCode::Enter => {
-            let idx = state.group_menu.highlighted;
+            let Some(idx) = state.group_menu_action_for_row(state.group_menu.highlighted) else {
+                return;
+            };
             if idx < state.groups.len() {
                 state.switch_group(idx);
                 leave_modal(state);
@@ -641,7 +663,7 @@ impl AppState {
             return None;
         }
         let idx = (row - rect.y - 1) as usize;
-        (idx < self.group_menu_labels().len()).then_some(idx)
+        self.group_menu_action_for_row(idx)
     }
 }
 

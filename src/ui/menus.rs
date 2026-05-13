@@ -161,7 +161,15 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
     let items: Vec<ListItem> = app
         .group_menu_labels()
         .iter()
-        .map(|item| ListItem::new(Line::from(item.clone())))
+        .enumerate()
+        .map(|(idx, item)| {
+            if app.group_menu_action_for_row(idx).is_none() {
+                ListItem::new(Line::from("-".repeat(inner.width as usize)))
+                    .style(Style::default().fg(app.palette.surface_dim))
+            } else {
+                ListItem::new(Line::from(item.clone()))
+            }
+        })
         .collect();
     let list = List::new(items)
         .style(Style::default().fg(app.palette.text))

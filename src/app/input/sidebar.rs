@@ -264,11 +264,35 @@ impl AppState {
                 format!("{marker} {}", group.name)
             })
             .collect();
+        labels.push("---".to_string());
         labels.push("+ new group".to_string());
         if self.groups.len() > 1 {
             labels.push(format!("- delete {}", self.active_group_name()));
         }
         labels
+    }
+
+    pub(crate) fn group_menu_action_for_row(&self, row_idx: usize) -> Option<usize> {
+        if row_idx < self.groups.len() {
+            return Some(row_idx);
+        }
+
+        let separator_idx = self.groups.len();
+        if row_idx == separator_idx {
+            return None;
+        }
+
+        let new_group_idx = separator_idx + 1;
+        if row_idx == new_group_idx {
+            return Some(self.groups.len());
+        }
+
+        let delete_idx = new_group_idx + 1;
+        if self.groups.len() > 1 && row_idx == delete_idx {
+            return Some(self.groups.len() + 1);
+        }
+
+        None
     }
 
     pub(crate) fn group_filter_toggle_label(&self) -> &'static str {
@@ -636,7 +660,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + app.state.groups.len() as u16 + 1,
+            menu.y + app.state.groups.len() as u16 + 2,
         ));
 
         assert_eq!(app.state.mode, Mode::RenameGroup);
@@ -663,11 +687,31 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + app.state.groups.len() as u16 + 2,
+            menu.y + app.state.groups.len() as u16 + 3,
         ));
 
         assert_eq!(app.state.mode, Mode::ConfirmDeleteGroup);
         assert_eq!(app.state.confirm_delete_group, Some(work_group));
+    }
+
+    #[test]
+    fn group_menu_separator_is_not_selectable() {
+        let mut app = app_for_mouse_test();
+        let selector = app.state.group_selector_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            selector.x + 1,
+            selector.y,
+        ));
+
+        let menu = app.state.group_menu_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + app.state.groups.len() as u16 + 1,
+        ));
+
+        assert_eq!(app.state.mode, Mode::GroupMenu);
     }
 
     #[test]

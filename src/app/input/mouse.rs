@@ -136,7 +136,14 @@ impl AppState {
                         open_confirm_delete_group(self, self.active_group);
                     }
                 } else {
-                    leave_modal(self);
+                    let rect = self.group_menu_rect();
+                    let inside_menu = mouse.column >= rect.x
+                        && mouse.column < rect.x + rect.width
+                        && mouse.row >= rect.y
+                        && mouse.row < rect.y + rect.height;
+                    if !inside_menu {
+                        leave_modal(self);
+                    }
                 }
             }
             return None;
