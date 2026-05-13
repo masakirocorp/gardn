@@ -569,6 +569,23 @@ mod tests {
     }
 
     #[test]
+    fn right_sidebar_divider_uses_accent() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.mode = Mode::Terminal;
+
+        compute_view(&mut app, Rect::new(0, 0, 140, 20));
+
+        let backend = TestBackend::new(140, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let divider_x = app.view.right_sidebar_rect.x;
+
+        assert_eq!(buffer[(divider_x, 1)].symbol(), "│");
+        assert_eq!(buffer[(divider_x, 1)].style().fg, Some(app.palette.accent));
+    }
+
+    #[test]
     fn collapsed_sidebar_keeps_active_workspace_highlight_in_terminal_mode() {
         let mut app = crate::app::state::AppState::test_new();
         app.sidebar_collapsed = true;

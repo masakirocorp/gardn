@@ -675,7 +675,7 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
         return;
     }
     let p = &app.palette;
-    let sep_style = Style::default().fg(p.surface_dim);
+    let sep_style = Style::default().fg(p.accent);
     let buf = frame.buffer_mut();
     for y in area.y..area.y + area.height {
         buf[(area.x, y)].set_symbol("│");
