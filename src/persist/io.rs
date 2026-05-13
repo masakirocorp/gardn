@@ -111,7 +111,10 @@ mod tests {
             selected: 0,
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
             sidebar_width: Some(26),
+            sidebar_collapsed: false,
             sidebar_section_split: Some(0.5),
+            right_sidebar_width: Some(28),
+            right_sidebar_collapsed: false,
         }
     }
 

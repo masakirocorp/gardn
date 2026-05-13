@@ -26,7 +26,10 @@ impl App {
             && self.state.active_group == 0
             && self.state.groups[0].id == crate::workspace::DEFAULT_GROUP_ID
             && self.state.groups[0].name == "group 1";
-        if self.state.workspaces.is_empty() && has_only_default_group {
+        if self.state.workspaces.is_empty()
+            && has_only_default_group
+            && self.state.has_default_sidebar_state()
+        {
             crate::persist::clear();
         } else {
             let snap = crate::persist::capture(
@@ -37,11 +40,24 @@ impl App {
                 self.state.selected,
                 self.state.agent_panel_scope,
                 self.state.sidebar_width,
+                self.state.sidebar_collapsed,
                 self.state.sidebar_section_split,
+                self.state.right_sidebar_width,
+                self.state.right_sidebar_collapsed,
             );
             crate::persist::save(&snap);
         }
 
         self.session_save_deadline = None;
+    }
+}
+
+impl super::AppState {
+    fn has_default_sidebar_state(&self) -> bool {
+        !self.sidebar_collapsed
+            && !self.right_sidebar_collapsed
+            && self.right_sidebar_width == 28
+            && (self.sidebar_section_split - 0.5).abs() < f32::EPSILON
+            && self.sidebar_width == self.default_sidebar_width
     }
 }

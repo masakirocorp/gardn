@@ -388,6 +388,7 @@ impl AppState {
                 if in_right_sidebar {
                     if self.on_right_sidebar_toggle(mouse.column, mouse.row) {
                         self.right_sidebar_collapsed = !self.right_sidebar_collapsed;
+                        self.mark_session_dirty();
                         return None;
                     }
 
@@ -432,6 +433,7 @@ impl AppState {
                 } else if in_sidebar {
                     if self.on_sidebar_toggle(mouse.column, mouse.row) {
                         self.sidebar_collapsed = !self.sidebar_collapsed;
+                        self.mark_session_dirty();
                         return None;
                     }
 

@@ -28,7 +28,13 @@ pub struct SessionSnapshot {
     #[serde(default)]
     pub sidebar_width: Option<u16>,
     #[serde(default)]
+    pub sidebar_collapsed: bool,
+    #[serde(default)]
     pub sidebar_section_split: Option<f32>,
+    #[serde(default)]
+    pub right_sidebar_width: Option<u16>,
+    #[serde(default)]
+    pub right_sidebar_collapsed: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -162,7 +168,13 @@ struct RawSessionSnapshot {
     #[serde(default)]
     sidebar_width: Option<u16>,
     #[serde(default)]
+    sidebar_collapsed: bool,
+    #[serde(default)]
     sidebar_section_split: Option<f32>,
+    #[serde(default)]
+    right_sidebar_width: Option<u16>,
+    #[serde(default)]
+    right_sidebar_collapsed: bool,
 }
 
 fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> {
@@ -183,7 +195,10 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
         selected: raw.selected,
         agent_panel_scope: raw.agent_panel_scope,
         sidebar_width: raw.sidebar_width,
+        sidebar_collapsed: raw.sidebar_collapsed,
         sidebar_section_split: raw.sidebar_section_split,
+        right_sidebar_width: raw.right_sidebar_width,
+        right_sidebar_collapsed: raw.right_sidebar_collapsed,
     })
 }
 
@@ -242,7 +257,10 @@ pub fn capture(
     selected: usize,
     agent_panel_scope: crate::app::state::AgentPanelScope,
     sidebar_width: u16,
+    sidebar_collapsed: bool,
     sidebar_section_split: f32,
+    right_sidebar_width: u16,
+    right_sidebar_collapsed: bool,
 ) -> SessionSnapshot {
     SessionSnapshot {
         version: SNAPSHOT_VERSION,
@@ -253,7 +271,10 @@ pub fn capture(
         selected,
         agent_panel_scope,
         sidebar_width: Some(sidebar_width),
+        sidebar_collapsed,
         sidebar_section_split: Some(sidebar_section_split),
+        right_sidebar_width: Some(right_sidebar_width),
+        right_sidebar_collapsed,
     }
 }
 
@@ -381,7 +402,10 @@ mod tests {
             state.selected,
             state.agent_panel_scope,
             state.sidebar_width,
+            state.sidebar_collapsed,
             state.sidebar_section_split,
+            state.right_sidebar_width,
+            state.right_sidebar_collapsed,
         )
     }
 
@@ -403,14 +427,20 @@ mod tests {
             selected: 0,
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
             sidebar_width: Some(26),
+            sidebar_collapsed: false,
             sidebar_section_split: Some(0.5),
+            right_sidebar_width: Some(28),
+            right_sidebar_collapsed: false,
         };
         let json = serde_json::to_string(&snap).unwrap();
         let restored = parse_snapshot(&json).unwrap();
         assert!(restored.workspaces.is_empty());
         assert_eq!(restored.active, None);
         assert_eq!(restored.sidebar_width, Some(26));
+        assert!(!restored.sidebar_collapsed);
         assert_eq!(restored.sidebar_section_split, Some(0.5));
+        assert_eq!(restored.right_sidebar_width, Some(28));
+        assert!(!restored.right_sidebar_collapsed);
     }
 
     #[test]
@@ -502,7 +532,10 @@ mod tests {
             selected: 0,
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
             sidebar_width: Some(26),
+            sidebar_collapsed: false,
             sidebar_section_split: Some(0.5),
+            right_sidebar_width: Some(28),
+            right_sidebar_collapsed: false,
             version: SNAPSHOT_VERSION,
         };
 
@@ -531,6 +564,7 @@ mod tests {
         );
         assert_eq!(restored.sidebar_width, Some(26));
         assert_eq!(restored.sidebar_section_split, Some(0.5));
+        assert_eq!(restored.right_sidebar_width, Some(28));
     }
 
     #[test]
@@ -543,7 +577,10 @@ mod tests {
         assert_eq!(snap.selected, 0);
         assert_eq!(snap.agent_panel_scope, AgentPanelScope::AllWorkspaces);
         assert_eq!(snap.sidebar_width, None);
+        assert!(!snap.sidebar_collapsed);
         assert_eq!(snap.sidebar_section_split, None);
+        assert_eq!(snap.right_sidebar_width, None);
+        assert!(!snap.right_sidebar_collapsed);
         assert_eq!(snap.workspaces[0].tabs.len(), 2);
         assert_eq!(
             snap.workspaces[1].identity_cwd,
@@ -577,7 +614,10 @@ mod tests {
 
         assert_eq!(restored.agent_panel_scope, AgentPanelScope::AllWorkspaces);
         assert_eq!(restored.sidebar_width, None);
+        assert!(!restored.sidebar_collapsed);
         assert_eq!(restored.sidebar_section_split, None);
+        assert_eq!(restored.right_sidebar_width, None);
+        assert!(!restored.right_sidebar_collapsed);
     }
 
     #[test]
@@ -652,12 +692,18 @@ mod tests {
     fn capture_contract_tracks_sidebar_state() {
         let mut state = state_with_workspaces(&["one"]);
         state.sidebar_width = 31;
+        state.sidebar_collapsed = true;
         state.sidebar_section_split = 0.4;
+        state.right_sidebar_width = 34;
+        state.right_sidebar_collapsed = true;
         state.agent_panel_scope = AgentPanelScope::AllWorkspaces;
 
         let snapshot = capture_from_state(&state);
         assert_eq!(snapshot.sidebar_width, Some(31));
+        assert!(snapshot.sidebar_collapsed);
         assert_eq!(snapshot.sidebar_section_split, Some(0.4));
+        assert_eq!(snapshot.right_sidebar_width, Some(34));
+        assert!(snapshot.right_sidebar_collapsed);
         assert_eq!(snapshot.agent_panel_scope, AgentPanelScope::AllWorkspaces);
     }
 
@@ -824,7 +870,10 @@ mod tests {
             selected: 0,
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
             sidebar_width: Some(26),
+            sidebar_collapsed: false,
             sidebar_section_split: Some(0.5),
+            right_sidebar_width: Some(28),
+            right_sidebar_collapsed: false,
         };
 
         let json = serde_json::to_string(&snap).unwrap();

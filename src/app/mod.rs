@@ -227,7 +227,10 @@ impl App {
             _restored_agent_panel_scope,
             sidebar_width,
             sidebar_width_source,
+            sidebar_collapsed,
             sidebar_section_split,
+            right_sidebar_width,
+            right_sidebar_collapsed,
         ) = if no_session {
             (
                 vec![state::Group::default_group()],
@@ -238,7 +241,10 @@ impl App {
                 state::AgentPanelScope::CurrentWorkspace,
                 config.ui.sidebar_width,
                 state::SidebarWidthSource::ConfigDefault,
+                false,
                 0.5_f32,
+                28,
+                false,
             )
         } else if let Some(snap) = crate::persist::load() {
             let ws = crate::persist::restore(
@@ -265,7 +271,10 @@ impl App {
                     } else {
                         state::SidebarWidthSource::ConfigDefault
                     },
+                    snap.sidebar_collapsed,
                     snap.sidebar_section_split.unwrap_or(0.5),
+                    snap.right_sidebar_width.unwrap_or(28),
+                    snap.right_sidebar_collapsed,
                 )
             } else {
                 crate::logging::session_restored(ws.len(), "ok");
@@ -284,7 +293,10 @@ impl App {
                     } else {
                         state::SidebarWidthSource::ConfigDefault
                     },
+                    snap.sidebar_collapsed,
                     snap.sidebar_section_split.unwrap_or(0.5),
+                    snap.right_sidebar_width.unwrap_or(28),
+                    snap.right_sidebar_collapsed,
                 )
             }
         } else {
@@ -297,7 +309,10 @@ impl App {
                 state::AgentPanelScope::CurrentWorkspace,
                 config.ui.sidebar_width,
                 state::SidebarWidthSource::ConfigDefault,
+                false,
                 0.5_f32,
+                28,
+                false,
             )
         };
 
@@ -399,9 +414,9 @@ impl App {
             sidebar_width,
             sidebar_width_source,
             sidebar_width_auto: false,
-            sidebar_collapsed: false,
-            right_sidebar_width: 28,
-            right_sidebar_collapsed: false,
+            sidebar_collapsed,
+            right_sidebar_width,
+            right_sidebar_collapsed,
             sidebar_section_split,
             agent_panel_scope,
             mouse_capture: config.ui.mouse_capture,

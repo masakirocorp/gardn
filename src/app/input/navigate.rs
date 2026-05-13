@@ -673,6 +673,7 @@ pub(super) fn execute_navigate_action(state: &mut AppState, action: NavigateActi
         NavigateAction::EnterResizeMode => state.mode = Mode::Resize,
         NavigateAction::ToggleSidebar => {
             state.sidebar_collapsed = !state.sidebar_collapsed;
+            state.mark_session_dirty();
             leave_navigate_mode(state);
         }
         NavigateAction::ReloadConfig => {

@@ -447,6 +447,7 @@ impl AppState {
             crate::ui::MIN_RIGHT_SIDEBAR_WIDTH,
             crate::ui::MAX_RIGHT_SIDEBAR_WIDTH,
         );
+        self.mark_session_dirty();
     }
 
     pub(super) fn on_sidebar_section_divider(&self, col: u16, row: u16) -> bool {
