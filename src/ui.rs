@@ -586,7 +586,7 @@ mod tests {
     }
 
     #[test]
-    fn right_sidebar_divider_uses_accent() {
+    fn right_sidebar_divider_uses_accent_for_empty_workspace() {
         let mut app = crate::app::state::AppState::test_new();
         app.mode = Mode::Terminal;
 
@@ -600,6 +600,29 @@ mod tests {
 
         assert_eq!(buffer[(divider_x, 1)].symbol(), "│");
         assert_eq!(buffer[(divider_x, 1)].style().fg, Some(app.palette.accent));
+    }
+
+    #[test]
+    fn right_sidebar_divider_is_dim_for_active_workspace() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("one")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        compute_view(&mut app, Rect::new(0, 0, 140, 20));
+
+        let backend = TestBackend::new(140, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let divider_x = app.view.right_sidebar_rect.x;
+
+        assert_eq!(buffer[(divider_x, 1)].symbol(), "│");
+        assert_eq!(
+            buffer[(divider_x, 1)].style().fg,
+            Some(app.palette.surface_dim)
+        );
     }
 
     #[test]
