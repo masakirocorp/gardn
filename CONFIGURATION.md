@@ -107,6 +107,13 @@ resize_mode = "r"
 toggle_sidebar = "b"
 previous_workspace = "ctrl+alt+["
 next_workspace = "ctrl+alt+]"
+open_group_menu = ""
+new_group = ""
+rename_group = ""
+delete_group = ""
+toggle_group_filter = ""
+previous_group = ""
+next_group = ""
 previous_agent = "ctrl+["
 next_agent = "ctrl+]"
 previous_tab = "alt+["
@@ -130,6 +137,13 @@ focus_pane_right = "alt+l"
 | `open_notification_target` | unset | jump to the currently visible notification target |
 | `previous_workspace` | unset | switch to the previous workspace directly from terminal mode |
 | `next_workspace` | unset | switch to the next workspace directly from terminal mode |
+| `open_group_menu` | unset | open the group switcher menu |
+| `new_group` | unset | create a new group |
+| `rename_group` | unset | rename the active group |
+| `delete_group` | unset | delete the active group after confirmation |
+| `toggle_group_filter` | unset | toggle between current group and all groups |
+| `previous_group` | unset | switch to the previous group directly from terminal mode |
+| `next_group` | unset | switch to the next group directly from terminal mode |
 | `previous_agent` | unset | focus the previous agent shown in the sidebar agent list |
 | `next_agent` | unset | focus the next agent shown in the sidebar agent list |
 | `new_tab` | `c` | create a new tab |

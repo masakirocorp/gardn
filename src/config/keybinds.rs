@@ -73,6 +73,20 @@ pub struct Keybinds {
     pub previous_workspace_label: Option<String>,
     pub next_workspace: Option<(KeyCode, KeyModifiers)>,
     pub next_workspace_label: Option<String>,
+    pub open_group_menu: Option<(KeyCode, KeyModifiers)>,
+    pub open_group_menu_label: Option<String>,
+    pub new_group: Option<(KeyCode, KeyModifiers)>,
+    pub new_group_label: Option<String>,
+    pub rename_group: Option<(KeyCode, KeyModifiers)>,
+    pub rename_group_label: Option<String>,
+    pub delete_group: Option<(KeyCode, KeyModifiers)>,
+    pub delete_group_label: Option<String>,
+    pub toggle_group_filter: Option<(KeyCode, KeyModifiers)>,
+    pub toggle_group_filter_label: Option<String>,
+    pub previous_group: Option<(KeyCode, KeyModifiers)>,
+    pub previous_group_label: Option<String>,
+    pub next_group: Option<(KeyCode, KeyModifiers)>,
+    pub next_group_label: Option<String>,
     pub previous_agent: Option<(KeyCode, KeyModifiers)>,
     pub previous_agent_label: Option<String>,
     pub next_agent: Option<(KeyCode, KeyModifiers)>,
@@ -371,6 +385,48 @@ impl Config {
             ),
             optional_binding(
                 BindingScope::Navigate,
+                "keys.open_group_menu",
+                &self.keys.open_group_menu,
+                &mut diagnostics,
+            ),
+            optional_binding(
+                BindingScope::Navigate,
+                "keys.new_group",
+                &self.keys.new_group,
+                &mut diagnostics,
+            ),
+            optional_binding(
+                BindingScope::Navigate,
+                "keys.rename_group",
+                &self.keys.rename_group,
+                &mut diagnostics,
+            ),
+            optional_binding(
+                BindingScope::Navigate,
+                "keys.delete_group",
+                &self.keys.delete_group,
+                &mut diagnostics,
+            ),
+            optional_binding(
+                BindingScope::Navigate,
+                "keys.toggle_group_filter",
+                &self.keys.toggle_group_filter,
+                &mut diagnostics,
+            ),
+            optional_binding(
+                BindingScope::TerminalDirect,
+                "keys.previous_group",
+                &self.keys.previous_group,
+                &mut diagnostics,
+            ),
+            optional_binding(
+                BindingScope::TerminalDirect,
+                "keys.next_group",
+                &self.keys.next_group,
+                &mut diagnostics,
+            ),
+            optional_binding(
+                BindingScope::Navigate,
                 "keys.previous_agent",
                 &self.keys.previous_agent,
                 &mut diagnostics,
@@ -626,30 +682,44 @@ impl Config {
             previous_workspace_label: optional_bindings[3].label.clone(),
             next_workspace: optional_bindings[4].value,
             next_workspace_label: optional_bindings[4].label.clone(),
-            previous_agent: optional_bindings[5].value,
-            previous_agent_label: optional_bindings[5].label.clone(),
-            next_agent: optional_bindings[6].value,
-            next_agent_label: optional_bindings[6].label.clone(),
+            open_group_menu: optional_bindings[5].value,
+            open_group_menu_label: optional_bindings[5].label.clone(),
+            new_group: optional_bindings[6].value,
+            new_group_label: optional_bindings[6].label.clone(),
+            rename_group: optional_bindings[7].value,
+            rename_group_label: optional_bindings[7].label.clone(),
+            delete_group: optional_bindings[8].value,
+            delete_group_label: optional_bindings[8].label.clone(),
+            toggle_group_filter: optional_bindings[9].value,
+            toggle_group_filter_label: optional_bindings[9].label.clone(),
+            previous_group: optional_bindings[10].value,
+            previous_group_label: optional_bindings[10].label.clone(),
+            next_group: optional_bindings[11].value,
+            next_group_label: optional_bindings[11].label.clone(),
+            previous_agent: optional_bindings[12].value,
+            previous_agent_label: optional_bindings[12].label.clone(),
+            next_agent: optional_bindings[13].value,
+            next_agent_label: optional_bindings[13].label.clone(),
             new_tab: bindings[3].value,
             new_tab_label: bindings[3].label.clone(),
-            rename_tab: optional_bindings[7].value,
-            rename_tab_label: optional_bindings[7].label.clone(),
-            previous_tab: optional_bindings[8].value,
-            previous_tab_label: optional_bindings[8].label.clone(),
-            next_tab: optional_bindings[9].value,
-            next_tab_label: optional_bindings[9].label.clone(),
-            close_tab: optional_bindings[10].value,
-            close_tab_label: optional_bindings[10].label.clone(),
-            rename_pane: optional_bindings[11].value,
-            rename_pane_label: optional_bindings[11].label.clone(),
-            focus_pane_left: optional_bindings[12].value,
-            focus_pane_left_label: optional_bindings[12].label.clone(),
-            focus_pane_down: optional_bindings[13].value,
-            focus_pane_down_label: optional_bindings[13].label.clone(),
-            focus_pane_up: optional_bindings[14].value,
-            focus_pane_up_label: optional_bindings[14].label.clone(),
-            focus_pane_right: optional_bindings[15].value,
-            focus_pane_right_label: optional_bindings[15].label.clone(),
+            rename_tab: optional_bindings[14].value,
+            rename_tab_label: optional_bindings[14].label.clone(),
+            previous_tab: optional_bindings[15].value,
+            previous_tab_label: optional_bindings[15].label.clone(),
+            next_tab: optional_bindings[16].value,
+            next_tab_label: optional_bindings[16].label.clone(),
+            close_tab: optional_bindings[17].value,
+            close_tab_label: optional_bindings[17].label.clone(),
+            rename_pane: optional_bindings[18].value,
+            rename_pane_label: optional_bindings[18].label.clone(),
+            focus_pane_left: optional_bindings[19].value,
+            focus_pane_left_label: optional_bindings[19].label.clone(),
+            focus_pane_down: optional_bindings[20].value,
+            focus_pane_down_label: optional_bindings[20].label.clone(),
+            focus_pane_up: optional_bindings[21].value,
+            focus_pane_up_label: optional_bindings[21].label.clone(),
+            focus_pane_right: optional_bindings[22].value,
+            focus_pane_right_label: optional_bindings[22].label.clone(),
             split_vertical: bindings[4].value,
             split_vertical_label: bindings[4].label.clone(),
             split_horizontal: bindings[5].value,
@@ -883,6 +953,13 @@ mod tests {
             (KeyCode::Char('d'), KeyModifiers::SHIFT)
         );
         assert_eq!(kb.detach, None);
+        assert_eq!(kb.open_group_menu, None);
+        assert_eq!(kb.new_group, None);
+        assert_eq!(kb.rename_group, None);
+        assert_eq!(kb.delete_group, None);
+        assert_eq!(kb.toggle_group_filter, None);
+        assert_eq!(kb.previous_group, None);
+        assert_eq!(kb.next_group, None);
         assert_eq!(kb.previous_agent, None);
         assert_eq!(kb.next_agent, None);
         assert_eq!(kb.split_vertical.0, KeyCode::Char('v'));
@@ -910,6 +987,13 @@ resize_mode = "ctrl+r"
 toggle_sidebar = "tab"
 previous_agent = "alt+a"
 next_agent = "alt+d"
+open_group_menu = "ctrl+g"
+new_group = "alt+g"
+rename_group = "shift+g"
+delete_group = "ctrl+shift+g"
+toggle_group_filter = "f6"
+previous_group = "ctrl+["
+next_group = "ctrl+]"
 focus_pane_left = "alt+h"
 focus_pane_right = "alt+right"
 "#;
@@ -945,6 +1029,34 @@ focus_pane_right = "alt+right"
             Some((KeyCode::Char('a'), KeyModifiers::ALT))
         );
         assert_eq!(kb.next_agent, Some((KeyCode::Char('d'), KeyModifiers::ALT)));
+        assert_eq!(
+            kb.open_group_menu,
+            Some((KeyCode::Char('g'), KeyModifiers::CONTROL))
+        );
+        assert_eq!(kb.new_group, Some((KeyCode::Char('g'), KeyModifiers::ALT)));
+        assert_eq!(
+            kb.rename_group,
+            Some((KeyCode::Char('g'), KeyModifiers::SHIFT))
+        );
+        assert_eq!(
+            kb.delete_group,
+            Some((
+                KeyCode::Char('g'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            ))
+        );
+        assert_eq!(
+            kb.toggle_group_filter,
+            Some((KeyCode::F(6), KeyModifiers::empty()))
+        );
+        assert_eq!(
+            kb.previous_group,
+            Some((KeyCode::Char('['), KeyModifiers::CONTROL))
+        );
+        assert_eq!(
+            kb.next_group,
+            Some((KeyCode::Char(']'), KeyModifiers::CONTROL))
+        );
         assert_eq!(
             kb.focus_pane_left,
             Some((KeyCode::Char('h'), KeyModifiers::ALT))

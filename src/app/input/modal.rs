@@ -222,6 +222,16 @@ pub(super) fn open_rename_workspace(state: &mut AppState, ws_idx: usize) {
     state.mode = Mode::RenameWorkspace;
 }
 
+pub(super) fn open_rename_group(state: &mut AppState) {
+    state.creating_new_tab = false;
+    state.creating_new_group = false;
+    state.requested_new_tab_name = None;
+    state.rename_pane_target = None;
+    state.name_input = state.active_group_name().to_string();
+    state.name_input_replace_on_type = false;
+    state.mode = Mode::RenameGroup;
+}
+
 pub(super) fn open_rename_active_tab(state: &mut AppState, replace_on_type: bool) {
     state.creating_new_tab = false;
     state.creating_new_group = false;
@@ -363,6 +373,9 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
                     };
                     let group_idx = state.create_group(name);
                     state.switch_group(group_idx);
+                }
+                Mode::RenameGroup if !new_name.is_empty() => {
+                    state.rename_group(state.active_group, new_name);
                 }
                 Mode::RenameTab if state.creating_new_tab => {
                     state.request_new_tab = true;

@@ -31,6 +31,48 @@ pub(crate) fn terminal_direct_navigation_action(
         return Some(NavigateAction::NextWorkspace);
     }
     if kb
+        .open_group_menu
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::OpenGroupMenu);
+    }
+    if kb
+        .new_group
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::NewGroup);
+    }
+    if kb
+        .rename_group
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::RenameGroup);
+    }
+    if kb
+        .delete_group
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::DeleteGroup);
+    }
+    if kb
+        .toggle_group_filter
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::ToggleGroupFilter);
+    }
+    if kb
+        .previous_group
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::PreviousGroup);
+    }
+    if kb
+        .next_group
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::NextGroup);
+    }
+    if kb
         .previous_agent
         .is_some_and(|(code, mods)| key_matches(key, code, mods))
     {
@@ -381,6 +423,13 @@ pub(crate) enum NavigateAction {
     CloseWorkspace,
     PreviousWorkspace,
     NextWorkspace,
+    OpenGroupMenu,
+    NewGroup,
+    RenameGroup,
+    DeleteGroup,
+    ToggleGroupFilter,
+    PreviousGroup,
+    NextGroup,
     PreviousAgent,
     NextAgent,
     NewTab,
@@ -538,6 +587,24 @@ pub(super) fn execute_navigate_action(state: &mut AppState, action: NavigateActi
         }
         NavigateAction::NextWorkspace => {
             state.next_workspace();
+            leave_navigate_mode(state);
+        }
+        NavigateAction::OpenGroupMenu => super::modal::open_group_menu(state),
+        NavigateAction::NewGroup => super::modal::open_new_group_dialog(state),
+        NavigateAction::RenameGroup => super::modal::open_rename_group(state),
+        NavigateAction::DeleteGroup => {
+            super::modal::open_confirm_delete_group(state, state.active_group)
+        }
+        NavigateAction::ToggleGroupFilter => {
+            state.toggle_group_filter();
+            leave_navigate_mode(state);
+        }
+        NavigateAction::PreviousGroup => {
+            state.previous_group();
+            leave_navigate_mode(state);
+        }
+        NavigateAction::NextGroup => {
+            state.next_group();
             leave_navigate_mode(state);
         }
         NavigateAction::PreviousAgent => {

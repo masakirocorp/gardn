@@ -85,6 +85,20 @@ pub struct KeysConfig {
     pub previous_workspace: String,
     /// Select the next workspace. Unset by default.
     pub next_workspace: String,
+    /// Open the sidebar group menu. Unset by default.
+    pub open_group_menu: String,
+    /// Create a new group. Unset by default.
+    pub new_group: String,
+    /// Rename the active group. Unset by default.
+    pub rename_group: String,
+    /// Delete the active group. Unset by default.
+    pub delete_group: String,
+    /// Toggle current group/all groups filtering. Unset by default.
+    pub toggle_group_filter: String,
+    /// Focus the previous group. Unset by default.
+    pub previous_group: String,
+    /// Focus the next group. Unset by default.
+    pub next_group: String,
     /// Focus the previous agent shown in the agent panel. Unset by default.
     pub previous_agent: String,
     /// Focus the next agent shown in the agent panel. Unset by default.
@@ -170,6 +184,13 @@ impl Default for KeysConfig {
             open_notification_target: "".into(),
             previous_workspace: "".into(),
             next_workspace: "".into(),
+            open_group_menu: "".into(),
+            new_group: "".into(),
+            rename_group: "".into(),
+            delete_group: "".into(),
+            toggle_group_filter: "".into(),
+            previous_group: "".into(),
+            next_group: "".into(),
             previous_agent: "".into(),
             next_agent: "".into(),
             new_tab: "c".into(),

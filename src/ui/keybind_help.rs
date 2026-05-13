@@ -87,6 +87,32 @@ pub(super) fn keybind_help_groups(
     }
     groups.push(("workspaces / tabs", workspace_tab));
 
+    let group_keys = vec![
+        (
+            optional_keybind_label(&kb.open_group_menu_label),
+            "open group menu",
+        ),
+        (optional_keybind_label(&kb.new_group_label), "new group"),
+        (
+            optional_keybind_label(&kb.rename_group_label),
+            "rename group",
+        ),
+        (
+            optional_keybind_label(&kb.delete_group_label),
+            "delete group",
+        ),
+        (
+            optional_keybind_label(&kb.toggle_group_filter_label),
+            "toggle current/all groups",
+        ),
+        (
+            optional_keybind_label(&kb.previous_group_label),
+            "previous group",
+        ),
+        (optional_keybind_label(&kb.next_group_label), "next group"),
+    ];
+    groups.push(("groups", group_keys));
+
     let panes = vec![
         (kb.split_vertical_label.clone(), "split vertical"),
         (kb.split_horizontal_label.clone(), "split horizontal"),

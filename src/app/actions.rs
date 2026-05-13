@@ -154,6 +154,25 @@ impl AppState {
         self.switch_to_group_index(group_idx);
     }
 
+    pub fn previous_group(&mut self) {
+        if self.groups.is_empty() {
+            return;
+        }
+        let prev = if self.active_group == 0 {
+            self.groups.len() - 1
+        } else {
+            self.active_group - 1
+        };
+        self.switch_group(prev);
+    }
+
+    pub fn next_group(&mut self) {
+        if self.groups.is_empty() {
+            return;
+        }
+        self.switch_group((self.active_group + 1) % self.groups.len());
+    }
+
     pub fn create_group(&mut self, name: String) -> usize {
         self.groups.push(Group {
             id: super::state::generate_group_id(),
