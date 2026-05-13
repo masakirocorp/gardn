@@ -100,6 +100,11 @@ mod tests {
     fn empty_snapshot() -> SessionSnapshot {
         SessionSnapshot {
             version: SNAPSHOT_VERSION,
+            groups: vec![crate::persist::snapshot::GroupSnapshot {
+                id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
+                name: "Default".to_string(),
+            }],
+            active_group: 0,
             workspaces: vec![],
             active: None,
             selected: 0,

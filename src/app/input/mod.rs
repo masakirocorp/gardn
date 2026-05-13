@@ -276,6 +276,8 @@ fn numbered_lines_bytes(count: usize) -> Vec<u8> {
 #[cfg(test)]
 fn capture_snapshot(state: &AppState) -> crate::persist::SessionSnapshot {
     crate::persist::capture(
+        &state.groups,
+        state.active_group,
         &state.workspaces,
         state.active,
         state.selected,

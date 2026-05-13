@@ -57,6 +57,12 @@ list workspaces:
 herdr workspace list
 ```
 
+list sidebar groups:
+
+```bash
+herdr group list
+```
+
 ## tab management
 
 list tabs in the current workspace:
@@ -180,6 +186,15 @@ herdr pane run 1-1 "echo hello"
 
 ## workspace management
 
+groups are sidebar filters inside the current session. they do not create separate herdr server sockets.
+
+create and focus a group:
+
+```bash
+herdr group create "client work"
+herdr group focus 2
+```
+
 create a new workspace:
 
 ```bash
@@ -204,6 +219,12 @@ focus a workspace:
 
 ```bash
 herdr workspace focus 2
+```
+
+move a workspace to a group:
+
+```bash
+herdr workspace move-to-group 2 1
 ```
 
 rename:

@@ -164,7 +164,7 @@ fn compute_view_internal(
 
     app.workspace_scroll = app
         .workspace_scroll
-        .min(app.workspaces.len().saturating_sub(1));
+        .min(app.visible_workspace_indices().len().saturating_sub(1));
     if !app.sidebar_collapsed {
         let (_, detail_area) = expanded_sidebar_sections(sidebar_area, app.sidebar_section_split);
         let max_agent_scroll = agent_panel_scroll_metrics(app, detail_area).max_offset_from_bottom;

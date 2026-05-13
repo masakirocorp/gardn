@@ -636,9 +636,14 @@ impl AppState {
                     crate::ui::workspace_list_scroll_metrics(self, self.workspace_list_rect()),
                 ) {
                     self.scroll_workspace_list(-1);
-                } else if self.selected > 0 {
-                    self.selected -= 1;
-                    self.ensure_workspace_visible(self.selected);
+                } else {
+                    let visible = self.visible_workspace_indices();
+                    if let Some(pos) = visible.iter().position(|idx| *idx == self.selected) {
+                        if let Some(prev) = pos.checked_sub(1).and_then(|idx| visible.get(idx)) {
+                            self.selected = *prev;
+                            self.ensure_workspace_visible(self.selected);
+                        }
+                    }
                 }
             }
             MouseEventKind::ScrollDown if in_sidebar => {
@@ -656,9 +661,14 @@ impl AppState {
                     crate::ui::workspace_list_scroll_metrics(self, self.workspace_list_rect()),
                 ) {
                     self.scroll_workspace_list(1);
-                } else if !self.workspaces.is_empty() && self.selected < self.workspaces.len() - 1 {
-                    self.selected += 1;
-                    self.ensure_workspace_visible(self.selected);
+                } else {
+                    let visible = self.visible_workspace_indices();
+                    if let Some(pos) = visible.iter().position(|idx| *idx == self.selected) {
+                        if let Some(next) = visible.get(pos + 1) {
+                            self.selected = *next;
+                            self.ensure_workspace_visible(self.selected);
+                        }
+                    }
                 }
             }
 

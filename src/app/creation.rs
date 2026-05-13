@@ -14,16 +14,21 @@ impl App {
     pub(super) fn workspace_creation_source(&self) -> Option<usize> {
         if self.state.mode == Mode::Navigate
             && self.state.workspaces.get(self.state.selected).is_some()
+            && self.state.workspace_in_active_group(self.state.selected)
         {
             return Some(self.state.selected);
         }
 
-        self.state.active.or_else(|| {
-            self.state
-                .workspaces
-                .get(self.state.selected)
-                .map(|_| self.state.selected)
-        })
+        self.state
+            .active
+            .filter(|idx| self.state.workspace_in_active_group(*idx))
+            .or_else(|| {
+                self.state
+                    .workspaces
+                    .get(self.state.selected)
+                    .filter(|_| self.state.workspace_in_active_group(self.state.selected))
+                    .map(|_| self.state.selected)
+            })
     }
 
     /// Create a workspace with a real PTY (needs event_tx).
@@ -105,7 +110,7 @@ impl App {
         focus: bool,
     ) -> std::io::Result<usize> {
         let (rows, cols) = self.state.estimate_pane_size();
-        let ws = Workspace::new(
+        let mut ws = Workspace::new(
             initial_cwd,
             rows,
             cols,
@@ -115,6 +120,7 @@ impl App {
             self.render_notify.clone(),
             self.render_dirty.clone(),
         )?;
+        ws.group_id = self.state.active_group_id().to_string();
         self.state.workspaces.push(ws);
         let idx = self.state.workspaces.len() - 1;
         let workspace_id = self.state.workspaces[idx].id.clone();
@@ -276,6 +282,7 @@ impl App {
         let (agg_state, seen) = ws.aggregate_state();
         crate::api::schema::WorkspaceInfo {
             workspace_id: self.public_workspace_id(index),
+            group_id: ws.group_id.clone(),
             number: index + 1,
             label: ws.display_name(),
             focused: self.state.active == Some(index),
@@ -285,6 +292,23 @@ impl App {
                 .public_tab_id(index, ws.active_tab)
                 .unwrap_or_else(|| format!("{}:{}", ws.id, ws.active_tab + 1)),
             agent_status: pane_agent_status(agg_state, seen),
+        }
+    }
+
+    pub(super) fn group_info(&self, index: usize) -> crate::api::schema::GroupInfo {
+        let group = &self.state.groups[index];
+        let workspace_count = self
+            .state
+            .workspaces
+            .iter()
+            .filter(|workspace| workspace.group_id == group.id)
+            .count();
+        crate::api::schema::GroupInfo {
+            group_id: group.id.clone(),
+            number: index + 1,
+            name: group.name.clone(),
+            focused: self.state.active_group == index,
+            workspace_count,
         }
     }
 }

@@ -119,9 +119,13 @@ pub(crate) fn mobile_switcher_target_at(
         return Some(MobileSwitcherTarget::NewWorkspace);
     }
     cursor += 1;
-    let spaces_end = cursor + app.workspaces.len() * 2;
+    let visible_workspaces = app.visible_workspace_indices();
+    let spaces_end = cursor + visible_workspaces.len() * 2;
     if doc_row >= cursor && doc_row < spaces_end {
-        return Some(MobileSwitcherTarget::Workspace((doc_row - cursor) / 2));
+        return visible_workspaces
+            .get((doc_row - cursor) / 2)
+            .copied()
+            .map(MobileSwitcherTarget::Workspace);
     }
     cursor = spaces_end;
 
@@ -374,7 +378,7 @@ fn render_close_button(app: &AppState, frame: &mut Frame, area: Rect) {
 }
 
 fn mobile_switcher_content_height(app: &AppState) -> usize {
-    let spaces_h = 2 + app.workspaces.len() * 2;
+    let spaces_h = 2 + app.visible_workspace_indices().len() * 2;
     let tabs_h = app
         .active
         .and_then(|idx| app.workspaces.get(idx))
@@ -426,9 +430,12 @@ fn render_mobile_switcher_content(app: &AppState, frame: &mut Frame, viewport: R
         p,
     );
     doc_y += 1;
-    for (idx, ws) in app.workspaces.iter().enumerate() {
-        let active = Some(idx) == app.active;
-        let selected = idx == app.selected;
+    for ws_idx in app.visible_workspace_indices() {
+        let Some(ws) = app.workspaces.get(ws_idx) else {
+            continue;
+        };
+        let active = Some(ws_idx) == app.active;
+        let selected = ws_idx == app.selected;
         let bg = mobile_item_bg(selected, active, p);
         let (state, seen) = ws.aggregate_state();
         let (dot, dot_style) = state_dot(state, seen, p);

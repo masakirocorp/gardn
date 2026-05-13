@@ -16,6 +16,10 @@ pub struct SessionSnapshot {
     /// Format version — used to detect incompatible changes.
     #[serde(default)]
     pub version: u32,
+    #[serde(default = "default_groups")]
+    pub groups: Vec<GroupSnapshot>,
+    #[serde(default)]
+    pub active_group: usize,
     pub workspaces: Vec<WorkspaceSnapshot>,
     pub active: Option<usize>,
     pub selected: usize,
@@ -33,10 +37,29 @@ pub struct WorkspaceSnapshot {
     pub id: Option<String>,
     #[serde(default)]
     pub custom_name: Option<String>,
+    #[serde(default = "default_group_id")]
+    pub group_id: String,
     pub identity_cwd: PathBuf,
     pub tabs: Vec<TabSnapshot>,
     #[serde(default)]
     pub active_tab: usize,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct GroupSnapshot {
+    pub id: String,
+    pub name: String,
+}
+
+fn default_group_id() -> String {
+    crate::workspace::DEFAULT_GROUP_ID.to_string()
+}
+
+fn default_groups() -> Vec<GroupSnapshot> {
+    vec![GroupSnapshot {
+        id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
+        name: "Default".to_string(),
+    }]
 }
 
 #[derive(Deserialize)]
@@ -105,6 +128,7 @@ impl From<LegacyWorkspaceSnapshot> for WorkspaceSnapshot {
         Self {
             id: None,
             custom_name: snap.custom_name,
+            group_id: default_group_id(),
             identity_cwd,
             tabs: vec![tab],
             active_tab: 0,
@@ -116,6 +140,10 @@ impl From<LegacyWorkspaceSnapshot> for WorkspaceSnapshot {
 struct RawSessionSnapshot {
     #[serde(default)]
     version: u32,
+    #[serde(default = "default_groups")]
+    groups: Vec<GroupSnapshot>,
+    #[serde(default)]
+    active_group: usize,
     #[serde(default)]
     workspaces: Vec<serde_json::Value>,
     #[serde(default)]
@@ -133,6 +161,12 @@ struct RawSessionSnapshot {
 fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> {
     Ok(SessionSnapshot {
         version: raw.version,
+        groups: if raw.groups.is_empty() {
+            default_groups()
+        } else {
+            raw.groups
+        },
+        active_group: raw.active_group,
         workspaces: raw
             .workspaces
             .into_iter()
@@ -194,6 +228,8 @@ fn first_pane_id_in_layout(layout: &LayoutSnapshot) -> Option<u32> {
 
 /// Capture the current app state into a serializable snapshot.
 pub fn capture(
+    groups: &[crate::app::state::Group],
+    active_group: usize,
     workspaces: &[Workspace],
     active: Option<usize>,
     selected: usize,
@@ -203,6 +239,8 @@ pub fn capture(
 ) -> SessionSnapshot {
     SessionSnapshot {
         version: SNAPSHOT_VERSION,
+        groups: groups.iter().map(capture_group).collect(),
+        active_group,
         workspaces: workspaces.iter().map(capture_workspace).collect(),
         active,
         selected,
@@ -212,10 +250,18 @@ pub fn capture(
     }
 }
 
+fn capture_group(group: &crate::app::state::Group) -> GroupSnapshot {
+    GroupSnapshot {
+        id: group.id.clone(),
+        name: group.name.clone(),
+    }
+}
+
 fn capture_workspace(ws: &Workspace) -> WorkspaceSnapshot {
     WorkspaceSnapshot {
         id: Some(ws.id.clone()),
         custom_name: ws.custom_name.clone(),
+        group_id: ws.group_id.clone(),
         identity_cwd: ws
             .resolved_identity_cwd()
             .unwrap_or_else(|| ws.identity_cwd.clone()),
@@ -320,6 +366,8 @@ mod tests {
 
     fn capture_from_state(state: &AppState) -> SessionSnapshot {
         capture(
+            &state.groups,
+            state.active_group,
             &state.workspaces,
             state.active,
             state.selected,
@@ -340,6 +388,8 @@ mod tests {
     fn round_trip_empty_session() {
         let snap = SessionSnapshot {
             version: SNAPSHOT_VERSION,
+            groups: default_groups(),
+            active_group: 0,
             workspaces: vec![],
             active: None,
             selected: 0,
@@ -353,6 +403,26 @@ mod tests {
         assert_eq!(restored.active, None);
         assert_eq!(restored.sidebar_width, Some(26));
         assert_eq!(restored.sidebar_section_split, Some(0.5));
+    }
+
+    #[test]
+    fn round_trip_groups_and_workspace_membership() {
+        let mut state = state_with_workspaces(&["one", "two"]);
+        let group_id = crate::app::state::generate_group_id();
+        state.groups.push(crate::app::state::Group {
+            id: group_id.clone(),
+            name: "Side".to_string(),
+        });
+        state.active_group = 1;
+        state.workspaces[1].group_id = group_id.clone();
+
+        let json = serde_json::to_string(&capture_from_state(&state)).unwrap();
+        let restored = parse_snapshot(&json).unwrap();
+
+        assert_eq!(restored.groups.len(), 2);
+        assert_eq!(restored.groups[1].name, "Side");
+        assert_eq!(restored.active_group, 1);
+        assert_eq!(restored.workspaces[1].group_id, group_id);
     }
 
     #[test]
@@ -396,9 +466,12 @@ mod tests {
         );
 
         let snap = SessionSnapshot {
+            groups: default_groups(),
+            active_group: 0,
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("wproj".to_string()),
                 custom_name: Some("pi-mono".to_string()),
+                group_id: default_group_id(),
                 identity_cwd: PathBuf::from("/home/can/Projects/herdr"),
                 tabs: vec![TabSnapshot {
                     custom_name: Some("api".to_string()),
@@ -715,9 +788,12 @@ mod tests {
 
         let snap = SessionSnapshot {
             version: SNAPSHOT_VERSION,
+            groups: default_groups(),
+            active_group: 0,
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("test-ws".to_string()),
                 custom_name: Some("fallback test".to_string()),
+                group_id: default_group_id(),
                 identity_cwd: PathBuf::from("/tmp"),
                 tabs: vec![TabSnapshot {
                     custom_name: None,

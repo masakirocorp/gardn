@@ -66,7 +66,7 @@ pub(crate) fn sidebar_section_divider_rect(area: Rect, split_ratio: f32) -> Rect
 }
 
 fn agent_panel_current_workspace_idx(app: &AppState) -> Option<usize> {
-    if matches!(
+    let idx = if matches!(
         app.mode,
         Mode::Navigate
             | Mode::RenameWorkspace
@@ -81,7 +81,8 @@ fn agent_panel_current_workspace_idx(app: &AppState) -> Option<usize> {
         Some(app.selected)
     } else {
         app.active
-    }
+    }?;
+    app.workspace_in_active_group(idx).then_some(idx)
 }
 
 fn agent_panel_toggle_label(scope: AgentPanelScope) -> &'static str {
@@ -130,9 +131,9 @@ pub(crate) fn agent_panel_entries(app: &AppState) -> Vec<AgentPanelEntry> {
                 .collect()
         }
         AgentPanelScope::AllWorkspaces => app
-            .workspaces
-            .iter()
-            .enumerate()
+            .visible_workspace_indices()
+            .into_iter()
+            .filter_map(|ws_idx| app.workspaces.get(ws_idx).map(|ws| (ws_idx, ws)))
             .flat_map(|(ws_idx, ws)| {
                 let multi_tab = ws.tabs.len() > 1;
                 let workspace_label = ws.display_name();
@@ -245,7 +246,10 @@ fn workspace_list_visible_count(app: &AppState, area: Rect, scroll: usize) -> us
 
     let mut used_rows = 0u16;
     let mut visible = 0usize;
-    for ws in app.workspaces.iter().skip(scroll) {
+    for ws_idx in app.visible_workspace_indices().into_iter().skip(scroll) {
+        let Some(ws) = app.workspaces.get(ws_idx) else {
+            continue;
+        };
         let needed = workspace_row_height(ws).saturating_add(1);
         if used_rows.saturating_add(needed) > body.height {
             break;
@@ -261,7 +265,7 @@ pub(crate) fn workspace_list_scroll_metrics(
     area: Rect,
 ) -> crate::pane::ScrollMetrics {
     let viewport_rows = workspace_list_visible_count(app, area, app.workspace_scroll);
-    let total_rows = app.workspaces.len();
+    let total_rows = app.visible_workspace_indices().len();
     let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
     let offset_from_bottom = total_rows
         .saturating_sub(app.workspace_scroll)
@@ -359,7 +363,14 @@ pub(crate) fn compute_workspace_card_areas(
     let body_bottom = body.y + body.height;
     let mut cards = Vec::new();
 
-    for (ws_idx, ws) in app.workspaces.iter().enumerate().skip(app.workspace_scroll) {
+    for ws_idx in app
+        .visible_workspace_indices()
+        .into_iter()
+        .skip(app.workspace_scroll)
+    {
+        let Some(ws) = app.workspaces.get(ws_idx) else {
+            continue;
+        };
         let row_height = workspace_row_height(ws);
         if row_y.saturating_add(row_height).saturating_add(1) > body_bottom {
             break;
@@ -421,15 +432,18 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         return;
     }
 
-    for (visible_idx, ws) in app.workspaces.iter().enumerate() {
+    for (visible_idx, ws_idx) in app.visible_workspace_indices().into_iter().enumerate() {
+        let Some(ws) = app.workspaces.get(ws_idx) else {
+            continue;
+        };
         let y = ws_area.y + visible_idx as u16;
         if y >= ws_area.y + ws_area.height {
             break;
         }
         let (agg_state, agg_seen) = ws.aggregate_state();
         let (icon, icon_style) = state_dot(agg_state, agg_seen, p);
-        let is_selected = visible_idx == app.selected && is_navigating;
-        let is_active = Some(visible_idx) == app.active;
+        let is_selected = ws_idx == app.selected && is_navigating;
+        let is_active = Some(ws_idx) == app.active;
         let row_style = if is_selected {
             Style::default().bg(p.surface0)
         } else if is_active {
@@ -584,6 +598,15 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
                 Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
             )])),
             Rect::new(area.x, area.y, area.width, 1),
+        );
+    }
+    if area.height > 1 {
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![Span::styled(
+                format!(" group: {}", app.active_group_name()),
+                Style::default().fg(p.overlay0),
+            )])),
+            Rect::new(area.x, area.y + 1, area.width, 1),
         );
     }
 

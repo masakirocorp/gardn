@@ -41,6 +41,15 @@ impl App {
             .or_else(|| id.parse::<usize>().ok()?.checked_sub(1))
     }
 
+    pub(super) fn parse_group_id(&self, id: &str) -> Option<usize> {
+        self.state
+            .groups
+            .iter()
+            .position(|group| group.id == id)
+            .or_else(|| id.strip_prefix("g_")?.parse::<usize>().ok()?.checked_sub(1))
+            .or_else(|| id.parse::<usize>().ok()?.checked_sub(1))
+    }
+
     pub(super) fn parse_tab_id(&self, id: &str) -> Option<(usize, usize)> {
         if let Some(rest) = id.strip_prefix("t_") {
             let (ws_raw, tab_raw) = rest.rsplit_once('_')?;

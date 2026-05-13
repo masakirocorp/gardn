@@ -84,7 +84,8 @@ impl AppState {
             let Some(last) = cards.last() else {
                 break;
             };
-            if last.ws_idx + 1 >= self.workspaces.len() {
+            let visible = self.visible_workspace_indices();
+            if visible.last().is_some_and(|idx| *idx == last.ws_idx) {
                 break;
             }
             self.workspace_scroll = self.workspace_scroll.saturating_add(1);
@@ -305,7 +306,7 @@ impl AppState {
         }
 
         let idx = (row - ws_area.y) as usize;
-        (idx < self.workspaces.len()).then_some(idx)
+        self.visible_workspace_indices().get(idx).copied()
     }
 
     fn collapsed_detail_workspace_idx(&self) -> Option<usize> {

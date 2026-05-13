@@ -16,6 +16,16 @@ pub enum Method {
     ServerStop(EmptyParams),
     #[serde(rename = "server.reload_config")]
     ServerReloadConfig(EmptyParams),
+    #[serde(rename = "group.create")]
+    GroupCreate(GroupCreateParams),
+    #[serde(rename = "group.list")]
+    GroupList(EmptyParams),
+    #[serde(rename = "group.focus")]
+    GroupFocus(GroupTarget),
+    #[serde(rename = "group.rename")]
+    GroupRename(GroupRenameParams),
+    #[serde(rename = "group.delete")]
+    GroupDelete(GroupTarget),
     #[serde(rename = "workspace.create")]
     WorkspaceCreate(WorkspaceCreateParams),
     #[serde(rename = "workspace.list")]
@@ -28,6 +38,8 @@ pub enum Method {
     WorkspaceRename(WorkspaceRenameParams),
     #[serde(rename = "workspace.close")]
     WorkspaceClose(WorkspaceTarget),
+    #[serde(rename = "workspace.move_to_group")]
+    WorkspaceMoveToGroup(WorkspaceMoveToGroupParams),
     #[serde(rename = "tab.create")]
     TabCreate(TabCreateParams),
     #[serde(rename = "tab.list")]
@@ -88,6 +100,11 @@ pub struct WorkspaceTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupTarget {
+    pub group_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaneTarget {
     pub pane_id: String,
 }
@@ -105,6 +122,23 @@ pub struct WorkspaceCreateParams {
     pub focus: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupCreateParams {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupRenameParams {
+    pub group_id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceMoveToGroupParams {
+    pub workspace_id: String,
+    pub group_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -466,6 +500,12 @@ pub enum ResponseResult {
     WorkspaceList {
         workspaces: Vec<WorkspaceInfo>,
     },
+    GroupInfo {
+        group: GroupInfo,
+    },
+    GroupList {
+        groups: Vec<GroupInfo>,
+    },
     TabInfo {
         tab: TabInfo,
     },
@@ -513,6 +553,7 @@ pub enum ResponseResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceInfo {
     pub workspace_id: String,
+    pub group_id: String,
     pub number: usize,
     pub label: String,
     pub focused: bool,
@@ -520,6 +561,15 @@ pub struct WorkspaceInfo {
     pub tab_count: usize,
     pub active_tab_id: String,
     pub agent_status: AgentStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupInfo {
+    pub group_id: String,
+    pub number: usize,
+    pub name: String,
+    pub focused: bool,
+    pub workspace_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

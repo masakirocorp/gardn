@@ -24,6 +24,8 @@ pub use self::{
     tab::Tab,
 };
 
+pub const DEFAULT_GROUP_ID: &str = "default";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceGitStatus {
     pub workspace_id: String,
@@ -49,6 +51,8 @@ pub struct Workspace {
     pub id: String,
     /// User-provided override. If set, auto-derived identity stops updating.
     pub custom_name: Option<String>,
+    /// Sidebar group this workspace belongs to.
+    pub group_id: String,
     /// Fallback workspace identity source for tests, old snapshots, or missing runtimes.
     pub identity_cwd: PathBuf,
     /// Cached current git branch for the workspace repo.
@@ -106,6 +110,7 @@ impl Workspace {
         Ok(Self {
             id: generate_workspace_id(),
             custom_name: None,
+            group_id: DEFAULT_GROUP_ID.to_string(),
             identity_cwd: initial_cwd.clone(),
             cached_git_branch: git_branch(&initial_cwd),
             cached_git_ahead_behind: None,
@@ -515,6 +520,7 @@ impl Workspace {
         Self {
             id: generate_workspace_id(),
             custom_name: Some(name.to_string()),
+            group_id: DEFAULT_GROUP_ID.to_string(),
             identity_cwd: identity_cwd.clone(),
             cached_git_branch: git_branch(&identity_cwd),
             cached_git_ahead_behind: None,

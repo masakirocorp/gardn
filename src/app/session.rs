@@ -22,10 +22,16 @@ impl App {
             return;
         }
 
-        if self.state.workspaces.is_empty() {
+        let has_only_default_group = self.state.groups.len() == 1
+            && self.state.active_group == 0
+            && self.state.groups[0].id == crate::workspace::DEFAULT_GROUP_ID
+            && self.state.groups[0].name == "Default";
+        if self.state.workspaces.is_empty() && has_only_default_group {
             crate::persist::clear();
         } else {
             let snap = crate::persist::capture(
+                &self.state.groups,
+                self.state.active_group,
                 &self.state.workspaces,
                 self.state.active,
                 self.state.selected,

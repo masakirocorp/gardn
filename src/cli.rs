@@ -6,11 +6,12 @@ use serde::Serialize;
 
 use crate::api;
 use crate::api::schema::{
-    AgentStatus, EmptyParams, IntegrationTarget, Method, OutputMatch, PaneListParams,
-    PaneReadParams, PaneRenameParams, PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams,
-    PaneSplitParams, PaneTarget, PaneWaitForOutputParams, PingParams, ReadFormat, ReadSource,
-    Request, SplitDirection, Subscription, TabCreateParams, TabListParams, TabRenameParams,
-    TabTarget, WorkspaceCreateParams, WorkspaceRenameParams, WorkspaceTarget,
+    AgentStatus, EmptyParams, GroupCreateParams, GroupRenameParams, GroupTarget, IntegrationTarget,
+    Method, OutputMatch, PaneListParams, PaneReadParams, PaneRenameParams, PaneSendInputParams,
+    PaneSendKeysParams, PaneSendTextParams, PaneSplitParams, PaneTarget, PaneWaitForOutputParams,
+    PingParams, ReadFormat, ReadSource, Request, SplitDirection, Subscription, TabCreateParams,
+    TabListParams, TabRenameParams, TabTarget, WorkspaceCreateParams, WorkspaceMoveToGroupParams,
+    WorkspaceRenameParams, WorkspaceTarget,
 };
 
 pub enum CommandOutcome {
@@ -31,6 +32,7 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
             exit_code
         }
         "status" => run_status_command(&args[2..])?,
+        "group" => run_group_command(&args[2..])?,
         "workspace" => run_workspace_command(&args[2..])?,
         "tab" => run_tab_command(&args[2..])?,
         "pane" => run_pane_command(&args[2..])?,
@@ -228,6 +230,7 @@ fn run_workspace_command(args: &[String]) -> std::io::Result<i32> {
         "get" => workspace_get(&args[1..]),
         "focus" => workspace_focus(&args[1..]),
         "rename" => workspace_rename(&args[1..]),
+        "move-to-group" => workspace_move_to_group(&args[1..]),
         "close" => workspace_close(&args[1..]),
         "help" | "--help" | "-h" => {
             print_workspace_help();
@@ -235,6 +238,29 @@ fn run_workspace_command(args: &[String]) -> std::io::Result<i32> {
         }
         _ => {
             print_workspace_help();
+            Ok(2)
+        }
+    }
+}
+
+fn run_group_command(args: &[String]) -> std::io::Result<i32> {
+    let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
+        print_group_help();
+        return Ok(2);
+    };
+
+    match subcommand {
+        "list" => group_list(&args[1..]),
+        "create" => group_create(&args[1..]),
+        "focus" | "switch" => group_focus(&args[1..]),
+        "rename" => group_rename(&args[1..]),
+        "delete" => group_delete(&args[1..]),
+        "help" | "--help" | "-h" => {
+            print_group_help();
+            Ok(0)
+        }
+        _ => {
+            print_group_help();
             Ok(2)
         }
     }
@@ -475,6 +501,83 @@ fn workspace_list(args: &[String]) -> std::io::Result<i32> {
     })?)
 }
 
+fn group_list(args: &[String]) -> std::io::Result<i32> {
+    if !args.is_empty() {
+        eprintln!("usage: herdr group list");
+        return Ok(2);
+    }
+
+    print_response(&send_request(&Request {
+        id: "cli:group:list".into(),
+        method: Method::GroupList(EmptyParams::default()),
+    })?)
+}
+
+fn group_create(args: &[String]) -> std::io::Result<i32> {
+    if args.is_empty() {
+        eprintln!("usage: herdr group create <name>");
+        return Ok(2);
+    }
+
+    print_response(&send_request(&Request {
+        id: "cli:group:create".into(),
+        method: Method::GroupCreate(GroupCreateParams {
+            name: args.join(" "),
+        }),
+    })?)
+}
+
+fn group_focus(args: &[String]) -> std::io::Result<i32> {
+    let Some(raw_group_id) = args.first() else {
+        eprintln!("usage: herdr group focus <group_id>");
+        return Ok(2);
+    };
+    if args.len() != 1 {
+        eprintln!("usage: herdr group focus <group_id>");
+        return Ok(2);
+    }
+
+    print_response(&send_request(&Request {
+        id: "cli:group:focus".into(),
+        method: Method::GroupFocus(GroupTarget {
+            group_id: normalize_group_id(raw_group_id),
+        }),
+    })?)
+}
+
+fn group_rename(args: &[String]) -> std::io::Result<i32> {
+    if args.len() < 2 {
+        eprintln!("usage: herdr group rename <group_id> <name>");
+        return Ok(2);
+    }
+
+    print_response(&send_request(&Request {
+        id: "cli:group:rename".into(),
+        method: Method::GroupRename(GroupRenameParams {
+            group_id: normalize_group_id(&args[0]),
+            name: args[1..].join(" "),
+        }),
+    })?)
+}
+
+fn group_delete(args: &[String]) -> std::io::Result<i32> {
+    let Some(raw_group_id) = args.first() else {
+        eprintln!("usage: herdr group delete <group_id>");
+        return Ok(2);
+    };
+    if args.len() != 1 {
+        eprintln!("usage: herdr group delete <group_id>");
+        return Ok(2);
+    }
+
+    print_response(&send_request(&Request {
+        id: "cli:group:delete".into(),
+        method: Method::GroupDelete(GroupTarget {
+            group_id: normalize_group_id(raw_group_id),
+        }),
+    })?)
+}
+
 fn workspace_create(args: &[String]) -> std::io::Result<i32> {
     let mut cwd = None;
     let mut focus = false;
@@ -567,6 +670,21 @@ fn workspace_rename(args: &[String]) -> std::io::Result<i32> {
         method: Method::WorkspaceRename(WorkspaceRenameParams {
             workspace_id: normalize_workspace_id(&args[0]),
             label: args[1..].join(" "),
+        }),
+    })?)
+}
+
+fn workspace_move_to_group(args: &[String]) -> std::io::Result<i32> {
+    if args.len() != 2 {
+        eprintln!("usage: herdr workspace move-to-group <workspace_id> <group_id>");
+        return Ok(2);
+    }
+
+    print_response(&send_request(&Request {
+        id: "cli:workspace:move-to-group".into(),
+        method: Method::WorkspaceMoveToGroup(WorkspaceMoveToGroupParams {
+            workspace_id: normalize_workspace_id(&args[0]),
+            group_id: normalize_group_id(&args[1]),
         }),
     })?)
 }
@@ -1356,6 +1474,10 @@ fn normalize_workspace_id(value: &str) -> String {
     value.to_string()
 }
 
+fn normalize_group_id(value: &str) -> String {
+    value.to_string()
+}
+
 fn normalize_tab_id(value: &str) -> String {
     value.to_string()
 }
@@ -1503,7 +1625,18 @@ fn print_workspace_help() {
     eprintln!("  herdr workspace get <workspace_id>");
     eprintln!("  herdr workspace focus <workspace_id>");
     eprintln!("  herdr workspace rename <workspace_id> <label>");
+    eprintln!("  herdr workspace move-to-group <workspace_id> <group_id>");
     eprintln!("  herdr workspace close <workspace_id>");
+}
+
+fn print_group_help() {
+    eprintln!("herdr group commands:");
+    eprintln!("  herdr group list");
+    eprintln!("  herdr group create <name>");
+    eprintln!("  herdr group focus <group_id>");
+    eprintln!("  herdr group switch <group_id>");
+    eprintln!("  herdr group rename <group_id> <name>");
+    eprintln!("  herdr group delete <group_id>");
 }
 
 fn print_tab_help() {

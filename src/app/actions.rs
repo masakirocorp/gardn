@@ -9,7 +9,7 @@ use crate::layout::{find_in_direction, NavDirection, PaneId};
 use crate::pane::EffectiveStateChange;
 use crate::workspace::WorkspaceGitStatus;
 
-use super::state::{AppState, Mode, ToastKind, ToastNotification, ToastTarget, ViewLayout};
+use super::state::{AppState, Group, Mode, ToastKind, ToastNotification, ToastTarget, ViewLayout};
 
 fn is_background_completion_transition(prev_state: AgentState, new_state: AgentState) -> bool {
     matches!(new_state, AgentState::Idle)
@@ -98,6 +98,100 @@ pub struct PaneStateUpdate {
 // ---------------------------------------------------------------------------
 
 impl AppState {
+    fn group_index_for_id(&self, group_id: &str) -> Option<usize> {
+        self.groups.iter().position(|group| group.id == group_id)
+    }
+
+    fn switch_to_group_index(&mut self, group_idx: usize) {
+        if group_idx >= self.groups.len() {
+            return;
+        }
+
+        self.active_group = group_idx;
+        self.select_first_visible_workspace();
+        self.mark_session_dirty();
+    }
+
+    fn select_first_visible_workspace(&mut self) {
+        self.workspace_scroll = 0;
+        self.agent_panel_scroll = 0;
+        self.active = self.first_visible_workspace();
+        self.selected = self.active.unwrap_or(0);
+        self.tab_scroll_follow_active = true;
+        if self.active.is_none() {
+            self.tab_scroll = 0;
+            if self.mode == Mode::Terminal {
+                self.mode = Mode::Navigate;
+            }
+        }
+        self.refresh_tab_bar_view();
+    }
+
+    pub fn switch_group(&mut self, group_idx: usize) {
+        self.switch_to_group_index(group_idx);
+    }
+
+    pub fn create_group(&mut self, name: String) -> usize {
+        self.groups.push(Group {
+            id: super::state::generate_group_id(),
+            name,
+        });
+        self.mark_session_dirty();
+        self.groups.len() - 1
+    }
+
+    pub fn rename_group(&mut self, group_idx: usize, name: String) -> bool {
+        let Some(group) = self.groups.get_mut(group_idx) else {
+            return false;
+        };
+        group.name = name;
+        self.mark_session_dirty();
+        true
+    }
+
+    pub fn delete_group(&mut self, group_idx: usize) -> Result<(), &'static str> {
+        if self.groups.len() <= 1 {
+            return Err("cannot delete the last group");
+        }
+        let Some(group) = self.groups.get(group_idx) else {
+            return Err("group not found");
+        };
+        if self
+            .workspaces
+            .iter()
+            .any(|workspace| workspace.group_id == group.id)
+        {
+            return Err("group is not empty");
+        }
+
+        let deleting_active = self.active_group == group_idx;
+        self.groups.remove(group_idx);
+        if deleting_active {
+            self.active_group = self.active_group.min(self.groups.len().saturating_sub(1));
+            self.select_first_visible_workspace();
+        } else if self.active_group > group_idx {
+            self.active_group = self.active_group.saturating_sub(1);
+        }
+        self.mark_session_dirty();
+        Ok(())
+    }
+
+    pub fn move_workspace_to_group(&mut self, ws_idx: usize, group_idx: usize) -> bool {
+        let was_active = self.active == Some(ws_idx);
+        let Some(group_id) = self.groups.get(group_idx).map(|group| group.id.clone()) else {
+            return false;
+        };
+        let Some(workspace) = self.workspaces.get_mut(ws_idx) else {
+            return false;
+        };
+        workspace.group_id = group_id;
+        self.mark_session_dirty();
+        if was_active && !self.workspace_in_active_group(ws_idx) {
+            self.select_first_visible_workspace();
+        }
+        true
+    }
+
     pub(crate) fn pane_is_in_active_tab(&self, ws_idx: usize, pane_id: PaneId) -> bool {
         let Some(active_ws_idx) = self.active else {
             return false;
@@ -112,6 +206,10 @@ impl AppState {
 
     pub fn switch_workspace(&mut self, idx: usize) {
         if idx < self.workspaces.len() {
+            let group_id = self.workspaces[idx].group_id.clone();
+            if let Some(group_idx) = self.group_index_for_id(&group_id) {
+                self.active_group = group_idx;
+            }
             self.active = Some(idx);
             self.selected = idx;
             let workspace_id = self.workspaces[idx].id.clone();
@@ -149,19 +247,40 @@ impl AppState {
             return;
         }
 
+        let visible = self.visible_workspace_indices();
+        let Some(target_pos) = visible.iter().position(|visible_idx| *visible_idx == idx) else {
+            return;
+        };
+
         let mut cards = crate::ui::compute_workspace_card_areas(self, self.view.sidebar_rect);
         if cards.is_empty() {
-            self.workspace_scroll = idx;
+            self.workspace_scroll = target_pos;
             return;
         }
 
-        let first_idx = cards.first().map(|card| card.ws_idx).unwrap_or(0);
-        if idx < first_idx {
-            self.workspace_scroll = idx;
+        let first_pos = cards
+            .first()
+            .and_then(|card| {
+                visible
+                    .iter()
+                    .position(|visible_idx| *visible_idx == card.ws_idx)
+            })
+            .unwrap_or(0);
+        if target_pos < first_pos {
+            self.workspace_scroll = target_pos;
             return;
         }
 
-        while cards.last().map(|card| card.ws_idx).unwrap_or(idx) < idx {
+        while cards
+            .last()
+            .and_then(|card| {
+                visible
+                    .iter()
+                    .position(|visible_idx| *visible_idx == card.ws_idx)
+            })
+            .unwrap_or(target_pos)
+            < target_pos
+        {
             let previous_scroll = self.workspace_scroll;
             self.workspace_scroll = self.workspace_scroll.saturating_add(1);
             if self.workspace_scroll == previous_scroll {
@@ -180,7 +299,11 @@ impl AppState {
             return;
         }
 
-        let row_range = crate::ui::mobile_switcher_workspace_doc_range(idx);
+        let visible = self.visible_workspace_indices();
+        let Some(visible_idx) = visible.iter().position(|ws_idx| *ws_idx == idx) else {
+            return;
+        };
+        let row_range = crate::ui::mobile_switcher_workspace_doc_range(visible_idx);
         let visible_start = self.mobile_switcher_scroll;
         let visible_end = visible_start.saturating_add(viewport.height as usize);
         if row_range.start < visible_start {
@@ -231,20 +354,24 @@ impl AppState {
     }
 
     pub fn next_workspace(&mut self) {
-        if !self.workspaces.is_empty() {
+        let visible = self.visible_workspace_indices();
+        if !visible.is_empty() {
             let current = self.active.unwrap_or(self.selected);
-            let next = (current + 1) % self.workspaces.len();
+            let current_pos = visible.iter().position(|idx| *idx == current).unwrap_or(0);
+            let next = visible[(current_pos + 1) % visible.len()];
             self.switch_workspace(next);
         }
     }
 
     pub fn previous_workspace(&mut self) {
-        if !self.workspaces.is_empty() {
+        let visible = self.visible_workspace_indices();
+        if !visible.is_empty() {
             let current = self.active.unwrap_or(self.selected);
-            let prev = if current == 0 {
-                self.workspaces.len() - 1
+            let current_pos = visible.iter().position(|idx| *idx == current).unwrap_or(0);
+            let prev = if current_pos == 0 {
+                visible[visible.len() - 1]
             } else {
-                current - 1
+                visible[current_pos - 1]
             };
             self.switch_workspace(prev);
         }
@@ -402,6 +529,7 @@ impl AppState {
             return;
         }
         self.mark_session_dirty();
+        let closed_idx = self.selected;
         let workspace_id = self.workspaces[self.selected].id.clone();
         crate::logging::workspace_closed(&workspace_id);
         self.workspaces.remove(self.selected);
@@ -412,16 +540,20 @@ impl AppState {
             self.tab_scroll = 0;
             self.tab_scroll_follow_active = true;
         } else {
-            if self.selected >= self.workspaces.len() {
-                self.selected = self.workspaces.len() - 1;
+            let visible = self.visible_workspace_indices();
+            let target = visible
+                .iter()
+                .copied()
+                .find(|idx| *idx >= closed_idx)
+                .or_else(|| visible.last().copied());
+            self.active = target;
+            self.selected = target.unwrap_or(0);
+            if self.active.is_none() && self.mode == Mode::Terminal {
+                self.mode = Mode::Navigate;
             }
-            self.active = Some(self.selected);
-            self.workspace_scroll = self
-                .workspace_scroll
-                .min(self.workspaces.len().saturating_sub(1));
-            self.ensure_workspace_visible(self.selected);
             self.tab_scroll_follow_active = true;
             self.refresh_tab_bar_view();
+            self.ensure_workspace_visible(self.selected);
         }
     }
 
@@ -867,6 +999,38 @@ mod tests {
             state.mode = Mode::Terminal;
         }
         state
+    }
+
+    #[test]
+    fn visible_workspace_indices_only_include_active_group() {
+        let mut state = app_with_workspaces(&["one", "two", "three"]);
+        let side_group = state.create_group("Side".to_string());
+        state.move_workspace_to_group(1, side_group);
+
+        assert_eq!(state.visible_workspace_indices(), vec![0, 2]);
+
+        state.switch_group(side_group);
+
+        assert_eq!(state.visible_workspace_indices(), vec![1]);
+        assert_eq!(state.active, Some(1));
+        assert_eq!(state.selected, 1);
+    }
+
+    #[test]
+    fn workspace_navigation_stays_inside_active_group() {
+        let mut state = app_with_workspaces(&["one", "two", "three"]);
+        let side_group = state.create_group("Side".to_string());
+        state.move_workspace_to_group(1, side_group);
+        state.switch_workspace(0);
+
+        state.next_workspace();
+        assert_eq!(state.active, Some(2));
+
+        state.next_workspace();
+        assert_eq!(state.active, Some(0));
+
+        state.previous_workspace();
+        assert_eq!(state.active, Some(2));
     }
 
     #[test]

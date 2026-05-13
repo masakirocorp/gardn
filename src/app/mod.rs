@@ -187,6 +187,20 @@ fn resolve_palette_with_legacy_accent(
     palette
 }
 
+fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Group> {
+    if snap.groups.is_empty() {
+        return vec![state::Group::default_group()];
+    }
+
+    snap.groups
+        .iter()
+        .map(|group| state::Group {
+            id: group.id.clone(),
+            name: group.name.clone(),
+        })
+        .collect()
+}
+
 impl App {
     pub fn new(
         config: &Config,
@@ -204,6 +218,8 @@ impl App {
 
         // Try to restore previous session
         let (
+            groups,
+            active_group,
             workspaces,
             active,
             selected,
@@ -213,6 +229,8 @@ impl App {
             sidebar_section_split,
         ) = if no_session {
             (
+                vec![state::Group::default_group()],
+                0,
                 Vec::new(),
                 None,
                 0,
@@ -234,6 +252,8 @@ impl App {
             if ws.is_empty() {
                 crate::logging::session_restored(0, "empty");
                 (
+                    groups_from_snapshot(&snap),
+                    snap.active_group,
                     Vec::new(),
                     None,
                     0,
@@ -251,6 +271,8 @@ impl App {
                 let active = snap.active.filter(|&i| i < ws.len());
                 let selected = snap.selected.min(ws.len().saturating_sub(1));
                 (
+                    groups_from_snapshot(&snap),
+                    snap.active_group,
                     ws,
                     active,
                     selected,
@@ -266,6 +288,8 @@ impl App {
             }
         } else {
             (
+                vec![state::Group::default_group()],
+                0,
                 Vec::new(),
                 None,
                 0,
@@ -277,6 +301,7 @@ impl App {
         };
 
         let agent_panel_scope = agent_panel_scope_from_config(config.ui.agent_panel_scope);
+        let active_group = active_group.min(groups.len().saturating_sub(1));
 
         info!(
             pane_scrollback_limit_bytes = config.advanced.scrollback_limit_bytes,
@@ -301,6 +326,8 @@ impl App {
         };
 
         let mut state = AppState {
+            groups,
+            active_group,
             workspaces,
             active,
             selected,
@@ -397,6 +424,17 @@ impl App {
 
         for ws in &mut state.workspaces {
             ws.refresh_git_branch();
+        }
+
+        if state
+            .active
+            .is_some_and(|idx| !state.workspace_in_active_group(idx))
+        {
+            state.active = state.first_visible_workspace();
+            state.selected = state.active.unwrap_or(0);
+            if state.active.is_none() && state.mode == state::Mode::Terminal {
+                state.mode = state::Mode::Navigate;
+            }
         }
 
         // Background auto-update is disabled in monolithic no-session mode

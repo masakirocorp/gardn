@@ -31,10 +31,15 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
     matches!(
         &request.method,
         Method::ServerReloadConfig(_)
+            | Method::GroupCreate(_)
+            | Method::GroupFocus(_)
+            | Method::GroupRename(_)
+            | Method::GroupDelete(_)
             | Method::WorkspaceCreate(_)
             | Method::WorkspaceFocus(_)
             | Method::WorkspaceRename(_)
             | Method::WorkspaceClose(_)
+            | Method::WorkspaceMoveToGroup(_)
             | Method::TabCreate(_)
             | Method::TabFocus(_)
             | Method::TabRename(_)
@@ -387,12 +392,18 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::Ping(_) => "ping",
         Method::ServerStop(_) => "server.stop",
         Method::ServerReloadConfig(_) => "server.reload_config",
+        Method::GroupCreate(_) => "group.create",
+        Method::GroupList(_) => "group.list",
+        Method::GroupFocus(_) => "group.focus",
+        Method::GroupRename(_) => "group.rename",
+        Method::GroupDelete(_) => "group.delete",
         Method::WorkspaceCreate(_) => "workspace.create",
         Method::WorkspaceList(_) => "workspace.list",
         Method::WorkspaceGet(_) => "workspace.get",
         Method::WorkspaceFocus(_) => "workspace.focus",
         Method::WorkspaceRename(_) => "workspace.rename",
         Method::WorkspaceClose(_) => "workspace.close",
+        Method::WorkspaceMoveToGroup(_) => "workspace.move_to_group",
         Method::TabCreate(_) => "tab.create",
         Method::TabList(_) => "tab.list",
         Method::TabGet(_) => "tab.get",

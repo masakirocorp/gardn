@@ -128,6 +128,7 @@ not a gui window, not a web dashboard, not electron. herdr runs inside whatever 
 ## what you get
 
 - **workspaces** — organized around git repos or folder names, each with its own tabs and panes
+- **groups** — Arc-style sidebar filters for sets of workspaces inside one session
 - **tabs** — first-class in the socket api and cli
 - **mouse-native** — click panes/tabs/workspaces/agents, drag borders, select text to copy, right-click menus; not keyboard-only
 - **notifications** — sounds and toasts for background events; tab-aware suppression

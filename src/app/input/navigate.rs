@@ -287,7 +287,7 @@ pub(super) fn handle_navigate_reserved_key(state: &mut AppState, key: KeyEvent) 
             true
         }
         KeyCode::Enter => {
-            if !state.workspaces.is_empty() {
+            if state.workspace_in_active_group(state.selected) {
                 state.switch_workspace(state.selected);
                 leave_navigate_mode(state);
             }
@@ -295,8 +295,8 @@ pub(super) fn handle_navigate_reserved_key(state: &mut AppState, key: KeyEvent) 
         }
         KeyCode::Char(c @ '1'..='9') => {
             let idx = (c as usize) - ('1' as usize);
-            if idx < state.workspaces.len() {
-                state.switch_workspace(idx);
+            if let Some(ws_idx) = state.visible_workspace_indices().get(idx).copied() {
+                state.switch_workspace(ws_idx);
                 leave_navigate_mode(state);
             }
             true
@@ -310,16 +310,22 @@ pub(super) fn handle_navigate_reserved_key(state: &mut AppState, key: KeyEvent) 
             true
         }
         KeyCode::Up => {
-            if state.selected > 0 {
-                state.selected -= 1;
-                state.ensure_workspace_visible(state.selected);
+            let visible = state.visible_workspace_indices();
+            if let Some(pos) = visible.iter().position(|idx| *idx == state.selected) {
+                if let Some(prev) = pos.checked_sub(1).and_then(|idx| visible.get(idx)) {
+                    state.selected = *prev;
+                    state.ensure_workspace_visible(state.selected);
+                }
             }
             true
         }
         KeyCode::Down => {
-            if !state.workspaces.is_empty() && state.selected < state.workspaces.len() - 1 {
-                state.selected += 1;
-                state.ensure_workspace_visible(state.selected);
+            let visible = state.visible_workspace_indices();
+            if let Some(pos) = visible.iter().position(|idx| *idx == state.selected) {
+                if let Some(next) = visible.get(pos + 1) {
+                    state.selected = *next;
+                    state.ensure_workspace_visible(state.selected);
+                }
             }
             true
         }
@@ -512,12 +518,12 @@ pub(super) fn execute_navigate_action(state: &mut AppState, action: NavigateActi
             leave_navigate_mode(state);
         }
         NavigateAction::RenameWorkspace => {
-            if !state.workspaces.is_empty() {
+            if state.workspace_in_active_group(state.selected) {
                 super::modal::open_rename_workspace(state, state.selected);
             }
         }
         NavigateAction::CloseWorkspace => {
-            if !state.workspaces.is_empty() {
+            if state.workspace_in_active_group(state.selected) {
                 if state.confirm_close {
                     super::modal::open_confirm_close(state);
                 } else {

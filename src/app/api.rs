@@ -310,6 +310,95 @@ impl App {
                     },
                 }
             }
+            Method::GroupList(_) => SuccessResponse {
+                id: request.id,
+                result: ResponseResult::GroupList {
+                    groups: self
+                        .state
+                        .groups
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, _)| self.group_info(idx))
+                        .collect(),
+                },
+            },
+            Method::GroupCreate(params) => {
+                let index = self.state.create_group(params.name);
+                self.schedule_session_save();
+                SuccessResponse {
+                    id: request.id,
+                    result: ResponseResult::GroupInfo {
+                        group: self.group_info(index),
+                    },
+                }
+            }
+            Method::GroupFocus(target) => {
+                let Some(index) = self.parse_group_id(&target.group_id) else {
+                    return serde_json::to_string(&ErrorResponse {
+                        id: request.id,
+                        error: ErrorBody {
+                            code: "group_not_found".into(),
+                            message: format!("group {} not found", target.group_id),
+                        },
+                    })
+                    .unwrap();
+                };
+                self.state.switch_group(index);
+                self.schedule_session_save();
+                SuccessResponse {
+                    id: request.id,
+                    result: ResponseResult::GroupInfo {
+                        group: self.group_info(index),
+                    },
+                }
+            }
+            Method::GroupRename(params) => {
+                let Some(index) = self.parse_group_id(&params.group_id) else {
+                    return serde_json::to_string(&ErrorResponse {
+                        id: request.id,
+                        error: ErrorBody {
+                            code: "group_not_found".into(),
+                            message: format!("group {} not found", params.group_id),
+                        },
+                    })
+                    .unwrap();
+                };
+                self.state.rename_group(index, params.name);
+                self.schedule_session_save();
+                SuccessResponse {
+                    id: request.id,
+                    result: ResponseResult::GroupInfo {
+                        group: self.group_info(index),
+                    },
+                }
+            }
+            Method::GroupDelete(target) => {
+                let Some(index) = self.parse_group_id(&target.group_id) else {
+                    return serde_json::to_string(&ErrorResponse {
+                        id: request.id,
+                        error: ErrorBody {
+                            code: "group_not_found".into(),
+                            message: format!("group {} not found", target.group_id),
+                        },
+                    })
+                    .unwrap();
+                };
+                if let Err(message) = self.state.delete_group(index) {
+                    return serde_json::to_string(&ErrorResponse {
+                        id: request.id,
+                        error: ErrorBody {
+                            code: "group_delete_failed".into(),
+                            message: message.to_string(),
+                        },
+                    })
+                    .unwrap();
+                }
+                self.schedule_session_save();
+                SuccessResponse {
+                    id: request.id,
+                    result: ResponseResult::Ok {},
+                }
+            }
             Method::WorkspaceList(_) => SuccessResponse {
                 id: request.id,
                 result: ResponseResult::WorkspaceList {
@@ -505,6 +594,36 @@ impl App {
                 SuccessResponse {
                     id: request.id,
                     result: ResponseResult::Ok {},
+                }
+            }
+            Method::WorkspaceMoveToGroup(params) => {
+                let Some(ws_idx) = self.parse_workspace_id(&params.workspace_id) else {
+                    return serde_json::to_string(&ErrorResponse {
+                        id: request.id,
+                        error: ErrorBody {
+                            code: "workspace_not_found".into(),
+                            message: format!("workspace {} not found", params.workspace_id),
+                        },
+                    })
+                    .unwrap();
+                };
+                let Some(group_idx) = self.parse_group_id(&params.group_id) else {
+                    return serde_json::to_string(&ErrorResponse {
+                        id: request.id,
+                        error: ErrorBody {
+                            code: "group_not_found".into(),
+                            message: format!("group {} not found", params.group_id),
+                        },
+                    })
+                    .unwrap();
+                };
+                self.state.move_workspace_to_group(ws_idx, group_idx);
+                self.schedule_session_save();
+                SuccessResponse {
+                    id: request.id,
+                    result: ResponseResult::WorkspaceInfo {
+                        workspace: self.workspace_info(ws_idx),
+                    },
                 }
             }
             Method::TabList(TabListParams { workspace_id }) => {

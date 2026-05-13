@@ -96,6 +96,8 @@ that means:
 
 workspace ids are durable for the life of the workspace and survive display reordering. pane numbers are still compact public numbers, so if a pane closes, higher pane numbers in that same workspace compact down.
 
+group ids are opaque ids like `default` or `g64e95948145ed1`. groups filter the sidebar inside one session; they do not create separate server sockets or runtime namespaces.
+
 tabs are first-class socket api objects now.
 
 - tab ids look like `w64e95948145ed1:1`, `w64e95948145ed1:2`
@@ -112,6 +114,7 @@ for backward compatibility, requests also accept the older positional forms like
 ```json
 {
   "workspace_id": "w64e95948145ed1",
+  "group_id": "default",
   "number": 1,
   "label": "herdr",
   "focused": true,
@@ -119,6 +122,18 @@ for backward compatibility, requests also accept the older positional forms like
   "tab_count": 1,
   "active_tab_id": "w64e95948145ed1:1",
   "agent_status": "unknown"
+}
+```
+
+`group_info` responses contain objects like:
+
+```json
+{
+  "group_id": "default",
+  "number": 1,
+  "name": "Default",
+  "focused": true,
+  "workspace_count": 2
 }
 ```
 
@@ -191,11 +206,17 @@ for backward compatibility, requests also accept the older positional forms like
 |---|---|---|
 | `ping` | health check / version | `pong` |
 | `server.stop` | gracefully stop the running background server | `ok` |
+| `group.list` | list sidebar groups | `group_list` |
+| `group.create` | create a sidebar group | `group_info` |
+| `group.focus` | focus a sidebar group | `group_info` |
+| `group.rename` | rename a sidebar group | `group_info` |
+| `group.delete` | delete a sidebar group | `ok` |
 | `workspace.list` | list workspaces | `workspace_list` |
 | `workspace.get` | inspect one workspace | `workspace_info` |
 | `workspace.create` | create a workspace | `workspace_info` |
 | `workspace.focus` | focus a workspace | `workspace_info` |
 | `workspace.rename` | rename a workspace | `workspace_info` |
+| `workspace.move_to_group` | move a workspace to a sidebar group | `workspace_info` |
 | `workspace.close` | close a workspace | `ok` |
 | `tab.list` | list tabs, optionally filtered by workspace | `tab_list` |
 | `tab.get` | inspect one tab | `tab_info` |
@@ -233,6 +254,71 @@ request:
 returns `ok` and asks the running background server to shut down cleanly.
 
 this is the explicit server-level shutdown path for persistence mode. normal in-app quit actions detach the current client instead of sending this request.
+
+## group methods
+
+### `group.list`
+
+request:
+
+```json
+{
+  "id": "req_group_list",
+  "method": "group.list",
+  "params": {}
+}
+```
+
+returns `group_list` with zero or more group objects.
+
+### `group.create`
+
+params:
+
+```json
+{
+  "name": "client work"
+}
+```
+
+returns the created group as `group_info`.
+
+### `group.focus`
+
+params:
+
+```json
+{
+  "group_id": "g64e95948145ed1"
+}
+```
+
+returns the focused group as `group_info`. focusing a group filters the sidebar and workspace navigation to workspaces in that group.
+
+### `group.rename`
+
+params:
+
+```json
+{
+  "group_id": "g64e95948145ed1",
+  "name": "client work"
+}
+```
+
+returns updated `group_info`.
+
+### `group.delete`
+
+params:
+
+```json
+{
+  "group_id": "g64e95948145ed1"
+}
+```
+
+returns `ok`. deleting a group moves its workspaces back to the default group. the default group cannot be deleted.
 
 ## workspace methods
 
@@ -289,6 +375,7 @@ example response:
     "type": "workspace_info",
     "workspace": {
       "workspace_id": "1",
+      "group_id": "default",
       "number": 1,
       "label": "herdr",
       "focused": true,
@@ -321,6 +408,19 @@ params:
 {
   "workspace_id": "1",
   "label": "api"
+}
+```
+
+returns updated `workspace_info`.
+
+### `workspace.move_to_group`
+
+params:
+
+```json
+{
+  "workspace_id": "1",
+  "group_id": "g64e95948145ed1"
 }
 ```
 
@@ -946,7 +1046,19 @@ herdr workspace create [--cwd PATH] [--label TEXT] [--focus] [--no-focus]
 herdr workspace get <workspace_id>
 herdr workspace focus <workspace_id>
 herdr workspace rename <workspace_id> <label>
+herdr workspace move-to-group <workspace_id> <group_id>
 herdr workspace close <workspace_id>
+```
+
+group commands:
+
+```text
+herdr group list
+herdr group create <name>
+herdr group focus <group_id>
+herdr group switch <group_id>
+herdr group rename <group_id> <name>
+herdr group delete <group_id>
 ```
 
 tab commands:

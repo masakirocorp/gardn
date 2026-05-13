@@ -2,11 +2,39 @@ use crate::config::{Keybinds, SoundConfig, ToastConfig, ToastDelivery};
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Direction, Rect};
 use ratatui::style::Color;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::layout::{PaneId, PaneInfo, SplitBorder};
 use crate::selection::Selection;
 use crate::terminal_theme::TerminalTheme;
 use crate::workspace::Workspace;
+
+static NEXT_GROUP_ID: AtomicU64 = AtomicU64::new(1);
+
+pub(crate) fn generate_group_id() -> String {
+    let micros = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_micros())
+        .unwrap_or(0);
+    let counter = NEXT_GROUP_ID.fetch_add(1, Ordering::Relaxed);
+    format!("g{micros:x}{counter:x}")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Group {
+    pub id: String,
+    pub name: String,
+}
+
+impl Group {
+    pub fn default_group() -> Self {
+        Self {
+            id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
+            name: "Default".to_string(),
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Theme palette — all UI colors in one place, ready for theming
@@ -650,6 +678,8 @@ pub enum SidebarWidthSource {
 /// All application state — pure data, no channels or async runtime.
 /// Testable without PTYs or a tokio runtime.
 pub struct AppState {
+    pub groups: Vec<Group>,
+    pub active_group: usize,
     pub workspaces: Vec<Workspace>,
     pub active: Option<usize>,
     pub selected: usize,
@@ -739,6 +769,42 @@ pub struct AppState {
 }
 
 impl AppState {
+    pub fn active_group_id(&self) -> &str {
+        self.groups
+            .get(self.active_group)
+            .map(|group| group.id.as_str())
+            .unwrap_or(crate::workspace::DEFAULT_GROUP_ID)
+    }
+
+    pub fn active_group_name(&self) -> &str {
+        self.groups
+            .get(self.active_group)
+            .map(|group| group.name.as_str())
+            .unwrap_or("Default")
+    }
+
+    pub fn workspace_in_active_group(&self, ws_idx: usize) -> bool {
+        self.workspaces
+            .get(ws_idx)
+            .is_some_and(|workspace| workspace.group_id == self.active_group_id())
+    }
+
+    pub fn visible_workspace_indices(&self) -> Vec<usize> {
+        let active_group_id = self.active_group_id();
+        self.workspaces
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, workspace)| (workspace.group_id == active_group_id).then_some(idx))
+            .collect()
+    }
+
+    pub fn first_visible_workspace(&self) -> Option<usize> {
+        let active_group_id = self.active_group_id();
+        self.workspaces
+            .iter()
+            .position(|workspace| workspace.group_id == active_group_id)
+    }
+
     pub(crate) fn mark_session_dirty(&mut self) {
         self.session_dirty = true;
     }
@@ -833,6 +899,8 @@ impl AppState {
     /// Create an AppState for testing — no channels, no PTYs.
     pub fn test_new() -> Self {
         Self {
+            groups: vec![Group::default_group()],
+            active_group: 0,
             workspaces: Vec::new(),
             active: None,
             selected: 0,
