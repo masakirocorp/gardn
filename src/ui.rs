@@ -60,8 +60,9 @@ pub(crate) use self::{
         collapsed_sidebar_sections, collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect,
         compute_workspace_card_areas, compute_workspace_card_areas_in_list,
         expanded_sidebar_sections, expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
-        right_sidebar_content_rect, sidebar_section_divider_rect, workspace_drop_indicator_row,
-        workspace_list_rect, workspace_list_scroll_metrics, workspace_list_scrollbar_rect,
+        right_sidebar_content_rect, right_sidebar_toggle_rect, sidebar_section_divider_rect,
+        workspace_drop_indicator_row, workspace_list_rect, workspace_list_scroll_metrics,
+        workspace_list_scrollbar_rect,
     },
 };
 pub(crate) use self::{
@@ -78,10 +79,11 @@ use crate::app::state::{ContextMenuKind, ViewLayout};
 use crate::app::{AppState, Mode};
 
 const COLLAPSED_WIDTH: u16 = 4; // num + space + dot + separator
-const RIGHT_SIDEBAR_WIDTH: u16 = 28;
 const RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH: u16 = 56;
 pub(crate) const MIN_SIDEBAR_WIDTH: u16 = 18;
 pub(crate) const MAX_SIDEBAR_WIDTH: u16 = 36;
+pub(crate) const MIN_RIGHT_SIDEBAR_WIDTH: u16 = 18;
+pub(crate) const MAX_RIGHT_SIDEBAR_WIDTH: u16 = 36;
 
 // Braille spinner frames — smooth rotation
 const SPINNERS: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -158,16 +160,22 @@ fn compute_view_internal(
         app.sidebar_width
             .clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH)
     };
+    let right_sidebar_w = if app.right_sidebar_collapsed {
+        COLLAPSED_WIDTH
+    } else {
+        app.right_sidebar_width
+            .clamp(MIN_RIGHT_SIDEBAR_WIDTH, MAX_RIGHT_SIDEBAR_WIDTH)
+    };
 
     let show_right_sidebar = area.width
         >= sidebar_w
-            .saturating_add(RIGHT_SIDEBAR_WIDTH)
+            .saturating_add(right_sidebar_w)
             .saturating_add(RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH);
     let (sidebar_area, main_area, right_sidebar_area) = if show_right_sidebar {
         let [sidebar_area, main_area, right_sidebar_area] = Layout::horizontal([
             Constraint::Length(sidebar_w),
             Constraint::Min(RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH),
-            Constraint::Length(RIGHT_SIDEBAR_WIDTH),
+            Constraint::Length(right_sidebar_w),
         ])
         .areas(area);
         (sidebar_area, main_area, right_sidebar_area)
@@ -189,14 +197,15 @@ fn compute_view_internal(
     app.workspace_scroll = app
         .workspace_scroll
         .min(app.visible_workspace_indices().len().saturating_sub(1));
-    if right_sidebar_area != Rect::default() || !app.sidebar_collapsed {
-        let (_, detail_area) = expanded_sidebar_sections(sidebar_area, app.sidebar_section_split);
-        let agent_area = if right_sidebar_area == Rect::default() {
-            detail_area
-        } else {
-            right_sidebar_content_rect(right_sidebar_area)
-        };
-        let max_agent_scroll = agent_panel_scroll_metrics(app, agent_area).max_offset_from_bottom;
+    if right_sidebar_area != Rect::default() && !app.right_sidebar_collapsed {
+        let agent_area = right_sidebar_content_rect(right_sidebar_area);
+        let max_agent_scroll =
+            agent_panel_scroll_metrics(app, agent_area, false).max_offset_from_bottom;
+        app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
+    } else if right_sidebar_area == Rect::default() && !app.sidebar_collapsed {
+        let (_, agent_area) = expanded_sidebar_sections(sidebar_area, app.sidebar_section_split);
+        let max_agent_scroll =
+            agent_panel_scroll_metrics(app, agent_area, true).max_offset_from_bottom;
         app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
     } else {
         app.agent_panel_scroll = 0;
@@ -530,6 +539,33 @@ mod tests {
         let content = right_sidebar_content_rect(app.view.right_sidebar_rect);
 
         assert_ne!(buffer[(content.x, content.y)].symbol(), "─");
+        assert!(buffer_row_text(buffer, content, content.y).starts_with(" agents"));
+        assert_eq!(
+            agent_panel_body_rect(content, false, false).y,
+            content.y + 2
+        );
+    }
+
+    #[test]
+    fn collapsed_right_sidebar_keeps_expand_rail() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.right_sidebar_collapsed = true;
+        app.workspaces = vec![Workspace::test_new("one")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        compute_view(&mut app, Rect::new(0, 0, 140, 20));
+
+        assert_eq!(app.view.right_sidebar_rect.width, COLLAPSED_WIDTH);
+
+        let backend = TestBackend::new(140, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let toggle = right_sidebar_toggle_rect(app.view.right_sidebar_rect, true);
+
+        assert_eq!(buffer[(toggle.x, toggle.y)].symbol(), "«");
     }
 
     #[test]

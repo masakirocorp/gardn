@@ -580,11 +580,23 @@ impl AppState {
             return;
         }
 
-        let (_, detail_area) = crate::ui::expanded_sidebar_sections(
-            self.view.sidebar_rect,
-            self.sidebar_section_split,
-        );
-        let metrics = crate::ui::agent_panel_scroll_metrics(self, detail_area);
+        let (detail_area, leading_separator) =
+            if self.view.right_sidebar_rect != ratatui::layout::Rect::default() {
+                if self.right_sidebar_collapsed {
+                    return;
+                }
+                (
+                    crate::ui::right_sidebar_content_rect(self.view.right_sidebar_rect),
+                    false,
+                )
+            } else {
+                let (_, detail_area) = crate::ui::expanded_sidebar_sections(
+                    self.view.sidebar_rect,
+                    self.sidebar_section_split,
+                );
+                (detail_area, true)
+            };
+        let metrics = crate::ui::agent_panel_scroll_metrics(self, detail_area, leading_separator);
         let visible = metrics.viewport_rows;
         if visible == 0 {
             return;
@@ -597,7 +609,8 @@ impl AppState {
         }
 
         let max_scroll =
-            crate::ui::agent_panel_scroll_metrics(self, detail_area).max_offset_from_bottom;
+            crate::ui::agent_panel_scroll_metrics(self, detail_area, leading_separator)
+                .max_offset_from_bottom;
         self.agent_panel_scroll = self.agent_panel_scroll.min(max_scroll);
     }
 

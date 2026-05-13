@@ -13,7 +13,7 @@ use crate::app::{AppState, Mode};
 use crate::detect::AgentState;
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 1;
-const AGENT_PANEL_HEADER_ROWS: u16 = 3;
+const AGENT_PANEL_HEADER_ROWS: u16 = 2;
 
 pub(crate) struct AgentPanelEntry {
     pub ws_idx: usize,
@@ -95,16 +95,21 @@ fn agent_panel_toggle_label(scope: AgentPanelScope) -> &'static str {
     }
 }
 
-pub(crate) fn agent_panel_toggle_rect(area: Rect, scope: AgentPanelScope) -> Rect {
+pub(crate) fn agent_panel_toggle_rect(
+    area: Rect,
+    scope: AgentPanelScope,
+    leading_separator: bool,
+) -> Rect {
     if area.width == 0 || area.height < 2 {
         return Rect::default();
     }
 
     let label = agent_panel_toggle_label(scope);
     let width = label.chars().count() as u16;
+    let y_offset = u16::from(leading_separator);
     Rect::new(
         area.x + area.width.saturating_sub(width),
-        area.y + 1,
+        area.y + y_offset,
         width,
         1,
     )
@@ -312,19 +317,24 @@ pub(crate) fn workspace_list_scrollbar_rect(app: &AppState, area: Rect) -> Optio
     ))
 }
 
-pub(crate) fn agent_panel_body_rect(area: Rect, has_scrollbar: bool) -> Rect {
-    if area.width == 0 || area.height <= AGENT_PANEL_HEADER_ROWS {
+pub(crate) fn agent_panel_body_rect(
+    area: Rect,
+    has_scrollbar: bool,
+    leading_separator: bool,
+) -> Rect {
+    let header_rows = AGENT_PANEL_HEADER_ROWS + u16::from(leading_separator);
+    if area.width == 0 || area.height <= header_rows {
         return Rect::default();
     }
 
-    let body_y = area.y.saturating_add(AGENT_PANEL_HEADER_ROWS);
+    let body_y = area.y.saturating_add(header_rows);
     let body_height = (area.y + area.height).saturating_sub(body_y);
     let body_width = area.width.saturating_sub(u16::from(has_scrollbar));
     Rect::new(area.x, body_y, body_width, body_height)
 }
 
-fn agent_panel_visible_count(area: Rect) -> usize {
-    let body = agent_panel_body_rect(area, false);
+fn agent_panel_visible_count(area: Rect, leading_separator: bool) -> usize {
+    let body = agent_panel_body_rect(area, false, leading_separator);
     if body.width == 0 || body.height < 2 {
         return 0;
     }
@@ -341,8 +351,12 @@ fn agent_panel_visible_count(area: Rect) -> usize {
     visible
 }
 
-pub(crate) fn agent_panel_scroll_metrics(app: &AppState, area: Rect) -> crate::pane::ScrollMetrics {
-    let viewport_rows = agent_panel_visible_count(area);
+pub(crate) fn agent_panel_scroll_metrics(
+    app: &AppState,
+    area: Rect,
+    leading_separator: bool,
+) -> crate::pane::ScrollMetrics {
+    let viewport_rows = agent_panel_visible_count(area, leading_separator);
     let total_rows = agent_panel_entries(app).len();
     let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
     let offset_from_bottom = total_rows
@@ -356,9 +370,13 @@ pub(crate) fn agent_panel_scroll_metrics(app: &AppState, area: Rect) -> crate::p
     }
 }
 
-pub(crate) fn agent_panel_scrollbar_rect(app: &AppState, area: Rect) -> Option<Rect> {
-    let metrics = agent_panel_scroll_metrics(app, area);
-    let body = agent_panel_body_rect(area, true);
+pub(crate) fn agent_panel_scrollbar_rect(
+    app: &AppState,
+    area: Rect,
+    leading_separator: bool,
+) -> Option<Rect> {
+    let metrics = agent_panel_scroll_metrics(app, area, leading_separator);
+    let body = agent_panel_body_rect(area, true, leading_separator);
     (should_show_scrollbar(metrics) && body.width > 0 && body.height > 0).then_some(Rect::new(
         area.x + area.width.saturating_sub(1),
         body.y,
@@ -663,7 +681,12 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
         buf[(area.x, y)].set_symbol("│");
         buf[(area.x, y)].set_style(sep_style);
     }
+    if app.right_sidebar_collapsed {
+        render_right_sidebar_toggle(app, frame, area, true, p);
+        return;
+    }
     render_agent_detail(app, frame, right_sidebar_content_rect(area), false);
+    render_right_sidebar_toggle(app, frame, area, false, p);
 }
 
 fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navigating: bool) {
@@ -879,14 +902,15 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
         );
     }
 
+    let header_y = area.y + u16::from(leading_separator);
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
             " agents",
             Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
         )])),
-        Rect::new(area.x, area.y + 1, area.width, 1),
+        Rect::new(area.x, header_y, area.width, 1),
     );
-    let toggle_rect = agent_panel_toggle_rect(area, app.agent_panel_scope);
+    let toggle_rect = agent_panel_toggle_rect(area, app.agent_panel_scope, leading_separator);
     if toggle_rect != Rect::default() {
         frame.render_widget(
             Paragraph::new(Span::styled(
@@ -899,9 +923,9 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
     }
 
     let details = agent_panel_entries(app);
-    let metrics = agent_panel_scroll_metrics(app, area);
-    let scrollbar_rect = agent_panel_scrollbar_rect(app, area);
-    let body = agent_panel_body_rect(area, should_show_scrollbar(metrics));
+    let metrics = agent_panel_scroll_metrics(app, area, leading_separator);
+    let scrollbar_rect = agent_panel_scrollbar_rect(app, area, leading_separator);
+    let body = agent_panel_body_rect(area, should_show_scrollbar(metrics), leading_separator);
     if body == Rect::default() {
         return;
     }
@@ -1016,6 +1040,40 @@ fn render_sidebar_toggle(
         Style::default().fg(p.overlay0)
     };
     let icon = if collapsed { "»" } else { "«" };
+    frame.render_widget(Paragraph::new(Span::styled(icon, icon_style)), toggle_area);
+}
+
+pub(crate) fn right_sidebar_toggle_rect(area: Rect, collapsed: bool) -> Rect {
+    let bottom_y = area.y + area.height.saturating_sub(1);
+    let content_w = area.width.saturating_sub(1);
+    if content_w == 0 || area.height == 0 {
+        return Rect::default();
+    }
+
+    if collapsed {
+        Rect::new(area.x + 1 + content_w / 2, bottom_y, 1, 1)
+    } else {
+        Rect::new(area.x + 1, bottom_y, 1, 1)
+    }
+}
+
+fn render_right_sidebar_toggle(
+    app: &AppState,
+    frame: &mut Frame,
+    area: Rect,
+    collapsed: bool,
+    p: &Palette,
+) {
+    let toggle_area = right_sidebar_toggle_rect(area, collapsed);
+    if toggle_area == Rect::default() {
+        return;
+    }
+    let icon_style = if app.update_available.is_some() {
+        Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(p.overlay0)
+    };
+    let icon = if collapsed { "«" } else { "»" };
     frame.render_widget(Paragraph::new(Span::styled(icon, icon_style)), toggle_area);
 }
 
