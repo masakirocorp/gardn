@@ -265,6 +265,9 @@ impl AppState {
             })
             .collect();
         labels.push("+ new group".to_string());
+        if self.groups.len() > 1 {
+            labels.push(format!("- delete {}", self.active_group_name()));
+        }
         labels
     }
 
@@ -638,6 +641,36 @@ mod tests {
         assert_eq!(app.state.mode, Mode::RenameGroup);
         assert!(app.state.creating_new_group);
         assert_eq!(app.state.name_input, "group 2");
+    }
+
+    #[test]
+    fn clicking_delete_group_menu_item_deletes_group_and_its_workspaces() {
+        let mut app = app_for_mouse_test();
+        let work_group = app.state.create_group("Work".to_string());
+        app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
+        app.state.workspaces[1].group_id = app.state.groups[work_group].id.clone();
+        app.state.switch_group(work_group);
+
+        let selector = app.state.group_selector_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            selector.x + 1,
+            selector.y,
+        ));
+
+        let menu = app.state.group_menu_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + app.state.groups.len() as u16 + 2,
+        ));
+
+        assert_eq!(app.state.groups.len(), 1);
+        assert_eq!(app.state.groups[0].name, "group 1");
+        assert_eq!(app.state.workspaces.len(), 1);
+        assert_eq!(app.state.workspaces[0].display_name(), "a");
+        assert_eq!(app.state.active_group, 0);
+        assert_eq!(app.state.mode, Mode::Terminal);
     }
 
     #[test]

@@ -179,22 +179,43 @@ impl AppState {
         let Some(group) = self.groups.get(group_idx) else {
             return Err("group not found");
         };
-        if self
-            .workspaces
-            .iter()
-            .any(|workspace| workspace.group_id == group.id)
-        {
-            return Err("group is not empty");
-        }
+        let deleted_group_id = group.id.clone();
+        let active_id = self.active.map(|idx| self.workspaces[idx].id.clone());
+        let selected_id = self.workspaces.get(self.selected).map(|ws| ws.id.clone());
 
         let deleting_active = self.active_group == group_idx;
+        for workspace in self
+            .workspaces
+            .iter()
+            .filter(|workspace| workspace.group_id == deleted_group_id)
+        {
+            crate::logging::workspace_closed(&workspace.id);
+        }
+        self.workspaces
+            .retain(|workspace| workspace.group_id != deleted_group_id);
         self.groups.remove(group_idx);
         if deleting_active {
             self.active_group = self.active_group.min(self.groups.len().saturating_sub(1));
-            self.select_first_visible_workspace();
         } else if self.active_group > group_idx {
             self.active_group = self.active_group.saturating_sub(1);
         }
+
+        self.active = active_id.and_then(|id| self.workspaces.iter().position(|ws| ws.id == id));
+        self.selected = selected_id
+            .and_then(|id| self.workspaces.iter().position(|ws| ws.id == id))
+            .or(self.active)
+            .or_else(|| self.first_visible_workspace())
+            .unwrap_or(0);
+        if self.active.is_none() {
+            self.active = self.first_visible_workspace();
+        }
+        if self.active.is_none() && self.mode == Mode::Terminal {
+            self.mode = Mode::Navigate;
+        }
+        self.workspace_scroll = 0;
+        self.agent_panel_scroll = 0;
+        self.tab_scroll_follow_active = true;
+        self.refresh_tab_bar_view();
         self.mark_session_dirty();
         Ok(())
     }

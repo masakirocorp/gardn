@@ -131,6 +131,9 @@ impl AppState {
                         leave_modal(self);
                     } else if idx == self.groups.len() {
                         super::modal::open_new_group_dialog(self);
+                    } else if idx == self.groups.len() + 1 && self.groups.len() > 1 {
+                        let _ = self.delete_group(self.active_group);
+                        leave_modal(self);
                     }
                 } else {
                     leave_modal(self);

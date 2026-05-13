@@ -168,6 +168,9 @@ pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
                 leave_modal(state);
             } else if idx == state.groups.len() {
                 open_new_group_dialog(state);
+            } else if idx == state.groups.len() + 1 && state.groups.len() > 1 {
+                let _ = state.delete_group(state.active_group);
+                leave_modal(state);
             }
         }
         _ => {}

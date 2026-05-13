@@ -318,7 +318,7 @@ params:
 }
 ```
 
-returns `ok`. deleting a group moves its workspaces back to the default group. the default group cannot be deleted.
+returns `ok`. deleting a group closes every workspace in that group. the last remaining group cannot be deleted.
 
 ## workspace methods
 
