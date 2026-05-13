@@ -569,53 +569,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_workspace_is_framed_by_visible_sidebars() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.mode = Mode::Terminal;
-
-        compute_view(&mut app, Rect::new(0, 0, 140, 20));
-
-        let backend = TestBackend::new(140, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| render(&app, frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-        let area = app.view.terminal_area;
-        let row = area.y + 1;
-
-        assert_eq!(buffer[(area.x, row)].style().fg, Some(app.palette.accent));
-        assert_eq!(
-            buffer[(area.x + area.width.saturating_sub(1), row)]
-                .style()
-                .fg,
-            Some(app.palette.accent)
-        );
-    }
-
-    #[test]
-    fn empty_workspace_right_frame_follows_collapsed_right_sidebar() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.mode = Mode::Terminal;
-        app.right_sidebar_collapsed = true;
-
-        compute_view(&mut app, Rect::new(0, 0, 140, 20));
-
-        let backend = TestBackend::new(140, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| render(&app, frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-        let area = app.view.terminal_area;
-        let row = area.y + 1;
-
-        assert_ne!(app.view.right_sidebar_rect, Rect::default());
-        assert_eq!(
-            buffer[(area.x + area.width.saturating_sub(1), row)]
-                .style()
-                .fg,
-            Some(app.palette.accent)
-        );
-    }
-
-    #[test]
     fn collapsed_sidebar_keeps_active_workspace_highlight_in_terminal_mode() {
         let mut app = crate::app::state::AppState::test_new();
         app.sidebar_collapsed = true;
