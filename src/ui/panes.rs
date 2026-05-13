@@ -355,6 +355,24 @@ fn render_empty(app: &AppState, frame: &mut Frame, area: Rect) {
         ),
         area,
     );
+
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let buf = frame.buffer_mut();
+    let border_style = Style::default().fg(p.accent);
+    let left_x = area.x;
+    let right_x = area.x + area.width.saturating_sub(1);
+    let draw_right = app.view.right_sidebar_rect != Rect::default();
+    for y in area.y..area.y + area.height {
+        buf[(left_x, y)].set_symbol("│");
+        buf[(left_x, y)].set_style(border_style);
+        if draw_right {
+            buf[(right_x, y)].set_symbol("│");
+            buf[(right_x, y)].set_style(border_style);
+        }
+    }
 }
 
 #[cfg(test)]
