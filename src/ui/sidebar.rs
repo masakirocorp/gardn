@@ -12,7 +12,7 @@ use crate::app::state::{AgentPanelScope, Palette};
 use crate::app::{AppState, Mode};
 use crate::detect::AgentState;
 
-const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
+const WORKSPACE_SECTION_HEADER_ROWS: u16 = 1;
 const AGENT_PANEL_HEADER_ROWS: u16 = 3;
 
 pub(crate) struct AgentPanelEntry {
@@ -76,6 +76,7 @@ fn agent_panel_current_workspace_idx(app: &AppState) -> Option<usize> {
             | Mode::ContextMenu
             | Mode::Settings
             | Mode::GlobalMenu
+            | Mode::GroupMenu
             | Mode::KeybindHelp
     ) {
         Some(app.selected)
@@ -592,21 +593,31 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
 
     let list_bottom = area.y + area.height.saturating_sub(1);
     if area.height > 0 {
+        let count = app.visible_workspace_indices().len();
+        let count_label = if count == 1 { "1 space" } else { "spaces" };
+        let right = if count == 1 {
+            count_label.to_string()
+        } else {
+            format!("{count} {count_label}")
+        };
+        let right_width = right.chars().count();
+        let available = area.width.saturating_sub(2) as usize;
+        let name_width = available.saturating_sub(right_width + 3);
+        let name = truncate_text(app.active_group_name(), name_width);
+        let selector = format!("{name} v");
+        let spacer_width = available.saturating_sub(selector.chars().count() + right_width);
+        let spacer = " ".repeat(spacer_width);
+
         frame.render_widget(
-            Paragraph::new(Line::from(vec![Span::styled(
-                " spaces",
-                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
-            )])),
+            Paragraph::new(Line::from(vec![
+                Span::styled(
+                    format!(" {selector}"),
+                    Style::default().fg(p.text).add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(spacer),
+                Span::styled(right, Style::default().fg(p.overlay0)),
+            ])),
             Rect::new(area.x, area.y, area.width, 1),
-        );
-    }
-    if area.height > 1 {
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![Span::styled(
-                format!(" group: {}", app.active_group_name()),
-                Style::default().fg(p.overlay0),
-            )])),
-            Rect::new(area.x, area.y + 1, area.width, 1),
         );
     }
 

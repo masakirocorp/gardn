@@ -78,6 +78,7 @@ impl AppState {
                     | Mode::Navigate
                     | Mode::Resize
                     | Mode::GlobalMenu
+                    | Mode::GroupMenu
                     | Mode::KeybindHelp
             );
         let launcher = self.global_launcher_rect();
@@ -96,6 +97,12 @@ impl AppState {
             return None;
         }
 
+        if matches!(mouse.kind, MouseEventKind::Moved) && self.mode == Mode::GroupMenu {
+            self.group_menu
+                .hover(self.group_menu_item_at(mouse.column, mouse.row));
+            return None;
+        }
+
         if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) && launcher_hit {
             if self.mode == Mode::GlobalMenu {
                 leave_modal(self);
@@ -109,6 +116,18 @@ impl AppState {
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
                 if let Some(action) = self.global_menu_item_at(mouse.column, mouse.row) {
                     apply_global_menu_action(self, action);
+                } else {
+                    leave_modal(self);
+                }
+            }
+            return None;
+        }
+
+        if self.mode == Mode::GroupMenu {
+            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                if let Some(idx) = self.group_menu_item_at(mouse.column, mouse.row) {
+                    self.switch_group(idx);
+                    leave_modal(self);
                 } else {
                     leave_modal(self);
                 }
@@ -291,6 +310,11 @@ impl AppState {
                             self.focus_pane(pane_id);
                             self.mode = Mode::Terminal;
                         }
+                        return None;
+                    }
+
+                    if self.on_group_selector(mouse.column, mouse.row) {
+                        super::modal::open_group_menu(self);
                         return None;
                     }
 

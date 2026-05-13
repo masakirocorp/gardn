@@ -219,6 +219,53 @@ impl AppState {
         Rect::new(x, y, menu_w, menu_h)
     }
 
+    pub(crate) fn group_selector_rect(&self) -> Rect {
+        if self.sidebar_collapsed || self.view.layout == ViewLayout::Mobile {
+            return Rect::default();
+        }
+
+        let ws_area =
+            crate::ui::workspace_list_rect(self.view.sidebar_rect, self.sidebar_section_split);
+        if ws_area == Rect::default() {
+            return Rect::default();
+        }
+        Rect::new(ws_area.x, ws_area.y, ws_area.width, 1)
+    }
+
+    pub(crate) fn group_menu_labels(&self) -> Vec<String> {
+        self.groups
+            .iter()
+            .enumerate()
+            .map(|(idx, group)| {
+                let marker = if idx == self.active_group { "*" } else { " " };
+                format!("{marker} {}", group.name)
+            })
+            .collect()
+    }
+
+    pub(crate) fn group_menu_rect(&self) -> Rect {
+        let screen = self.screen_rect();
+        let selector = self.group_selector_rect();
+        let labels = self.group_menu_labels();
+        let content_width = labels
+            .iter()
+            .map(|label| label.chars().count() as u16)
+            .max()
+            .unwrap_or(8)
+            .saturating_add(2);
+        let menu_w = content_width
+            .saturating_add(2)
+            .min(self.view.sidebar_rect.width.max(1))
+            .min(screen.width.max(1));
+        let menu_h = (labels.len() as u16 + 2).min(screen.height.max(1));
+        let x = selector
+            .x
+            .min(screen.x + screen.width.saturating_sub(menu_w));
+        let max_y = screen.y + screen.height.saturating_sub(menu_h);
+        let y = selector.y.saturating_add(1).min(max_y);
+        Rect::new(x, y, menu_w, menu_h)
+    }
+
     pub(super) fn on_sidebar_divider(&self, col: u16, row: u16) -> bool {
         if self.sidebar_collapsed {
             return false;
@@ -228,6 +275,15 @@ impl AppState {
             && col == sidebar.x + sidebar.width.saturating_sub(1)
             && row >= sidebar.y
             && row < sidebar.y + sidebar.height
+    }
+
+    pub(super) fn on_group_selector(&self, col: u16, row: u16) -> bool {
+        let rect = self.group_selector_rect();
+        rect.width > 0
+            && col >= rect.x
+            && col < rect.x + rect.width
+            && row >= rect.y
+            && row < rect.y + rect.height
     }
 
     pub(super) fn on_collapsed_sidebar_toggle(&self, col: u16, row: u16) -> bool {
@@ -319,6 +375,7 @@ impl AppState {
                 | Mode::ContextMenu
                 | Mode::Settings
                 | Mode::GlobalMenu
+                | Mode::GroupMenu
                 | Mode::KeybindHelp
         ) {
             Some(self.selected)
@@ -477,6 +534,46 @@ mod tests {
         ));
 
         assert_eq!(app.state.mode, Mode::GlobalMenu);
+    }
+
+    #[test]
+    fn clicking_group_selector_opens_group_menu() {
+        let mut app = app_for_mouse_test();
+        app.state.create_group("Work".to_string());
+        app.state.switch_group(1);
+        app.state.mode = Mode::Terminal;
+        let rect = app.state.group_selector_rect();
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            rect.x + 1,
+            rect.y,
+        ));
+
+        assert_eq!(app.state.mode, Mode::GroupMenu);
+        assert_eq!(app.state.group_menu.highlighted, 1);
+    }
+
+    #[test]
+    fn clicking_group_menu_item_switches_group() {
+        let mut app = app_for_mouse_test();
+        app.state.create_group("Work".to_string());
+        let selector = app.state.group_selector_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            selector.x + 1,
+            selector.y,
+        ));
+
+        let menu = app.state.group_menu_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + 2,
+        ));
+
+        assert_eq!(app.state.active_group, 1);
+        assert_ne!(app.state.mode, Mode::GroupMenu);
     }
 
     #[test]
@@ -1147,7 +1244,7 @@ mod tests {
 
         assert_eq!(app.state.workspace_drop_index_at_row(0), Some(0));
         assert_eq!(app.state.workspace_drop_index_at_row(1), Some(0));
-        assert_eq!(app.state.workspace_drop_index_at_row(2), Some(0));
+        assert_eq!(app.state.workspace_drop_index_at_row(2), Some(1));
         assert_eq!(app.state.workspace_drop_index_at_row(3), Some(1));
 
         let _ = fs::remove_dir_all(first_repo);

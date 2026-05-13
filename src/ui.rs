@@ -22,7 +22,7 @@ mod widgets;
 use self::dialogs::{render_confirm_close_overlay, render_rename_overlay};
 use self::keybind_help::render_keybind_help_overlay;
 use self::menus::{
-    render_context_menu, render_global_launcher_menu, render_navigate_overlay,
+    render_context_menu, render_global_launcher_menu, render_group_menu, render_navigate_overlay,
     render_resize_overlay,
 };
 use self::mobile::{
@@ -321,6 +321,7 @@ pub fn render(app: &AppState, frame: &mut Frame) {
             render_rename_overlay(app, frame, frame.area())
         }
         Mode::GlobalMenu => render_global_launcher_menu(app, frame),
+        Mode::GroupMenu => render_group_menu(app, frame),
         Mode::KeybindHelp => render_keybind_help_overlay(app, frame),
         Mode::Terminal => {}
     }

@@ -91,6 +91,11 @@ pub(super) fn open_global_menu(state: &mut AppState) {
     state.mode = Mode::GlobalMenu;
 }
 
+pub(super) fn open_group_menu(state: &mut AppState) {
+    state.group_menu = MenuListState::new(state.active_group);
+    state.mode = Mode::GroupMenu;
+}
+
 pub(super) fn open_keybind_help(state: &mut AppState) {
     state.keybind_help.scroll = 0;
     state.mode = Mode::KeybindHelp;
@@ -143,6 +148,22 @@ pub(crate) fn handle_global_menu_key(state: &mut AppState, key: KeyEvent) {
         KeyCode::Enter => {
             if let Some(action) = actions.get(state.global_menu.highlighted).copied() {
                 apply_global_menu_action(state, action);
+            }
+        }
+        _ => {}
+    }
+}
+
+pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => leave_modal(state),
+        KeyCode::Up | KeyCode::Char('k') => state.group_menu.move_prev(),
+        KeyCode::Down | KeyCode::Char('j') => state.group_menu.move_next(state.groups.len()),
+        KeyCode::Enter => {
+            let idx = state.group_menu.highlighted;
+            if idx < state.groups.len() {
+                state.switch_group(idx);
+                leave_modal(state);
             }
         }
         _ => {}
@@ -539,6 +560,19 @@ impl AppState {
         }
         let idx = (row - rect.y - 1) as usize;
         global_menu_actions(self).get(idx).copied()
+    }
+
+    pub(super) fn group_menu_item_at(&self, col: u16, row: u16) -> Option<usize> {
+        let rect = self.group_menu_rect();
+        if col <= rect.x
+            || col >= rect.x + rect.width.saturating_sub(1)
+            || row <= rect.y
+            || row >= rect.y + rect.height.saturating_sub(1)
+        {
+            return None;
+        }
+        let idx = (row - rect.y - 1) as usize;
+        (idx < self.groups.len()).then_some(idx)
     }
 }
 
