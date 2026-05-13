@@ -946,9 +946,6 @@ fn render_sidebar_toggle(
     collapsed: bool,
     p: &Palette,
 ) {
-    if !collapsed {
-        return;
-    }
     let toggle_area = collapsed_sidebar_toggle_rect(area);
     if toggle_area == Rect::default() {
         return;
@@ -958,7 +955,8 @@ fn render_sidebar_toggle(
     } else {
         Style::default().fg(p.overlay0)
     };
-    frame.render_widget(Paragraph::new(Span::styled("»", icon_style)), toggle_area);
+    let icon = if collapsed { "»" } else { "«" };
+    frame.render_widget(Paragraph::new(Span::styled(icon, icon_style)), toggle_area);
 }
 
 #[cfg(test)]

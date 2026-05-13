@@ -355,8 +355,8 @@ impl AppState {
             && row < rect.y + rect.height
     }
 
-    pub(super) fn on_collapsed_sidebar_toggle(&self, col: u16, row: u16) -> bool {
-        if !self.sidebar_collapsed {
+    pub(super) fn on_sidebar_toggle(&self, col: u16, row: u16) -> bool {
+        if self.view.layout == ViewLayout::Mobile {
             return false;
         }
         let rect = crate::ui::collapsed_sidebar_toggle_rect(self.view.sidebar_rect);
@@ -1286,6 +1286,23 @@ mod tests {
         ));
 
         assert!(!app.state.sidebar_collapsed);
+    }
+
+    #[test]
+    fn clicking_expanded_sidebar_toggle_collapses_sidebar() {
+        let mut app = app_for_mouse_test();
+        app.state.sidebar_collapsed = false;
+        app.state.view.sidebar_rect = Rect::new(0, 0, 26, 20);
+        app.state.view.terminal_area = Rect::new(26, 0, 80, 20);
+
+        let toggle = crate::ui::collapsed_sidebar_toggle_rect(app.state.view.sidebar_rect);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            toggle.x,
+            toggle.y,
+        ));
+
+        assert!(app.state.sidebar_collapsed);
     }
 
     #[test]
