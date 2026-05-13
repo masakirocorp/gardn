@@ -80,6 +80,7 @@ use crate::app::{AppState, Mode};
 
 const COLLAPSED_WIDTH: u16 = 4; // num + space + dot + separator
 const RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH: u16 = 56;
+const DESKTOP_SAFE_AREA_INSET: u16 = 1;
 pub(crate) const MIN_SIDEBAR_WIDTH: u16 = 18;
 pub(crate) const MAX_SIDEBAR_WIDTH: u16 = 36;
 pub(crate) const MIN_RIGHT_SIDEBAR_WIDTH: u16 = 18;
@@ -153,6 +154,8 @@ fn compute_view_internal(
         compute_mobile_view(app, area, resize_panes, cell_size);
         return;
     }
+
+    let area = desktop_safe_area(area);
 
     let sidebar_w = if app.sidebar_collapsed {
         COLLAPSED_WIDTH
@@ -268,6 +271,20 @@ fn compute_view_internal(
         pane_infos,
         split_borders,
     };
+}
+
+fn desktop_safe_area(area: Rect) -> Rect {
+    let inset = DESKTOP_SAFE_AREA_INSET;
+    if area.width <= inset.saturating_mul(2) || area.height <= inset.saturating_mul(2) {
+        return area;
+    }
+
+    Rect::new(
+        area.x + inset,
+        area.y + inset,
+        area.width - inset.saturating_mul(2),
+        area.height - inset.saturating_mul(2),
+    )
 }
 
 fn compute_mobile_view(
@@ -517,9 +534,9 @@ mod tests {
 
         compute_view(&mut app, Rect::new(0, 0, 140, 20));
 
-        assert_eq!(app.view.sidebar_rect, Rect::new(0, 0, 26, 20));
-        assert_eq!(app.view.right_sidebar_rect, Rect::new(112, 0, 28, 20));
-        assert_eq!(app.view.terminal_area, Rect::new(26, 1, 86, 19));
+        assert_eq!(app.view.sidebar_rect, Rect::new(1, 1, 26, 18));
+        assert_eq!(app.view.right_sidebar_rect, Rect::new(111, 1, 28, 18));
+        assert_eq!(app.view.terminal_area, Rect::new(27, 2, 84, 17));
     }
 
     #[test]
