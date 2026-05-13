@@ -143,6 +143,10 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
 }
 
 pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Option<SettingsAction> {
+    if state.settings.group_theme_target.is_some() {
+        state.settings.section = SettingsSection::Theme;
+    }
+
     match state.settings.section {
         SettingsSection::Theme => match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
@@ -160,8 +164,10 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 }
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
-                state.settings.section = SettingsSection::Sound;
-                state.settings.list.selected = usize::from(!state.sound_enabled());
+                if state.settings.group_theme_target.is_none() {
+                    state.settings.section = SettingsSection::Sound;
+                    state.settings.list.selected = usize::from(!state.sound_enabled());
+                }
             }
             _ => match super::modal::modal_action_from_key(&key, super::modal::SETTINGS_ACTIONS) {
                 Some(super::modal::ModalAction::Apply) => return apply_settings(state),
@@ -281,7 +287,12 @@ pub(crate) fn open_group_theme_settings(state: &mut AppState, group_idx: usize) 
 
 impl AppState {
     fn settings_popup_rect(&self) -> Rect {
-        crate::ui::centered_popup_rect(self.screen_rect(), 76, 22).unwrap_or_default()
+        let (width, height) = if self.settings.group_theme_target.is_some() {
+            (56, 20)
+        } else {
+            (76, 22)
+        };
+        crate::ui::centered_popup_rect(self.screen_rect(), width, height).unwrap_or_default()
     }
 
     fn settings_inner_rect(&self) -> Rect {
@@ -295,6 +306,10 @@ impl AppState {
     }
 
     fn settings_tab_at(&self, col: u16, row: u16) -> Option<SettingsSection> {
+        if self.settings.group_theme_target.is_some() {
+            return None;
+        }
+
         let inner = self.settings_inner_rect();
         let tab_y = inner.y + 1;
         if row != tab_y {
@@ -509,6 +524,39 @@ mod tests {
                 name: None,
             })
         );
+    }
+
+    #[test]
+    fn group_theme_settings_does_not_switch_to_other_settings_sections() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Side".to_string());
+
+        open_group_theme_settings(&mut state, group_idx);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.settings.section, SettingsSection::Theme);
+        assert_eq!(state.settings.group_theme_target, Some(group_idx));
+    }
+
+    #[test]
+    fn group_theme_settings_uses_smaller_theme_only_modal() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Side".to_string());
+        state.view.terminal_area = Rect::new(0, 0, 100, 40);
+
+        open_group_theme_settings(&mut state, group_idx);
+        let group_rect = state.settings_popup_rect();
+
+        open_settings(&mut state);
+        let settings_rect = state.settings_popup_rect();
+
+        assert_eq!(group_rect.width, 56);
+        assert_eq!(group_rect.height, 20);
+        assert!(group_rect.width < settings_rect.width);
+        assert!(group_rect.height < settings_rect.height);
     }
 
     #[test]

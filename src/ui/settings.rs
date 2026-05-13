@@ -18,6 +18,11 @@ use crate::{
 pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     use crate::app::state::SettingsSection;
 
+    if app.settings.group_theme_target.is_some() {
+        render_group_theme_overlay(app, frame, area);
+        return;
+    }
+
     let p = &app.palette;
     let Some(popup) = centered_popup_rect(area, 76, 22) else {
         return;
@@ -156,6 +161,91 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     }
 }
 
+fn render_group_theme_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
+    let p = &app.palette;
+    let Some(popup) = centered_popup_rect(area, 56, 20) else {
+        return;
+    };
+
+    super::dim_background(frame, area);
+
+    let Some(inner) = render_panel_shell(frame, popup, p.accent, p.panel_bg) else {
+        return;
+    };
+    if inner.height < 4 || inner.width < 10 {
+        return;
+    }
+
+    let stack = modal_stack_areas(inner, 3, 2, 0, 1);
+    let header_rows = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas::<3>(stack.header);
+
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![Span::styled(
+            " group theme",
+            Style::default().fg(p.text).add_modifier(Modifier::BOLD),
+        )])),
+        header_rows[0],
+    );
+
+    let group_label = app
+        .settings
+        .group_theme_target
+        .and_then(|idx| app.groups.get(idx))
+        .map(|group| format!(" {} {}", group.icon, group.name))
+        .unwrap_or_else(|| " group".to_string());
+    frame.render_widget(
+        Paragraph::new(Span::styled(group_label, Style::default().fg(p.overlay1))),
+        header_rows[1],
+    );
+
+    let sep = "─".repeat(inner.width as usize);
+    frame.render_widget(
+        Paragraph::new(Span::styled(&sep, Style::default().fg(p.surface0))),
+        header_rows[2],
+    );
+
+    render_settings_theme(app, frame, stack.content);
+
+    if let Some(footer_area) = stack.footer {
+        let footer_rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)])
+            .areas::<2>(footer_area);
+        let (apply_rect, close_rect) = settings_button_rects(inner);
+        render_action_button(
+            frame,
+            apply_rect,
+            Some("↵"),
+            "apply",
+            Style::default()
+                .fg(panel_contrast_fg(p))
+                .bg(p.accent)
+                .add_modifier(Modifier::BOLD),
+        );
+        render_action_button(
+            frame,
+            close_rect,
+            Some("esc"),
+            "close",
+            Style::default()
+                .fg(p.text)
+                .bg(p.surface0)
+                .add_modifier(Modifier::BOLD),
+        );
+
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(" ↑↓", Style::default().fg(p.overlay0)),
+                Span::styled(" select", Style::default().fg(p.overlay1)),
+            ])),
+            footer_rows[0],
+        );
+    }
+}
+
 pub(crate) fn settings_button_rects(inner: Rect) -> (Rect, Rect) {
     let rects = action_button_row_rects(
         inner,
@@ -242,4 +332,44 @@ fn render_settings_toggle(
         p,
         1,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+
+    use super::*;
+    use crate::app::state::{AppState, SettingsSection};
+
+    #[test]
+    fn group_theme_overlay_uses_focused_title_without_settings_tabs() {
+        let mut app = AppState::test_new();
+        let group_idx = app.create_group("Work".to_string());
+        app.settings.group_theme_target = Some(group_idx);
+        app.settings.section = SettingsSection::Theme;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
+            .expect("render group theme overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), 80, 24);
+        assert!(text.contains("group theme"));
+        assert!(text.contains("Work"));
+        assert!(!text.contains("sound"));
+        assert!(!text.contains("toasts"));
+        assert!(!text.contains("pane labels"));
+    }
+
+    fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {
+        let mut text = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                text.push_str(buffer[(x, y)].symbol());
+            }
+            text.push('\n');
+        }
+        text
+    }
 }
