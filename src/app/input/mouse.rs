@@ -336,6 +336,11 @@ impl AppState {
                             return None;
                         }
 
+                        if self.on_group_selector(mouse.column, mouse.row) {
+                            super::modal::open_group_menu(self);
+                            return None;
+                        }
+
                         if let Some(idx) = self.collapsed_workspace_at_row(mouse.row) {
                             self.switch_workspace(idx);
                             self.mode = Mode::Terminal;

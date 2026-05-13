@@ -412,6 +412,35 @@ pub(crate) fn collapsed_sidebar_sections(area: Rect) -> (Rect, Option<u16>, Rect
     (ws_area, Some(divider_y), detail_area)
 }
 
+pub(crate) fn collapsed_group_header_rect(area: Rect) -> Rect {
+    let content_w = area.width.saturating_sub(1);
+    if content_w == 0 || area.height == 0 {
+        return Rect::default();
+    }
+    Rect::new(area.x, area.y, content_w, 1)
+}
+
+pub(crate) fn collapsed_workspace_rows_rect(area: Rect) -> Rect {
+    let (ws_area, _, _) = collapsed_sidebar_sections(area);
+    if ws_area == Rect::default() || ws_area.height <= 1 {
+        return Rect::default();
+    }
+    Rect::new(
+        ws_area.x,
+        ws_area.y + 1,
+        ws_area.width,
+        ws_area.height.saturating_sub(1),
+    )
+}
+
+fn collapsed_group_label(app: &AppState) -> String {
+    if app.group_filter_enabled {
+        format!("g{}", app.active_group + 1)
+    } else {
+        "all".to_string()
+    }
+}
+
 /// Collapsed sidebar: workspace glance on top, compact agent list below.
 pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: Rect) {
     let is_navigating = matches!(app.mode, Mode::Navigate);
@@ -430,7 +459,22 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
     }
 
     let (ws_area, divider_y, detail_area) = collapsed_sidebar_sections(area);
-    if ws_area == Rect::default() {
+    let group_header = collapsed_group_header_rect(area);
+    if group_header != Rect::default() {
+        let label = collapsed_group_label(app);
+        let style = if app.group_filter_enabled {
+            Style::default().fg(p.text).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
+        };
+        frame.render_widget(
+            Paragraph::new(Span::styled(label, style)).alignment(Alignment::Center),
+            group_header,
+        );
+    }
+
+    let workspace_rows = collapsed_workspace_rows_rect(area);
+    if ws_area == Rect::default() || workspace_rows == Rect::default() {
         render_sidebar_toggle(app, frame, area, true, p);
         return;
     }
@@ -439,8 +483,8 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         let Some(ws) = app.workspaces.get(ws_idx) else {
             continue;
         };
-        let y = ws_area.y + visible_idx as u16;
-        if y >= ws_area.y + ws_area.height {
+        let y = workspace_rows.y + visible_idx as u16;
+        if y >= workspace_rows.y + workspace_rows.height {
             break;
         }
         let (agg_state, agg_seen) = ws.aggregate_state();
@@ -464,7 +508,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
 
         if is_selected || is_active {
             let buf = frame.buffer_mut();
-            for x in ws_area.x..ws_area.x + ws_area.width {
+            for x in workspace_rows.x..workspace_rows.x + workspace_rows.width {
                 buf[(x, y)].set_style(row_style);
             }
         }
@@ -475,7 +519,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
                 Span::styled(" ", row_style),
                 Span::styled(icon, icon_style),
             ])),
-            Rect::new(ws_area.x, y, ws_area.width, 1),
+            Rect::new(workspace_rows.x, y, workspace_rows.width, 1),
         );
     }
 

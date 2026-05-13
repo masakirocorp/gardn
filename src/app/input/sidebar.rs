@@ -220,8 +220,12 @@ impl AppState {
     }
 
     pub(crate) fn group_selector_rect(&self) -> Rect {
-        if self.sidebar_collapsed || self.view.layout == ViewLayout::Mobile {
+        if self.view.layout == ViewLayout::Mobile {
             return Rect::default();
+        }
+
+        if self.sidebar_collapsed {
+            return crate::ui::collapsed_group_header_rect(self.view.sidebar_rect);
         }
 
         let ws_area =
@@ -313,10 +317,14 @@ impl AppState {
             .max()
             .unwrap_or(8)
             .saturating_add(2);
-        let menu_w = content_width
-            .saturating_add(2)
-            .min(self.view.sidebar_rect.width.max(1))
-            .min(screen.width.max(1));
+        let menu_w = if self.sidebar_collapsed {
+            content_width.saturating_add(2).min(screen.width.max(1))
+        } else {
+            content_width
+                .saturating_add(2)
+                .min(self.view.sidebar_rect.width.max(1))
+                .min(screen.width.max(1))
+        };
         let menu_h = (labels.len() as u16 + 2).min(screen.height.max(1));
         let x = selector
             .x
@@ -425,7 +433,7 @@ impl AppState {
             return None;
         }
 
-        let (ws_area, _, _) = crate::ui::collapsed_sidebar_sections(self.view.sidebar_rect);
+        let ws_area = crate::ui::collapsed_workspace_rows_rect(self.view.sidebar_rect);
         if ws_area == Rect::default() || row < ws_area.y || row >= ws_area.y + ws_area.height {
             return None;
         }
@@ -1225,6 +1233,55 @@ mod tests {
         ));
 
         assert!(!app.state.sidebar_collapsed);
+    }
+
+    #[test]
+    fn clicking_collapsed_group_header_opens_group_menu() {
+        let mut app = app_for_mouse_test();
+        app.state.create_group("Work".to_string());
+        app.state.switch_group(1);
+        app.state.sidebar_collapsed = true;
+        app.state.view.sidebar_rect = Rect::new(0, 0, 4, 20);
+        app.state.view.terminal_area = Rect::new(4, 0, 80, 20);
+
+        let header = crate::ui::collapsed_group_header_rect(app.state.view.sidebar_rect);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            header.x,
+            header.y,
+        ));
+
+        assert_eq!(app.state.mode, Mode::GroupMenu);
+        assert_eq!(app.state.group_menu.highlighted, 1);
+        assert!(app.state.group_menu_rect().width > app.state.view.sidebar_rect.width);
+    }
+
+    #[test]
+    fn collapsed_workspace_rows_start_below_group_header() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.sidebar_collapsed = true;
+        app.state.view.sidebar_rect = Rect::new(0, 0, 4, 20);
+        app.state.view.terminal_area = Rect::new(4, 0, 80, 20);
+
+        let rows = crate::ui::collapsed_workspace_rows_rect(app.state.view.sidebar_rect);
+
+        assert_eq!(app.state.collapsed_workspace_at_row(rows.y), Some(0));
+        assert_eq!(
+            app.state
+                .collapsed_workspace_at_row(rows.y.saturating_sub(1)),
+            None
+        );
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            rows.x,
+            rows.y + 1,
+        ));
+
+        assert_eq!(app.state.active, Some(1));
     }
 
     #[test]
