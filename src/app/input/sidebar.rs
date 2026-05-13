@@ -255,14 +255,17 @@ impl AppState {
     }
 
     pub(crate) fn group_menu_labels(&self) -> Vec<String> {
-        self.groups
+        let mut labels: Vec<String> = self
+            .groups
             .iter()
             .enumerate()
             .map(|(idx, group)| {
                 let marker = if idx == self.active_group { "*" } else { " " };
                 format!("{marker} {}", group.name)
             })
-            .collect()
+            .collect();
+        labels.push("+ new group".to_string());
+        labels
     }
 
     pub(crate) fn group_filter_toggle_label(&self) -> &'static str {
@@ -613,6 +616,28 @@ mod tests {
 
         assert_eq!(app.state.active_group, 1);
         assert_ne!(app.state.mode, Mode::GroupMenu);
+    }
+
+    #[test]
+    fn clicking_new_group_menu_item_opens_new_group_modal() {
+        let mut app = app_for_mouse_test();
+        let selector = app.state.group_selector_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            selector.x + 1,
+            selector.y,
+        ));
+
+        let menu = app.state.group_menu_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + app.state.groups.len() as u16 + 1,
+        ));
+
+        assert_eq!(app.state.mode, Mode::RenameGroup);
+        assert!(app.state.creating_new_group);
+        assert_eq!(app.state.name_input, "group 2");
     }
 
     #[test]

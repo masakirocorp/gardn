@@ -342,6 +342,7 @@ impl App {
             request_client_sound_config_reload: false,
             request_clipboard_write: None,
             creating_new_tab: false,
+            creating_new_group: false,
             requested_new_tab_name: None,
             rename_pane_target: None,
             request_complete_onboarding: false,
@@ -917,7 +918,7 @@ impl App {
             Mode::Navigate => {
                 self.handle_navigate_key(key);
             }
-            Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane => {
+            Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
                 input::handle_rename_key(&mut self.state, key_event);
             }
             Mode::Resize => {

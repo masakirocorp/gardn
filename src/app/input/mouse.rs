@@ -126,8 +126,12 @@ impl AppState {
         if self.mode == Mode::GroupMenu {
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
                 if let Some(idx) = self.group_menu_item_at(mouse.column, mouse.row) {
-                    self.switch_group(idx);
-                    leave_modal(self);
+                    if idx < self.groups.len() {
+                        self.switch_group(idx);
+                        leave_modal(self);
+                    } else if idx == self.groups.len() {
+                        super::modal::open_new_group_dialog(self);
+                    }
                 } else {
                     leave_modal(self);
                 }
@@ -180,7 +184,7 @@ impl AppState {
 
                 if matches!(
                     self.mode,
-                    Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane
+                    Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane
                 ) {
                     let action = self
                         .rename_modal_inner()

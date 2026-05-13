@@ -158,12 +158,16 @@ pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => leave_modal(state),
         KeyCode::Up | KeyCode::Char('k') => state.group_menu.move_prev(),
-        KeyCode::Down | KeyCode::Char('j') => state.group_menu.move_next(state.groups.len()),
+        KeyCode::Down | KeyCode::Char('j') => {
+            state.group_menu.move_next(state.group_menu_labels().len())
+        }
         KeyCode::Enter => {
             let idx = state.group_menu.highlighted;
             if idx < state.groups.len() {
                 state.switch_group(idx);
                 leave_modal(state);
+            } else if idx == state.groups.len() {
+                open_new_group_dialog(state);
             }
         }
         _ => {}
@@ -185,6 +189,9 @@ pub(crate) fn handle_keybind_help_key(state: &mut AppState, key: KeyEvent) {
 
 pub(super) fn open_rename_workspace(state: &mut AppState, ws_idx: usize) {
     state.selected = ws_idx;
+    state.creating_new_tab = false;
+    state.creating_new_group = false;
+    state.requested_new_tab_name = None;
     state.rename_pane_target = None;
     state.name_input = state.workspaces[ws_idx].display_name();
     state.name_input_replace_on_type = false;
@@ -193,6 +200,7 @@ pub(super) fn open_rename_workspace(state: &mut AppState, ws_idx: usize) {
 
 pub(super) fn open_rename_active_tab(state: &mut AppState, replace_on_type: bool) {
     state.creating_new_tab = false;
+    state.creating_new_group = false;
     state.requested_new_tab_name = None;
     state.rename_pane_target = None;
     if let Some(ws) = state.active.and_then(|i| state.workspaces.get(i)) {
@@ -212,6 +220,7 @@ pub(super) fn open_rename_pane(state: &mut AppState, pane_id: crate::layout::Pan
         return;
     };
     state.creating_new_tab = false;
+    state.creating_new_group = false;
     state.requested_new_tab_name = None;
     state.rename_pane_target = Some(pane_id);
     state.name_input = pane.manual_label.clone().unwrap_or_default();
@@ -227,13 +236,28 @@ fn next_new_tab_default_name(state: &AppState) -> String {
         .unwrap_or_else(|| "1".to_string())
 }
 
+fn next_new_group_default_name(state: &AppState) -> String {
+    format!("group {}", state.groups.len() + 1)
+}
+
 pub(super) fn open_new_tab_dialog(state: &mut AppState) {
     state.creating_new_tab = true;
+    state.creating_new_group = false;
     state.requested_new_tab_name = None;
     state.rename_pane_target = None;
     state.name_input = next_new_tab_default_name(state);
     state.name_input_replace_on_type = true;
     state.mode = Mode::RenameTab;
+}
+
+pub(super) fn open_new_group_dialog(state: &mut AppState) {
+    state.creating_new_group = true;
+    state.creating_new_tab = false;
+    state.requested_new_tab_name = None;
+    state.rename_pane_target = None;
+    state.name_input = next_new_group_default_name(state);
+    state.name_input_replace_on_type = true;
+    state.mode = Mode::RenameGroup;
 }
 
 pub(super) fn leave_modal(state: &mut AppState) {
@@ -306,6 +330,16 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
                     crate::logging::workspace_renamed(&workspace_id);
                     state.mark_session_dirty();
                 }
+                Mode::RenameGroup if state.creating_new_group => {
+                    let default_name = next_new_group_default_name(state);
+                    let name = if new_name.is_empty() {
+                        default_name
+                    } else {
+                        new_name
+                    };
+                    let group_idx = state.create_group(name);
+                    state.switch_group(group_idx);
+                }
                 Mode::RenameTab if state.creating_new_tab => {
                     state.request_new_tab = true;
                     let default_name = next_new_tab_default_name(state);
@@ -348,6 +382,7 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
                 _ => {}
             }
             state.creating_new_tab = false;
+            state.creating_new_group = false;
             state.rename_pane_target = None;
             state.name_input.clear();
             state.name_input_replace_on_type = false;
@@ -359,6 +394,7 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
         }
         ModalAction::Cancel => {
             state.creating_new_tab = false;
+            state.creating_new_group = false;
             state.requested_new_tab_name = None;
             state.rename_pane_target = None;
             state.name_input.clear();
@@ -572,7 +608,7 @@ impl AppState {
             return None;
         }
         let idx = (row - rect.y - 1) as usize;
-        (idx < self.groups.len()).then_some(idx)
+        (idx < self.group_menu_labels().len()).then_some(idx)
     }
 }
 
@@ -734,6 +770,26 @@ mod tests {
         assert!(!state.creating_new_tab);
         assert!(state.request_new_tab);
         assert_eq!(state.requested_new_tab_name.as_deref(), Some("logs"));
+    }
+
+    #[test]
+    fn saving_new_group_dialog_creates_and_focuses_group() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_new_group_dialog(&mut state);
+        state.name_input = "client".into();
+        state.name_input_replace_on_type = false;
+
+        handle_rename_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.mode, Mode::Navigate);
+        assert!(!state.creating_new_group);
+        assert_eq!(state.groups.len(), 2);
+        assert_eq!(state.groups[1].name, "client");
+        assert_eq!(state.active_group, 1);
+        assert!(state.group_filter_enabled);
     }
 
     #[test]

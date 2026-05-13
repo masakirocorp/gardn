@@ -63,9 +63,10 @@ impl App {
                     Mode::Onboarding => self.handle_onboarding_key(key),
                     Mode::ReleaseNotes => self.handle_release_notes_key(key),
                     Mode::Navigate => unreachable!(),
-                    Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane => {
-                        handle_rename_key(&mut self.state, key)
-                    }
+                    Mode::RenameWorkspace
+                    | Mode::RenameGroup
+                    | Mode::RenameTab
+                    | Mode::RenamePane => handle_rename_key(&mut self.state, key),
                     Mode::Resize => handle_resize_key(&mut self.state, key),
                     Mode::ConfirmClose => handle_confirm_close_key(&mut self.state, key),
                     Mode::ContextMenu => handle_context_menu_key(&mut self.state, key),
