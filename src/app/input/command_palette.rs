@@ -97,6 +97,13 @@ fn move_command_palette_selection(state: &mut AppState, down: bool) {
     }
 }
 
+pub(super) fn scroll_command_palette_selection(state: &mut AppState, delta: i16) {
+    let steps = delta.unsigned_abs().max(1);
+    for _ in 0..steps {
+        move_command_palette_selection(state, delta.is_positive());
+    }
+}
+
 fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
     match action {
         CommandPaletteAction::NewWorkspace => app.state.request_new_workspace = true,
