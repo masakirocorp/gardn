@@ -8,7 +8,9 @@ use ratatui::{
 
 use super::widgets::{
     action_button_row_rects, centered_popup_rect, modal_stack_areas, panel_contrast_fg,
-    render_action_button, render_modal_choice_list, render_panel_shell, ActionButtonSpec,
+    primary_action_style, render_action_button, render_modal_choice_list, render_modal_divider,
+    render_modal_header, render_modal_subtitle, render_panel_shell, secondary_action_style,
+    ActionButtonSpec,
 };
 use crate::{
     app::{state::Palette, AppState},
@@ -45,13 +47,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     ])
     .areas::<3>(stack.header);
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![Span::styled(
-            " settings",
-            Style::default().fg(p.text).add_modifier(Modifier::BOLD),
-        )])),
-        header_rows[0],
-    );
+    render_modal_header(frame, header_rows[0], " settings", p);
 
     let tabs = Tabs::new(SettingsSection::ALL.iter().map(|s| s.label()))
         .select(
@@ -71,11 +67,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         .padding(" ", " ");
     frame.render_widget(tabs, header_rows[1]);
 
-    let sep = "─".repeat(inner.width as usize);
-    frame.render_widget(
-        Paragraph::new(Span::styled(&sep, Style::default().fg(p.surface0))),
-        header_rows[2],
-    );
+    render_modal_divider(frame, header_rows[2], p);
 
     let content_area = stack.content;
 
@@ -152,20 +144,14 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
             apply_rect,
             Some("↵"),
             "apply",
-            Style::default()
-                .fg(panel_contrast_fg(p))
-                .bg(p.accent)
-                .add_modifier(Modifier::BOLD),
+            primary_action_style(p),
         );
         render_action_button(
             frame,
             close_rect,
             Some("esc"),
             "close",
-            Style::default()
-                .fg(p.text)
-                .bg(p.surface0)
-                .add_modifier(Modifier::BOLD),
+            secondary_action_style(p),
         );
 
         frame.render_widget(
@@ -203,13 +189,7 @@ fn render_group_theme_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     ])
     .areas::<3>(stack.header);
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![Span::styled(
-            " group theme",
-            Style::default().fg(p.text).add_modifier(Modifier::BOLD),
-        )])),
-        header_rows[0],
-    );
+    render_modal_header(frame, header_rows[0], " group theme", p);
 
     let group_label = app
         .settings
@@ -217,16 +197,9 @@ fn render_group_theme_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
         .and_then(|idx| app.groups.get(idx))
         .map(|group| format!(" {} {}", group.icon, group.name))
         .unwrap_or_else(|| " group".to_string());
-    frame.render_widget(
-        Paragraph::new(Span::styled(group_label, Style::default().fg(p.overlay1))),
-        header_rows[1],
-    );
+    render_modal_subtitle(frame, header_rows[1], group_label, p);
 
-    let sep = "─".repeat(inner.width as usize);
-    frame.render_widget(
-        Paragraph::new(Span::styled(&sep, Style::default().fg(p.surface0))),
-        header_rows[2],
-    );
+    render_modal_divider(frame, header_rows[2], p);
 
     render_settings_theme(app, frame, stack.content);
 
@@ -239,20 +212,14 @@ fn render_group_theme_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
             apply_rect,
             Some("↵"),
             "apply",
-            Style::default()
-                .fg(panel_contrast_fg(p))
-                .bg(p.accent)
-                .add_modifier(Modifier::BOLD),
+            primary_action_style(p),
         );
         render_action_button(
             frame,
             close_rect,
             Some("esc"),
             "close",
-            Style::default()
-                .fg(p.text)
-                .bg(p.surface0)
-                .add_modifier(Modifier::BOLD),
+            secondary_action_style(p),
         );
 
         frame.render_widget(

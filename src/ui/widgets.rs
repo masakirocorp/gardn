@@ -81,6 +81,57 @@ pub(super) fn render_modal_header(frame: &mut Frame, area: Rect, title: &str, p:
     frame.render_widget(Paragraph::new(line), area);
 }
 
+pub(super) fn render_modal_subtitle(
+    frame: &mut Frame,
+    area: Rect,
+    text: impl Into<String>,
+    p: &Palette,
+) {
+    frame.render_widget(
+        Paragraph::new(text.into()).style(Style::default().fg(p.overlay1)),
+        area,
+    );
+}
+
+pub(super) fn render_modal_divider(frame: &mut Frame, area: Rect, p: &Palette) {
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "─".repeat(area.width as usize),
+            Style::default().fg(p.surface0),
+        )),
+        area,
+    );
+}
+
+pub(super) fn render_modal_text_input(frame: &mut Frame, area: Rect, value: &str, p: &Palette) {
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(format!(" {value}█")).style(Style::default().fg(p.text).bg(p.surface0)),
+        area,
+    );
+}
+
+pub(super) fn primary_action_style(p: &Palette) -> Style {
+    Style::default()
+        .fg(panel_contrast_fg(p))
+        .bg(p.accent)
+        .add_modifier(Modifier::BOLD)
+}
+
+pub(super) fn secondary_action_style(p: &Palette) -> Style {
+    Style::default()
+        .fg(p.text)
+        .bg(p.surface0)
+        .add_modifier(Modifier::BOLD)
+}
+
+pub(super) fn danger_action_style(p: &Palette) -> Style {
+    Style::default()
+        .fg(panel_contrast_fg(p))
+        .bg(p.red)
+        .add_modifier(Modifier::BOLD)
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ModalStackAreas {
     pub header: Rect,

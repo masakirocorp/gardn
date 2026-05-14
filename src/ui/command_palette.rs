@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Clear, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -13,7 +13,10 @@ use crate::app::{
 
 use super::{
     scrollbar::{render_scrollbar, should_show_scrollbar},
-    widgets::{panel_contrast_fg, render_modal_header, render_modal_shell},
+    widgets::{
+        panel_contrast_fg, render_modal_header, render_modal_shell, render_modal_subtitle,
+        render_modal_text_input,
+    },
 };
 
 const COMMAND_PALETTE_SCROLLBAR_WIDTH: u16 = 1;
@@ -38,22 +41,15 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
     .areas::<4>(inner);
 
     render_modal_header(frame, rows[0], "command palette", &app.palette);
-    frame.render_widget(
-        Paragraph::new(" type to filter, enter to run, esc to close")
-            .style(Style::default().fg(app.palette.overlay1)),
+    render_modal_subtitle(
+        frame,
         rows[1],
+        " type to filter, enter to run, esc to close",
+        &app.palette,
     );
 
     let input = Rect::new(rows[2].x, rows[2].y, rows[2].width, 1);
-    frame.render_widget(Clear, input);
-    frame.render_widget(
-        Paragraph::new(format!(" {}█", app.command_palette.query)).style(
-            Style::default()
-                .fg(app.palette.text)
-                .bg(app.palette.surface0),
-        ),
-        input,
-    );
+    render_modal_text_input(frame, input, &app.command_palette.query, &app.palette);
 
     let commands = command_palette_filtered_commands(app);
     if commands.is_empty() {

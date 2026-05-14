@@ -9,8 +9,8 @@ use ratatui::{
 use super::release_notes::release_notes_close_button_rect;
 use super::scrollbar::{release_notes_scrollbar_rect, render_scrollbar};
 use super::widgets::{
-    modal_stack_areas, panel_contrast_fg, render_action_button, render_modal_header,
-    render_modal_shell,
+    modal_stack_areas, primary_action_style, render_action_button, render_modal_header,
+    render_modal_shell, render_modal_subtitle,
 };
 use crate::app::AppState;
 
@@ -226,15 +226,13 @@ pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
         release_notes_close_button_rect(header_rows[0]),
         Some("esc"),
         "close",
-        Style::default()
-            .fg(panel_contrast_fg(&app.palette))
-            .bg(app.palette.accent)
-            .add_modifier(Modifier::BOLD),
+        primary_action_style(&app.palette),
     );
-    frame.render_widget(
-        Paragraph::new(" available commands and configured shortcuts")
-            .style(Style::default().fg(app.palette.overlay1)),
+    render_modal_subtitle(
+        frame,
         header_rows[1],
+        " available commands and configured shortcuts",
+        &app.palette,
     );
 
     let body_area = stack.content;

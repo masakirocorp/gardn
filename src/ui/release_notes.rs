@@ -8,8 +8,8 @@ use ratatui::{
 
 use super::scrollbar::{release_notes_scrollbar_rect, render_scrollbar};
 use super::widgets::{
-    action_button_width, modal_stack_areas, panel_contrast_fg, render_action_button,
-    render_modal_header, render_modal_shell,
+    action_button_width, modal_stack_areas, primary_action_style, render_action_button,
+    render_modal_header, render_modal_shell, render_modal_subtitle,
 };
 use crate::app::{
     state::{Palette, ReleaseNotesState},
@@ -66,19 +66,13 @@ pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, ar
     } else {
         "what's new in this release"
     };
-    frame.render_widget(
-        Paragraph::new(subtitle).style(Style::default().fg(app.palette.overlay1)),
-        header_subtitle_area,
-    );
+    render_modal_subtitle(frame, header_subtitle_area, subtitle, &app.palette);
     render_action_button(
         frame,
         release_notes_close_button_rect(header_rows[0]),
         Some("esc"),
         "close",
-        Style::default()
-            .fg(panel_contrast_fg(&app.palette))
-            .bg(app.palette.accent)
-            .add_modifier(Modifier::BOLD),
+        primary_action_style(&app.palette),
     );
 
     let sections = release_notes_sections(stack.content, notes.preview);
