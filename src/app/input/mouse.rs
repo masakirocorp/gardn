@@ -1594,18 +1594,23 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_mouse_wheel_moves_selection() {
+    fn command_palette_mouse_wheel_coalesces_scroll_burst() {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::CommandPalette;
 
         app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
         assert_eq!(app.state.command_palette.selected, 1);
 
+        for _ in 0..5 {
+            app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
+            assert_eq!(app.state.command_palette.selected, 1);
+        }
+
         app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
-        assert_eq!(app.state.command_palette.selected, 1);
+        assert_eq!(app.state.command_palette.selected, 2);
 
         app.handle_mouse(mouse(MouseEventKind::ScrollUp, 40, 8));
-        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.selected, 1);
     }
 
     #[test]
