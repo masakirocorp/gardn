@@ -196,9 +196,9 @@ press `ctrl+b` to enter navigate mode.
 
 | key | action |
 |-----|--------|
-| `n` | new workspace |
-| `shift+n` | rename workspace |
-| `shift+d` | close workspace |
+| `n` | new space |
+| `shift+n` | rename space |
+| `shift+d` | close space |
 | `c` | new tab |
 | `v` / `-` | split pane |
 | `x` | close pane |

@@ -402,6 +402,7 @@ pub(crate) enum NavigateAction {
     NextGroup,
     PreviousAgent,
     NextAgent,
+    OpenAgentMenu,
     NewTab,
     RenameTab,
     PreviousTab,
@@ -418,6 +419,7 @@ pub(crate) enum NavigateAction {
     Fullscreen,
     EnterResizeMode,
     ToggleSidebar,
+    ToggleRightSidebar,
     ReloadConfig,
     OpenNotificationTarget,
     Detach,
@@ -500,6 +502,12 @@ fn navigate_action_for_key(state: &AppState, key: &KeyEvent) -> Option<NavigateA
     {
         return Some(NavigateAction::NextAgent);
     }
+    if kb
+        .open_agent_menu
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::OpenAgentMenu);
+    }
     if key_matches(key, kb.new_tab.0, kb.new_tab.1) {
         return Some(NavigateAction::NewTab);
     }
@@ -550,6 +558,12 @@ fn navigate_action_for_key(state: &AppState, key: &KeyEvent) -> Option<NavigateA
     }
     if key_matches(key, kb.toggle_sidebar.0, kb.toggle_sidebar.1) {
         return Some(NavigateAction::ToggleSidebar);
+    }
+    if kb
+        .toggle_right_sidebar
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::ToggleRightSidebar);
     }
     if kb
         .reload_config
@@ -627,6 +641,7 @@ pub(super) fn execute_navigate_action(state: &mut AppState, action: NavigateActi
             state.next_agent();
             leave_navigate_mode(state);
         }
+        NavigateAction::OpenAgentMenu => super::modal::open_agent_menu(state),
         NavigateAction::NewTab => super::modal::open_new_tab_dialog(state),
         NavigateAction::RenameTab => super::modal::open_rename_active_tab(state, false),
         NavigateAction::PreviousTab => {
@@ -676,6 +691,13 @@ pub(super) fn execute_navigate_action(state: &mut AppState, action: NavigateActi
         NavigateAction::ToggleSidebar => {
             state.sidebar_collapsed = !state.sidebar_collapsed;
             state.mark_session_dirty();
+            leave_navigate_mode(state);
+        }
+        NavigateAction::ToggleRightSidebar => {
+            if state.view.right_sidebar_rect != ratatui::layout::Rect::default() {
+                state.right_sidebar_collapsed = !state.right_sidebar_collapsed;
+                state.mark_session_dirty();
+            }
             leave_navigate_mode(state);
         }
         NavigateAction::ReloadConfig => {
@@ -944,6 +966,44 @@ mod tests {
         for (key, expected) in cases {
             assert_eq!(navigate_action_for_key(&state, &key), Some(expected));
         }
+    }
+
+    #[test]
+    fn navigate_agent_and_right_sidebar_shortcuts_map_to_navigation_actions() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.keybinds.open_agent_menu = Some((KeyCode::Char('a'), KeyModifiers::ALT));
+        state.keybinds.toggle_right_sidebar = Some((KeyCode::Char('b'), KeyModifiers::ALT));
+
+        assert_eq!(
+            navigate_action_for_key(
+                &state,
+                &KeyEvent::new(KeyCode::Char('a'), KeyModifiers::ALT),
+            ),
+            Some(NavigateAction::OpenAgentMenu)
+        );
+        assert_eq!(
+            navigate_action_for_key(
+                &state,
+                &KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT),
+            ),
+            Some(NavigateAction::ToggleRightSidebar)
+        );
+    }
+
+    #[test]
+    fn toggle_right_sidebar_shortcut_collapses_visible_right_sidebar() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.mode = Mode::Navigate;
+        state.view.right_sidebar_rect = ratatui::layout::Rect::new(80, 0, 28, 24);
+        state.keybinds.toggle_right_sidebar = Some((KeyCode::Char('b'), KeyModifiers::ALT));
+
+        handle_navigate_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT),
+        );
+
+        assert!(state.right_sidebar_collapsed);
+        assert_eq!(state.mode, Mode::Terminal);
     }
 
     #[test]

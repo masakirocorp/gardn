@@ -53,26 +53,21 @@ pub(super) fn keybind_help_groups(
     ));
 
     let mut workspace_tab = vec![
-        (kb.new_workspace_label.clone(), "new workspace"),
-        (kb.rename_workspace_label.clone(), "rename workspace"),
-        (kb.close_workspace_label.clone(), "close workspace"),
+        (kb.new_workspace_label.clone(), "new space"),
+        (kb.rename_workspace_label.clone(), "rename space"),
+        (kb.close_workspace_label.clone(), "close space"),
         (
             optional_keybind_label(&kb.open_notification_target_label),
             "open notification target",
         ),
         (
             optional_keybind_label(&kb.previous_workspace_label),
-            "previous workspace",
+            "previous space",
         ),
         (
             optional_keybind_label(&kb.next_workspace_label),
-            "next workspace",
+            "next space",
         ),
-        (
-            optional_keybind_label(&kb.previous_agent_label),
-            "previous agent",
-        ),
-        (optional_keybind_label(&kb.next_agent_label), "next agent"),
         (kb.new_tab_label.clone(), "new tab"),
         (optional_keybind_label(&kb.rename_tab_label), "rename tab"),
         (
@@ -85,7 +80,7 @@ pub(super) fn keybind_help_groups(
     if let Some(label) = &kb.detach_label {
         workspace_tab.insert(3, (label.clone(), "detach from server"));
     }
-    groups.push(("workspaces / tabs", workspace_tab));
+    groups.push(("spaces / tabs", workspace_tab));
 
     let group_keys = vec![
         (
@@ -113,6 +108,19 @@ pub(super) fn keybind_help_groups(
     ];
     groups.push(("groups", group_keys));
 
+    let agents = vec![
+        (
+            optional_keybind_label(&kb.open_agent_menu_label),
+            "open agent menu",
+        ),
+        (
+            optional_keybind_label(&kb.previous_agent_label),
+            "previous agent",
+        ),
+        (optional_keybind_label(&kb.next_agent_label), "next agent"),
+    ];
+    groups.push(("agents", agents));
+
     let panes = vec![
         (kb.split_vertical_label.clone(), "split vertical"),
         (kb.split_horizontal_label.clone(), "split horizontal"),
@@ -121,6 +129,10 @@ pub(super) fn keybind_help_groups(
         (kb.fullscreen_label.clone(), "fullscreen"),
         (kb.resize_mode_label.clone(), "resize mode"),
         (kb.toggle_sidebar_label.clone(), "toggle sidebar"),
+        (
+            optional_keybind_label(&kb.toggle_right_sidebar_label),
+            "toggle right sidebar",
+        ),
         (
             optional_keybind_label(&kb.focus_pane_left_label),
             "focus pane left",

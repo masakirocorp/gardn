@@ -1171,8 +1171,14 @@ mod tests {
 
         let workspace_tab = groups
             .iter()
-            .find(|(name, _)| *name == "workspaces / tabs")
+            .find(|(name, _)| *name == "spaces / tabs")
             .expect("workspace tab group")
+            .1
+            .clone();
+        let agents = groups
+            .iter()
+            .find(|(name, _)| *name == "agents")
+            .expect("agents group")
             .1
             .clone();
         let panes = groups
@@ -1182,14 +1188,16 @@ mod tests {
             .1
             .clone();
 
-        assert!(workspace_tab.contains(&("unset".to_string(), "previous workspace")));
-        assert!(workspace_tab.contains(&("unset".to_string(), "next workspace")));
-        assert!(workspace_tab.contains(&("unset".to_string(), "previous agent")));
-        assert!(workspace_tab.contains(&("unset".to_string(), "next agent")));
+        assert!(workspace_tab.contains(&("unset".to_string(), "previous space")));
+        assert!(workspace_tab.contains(&("unset".to_string(), "next space")));
         assert!(workspace_tab.contains(&("unset".to_string(), "rename tab")));
         assert!(workspace_tab.contains(&("unset".to_string(), "previous tab")));
         assert!(workspace_tab.contains(&("unset".to_string(), "next tab")));
         assert!(workspace_tab.contains(&("unset".to_string(), "close tab")));
+        assert!(agents.contains(&("unset".to_string(), "open agent menu")));
+        assert!(agents.contains(&("unset".to_string(), "previous agent")));
+        assert!(agents.contains(&("unset".to_string(), "next agent")));
+        assert!(panes.contains(&("unset".to_string(), "toggle right sidebar")));
         assert!(panes.contains(&("unset".to_string(), "focus pane left")));
         assert!(panes.contains(&("unset".to_string(), "focus pane down")));
         assert!(panes.contains(&("unset".to_string(), "focus pane up")));
