@@ -588,7 +588,7 @@ mod tests {
     #[test]
     fn right_sidebar_divider_uses_accent_for_empty_workspace() {
         let mut app = crate::app::state::AppState::test_new();
-        app.mode = Mode::Terminal;
+        app.mode = Mode::Navigate;
 
         compute_view(&mut app, Rect::new(0, 0, 140, 20));
 
@@ -600,6 +600,26 @@ mod tests {
 
         assert_eq!(buffer[(divider_x, 1)].symbol(), "│");
         assert_eq!(buffer[(divider_x, 1)].style().fg, Some(app.palette.accent));
+    }
+
+    #[test]
+    fn right_sidebar_divider_dims_when_group_menu_is_open() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.mode = Mode::GroupMenu;
+
+        compute_view(&mut app, Rect::new(0, 0, 140, 20));
+
+        let backend = TestBackend::new(140, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let divider_x = app.view.right_sidebar_rect.x;
+
+        assert_eq!(buffer[(divider_x, 1)].symbol(), "│");
+        assert_eq!(
+            buffer[(divider_x, 1)].style().fg,
+            Some(app.palette.surface_dim)
+        );
     }
 
     #[test]

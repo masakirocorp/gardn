@@ -676,10 +676,10 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
     }
     let p = &app.palette;
     let has_active_workspace = app.active.and_then(|idx| app.workspaces.get(idx)).is_some();
-    let sep_style = if has_active_workspace {
-        Style::default().fg(p.surface_dim)
-    } else {
+    let sep_style = if !has_active_workspace && matches!(app.mode, Mode::Navigate) {
         Style::default().fg(p.accent)
+    } else {
+        Style::default().fg(p.surface_dim)
     };
     let buf = frame.buffer_mut();
     for y in area.y..area.y + area.height {
