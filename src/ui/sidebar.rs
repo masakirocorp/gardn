@@ -1143,31 +1143,6 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
     if let Some(track) = scrollbar_rect {
         render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▕");
     }
-
-    if app.mouse_capture && list_bottom > area.y {
-        let new_rect = app.sidebar_new_button_rect();
-        frame.render_widget(
-            Paragraph::new(Span::styled("new space", Style::default().fg(p.overlay0))),
-            new_rect,
-        );
-
-        let menu_rect = app.global_launcher_rect();
-        let menu_line = if app.update_available.is_some() {
-            Line::from(vec![
-                Span::styled("menu", Style::default().fg(p.overlay0)),
-                Span::styled(
-                    " ●",
-                    Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
-                ),
-            ])
-        } else {
-            Line::from(vec![Span::styled("menu", Style::default().fg(p.overlay0))])
-        };
-        frame.render_widget(
-            Paragraph::new(menu_line).alignment(Alignment::Right),
-            menu_rect,
-        );
-    }
 }
 
 fn render_agent_entry(
@@ -1489,6 +1464,22 @@ mod tests {
         assert!(text.contains("empty group"));
         assert!(rows[2].contains("empty group"));
         assert!(!text.contains("new space adds one here"));
+    }
+
+    #[test]
+    fn workspace_list_does_not_render_footer_actions() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.mouse_capture = true;
+
+        let backend = TestBackend::new(28, 12);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_workspace_list(&app, frame, Rect::new(0, 0, 28, 12), false))
+            .expect("render workspace list");
+
+        let text = buffer_text(terminal.backend().buffer(), 28, 12);
+        assert!(!text.contains("new space"));
+        assert!(!text.contains("menu"));
     }
 
     #[test]

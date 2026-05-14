@@ -19,7 +19,7 @@ use super::{
         apply_context_menu_action, apply_global_menu_action, apply_rename_action,
         confirm_close_accept, confirm_close_cancel, confirm_delete_group_accept,
         confirm_delete_group_cancel, global_menu_actions, leave_modal, modal_action_from_buttons,
-        open_global_menu, open_new_tab_dialog, ModalAction,
+        open_new_tab_dialog, ModalAction,
     },
     settings::SettingsAction,
     ScrollbarClickTarget, TAB_DRAG_THRESHOLD, WORKSPACE_DRAG_THRESHOLD,
@@ -71,25 +71,6 @@ impl AppState {
             return self.handle_settings_mouse(mouse);
         }
 
-        let launcher_enabled = self.view.layout != ViewLayout::Mobile
-            && !self.sidebar_collapsed
-            && matches!(
-                self.mode,
-                Mode::Terminal
-                    | Mode::Navigate
-                    | Mode::Resize
-                    | Mode::GlobalMenu
-                    | Mode::GroupMenu
-                    | Mode::AgentMenu
-                    | Mode::KeybindHelp
-            );
-        let launcher = self.global_launcher_rect();
-        let launcher_hit = launcher_enabled
-            && mouse.column >= launcher.x
-            && mouse.column < launcher.x + launcher.width
-            && mouse.row >= launcher.y
-            && mouse.row < launcher.y + launcher.height;
-
         if matches!(mouse.kind, MouseEventKind::Moved) && self.mode == Mode::GlobalMenu {
             let actions = global_menu_actions(self);
             let hovered = self
@@ -110,15 +91,6 @@ impl AppState {
         if matches!(mouse.kind, MouseEventKind::Moved) && self.mode == Mode::AgentMenu {
             self.agent_menu
                 .hover(self.agent_menu_row_at(mouse.column, mouse.row));
-            return None;
-        }
-
-        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) && launcher_hit {
-            if self.mode == Mode::GlobalMenu {
-                leave_modal(self);
-            } else {
-                open_global_menu(self);
-            }
             return None;
         }
 
@@ -163,6 +135,10 @@ impl AppState {
                         }
                         super::sidebar::GroupMenuAction::Group(idx) => {
                             self.switch_group(idx);
+                            leave_modal(self);
+                        }
+                        super::sidebar::GroupMenuAction::NewWorkspace => {
+                            self.request_new_workspace = true;
                             leave_modal(self);
                         }
                         super::sidebar::GroupMenuAction::NewGroup => {
@@ -507,16 +483,6 @@ impl AppState {
 
                     if self.on_group_selector(mouse.column, mouse.row) {
                         super::modal::open_group_menu(self);
-                        return None;
-                    }
-
-                    let new_button = self.sidebar_new_button_rect();
-                    let on_new_button = mouse.row >= new_button.y
-                        && mouse.row < new_button.y + new_button.height
-                        && mouse.column >= new_button.x
-                        && mouse.column < new_button.x + new_button.width;
-                    if on_new_button {
-                        self.request_new_workspace = true;
                         return None;
                     }
 

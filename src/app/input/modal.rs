@@ -212,6 +212,10 @@ pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
                     state.switch_group(idx);
                     leave_modal(state);
                 }
+                super::sidebar::GroupMenuAction::NewWorkspace => {
+                    state.request_new_workspace = true;
+                    leave_modal(state);
+                }
                 super::sidebar::GroupMenuAction::NewGroup => open_new_group_dialog(state),
             }
         }
