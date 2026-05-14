@@ -16,6 +16,8 @@ use super::{
     widgets::{panel_contrast_fg, render_modal_header, render_modal_shell},
 };
 
+const COMMAND_PALETTE_SCROLLBAR_WIDTH: u16 = 3;
+
 pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) {
     super::dim_background(frame, frame.area());
 
@@ -66,18 +68,9 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
         .selected
         .min(commands.len().saturating_sub(1));
     let palette_rows = command_palette_rows(&commands);
-    let selected_row = palette_rows
-        .iter()
-        .position(|row| matches!(row, CommandPaletteRow::Command(idx, _) if *idx == selected))
-        .unwrap_or(0);
     let visible_rows = rows[3].height as usize;
-    let start = if visible_rows == 0 {
-        0
-    } else if selected_row >= visible_rows {
-        selected_row + 1 - visible_rows
-    } else {
-        0
-    };
+    let max_start = palette_rows.len().saturating_sub(visible_rows);
+    let start = app.command_palette.scroll.min(max_start);
     let end = (start + visible_rows).min(palette_rows.len());
     let metrics = crate::pane::ScrollMetrics {
         offset_from_bottom: palette_rows
@@ -87,7 +80,8 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
         max_offset_from_bottom: palette_rows.len().saturating_sub(visible_rows),
         viewport_rows: visible_rows,
     };
-    let has_scrollbar = should_show_scrollbar(metrics) && rows[3].width > 1;
+    let has_scrollbar =
+        should_show_scrollbar(metrics) && rows[3].width > COMMAND_PALETTE_SCROLLBAR_WIDTH;
 
     let lines = palette_rows[start..end]
         .iter()
@@ -117,7 +111,9 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
         Rect::new(
             rows[3].x,
             rows[3].y,
-            rows[3].width.saturating_sub(1),
+            rows[3]
+                .width
+                .saturating_sub(COMMAND_PALETTE_SCROLLBAR_WIDTH),
             rows[3].height,
         )
     } else {
@@ -127,9 +123,12 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
 
     if has_scrollbar {
         let track = Rect::new(
-            rows[3].x + rows[3].width.saturating_sub(1),
+            rows[3].x
+                + rows[3]
+                    .width
+                    .saturating_sub(COMMAND_PALETTE_SCROLLBAR_WIDTH),
             rows[3].y,
-            1,
+            COMMAND_PALETTE_SCROLLBAR_WIDTH,
             rows[3].height,
         );
         render_scrollbar(
@@ -138,7 +137,7 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
             track,
             app.palette.surface_dim,
             app.palette.overlay0,
-            "▕",
+            "█",
         );
     }
 }

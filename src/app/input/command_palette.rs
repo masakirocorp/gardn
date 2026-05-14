@@ -14,6 +14,7 @@ const WHEEL_EVENTS_PER_SELECTION_STEP: u8 = 16;
 pub(super) fn open_command_palette(state: &mut AppState) {
     state.command_palette.query.clear();
     state.command_palette.selected = 0;
+    state.command_palette.scroll = 0;
     state.command_palette.wheel_gate = None;
     state.mode = Mode::CommandPalette;
 }
@@ -75,16 +76,19 @@ fn clamp_command_palette_selection(state: &mut AppState) {
     let count = command_palette_visible_commands(state).len();
     if count == 0 {
         state.command_palette.selected = 0;
+        state.command_palette.scroll = 0;
         return;
     }
 
     state.command_palette.selected = state.command_palette.selected.min(count - 1);
+    ensure_command_palette_selection_visible(state);
 }
 
 fn move_command_palette_selection(state: &mut AppState, down: bool) -> bool {
     let count = command_palette_visible_commands(state).len();
     if count == 0 {
         state.command_palette.selected = 0;
+        state.command_palette.scroll = 0;
         return false;
     }
 
@@ -95,6 +99,7 @@ fn move_command_palette_selection(state: &mut AppState, down: bool) -> bool {
     };
     let changed = next != state.command_palette.selected;
     state.command_palette.selected = next;
+    ensure_command_palette_selection_visible(state);
     changed
 }
 
@@ -136,6 +141,67 @@ pub(super) fn hover_command_palette_selection(state: &mut AppState, col: u16, ro
 }
 
 fn command_palette_visible_rows(state: &AppState) -> Option<(Rect, Vec<Option<usize>>, usize)> {
+    let (list_area, rows) = command_palette_rows_for_input(state)?;
+    let visible_rows = list_area.height as usize;
+    let max_start = rows.len().saturating_sub(visible_rows);
+    let start = state.command_palette.scroll.min(max_start);
+    Some((list_area, rows, start))
+}
+
+fn ensure_command_palette_selection_visible(state: &mut AppState) {
+    let Some((list_area, rows)) = command_palette_rows_for_input(state) else {
+        state.command_palette.scroll = 0;
+        return;
+    };
+    let visible_rows = list_area.height as usize;
+    if visible_rows == 0 {
+        state.command_palette.scroll = 0;
+        return;
+    }
+
+    let max_start = rows.len().saturating_sub(visible_rows);
+    let Some(selected_row) = rows
+        .iter()
+        .position(|row| *row == Some(state.command_palette.selected))
+    else {
+        state.command_palette.scroll = state.command_palette.scroll.min(max_start);
+        return;
+    };
+
+    let start = state.command_palette.scroll.min(max_start);
+    state.command_palette.scroll = if selected_row < start {
+        selected_row
+    } else if selected_row >= start + visible_rows {
+        selected_row + 1 - visible_rows
+    } else {
+        start
+    };
+}
+
+fn command_palette_rows_for_input(state: &AppState) -> Option<(Rect, Vec<Option<usize>>)> {
+    let list_area = command_palette_list_area(state)?;
+    if list_area.height == 0 {
+        return None;
+    }
+
+    let commands = command_palette_visible_commands(state);
+    if commands.is_empty() {
+        return None;
+    }
+    let mut rows = Vec::new();
+    let mut last_group = None;
+    for (idx, command) in commands.iter().enumerate() {
+        if last_group != Some(command.group) {
+            rows.push(None);
+            last_group = Some(command.group);
+        }
+        rows.push(Some(idx));
+    }
+
+    Some((list_area, rows))
+}
+
+fn command_palette_list_area(state: &AppState) -> Option<Rect> {
     let screen = command_palette_screen_rect(state);
     let popup = crate::ui::centered_popup_rect(screen, 76, 18)?;
     let inner = Rect::new(
@@ -148,42 +214,12 @@ fn command_palette_visible_rows(state: &AppState) -> Option<(Rect, Vec<Option<us
         return None;
     }
 
-    let list_area = Rect::new(
+    Some(Rect::new(
         inner.x,
         inner.y + 3,
         inner.width,
         inner.height.saturating_sub(3),
-    );
-    let commands = command_palette_visible_commands(state);
-    if commands.is_empty() || list_area.height == 0 {
-        return None;
-    }
-
-    let mut rows = Vec::new();
-    let mut last_group = None;
-    for (idx, command) in commands.iter().enumerate() {
-        if last_group != Some(command.group) {
-            rows.push(None);
-            last_group = Some(command.group);
-        }
-        rows.push(Some(idx));
-    }
-
-    let selected = state
-        .command_palette
-        .selected
-        .min(commands.len().saturating_sub(1));
-    let selected_row = rows
-        .iter()
-        .position(|row| *row == Some(selected))
-        .unwrap_or(0);
-    let visible_rows = list_area.height as usize;
-    let start = if selected_row >= visible_rows {
-        selected_row + 1 - visible_rows
-    } else {
-        0
-    };
-    Some((list_area, rows, start))
+    ))
 }
 
 fn command_palette_screen_rect(state: &AppState) -> Rect {

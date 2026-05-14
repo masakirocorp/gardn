@@ -15,8 +15,6 @@ use crate::detect::AgentState;
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const AGENT_PANEL_HEADER_ROWS: u16 = 2;
-const LEFT_SIDEBAR_SEPARATOR: &str = "▐";
-const RIGHT_SIDEBAR_SEPARATOR: &str = "▌";
 
 #[derive(Clone)]
 pub(crate) struct AgentPanelEntry {
@@ -700,7 +698,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
     let sep_x = area.x + area.width.saturating_sub(1);
     let buf = frame.buffer_mut();
     for y in area.y..area.y + area.height {
-        buf[(sep_x, y)].set_symbol(LEFT_SIDEBAR_SEPARATOR);
+        buf[(sep_x, y)].set_symbol("│");
         buf[(sep_x, y)].set_style(sep_style);
     }
 
@@ -862,7 +860,7 @@ pub(super) fn render_sidebar(app: &AppState, frame: &mut Frame, area: Rect) {
     let sep_x = area.x + area.width.saturating_sub(1);
     let buf = frame.buffer_mut();
     for y in area.y..area.y + area.height {
-        buf[(sep_x, y)].set_symbol(LEFT_SIDEBAR_SEPARATOR);
+        buf[(sep_x, y)].set_symbol("│");
         buf[(sep_x, y)].set_style(sep_style);
     }
 
@@ -891,7 +889,7 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
     };
     let buf = frame.buffer_mut();
     for y in area.y..area.y + area.height {
-        buf[(area.x, y)].set_symbol(RIGHT_SIDEBAR_SEPARATOR);
+        buf[(area.x, y)].set_symbol("│");
         buf[(area.x, y)].set_style(sep_style);
     }
     if app.right_sidebar_collapsed {
