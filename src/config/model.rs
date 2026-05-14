@@ -15,6 +15,7 @@ pub enum ToastDelivery {
 #[serde(rename_all = "lowercase")]
 pub enum AgentPanelScopeConfig {
     Current,
+    Group,
     #[default]
     All,
 }
@@ -23,6 +24,7 @@ impl AgentPanelScopeConfig {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Current => "current",
+            Self::Group => "group",
             Self::All => "all",
         }
     }
@@ -149,7 +151,7 @@ pub struct UiConfig {
     pub confirm_close: bool,
     /// Show agent labels in split pane borders when no manual pane label is set. Default: false.
     pub show_agent_labels_on_pane_borders: bool,
-    /// Agent sidebar scope. Saved values are "current" or "all". Default: "all".
+    /// Agent sidebar scope. Saved values are "current", "group", or "all". Default: "current".
     pub agent_panel_scope: AgentPanelScopeConfig,
     /// Accent color for highlights, borders, and navigation UI.
     /// Accepts hex (#89b4fa), named colors (cyan, blue), or RGB (rgb(137,180,250)).
@@ -221,7 +223,7 @@ impl Default for UiConfig {
             mouse_capture: true,
             confirm_close: true,
             show_agent_labels_on_pane_borders: false,
-            agent_panel_scope: AgentPanelScopeConfig::All,
+            agent_panel_scope: AgentPanelScopeConfig::Current,
             accent: "cyan".into(),
             toast: ToastConfig::default(),
             sound: SoundConfig::default(),
@@ -277,10 +279,10 @@ mod tests {
     fn agent_panel_scope_config_parses() {
         let toml = r#"
 [ui]
-agent_panel_scope = "all"
+agent_panel_scope = "group"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.ui.agent_panel_scope, AgentPanelScopeConfig::All);
+        assert_eq!(config.ui.agent_panel_scope, AgentPanelScopeConfig::Group);
     }
 
     #[test]

@@ -11,6 +11,13 @@ pub(crate) enum GroupMenuAction {
     NewGroup,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentMenuAction {
+    ThisSpace,
+    ThisGroup,
+    AllAgents,
+}
+
 impl AppState {
     pub(super) fn workspace_list_rect(&self) -> Rect {
         let sidebar = self.view.sidebar_rect;
@@ -343,6 +350,42 @@ impl AppState {
         Rect::new(x, y, menu_w, menu_h)
     }
 
+    pub(crate) fn agent_menu_labels(&self) -> Vec<&'static str> {
+        vec!["all agents", "---", "this space", "this group"]
+    }
+
+    pub(crate) fn agent_menu_action_for_row(&self, row_idx: usize) -> Option<AgentMenuAction> {
+        match row_idx {
+            0 => Some(AgentMenuAction::AllAgents),
+            2 => Some(AgentMenuAction::ThisSpace),
+            3 => Some(AgentMenuAction::ThisGroup),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn agent_menu_rect(&self) -> Rect {
+        let screen = self.screen_rect();
+        let area = self.agent_panel_rect();
+        let header = crate::ui::agent_panel_toggle_rect(
+            area,
+            self.agent_panel_scope,
+            self.agent_panel_has_leading_separator(),
+        );
+        let labels = self.agent_menu_labels();
+        let content_width = labels
+            .iter()
+            .map(|label| label.chars().count() as u16)
+            .max()
+            .unwrap_or(8)
+            .saturating_add(2);
+        let menu_w = content_width.saturating_add(2).min(screen.width.max(1));
+        let menu_h = (labels.len() as u16 + 2).min(screen.height.max(1));
+        let x = header.x.min(screen.x + screen.width.saturating_sub(menu_w));
+        let max_y = screen.y + screen.height.saturating_sub(menu_h);
+        let y = header.y.saturating_add(1).min(max_y);
+        Rect::new(x, y, menu_w, menu_h)
+    }
+
     pub(super) fn on_sidebar_divider(&self, col: u16, row: u16) -> bool {
         if self.sidebar_collapsed {
             return false;
@@ -622,20 +665,37 @@ impl AppState {
             return None;
         }
 
-        let mut row_y = body.y;
+        let (agents_body, triage_area) = crate::ui::agent_panel_section_rects(body);
+        let mut row_y = agents_body.y;
         for detail in crate::ui::agent_panel_entries(self)
             .into_iter()
             .skip(self.agent_panel_scroll)
         {
-            if row_y.saturating_add(1) >= body.y + body.height {
+            if row_y.saturating_add(1) >= agents_body.y + agents_body.height {
                 break;
             }
             if row == row_y || row == row_y + 1 {
                 return Some((detail.ws_idx, detail.tab_idx, detail.pane_id));
             }
             row_y = row_y.saturating_add(2);
-            if row_y < body.y + body.height {
+            if row_y < agents_body.y + agents_body.height {
                 row_y = row_y.saturating_add(1);
+            }
+        }
+
+        if triage_area != Rect::default() && row > triage_area.y {
+            let mut row_y = triage_area.y + 1;
+            for detail in crate::ui::agent_panel_triage_entries(self) {
+                if row_y.saturating_add(1) >= triage_area.y + triage_area.height {
+                    break;
+                }
+                if row == row_y || row == row_y + 1 {
+                    return Some((detail.ws_idx, detail.tab_idx, detail.pane_id));
+                }
+                row_y = row_y.saturating_add(2);
+                if row_y < triage_area.y + triage_area.height {
+                    row_y = row_y.saturating_add(1);
+                }
             }
         }
         None
@@ -1207,7 +1267,7 @@ mod tests {
     }
 
     #[test]
-    fn clicking_agent_panel_toggle_switches_scope() {
+    fn clicking_agent_panel_toggle_opens_scope_menu() {
         let mut app = app_for_mouse_test();
         app.state.workspaces = vec![Workspace::test_new("test")];
         app.state.active = Some(0);
@@ -1227,16 +1287,43 @@ mod tests {
             toggle.y,
         ));
 
-        assert_eq!(
-            app.state.agent_panel_scope,
-            AgentPanelScope::CurrentWorkspace
+        assert_eq!(app.state.mode, Mode::AgentMenu);
+        assert_eq!(app.state.agent_menu.highlighted, 2);
+        assert_eq!(app.state.agent_panel_scroll, 3);
+    }
+
+    #[test]
+    fn clicking_agent_scope_menu_item_switches_scope() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_panel_scroll = 3;
+
+        let (_, detail_area) = crate::ui::expanded_sidebar_sections(
+            app.state.view.sidebar_rect,
+            app.state.sidebar_section_split,
         );
+        let toggle =
+            crate::ui::agent_panel_toggle_rect(detail_area, app.state.agent_panel_scope, true);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            toggle.x,
+            toggle.y,
+        ));
+
+        let menu = app.state.agent_menu_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + 1,
+        ));
+
+        assert_eq!(app.state.agent_panel_scope, AgentPanelScope::AllWorkspaces);
         assert_eq!(app.state.agent_panel_scroll, 0);
         let snapshot = capture_snapshot(&app.state);
-        assert_eq!(
-            snapshot.agent_panel_scope,
-            AgentPanelScope::CurrentWorkspace
-        );
+        assert_eq!(snapshot.agent_panel_scope, AgentPanelScope::AllWorkspaces);
     }
 
     #[test]
@@ -1360,6 +1447,62 @@ mod tests {
             MouseEventKind::Down(MouseButton::Left),
             detail_area.x + 2,
             detail_area.y + 6,
+        ));
+
+        assert_eq!(app.state.active, Some(1));
+        assert_eq!(app.state.selected, 1);
+        assert_eq!(app.state.active_group, hidden_group);
+        assert_eq!(app.state.visible_workspace_indices(), vec![1]);
+        assert_eq!(
+            app.state.workspaces[1].tabs[0].layout.focused(),
+            second_pane
+        );
+    }
+
+    #[test]
+    fn clicking_triage_agent_reveals_hidden_group() {
+        let mut app = app_for_mouse_test();
+        let hidden_group = app.state.create_group("Work".to_string());
+
+        let mut first = Workspace::test_new("one");
+        let first_pane = first.tabs[0].root_pane;
+        let first_pane_state = first.tabs[0].panes.get_mut(&first_pane).unwrap();
+        first_pane_state.detected_agent = Some(Agent::Pi);
+        first_pane_state.state = crate::detect::AgentState::Idle;
+        first_pane_state.seen = true;
+
+        let mut second = Workspace::test_new("two");
+        second.group_id = app.state.groups[hidden_group].id.clone();
+        let second_pane = second.tabs[0].root_pane;
+        let second_pane_state = second.tabs[0].panes.get_mut(&second_pane).unwrap();
+        second_pane_state.detected_agent = Some(Agent::Claude);
+        second_pane_state.state = crate::detect::AgentState::Blocked;
+
+        app.state.workspaces = vec![first, second];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.active_group = 0;
+        app.state.group_filter_enabled = true;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+
+        assert_eq!(app.state.visible_workspace_indices(), vec![0]);
+        let detail_area = app.state.agent_panel_rect();
+        let leading_separator = app.state.agent_panel_has_leading_separator();
+        let metrics =
+            crate::ui::agent_panel_scroll_metrics(&app.state, detail_area, leading_separator);
+        let body = crate::ui::agent_panel_body_rect(
+            detail_area,
+            crate::ui::should_show_scrollbar(metrics),
+            leading_separator,
+        );
+        let (_, triage_area) = crate::ui::agent_panel_section_rects(body);
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            triage_area.x + 2,
+            triage_area.y + 1,
         ));
 
         assert_eq!(app.state.active, Some(1));

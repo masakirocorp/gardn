@@ -581,7 +581,7 @@ mod tests {
         assert_eq!(snap.workspaces.len(), 2);
         assert_eq!(snap.active, Some(0));
         assert_eq!(snap.selected, 0);
-        assert_eq!(snap.agent_panel_scope, AgentPanelScope::AllWorkspaces);
+        assert_eq!(snap.agent_panel_scope, AgentPanelScope::CurrentWorkspace);
         assert_eq!(snap.sidebar_width, None);
         assert!(!snap.sidebar_collapsed);
         assert_eq!(snap.sidebar_section_split, None);
@@ -618,7 +618,10 @@ mod tests {
 
         let restored = parse_snapshot(&json).unwrap();
 
-        assert_eq!(restored.agent_panel_scope, AgentPanelScope::AllWorkspaces);
+        assert_eq!(
+            restored.agent_panel_scope,
+            AgentPanelScope::CurrentWorkspace
+        );
         assert_eq!(restored.sidebar_width, None);
         assert!(!restored.sidebar_collapsed);
         assert_eq!(restored.sidebar_section_split, None);

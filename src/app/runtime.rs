@@ -197,6 +197,19 @@ impl App {
                 .active
                 .and_then(|idx| self.state.workspaces.get(idx))
                 .is_some_and(Workspace::has_working_pane),
+            crate::app::state::AgentPanelScope::CurrentGroup => {
+                let group_id = self
+                    .state
+                    .active
+                    .and_then(|idx| self.state.workspaces.get(idx))
+                    .map(|ws| ws.group_id.as_str())
+                    .unwrap_or_else(|| self.state.active_group_id());
+                self.state
+                    .workspaces
+                    .iter()
+                    .filter(|ws| ws.group_id == group_id)
+                    .any(Workspace::has_working_pane)
+            }
             crate::app::state::AgentPanelScope::AllWorkspaces => self
                 .state
                 .workspaces

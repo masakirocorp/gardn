@@ -143,6 +143,7 @@ fn agent_panel_scope_from_config(
 ) -> state::AgentPanelScope {
     match scope {
         crate::config::AgentPanelScopeConfig::Current => state::AgentPanelScope::CurrentWorkspace,
+        crate::config::AgentPanelScopeConfig::Group => state::AgentPanelScope::CurrentGroup,
         crate::config::AgentPanelScopeConfig::All => state::AgentPanelScope::AllWorkspaces,
     }
 }
@@ -470,6 +471,7 @@ impl App {
             },
             global_menu: state::MenuListState::new(0),
             group_menu: state::MenuListState::new(0),
+            agent_menu: state::MenuListState::new(0),
             host_terminal_theme,
             session_dirty: false,
         };
@@ -1007,6 +1009,9 @@ impl App {
             Mode::GroupMenu => {
                 input::handle_group_menu_key(&mut self.state, key_event);
             }
+            Mode::AgentMenu => {
+                input::handle_agent_menu_key(&mut self.state, key_event);
+            }
             Mode::Onboarding => {
                 self.handle_onboarding_key(key_event);
             }
@@ -1375,17 +1380,17 @@ mod tests {
         let mut app = test_app();
         assert_eq!(
             app.state.agent_panel_scope,
-            state::AgentPanelScope::AllWorkspaces
+            state::AgentPanelScope::CurrentWorkspace
         );
 
-        app.save_agent_panel_scope(state::AgentPanelScope::CurrentWorkspace);
+        app.save_agent_panel_scope(state::AgentPanelScope::CurrentGroup);
 
         assert_eq!(
             app.state.agent_panel_scope,
-            state::AgentPanelScope::CurrentWorkspace
+            state::AgentPanelScope::CurrentGroup
         );
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("agent_panel_scope = \"current\""));
+        assert!(content.contains("agent_panel_scope = \"group\""));
         assert!(app.state.config_diagnostic.is_none());
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);

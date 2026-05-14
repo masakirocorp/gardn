@@ -666,13 +666,15 @@ pub enum Mode {
     Settings,
     GlobalMenu,
     GroupMenu,
+    AgentMenu,
     KeybindHelp,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AgentPanelScope {
-    CurrentWorkspace,
     #[default]
+    CurrentWorkspace,
+    CurrentGroup,
     AllWorkspaces,
 }
 
@@ -1057,6 +1059,8 @@ pub struct AppState {
     pub global_menu: MenuListState,
     /// Highlight state for the sidebar group switcher menu.
     pub group_menu: MenuListState,
+    /// Highlight state for the right-sidebar agent scope menu.
+    pub agent_menu: MenuListState,
     /// Resolved host terminal default colors for theming embedded panes.
     pub host_terminal_theme: TerminalTheme,
     /// Set when a persisted session snapshot would change.
@@ -1325,7 +1329,7 @@ impl AppState {
             right_sidebar_width: 28,
             right_sidebar_collapsed: false,
             sidebar_section_split: 0.5,
-            agent_panel_scope: AgentPanelScope::AllWorkspaces,
+            agent_panel_scope: AgentPanelScope::CurrentWorkspace,
             mouse_capture: true,
             confirm_close: true,
             show_agent_labels_on_pane_borders: false,
@@ -1426,6 +1430,7 @@ impl AppState {
             },
             global_menu: MenuListState::new(0),
             group_menu: MenuListState::new(0),
+            agent_menu: MenuListState::new(0),
             host_terminal_theme: TerminalTheme::default(),
             session_dirty: false,
         }

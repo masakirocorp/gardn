@@ -24,8 +24,8 @@ use self::dialogs::{
 };
 use self::keybind_help::render_keybind_help_overlay;
 use self::menus::{
-    render_context_menu, render_global_launcher_menu, render_group_menu, render_navigate_overlay,
-    render_resize_overlay,
+    render_agent_menu, render_context_menu, render_global_launcher_menu, render_group_menu,
+    render_navigate_overlay, render_resize_overlay,
 };
 use self::mobile::{
     compute_mobile_header_hit_areas, is_mobile_width, mobile_switcher_max_scroll_for_height,
@@ -57,7 +57,8 @@ pub(crate) use self::{
     settings::settings_button_rects,
     sidebar::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_scroll_metrics,
-        agent_panel_scrollbar_rect, agent_panel_toggle_rect, collapsed_group_header_rect,
+        agent_panel_scrollbar_rect, agent_panel_section_rects, agent_panel_toggle_rect,
+        agent_panel_triage_entries, collapsed_group_header_rect,
         collapsed_right_sidebar_agent_rows_rect, collapsed_sidebar_sections,
         collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect, compute_workspace_card_areas,
         compute_workspace_card_areas_in_list, expanded_sidebar_sections,
@@ -396,6 +397,7 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         }
         Mode::GlobalMenu => render_global_launcher_menu(app, frame),
         Mode::GroupMenu => render_group_menu(app, frame),
+        Mode::AgentMenu => render_agent_menu(app, frame),
         Mode::KeybindHelp => render_keybind_help_overlay(app, frame),
         Mode::Terminal => {}
     }

@@ -292,7 +292,7 @@ sidebar_width = 26
 mouse_capture = true
 confirm_close = true
 show_agent_labels_on_pane_borders = false
-agent_panel_scope = "all"
+agent_panel_scope = "current"
 accent = "cyan"
 ```
 
@@ -304,10 +304,10 @@ accent = "cyan"
 | `mouse_capture` | `true` | capture mouse input for Herdr's mouse UI; set false to let the terminal handle normal clicks while still forwarding mouse to pane apps that request it |
 | `confirm_close` | `true` | ask before closing a workspace |
 | `show_agent_labels_on_pane_borders` | `false` | show detected/reported agent labels in split pane borders when no manual pane name is set |
-| `agent_panel_scope` | `all` | sidebar agent list scope: `current` (shown as `this space`) or `all` (shown as `all agents`) |
+| `agent_panel_scope` | `current` | right sidebar roster scope: `current` (shown as `this space`), `group` (shown as `this group`), or `all` (shown as `all agents`) |
 | `accent` | `cyan` | highlight and border color |
 
-Changing the agent panel scope from the sidebar writes `agent_panel_scope` to config so it survives session resets and upgrades.
+Changing the agent panel scope from the agents menu writes `agent_panel_scope` to config so it survives session resets and upgrades. The `triage` section is always global.
 
 `accent` accepts:
 - named colors like `cyan`, `blue`, `magenta`

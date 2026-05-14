@@ -33,9 +33,9 @@ mod terminal;
 
 pub(crate) use self::{
     modal::{
-        handle_confirm_close_key, handle_confirm_delete_group_key, handle_context_menu_key,
-        handle_global_menu_key, handle_group_menu_key, handle_keybind_help_key, handle_rename_key,
-        handle_resize_key,
+        handle_agent_menu_key, handle_confirm_close_key, handle_confirm_delete_group_key,
+        handle_context_menu_key, handle_global_menu_key, handle_group_menu_key,
+        handle_keybind_help_key, handle_rename_key, handle_resize_key,
     },
     navigate::terminal_direct_navigation_action,
     settings::open_settings,
@@ -55,6 +55,7 @@ use super::App;
 
 impl App {
     pub(super) async fn handle_key(&mut self, key: TerminalKey) {
+        let previous_agent_panel_scope = self.state.agent_panel_scope;
         match self.state.mode {
             Mode::Terminal => self.handle_terminal_key(key).await,
             Mode::Navigate => self.handle_navigate_key(key),
@@ -77,10 +78,14 @@ impl App {
                     Mode::Settings => self.handle_settings_key(key),
                     Mode::GlobalMenu => handle_global_menu_key(&mut self.state, key),
                     Mode::GroupMenu => handle_group_menu_key(&mut self.state, key),
+                    Mode::AgentMenu => handle_agent_menu_key(&mut self.state, key),
                     Mode::KeybindHelp => handle_keybind_help_key(&mut self.state, key),
                     Mode::Terminal => unreachable!(),
                 }
             }
+        }
+        if self.state.agent_panel_scope != previous_agent_panel_scope {
+            self.save_agent_panel_scope(self.state.agent_panel_scope);
         }
     }
 

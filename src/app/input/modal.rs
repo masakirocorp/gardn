@@ -104,6 +104,16 @@ pub(super) fn open_group_menu(state: &mut AppState) {
     state.mode = Mode::GroupMenu;
 }
 
+pub(super) fn open_agent_menu(state: &mut AppState) {
+    let highlighted = match state.agent_panel_scope {
+        crate::app::state::AgentPanelScope::AllWorkspaces => 0,
+        crate::app::state::AgentPanelScope::CurrentWorkspace => 2,
+        crate::app::state::AgentPanelScope::CurrentGroup => 3,
+    };
+    state.agent_menu = MenuListState::new(highlighted);
+    state.mode = Mode::AgentMenu;
+}
+
 pub(super) fn open_keybind_help(state: &mut AppState) {
     state.keybind_help.scroll = 0;
     state.mode = Mode::KeybindHelp;
@@ -207,6 +217,60 @@ pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
         }
         _ => {}
     }
+}
+
+pub(crate) fn handle_agent_menu_key(state: &mut AppState, key: KeyEvent) {
+    let labels = state.agent_menu_labels();
+    match key.code {
+        KeyCode::Esc => leave_modal(state),
+        KeyCode::Up | KeyCode::Char('k') => {
+            let mut idx = state.agent_menu.highlighted;
+            while idx > 0 {
+                idx -= 1;
+                if state.agent_menu_action_for_row(idx).is_some() {
+                    state.agent_menu.highlighted = idx;
+                    break;
+                }
+            }
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            let mut idx = state.agent_menu.highlighted;
+            while idx + 1 < labels.len() {
+                idx += 1;
+                if state.agent_menu_action_for_row(idx).is_some() {
+                    state.agent_menu.highlighted = idx;
+                    break;
+                }
+            }
+        }
+        KeyCode::Enter => {
+            let Some(action) = state.agent_menu_action_for_row(state.agent_menu.highlighted) else {
+                return;
+            };
+            apply_agent_menu_action(state, action);
+            leave_modal(state);
+        }
+        _ => {}
+    }
+}
+
+pub(super) fn apply_agent_menu_action(
+    state: &mut AppState,
+    action: super::sidebar::AgentMenuAction,
+) {
+    state.agent_panel_scope = match action {
+        super::sidebar::AgentMenuAction::ThisSpace => {
+            crate::app::state::AgentPanelScope::CurrentWorkspace
+        }
+        super::sidebar::AgentMenuAction::ThisGroup => {
+            crate::app::state::AgentPanelScope::CurrentGroup
+        }
+        super::sidebar::AgentMenuAction::AllAgents => {
+            crate::app::state::AgentPanelScope::AllWorkspaces
+        }
+    };
+    state.agent_panel_scroll = 0;
+    state.mark_session_dirty();
 }
 
 pub(crate) fn handle_keybind_help_key(state: &mut AppState, key: KeyEvent) {
@@ -740,6 +804,29 @@ impl AppState {
         }
         let idx = (row - rect.y - 1) as usize;
         (idx < self.group_menu_labels().len()).then_some(idx)
+    }
+
+    pub(super) fn agent_menu_item_at(
+        &self,
+        col: u16,
+        row: u16,
+    ) -> Option<super::sidebar::AgentMenuAction> {
+        let row_idx = self.agent_menu_row_at(col, row)?;
+        self.agent_menu_action_for_row(row_idx)
+    }
+
+    pub(super) fn agent_menu_row_at(&self, col: u16, row: u16) -> Option<usize> {
+        let rect = self.agent_menu_rect();
+        if col <= rect.x
+            || col >= rect.x + rect.width.saturating_sub(1)
+            || row <= rect.y
+            || row >= rect.y + rect.height.saturating_sub(1)
+        {
+            return None;
+        }
+        let idx = (row - rect.y - 1) as usize;
+        (idx < self.agent_menu_labels().len() && self.agent_menu_action_for_row(idx).is_some())
+            .then_some(idx)
     }
 }
 

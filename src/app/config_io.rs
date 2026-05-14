@@ -101,6 +101,9 @@ impl App {
             crate::app::state::AgentPanelScope::CurrentWorkspace => {
                 crate::config::AgentPanelScopeConfig::Current.as_str()
             }
+            crate::app::state::AgentPanelScope::CurrentGroup => {
+                crate::config::AgentPanelScopeConfig::Group.as_str()
+            }
             crate::app::state::AgentPanelScope::AllWorkspaces => {
                 crate::config::AgentPanelScopeConfig::All.as_str()
             }

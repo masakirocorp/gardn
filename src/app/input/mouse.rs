@@ -5,8 +5,8 @@ use tracing::warn;
 
 use crate::{
     app::state::{
-        AgentPanelScope, AppState, ContextMenuKind, ContextMenuState, DragState, DragTarget,
-        MenuListState, Mode, TabPressState, ViewLayout, WorkspacePressState,
+        AppState, ContextMenuKind, ContextMenuState, DragState, DragTarget, MenuListState, Mode,
+        TabPressState, ViewLayout, WorkspacePressState,
     },
     layout::{PaneInfo, SplitBorder},
     selection::Selection,
@@ -80,6 +80,7 @@ impl AppState {
                     | Mode::Resize
                     | Mode::GlobalMenu
                     | Mode::GroupMenu
+                    | Mode::AgentMenu
                     | Mode::KeybindHelp
             );
         let launcher = self.global_launcher_rect();
@@ -103,6 +104,12 @@ impl AppState {
                 self.group_menu_row_at(mouse.column, mouse.row)
                     .filter(|idx| self.group_menu_action_for_row(*idx).is_some()),
             );
+            return None;
+        }
+
+        if matches!(mouse.kind, MouseEventKind::Moved) && self.mode == Mode::AgentMenu {
+            self.agent_menu
+                .hover(self.agent_menu_row_at(mouse.column, mouse.row));
             return None;
         }
 
@@ -164,6 +171,25 @@ impl AppState {
                     }
                 } else {
                     let rect = self.group_menu_rect();
+                    let inside_menu = mouse.column >= rect.x
+                        && mouse.column < rect.x + rect.width
+                        && mouse.row >= rect.y
+                        && mouse.row < rect.y + rect.height;
+                    if !inside_menu {
+                        leave_modal(self);
+                    }
+                }
+            }
+            return None;
+        }
+
+        if self.mode == Mode::AgentMenu {
+            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                if let Some(action) = self.agent_menu_item_at(mouse.column, mouse.row) {
+                    super::modal::apply_agent_menu_action(self, action);
+                    leave_modal(self);
+                } else {
+                    let rect = self.agent_menu_rect();
                     let inside_menu = mouse.column >= rect.x
                         && mouse.column < rect.x + rect.width
                         && mouse.row >= rect.y
@@ -417,12 +443,7 @@ impl AppState {
                     }
 
                     if self.on_agent_panel_scope_toggle(mouse.column, mouse.row) {
-                        self.agent_panel_scope = match self.agent_panel_scope {
-                            AgentPanelScope::CurrentWorkspace => AgentPanelScope::AllWorkspaces,
-                            AgentPanelScope::AllWorkspaces => AgentPanelScope::CurrentWorkspace,
-                        };
-                        self.agent_panel_scroll = 0;
-                        self.mark_session_dirty();
+                        super::modal::open_agent_menu(self);
                         return None;
                     }
 
@@ -521,12 +542,7 @@ impl AppState {
                     }
 
                     if self.on_agent_panel_scope_toggle(mouse.column, mouse.row) {
-                        self.agent_panel_scope = match self.agent_panel_scope {
-                            AgentPanelScope::CurrentWorkspace => AgentPanelScope::AllWorkspaces,
-                            AgentPanelScope::AllWorkspaces => AgentPanelScope::CurrentWorkspace,
-                        };
-                        self.agent_panel_scroll = 0;
-                        self.mark_session_dirty();
+                        super::modal::open_agent_menu(self);
                         return None;
                     }
 

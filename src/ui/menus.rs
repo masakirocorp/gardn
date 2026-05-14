@@ -184,6 +184,40 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
     frame.render_stateful_widget(list, inner, &mut state);
 }
 
+pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
+    let rect = app.agent_menu_rect();
+    let Some(inner) = render_panel_shell(frame, rect, app.palette.accent, app.palette.panel_bg)
+    else {
+        return;
+    };
+
+    let items: Vec<ListItem> = app
+        .agent_menu_labels()
+        .iter()
+        .map(|item| {
+            let style = if *item == "---" {
+                Style::default()
+                    .fg(app.palette.overlay0)
+                    .add_modifier(Modifier::DIM)
+            } else {
+                Style::default().fg(app.palette.text)
+            };
+            ListItem::new(Line::from(format!(" {item}"))).style(style)
+        })
+        .collect();
+    let list = List::new(items)
+        .style(Style::default().fg(app.palette.text))
+        .highlight_style(
+            Style::default()
+                .bg(app.palette.accent)
+                .fg(panel_contrast_fg(&app.palette))
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol(" ");
+    let mut state = ListState::default().with_selected(Some(app.agent_menu.highlighted));
+    frame.render_stateful_widget(list, inner, &mut state);
+}
+
 pub(super) fn render_resize_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     let key = Style::default()
         .fg(app.palette.accent)
