@@ -206,6 +206,10 @@ impl Palette {
         }
     }
 
+    pub fn catppuccin_latte() -> Self {
+        Self::catppuccin_light()
+    }
+
     /// Tokyo Night — blue-purple aesthetic.
     pub fn tokyo_night() -> Self {
         Self {
@@ -248,6 +252,10 @@ impl Palette {
             teal: Color::Rgb(51, 99, 122),
             peach: Color::Rgb(150, 80, 39),
         }
+    }
+
+    pub fn tokyo_night_day() -> Self {
+        Self::tokyo_night_light()
     }
 
     /// Dracula — purple/pink/green.
@@ -448,6 +456,28 @@ impl Palette {
         }
     }
 
+    /// Kanagawa Lotus — the light Kanagawa variant.
+    pub fn kanagawa_lotus() -> Self {
+        Self {
+            accent: Color::Rgb(77, 105, 155),
+            panel_bg: Color::Rgb(242, 236, 188),
+            surface0: Color::Rgb(220, 213, 172),
+            surface1: Color::Rgb(201, 203, 209),
+            surface_dim: Color::Rgb(213, 206, 163),
+            overlay0: Color::Rgb(160, 156, 172),
+            overlay1: Color::Rgb(138, 137, 128),
+            text: Color::Rgb(84, 84, 100),
+            subtext0: Color::Rgb(67, 67, 108),
+            mauve: Color::Rgb(98, 76, 131),
+            green: Color::Rgb(111, 137, 78),
+            yellow: Color::Rgb(119, 113, 63),
+            red: Color::Rgb(200, 64, 83),
+            blue: Color::Rgb(77, 105, 155),
+            teal: Color::Rgb(78, 140, 162),
+            peach: Color::Rgb(204, 109, 0),
+        }
+    }
+
     /// Rosé Pine — muted, elegant.
     pub fn rose_pine() -> Self {
         Self {
@@ -492,6 +522,10 @@ impl Palette {
         }
     }
 
+    pub fn rose_pine_dawn() -> Self {
+        Self::rose_pine_light()
+    }
+
     /// Vesper — minimal high-contrast monochrome with peach and mint accents.
     pub fn vesper() -> Self {
         Self {
@@ -518,14 +552,21 @@ impl Palette {
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
             "catppuccin" | "catppuccin-mocha" => Some(Self::catppuccin()),
+            "catppuccin-latte" | "latte" | "light" => Some(Self::catppuccin_latte()),
             "tokyo-night" | "tokyonight" => Some(Self::tokyo_night()),
+            "tokyo-night-day" | "tokyo-day" | "tokyonight-day" => Some(Self::tokyo_night_day()),
             "dracula" => Some(Self::dracula()),
             "nord" => Some(Self::nord()),
             "gruvbox" | "gruvbox-dark" => Some(Self::gruvbox()),
+            "gruvbox-light" => Some(Self::gruvbox_light()),
             "one-dark" | "onedark" => Some(Self::one_dark()),
+            "one-light" | "onelight" => Some(Self::one_light()),
             "solarized" | "solarized-dark" => Some(Self::solarized()),
+            "solarized-light" => Some(Self::solarized_light()),
             "kanagawa" => Some(Self::kanagawa()),
+            "kanagawa-lotus" | "lotus" => Some(Self::kanagawa_lotus()),
             "rose-pine" | "rosepine" => Some(Self::rose_pine()),
+            "rose-pine-dawn" | "rosepine-dawn" | "dawn" => Some(Self::rose_pine_dawn()),
             "vesper" => Some(Self::vesper()),
             _ => None,
         }
@@ -557,6 +598,7 @@ impl Palette {
             "gruvbox" | "gruvbox-dark" => Some(Self::gruvbox_light()),
             "one-dark" | "onedark" => Some(Self::one_light()),
             "solarized" | "solarized-dark" => Some(Self::solarized_light()),
+            "kanagawa" => Some(Self::kanagawa_lotus()),
             "rose-pine" | "rosepine" => Some(Self::rose_pine_light()),
             _ => Self::from_name(&normalized),
         }
@@ -1471,6 +1513,26 @@ impl AppState {
 mod tests {
     use super::*;
     use crossterm::event::KeyEvent;
+
+    #[test]
+    fn built_in_theme_names_resolve() {
+        for name in THEME_NAMES {
+            assert!(
+                Palette::from_theme(name, ThemeAppearance::Dark).is_some(),
+                "theme should resolve: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn light_theme_aliases_resolve() {
+        for name in ["light", "latte", "tokyo-day", "onelight", "lotus", "dawn"] {
+            assert!(
+                Palette::from_name(name).is_some(),
+                "theme should resolve: {name}"
+            );
+        }
+    }
 
     #[test]
     fn key_matches_requires_exact_modifiers() {
