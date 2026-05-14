@@ -247,10 +247,23 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
                 mode: theme_mode,
             })
         }
-        _ => {
+        SettingsSection::Sound => {
+            let enabled = state.settings.list.selected == 0;
             state.settings.group_theme_target = None;
             super::modal::leave_modal(state);
-            None
+            Some(SettingsAction::SaveSound(enabled))
+        }
+        SettingsSection::Toast => {
+            let delivery = toast_delivery_for_index(state.settings.list.selected);
+            state.settings.group_theme_target = None;
+            super::modal::leave_modal(state);
+            Some(SettingsAction::SaveToastDelivery(delivery))
+        }
+        SettingsSection::PaneLabels => {
+            let enabled = state.settings.list.selected == 0;
+            state.settings.group_theme_target = None;
+            super::modal::leave_modal(state);
+            Some(SettingsAction::SaveAgentBorderLabels(enabled))
         }
     }
 }
@@ -670,7 +683,16 @@ impl AppState {
                         None
                     }
                     _ => {
-                        cancel_settings(self);
+                        let popup = self.settings_popup_rect();
+                        let inside = popup.width > 0
+                            && popup.height > 0
+                            && mouse.column >= popup.x
+                            && mouse.column < popup.x + popup.width
+                            && mouse.row >= popup.y
+                            && mouse.row < popup.y + popup.height;
+                        if !inside {
+                            cancel_settings(self);
+                        }
                         None
                     }
                 }

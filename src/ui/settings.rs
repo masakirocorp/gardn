@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{List, ListItem, ListState, Paragraph, Tabs},
+    widgets::{List, ListItem, ListState, Tabs},
     Frame,
 };
 
@@ -10,8 +10,8 @@ use super::scrollbar::render_scrollbar;
 use super::widgets::{
     action_button_row_rects, centered_popup_rect, modal_scroll_area, modal_stack_areas,
     panel_contrast_fg, primary_action_style, render_action_button, render_modal_choice_list,
-    render_modal_divider, render_modal_header_bar, render_modal_scroll_hints,
-    render_modal_subtitle, render_panel_shell, secondary_action_style, ActionButtonSpec,
+    render_modal_divider, render_modal_header_bar, render_modal_hint_line,
+    render_modal_scroll_hints, render_modal_subtitle, render_panel_shell, ActionButtonSpec,
 };
 use crate::{
     app::{state::Palette, AppState},
@@ -48,7 +48,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     ])
     .areas::<3>(stack.header);
 
-    render_modal_header_bar(frame, header_rows[0], "settings", p, false);
+    render_modal_header_bar(frame, header_rows[0], "settings", p, true);
 
     let tabs = Tabs::new(SettingsSection::ALL.iter().map(|s| s.label()))
         .select(
@@ -139,7 +139,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     if let Some(footer_area) = stack.footer {
         let footer_rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)])
             .areas::<2>(footer_area);
-        let (apply_rect, close_rect) = settings_button_rects(inner);
+        let (apply_rect, _) = settings_button_rects(inner);
         render_action_button(
             frame,
             apply_rect,
@@ -147,25 +147,15 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
             "apply",
             primary_action_style(p),
         );
-        render_action_button(
-            frame,
-            close_rect,
-            Some("esc"),
-            "close",
-            secondary_action_style(p),
-        );
 
         if app.settings.section == SettingsSection::Theme {
             render_modal_scroll_hints(frame, footer_rows[0], p);
         } else {
-            frame.render_widget(
-                Paragraph::new(Line::from(vec![
-                    Span::styled(" ↑↓", Style::default().fg(p.overlay0)),
-                    Span::styled(" select  ", Style::default().fg(p.overlay1)),
-                    Span::styled("tab", Style::default().fg(p.overlay0)),
-                    Span::styled(" section", Style::default().fg(p.overlay1)),
-                ])),
+            render_modal_hint_line(
+                frame,
                 footer_rows[0],
+                p,
+                &[("move", "↑↓"), ("section", "tab")],
             );
         }
     }
@@ -194,7 +184,7 @@ fn render_group_theme_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     ])
     .areas::<3>(stack.header);
 
-    render_modal_header_bar(frame, header_rows[0], "group theme", p, false);
+    render_modal_header_bar(frame, header_rows[0], "group theme", p, true);
 
     let group_label = app
         .settings
@@ -211,20 +201,13 @@ fn render_group_theme_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     if let Some(footer_area) = stack.footer {
         let footer_rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)])
             .areas::<2>(footer_area);
-        let (apply_rect, close_rect) = settings_button_rects(inner);
+        let (apply_rect, _) = settings_button_rects(inner);
         render_action_button(
             frame,
             apply_rect,
             Some("↵"),
             "apply",
             primary_action_style(p),
-        );
-        render_action_button(
-            frame,
-            close_rect,
-            Some("esc"),
-            "close",
-            secondary_action_style(p),
         );
 
         render_modal_scroll_hints(frame, footer_rows[0], p);
@@ -234,20 +217,16 @@ fn render_group_theme_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
 pub(crate) fn settings_button_rects(inner: Rect) -> (Rect, Rect) {
     let rects = action_button_row_rects(
         inner,
-        &[
-            ActionButtonSpec {
-                hint: Some("↵"),
-                label: "apply",
-            },
-            ActionButtonSpec {
-                hint: Some("esc"),
-                label: "close",
-            },
-        ],
+        &[ActionButtonSpec {
+            hint: Some("↵"),
+            label: "apply",
+        }],
         2,
         inner.height.saturating_sub(1),
     );
-    (rects[0], rects[1])
+    let close =
+        super::widgets::modal_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
+    (rects[0], close)
 }
 
 fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -360,7 +339,7 @@ fn modal_option_style(p: &Palette, selected: bool) -> Style {
             .bg(p.accent)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(p.subtext0)
+        Style::default().fg(p.text)
     }
 }
 

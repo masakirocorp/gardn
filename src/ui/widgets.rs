@@ -142,16 +142,32 @@ pub(super) fn render_modal_divider(frame: &mut Frame, area: Rect, p: &Palette) {
 }
 
 pub(super) fn render_modal_scroll_hints(frame: &mut Frame, area: Rect, p: &Palette) {
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(" scroll ", Style::default().fg(p.overlay0)),
-            Span::styled("wheel ↑↓", Style::default().fg(p.text)),
-            Span::styled("  ·  ", Style::default().fg(p.overlay0)),
-            Span::styled("jump", Style::default().fg(p.overlay0)),
-            Span::styled(" pgup / pgdn ", Style::default().fg(p.text)),
-        ])),
+    render_modal_hint_line(
+        frame,
         area,
+        p,
+        &[("scroll", "wheel ↑↓"), ("jump", "pgup / pgdn")],
     );
+}
+
+pub(super) fn render_modal_hint_line(
+    frame: &mut Frame,
+    area: Rect,
+    p: &Palette,
+    hints: &[(&str, &str)],
+) {
+    let mut spans = Vec::new();
+    for (idx, (label, keys)) in hints.iter().enumerate() {
+        if idx == 0 {
+            spans.push(Span::styled(" ", Style::default().fg(p.overlay0)));
+        } else {
+            spans.push(Span::styled("  ·  ", Style::default().fg(p.overlay0)));
+        }
+        spans.push(Span::styled(*label, Style::default().fg(p.overlay0)));
+        spans.push(Span::styled(" ", Style::default().fg(p.overlay0)));
+        spans.push(Span::styled(*keys, Style::default().fg(p.text)));
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 pub(super) fn render_modal_text_input(frame: &mut Frame, area: Rect, value: &str, p: &Palette) {
@@ -388,7 +404,7 @@ pub(crate) fn render_modal_choice_list<T>(
                 .bg(p.accent)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(p.subtext0)
+            Style::default().fg(p.text)
         };
         frame.render_widget(
             Paragraph::new(format!(" {label}{marker}"))

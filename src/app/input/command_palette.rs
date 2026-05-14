@@ -294,12 +294,7 @@ fn command_palette_scrollbar_track(state: &AppState) -> Option<Rect> {
         return None;
     }
     let list_area = command_palette_list_area(state)?;
-    (list_area.width > 1).then_some(Rect::new(
-        list_area.x + list_area.width.saturating_sub(1),
-        list_area.y,
-        1,
-        list_area.height,
-    ))
+    crate::ui::modal_scrollbar_rect(list_area, metrics)
 }
 
 fn ensure_command_palette_selection_visible(state: &mut AppState) {

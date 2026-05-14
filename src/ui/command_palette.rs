@@ -17,7 +17,7 @@ use super::{
         action_button_row_rects, modal_scroll_area, modal_section_heading_style, panel_contrast_fg,
         primary_action_style, render_action_button, render_modal_header_bar,
         render_modal_scroll_hints, render_modal_shell, render_modal_subtitle,
-        render_modal_text_input, secondary_action_style, ActionButtonSpec,
+        render_modal_text_input, ActionButtonSpec,
     },
 };
 
@@ -26,20 +26,16 @@ const COMMAND_PALETTE_KEY_HINT_RIGHT_PADDING: usize = 1;
 pub(crate) fn command_palette_button_rects(inner: Rect) -> (Rect, Rect) {
     let rects = action_button_row_rects(
         inner,
-        &[
-            ActionButtonSpec {
-                hint: Some("↵"),
-                label: "run",
-            },
-            ActionButtonSpec {
-                hint: Some("esc"),
-                label: "close",
-            },
-        ],
+        &[ActionButtonSpec {
+            hint: Some("↵"),
+            label: "run",
+        }],
         2,
         inner.height.saturating_sub(1),
     );
-    (rects[0], rects[1])
+    let close =
+        super::widgets::modal_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
+    (rects[0], close)
 }
 
 pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) {
@@ -62,7 +58,7 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
     ])
     .areas::<6>(inner);
 
-    render_modal_header_bar(frame, rows[0], "command palette", &app.palette, false);
+    render_modal_header_bar(frame, rows[0], "command palette", &app.palette, true);
     render_modal_subtitle(frame, rows[1], "type to filter commands", &app.palette);
 
     let input = Rect::new(rows[2].x, rows[2].y, rows[2].width, 1);
@@ -70,20 +66,13 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
 
     render_modal_scroll_hints(frame, rows[4], &app.palette);
 
-    let (run_rect, close_rect) = command_palette_button_rects(inner);
+    let (run_rect, _) = command_palette_button_rects(inner);
     render_action_button(
         frame,
         run_rect,
         Some("↵"),
         "run",
         primary_action_style(&app.palette),
-    );
-    render_action_button(
-        frame,
-        close_rect,
-        Some("esc"),
-        "close",
-        secondary_action_style(&app.palette),
     );
 
     let commands = command_palette_filtered_commands(app);
@@ -144,7 +133,9 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
                         .fg(panel_contrast_fg(&app.palette))
                         .bg(app.palette.accent)
                 } else {
-                    Style::default().fg(app.palette.overlay1)
+                    Style::default()
+                        .fg(app.palette.mauve)
+                        .add_modifier(Modifier::BOLD)
                 };
                 command_palette_command_line(
                     &command.title,

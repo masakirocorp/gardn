@@ -26,15 +26,13 @@ pub(crate) fn rename_button_rects(inner: Rect) -> (Rect, Rect, Rect) {
                 hint: Some("^c"),
                 label: "clear",
             },
-            ActionButtonSpec {
-                hint: Some("esc"),
-                label: "cancel",
-            },
         ],
         2,
         inner.height.saturating_sub(1),
     );
-    (rects[0], rects[1], rects[2])
+    let close =
+        super::widgets::modal_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
+    (rects[0], rects[1], close)
 }
 
 pub(crate) fn rename_modal_size(app: &AppState) -> (u16, u16) {
@@ -119,7 +117,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
     ])
     .areas::<5>(inner);
 
-    render_modal_header_bar(frame, rows[0], title, &app.palette, false);
+    render_modal_header_bar(frame, rows[0], title, &app.palette, true);
     if matches!(app.mode, Mode::RenameGroup) {
         render_modal_subtitle(frame, rows[1], " name + icon", &app.palette);
     }
@@ -171,7 +169,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         }
     }
 
-    let (save_rect, clear_rect, cancel_rect) = rename_button_rects(inner);
+    let (save_rect, clear_rect, _) = rename_button_rects(inner);
 
     render_action_button(
         frame,
@@ -185,13 +183,6 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         clear_rect,
         Some("^c"),
         "clear",
-        secondary_action_style(&app.palette),
-    );
-    render_action_button(
-        frame,
-        cancel_rect,
-        Some("esc"),
-        "cancel",
         secondary_action_style(&app.palette),
     );
 }
