@@ -20,6 +20,7 @@ mod status;
 mod tabs;
 mod widgets;
 
+pub(crate) use self::command_palette::command_palette_button_rects;
 use self::command_palette::render_command_palette_overlay;
 use self::dialogs::{
     render_confirm_close_overlay, render_confirm_delete_group_overlay, render_rename_overlay,
@@ -77,7 +78,7 @@ pub(crate) use self::{
     },
     panes::pane_is_scrolled_back,
     tabs::compute_tab_bar_view,
-    widgets::{centered_popup_rect, modal_stack_areas},
+    widgets::{centered_popup_rect, modal_close_button_rect, modal_stack_areas},
 };
 use crate::app::state::{ContextMenuKind, ViewLayout};
 use crate::app::{AppState, Mode};

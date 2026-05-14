@@ -8,7 +8,7 @@ use ratatui::{
 
 use super::widgets::{
     action_button_row_rects, centered_popup_rect, danger_action_style, panel_contrast_fg,
-    primary_action_style, render_action_button, render_modal_header, render_modal_shell,
+    primary_action_style, render_action_button, render_modal_header_bar, render_modal_shell,
     render_modal_subtitle, render_modal_text_input, render_panel_shell, secondary_action_style,
     ActionButtonSpec,
 };
@@ -119,7 +119,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
     ])
     .areas::<5>(inner);
 
-    render_modal_header(frame, rows[0], title, &app.palette);
+    render_modal_header_bar(frame, rows[0], title, &app.palette, true);
     if matches!(app.mode, Mode::RenameGroup) {
         render_modal_subtitle(frame, rows[1], " name + icon", &app.palette);
     }

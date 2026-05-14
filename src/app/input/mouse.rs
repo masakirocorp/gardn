@@ -260,33 +260,42 @@ impl AppState {
                     self.mode,
                     Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane
                 ) {
-                    if self.mode == Mode::RenameGroup {
-                        if let Some(inner) = self.rename_modal_inner() {
-                            if self.group_icon_picker_open {
-                                for (rect, icon) in crate::ui::group_icon_picker_rects(inner) {
-                                    if rect_contains(rect, mouse.column, mouse.row) {
-                                        self.group_icon_input = icon.to_string();
-                                        self.group_icon_picker_open = false;
-                                        return None;
-                                    }
-                                }
-                            }
-
-                            if rect_contains(
-                                crate::ui::group_icon_button_rect(inner),
-                                mouse.column,
-                                mouse.row,
-                            ) {
-                                self.group_icon_picker_open = !self.group_icon_picker_open;
-                                return None;
-                            }
-                        }
-                    }
-
                     let Some(inner) = self.rename_modal_inner() else {
                         apply_rename_action(self, ModalAction::Cancel);
                         return None;
                     };
+
+                    let close = crate::ui::modal_close_button_rect(Rect::new(
+                        inner.x,
+                        inner.y,
+                        inner.width,
+                        1,
+                    ));
+                    if rect_contains(close, mouse.column, mouse.row) {
+                        apply_rename_action(self, ModalAction::Cancel);
+                        return None;
+                    }
+
+                    if self.mode == Mode::RenameGroup {
+                        if self.group_icon_picker_open {
+                            for (rect, icon) in crate::ui::group_icon_picker_rects(inner) {
+                                if rect_contains(rect, mouse.column, mouse.row) {
+                                    self.group_icon_input = icon.to_string();
+                                    self.group_icon_picker_open = false;
+                                    return None;
+                                }
+                            }
+                        }
+
+                        if rect_contains(
+                            crate::ui::group_icon_button_rect(inner),
+                            mouse.column,
+                            mouse.row,
+                        ) {
+                            self.group_icon_picker_open = !self.group_icon_picker_open;
+                            return None;
+                        }
+                    }
 
                     let (save, clear, cancel) = crate::ui::rename_button_rects(inner);
                     if let Some(action) = modal_action_from_buttons(

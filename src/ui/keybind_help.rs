@@ -6,11 +6,9 @@ use ratatui::{
     Frame,
 };
 
-use super::release_notes::release_notes_close_button_rect;
 use super::scrollbar::{release_notes_scrollbar_rect, render_scrollbar};
 use super::widgets::{
-    modal_stack_areas, primary_action_style, render_action_button, render_modal_header,
-    render_modal_shell, render_modal_subtitle,
+    modal_stack_areas, render_modal_header_bar, render_modal_shell, render_modal_subtitle,
 };
 use crate::app::AppState;
 
@@ -220,14 +218,7 @@ pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
     let header_rows =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(stack.header);
 
-    render_modal_header(frame, header_rows[0], "keybinds", &app.palette);
-    render_action_button(
-        frame,
-        release_notes_close_button_rect(header_rows[0]),
-        Some("esc"),
-        "close",
-        primary_action_style(&app.palette),
-    );
+    render_modal_header_bar(frame, header_rows[0], "keybinds", &app.palette, true);
     render_modal_subtitle(
         frame,
         header_rows[1],

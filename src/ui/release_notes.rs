@@ -8,8 +8,8 @@ use ratatui::{
 
 use super::scrollbar::{release_notes_scrollbar_rect, render_scrollbar};
 use super::widgets::{
-    action_button_width, modal_stack_areas, primary_action_style, render_action_button,
-    render_modal_header, render_modal_shell, render_modal_subtitle,
+    modal_close_button_rect, modal_stack_areas, render_modal_header_bar, render_modal_shell,
+    render_modal_subtitle,
 };
 use crate::app::{
     state::{Palette, ReleaseNotesState},
@@ -42,38 +42,19 @@ pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, ar
     let header_rows =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(stack.header);
 
-    let header_title_area = Rect::new(
-        header_rows[0].x + 1,
-        header_rows[0].y,
-        header_rows[0].width.saturating_sub(2),
-        header_rows[0].height,
-    );
-    let header_subtitle_area = Rect::new(
-        header_rows[1].x + 1,
-        header_rows[1].y,
-        header_rows[1].width.saturating_sub(2),
-        header_rows[1].height,
-    );
-
-    render_modal_header(
+    render_modal_header_bar(
         frame,
-        header_title_area,
+        header_rows[0],
         &format!("v{}", notes.version),
         &app.palette,
+        true,
     );
     let subtitle = if notes.preview {
         "update ready"
     } else {
         "what's new in this release"
     };
-    render_modal_subtitle(frame, header_subtitle_area, subtitle, &app.palette);
-    render_action_button(
-        frame,
-        release_notes_close_button_rect(header_rows[0]),
-        Some("esc"),
-        "close",
-        primary_action_style(&app.palette),
-    );
+    render_modal_subtitle(frame, header_rows[1], subtitle, &app.palette);
 
     let sections = release_notes_sections(stack.content, notes.preview);
     let metrics = crate::pane::ScrollMetrics {
@@ -334,6 +315,5 @@ pub(crate) fn release_notes_display_lines<'a>(
 }
 
 pub(crate) fn release_notes_close_button_rect(area: Rect) -> Rect {
-    let width = action_button_width(Some("esc"), "close");
-    Rect::new(area.x + area.width.saturating_sub(width), area.y, width, 1)
+    modal_close_button_rect(area)
 }

@@ -12,15 +12,34 @@ use crate::app::{
 };
 
 use super::{
-    scrollbar::{render_scrollbar, should_show_scrollbar},
+    scrollbar::render_scrollbar,
     widgets::{
-        panel_contrast_fg, render_modal_header, render_modal_shell, render_modal_subtitle,
-        render_modal_text_input,
+        action_button_row_rects, modal_scroll_area, modal_section_heading_style, panel_contrast_fg,
+        primary_action_style, render_action_button, render_modal_header_bar, render_modal_shell,
+        render_modal_subtitle, render_modal_text_input, secondary_action_style, ActionButtonSpec,
     },
 };
 
-const COMMAND_PALETTE_SCROLLBAR_WIDTH: u16 = 1;
 const COMMAND_PALETTE_KEY_HINT_RIGHT_PADDING: usize = 1;
+
+pub(crate) fn command_palette_button_rects(inner: Rect) -> (Rect, Rect) {
+    let rects = action_button_row_rects(
+        inner,
+        &[
+            ActionButtonSpec {
+                hint: Some("↵"),
+                label: "run",
+            },
+            ActionButtonSpec {
+                hint: Some("esc"),
+                label: "close",
+            },
+        ],
+        2,
+        inner.height.saturating_sub(1),
+    );
+    (rects[0], rects[1])
+}
 
 pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) {
     super::dim_background(frame, frame.area());
@@ -37,10 +56,11 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Min(1),
+        Constraint::Length(1),
     ])
-    .areas::<4>(inner);
+    .areas::<5>(inner);
 
-    render_modal_header(frame, rows[0], "command palette", &app.palette);
+    render_modal_header_bar(frame, rows[0], "command palette", &app.palette, true);
     render_modal_subtitle(
         frame,
         rows[1],
@@ -50,6 +70,22 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
 
     let input = Rect::new(rows[2].x, rows[2].y, rows[2].width, 1);
     render_modal_text_input(frame, input, &app.command_palette.query, &app.palette);
+
+    let (run_rect, close_rect) = command_palette_button_rects(inner);
+    render_action_button(
+        frame,
+        run_rect,
+        Some("↵"),
+        "run",
+        primary_action_style(&app.palette),
+    );
+    render_action_button(
+        frame,
+        close_rect,
+        Some("esc"),
+        "close",
+        secondary_action_style(&app.palette),
+    );
 
     let commands = command_palette_filtered_commands(app);
     if commands.is_empty() {
@@ -77,23 +113,16 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
         max_offset_from_bottom: palette_rows.len().saturating_sub(visible_rows),
         viewport_rows: visible_rows,
     };
-    let has_scrollbar =
-        should_show_scrollbar(metrics) && rows[3].width > COMMAND_PALETTE_SCROLLBAR_WIDTH;
-
-    let list_width = (rows[3]
-        .width
-        .saturating_sub(u16::from(has_scrollbar) * COMMAND_PALETTE_SCROLLBAR_WIDTH)
-        as usize)
-        .saturating_sub(COMMAND_PALETTE_KEY_HINT_RIGHT_PADDING);
+    let scroll_area = modal_scroll_area(rows[3], metrics);
+    let list_width =
+        (scroll_area.body.width as usize).saturating_sub(COMMAND_PALETTE_KEY_HINT_RIGHT_PADDING);
 
     let lines = palette_rows[start..end]
         .iter()
         .map(|row| match row {
             CommandPaletteRow::Header(group) => Line::from(Span::styled(
                 format!(" {}", group),
-                Style::default()
-                    .fg(app.palette.overlay1)
-                    .add_modifier(Modifier::DIM),
+                modal_section_heading_style(&app.palette),
             )),
             CommandPaletteRow::Command(idx, command) => {
                 let selected = *idx == selected;
@@ -129,37 +158,16 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
         })
         .collect::<Vec<_>>();
 
-    let list_area = if has_scrollbar {
-        Rect::new(
-            rows[3].x,
-            rows[3].y,
-            rows[3]
-                .width
-                .saturating_sub(COMMAND_PALETTE_SCROLLBAR_WIDTH),
-            rows[3].height,
-        )
-    } else {
-        rows[3]
-    };
-    frame.render_widget(Paragraph::new(lines), list_area);
+    frame.render_widget(Paragraph::new(lines), scroll_area.body);
 
-    if has_scrollbar {
-        let track = Rect::new(
-            rows[3].x
-                + rows[3]
-                    .width
-                    .saturating_sub(COMMAND_PALETTE_SCROLLBAR_WIDTH),
-            rows[3].y,
-            COMMAND_PALETTE_SCROLLBAR_WIDTH,
-            rows[3].height,
-        );
+    if let Some(track) = scroll_area.track {
         render_scrollbar(
             frame,
             metrics,
             track,
             app.palette.surface_dim,
             app.palette.overlay0,
-            "█",
+            "▐",
         );
     }
 }

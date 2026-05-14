@@ -6,11 +6,12 @@ use ratatui::{
     Frame,
 };
 
+use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    action_button_row_rects, centered_popup_rect, modal_stack_areas, panel_contrast_fg,
-    primary_action_style, render_action_button, render_modal_choice_list, render_modal_divider,
-    render_modal_header, render_modal_subtitle, render_panel_shell, secondary_action_style,
-    ActionButtonSpec,
+    action_button_row_rects, centered_popup_rect, modal_scroll_area, modal_stack_areas,
+    panel_contrast_fg, primary_action_style, render_action_button, render_modal_choice_list,
+    render_modal_divider, render_modal_header_bar, render_modal_subtitle, render_panel_shell,
+    secondary_action_style, ActionButtonSpec,
 };
 use crate::{
     app::{state::Palette, AppState},
@@ -47,7 +48,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     ])
     .areas::<3>(stack.header);
 
-    render_modal_header(frame, header_rows[0], " settings", p);
+    render_modal_header_bar(frame, header_rows[0], "settings", p, true);
 
     let tabs = Tabs::new(SettingsSection::ALL.iter().map(|s| s.label()))
         .select(
@@ -189,7 +190,7 @@ fn render_group_theme_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     ])
     .areas::<3>(stack.header);
 
-    render_modal_header(frame, header_rows[0], " group theme", p);
+    render_modal_header_bar(frame, header_rows[0], "group theme", p, true);
 
     let group_label = app
         .settings
@@ -291,6 +292,7 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
         ]))
     }));
 
+    let total_items = items.len();
     let list = List::new(items)
         .highlight_style(
             Style::default()
@@ -301,8 +303,38 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
         .highlight_symbol(" ▸ ")
         .style(Style::default().fg(p.subtext0));
 
+    let viewport_rows = area.height as usize;
+    let max_offset_from_bottom = total_items.saturating_sub(viewport_rows);
+    let scroll = if app.settings.list.selected >= viewport_rows {
+        app.settings.list.selected - viewport_rows + 1
+    } else {
+        0
+    };
+    let scroll_area = modal_scroll_area(
+        area,
+        crate::pane::ScrollMetrics {
+            offset_from_bottom: max_offset_from_bottom.saturating_sub(scroll),
+            max_offset_from_bottom,
+            viewport_rows,
+        },
+    );
+
     let mut state = ListState::default().with_selected(Some(app.settings.list.selected));
-    frame.render_stateful_widget(list, area, &mut state);
+    frame.render_stateful_widget(list, scroll_area.body, &mut state);
+    if let Some(track) = scroll_area.track {
+        render_scrollbar(
+            frame,
+            crate::pane::ScrollMetrics {
+                offset_from_bottom: max_offset_from_bottom.saturating_sub(scroll),
+                max_offset_from_bottom,
+                viewport_rows,
+            },
+            track,
+            p.surface_dim,
+            p.overlay0,
+            "▐",
+        );
+    }
 }
 
 fn render_settings_toggle(

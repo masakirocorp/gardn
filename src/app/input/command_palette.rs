@@ -9,7 +9,7 @@ use crate::app::{
     App,
 };
 
-use super::ScrollbarClickTarget;
+use super::{modal::modal_action_from_buttons, modal::ModalAction, ScrollbarClickTarget};
 
 const WHEEL_EVENTS_PER_SELECTION_STEP: u8 = 16;
 
@@ -57,7 +57,7 @@ impl App {
         }
     }
 
-    fn execute_selected_command_palette_command(&mut self) {
+    pub(super) fn execute_selected_command_palette_command(&mut self) {
         let commands = command_palette_visible_commands(&self.state);
         let Some(command) = commands.get(self.state.command_palette.selected).cloned() else {
             return;
@@ -76,6 +76,28 @@ fn leave_command_palette(state: &mut AppState) {
 
 pub(super) fn close_command_palette(state: &mut AppState) {
     leave_command_palette(state);
+}
+
+pub(super) fn command_palette_close_button_at(state: &AppState, col: u16, row: u16) -> bool {
+    let Some(inner) = command_palette_inner_rect(state) else {
+        return false;
+    };
+    let button = crate::ui::modal_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
+    col >= button.x && col < button.x + button.width && row == button.y
+}
+
+pub(super) fn command_palette_action_button_at(
+    state: &AppState,
+    col: u16,
+    row: u16,
+) -> Option<ModalAction> {
+    let inner = command_palette_inner_rect(state)?;
+    let (run, close) = crate::ui::command_palette_button_rects(inner);
+    modal_action_from_buttons(
+        col,
+        row,
+        &[(run, ModalAction::Apply), (close, ModalAction::Close)],
+    )
 }
 
 fn clamp_command_palette_selection(state: &mut AppState) {
@@ -321,13 +343,7 @@ fn command_palette_rows_for_input(state: &AppState) -> Option<(Rect, Vec<Option<
 }
 
 fn command_palette_list_area(state: &AppState) -> Option<Rect> {
-    let popup = command_palette_popup_rect(state)?;
-    let inner = Rect::new(
-        popup.x + 1,
-        popup.y + 1,
-        popup.width.saturating_sub(2),
-        popup.height.saturating_sub(2),
-    );
+    let inner = command_palette_inner_rect(state)?;
     if inner.height < 6 || inner.width < 20 {
         return None;
     }
@@ -336,7 +352,17 @@ fn command_palette_list_area(state: &AppState) -> Option<Rect> {
         inner.x,
         inner.y + 3,
         inner.width,
-        inner.height.saturating_sub(3),
+        inner.height.saturating_sub(4),
+    ))
+}
+
+fn command_palette_inner_rect(state: &AppState) -> Option<Rect> {
+    let popup = command_palette_popup_rect(state)?;
+    Some(Rect::new(
+        popup.x + 1,
+        popup.y + 1,
+        popup.width.saturating_sub(2),
+        popup.height.saturating_sub(2),
     ))
 }
 

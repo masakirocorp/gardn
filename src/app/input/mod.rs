@@ -149,6 +149,31 @@ impl App {
         if self.state.mode == Mode::CommandPalette {
             match mouse.kind {
                 MouseEventKind::Down(MouseButton::Left) => {
+                    if command_palette::command_palette_close_button_at(
+                        &self.state,
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        command_palette::close_command_palette(&mut self.state);
+                        return;
+                    }
+
+                    match command_palette::command_palette_action_button_at(
+                        &self.state,
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        Some(ModalAction::Apply) => {
+                            self.execute_selected_command_palette_command();
+                            return;
+                        }
+                        Some(ModalAction::Close) => {
+                            command_palette::close_command_palette(&mut self.state);
+                            return;
+                        }
+                        _ => {}
+                    }
+
                     if let Some(target) = command_palette::command_palette_scrollbar_target_at(
                         &self.state,
                         mouse.column,
