@@ -35,6 +35,22 @@ Before committing, propose the commit message and get alignment.
 
 After the change is integrated, remove the task worktree and delete the task branch locally and remotely.
 
+## Long-lived fork workflow
+
+This repo is a long-lived Masakiro product fork of `ogulcancelik/herdr`, not a short-lived PR branch for upstream.
+
+- `origin` should point to `masakirocorp/herdr`.
+- `upstream` should point to `ogulcancelik/herdr`.
+- Product trunk is `origin/master`.
+- Do not force-push trunk or release branches.
+- Feature branches start from product trunk.
+- Force-push only feature branches, and only with `--force-with-lease`.
+- Sync upstream through explicit `sync/upstream-YYYY-MM-DD` branches.
+- Merge upstream with merge commits, not rebase or squash.
+- Open upstream-sync PRs into `masakirocorp/herdr:master`.
+- Always verify the PR base is `masakirocorp/herdr`, not upstream.
+- Run `just check` before merging sync PRs.
+
 ## Testing
 
 Use `just` recipes by default for tests and checks instead of invoking cargo or scripts directly.
