@@ -17,6 +17,7 @@ use super::{
 };
 
 const COMMAND_PALETTE_SCROLLBAR_WIDTH: u16 = 1;
+const COMMAND_PALETTE_KEY_HINT_RIGHT_PADDING: usize = 1;
 
 pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) {
     super::dim_background(frame, frame.area());
@@ -83,10 +84,11 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
     let has_scrollbar =
         should_show_scrollbar(metrics) && rows[3].width > COMMAND_PALETTE_SCROLLBAR_WIDTH;
 
-    let list_width = rows[3]
+    let list_width = (rows[3]
         .width
         .saturating_sub(u16::from(has_scrollbar) * COMMAND_PALETTE_SCROLLBAR_WIDTH)
-        as usize;
+        as usize)
+        .saturating_sub(COMMAND_PALETTE_KEY_HINT_RIGHT_PADDING);
 
     let lines = palette_rows[start..end]
         .iter()
