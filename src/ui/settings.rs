@@ -10,8 +10,8 @@ use super::scrollbar::render_scrollbar;
 use super::widgets::{
     action_button_row_rects, centered_popup_rect, modal_scroll_area, modal_stack_areas,
     panel_contrast_fg, primary_action_style, render_action_button, render_modal_choice_list,
-    render_modal_divider, render_modal_header_bar, render_modal_subtitle, render_panel_shell,
-    secondary_action_style, ActionButtonSpec,
+    render_modal_divider, render_modal_header_bar, render_modal_scroll_hints,
+    render_modal_subtitle, render_panel_shell, secondary_action_style, ActionButtonSpec,
 };
 use crate::{
     app::{state::Palette, AppState},
@@ -155,15 +155,19 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
             secondary_action_style(p),
         );
 
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(" ↑↓", Style::default().fg(p.overlay0)),
-                Span::styled(" select  ", Style::default().fg(p.overlay1)),
-                Span::styled("tab", Style::default().fg(p.overlay0)),
-                Span::styled(" section", Style::default().fg(p.overlay1)),
-            ])),
-            footer_rows[0],
-        );
+        if app.settings.section == SettingsSection::Theme {
+            render_modal_scroll_hints(frame, footer_rows[0], p);
+        } else {
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(" ↑↓", Style::default().fg(p.overlay0)),
+                    Span::styled(" select  ", Style::default().fg(p.overlay1)),
+                    Span::styled("tab", Style::default().fg(p.overlay0)),
+                    Span::styled(" section", Style::default().fg(p.overlay1)),
+                ])),
+                footer_rows[0],
+            );
+        }
     }
 }
 
@@ -223,13 +227,7 @@ fn render_group_theme_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
             secondary_action_style(p),
         );
 
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(" ↑↓", Style::default().fg(p.overlay0)),
-                Span::styled(" select", Style::default().fg(p.overlay1)),
-            ])),
-            footer_rows[0],
-        );
+        render_modal_scroll_hints(frame, footer_rows[0], p);
     }
 }
 
@@ -303,11 +301,7 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
 
     let viewport_rows = area.height as usize;
     let max_offset_from_bottom = total_items.saturating_sub(viewport_rows);
-    let scroll = if app.settings.list.selected >= viewport_rows {
-        app.settings.list.selected - viewport_rows + 1
-    } else {
-        0
-    };
+    let scroll = app.settings.scroll.min(max_offset_from_bottom);
     let scroll_area = modal_scroll_area(
         area,
         crate::pane::ScrollMetrics {

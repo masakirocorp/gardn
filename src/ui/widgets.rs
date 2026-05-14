@@ -141,6 +141,19 @@ pub(super) fn render_modal_divider(frame: &mut Frame, area: Rect, p: &Palette) {
     );
 }
 
+pub(super) fn render_modal_scroll_hints(frame: &mut Frame, area: Rect, p: &Palette) {
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(" scroll ", Style::default().fg(p.overlay0)),
+            Span::styled("wheel ↑↓", Style::default().fg(p.text)),
+            Span::styled("  ·  ", Style::default().fg(p.overlay0)),
+            Span::styled("jump", Style::default().fg(p.overlay0)),
+            Span::styled(" pgup / pgdn ", Style::default().fg(p.text)),
+        ])),
+        area,
+    );
+}
+
 pub(super) fn render_modal_text_input(frame: &mut Frame, area: Rect, value: &str, p: &Palette) {
     frame.render_widget(Clear, area);
     frame.render_widget(

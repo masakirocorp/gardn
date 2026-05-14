@@ -8,8 +8,8 @@ use ratatui::{
 
 use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    modal_scroll_area, modal_stack_areas, render_modal_header_bar, render_modal_shell,
-    render_modal_subtitle,
+    modal_scroll_area, modal_stack_areas, render_modal_header_bar, render_modal_scroll_hints,
+    render_modal_shell, render_modal_subtitle,
 };
 use crate::app::AppState;
 
@@ -257,14 +257,5 @@ pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
         );
     }
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(" scroll ", Style::default().fg(app.palette.overlay0)),
-            Span::styled("wheel ↑↓", Style::default().fg(app.palette.text)),
-            Span::styled("  ·  ", Style::default().fg(app.palette.overlay0)),
-            Span::styled("jump", Style::default().fg(app.palette.overlay0)),
-            Span::styled(" pgup / pgdn ", Style::default().fg(app.palette.text)),
-        ])),
-        stack.footer.unwrap_or_default(),
-    );
+    render_modal_scroll_hints(frame, stack.footer.unwrap_or_default(), &app.palette);
 }

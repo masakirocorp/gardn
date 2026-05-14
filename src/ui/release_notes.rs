@@ -9,7 +9,7 @@ use ratatui::{
 use super::scrollbar::render_scrollbar;
 use super::widgets::{
     modal_close_button_rect, modal_scroll_area, modal_stack_areas, render_modal_header_bar,
-    render_modal_shell, render_modal_subtitle,
+    render_modal_scroll_hints, render_modal_shell, render_modal_subtitle,
 };
 use crate::app::{
     state::{Palette, ReleaseNotesState},
@@ -88,13 +88,7 @@ pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, ar
         );
     }
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(" scroll ", Style::default().fg(app.palette.overlay0)),
-            Span::styled("wheel ↑↓", Style::default().fg(app.palette.text)),
-        ])),
-        stack.footer.unwrap_or_default(),
-    );
+    render_modal_scroll_hints(frame, stack.footer.unwrap_or_default(), &app.palette);
 }
 
 fn release_notes_inline_spans<'a>(
@@ -241,7 +235,7 @@ pub(crate) fn release_notes_sections(area: Rect, preview: bool) -> ReleaseNotesS
 }
 
 pub(super) fn release_notes_preview_lines<'a>(_version: &str, p: &Palette) -> Vec<Line<'a>> {
-    let title_style = Style::default().fg(p.text).add_modifier(Modifier::BOLD);
+    let title_style = Style::default().fg(p.accent).add_modifier(Modifier::BOLD);
     let text_style = Style::default().fg(p.text);
     let code_style = Style::default()
         .fg(p.accent)

@@ -15,8 +15,9 @@ use super::{
     scrollbar::render_scrollbar,
     widgets::{
         action_button_row_rects, modal_scroll_area, modal_section_heading_style, panel_contrast_fg,
-        primary_action_style, render_action_button, render_modal_header_bar, render_modal_shell,
-        render_modal_subtitle, render_modal_text_input, secondary_action_style, ActionButtonSpec,
+        primary_action_style, render_action_button, render_modal_header_bar,
+        render_modal_scroll_hints, render_modal_shell, render_modal_subtitle,
+        render_modal_text_input, secondary_action_style, ActionButtonSpec,
     },
 };
 
@@ -57,14 +58,17 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
         Constraint::Length(1),
         Constraint::Min(1),
         Constraint::Length(1),
+        Constraint::Length(1),
     ])
-    .areas::<5>(inner);
+    .areas::<6>(inner);
 
     render_modal_header_bar(frame, rows[0], "command palette", &app.palette, false);
     render_modal_subtitle(frame, rows[1], "type to filter commands", &app.palette);
 
     let input = Rect::new(rows[2].x, rows[2].y, rows[2].width, 1);
     render_modal_text_input(frame, input, &app.command_palette.query, &app.palette);
+
+    render_modal_scroll_hints(frame, rows[4], &app.palette);
 
     let (run_rect, close_rect) = command_palette_button_rects(inner);
     render_action_button(
@@ -115,6 +119,7 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
     let lines = palette_rows[start..end]
         .iter()
         .map(|row| match row {
+            CommandPaletteRow::Spacer => Line::raw(""),
             CommandPaletteRow::Header(group) => Line::from(Span::styled(
                 format!(" {}", group),
                 modal_section_heading_style(&app.palette),
@@ -168,6 +173,7 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
 }
 
 enum CommandPaletteRow<'a> {
+    Spacer,
     Header(&'static str),
     Command(usize, &'a CommandPaletteCommand),
 }
@@ -178,6 +184,9 @@ fn command_palette_rows(commands: &[CommandPaletteCommand]) -> Vec<CommandPalett
 
     for (idx, command) in commands.iter().enumerate() {
         if last_group != Some(command.group) {
+            if last_group.is_some() {
+                rows.push(CommandPaletteRow::Spacer);
+            }
             rows.push(CommandPaletteRow::Header(command.group));
             last_group = Some(command.group);
         }

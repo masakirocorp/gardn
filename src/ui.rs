@@ -78,7 +78,7 @@ pub(crate) use self::{
     },
     panes::pane_is_scrolled_back,
     tabs::compute_tab_bar_view,
-    widgets::{centered_popup_rect, modal_stack_areas},
+    widgets::{centered_popup_rect, modal_scrollbar_rect, modal_stack_areas},
 };
 use crate::app::state::{ContextMenuKind, ViewLayout};
 use crate::app::{AppState, Mode};
@@ -1135,7 +1135,7 @@ mod tests {
             "detach from this session, then run herdr update in your shell"
         );
         assert_eq!(lines[0].spans[0].style.fg, Some(palette.accent));
-        assert_eq!(lines[0].spans[1].style.fg, Some(palette.text));
+        assert_eq!(lines[0].spans[1].style.fg, Some(palette.accent));
     }
 
     #[test]

@@ -37,6 +37,8 @@ impl App {
             KeyCode::Down => {
                 move_command_palette_selection(&mut self.state, true);
             }
+            KeyCode::PageUp => page_command_palette_selection(&mut self.state, false),
+            KeyCode::PageDown => page_command_palette_selection(&mut self.state, true),
             KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 move_command_palette_selection(&mut self.state, false);
             }
@@ -139,6 +141,29 @@ pub(super) fn scroll_command_palette_selection(state: &mut AppState, down: bool)
         down,
         remaining_events: WHEEL_EVENTS_PER_SELECTION_STEP.saturating_sub(1),
     });
+}
+
+fn page_command_palette_selection(state: &mut AppState, down: bool) {
+    let commands = command_palette_visible_commands(state);
+    if commands.is_empty() {
+        state.command_palette.selected = 0;
+        state.command_palette.scroll = 0;
+        return;
+    }
+
+    let step = command_palette_list_area(state)
+        .map(|area| area.height.max(1) as usize)
+        .unwrap_or(8);
+    state.command_palette.selected = if down {
+        state
+            .command_palette
+            .selected
+            .saturating_add(step)
+            .min(commands.len().saturating_sub(1))
+    } else {
+        state.command_palette.selected.saturating_sub(step)
+    };
+    ensure_command_palette_selection_visible(state);
 }
 
 pub(super) fn hover_command_palette_selection(state: &mut AppState, col: u16, row: u16) {
@@ -325,6 +350,9 @@ fn command_palette_rows_for_input(state: &AppState) -> Option<(Rect, Vec<Option<
     let mut last_group = None;
     for (idx, command) in commands.iter().enumerate() {
         if last_group != Some(command.group) {
+            if last_group.is_some() {
+                rows.push(None);
+            }
             rows.push(None);
             last_group = Some(command.group);
         }
@@ -344,7 +372,7 @@ fn command_palette_list_area(state: &AppState) -> Option<Rect> {
         inner.x,
         inner.y + 3,
         inner.width,
-        inner.height.saturating_sub(4),
+        inner.height.saturating_sub(5),
     ))
 }
 

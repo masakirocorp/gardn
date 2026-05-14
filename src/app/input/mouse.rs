@@ -694,7 +694,8 @@ impl AppState {
                         }
                         DragTarget::ReleaseNotesScrollbar { .. }
                         | DragTarget::KeybindHelpScrollbar { .. }
-                        | DragTarget::CommandPaletteScrollbar { .. } => {}
+                        | DragTarget::CommandPaletteScrollbar { .. }
+                        | DragTarget::SettingsThemeScrollbar { .. } => {}
                     }
                 }
             }
@@ -1628,7 +1629,7 @@ mod tests {
         app.handle_mouse(mouse(MouseEventKind::Moved, 18, 6));
 
         assert_eq!(app.state.command_palette.scroll, scroll);
-        assert_ne!(app.state.command_palette.selected, 10);
+        assert_ne!(app.state.command_palette.selected, scroll);
     }
 
     #[test]

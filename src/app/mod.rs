@@ -477,6 +477,7 @@ impl App {
             settings: state::SettingsState {
                 section: state::SettingsSection::Theme,
                 list: state::SelectionListState::new(0),
+                scroll: 0,
                 original_palette: None,
                 original_theme: None,
                 pending_theme_name: None,
