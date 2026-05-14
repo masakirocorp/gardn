@@ -828,6 +828,9 @@ pub(crate) enum DragTarget {
     KeybindHelpScrollbar {
         grab_row_offset: u16,
     },
+    CommandPaletteScrollbar {
+        grab_row_offset: u16,
+    },
     SidebarDivider,
     RightSidebarDivider,
     SidebarSectionDivider,

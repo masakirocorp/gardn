@@ -9,6 +9,8 @@ use crate::app::{
     App,
 };
 
+use super::ScrollbarClickTarget;
+
 const WHEEL_EVENTS_PER_SELECTION_STEP: u8 = 16;
 
 pub(super) fn open_command_palette(state: &mut AppState) {
@@ -72,6 +74,10 @@ fn leave_command_palette(state: &mut AppState) {
     };
 }
 
+pub(super) fn close_command_palette(state: &mut AppState) {
+    leave_command_palette(state);
+}
+
 fn clamp_command_palette_selection(state: &mut AppState) {
     let count = command_palette_visible_commands(state).len();
     if count == 0 {
@@ -132,6 +138,14 @@ pub(super) fn hover_command_palette_selection(state: &mut AppState, col: u16, ro
     {
         return;
     }
+    if command_palette_scrollbar_track(state).is_some_and(|track| {
+        col >= track.x
+            && col < track.x + track.width
+            && row >= track.y
+            && row < track.y + track.height
+    }) {
+        return;
+    }
 
     let row_idx = start + row.saturating_sub(list_area.y) as usize;
     if let Some(Some(command_idx)) = rows.get(row_idx) {
@@ -140,12 +154,113 @@ pub(super) fn hover_command_palette_selection(state: &mut AppState, col: u16, ro
     }
 }
 
+pub(super) fn command_palette_contains_point(state: &AppState, col: u16, row: u16) -> bool {
+    command_palette_popup_rect(state).is_some_and(|popup| {
+        col >= popup.x
+            && col < popup.x + popup.width
+            && row >= popup.y
+            && row < popup.y + popup.height
+    })
+}
+
+pub(super) fn command_palette_scrollbar_target_at(
+    state: &AppState,
+    col: u16,
+    row: u16,
+) -> Option<ScrollbarClickTarget> {
+    let metrics = command_palette_scroll_metrics(state)?;
+    let track = command_palette_scrollbar_track(state)?;
+    if !(col >= track.x
+        && col < track.x + track.width
+        && row >= track.y
+        && row < track.y + track.height)
+    {
+        return None;
+    }
+    if let Some(grab_row_offset) = crate::ui::scrollbar_thumb_grab_offset(metrics, track, row) {
+        Some(ScrollbarClickTarget::Thumb { grab_row_offset })
+    } else {
+        Some(ScrollbarClickTarget::Track {
+            offset_from_bottom: crate::ui::scrollbar_offset_from_row(metrics, track, row),
+        })
+    }
+}
+
+pub(super) fn command_palette_offset_for_drag_row(
+    state: &AppState,
+    row: u16,
+    grab_row_offset: u16,
+) -> Option<usize> {
+    let metrics = command_palette_scroll_metrics(state)?;
+    let track = command_palette_scrollbar_track(state)?;
+    Some(crate::ui::scrollbar_offset_from_drag_row(
+        metrics,
+        track,
+        row,
+        grab_row_offset,
+    ))
+}
+
+pub(super) fn set_command_palette_offset_from_bottom(
+    state: &mut AppState,
+    offset_from_bottom: usize,
+) {
+    let Some((list_area, rows)) = command_palette_rows_for_input(state) else {
+        state.command_palette.scroll = 0;
+        return;
+    };
+    let max_scroll = rows.len().saturating_sub(list_area.height as usize);
+    state.command_palette.scroll = max_scroll.saturating_sub(offset_from_bottom.min(max_scroll));
+    select_first_visible_command(state, &rows);
+    state.command_palette.wheel_gate = None;
+}
+
 fn command_palette_visible_rows(state: &AppState) -> Option<(Rect, Vec<Option<usize>>, usize)> {
     let (list_area, rows) = command_palette_rows_for_input(state)?;
     let visible_rows = list_area.height as usize;
     let max_start = rows.len().saturating_sub(visible_rows);
     let start = state.command_palette.scroll.min(max_start);
     Some((list_area, rows, start))
+}
+
+fn select_first_visible_command(state: &mut AppState, rows: &[Option<usize>]) {
+    let start = state.command_palette.scroll;
+    let Some(list_area) = command_palette_list_area(state) else {
+        return;
+    };
+    let end = (start + list_area.height as usize).min(rows.len());
+    if let Some(idx) = rows[start..end].iter().flatten().next() {
+        state.command_palette.selected = *idx;
+    }
+}
+
+fn command_palette_scroll_metrics(state: &AppState) -> Option<crate::pane::ScrollMetrics> {
+    let (list_area, rows) = command_palette_rows_for_input(state)?;
+    let viewport_rows = list_area.height as usize;
+    let max_offset_from_bottom = rows.len().saturating_sub(viewport_rows);
+    let scroll = state.command_palette.scroll.min(max_offset_from_bottom);
+    Some(crate::pane::ScrollMetrics {
+        offset_from_bottom: rows
+            .len()
+            .saturating_sub(scroll)
+            .saturating_sub(viewport_rows),
+        max_offset_from_bottom,
+        viewport_rows,
+    })
+}
+
+fn command_palette_scrollbar_track(state: &AppState) -> Option<Rect> {
+    let metrics = command_palette_scroll_metrics(state)?;
+    if !crate::ui::should_show_scrollbar(metrics) {
+        return None;
+    }
+    let list_area = command_palette_list_area(state)?;
+    (list_area.width > 1).then_some(Rect::new(
+        list_area.x + list_area.width.saturating_sub(1),
+        list_area.y,
+        1,
+        list_area.height,
+    ))
 }
 
 fn ensure_command_palette_selection_visible(state: &mut AppState) {
@@ -202,8 +317,7 @@ fn command_palette_rows_for_input(state: &AppState) -> Option<(Rect, Vec<Option<
 }
 
 fn command_palette_list_area(state: &AppState) -> Option<Rect> {
-    let screen = command_palette_screen_rect(state);
-    let popup = crate::ui::centered_popup_rect(screen, 76, 18)?;
+    let popup = command_palette_popup_rect(state)?;
     let inner = Rect::new(
         popup.x + 1,
         popup.y + 1,
@@ -220,6 +334,10 @@ fn command_palette_list_area(state: &AppState) -> Option<Rect> {
         inner.width,
         inner.height.saturating_sub(3),
     ))
+}
+
+fn command_palette_popup_rect(state: &AppState) -> Option<Rect> {
+    crate::ui::centered_popup_rect(command_palette_screen_rect(state), 76, 18)
 }
 
 fn command_palette_screen_rect(state: &AppState) -> Rect {

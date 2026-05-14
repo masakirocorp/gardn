@@ -729,7 +729,8 @@ impl AppState {
                             self.set_sidebar_section_split(mouse.row);
                         }
                         DragTarget::ReleaseNotesScrollbar { .. }
-                        | DragTarget::KeybindHelpScrollbar { .. } => {}
+                        | DragTarget::KeybindHelpScrollbar { .. }
+                        | DragTarget::CommandPaletteScrollbar { .. } => {}
                     }
                 }
             }
@@ -1664,6 +1665,31 @@ mod tests {
 
         assert_eq!(app.state.command_palette.scroll, scroll);
         assert_ne!(app.state.command_palette.selected, 10);
+    }
+
+    #[test]
+    fn command_palette_clicking_outside_closes() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::CommandPalette;
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 0, 0));
+
+        assert_eq!(app.state.mode, Mode::Navigate);
+    }
+
+    #[test]
+    fn command_palette_scrollbar_drag_moves_options() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::CommandPalette;
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 89, 5));
+        app.handle_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), 89, 17));
+
+        assert!(app.state.command_palette.scroll > 0);
+        assert!(app.state.command_palette.selected > 0);
+
+        app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 89, 17));
+        assert!(app.state.drag.is_none());
     }
 
     #[test]
