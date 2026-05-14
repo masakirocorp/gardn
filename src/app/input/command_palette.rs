@@ -284,8 +284,12 @@ fn ensure_command_palette_selection_visible(state: &mut AppState) {
     };
 
     let start = state.command_palette.scroll.min(max_start);
-    state.command_palette.scroll = if selected_row < start {
-        selected_row
+    let first_section_row = selected_row
+        .checked_sub(1)
+        .filter(|idx| rows.get(*idx).is_some_and(Option::is_none))
+        .unwrap_or(selected_row);
+    state.command_palette.scroll = if first_section_row < start {
+        first_section_row
     } else if selected_row >= start + visible_rows {
         selected_row + 1 - visible_rows
     } else {
@@ -547,5 +551,37 @@ mod tests {
 
         app.handle_command_palette_key(KeyEvent::new(KeyCode::Down, KeyModifiers::empty()));
         assert_eq!(app.state.command_palette.selected, 1);
+    }
+
+    #[test]
+    fn command_palette_keeps_section_header_reachable_at_top() {
+        let mut app = app_with_space();
+        app.state.view.sidebar_rect = ratatui::layout::Rect::new(0, 0, 26, 20);
+        app.state.view.terminal_area = ratatui::layout::Rect::new(26, 0, 80, 20);
+
+        for _ in 0..12 {
+            app.handle_command_palette_key(KeyEvent::new(KeyCode::Down, KeyModifiers::empty()));
+        }
+        assert!(app.state.command_palette.scroll > 0);
+
+        for _ in 0..12 {
+            app.handle_command_palette_key(KeyEvent::new(KeyCode::Up, KeyModifiers::empty()));
+        }
+
+        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.scroll, 0);
+    }
+
+    #[test]
+    fn command_palette_commands_include_keybind_labels() {
+        let app = app_with_space();
+
+        let commands = command_palette_visible_commands(&app.state);
+
+        assert!(commands.iter().any(|command| {
+            command.title == "new space"
+                && command.key_label.as_deref()
+                    == Some(app.state.keybinds.new_workspace_label.as_str())
+        }));
     }
 }

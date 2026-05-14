@@ -99,7 +99,12 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
             )),
             CommandPaletteRow::Command(idx, command) => {
                 let selected = *idx == selected;
-                let style = if selected {
+                let row_style = if selected {
+                    Style::default().bg(app.palette.accent)
+                } else {
+                    Style::default()
+                };
+                let title_style = if selected {
                     Style::default()
                         .fg(panel_contrast_fg(&app.palette))
                         .bg(app.palette.accent)
@@ -107,10 +112,21 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
                 } else {
                     Style::default().fg(app.palette.text)
                 };
-                Line::from(Span::styled(
-                    format_command_palette_row(&command.title, list_width),
-                    style,
-                ))
+                let key_style = if selected {
+                    Style::default()
+                        .fg(panel_contrast_fg(&app.palette))
+                        .bg(app.palette.accent)
+                } else {
+                    Style::default().fg(app.palette.overlay1)
+                };
+                command_palette_command_line(
+                    &command.title,
+                    command.key_label.as_deref(),
+                    list_width,
+                    title_style,
+                    row_style,
+                    key_style,
+                )
             }
         })
         .collect::<Vec<_>>();
@@ -170,8 +186,34 @@ fn command_palette_rows(commands: &[CommandPaletteCommand]) -> Vec<CommandPalett
     rows
 }
 
-fn format_command_palette_row(title: &str, width: usize) -> String {
+fn command_palette_command_line<'a>(
+    title: &str,
+    key_label: Option<&str>,
+    width: usize,
+    title_style: Style,
+    row_style: Style,
+    key_style: Style,
+) -> Line<'a> {
     let text = format!("  {title}");
+    let title_len = text.chars().count();
+    let Some(key_label) = key_label else {
+        return Line::from(Span::styled(pad_right(text, width), title_style));
+    };
+
+    let key_len = key_label.chars().count();
+    if title_len + key_len + 1 >= width {
+        return Line::from(vec![Span::styled(text, title_style)]);
+    }
+
+    let gap = width - title_len - key_len;
+    Line::from(vec![
+        Span::styled(text, title_style),
+        Span::styled(" ".repeat(gap), row_style),
+        Span::styled(key_label.to_string(), key_style),
+    ])
+}
+
+fn pad_right(text: String, width: usize) -> String {
     let len = text.chars().count();
     if len >= width {
         text
