@@ -222,6 +222,7 @@ mode = "system"
 groups can override the theme family from the sidebar menu, but inherit the global mode.
 themes without a light variant use their dark palette in light mode.
 `name = "system"` keeps Herdr chrome on the host terminal foreground/background where possible.
+built-in themes also color blank pane terminal backgrounds; apps that set their own colors still win.
 
 ### built-in themes
 

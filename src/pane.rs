@@ -7,7 +7,7 @@ use std::sync::{
 
 use bytes::Bytes;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-use ratatui::{layout::Rect, Frame};
+use ratatui::{layout::Rect, style::Color, Frame};
 use tokio::sync::{mpsc, watch, Notify};
 use tracing::{debug, error, info, warn};
 
@@ -821,8 +821,15 @@ impl PaneRuntime {
         self.terminal.extract_selection(selection)
     }
 
-    pub fn render(&self, frame: &mut Frame, area: Rect, show_cursor: bool) {
-        self.terminal.render(frame, area, show_cursor);
+    pub fn render_with_theme_background(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        show_cursor: bool,
+        theme_default_bg: Option<Color>,
+    ) {
+        self.terminal
+            .render_with_theme_background(frame, area, show_cursor, theme_default_bg);
     }
 
     pub fn visible_hyperlinks(&self, area: Rect) -> Vec<((u16, u16), String, String)> {

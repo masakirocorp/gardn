@@ -532,7 +532,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn desktop_theme_background_paints_chrome_but_not_pane_defaults() {
+    async fn desktop_theme_background_paints_chrome_and_pane_defaults() {
         let mut app = crate::app::state::AppState::test_new();
         app.palette.panel_bg = Color::Rgb(1, 2, 3);
         let mut ws = Workspace::test_new("test");
@@ -563,7 +563,7 @@ mod tests {
             buffer[(app.view.terminal_area.x, app.view.terminal_area.y)]
                 .style()
                 .bg,
-            Some(Color::Reset)
+            Some(app.palette.panel_bg)
         );
     }
 

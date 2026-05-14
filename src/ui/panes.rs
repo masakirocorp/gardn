@@ -74,6 +74,13 @@ fn stable_scrollbar_gutter(rt: &PaneRuntime, pane_inner: Rect) -> (Rect, Option<
     (inner_rect, scrollbar_rect)
 }
 
+fn pane_theme_background(p: &Palette) -> Option<Color> {
+    match p.panel_bg {
+        Color::Reset => None,
+        color => Some(color),
+    }
+}
+
 /// Resize every visible runtime in a tab to the geometry it would receive if the tab were selected.
 pub(super) fn resize_tab_panes(
     tab: &crate::workspace::Tab,
@@ -242,7 +249,12 @@ pub(super) fn render_panes(app: &AppState, frame: &mut Frame, area: Rect) {
             }
 
             let show_cursor = info.is_focused && terminal_active && !pane_is_scrolled_back(rt);
-            rt.render(frame, info.inner_rect, show_cursor);
+            rt.render_with_theme_background(
+                frame,
+                info.inner_rect,
+                show_cursor,
+                pane_theme_background(&app.palette),
+            );
             render_pane_scrollbar(app, frame, info, rt);
 
             let should_dim = !info.is_focused && multi_pane && !terminal_active;
