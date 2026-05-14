@@ -156,6 +156,14 @@ impl App {
                     command_palette::scroll_command_palette_selection(&mut self.state, false);
                     return;
                 }
+                MouseEventKind::Moved => {
+                    command_palette::hover_command_palette_selection(
+                        &mut self.state,
+                        mouse.column,
+                        mouse.row,
+                    );
+                    return;
+                }
                 _ => {}
             }
         }

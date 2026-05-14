@@ -684,7 +684,7 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let divider_x = app.view.right_sidebar_rect.x;
 
-        assert_eq!(buffer[(divider_x, 1)].symbol(), "│");
+        assert_eq!(buffer[(divider_x, 1)].symbol(), "▌");
         assert_eq!(buffer[(divider_x, 1)].style().fg, Some(app.palette.accent));
     }
 
@@ -701,7 +701,7 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let divider_x = app.view.right_sidebar_rect.x;
 
-        assert_eq!(buffer[(divider_x, 1)].symbol(), "│");
+        assert_eq!(buffer[(divider_x, 1)].symbol(), "▌");
         assert_eq!(
             buffer[(divider_x, 1)].style().fg,
             Some(app.palette.overlay0)
@@ -724,7 +724,7 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let divider_x = app.view.right_sidebar_rect.x;
 
-        assert_eq!(buffer[(divider_x, 1)].symbol(), "│");
+        assert_eq!(buffer[(divider_x, 1)].symbol(), "▌");
         assert_eq!(
             buffer[(divider_x, 1)].style().fg,
             Some(app.palette.overlay0)

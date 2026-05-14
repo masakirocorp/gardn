@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::layout::Direction;
+use ratatui::layout::{Direction, Rect};
 
 use crate::app::{
     command_palette::{
@@ -114,6 +114,91 @@ pub(super) fn scroll_command_palette_selection(state: &mut AppState, down: bool)
         down,
         remaining_events: WHEEL_EVENTS_PER_SELECTION_STEP.saturating_sub(1),
     });
+}
+
+pub(super) fn hover_command_palette_selection(state: &mut AppState, col: u16, row: u16) {
+    let Some((list_area, rows, start)) = command_palette_visible_rows(state) else {
+        return;
+    };
+    if col < list_area.x
+        || col >= list_area.x + list_area.width
+        || row < list_area.y
+        || row >= list_area.y + list_area.height
+    {
+        return;
+    }
+
+    let row_idx = start + row.saturating_sub(list_area.y) as usize;
+    if let Some(Some(command_idx)) = rows.get(row_idx) {
+        state.command_palette.selected = *command_idx;
+        state.command_palette.wheel_gate = None;
+    }
+}
+
+fn command_palette_visible_rows(state: &AppState) -> Option<(Rect, Vec<Option<usize>>, usize)> {
+    let screen = command_palette_screen_rect(state);
+    let popup = crate::ui::centered_popup_rect(screen, 76, 18)?;
+    let inner = Rect::new(
+        popup.x + 1,
+        popup.y + 1,
+        popup.width.saturating_sub(2),
+        popup.height.saturating_sub(2),
+    );
+    if inner.height < 6 || inner.width < 20 {
+        return None;
+    }
+
+    let list_area = Rect::new(
+        inner.x,
+        inner.y + 3,
+        inner.width,
+        inner.height.saturating_sub(3),
+    );
+    let commands = command_palette_visible_commands(state);
+    if commands.is_empty() || list_area.height == 0 {
+        return None;
+    }
+
+    let mut rows = Vec::new();
+    let mut last_group = None;
+    for (idx, command) in commands.iter().enumerate() {
+        if last_group != Some(command.group) {
+            rows.push(None);
+            last_group = Some(command.group);
+        }
+        rows.push(Some(idx));
+    }
+
+    let selected = state
+        .command_palette
+        .selected
+        .min(commands.len().saturating_sub(1));
+    let selected_row = rows
+        .iter()
+        .position(|row| *row == Some(selected))
+        .unwrap_or(0);
+    let visible_rows = list_area.height as usize;
+    let start = if selected_row >= visible_rows {
+        selected_row + 1 - visible_rows
+    } else {
+        0
+    };
+    Some((list_area, rows, start))
+}
+
+fn command_palette_screen_rect(state: &AppState) -> Rect {
+    let sidebar = state.view.sidebar_rect;
+    let right_sidebar = state.view.right_sidebar_rect;
+    let terminal = state.view.terminal_area;
+    let x = sidebar.x.min(terminal.x).min(right_sidebar.x);
+    let y = sidebar.y.min(terminal.y).min(right_sidebar.y);
+    let right = (sidebar.x + sidebar.width)
+        .max(terminal.x + terminal.width)
+        .max(right_sidebar.x + right_sidebar.width);
+    let bottom = (sidebar.y + sidebar.height)
+        .max(terminal.y + terminal.height)
+        .max(right_sidebar.y + right_sidebar.height);
+    Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
 }
 
 fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {

@@ -1621,6 +1621,35 @@ mod tests {
     }
 
     #[test]
+    fn command_palette_hover_selects_visible_command() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::CommandPalette;
+
+        app.handle_mouse(mouse(MouseEventKind::Moved, 18, 6));
+        assert_eq!(app.state.command_palette.selected, 0);
+
+        app.handle_mouse(mouse(MouseEventKind::Moved, 18, 7));
+        assert_eq!(app.state.command_palette.selected, 1);
+    }
+
+    #[test]
+    fn command_palette_hover_takes_precedence_after_scroll() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::CommandPalette;
+
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
+        assert_eq!(app.state.command_palette.selected, 1);
+        assert!(app.state.command_palette.wheel_gate.is_some());
+
+        app.handle_mouse(mouse(MouseEventKind::Moved, 18, 6));
+        assert_eq!(app.state.command_palette.selected, 0);
+        assert!(app.state.command_palette.wheel_gate.is_none());
+
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
+        assert_eq!(app.state.command_palette.selected, 1);
+    }
+
+    #[test]
     fn clicking_agent_toast_focuses_target_pane() {
         let mut app = app_for_mouse_test();
         let active = Workspace::test_new("active");
