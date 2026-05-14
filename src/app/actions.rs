@@ -801,26 +801,33 @@ impl AppState {
     }
 
     pub fn close_tab(&mut self) {
-        self.mark_session_dirty();
-        let should_close_workspace = self
-            .active
-            .and_then(|i| self.workspaces.get(i))
-            .is_some_and(|ws| ws.tabs.len() <= 1);
+        let Some(ws_idx) = self.active else {
+            return;
+        };
+        let Some(ws) = self.workspaces.get(ws_idx) else {
+            return;
+        };
+        let should_close_workspace = ws.tabs.len() <= 1;
         if should_close_workspace {
+            self.selected = ws_idx;
+            if self.confirm_close {
+                self.mode = Mode::ConfirmClose;
+                return;
+            }
             self.close_selected_workspace();
             return;
         }
-        if let Some(ws_idx) = self.active {
-            let Some(ws) = self.workspaces.get_mut(ws_idx) else {
-                return;
-            };
-            let workspace_id = ws.id.clone();
-            let closing_tab_id = format!("{}:{}", workspace_id, ws.active_tab + 1);
-            ws.close_active_tab();
-            crate::logging::tab_closed(&workspace_id, &closing_tab_id);
-            self.tab_scroll_follow_active = true;
-            self.refresh_tab_bar_view();
-        }
+
+        self.mark_session_dirty();
+        let Some(ws) = self.workspaces.get_mut(ws_idx) else {
+            return;
+        };
+        let workspace_id = ws.id.clone();
+        let closing_tab_id = format!("{}:{}", workspace_id, ws.active_tab + 1);
+        ws.close_active_tab();
+        crate::logging::tab_closed(&workspace_id, &closing_tab_id);
+        self.tab_scroll_follow_active = true;
+        self.refresh_tab_bar_view();
     }
 }
 
@@ -1525,6 +1532,33 @@ mod tests {
         assert_eq!(state.workspaces.len(), 1);
         assert_eq!(state.selected, 0);
         assert_eq!(state.active, Some(0));
+    }
+
+    #[test]
+    fn closing_last_tab_prompts_to_close_active_workspace() {
+        let mut state = app_with_workspaces(&["a", "b"]);
+        state.active = Some(1);
+        state.selected = 0;
+        state.confirm_close = true;
+
+        state.close_tab();
+
+        assert_eq!(state.mode, Mode::ConfirmClose);
+        assert_eq!(state.selected, 1);
+        assert_eq!(state.workspaces.len(), 2);
+    }
+
+    #[test]
+    fn closing_last_tab_without_confirmation_closes_active_workspace() {
+        let mut state = app_with_workspaces(&["a", "b"]);
+        state.active = Some(1);
+        state.selected = 0;
+        state.confirm_close = false;
+
+        state.close_tab();
+
+        assert_eq!(state.workspaces.len(), 1);
+        assert_eq!(state.workspaces[0].display_name(), "a");
     }
 
     #[test]

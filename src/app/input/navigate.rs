@@ -639,7 +639,9 @@ pub(super) fn execute_navigate_action(state: &mut AppState, action: NavigateActi
         }
         NavigateAction::CloseTab => {
             state.close_tab();
-            leave_navigate_mode(state);
+            if state.mode != Mode::ConfirmClose {
+                leave_navigate_mode(state);
+            }
         }
         NavigateAction::RenamePane => {
             if let Some(pane_id) = state
@@ -738,6 +740,20 @@ mod tests {
 
         assert!(state.request_new_workspace);
         assert_eq!(state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn close_tab_action_prompts_when_last_tab_would_close_workspace() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.mode = Mode::Navigate;
+        state.active = Some(0);
+        state.selected = 0;
+        state.confirm_close = true;
+
+        execute_navigate_action(&mut state, NavigateAction::CloseTab);
+
+        assert_eq!(state.mode, Mode::ConfirmClose);
+        assert_eq!(state.workspaces.len(), 1);
     }
 
     #[test]

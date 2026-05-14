@@ -700,11 +700,13 @@ pub(super) fn apply_context_menu_action(state: &mut AppState, menu: ContextMenuS
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
             state.close_tab();
-            state.mode = if state.active.is_some() {
-                Mode::Terminal
-            } else {
-                Mode::Navigate
-            };
+            if state.mode != Mode::ConfirmClose {
+                state.mode = if state.active.is_some() {
+                    Mode::Terminal
+                } else {
+                    Mode::Navigate
+                };
+            }
         }
         (ContextMenuKind::Pane { pane_id, .. }, Some("rename pane")) => {
             open_rename_pane(state, pane_id);
@@ -1085,6 +1087,25 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
         );
+        assert_eq!(state.workspaces.len(), 1);
+    }
+
+    #[test]
+    fn closing_last_tab_from_context_menu_prompts_to_close_workspace() {
+        let mut state = state_with_workspaces(&["test"]);
+        let menu = ContextMenuState {
+            kind: ContextMenuKind::Tab {
+                ws_idx: 0,
+                tab_idx: 0,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(2),
+        };
+
+        apply_context_menu_action(&mut state, menu, 2);
+
+        assert_eq!(state.mode, Mode::ConfirmClose);
         assert_eq!(state.workspaces.len(), 1);
     }
 }
