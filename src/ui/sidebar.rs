@@ -16,6 +16,7 @@ use crate::detect::AgentState;
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const AGENT_PANEL_HEADER_ROWS: u16 = 2;
 
+#[derive(Clone)]
 pub(crate) struct AgentPanelEntry {
     pub ws_idx: usize,
     pub tab_idx: usize,
@@ -25,6 +26,11 @@ pub(crate) struct AgentPanelEntry {
     pub agent_label: Option<String>,
     pub state: AgentState,
     pub seen: bool,
+}
+
+pub(crate) struct AgentPanelSection {
+    pub label: &'static str,
+    pub entries: Vec<AgentPanelEntry>,
 }
 
 fn sidebar_section_heights(total_h: u16, split_ratio: f32) -> (u16, u16) {
@@ -243,6 +249,46 @@ pub(crate) fn agent_panel_triage_entries(app: &AppState) -> Vec<AgentPanelEntry>
         .collect()
 }
 
+pub(crate) fn agent_panel_sections(app: &AppState) -> Vec<AgentPanelSection> {
+    let scoped_entries = agent_panel_entries(app);
+    let mut sections = Vec::new();
+
+    let triage = agent_panel_triage_entries(app);
+    if !triage.is_empty() {
+        sections.push(AgentPanelSection {
+            label: "triage",
+            entries: triage,
+        });
+    }
+
+    let working: Vec<_> = scoped_entries
+        .iter()
+        .filter(|entry| entry.state == AgentState::Working)
+        .cloned()
+        .collect();
+    if !working.is_empty() {
+        sections.push(AgentPanelSection {
+            label: "working",
+            entries: working,
+        });
+    }
+
+    let idle: Vec<_> = scoped_entries
+        .into_iter()
+        .filter(|entry| {
+            entry.state != AgentState::Working && !agent_panel_entry_needs_triage(entry)
+        })
+        .collect();
+    if !idle.is_empty() {
+        sections.push(AgentPanelSection {
+            label: "idle",
+            entries: idle,
+        });
+    }
+
+    sections
+}
+
 fn truncate_text(text: &str, max_width: usize) -> String {
     let len = text.chars().count();
     if len <= max_width {
@@ -446,21 +492,36 @@ pub(crate) fn agent_panel_body_rect(
     Rect::new(area.x, body_y, body_width, body_height)
 }
 
-fn agent_panel_visible_count(area: Rect, leading_separator: bool) -> usize {
+fn agent_panel_visible_count(app: &AppState, area: Rect, leading_separator: bool) -> usize {
     let body = agent_panel_body_rect(area, false, leading_separator);
-    let (body, _) = agent_panel_section_rects(body);
     if body.width == 0 || body.height < 2 {
         return 0;
     }
 
-    let mut used_rows = 0u16;
+    let mut remaining_rows = body.height;
     let mut visible = 0usize;
-    while used_rows.saturating_add(2) <= body.height {
-        used_rows = used_rows.saturating_add(2);
-        visible += 1;
-        if used_rows < body.height {
-            used_rows = used_rows.saturating_add(1);
+    let mut skip = app.agent_panel_scroll;
+    for section in agent_panel_sections(app) {
+        if skip >= section.entries.len() {
+            skip -= section.entries.len();
+            continue;
         }
+        if remaining_rows < 3 {
+            break;
+        }
+
+        remaining_rows = remaining_rows.saturating_sub(1);
+        for _ in section.entries.iter().skip(skip) {
+            if remaining_rows < 2 {
+                break;
+            }
+            remaining_rows = remaining_rows.saturating_sub(2);
+            visible += 1;
+            if remaining_rows > 0 {
+                remaining_rows = remaining_rows.saturating_sub(1);
+            }
+        }
+        skip = 0;
     }
     visible
 }
@@ -470,8 +531,11 @@ pub(crate) fn agent_panel_scroll_metrics(
     area: Rect,
     leading_separator: bool,
 ) -> crate::pane::ScrollMetrics {
-    let viewport_rows = agent_panel_visible_count(area, leading_separator);
-    let total_rows = agent_panel_entries(app).len();
+    let viewport_rows = agent_panel_visible_count(app, area, leading_separator);
+    let total_rows = agent_panel_sections(app)
+        .iter()
+        .map(|section| section.entries.len())
+        .sum::<usize>();
     let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
     let offset_from_bottom = total_rows
         .saturating_sub(app.agent_panel_scroll)
@@ -491,7 +555,6 @@ pub(crate) fn agent_panel_scrollbar_rect(
 ) -> Option<Rect> {
     let metrics = agent_panel_scroll_metrics(app, area, leading_separator);
     let body = agent_panel_body_rect(area, true, leading_separator);
-    let (body, _) = agent_panel_section_rects(body);
     (should_show_scrollbar(metrics) && body.width > 0 && body.height > 0).then_some(Rect::new(
         area.x + area.width.saturating_sub(1),
         body.y,
@@ -1079,19 +1142,6 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
     }
 }
 
-pub(crate) fn agent_panel_section_rects(body: Rect) -> (Rect, Rect) {
-    if body == Rect::default() || body.height < 8 {
-        return (body, Rect::default());
-    }
-
-    let triage_h = (body.height / 3).clamp(4, body.height.saturating_sub(3));
-    let agents_h = body.height.saturating_sub(triage_h);
-    (
-        Rect::new(body.x, body.y, body.width, agents_h),
-        Rect::new(body.x, body.y + agents_h, body.width, triage_h),
-    )
-}
-
 fn render_agent_entry(
     app: &AppState,
     frame: &mut Frame,
@@ -1149,6 +1199,43 @@ fn render_agent_entry(
     );
 }
 
+pub(crate) fn agent_panel_entry_at_row(
+    app: &AppState,
+    body: Rect,
+    row: u16,
+) -> Option<AgentPanelEntry> {
+    let mut row_y = body.y;
+    let body_bottom = body.y + body.height;
+    let mut skip = app.agent_panel_scroll;
+
+    for section in agent_panel_sections(app) {
+        if skip >= section.entries.len() {
+            skip -= section.entries.len();
+            continue;
+        }
+        if row_y >= body_bottom {
+            break;
+        }
+
+        row_y = row_y.saturating_add(1);
+        for detail in section.entries.iter().skip(skip) {
+            if row_y.saturating_add(1) >= body_bottom {
+                break;
+            }
+            if row == row_y || row == row_y + 1 {
+                return Some(detail.clone());
+            }
+            row_y = row_y.saturating_add(2);
+            if row_y < body_bottom {
+                row_y = row_y.saturating_add(1);
+            }
+        }
+        skip = 0;
+    }
+
+    None
+}
+
 fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_separator: bool) {
     let p = &app.palette;
 
@@ -1195,7 +1282,6 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
         );
     }
 
-    let details = agent_panel_entries(app);
     let metrics = agent_panel_scroll_metrics(app, area, leading_separator);
     let scrollbar_rect = agent_panel_scrollbar_rect(app, area, leading_separator);
     let body = agent_panel_body_rect(area, should_show_scrollbar(metrics), leading_separator);
@@ -1203,47 +1289,38 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
         return;
     }
 
-    let (agents_body, triage_area) = agent_panel_section_rects(body);
-
-    let mut row_y = agents_body.y;
-    let body_bottom = agents_body.y + agents_body.height;
-    for detail in details.iter().skip(app.agent_panel_scroll) {
-        if row_y.saturating_add(1) >= body_bottom {
+    let mut row_y = body.y;
+    let body_bottom = body.y + body.height;
+    let mut skip = app.agent_panel_scroll;
+    for section in agent_panel_sections(app) {
+        if skip >= section.entries.len() {
+            skip -= section.entries.len();
+            continue;
+        }
+        if row_y >= body_bottom {
             break;
         }
 
-        render_agent_entry(app, frame, detail, agents_body, row_y);
-        row_y += 1;
-        row_y += 1;
-
-        if row_y < body_bottom {
-            row_y += 1;
-        }
-    }
-
-    if triage_area != Rect::default() {
         frame.render_widget(
             Paragraph::new(Span::styled(
-                " triage",
+                format!(" {}", section.label),
                 Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
             )),
-            Rect::new(triage_area.x, triage_area.y, triage_area.width, 1),
+            Rect::new(body.x, row_y, body.width, 1),
         );
+        row_y = row_y.saturating_add(1);
 
-        let triage_entries = agent_panel_triage_entries(app);
-        let mut row_y = triage_area.y + 1;
-        let body_bottom = triage_area.y + triage_area.height;
-        for detail in &triage_entries {
+        for detail in section.entries.iter().skip(skip) {
             if row_y.saturating_add(1) >= body_bottom {
                 break;
             }
-            render_agent_entry(app, frame, detail, triage_area, row_y);
-            row_y += 1;
-            row_y += 1;
+            render_agent_entry(app, frame, detail, body, row_y);
+            row_y = row_y.saturating_add(2);
             if row_y < body_bottom {
-                row_y += 1;
+                row_y = row_y.saturating_add(1);
             }
         }
+        skip = 0;
     }
 
     if let Some(track) = scrollbar_rect {
@@ -1499,6 +1576,46 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].primary_label, "group 1 / done");
         assert_eq!(entries[1].primary_label, "Work / blocked");
+    }
+
+    #[test]
+    fn agent_panel_sections_order_actionable_before_working_and_idle() {
+        let mut app = crate::app::state::AppState::test_new();
+
+        let mut triage = Workspace::test_new("done");
+        let triage_pane = triage.tabs[0].root_pane;
+        let triage_state = triage.tabs[0].panes.get_mut(&triage_pane).unwrap();
+        triage_state.detected_agent = Some(Agent::Pi);
+        triage_state.state = AgentState::Idle;
+        triage_state.seen = false;
+
+        let mut working = Workspace::test_new("working");
+        let working_pane = working.tabs[0].root_pane;
+        let working_state = working.tabs[0].panes.get_mut(&working_pane).unwrap();
+        working_state.detected_agent = Some(Agent::Claude);
+        working_state.state = AgentState::Working;
+
+        let mut idle = Workspace::test_new("idle");
+        let idle_pane = idle.tabs[0].root_pane;
+        let idle_state = idle.tabs[0].panes.get_mut(&idle_pane).unwrap();
+        idle_state.detected_agent = Some(Agent::Codex);
+        idle_state.state = AgentState::Idle;
+        idle_state.seen = true;
+
+        app.workspaces = vec![triage, working, idle];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        let sections = agent_panel_sections(&app);
+
+        assert_eq!(sections.len(), 3);
+        assert_eq!(sections[0].label, "triage");
+        assert_eq!(sections[0].entries[0].primary_label, "group 1 / done");
+        assert_eq!(sections[1].label, "working");
+        assert_eq!(sections[1].entries[0].primary_label, "group 1 / working");
+        assert_eq!(sections[2].label, "idle");
+        assert_eq!(sections[2].entries[0].primary_label, "group 1 / idle");
     }
 
     #[test]

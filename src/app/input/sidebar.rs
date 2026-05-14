@@ -692,40 +692,8 @@ impl AppState {
             return None;
         }
 
-        let (agents_body, triage_area) = crate::ui::agent_panel_section_rects(body);
-        let mut row_y = agents_body.y;
-        for detail in crate::ui::agent_panel_entries(self)
-            .into_iter()
-            .skip(self.agent_panel_scroll)
-        {
-            if row_y.saturating_add(1) >= agents_body.y + agents_body.height {
-                break;
-            }
-            if row == row_y || row == row_y + 1 {
-                return Some((detail.ws_idx, detail.tab_idx, detail.pane_id));
-            }
-            row_y = row_y.saturating_add(2);
-            if row_y < agents_body.y + agents_body.height {
-                row_y = row_y.saturating_add(1);
-            }
-        }
-
-        if triage_area != Rect::default() && row > triage_area.y {
-            let mut row_y = triage_area.y + 1;
-            for detail in crate::ui::agent_panel_triage_entries(self) {
-                if row_y.saturating_add(1) >= triage_area.y + triage_area.height {
-                    break;
-                }
-                if row == row_y || row == row_y + 1 {
-                    return Some((detail.ws_idx, detail.tab_idx, detail.pane_id));
-                }
-                row_y = row_y.saturating_add(2);
-                if row_y < triage_area.y + triage_area.height {
-                    row_y = row_y.saturating_add(1);
-                }
-            }
-        }
-        None
+        crate::ui::agent_panel_entry_at_row(self, body, row)
+            .map(|detail| (detail.ws_idx, detail.tab_idx, detail.pane_id))
     }
 
     pub(super) fn collapsed_right_sidebar_agent_target_at(
@@ -1280,7 +1248,16 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, 16));
+        let (_, detail_area) = crate::ui::expanded_sidebar_sections(
+            app.state.view.sidebar_rect,
+            app.state.sidebar_section_split,
+        );
+        let body = crate::ui::agent_panel_body_rect(detail_area, false, true);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            body.x + 2,
+            body.y + 4,
+        ));
 
         assert_eq!(app.state.workspaces[0].active_tab, 1);
         assert_eq!(
@@ -1388,7 +1365,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             detail_area.x + 2,
-            detail_area.y + 6,
+            crate::ui::agent_panel_body_rect(detail_area, false, true).y + 4,
         ));
 
         assert_eq!(app.state.active, Some(1));
@@ -1527,12 +1504,11 @@ mod tests {
             crate::ui::should_show_scrollbar(metrics),
             leading_separator,
         );
-        let (_, triage_area) = crate::ui::agent_panel_section_rects(body);
 
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            triage_area.x + 2,
-            triage_area.y + 1,
+            body.x + 2,
+            body.y + 1,
         ));
 
         assert_eq!(app.state.active, Some(1));
@@ -1685,7 +1661,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             body.x + 1,
-            body.y,
+            body.y + 1,
         ));
 
         assert_eq!(app.state.workspaces[0].active_tab, second_tab);
@@ -1798,7 +1774,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             body.x + 1,
-            body.y + 3,
+            body.y + 4,
         ));
 
         assert_eq!(app.state.workspaces[0].active_tab, second_tab);
