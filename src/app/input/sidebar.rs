@@ -8,6 +8,7 @@ use super::ScrollbarClickTarget;
 pub(crate) enum GroupMenuAction {
     AllSpaces,
     Group(usize),
+    NewWorkspace,
     NewGroup,
 }
 
@@ -202,12 +203,6 @@ impl AppState {
         Rect::new(ws_area.x, y, ws_area.width, 1)
     }
 
-    pub(crate) fn sidebar_new_button_rect(&self) -> Rect {
-        let footer = self.sidebar_footer_rect();
-        let width = 9u16.min(footer.width.max(1));
-        Rect::new(footer.x, footer.y, width, footer.height)
-    }
-
     pub(crate) fn global_launcher_rect(&self) -> Rect {
         if self.view.layout == ViewLayout::Mobile {
             return self.view.mobile_menu_hit_area;
@@ -315,6 +310,7 @@ impl AppState {
             format!("{marker} {} {} ({count})", group.icon, group.name)
         }));
         labels.push("---".to_string());
+        labels.push("+ new space".to_string());
         labels.push("+ new group".to_string());
         labels
     }
@@ -342,7 +338,12 @@ impl AppState {
             return None;
         }
 
-        let new_group_idx = separator_idx + 1;
+        let new_workspace_idx = separator_idx + 1;
+        if row_idx == new_workspace_idx {
+            return Some(GroupMenuAction::NewWorkspace);
+        }
+
+        let new_group_idx = new_workspace_idx + 1;
         if row_idx == new_group_idx {
             return Some(GroupMenuAction::NewGroup);
         }
@@ -802,20 +803,6 @@ mod tests {
     };
 
     #[test]
-    fn clicking_launcher_opens_global_menu() {
-        let mut app = app_for_mouse_test();
-        let rect = app.state.global_launcher_rect();
-
-        app.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            rect.x + rect.width.saturating_sub(1),
-            rect.y,
-        ));
-
-        assert_eq!(app.state.mode, Mode::GlobalMenu);
-    }
-
-    #[test]
     fn clicking_group_selector_opens_group_menu() {
         let mut app = app_for_mouse_test();
         app.state.create_group("Work".to_string());
@@ -834,6 +821,21 @@ mod tests {
     }
 
     #[test]
+    fn clicking_old_footer_menu_area_does_not_open_global_menu() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::Terminal;
+        let rect = app.state.global_launcher_rect();
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            rect.x,
+            rect.y,
+        ));
+
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
     fn group_menu_lists_all_spaces_before_groups() {
         let mut app = app_for_mouse_test();
         app.state.create_group("Work".to_string());
@@ -848,7 +850,8 @@ mod tests {
         assert!(labels[3].contains("group 1 (1)"));
         assert!(labels[4].contains("Work (1)"));
         assert_eq!(labels[5], "---");
-        assert_eq!(labels[6], "+ new group");
+        assert_eq!(labels[6], "+ new space");
+        assert_eq!(labels[7], "+ new group");
     }
 
     #[test]
@@ -905,6 +908,33 @@ mod tests {
         assert_eq!(app.state.mode, Mode::RenameGroup);
         assert!(app.state.creating_new_group);
         assert_eq!(app.state.name_input, "group 2");
+    }
+
+    #[test]
+    fn clicking_new_space_group_menu_item_requests_workspace() {
+        let mut app = app_for_mouse_test();
+        let selector = app.state.group_selector_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            selector.x + 1,
+            selector.y,
+        ));
+
+        let menu = app.state.group_menu_rect();
+        let new_space_row = app
+            .state
+            .group_menu_labels()
+            .iter()
+            .position(|label| label.contains("new space"))
+            .unwrap() as u16;
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + 1 + new_space_row,
+        ));
+
+        assert!(app.state.request_new_workspace);
+        assert_ne!(app.state.mode, Mode::GroupMenu);
     }
 
     #[test]
@@ -1150,12 +1180,7 @@ mod tests {
     #[test]
     fn hovering_global_menu_updates_highlight() {
         let mut app = app_for_mouse_test();
-        let launcher = app.state.global_launcher_rect();
-        app.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            launcher.x,
-            launcher.y,
-        ));
+        app.state.mode = Mode::GlobalMenu;
 
         let menu = app.state.global_menu_rect();
         app.handle_mouse(mouse(MouseEventKind::Moved, menu.x + 2, menu.y + 2));
@@ -1166,12 +1191,7 @@ mod tests {
     #[test]
     fn clicking_keybinds_menu_item_opens_help() {
         let mut app = app_for_mouse_test();
-        let launcher = app.state.global_launcher_rect();
-        app.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            launcher.x,
-            launcher.y,
-        ));
+        app.state.mode = Mode::GlobalMenu;
 
         let menu = app.state.global_menu_rect();
         app.handle_mouse(mouse(
@@ -1186,12 +1206,7 @@ mod tests {
     #[test]
     fn clicking_settings_menu_item_opens_settings() {
         let mut app = app_for_mouse_test();
-        let launcher = app.state.global_launcher_rect();
-        app.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            launcher.x,
-            launcher.y,
-        ));
+        app.state.mode = Mode::GlobalMenu;
 
         let menu = app.state.global_menu_rect();
         app.handle_mouse(mouse(
@@ -1206,12 +1221,7 @@ mod tests {
     #[test]
     fn clicking_reload_config_menu_item_requests_reload() {
         let mut app = app_for_mouse_test();
-        let launcher = app.state.global_launcher_rect();
-        app.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            launcher.x,
-            launcher.y,
-        ));
+        app.state.mode = Mode::GlobalMenu;
 
         let menu = app.state.global_menu_rect();
         app.handle_mouse(mouse(
@@ -1230,13 +1240,6 @@ mod tests {
         app.state.update_available = Some("0.3.2".into());
         app.state.latest_release_notes_available = true;
 
-        let launcher = app.state.global_launcher_rect();
-        app.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            launcher.x,
-            launcher.y,
-        ));
-
         assert_eq!(
             app.state.global_menu_labels(),
             vec![
@@ -1254,13 +1257,7 @@ mod tests {
     fn persistence_mode_menu_surfaces_detach_action() {
         let mut app = app_for_mouse_test();
         app.state.quit_detaches = true;
-
-        let launcher = app.state.global_launcher_rect();
-        app.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            launcher.x,
-            launcher.y,
-        ));
+        app.state.mode = Mode::GlobalMenu;
 
         assert_eq!(
             app.state.global_menu_labels(),
@@ -1996,19 +1993,6 @@ mod tests {
             toggle.x,
             app.state.view.sidebar_rect.x + app.state.view.sidebar_rect.width - 2
         );
-    }
-
-    #[test]
-    fn expanded_sidebar_menu_stays_left_of_collapse_toggle() {
-        let mut app = app_for_mouse_test();
-        app.state.sidebar_collapsed = false;
-        app.state.view.sidebar_rect = Rect::new(0, 0, 26, 20);
-        app.state.view.terminal_area = Rect::new(26, 0, 80, 20);
-
-        let menu = app.state.global_launcher_rect();
-        let toggle = crate::ui::expanded_sidebar_toggle_rect(app.state.view.sidebar_rect);
-
-        assert!(menu.x + menu.width < toggle.x);
     }
 
     #[test]
