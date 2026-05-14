@@ -5,19 +5,19 @@ use crate::app::{
     command_palette::{
         command_palette_filtered_commands, CommandPaletteAction, CommandPaletteCommand,
     },
-    state::{AppState, CommandPaletteWheelGate, Mode},
+    state::{AppState, Mode},
     App,
 };
 
-use super::{modal::modal_action_from_buttons, modal::ModalAction, ScrollbarClickTarget};
-
-const WHEEL_EVENTS_PER_SELECTION_STEP: u8 = 16;
+use super::{
+    modal::modal_action_from_buttons, modal::ModalAction, ScrollbarClickTarget,
+    MODAL_PAGE_SCROLL_ROWS,
+};
 
 pub(super) fn open_command_palette(state: &mut AppState) {
     state.command_palette.query.clear();
     state.command_palette.selected = 0;
     state.command_palette.scroll = 0;
-    state.command_palette.wheel_gate = None;
     state.mode = Mode::CommandPalette;
 }
 
@@ -27,7 +27,6 @@ pub(super) fn command_palette_visible_commands(state: &AppState) -> Vec<CommandP
 
 impl App {
     pub(crate) fn handle_command_palette_key(&mut self, key: KeyEvent) {
-        self.state.command_palette.wheel_gate = None;
         match key.code {
             KeyCode::Esc => leave_command_palette(&mut self.state),
             KeyCode::Enter => self.execute_selected_command_palette_command(),
@@ -37,8 +36,12 @@ impl App {
             KeyCode::Down => {
                 move_command_palette_selection(&mut self.state, true);
             }
-            KeyCode::PageUp => page_command_palette_selection(&mut self.state, false),
-            KeyCode::PageDown => page_command_palette_selection(&mut self.state, true),
+            KeyCode::PageUp => {
+                scroll_command_palette_rows(&mut self.state, -MODAL_PAGE_SCROLL_ROWS)
+            }
+            KeyCode::PageDown => {
+                scroll_command_palette_rows(&mut self.state, MODAL_PAGE_SCROLL_ROWS)
+            }
             KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 move_command_palette_selection(&mut self.state, false);
             }
@@ -125,45 +128,21 @@ fn move_command_palette_selection(state: &mut AppState, down: bool) -> bool {
     changed
 }
 
-pub(super) fn scroll_command_palette_selection(state: &mut AppState, down: bool) {
-    if let Some(gate) = state.command_palette.wheel_gate {
-        if gate.down == down && gate.remaining_events > 0 {
-            state.command_palette.wheel_gate = Some(CommandPaletteWheelGate {
-                down,
-                remaining_events: gate.remaining_events - 1,
-            });
-            return;
-        }
-    }
-
-    move_command_palette_selection(state, down);
-    state.command_palette.wheel_gate = Some(CommandPaletteWheelGate {
-        down,
-        remaining_events: WHEEL_EVENTS_PER_SELECTION_STEP.saturating_sub(1),
-    });
-}
-
-fn page_command_palette_selection(state: &mut AppState, down: bool) {
-    let commands = command_palette_visible_commands(state);
-    if commands.is_empty() {
-        state.command_palette.selected = 0;
-        state.command_palette.scroll = 0;
-        return;
-    }
-
-    let step = command_palette_list_area(state)
-        .map(|area| area.height.max(1) as usize)
-        .unwrap_or(8);
-    state.command_palette.selected = if down {
+pub(super) fn scroll_command_palette_rows(state: &mut AppState, delta: i16) {
+    let max_scroll = command_palette_max_scroll(state);
+    let next = if delta.is_negative() {
         state
             .command_palette
-            .selected
-            .saturating_add(step)
-            .min(commands.len().saturating_sub(1))
+            .scroll
+            .saturating_sub(delta.unsigned_abs() as usize)
     } else {
-        state.command_palette.selected.saturating_sub(step)
+        state
+            .command_palette
+            .scroll
+            .saturating_add(delta as usize)
+            .min(max_scroll)
     };
-    ensure_command_palette_selection_visible(state);
+    state.command_palette.scroll = next.min(max_scroll);
 }
 
 pub(super) fn hover_command_palette_selection(state: &mut AppState, col: u16, row: u16) {
@@ -189,7 +168,6 @@ pub(super) fn hover_command_palette_selection(state: &mut AppState, col: u16, ro
     let row_idx = start + row.saturating_sub(list_area.y) as usize;
     if let Some(Some(command_idx)) = rows.get(row_idx) {
         state.command_palette.selected = *command_idx;
-        state.command_palette.wheel_gate = None;
     }
 }
 
@@ -250,8 +228,6 @@ pub(super) fn set_command_palette_offset_from_bottom(
     };
     let max_scroll = rows.len().saturating_sub(list_area.height as usize);
     state.command_palette.scroll = max_scroll.saturating_sub(offset_from_bottom.min(max_scroll));
-    select_first_visible_command(state, &rows);
-    state.command_palette.wheel_gate = None;
 }
 
 fn command_palette_visible_rows(state: &AppState) -> Option<(Rect, Vec<Option<usize>>, usize)> {
@@ -260,17 +236,6 @@ fn command_palette_visible_rows(state: &AppState) -> Option<(Rect, Vec<Option<us
     let max_start = rows.len().saturating_sub(visible_rows);
     let start = state.command_palette.scroll.min(max_start);
     Some((list_area, rows, start))
-}
-
-fn select_first_visible_command(state: &mut AppState, rows: &[Option<usize>]) {
-    let start = state.command_palette.scroll;
-    let Some(list_area) = command_palette_list_area(state) else {
-        return;
-    };
-    let end = (start + list_area.height as usize).min(rows.len());
-    if let Some(idx) = rows[start..end].iter().flatten().next() {
-        state.command_palette.selected = *idx;
-    }
 }
 
 fn command_palette_scroll_metrics(state: &AppState) -> Option<crate::pane::ScrollMetrics> {
@@ -286,6 +251,13 @@ fn command_palette_scroll_metrics(state: &AppState) -> Option<crate::pane::Scrol
         max_offset_from_bottom,
         viewport_rows,
     })
+}
+
+fn command_palette_max_scroll(state: &AppState) -> usize {
+    let Some((list_area, rows)) = command_palette_rows_for_input(state) else {
+        return 0;
+    };
+    rows.len().saturating_sub(list_area.height as usize)
 }
 
 fn command_palette_scrollbar_track(state: &AppState) -> Option<Rect> {
@@ -592,6 +564,24 @@ mod tests {
 
         app.handle_command_palette_key(KeyEvent::new(KeyCode::Down, KeyModifiers::empty()));
         assert_eq!(app.state.command_palette.selected, 1);
+    }
+
+    #[test]
+    fn command_palette_page_keys_scroll_rows_without_changing_selection() {
+        let mut app = app_with_space();
+        app.state.view.sidebar_rect = ratatui::layout::Rect::new(0, 0, 26, 20);
+        app.state.view.terminal_area = ratatui::layout::Rect::new(26, 0, 80, 20);
+
+        app.handle_command_palette_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::empty()));
+        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(
+            app.state.command_palette.scroll,
+            MODAL_PAGE_SCROLL_ROWS as usize
+        );
+
+        app.handle_command_palette_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::empty()));
+        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.scroll, 0);
     }
 
     #[test]

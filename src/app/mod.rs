@@ -404,7 +404,6 @@ impl App {
                 query: String::new(),
                 selected: 0,
                 scroll: 0,
-                wheel_gate: None,
             },
             workspace_scroll: 0,
             agent_panel_scroll: 0,

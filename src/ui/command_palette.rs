@@ -222,3 +222,38 @@ fn pad_right(text: String, width: usize) -> String {
         format!("{text}{}", " ".repeat(width - len))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+
+    use super::*;
+
+    #[test]
+    fn command_palette_renders_one_close_affordance_and_run_action() {
+        let app = AppState::test_new();
+        let backend = TestBackend::new(100, 24);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        terminal
+            .draw(|frame| render_command_palette_overlay(&app, frame))
+            .expect("render command palette");
+
+        let text = buffer_text(terminal.backend().buffer(), 100, 24);
+        assert_eq!(text.matches("esc close").count(), 1);
+        assert!(text.contains("↵ run"));
+        assert!(text.contains("scroll wheel ↑↓"));
+        assert!(text.contains("jump pgup / pgdn"));
+    }
+
+    fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {
+        let mut text = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                text.push_str(buffer[(x, y)].symbol());
+            }
+            text.push('\n');
+        }
+        text
+    }
+}

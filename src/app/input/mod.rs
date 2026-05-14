@@ -21,6 +21,8 @@ enum WheelRouting {
 
 const WORKSPACE_DRAG_THRESHOLD: u16 = 1;
 const TAB_DRAG_THRESHOLD: u16 = 1;
+const MODAL_WHEEL_SCROLL_ROWS: i16 = 3;
+const MODAL_PAGE_SCROLL_ROWS: i16 = 8;
 
 mod command_palette;
 mod modal;
@@ -119,8 +121,8 @@ impl App {
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => self.scroll_release_notes(-1),
             KeyCode::Down | KeyCode::Char('j') => self.scroll_release_notes(1),
-            KeyCode::PageUp => self.scroll_release_notes(-8),
-            KeyCode::PageDown => self.scroll_release_notes(8),
+            KeyCode::PageUp => self.scroll_release_notes(-MODAL_PAGE_SCROLL_ROWS),
+            KeyCode::PageDown => self.scroll_release_notes(MODAL_PAGE_SCROLL_ROWS),
             KeyCode::Home => {
                 if let Some(notes) = &mut self.state.release_notes {
                     notes.scroll = 0;
@@ -227,11 +229,17 @@ impl App {
                     return;
                 }
                 MouseEventKind::ScrollDown => {
-                    command_palette::scroll_command_palette_selection(&mut self.state, true);
+                    command_palette::scroll_command_palette_rows(
+                        &mut self.state,
+                        MODAL_WHEEL_SCROLL_ROWS,
+                    );
                     return;
                 }
                 MouseEventKind::ScrollUp => {
-                    command_palette::scroll_command_palette_selection(&mut self.state, false);
+                    command_palette::scroll_command_palette_rows(
+                        &mut self.state,
+                        -MODAL_WHEEL_SCROLL_ROWS,
+                    );
                     return;
                 }
                 MouseEventKind::Moved => {

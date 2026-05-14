@@ -11,7 +11,7 @@ use crate::app::{
 
 use super::{
     modal::{leave_modal, modal_action_from_buttons, ModalAction},
-    ScrollbarClickTarget,
+    ScrollbarClickTarget, MODAL_WHEEL_SCROLL_ROWS,
 };
 
 impl App {
@@ -66,8 +66,8 @@ impl App {
                 MouseEventKind::Up(MouseButton::Left) => {
                     self.state.drag = None;
                 }
-                MouseEventKind::ScrollUp => self.scroll_release_notes(-3),
-                MouseEventKind::ScrollDown => self.scroll_release_notes(3),
+                MouseEventKind::ScrollUp => self.scroll_release_notes(-MODAL_WHEEL_SCROLL_ROWS),
+                MouseEventKind::ScrollDown => self.scroll_release_notes(MODAL_WHEEL_SCROLL_ROWS),
                 _ => {}
             }
             return true;
@@ -126,8 +126,12 @@ impl App {
                 MouseEventKind::Up(MouseButton::Left) => {
                     self.state.drag = None;
                 }
-                MouseEventKind::ScrollUp => self.state.scroll_keybind_help(-3),
-                MouseEventKind::ScrollDown => self.state.scroll_keybind_help(3),
+                MouseEventKind::ScrollUp => {
+                    self.state.scroll_keybind_help(-MODAL_WHEEL_SCROLL_ROWS)
+                }
+                MouseEventKind::ScrollDown => {
+                    self.state.scroll_keybind_help(MODAL_WHEEL_SCROLL_ROWS)
+                }
                 _ => {}
             }
             return true;

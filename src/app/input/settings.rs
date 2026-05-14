@@ -295,14 +295,13 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 state.settings.scroll = state
                     .settings
                     .scroll
-                    .saturating_sub(state.settings_content_rect().height.max(1) as usize);
+                    .saturating_sub(super::MODAL_PAGE_SCROLL_ROWS as usize);
             }
             KeyCode::PageDown => {
-                let step = state.settings_content_rect().height.max(1) as usize;
                 state.settings.scroll = state
                     .settings
                     .scroll
-                    .saturating_add(step)
+                    .saturating_add(super::MODAL_PAGE_SCROLL_ROWS as usize)
                     .min(settings_theme_max_scroll(state));
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
@@ -719,14 +718,17 @@ impl AppState {
                 None
             }
             MouseEventKind::ScrollUp if self.settings.section == SettingsSection::Theme => {
-                self.settings.scroll = self.settings.scroll.saturating_sub(3);
+                self.settings.scroll = self
+                    .settings
+                    .scroll
+                    .saturating_sub(super::MODAL_WHEEL_SCROLL_ROWS as usize);
                 None
             }
             MouseEventKind::ScrollDown if self.settings.section == SettingsSection::Theme => {
                 self.settings.scroll = self
                     .settings
                     .scroll
-                    .saturating_add(3)
+                    .saturating_add(super::MODAL_WHEEL_SCROLL_ROWS as usize)
                     .min(settings_theme_max_scroll(self));
                 None
             }
