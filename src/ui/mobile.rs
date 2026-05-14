@@ -8,6 +8,7 @@ use ratatui::{
 
 use super::sidebar::{agent_panel_entries, AgentPanelEntry};
 use super::status::{agent_icon, state_dot};
+use super::widgets::fill_rect;
 use crate::app::state::{Palette, ToastKind, ToastNotification};
 use crate::app::AppState;
 use crate::detect::AgentState;
@@ -860,19 +861,6 @@ fn mobile_toast_title(toast: &ToastNotification) -> String {
             .map(|agent| format!("{agent} done"))
             .unwrap_or_else(|| toast.title.clone()),
         ToastKind::UpdateInstalled => "update ready".to_string(),
-    }
-}
-
-fn fill_rect(frame: &mut Frame, area: Rect, style: Style) {
-    if area.width == 0 || area.height == 0 {
-        return;
-    }
-    let buf = frame.buffer_mut();
-    for y in area.y..area.y + area.height {
-        for x in area.x..area.x + area.width {
-            buf[(x, y)].set_symbol(" ");
-            buf[(x, y)].set_style(style);
-        }
     }
 }
 

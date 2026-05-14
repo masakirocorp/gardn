@@ -48,6 +48,7 @@ use self::settings::render_settings_overlay;
 use self::sidebar::{render_right_sidebar, render_sidebar, render_sidebar_collapsed};
 use self::status::{render_config_diagnostic, render_toast_notification, toast_notification_rect};
 use self::tabs::render_tab_bar;
+use self::widgets::fill_rect;
 pub(crate) use self::{
     dialogs::{
         confirm_close_button_rects, confirm_close_popup_rect, group_icon_button_rect,
@@ -347,6 +348,12 @@ fn compute_mobile_view(
 
 /// Render the UI — reads AppState but does not mutate it.
 pub fn render(app: &AppState, frame: &mut Frame) {
+    fill_rect(
+        frame,
+        frame.area(),
+        Style::default().bg(app.palette.panel_bg),
+    );
+
     let sidebar_area = app.view.sidebar_rect;
     let right_sidebar_area = app.view.right_sidebar_rect;
     let tab_bar_area = app.view.tab_bar_rect;
@@ -521,6 +528,42 @@ mod tests {
         assert_eq!(
             app.view.mobile_menu_hit_area.x + app.view.mobile_menu_hit_area.width,
             44
+        );
+    }
+
+    #[tokio::test]
+    async fn desktop_theme_background_paints_chrome_but_not_pane_defaults() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.palette.panel_bg = Color::Rgb(1, 2, 3);
+        let mut ws = Workspace::test_new("test");
+        let root = ws.tabs[0].root_pane;
+        ws.tabs[0].runtimes.insert(
+            root,
+            crate::pane::PaneRuntime::test_with_screen_bytes(20, 5, b""),
+        );
+        app.workspaces = vec![ws];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        compute_view(&mut app, Rect::new(0, 0, 80, 20));
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+
+        assert_eq!(buffer[(0, 0)].style().bg, Some(app.palette.panel_bg));
+        assert_eq!(
+            buffer[(app.view.sidebar_rect.x, app.view.sidebar_rect.y)]
+                .style()
+                .bg,
+            Some(app.palette.panel_bg)
+        );
+        assert_eq!(
+            buffer[(app.view.terminal_area.x, app.view.terminal_area.y)]
+                .style()
+                .bg,
+            Some(Color::Reset)
         );
     }
 

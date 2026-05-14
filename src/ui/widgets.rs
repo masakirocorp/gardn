@@ -29,6 +29,20 @@ pub(super) fn render_panel_shell(
     Some(inner)
 }
 
+pub(super) fn fill_rect(frame: &mut Frame, area: Rect, style: Style) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let buf = frame.buffer_mut();
+    for y in area.y..area.y + area.height {
+        for x in area.x..area.x + area.width {
+            buf[(x, y)].set_symbol(" ");
+            buf[(x, y)].set_style(style);
+        }
+    }
+}
+
 pub(super) fn panel_contrast_fg(p: &Palette) -> Color {
     match p.panel_bg {
         Color::Reset => p.surface_dim,

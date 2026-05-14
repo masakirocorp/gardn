@@ -8,6 +8,7 @@ use ratatui::{
 
 use super::scrollbar::{render_scrollbar, should_show_scrollbar};
 use super::status::{agent_icon, state_dot, state_label, state_label_color};
+use super::widgets::fill_rect;
 use crate::app::state::{AgentPanelScope, Palette};
 use crate::app::{AppState, Mode};
 use crate::detect::AgentState;
@@ -491,10 +492,11 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
     let is_navigating = matches!(app.mode, Mode::Navigate);
 
     let p = &app.palette;
+    fill_rect(frame, area, Style::default().bg(p.panel_bg));
     let sep_style = if is_navigating {
-        Style::default().fg(p.accent)
+        Style::default().fg(p.accent).bg(p.panel_bg)
     } else {
-        Style::default().fg(p.surface_dim)
+        Style::default().fg(p.surface_dim).bg(p.panel_bg)
     };
     let sep_x = area.x + area.width.saturating_sub(1);
     let buf = frame.buffer_mut();
@@ -645,11 +647,12 @@ pub(crate) fn workspace_drop_indicator_row(
 
 pub(super) fn render_sidebar(app: &AppState, frame: &mut Frame, area: Rect) {
     let p = &app.palette;
+    fill_rect(frame, area, Style::default().bg(p.panel_bg));
     let is_navigating = matches!(app.mode, Mode::Navigate);
     let sep_style = if is_navigating {
-        Style::default().fg(p.accent)
+        Style::default().fg(p.accent).bg(p.panel_bg)
     } else {
-        Style::default().fg(p.surface_dim)
+        Style::default().fg(p.surface_dim).bg(p.panel_bg)
     };
 
     let sep_x = area.x + area.width.saturating_sub(1);
@@ -675,11 +678,12 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
         return;
     }
     let p = &app.palette;
+    fill_rect(frame, area, Style::default().bg(p.panel_bg));
     let has_active_workspace = app.active.and_then(|idx| app.workspaces.get(idx)).is_some();
     let sep_style = if !has_active_workspace && matches!(app.mode, Mode::Navigate) {
-        Style::default().fg(p.accent)
+        Style::default().fg(p.accent).bg(p.panel_bg)
     } else {
-        Style::default().fg(p.surface_dim)
+        Style::default().fg(p.surface_dim).bg(p.panel_bg)
     };
     let buf = frame.buffer_mut();
     for y in area.y..area.y + area.height {
