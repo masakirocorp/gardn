@@ -1000,7 +1000,23 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
 
     let metrics = workspace_list_scroll_metrics(app, area);
     let scrollbar_rect = workspace_list_scrollbar_rect(app, area);
+    let body = workspace_list_body_rect(area, should_show_scrollbar(metrics));
     let cards = &app.view.workspace_card_areas;
+
+    if cards.is_empty() && body.height > 0 && body.width > 10 {
+        let title = if app.workspaces.is_empty() {
+            " no spaces"
+        } else {
+            " empty group"
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                title,
+                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+            ))),
+            Rect::new(body.x, body.y, body.width, 1),
+        );
+    }
 
     for card in cards {
         let i = card.ws_idx;
@@ -1300,10 +1316,25 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
         return;
     }
 
+    let sections = agent_panel_sections(app);
+    if sections.is_empty() && body.height > 0 {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                " no agents",
+                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+            )),
+            Rect::new(body.x, body.y, body.width, 1),
+        );
+        if let Some(track) = scrollbar_rect {
+            render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▕");
+        }
+        return;
+    }
+
     let mut row_y = body.y;
     let body_bottom = body.y + body.height;
     let mut skip = app.agent_panel_scroll;
-    for section in agent_panel_sections(app) {
+    for section in sections {
         if skip >= section.entries.len() {
             skip -= section.entries.len();
             continue;
@@ -1420,6 +1451,7 @@ fn render_right_sidebar_toggle(
 mod tests {
     use super::*;
     use crate::{detect::Agent, workspace::Workspace};
+    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
 
     #[test]
     fn agent_panel_toggle_labels_match_control_center_scope() {
@@ -1435,6 +1467,48 @@ mod tests {
             agent_panel_toggle_label(AgentPanelScope::AllWorkspaces),
             "all agents"
         );
+    }
+
+    #[test]
+    fn workspace_list_empty_state_mentions_empty_group() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("hidden")];
+        app.create_group("work".to_string());
+        app.active_group = 1;
+        app.group_filter_enabled = true;
+
+        let backend = TestBackend::new(28, 12);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_workspace_list(&app, frame, Rect::new(0, 0, 28, 12), false))
+            .expect("render workspace list");
+
+        let text = buffer_text(terminal.backend().buffer(), 28, 12);
+        let rows = text.lines().collect::<Vec<_>>();
+        assert!(text.contains("empty group"));
+        assert!(rows[2].contains("empty group"));
+        assert!(!text.contains("new space adds one here"));
+    }
+
+    #[test]
+    fn agent_panel_empty_state_mentions_current_scope() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("test")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+
+        let backend = TestBackend::new(30, 12);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_agent_detail(&app, frame, Rect::new(0, 0, 30, 12), false))
+            .expect("render agent panel");
+
+        let text = buffer_text(terminal.backend().buffer(), 30, 12);
+        let rows = text.lines().collect::<Vec<_>>();
+        assert!(text.contains("no agents"));
+        assert!(rows[2].contains("no agents"));
+        assert!(!text.contains("this space has none"));
     }
 
     #[test]
@@ -1660,5 +1734,16 @@ mod tests {
         let divider = sidebar_section_divider_rect(Rect::new(0, 0, 20, 5), 0.5);
 
         assert_eq!(divider, Rect::default());
+    }
+
+    fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {
+        let mut text = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                text.push_str(buffer[(x, y)].symbol());
+            }
+            text.push('\n');
+        }
+        text
     }
 }

@@ -333,22 +333,32 @@ fn render_selection_highlight(
 
 fn render_empty(app: &AppState, frame: &mut Frame, area: Rect) {
     let p = &app.palette;
+    let (title, detail, context) = if app.workspaces.is_empty() {
+        (
+            "  no spaces yet",
+            "  a space is one project context.",
+            "  its root pane sets the default repo or folder name.",
+        )
+    } else if app.group_filter_enabled {
+        (
+            "  no spaces in this group",
+            "  switch groups or create one here.",
+            "  hidden spaces stay in the group menu.",
+        )
+    } else {
+        (
+            "  no active space",
+            "  select a space from the sidebar.",
+            "  create one if you want a fresh context.",
+        )
+    };
     let lines = vec![
         Line::from(""),
         Line::from(""),
-        Line::from(Span::styled(
-            "  no workspaces yet",
-            Style::default().fg(p.overlay0),
-        )),
+        Line::from(Span::styled(title, Style::default().fg(p.overlay0))),
         Line::from(""),
-        Line::from(Span::styled(
-            "  a workspace is one project context.",
-            Style::default().fg(p.overlay1),
-        )),
-        Line::from(Span::styled(
-            "  its root pane (top-left) sets the default repo or folder name.",
-            Style::default().fg(p.overlay1),
-        )),
+        Line::from(Span::styled(detail, Style::default().fg(p.overlay1))),
+        Line::from(Span::styled(context, Style::default().fg(p.overlay1))),
         Line::from(""),
         Line::from(vec![
             Span::styled("  press ", Style::default().fg(p.overlay0)),
@@ -374,6 +384,7 @@ mod tests {
     use super::*;
     use crate::pane::PaneRuntime;
     use crate::workspace::Workspace;
+    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
 
     #[test]
     fn pane_border_title_trims_and_truncates() {
@@ -384,6 +395,27 @@ mod tests {
         assert_eq!(pane_border_title("", 20), None);
         assert_eq!(pane_border_title("abcdef", 8).as_deref(), Some(" abc… "));
         assert_eq!(pane_border_title("abcdef", 4), None);
+    }
+
+    #[test]
+    fn main_empty_state_mentions_empty_group_when_spaces_are_hidden() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("hidden")];
+        app.create_group("work".to_string());
+        app.active_group = 1;
+        app.group_filter_enabled = true;
+        app.active = None;
+
+        let backend = TestBackend::new(72, 14);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_empty(&app, frame, Rect::new(0, 0, 72, 14)))
+            .expect("render empty pane");
+
+        let text = buffer_text(terminal.backend().buffer(), 72, 14);
+        assert!(text.contains("no spaces in this group"));
+        assert!(text.contains("switch groups or create one here"));
+        assert!(text.contains("hidden spaces stay in the group menu"));
     }
 
     #[tokio::test]
@@ -410,6 +442,17 @@ mod tests {
         assert_eq!(info.rect, area);
         assert_eq!(info.scrollbar_rect, None);
         assert_eq!(info.inner_rect, Rect::new(10, 3, 39, 8));
+    }
+
+    fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {
+        let mut text = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                text.push_str(buffer[(x, y)].symbol());
+            }
+            text.push('\n');
+        }
+        text
     }
 
     #[tokio::test]
