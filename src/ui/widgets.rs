@@ -218,6 +218,30 @@ pub(crate) fn modal_scroll_area(
     ModalScrollArea { body, track }
 }
 
+pub(crate) fn modal_scroll_metrics(
+    total_rows: usize,
+    viewport_rows: usize,
+    scroll: usize,
+) -> crate::pane::ScrollMetrics {
+    let viewport_rows = viewport_rows.max(1);
+    let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
+    let scroll = scroll.min(max_offset_from_bottom);
+    crate::pane::ScrollMetrics {
+        offset_from_bottom: max_offset_from_bottom.saturating_sub(scroll),
+        max_offset_from_bottom,
+        viewport_rows,
+    }
+}
+
+pub(crate) fn modal_scroll_from_offset_from_bottom(
+    total_rows: usize,
+    viewport_rows: usize,
+    offset_from_bottom: usize,
+) -> usize {
+    let max_scroll = total_rows.saturating_sub(viewport_rows.max(1));
+    max_scroll.saturating_sub(offset_from_bottom.min(max_scroll))
+}
+
 pub(crate) fn modal_scrollbar_rect(
     area: Rect,
     metrics: crate::pane::ScrollMetrics,

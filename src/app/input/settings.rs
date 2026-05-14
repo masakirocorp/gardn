@@ -101,14 +101,11 @@ fn set_settings_theme_offset_from_bottom(state: &mut AppState, offset_from_botto
 }
 
 fn settings_theme_scroll_metrics(state: &AppState) -> crate::pane::ScrollMetrics {
-    let viewport_rows = state.settings_content_rect().height.max(1) as usize;
-    let max_offset_from_bottom = theme_list_len(state).saturating_sub(viewport_rows);
-    let scroll = state.settings.scroll.min(max_offset_from_bottom);
-    crate::pane::ScrollMetrics {
-        offset_from_bottom: max_offset_from_bottom.saturating_sub(scroll),
-        max_offset_from_bottom,
-        viewport_rows,
-    }
+    crate::ui::modal_scroll_metrics(
+        theme_list_len(state),
+        state.settings_content_rect().height as usize,
+        state.settings.scroll,
+    )
 }
 
 fn selected_group_theme_name(state: &AppState) -> Option<String> {
@@ -956,5 +953,25 @@ mod tests {
         app.handle_mouse(mouse(MouseEventKind::Moved, area.x + 2, area.y + 2));
 
         assert_eq!(app.state.settings.list.selected, 0);
+    }
+
+    #[test]
+    fn settings_theme_wheel_scrolls_without_changing_selection() {
+        let mut app = app_for_mouse_test();
+        open_settings(&mut app.state);
+        app.state.settings.list.select(0);
+
+        let area = app.state.settings_content_rect();
+        let expected_scroll = settings_theme_max_scroll(&app.state)
+            .min(super::super::MODAL_WHEEL_SCROLL_ROWS as usize);
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, area.x + 2, area.y + 2));
+
+        assert_eq!(app.state.settings.list.selected, 0);
+        assert_eq!(app.state.settings.scroll, expected_scroll);
+
+        app.handle_mouse(mouse(MouseEventKind::ScrollUp, area.x + 2, area.y + 2));
+
+        assert_eq!(app.state.settings.list.selected, 0);
+        assert_eq!(app.state.settings.scroll, 0);
     }
 }

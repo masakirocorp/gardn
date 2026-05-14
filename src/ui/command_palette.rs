@@ -93,14 +93,7 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
     let max_start = palette_rows.len().saturating_sub(visible_rows);
     let start = app.command_palette.scroll.min(max_start);
     let end = (start + visible_rows).min(palette_rows.len());
-    let metrics = crate::pane::ScrollMetrics {
-        offset_from_bottom: palette_rows
-            .len()
-            .saturating_sub(start)
-            .saturating_sub(visible_rows),
-        max_offset_from_bottom: palette_rows.len().saturating_sub(visible_rows),
-        viewport_rows: visible_rows,
-    };
+    let metrics = crate::ui::modal_scroll_metrics(palette_rows.len(), visible_rows, start);
     let scroll_area = modal_scroll_area(rows[3], metrics);
     let list_width =
         (scroll_area.body.width as usize).saturating_sub(COMMAND_PALETTE_KEY_HINT_RIGHT_PADDING);

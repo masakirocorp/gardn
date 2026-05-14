@@ -78,7 +78,10 @@ pub(crate) use self::{
     },
     panes::pane_is_scrolled_back,
     tabs::compute_tab_bar_view,
-    widgets::{centered_popup_rect, modal_scrollbar_rect, modal_stack_areas},
+    widgets::{
+        centered_popup_rect, modal_scroll_from_offset_from_bottom, modal_scroll_metrics,
+        modal_scrollbar_rect, modal_stack_areas,
+    },
 };
 use crate::app::state::{ContextMenuKind, ViewLayout};
 use crate::app::{AppState, Mode};
@@ -1037,6 +1040,16 @@ mod tests {
         };
 
         assert!(should_show_scrollbar(metrics));
+    }
+
+    #[test]
+    fn modal_scroll_metrics_converts_top_scroll_to_offset_from_bottom() {
+        let metrics = modal_scroll_metrics(20, 5, 3);
+
+        assert_eq!(metrics.viewport_rows, 5);
+        assert_eq!(metrics.max_offset_from_bottom, 15);
+        assert_eq!(metrics.offset_from_bottom, 12);
+        assert_eq!(modal_scroll_from_offset_from_bottom(20, 5, 12), 3);
     }
 
     #[test]

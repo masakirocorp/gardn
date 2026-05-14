@@ -57,11 +57,12 @@ pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, ar
     render_modal_subtitle(frame, header_rows[1], subtitle, &app.palette);
 
     let sections = release_notes_sections(stack.content, notes.preview);
-    let metrics = crate::pane::ScrollMetrics {
-        offset_from_bottom: app.release_notes_max_scroll().saturating_sub(notes.scroll) as usize,
-        max_offset_from_bottom: app.release_notes_max_scroll() as usize,
-        viewport_rows: sections.notes_body.height.max(1) as usize,
-    };
+    let viewport_rows = sections.notes_body.height.max(1) as usize;
+    let metrics = crate::ui::modal_scroll_metrics(
+        app.release_notes_max_scroll() as usize + viewport_rows,
+        viewport_rows,
+        notes.scroll as usize,
+    );
     let scroll_area = modal_scroll_area(sections.notes_body, metrics);
 
     if let Some(instructions_area) = sections.instructions {

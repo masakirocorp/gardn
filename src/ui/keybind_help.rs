@@ -228,13 +228,12 @@ pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
     );
 
     let body_area = stack.content;
-    let metrics = crate::pane::ScrollMetrics {
-        offset_from_bottom: app
-            .keybind_help_max_scroll()
-            .saturating_sub(app.keybind_help.scroll) as usize,
-        max_offset_from_bottom: app.keybind_help_max_scroll() as usize,
-        viewport_rows: body_area.height.max(1) as usize,
-    };
+    let viewport_rows = body_area.height.max(1) as usize;
+    let metrics = crate::ui::modal_scroll_metrics(
+        app.keybind_help_max_scroll() as usize + viewport_rows,
+        viewport_rows,
+        app.keybind_help.scroll as usize,
+    );
     let scroll_area = modal_scroll_area(body_area, metrics);
 
     let body = Paragraph::new(

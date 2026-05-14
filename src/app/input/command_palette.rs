@@ -226,8 +226,11 @@ pub(super) fn set_command_palette_offset_from_bottom(
         state.command_palette.scroll = 0;
         return;
     };
-    let max_scroll = rows.len().saturating_sub(list_area.height as usize);
-    state.command_palette.scroll = max_scroll.saturating_sub(offset_from_bottom.min(max_scroll));
+    state.command_palette.scroll = crate::ui::modal_scroll_from_offset_from_bottom(
+        rows.len(),
+        list_area.height as usize,
+        offset_from_bottom,
+    );
 }
 
 fn command_palette_visible_rows(state: &AppState) -> Option<(Rect, Vec<Option<usize>>, usize)> {
@@ -240,17 +243,11 @@ fn command_palette_visible_rows(state: &AppState) -> Option<(Rect, Vec<Option<us
 
 fn command_palette_scroll_metrics(state: &AppState) -> Option<crate::pane::ScrollMetrics> {
     let (list_area, rows) = command_palette_rows_for_input(state)?;
-    let viewport_rows = list_area.height as usize;
-    let max_offset_from_bottom = rows.len().saturating_sub(viewport_rows);
-    let scroll = state.command_palette.scroll.min(max_offset_from_bottom);
-    Some(crate::pane::ScrollMetrics {
-        offset_from_bottom: rows
-            .len()
-            .saturating_sub(scroll)
-            .saturating_sub(viewport_rows),
-        max_offset_from_bottom,
-        viewport_rows,
-    })
+    Some(crate::ui::modal_scroll_metrics(
+        rows.len(),
+        list_area.height as usize,
+        state.command_palette.scroll,
+    ))
 }
 
 fn command_palette_max_scroll(state: &AppState) -> usize {

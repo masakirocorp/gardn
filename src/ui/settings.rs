@@ -279,34 +279,18 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
         .style(Style::default().fg(p.subtext0));
 
     let viewport_rows = area.height as usize;
-    let max_offset_from_bottom = total_items.saturating_sub(viewport_rows);
-    let scroll = app.settings.scroll.min(max_offset_from_bottom);
-    let scroll_area = modal_scroll_area(
-        area,
-        crate::pane::ScrollMetrics {
-            offset_from_bottom: max_offset_from_bottom.saturating_sub(scroll),
-            max_offset_from_bottom,
-            viewport_rows,
-        },
-    );
+    let metrics = crate::ui::modal_scroll_metrics(total_items, viewport_rows, app.settings.scroll);
+    let scroll = metrics
+        .max_offset_from_bottom
+        .saturating_sub(metrics.offset_from_bottom);
+    let scroll_area = modal_scroll_area(area, metrics);
 
     let mut state = ListState::default()
         .with_selected(Some(app.settings.list.selected))
         .with_offset(scroll);
     frame.render_stateful_widget(list, scroll_area.body, &mut state);
     if let Some(track) = scroll_area.track {
-        render_scrollbar(
-            frame,
-            crate::pane::ScrollMetrics {
-                offset_from_bottom: max_offset_from_bottom.saturating_sub(scroll),
-                max_offset_from_bottom,
-                viewport_rows,
-            },
-            track,
-            p.surface_dim,
-            p.overlay0,
-            "▐",
-        );
+        render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▐");
     }
 }
 

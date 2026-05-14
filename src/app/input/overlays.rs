@@ -222,12 +222,11 @@ impl AppState {
         };
         total_rows = rows_for_width(wrap_width);
 
-        let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
-        Some(crate::pane::ScrollMetrics {
-            offset_from_bottom: max_offset_from_bottom.saturating_sub(notes.scroll as usize),
-            max_offset_from_bottom,
+        Some(crate::ui::modal_scroll_metrics(
+            total_rows,
             viewport_rows,
-        })
+            notes.scroll as usize,
+        ))
     }
 
     pub(crate) fn release_notes_max_scroll(&self) -> u16 {
@@ -347,13 +346,11 @@ impl AppState {
             full_width
         };
         total_rows = rows_for_width(wrap_width);
-        let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
-        Some(crate::pane::ScrollMetrics {
-            offset_from_bottom: max_offset_from_bottom
-                .saturating_sub(self.keybind_help.scroll as usize),
-            max_offset_from_bottom,
+        Some(crate::ui::modal_scroll_metrics(
+            total_rows,
             viewport_rows,
-        })
+            self.keybind_help.scroll as usize,
+        ))
     }
 
     fn keybind_help_scrollbar_target_at(&self, col: u16, row: u16) -> Option<ScrollbarClickTarget> {
