@@ -146,8 +146,8 @@ pub(crate) fn agent_panel_toggle_rect(
     )
 }
 
-pub(crate) fn agent_panel_entries(app: &AppState) -> Vec<AgentPanelEntry> {
-    match app.agent_panel_scope {
+fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<AgentPanelEntry> {
+    match scope {
         AgentPanelScope::CurrentWorkspace => {
             let Some(ws_idx) = agent_panel_current_workspace_idx(app) else {
                 return Vec::new();
@@ -221,6 +221,10 @@ pub(crate) fn agent_panel_entries(app: &AppState) -> Vec<AgentPanelEntry> {
     }
 }
 
+pub(crate) fn agent_panel_entries(app: &AppState) -> Vec<AgentPanelEntry> {
+    agent_panel_entries_for_scope(app, app.agent_panel_scope)
+}
+
 fn agent_panel_entry_needs_triage(entry: &AgentPanelEntry) -> bool {
     entry.state == AgentState::Blocked || (entry.state == AgentState::Idle && !entry.seen)
 }
@@ -247,6 +251,13 @@ pub(crate) fn agent_panel_triage_entries(app: &AppState) -> Vec<AgentPanelEntry>
         })
         .filter(agent_panel_entry_needs_triage)
         .collect()
+}
+
+pub(crate) fn agent_panel_scope_count(app: &AppState, scope: AgentPanelScope) -> usize {
+    agent_panel_entries_for_scope(app, scope)
+        .into_iter()
+        .filter(|entry| !agent_panel_entry_needs_triage(entry))
+        .count()
 }
 
 pub(crate) fn agent_panel_sections(app: &AppState) -> Vec<AgentPanelSection> {

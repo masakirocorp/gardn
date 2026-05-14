@@ -1,6 +1,6 @@
 use ratatui::layout::Rect;
 
-use crate::app::state::{AppState, Mode, ViewLayout};
+use crate::app::state::{AgentPanelScope, AppState, Mode, ViewLayout};
 
 use super::ScrollbarClickTarget;
 
@@ -377,8 +377,22 @@ impl AppState {
         Rect::new(x, y, menu_w, menu_h)
     }
 
-    pub(crate) fn agent_menu_labels(&self) -> Vec<&'static str> {
-        vec!["all agents", "---", "this space", "this group"]
+    pub(crate) fn agent_menu_labels(&self) -> Vec<String> {
+        vec![
+            format!(
+                "all agents ({})",
+                crate::ui::agent_panel_scope_count(self, AgentPanelScope::AllWorkspaces)
+            ),
+            "---".to_string(),
+            format!(
+                "this space ({})",
+                crate::ui::agent_panel_scope_count(self, AgentPanelScope::CurrentWorkspace)
+            ),
+            format!(
+                "this group ({})",
+                crate::ui::agent_panel_scope_count(self, AgentPanelScope::CurrentGroup)
+            ),
+        ]
     }
 
     pub(crate) fn agent_menu_action_for_row(&self, row_idx: usize) -> Option<AgentMenuAction> {
@@ -726,7 +740,7 @@ mod tests {
     use super::super::{app_for_mouse_test, capture_snapshot, mouse, unique_temp_path};
     use crate::{
         app::state::{AgentPanelScope, ContextMenuKind, DragTarget, Mode},
-        detect::Agent,
+        detect::{Agent, AgentState},
         workspace::Workspace,
     };
 
@@ -1297,6 +1311,42 @@ mod tests {
         assert_eq!(app.state.mode, Mode::AgentMenu);
         assert_eq!(app.state.agent_menu.highlighted, 2);
         assert_eq!(app.state.agent_panel_scroll, 3);
+    }
+
+    #[test]
+    fn agent_scope_menu_labels_count_scoped_non_triage_agents() {
+        let mut app = app_for_mouse_test();
+        let work_group = app.state.create_group("Work".to_string());
+
+        let mut triage = Workspace::test_new("triage");
+        let triage_pane = triage.tabs[0].root_pane;
+        let triage_state = triage.tabs[0].panes.get_mut(&triage_pane).unwrap();
+        triage_state.detected_agent = Some(Agent::Pi);
+        triage_state.state = AgentState::Idle;
+        triage_state.seen = false;
+
+        let mut working = Workspace::test_new("working");
+        let working_pane = working.tabs[0].root_pane;
+        let working_state = working.tabs[0].panes.get_mut(&working_pane).unwrap();
+        working_state.detected_agent = Some(Agent::Claude);
+        working_state.state = AgentState::Working;
+
+        let mut idle = Workspace::test_new("idle");
+        idle.group_id = app.state.groups[work_group].id.clone();
+        let idle_pane = idle.tabs[0].root_pane;
+        let idle_state = idle.tabs[0].panes.get_mut(&idle_pane).unwrap();
+        idle_state.detected_agent = Some(Agent::Codex);
+        idle_state.state = AgentState::Idle;
+        idle_state.seen = true;
+
+        app.state.workspaces = vec![triage, working, idle];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+
+        assert_eq!(
+            app.state.agent_menu_labels(),
+            vec!["all agents (2)", "---", "this space (0)", "this group (1)"]
+        );
     }
 
     #[test]

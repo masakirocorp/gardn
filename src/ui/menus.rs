@@ -211,12 +211,16 @@ pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
         .agent_menu_labels()
         .iter()
         .map(|item| {
-            if *item == "---" {
+            if item == "---" {
                 ListItem::new(Line::from("-".repeat(inner.width as usize)))
                     .style(Style::default().fg(app.palette.overlay0))
+            } else if let Some((name, count)) = count_suffix(item) {
+                ListItem::new(Line::from(vec![
+                    Span::styled(name.to_string(), Style::default().fg(app.palette.text)),
+                    Span::styled(count.to_string(), Style::default().fg(app.palette.overlay0)),
+                ]))
             } else {
-                ListItem::new(Line::from(item.to_string()))
-                    .style(Style::default().fg(app.palette.text))
+                ListItem::new(Line::from(item.clone())).style(Style::default().fg(app.palette.text))
             }
         })
         .collect();
