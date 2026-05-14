@@ -50,4 +50,4 @@ jobs:
           cache-bin: false
 
       - name: Run checks
-        run: just ci
+        run: just check

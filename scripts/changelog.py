@@ -15,7 +15,7 @@ DEFAULT_LIVE_MANIFEST_URL = "https://herdr.dev/latest.json"
 
 SECTION_RE = re.compile(r"^##\s+(?:\[(?P<bracketed>[^\]]+)\]|(?P<plain>.+?))\s*$", re.MULTILINE)
 VERSION_WITH_DATE_RE = re.compile(r"^(?P<version>.+?)\s+-\s+\d{4}-\d{2}-\d{2}$")
-DEFAULT_RELEASE_REPO = "ogulcancelik/herdr"
+DEFAULT_RELEASE_REPO = "masakirocorp/herdr"
 DEFAULT_LATEST_JSON_PATH = Path("website/latest.json")
 PROTOCOL_SOURCE_PATH = Path("src/server/protocol.rs")
 ASSET_TARGETS = (

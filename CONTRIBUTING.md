@@ -24,11 +24,7 @@ If you have a suggestion, disagreement, or contradiction with the current produc
 
 ## First-time contributors
 
-We use an approval gate for new contributors.
-
-Before opening your first PR, open an issue describing what you want to change and why. Keep it short. Write in your own voice. If you intend to implement it yourself, add the `intends-to-pr` label. A maintainer will comment `/approve` if the direction is approved. Once approved, you can open PRs.
-
-This exists because AI makes it trivial to generate plausible-looking contributions that do not fit the app.
+Before opening your first PR, open an issue describing what you want to change and why. Keep it short. Write in your own voice. If you intend to implement it yourself, add the `intends-to-pr` label.
 
 ## What to put in a first issue
 
@@ -56,13 +52,13 @@ just install-hooks
 
 The pre-commit hook runs `cargo fmt --check` before every commit.
 
-Run the PR checks and make sure they pass.
+Run the full check suite and make sure it passes.
 
 ```bash
-just ci
+just check
 ```
 
-`just ci` runs `cargo fmt --check` and `cargo nextest run`.
+`just check` runs formatting, clippy, Rust tests, and maintenance script tests.
 
 Do not open a PR that bypasses failing tests, formatting, or build errors.
 
