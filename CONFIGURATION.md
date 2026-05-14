@@ -304,7 +304,7 @@ accent = "cyan"
 | `mouse_capture` | `true` | capture mouse input for Herdr's mouse UI; set false to let the terminal handle normal clicks while still forwarding mouse to pane apps that request it |
 | `confirm_close` | `true` | ask before closing a workspace |
 | `show_agent_labels_on_pane_borders` | `false` | show detected/reported agent labels in split pane borders when no manual pane name is set |
-| `agent_panel_scope` | `all` | sidebar agent list scope: `current` (shown as `space`) or `all` (shown as `visible`) |
+| `agent_panel_scope` | `all` | sidebar agent list scope: `current` (shown as `This space`) or `all` (shown as `All agents`) |
 | `accent` | `cyan` | highlight and border color |
 
 Changing the agent panel scope from the sidebar writes `agent_panel_scope` to config so it survives session resets and upgrades.

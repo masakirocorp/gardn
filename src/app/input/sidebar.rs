@@ -1325,6 +1325,54 @@ mod tests {
     }
 
     #[test]
+    fn clicking_hidden_group_agent_reveals_that_group() {
+        let mut app = app_for_mouse_test();
+        let hidden_group = app.state.create_group("Work".to_string());
+        let mut first = Workspace::test_new("one");
+        let first_pane = first.tabs[0].root_pane;
+        first.tabs[0]
+            .panes
+            .get_mut(&first_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Pi);
+
+        let mut second = Workspace::test_new("two");
+        second.group_id = app.state.groups[hidden_group].id.clone();
+        let second_pane = second.tabs[0].root_pane;
+        second.tabs[0]
+            .panes
+            .get_mut(&second_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Claude);
+
+        app.state.workspaces = vec![first, second];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.active_group = 0;
+        app.state.group_filter_enabled = true;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+
+        assert_eq!(app.state.visible_workspace_indices(), vec![0]);
+        let detail_area = app.state.agent_panel_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            detail_area.x + 2,
+            detail_area.y + 6,
+        ));
+
+        assert_eq!(app.state.active, Some(1));
+        assert_eq!(app.state.selected, 1);
+        assert_eq!(app.state.active_group, hidden_group);
+        assert_eq!(app.state.visible_workspace_indices(), vec![1]);
+        assert_eq!(
+            app.state.workspaces[1].tabs[0].layout.focused(),
+            second_pane
+        );
+    }
+
+    #[test]
     fn clicking_right_sidebar_toggle_collapses_and_expands() {
         let mut app = app_for_mouse_test();
         app.state.workspaces = vec![Workspace::test_new("test")];

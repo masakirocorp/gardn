@@ -91,8 +91,8 @@ fn agent_panel_current_workspace_idx(app: &AppState) -> Option<usize> {
 
 fn agent_panel_toggle_label(scope: AgentPanelScope) -> &'static str {
     match scope {
-        AgentPanelScope::CurrentWorkspace => "space",
-        AgentPanelScope::AllWorkspaces => "visible",
+        AgentPanelScope::CurrentWorkspace => "This space",
+        AgentPanelScope::AllWorkspaces => "All agents",
     }
 }
 
@@ -140,9 +140,9 @@ pub(crate) fn agent_panel_entries(app: &AppState) -> Vec<AgentPanelEntry> {
                 .collect()
         }
         AgentPanelScope::AllWorkspaces => app
-            .visible_workspace_indices()
-            .into_iter()
-            .filter_map(|ws_idx| app.workspaces.get(ws_idx).map(|ws| (ws_idx, ws)))
+            .workspaces
+            .iter()
+            .enumerate()
             .flat_map(|(ws_idx, ws)| {
                 let multi_tab = ws.tabs.len() > 1;
                 let workspace_label = ws.display_name();
@@ -1152,14 +1152,14 @@ mod tests {
     use crate::{detect::Agent, workspace::Workspace};
 
     #[test]
-    fn agent_panel_toggle_labels_match_visible_space_scope() {
+    fn agent_panel_toggle_labels_match_control_center_scope() {
         assert_eq!(
             agent_panel_toggle_label(AgentPanelScope::CurrentWorkspace),
-            "space"
+            "This space"
         );
         assert_eq!(
             agent_panel_toggle_label(AgentPanelScope::AllWorkspaces),
-            "visible"
+            "All agents"
         );
     }
 
@@ -1195,6 +1195,43 @@ mod tests {
         assert_eq!(entries[1].primary_label, "two");
         assert_eq!(entries[1].primary_tab_label.as_deref(), Some("logs"));
         assert_eq!(entries[1].agent_label.as_deref(), Some("claude"));
+    }
+
+    #[test]
+    fn all_workspaces_agent_panel_entries_include_hidden_groups() {
+        let mut app = crate::app::state::AppState::test_new();
+        let hidden_group = app.create_group("Work".to_string());
+
+        let mut first = Workspace::test_new("one");
+        let first_pane = first.tabs[0].root_pane;
+        first.tabs[0]
+            .panes
+            .get_mut(&first_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Pi);
+
+        let mut second = Workspace::test_new("two");
+        second.group_id = app.groups[hidden_group].id.clone();
+        let second_pane = second.tabs[0].root_pane;
+        second.tabs[0]
+            .panes
+            .get_mut(&second_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Claude);
+
+        app.workspaces = vec![first, second];
+        app.active = Some(0);
+        app.selected = 0;
+        app.active_group = 0;
+        app.group_filter_enabled = true;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        assert_eq!(app.visible_workspace_indices(), vec![0]);
+        let entries = agent_panel_entries(&app);
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].primary_label, "one");
+        assert_eq!(entries[1].primary_label, "two");
     }
 
     #[test]
