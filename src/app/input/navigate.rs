@@ -141,7 +141,7 @@ impl App {
         true
     }
 
-    fn launch_custom_command(&mut self, binding: crate::config::CustomCommandKeybind) {
+    pub(super) fn launch_custom_command(&mut self, binding: crate::config::CustomCommandKeybind) {
         let previous_toast = self.state.toast.clone();
         let result = match binding.action {
             crate::config::CustomCommandAction::Shell => self.spawn_custom_command(&binding),
@@ -420,6 +420,7 @@ pub(crate) enum NavigateAction {
     EnterResizeMode,
     ToggleSidebar,
     ToggleRightSidebar,
+    OpenCommandPalette,
     ReloadConfig,
     OpenNotificationTarget,
     Detach,
@@ -565,6 +566,9 @@ fn navigate_action_for_key(state: &AppState, key: &KeyEvent) -> Option<NavigateA
     {
         return Some(NavigateAction::ToggleRightSidebar);
     }
+    if key_matches(key, kb.command_palette.0, kb.command_palette.1) {
+        return Some(NavigateAction::OpenCommandPalette);
+    }
     if kb
         .reload_config
         .is_some_and(|(code, mods)| key_matches(key, code, mods))
@@ -700,6 +704,7 @@ pub(super) fn execute_navigate_action(state: &mut AppState, action: NavigateActi
             }
             leave_navigate_mode(state);
         }
+        NavigateAction::OpenCommandPalette => super::command_palette::open_command_palette(state),
         NavigateAction::ReloadConfig => {
             state.request_reload_config = true;
             leave_navigate_mode(state);
@@ -1175,6 +1180,17 @@ mod tests {
         );
 
         assert_eq!(state.mode, Mode::KeybindHelp);
+    }
+
+    #[test]
+    fn command_palette_key_opens_command_palette_from_navigate() {
+        let mut state = state_with_workspaces(&["test"]);
+        let key = state.keybinds.command_palette;
+
+        handle_navigate_key(&mut state, KeyEvent::new(key.0, key.1));
+
+        assert_eq!(state.mode, Mode::CommandPalette);
+        assert!(state.command_palette.query.is_empty());
     }
 
     #[test]

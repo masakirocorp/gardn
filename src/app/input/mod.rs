@@ -22,6 +22,7 @@ enum WheelRouting {
 const WORKSPACE_DRAG_THRESHOLD: u16 = 1;
 const TAB_DRAG_THRESHOLD: u16 = 1;
 
+mod command_palette;
 mod modal;
 mod mouse;
 mod navigate;
@@ -80,6 +81,7 @@ impl App {
                     Mode::GroupMenu => handle_group_menu_key(&mut self.state, key),
                     Mode::AgentMenu => handle_agent_menu_key(&mut self.state, key),
                     Mode::KeybindHelp => handle_keybind_help_key(&mut self.state, key),
+                    Mode::CommandPalette => self.handle_command_palette_key(key),
                     Mode::Terminal => unreachable!(),
                 }
             }

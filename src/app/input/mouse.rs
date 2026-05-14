@@ -206,6 +206,10 @@ impl AppState {
             return None;
         }
 
+        if self.mode == Mode::CommandPalette {
+            return None;
+        }
+
         if self.view.layout == ViewLayout::Mobile && self.handle_mobile_mouse(mouse) {
             return None;
         }

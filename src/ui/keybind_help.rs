@@ -36,6 +36,7 @@ pub(super) fn keybind_help_groups(
                 optional_keybind_label(&kb.reload_config_label),
                 "reload config",
             ),
+            (kb.command_palette_label.clone(), "command palette"),
         ],
     ));
 

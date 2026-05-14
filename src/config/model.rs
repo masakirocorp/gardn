@@ -83,6 +83,8 @@ pub struct KeysConfig {
     pub reload_config: String,
     /// Focus the currently visible notification target. Unset by default.
     pub open_notification_target: String,
+    /// Open the command palette. Default: "p"
+    pub command_palette: String,
     /// Select the previous workspace. Unset by default.
     pub previous_workspace: String,
     /// Select the next workspace. Unset by default.
@@ -188,6 +190,7 @@ impl Default for KeysConfig {
             detach: "".into(),
             reload_config: "".into(),
             open_notification_target: "".into(),
+            command_palette: "p".into(),
             previous_workspace: "".into(),
             next_workspace: "".into(),
             open_group_menu: "".into(),

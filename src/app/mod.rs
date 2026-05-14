@@ -7,6 +7,7 @@
 pub(crate) mod actions;
 mod api;
 mod api_helpers;
+pub(crate) mod command_palette;
 mod config_io;
 mod creation;
 mod ids;
@@ -392,6 +393,11 @@ impl App {
                 preview: notes.preview,
             }),
             keybind_help: state::KeybindHelpState { scroll: 0 },
+            command_palette: state::CommandPaletteState {
+                query: String::new(),
+                selected: 0,
+                scroll: 0,
+            },
             workspace_scroll: 0,
             agent_panel_scroll: 0,
             tab_scroll: 0,
@@ -1002,6 +1008,9 @@ impl App {
             }
             Mode::KeybindHelp => {
                 input::handle_keybind_help_key(&mut self.state, key_event);
+            }
+            Mode::CommandPalette => {
+                self.handle_command_palette_key(key_event);
             }
             Mode::GlobalMenu => {
                 input::handle_global_menu_key(&mut self.state, key_event);

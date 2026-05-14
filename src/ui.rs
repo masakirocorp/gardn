@@ -5,6 +5,7 @@ use ratatui::{
     Frame,
 };
 
+mod command_palette;
 mod dialogs;
 mod keybind_help;
 mod menus;
@@ -19,6 +20,7 @@ mod status;
 mod tabs;
 mod widgets;
 
+use self::command_palette::render_command_palette_overlay;
 use self::dialogs::{
     render_confirm_close_overlay, render_confirm_delete_group_overlay, render_rename_overlay,
 };
@@ -399,6 +401,7 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         Mode::GroupMenu => render_group_menu(app, frame),
         Mode::AgentMenu => render_agent_menu(app, frame),
         Mode::KeybindHelp => render_keybind_help_overlay(app, frame),
+        Mode::CommandPalette => render_command_palette_overlay(app, frame),
         Mode::Terminal => {}
     }
 
@@ -1169,6 +1172,12 @@ mod tests {
         let app = crate::app::state::AppState::test_new();
         let groups = keybind_help_groups(&app);
 
+        let global = groups
+            .iter()
+            .find(|(name, _)| *name == "global")
+            .expect("global group")
+            .1
+            .clone();
         let workspace_tab = groups
             .iter()
             .find(|(name, _)| *name == "spaces / tabs")
@@ -1188,6 +1197,7 @@ mod tests {
             .1
             .clone();
 
+        assert!(global.contains(&("p".to_string(), "command palette")));
         assert!(workspace_tab.contains(&("unset".to_string(), "previous space")));
         assert!(workspace_tab.contains(&("unset".to_string(), "next space")));
         assert!(workspace_tab.contains(&("unset".to_string(), "rename tab")));

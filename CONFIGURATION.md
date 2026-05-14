@@ -97,6 +97,7 @@ rename_workspace = "shift+n"
 close_workspace = "X"
 reload_config = ""      # optional, unset by default
 open_notification_target = "" # optional, unset by default
+command_palette = "p"
 new_tab = "c"
 split_vertical = "d"
 split_horizontal = "D"
@@ -137,6 +138,7 @@ toggle_right_sidebar = ""
 | `detach` | unset | optional explicit detach shortcut in the persistent session |
 | `reload_config` | unset | reload `config.toml` in the running app/server |
 | `open_notification_target` | unset | jump to the currently visible notification target |
+| `command_palette` | `p` | open the command palette |
 | `previous_workspace` | unset | switch to the previous space directly from terminal mode |
 | `next_workspace` | unset | switch to the next space directly from terminal mode |
 | `open_group_menu` | unset | open the group switcher menu |

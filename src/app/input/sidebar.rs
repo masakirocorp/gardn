@@ -413,6 +413,7 @@ impl AppState {
                 | Mode::GroupMenu
                 | Mode::AgentMenu
                 | Mode::KeybindHelp
+                | Mode::CommandPalette
         ) {
             Some(self.selected)
         } else {
@@ -643,6 +644,7 @@ impl AppState {
                 | Mode::GlobalMenu
                 | Mode::GroupMenu
                 | Mode::KeybindHelp
+                | Mode::CommandPalette
         ) {
             Some(self.selected)
         } else {

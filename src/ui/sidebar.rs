@@ -88,6 +88,7 @@ fn agent_panel_current_workspace_idx(app: &AppState) -> Option<usize> {
             | Mode::GroupMenu
             | Mode::AgentMenu
             | Mode::KeybindHelp
+            | Mode::CommandPalette
     ) {
         Some(app.selected)
     } else {

@@ -69,6 +69,8 @@ pub struct Keybinds {
     pub reload_config_label: Option<String>,
     pub open_notification_target: Option<(KeyCode, KeyModifiers)>,
     pub open_notification_target_label: Option<String>,
+    pub command_palette: (KeyCode, KeyModifiers),
+    pub command_palette_label: String,
     pub previous_workspace: Option<(KeyCode, KeyModifiers)>,
     pub previous_workspace_label: Option<String>,
     pub next_workspace: Option<(KeyCode, KeyModifiers)>,
@@ -352,6 +354,14 @@ impl Config {
                 &self.keys.toggle_sidebar,
                 "b",
                 (KeyCode::Char('b'), KeyModifiers::empty()),
+                &mut diagnostics,
+            ),
+            required_binding(
+                BindingScope::Navigate,
+                "keys.command_palette",
+                &self.keys.command_palette,
+                "p",
+                (KeyCode::Char('p'), KeyModifiers::empty()),
                 &mut diagnostics,
             ),
         ];
@@ -694,6 +704,8 @@ impl Config {
             reload_config_label: optional_bindings[1].label.clone(),
             open_notification_target: optional_bindings[2].value,
             open_notification_target_label: optional_bindings[2].label.clone(),
+            command_palette: bindings[10].value,
+            command_palette_label: bindings[10].label.clone(),
             previous_workspace: optional_bindings[3].value,
             previous_workspace_label: optional_bindings[3].label.clone(),
             next_workspace: optional_bindings[4].value,
@@ -973,6 +985,7 @@ mod tests {
             (KeyCode::Char('d'), KeyModifiers::SHIFT)
         );
         assert_eq!(kb.detach, None);
+        assert_eq!(kb.command_palette.0, KeyCode::Char('p'));
         assert_eq!(kb.open_group_menu, None);
         assert_eq!(kb.new_group, None);
         assert_eq!(kb.rename_group, None);
@@ -1007,6 +1020,7 @@ close_pane = "ctrl+w"
 fullscreen = "z"
 resize_mode = "ctrl+r"
 toggle_sidebar = "tab"
+command_palette = "p"
 previous_agent = "alt+a"
 next_agent = "alt+d"
 open_group_menu = "ctrl+g"
@@ -1048,6 +1062,10 @@ focus_pane_right = "alt+right"
         assert_eq!(kb.fullscreen.0, KeyCode::Char('z'));
         assert_eq!(kb.resize_mode, (KeyCode::Char('r'), KeyModifiers::CONTROL));
         assert_eq!(kb.toggle_sidebar, (KeyCode::Tab, KeyModifiers::empty()));
+        assert_eq!(
+            kb.command_palette,
+            (KeyCode::Char('p'), KeyModifiers::empty())
+        );
         assert_eq!(
             kb.previous_agent,
             Some((KeyCode::Char('a'), KeyModifiers::ALT))

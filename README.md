@@ -205,6 +205,7 @@ press `ctrl+b` to enter navigate mode.
 | `b` | toggle sidebar |
 | `f` | fullscreen pane |
 | `r` | resize mode |
+| `p` | command palette |
 | `q` | detach (quit client) |
 
 resize mode: `h`/`l` resize width, `j`/`k` resize height, `esc` exit.
