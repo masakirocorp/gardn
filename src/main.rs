@@ -95,9 +95,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # next_group = ""         # optional, unset by default
 # previous_agent = ""     # optional, unset by default
 # next_agent = ""         # optional, unset by default
+# open_agent_menu = ""    # optional, unset by default
 # detach = ""             # optional explicit detach shortcut in server/client mode
 # reload_config = ""      # optional shortcut to reload config.toml without restarting
 # open_notification_target = "" # optional shortcut to jump to the visible notification target
+# command_palette = "p"
 # new_tab = "c"
 # rename_tab = ""         # optional, unset by default
 # previous_tab = ""       # optional, unset by default
@@ -114,6 +116,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # fullscreen = "f"
 # resize_mode = "r"
 # toggle_sidebar = "b"
+# toggle_right_sidebar = "" # optional, unset by default
 
 # custom prefix-mode commands. press prefix, then the configured key.
 # type = "shell" runs detached in the background.

@@ -69,6 +69,8 @@ pub struct Keybinds {
     pub reload_config_label: Option<String>,
     pub open_notification_target: Option<(KeyCode, KeyModifiers)>,
     pub open_notification_target_label: Option<String>,
+    pub command_palette: (KeyCode, KeyModifiers),
+    pub command_palette_label: String,
     pub previous_workspace: Option<(KeyCode, KeyModifiers)>,
     pub previous_workspace_label: Option<String>,
     pub next_workspace: Option<(KeyCode, KeyModifiers)>,
@@ -91,6 +93,8 @@ pub struct Keybinds {
     pub previous_agent_label: Option<String>,
     pub next_agent: Option<(KeyCode, KeyModifiers)>,
     pub next_agent_label: Option<String>,
+    pub open_agent_menu: Option<(KeyCode, KeyModifiers)>,
+    pub open_agent_menu_label: Option<String>,
     pub new_tab: (KeyCode, KeyModifiers),
     pub new_tab_label: String,
     pub rename_tab: Option<(KeyCode, KeyModifiers)>,
@@ -123,6 +127,8 @@ pub struct Keybinds {
     pub resize_mode_label: String,
     pub toggle_sidebar: (KeyCode, KeyModifiers),
     pub toggle_sidebar_label: String,
+    pub toggle_right_sidebar: Option<(KeyCode, KeyModifiers)>,
+    pub toggle_right_sidebar_label: Option<String>,
     pub custom_commands: Vec<CustomCommandKeybind>,
 }
 
@@ -350,6 +356,14 @@ impl Config {
                 (KeyCode::Char('b'), KeyModifiers::empty()),
                 &mut diagnostics,
             ),
+            required_binding(
+                BindingScope::Navigate,
+                "keys.command_palette",
+                &self.keys.command_palette,
+                "p",
+                (KeyCode::Char('p'), KeyModifiers::empty()),
+                &mut diagnostics,
+            ),
         ];
 
         let mut optional_bindings = vec![
@@ -439,6 +453,12 @@ impl Config {
             ),
             optional_binding(
                 BindingScope::Navigate,
+                "keys.open_agent_menu",
+                &self.keys.open_agent_menu,
+                &mut diagnostics,
+            ),
+            optional_binding(
+                BindingScope::Navigate,
                 "keys.rename_tab",
                 &self.keys.rename_tab,
                 &mut diagnostics,
@@ -489,6 +509,12 @@ impl Config {
                 BindingScope::TerminalDirect,
                 "keys.focus_pane_right",
                 &self.keys.focus_pane_right,
+                &mut diagnostics,
+            ),
+            optional_binding(
+                BindingScope::Navigate,
+                "keys.toggle_right_sidebar",
+                &self.keys.toggle_right_sidebar,
                 &mut diagnostics,
             ),
         ];
@@ -678,6 +704,8 @@ impl Config {
             reload_config_label: optional_bindings[1].label.clone(),
             open_notification_target: optional_bindings[2].value,
             open_notification_target_label: optional_bindings[2].label.clone(),
+            command_palette: bindings[10].value,
+            command_palette_label: bindings[10].label.clone(),
             previous_workspace: optional_bindings[3].value,
             previous_workspace_label: optional_bindings[3].label.clone(),
             next_workspace: optional_bindings[4].value,
@@ -700,26 +728,28 @@ impl Config {
             previous_agent_label: optional_bindings[12].label.clone(),
             next_agent: optional_bindings[13].value,
             next_agent_label: optional_bindings[13].label.clone(),
+            open_agent_menu: optional_bindings[14].value,
+            open_agent_menu_label: optional_bindings[14].label.clone(),
             new_tab: bindings[3].value,
             new_tab_label: bindings[3].label.clone(),
-            rename_tab: optional_bindings[14].value,
-            rename_tab_label: optional_bindings[14].label.clone(),
-            previous_tab: optional_bindings[15].value,
-            previous_tab_label: optional_bindings[15].label.clone(),
-            next_tab: optional_bindings[16].value,
-            next_tab_label: optional_bindings[16].label.clone(),
-            close_tab: optional_bindings[17].value,
-            close_tab_label: optional_bindings[17].label.clone(),
-            rename_pane: optional_bindings[18].value,
-            rename_pane_label: optional_bindings[18].label.clone(),
-            focus_pane_left: optional_bindings[19].value,
-            focus_pane_left_label: optional_bindings[19].label.clone(),
-            focus_pane_down: optional_bindings[20].value,
-            focus_pane_down_label: optional_bindings[20].label.clone(),
-            focus_pane_up: optional_bindings[21].value,
-            focus_pane_up_label: optional_bindings[21].label.clone(),
-            focus_pane_right: optional_bindings[22].value,
-            focus_pane_right_label: optional_bindings[22].label.clone(),
+            rename_tab: optional_bindings[15].value,
+            rename_tab_label: optional_bindings[15].label.clone(),
+            previous_tab: optional_bindings[16].value,
+            previous_tab_label: optional_bindings[16].label.clone(),
+            next_tab: optional_bindings[17].value,
+            next_tab_label: optional_bindings[17].label.clone(),
+            close_tab: optional_bindings[18].value,
+            close_tab_label: optional_bindings[18].label.clone(),
+            rename_pane: optional_bindings[19].value,
+            rename_pane_label: optional_bindings[19].label.clone(),
+            focus_pane_left: optional_bindings[20].value,
+            focus_pane_left_label: optional_bindings[20].label.clone(),
+            focus_pane_down: optional_bindings[21].value,
+            focus_pane_down_label: optional_bindings[21].label.clone(),
+            focus_pane_up: optional_bindings[22].value,
+            focus_pane_up_label: optional_bindings[22].label.clone(),
+            focus_pane_right: optional_bindings[23].value,
+            focus_pane_right_label: optional_bindings[23].label.clone(),
             split_vertical: bindings[4].value,
             split_vertical_label: bindings[4].label.clone(),
             split_horizontal: bindings[5].value,
@@ -732,6 +762,8 @@ impl Config {
             resize_mode_label: bindings[8].label.clone(),
             toggle_sidebar: bindings[9].value,
             toggle_sidebar_label: bindings[9].label.clone(),
+            toggle_right_sidebar: optional_bindings[24].value,
+            toggle_right_sidebar_label: optional_bindings[24].label.clone(),
             custom_commands,
         };
 
@@ -953,6 +985,7 @@ mod tests {
             (KeyCode::Char('d'), KeyModifiers::SHIFT)
         );
         assert_eq!(kb.detach, None);
+        assert_eq!(kb.command_palette.0, KeyCode::Char('p'));
         assert_eq!(kb.open_group_menu, None);
         assert_eq!(kb.new_group, None);
         assert_eq!(kb.rename_group, None);
@@ -962,12 +995,14 @@ mod tests {
         assert_eq!(kb.next_group, None);
         assert_eq!(kb.previous_agent, None);
         assert_eq!(kb.next_agent, None);
+        assert_eq!(kb.open_agent_menu, None);
         assert_eq!(kb.split_vertical.0, KeyCode::Char('v'));
         assert_eq!(kb.split_horizontal.0, KeyCode::Char('-'));
         assert_eq!(kb.close_pane.0, KeyCode::Char('x'));
         assert_eq!(kb.fullscreen.0, KeyCode::Char('f'));
         assert_eq!(kb.resize_mode.0, KeyCode::Char('r'));
         assert_eq!(kb.toggle_sidebar.0, KeyCode::Char('b'));
+        assert_eq!(kb.toggle_right_sidebar, None);
         assert!(kb.custom_commands.is_empty());
     }
 
@@ -985,6 +1020,7 @@ close_pane = "ctrl+w"
 fullscreen = "z"
 resize_mode = "ctrl+r"
 toggle_sidebar = "tab"
+command_palette = "p"
 previous_agent = "alt+a"
 next_agent = "alt+d"
 open_group_menu = "ctrl+g"
@@ -994,6 +1030,8 @@ delete_group = "ctrl+shift+g"
 toggle_group_filter = "f6"
 previous_group = "ctrl+["
 next_group = "ctrl+]"
+open_agent_menu = "alt+m"
+toggle_right_sidebar = "alt+b"
 focus_pane_left = "alt+h"
 focus_pane_right = "alt+right"
 "#;
@@ -1024,6 +1062,10 @@ focus_pane_right = "alt+right"
         assert_eq!(kb.fullscreen.0, KeyCode::Char('z'));
         assert_eq!(kb.resize_mode, (KeyCode::Char('r'), KeyModifiers::CONTROL));
         assert_eq!(kb.toggle_sidebar, (KeyCode::Tab, KeyModifiers::empty()));
+        assert_eq!(
+            kb.command_palette,
+            (KeyCode::Char('p'), KeyModifiers::empty())
+        );
         assert_eq!(
             kb.previous_agent,
             Some((KeyCode::Char('a'), KeyModifiers::ALT))
@@ -1056,6 +1098,14 @@ focus_pane_right = "alt+right"
         assert_eq!(
             kb.next_group,
             Some((KeyCode::Char(']'), KeyModifiers::CONTROL))
+        );
+        assert_eq!(
+            kb.open_agent_menu,
+            Some((KeyCode::Char('m'), KeyModifiers::ALT))
+        );
+        assert_eq!(
+            kb.toggle_right_sidebar,
+            Some((KeyCode::Char('b'), KeyModifiers::ALT))
         );
         assert_eq!(
             kb.focus_pane_left,

@@ -150,14 +150,18 @@ pub(super) fn render_scrollbar(
 
     let buf = frame.buffer_mut();
     for y in track.y..track.y + track.height {
-        let cell = &mut buf[(track.x, y)];
-        cell.set_symbol("▕");
-        cell.set_style(Style::default().fg(track_color));
+        for x in track.x..track.x + track.width {
+            let cell = &mut buf[(x, y)];
+            cell.set_symbol("▕");
+            cell.set_style(Style::default().fg(track_color));
+        }
     }
     for y in thumb.top..thumb.top + thumb.len {
-        let cell = &mut buf[(track.x, y)];
-        cell.set_symbol(thumb_symbol);
-        cell.set_style(Style::default().fg(thumb_color));
+        for x in track.x..track.x + track.width {
+            let cell = &mut buf[(x, y)];
+            cell.set_symbol(thumb_symbol);
+            cell.set_style(Style::default().fg(thumb_color));
+        }
     }
 }
 

@@ -668,6 +668,7 @@ pub enum Mode {
     GroupMenu,
     AgentMenu,
     KeybindHelp,
+    CommandPalette,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -827,6 +828,9 @@ pub(crate) enum DragTarget {
     KeybindHelpScrollbar {
         grab_row_offset: u16,
     },
+    CommandPaletteScrollbar {
+        grab_row_offset: u16,
+    },
     SidebarDivider,
     RightSidebarDivider,
     SidebarSectionDivider,
@@ -945,6 +949,19 @@ pub struct KeybindHelpState {
     pub scroll: u16,
 }
 
+pub struct CommandPaletteState {
+    pub query: String,
+    pub selected: usize,
+    pub scroll: usize,
+    pub wheel_gate: Option<CommandPaletteWheelGate>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommandPaletteWheelGate {
+    pub down: bool,
+    pub remaining_events: u8,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarWidthSource {
     ConfigDefault,
@@ -990,6 +1007,7 @@ pub struct AppState {
     pub name_input_replace_on_type: bool,
     pub release_notes: Option<ReleaseNotesState>,
     pub keybind_help: KeybindHelpState,
+    pub command_palette: CommandPaletteState,
     pub workspace_scroll: usize,
     pub agent_panel_scroll: usize,
     pub tab_scroll: usize,
@@ -1286,6 +1304,12 @@ impl AppState {
             name_input_replace_on_type: false,
             release_notes: None,
             keybind_help: KeybindHelpState { scroll: 0 },
+            command_palette: CommandPaletteState {
+                query: String::new(),
+                selected: 0,
+                scroll: 0,
+                wheel_gate: None,
+            },
             workspace_scroll: 0,
             agent_panel_scroll: 0,
             tab_scroll: 0,
@@ -1355,6 +1379,8 @@ impl AppState {
                 reload_config_label: None,
                 open_notification_target: None,
                 open_notification_target_label: None,
+                command_palette: (KeyCode::Char('p'), KeyModifiers::empty()),
+                command_palette_label: "p".into(),
                 previous_workspace: None,
                 previous_workspace_label: None,
                 next_workspace: None,
@@ -1377,6 +1403,8 @@ impl AppState {
                 previous_agent_label: None,
                 next_agent: None,
                 next_agent_label: None,
+                open_agent_menu: None,
+                open_agent_menu_label: None,
                 new_tab: (KeyCode::Char('c'), KeyModifiers::empty()),
                 new_tab_label: "c".into(),
                 rename_tab: None,
@@ -1409,6 +1437,8 @@ impl AppState {
                 resize_mode_label: "r".into(),
                 toggle_sidebar: (KeyCode::Char('b'), KeyModifiers::empty()),
                 toggle_sidebar_label: "b".into(),
+                toggle_right_sidebar: None,
+                toggle_right_sidebar_label: None,
                 custom_commands: Vec::new(),
             },
             spinner_tick: 0,

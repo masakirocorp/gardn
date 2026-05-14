@@ -97,6 +97,7 @@ rename_workspace = "shift+n"
 close_workspace = "X"
 reload_config = ""      # optional, unset by default
 open_notification_target = "" # optional, unset by default
+command_palette = "p"
 new_tab = "c"
 split_vertical = "d"
 split_horizontal = "D"
@@ -116,12 +117,14 @@ previous_group = ""
 next_group = ""
 previous_agent = "ctrl+["
 next_agent = "ctrl+]"
+open_agent_menu = ""
 previous_tab = "alt+["
 next_tab = "alt+]"
 focus_pane_left = "alt+h"
 focus_pane_down = "alt+j"
 focus_pane_up = "alt+k"
 focus_pane_right = "alt+l"
+toggle_right_sidebar = ""
 ```
 
 ### key reference
@@ -129,14 +132,15 @@ focus_pane_right = "alt+l"
 | key | default | action |
 |-----|---------|--------|
 | `prefix` | `ctrl+b` | enter or leave navigate mode |
-| `new_workspace` | `n` | create a new workspace |
-| `rename_workspace` | `shift+n` | rename selected workspace |
-| `close_workspace` | `shift+d` | close selected workspace |
+| `new_workspace` | `n` | create a new space |
+| `rename_workspace` | `shift+n` | rename selected space |
+| `close_workspace` | `shift+d` | close selected space |
 | `detach` | unset | optional explicit detach shortcut in the persistent session |
 | `reload_config` | unset | reload `config.toml` in the running app/server |
 | `open_notification_target` | unset | jump to the currently visible notification target |
-| `previous_workspace` | unset | switch to the previous workspace directly from terminal mode |
-| `next_workspace` | unset | switch to the next workspace directly from terminal mode |
+| `command_palette` | `p` | open the command palette |
+| `previous_workspace` | unset | switch to the previous space directly from terminal mode |
+| `next_workspace` | unset | switch to the next space directly from terminal mode |
 | `open_group_menu` | unset | open the group switcher menu |
 | `new_group` | unset | create a new group |
 | `rename_group` | unset | rename the active group |
@@ -146,6 +150,7 @@ focus_pane_right = "alt+l"
 | `next_group` | unset | switch to the next group directly from terminal mode |
 | `previous_agent` | unset | focus the previous agent shown in the sidebar agent list |
 | `next_agent` | unset | focus the next agent shown in the sidebar agent list |
+| `open_agent_menu` | unset | open the agent scope menu |
 | `new_tab` | `c` | create a new tab |
 | `rename_tab` | unset | rename the active tab |
 | `previous_tab` | unset | switch to the previous tab directly from terminal mode |
@@ -162,6 +167,7 @@ focus_pane_right = "alt+l"
 | `fullscreen` | `f` | toggle focused pane fullscreen |
 | `resize_mode` | `r` | enter or leave resize mode |
 | `toggle_sidebar` | `b` | collapse or expand the sidebar |
+| `toggle_right_sidebar` | unset | collapse or expand the right sidebar |
 
 ### custom command keybindings
 

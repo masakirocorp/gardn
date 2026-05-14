@@ -22,6 +22,7 @@ enum WheelRouting {
 const WORKSPACE_DRAG_THRESHOLD: u16 = 1;
 const TAB_DRAG_THRESHOLD: u16 = 1;
 
+mod command_palette;
 mod modal;
 mod mouse;
 mod navigate;
@@ -46,7 +47,7 @@ use self::{
     },
     settings::SettingsAction,
 };
-use super::state::{AppState, Mode};
+use super::state::{AppState, DragState, DragTarget, Mode};
 use super::App;
 
 // ---------------------------------------------------------------------------
@@ -80,6 +81,7 @@ impl App {
                     Mode::GroupMenu => handle_group_menu_key(&mut self.state, key),
                     Mode::AgentMenu => handle_agent_menu_key(&mut self.state, key),
                     Mode::KeybindHelp => handle_keybind_help_key(&mut self.state, key),
+                    Mode::CommandPalette => self.handle_command_palette_key(key),
                     Mode::Terminal => unreachable!(),
                 }
             }
@@ -142,6 +144,90 @@ impl App {
     pub(super) fn handle_mouse(&mut self, mouse: MouseEvent) {
         if self.handle_overlay_mouse(mouse) {
             return;
+        }
+
+        if self.state.mode == Mode::CommandPalette {
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left) => {
+                    if let Some(target) = command_palette::command_palette_scrollbar_target_at(
+                        &self.state,
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        match target {
+                            ScrollbarClickTarget::Thumb { grab_row_offset } => {
+                                self.state.drag = Some(DragState {
+                                    target: DragTarget::CommandPaletteScrollbar { grab_row_offset },
+                                });
+                            }
+                            ScrollbarClickTarget::Track { offset_from_bottom } => {
+                                command_palette::set_command_palette_offset_from_bottom(
+                                    &mut self.state,
+                                    offset_from_bottom,
+                                );
+                            }
+                        }
+                        return;
+                    }
+
+                    if command_palette::command_palette_contains_point(
+                        &self.state,
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        command_palette::hover_command_palette_selection(
+                            &mut self.state,
+                            mouse.column,
+                            mouse.row,
+                        );
+                    } else {
+                        self.state.drag = None;
+                        command_palette::close_command_palette(&mut self.state);
+                    }
+                    return;
+                }
+                MouseEventKind::Drag(MouseButton::Left) => {
+                    if let Some(DragState {
+                        target: DragTarget::CommandPaletteScrollbar { grab_row_offset },
+                    }) = &self.state.drag
+                    {
+                        if let Some(offset_from_bottom) =
+                            command_palette::command_palette_offset_for_drag_row(
+                                &self.state,
+                                mouse.row,
+                                *grab_row_offset,
+                            )
+                        {
+                            command_palette::set_command_palette_offset_from_bottom(
+                                &mut self.state,
+                                offset_from_bottom,
+                            );
+                        }
+                    }
+                    return;
+                }
+                MouseEventKind::Up(MouseButton::Left) => {
+                    self.state.drag = None;
+                    return;
+                }
+                MouseEventKind::ScrollDown => {
+                    command_palette::scroll_command_palette_selection(&mut self.state, true);
+                    return;
+                }
+                MouseEventKind::ScrollUp => {
+                    command_palette::scroll_command_palette_selection(&mut self.state, false);
+                    return;
+                }
+                MouseEventKind::Moved => {
+                    command_palette::hover_command_palette_selection(
+                        &mut self.state,
+                        mouse.column,
+                        mouse.row,
+                    );
+                    return;
+                }
+                _ => {}
+            }
         }
 
         if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))

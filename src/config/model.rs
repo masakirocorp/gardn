@@ -83,6 +83,8 @@ pub struct KeysConfig {
     pub reload_config: String,
     /// Focus the currently visible notification target. Unset by default.
     pub open_notification_target: String,
+    /// Open the command palette. Default: "p"
+    pub command_palette: String,
     /// Select the previous workspace. Unset by default.
     pub previous_workspace: String,
     /// Select the next workspace. Unset by default.
@@ -105,6 +107,8 @@ pub struct KeysConfig {
     pub previous_agent: String,
     /// Focus the next agent shown in the agent panel. Unset by default.
     pub next_agent: String,
+    /// Open the agent scope menu. Unset by default.
+    pub open_agent_menu: String,
     /// Create a new tab in the active workspace. Default: "c"
     pub new_tab: String,
     /// Rename the active tab. Unset by default.
@@ -137,6 +141,8 @@ pub struct KeysConfig {
     pub resize_mode: String,
     /// Toggle sidebar collapse. Default: "b"
     pub toggle_sidebar: String,
+    /// Toggle right sidebar collapse. Unset by default.
+    pub toggle_right_sidebar: String,
     /// Prefix-mode custom command bindings.
     pub command: Vec<CommandKeybindConfig>,
 }
@@ -184,6 +190,7 @@ impl Default for KeysConfig {
             detach: "".into(),
             reload_config: "".into(),
             open_notification_target: "".into(),
+            command_palette: "p".into(),
             previous_workspace: "".into(),
             next_workspace: "".into(),
             open_group_menu: "".into(),
@@ -195,6 +202,7 @@ impl Default for KeysConfig {
             next_group: "".into(),
             previous_agent: "".into(),
             next_agent: "".into(),
+            open_agent_menu: "".into(),
             new_tab: "c".into(),
             rename_tab: "".into(),
             previous_tab: "".into(),
@@ -211,6 +219,7 @@ impl Default for KeysConfig {
             fullscreen: "f".into(),
             resize_mode: "r".into(),
             toggle_sidebar: "b".into(),
+            toggle_right_sidebar: "".into(),
             command: Vec::new(),
         }
     }

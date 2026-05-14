@@ -206,6 +206,10 @@ impl AppState {
             return None;
         }
 
+        if self.mode == Mode::CommandPalette {
+            return None;
+        }
+
         if self.view.layout == ViewLayout::Mobile && self.handle_mobile_mouse(mouse) {
             return None;
         }
@@ -725,7 +729,8 @@ impl AppState {
                             self.set_sidebar_section_split(mouse.row);
                         }
                         DragTarget::ReleaseNotesScrollbar { .. }
-                        | DragTarget::KeybindHelpScrollbar { .. } => {}
+                        | DragTarget::KeybindHelpScrollbar { .. }
+                        | DragTarget::CommandPaletteScrollbar { .. } => {}
                     }
                 }
             }
@@ -1581,6 +1586,110 @@ mod tests {
         app.handle_mouse(mouse(MouseEventKind::Moved, menu.x + 2, menu.y + 2));
 
         assert_eq!(app.state.context_menu.unwrap().list.highlighted, 1);
+    }
+
+    #[test]
+    fn command_palette_mouse_wheel_divides_raw_events() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::CommandPalette;
+
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
+        assert_eq!(app.state.command_palette.selected, 1);
+
+        for _ in 0..15 {
+            app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
+            assert_eq!(app.state.command_palette.selected, 1);
+        }
+
+        app.handle_mouse(mouse(MouseEventKind::ScrollUp, 40, 8));
+        assert_eq!(app.state.command_palette.selected, 0);
+    }
+
+    #[test]
+    fn command_palette_mouse_wheel_clamps_at_bounds() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::CommandPalette;
+
+        app.handle_mouse(mouse(MouseEventKind::ScrollUp, 40, 8));
+        assert_eq!(app.state.command_palette.selected, 0);
+
+        let count =
+            crate::app::input::command_palette::command_palette_visible_commands(&app.state).len();
+        for _ in 0..(count + 5) * 16 {
+            app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
+        }
+        assert_eq!(app.state.command_palette.selected, count - 1);
+    }
+
+    #[test]
+    fn command_palette_hover_selects_visible_command() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::CommandPalette;
+
+        app.handle_mouse(mouse(MouseEventKind::Moved, 18, 6));
+        assert_eq!(app.state.command_palette.selected, 0);
+
+        app.handle_mouse(mouse(MouseEventKind::Moved, 18, 7));
+        assert_eq!(app.state.command_palette.selected, 1);
+    }
+
+    #[test]
+    fn command_palette_hover_takes_precedence_after_scroll() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::CommandPalette;
+
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
+        assert_eq!(app.state.command_palette.selected, 1);
+        assert!(app.state.command_palette.wheel_gate.is_some());
+
+        app.handle_mouse(mouse(MouseEventKind::Moved, 18, 6));
+        assert_eq!(app.state.command_palette.selected, 0);
+        assert!(app.state.command_palette.wheel_gate.is_none());
+
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
+        assert_eq!(app.state.command_palette.selected, 1);
+    }
+
+    #[test]
+    fn command_palette_hover_does_not_shift_scrolled_page() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::CommandPalette;
+
+        for _ in 0..10 * 16 {
+            app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
+        }
+        assert!(app.state.command_palette.scroll > 0);
+        let scroll = app.state.command_palette.scroll;
+
+        app.handle_mouse(mouse(MouseEventKind::Moved, 18, 6));
+
+        assert_eq!(app.state.command_palette.scroll, scroll);
+        assert_ne!(app.state.command_palette.selected, 10);
+    }
+
+    #[test]
+    fn command_palette_clicking_outside_closes() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::CommandPalette;
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 0, 0));
+
+        assert_eq!(app.state.mode, Mode::Navigate);
+    }
+
+    #[test]
+    fn command_palette_scrollbar_drag_moves_options() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::CommandPalette;
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 89, 5));
+        app.handle_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), 89, 17));
+
+        assert!(app.state.command_palette.scroll > 0);
+        assert!(app.state.command_palette.selected > 0);
+
+        app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 89, 17));
+        assert!(app.state.drag.is_none());
     }
 
     #[test]
