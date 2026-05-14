@@ -611,6 +611,7 @@ pub enum AgentPanelScope {
 /// Which section of the settings panel is focused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsSection {
+    ThemeMode,
     Theme,
     Sound,
     Toast,
@@ -618,10 +619,17 @@ pub enum SettingsSection {
 }
 
 impl SettingsSection {
-    pub const ALL: &[Self] = &[Self::Theme, Self::Sound, Self::Toast, Self::PaneLabels];
+    pub const ALL: &[Self] = &[
+        Self::ThemeMode,
+        Self::Theme,
+        Self::Sound,
+        Self::Toast,
+        Self::PaneLabels,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
+            Self::ThemeMode => "mode",
             Self::Theme => "theme",
             Self::Sound => "sound",
             Self::Toast => "toasts",

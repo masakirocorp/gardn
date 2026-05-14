@@ -73,21 +73,7 @@ fn toast_delivery_for_index(idx: usize) -> ToastDelivery {
 }
 
 fn theme_list_len(state: &AppState) -> usize {
-    if state.settings.group_theme_target.is_some() {
-        THEME_NAMES.len() + 1
-    } else {
-        ThemeMode::ALL.len() + THEME_NAMES.len()
-    }
-}
-
-fn theme_mode_for_index(idx: usize) -> Option<ThemeMode> {
-    ThemeMode::ALL.get(idx).copied()
-}
-
-fn theme_name_for_index(idx: usize) -> Option<String> {
-    THEME_NAMES
-        .get(idx.checked_sub(ThemeMode::ALL.len())?)
-        .map(|name| (*name).to_string())
+    THEME_NAMES.len() + usize::from(state.settings.group_theme_target.is_some())
 }
 
 fn selected_group_theme_name(state: &AppState) -> Option<String> {
@@ -98,13 +84,13 @@ fn selected_group_theme_name(state: &AppState) -> Option<String> {
             Some(THEME_NAMES[state.settings.list.selected - 1].to_string())
         }
     } else {
-        theme_name_for_index(state.settings.list.selected)
+        Some(THEME_NAMES[state.settings.list.selected].to_string())
     }
 }
 
 fn target_theme_index(state: &AppState) -> usize {
     let Some(group_idx) = state.settings.group_theme_target else {
-        return ThemeMode::ALL.len() + current_theme_index(&state.global_theme_name);
+        return current_theme_index(&state.global_theme_name);
     };
     state
         .groups
@@ -114,23 +100,30 @@ fn target_theme_index(state: &AppState) -> usize {
         .unwrap_or(0)
 }
 
+fn current_theme_mode_index(mode: ThemeMode) -> usize {
+    ThemeMode::ALL
+        .iter()
+        .position(|candidate| *candidate == mode)
+        .unwrap_or(0)
+}
+
 fn preview_selected_theme(state: &mut AppState) {
-    if state.settings.group_theme_target.is_some() {
-        if let Some(name) = selected_group_theme_name(state) {
-            state.preview_theme(&name);
-        } else {
-            let theme_name = state.global_theme_name.clone();
-            state.preview_theme(&theme_name);
-        }
-        return;
+    if let Some(name) = selected_group_theme_name(state) {
+        state.settings.pending_theme_name = Some(name.clone());
+        let mode = pending_theme_mode(state);
+        state.preview_theme_with_mode(&name, mode);
+    } else {
+        let theme_name = state.global_theme_name.clone();
+        state.preview_theme(&theme_name);
     }
+}
 
-    if let Some(mode) = theme_mode_for_index(state.settings.list.selected) {
-        state.settings.pending_theme_mode = Some(mode);
-    } else if let Some(name) = theme_name_for_index(state.settings.list.selected) {
-        state.settings.pending_theme_name = Some(name);
-    }
-
+fn preview_selected_theme_mode(state: &mut AppState) {
+    let mode = ThemeMode::ALL
+        .get(state.settings.list.selected)
+        .copied()
+        .unwrap_or(state.global_theme_mode);
+    state.settings.pending_theme_mode = Some(mode);
     let name = state
         .settings
         .pending_theme_name
@@ -182,6 +175,19 @@ fn cancel_settings(state: &mut AppState) {
 
 fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
     match state.settings.section {
+        SettingsSection::ThemeMode => {
+            let theme_name = pending_theme_name(state);
+            let theme_mode = pending_theme_mode(state);
+            state.settings.original_palette = None;
+            state.settings.original_theme = None;
+            state.settings.pending_theme_name = None;
+            state.settings.pending_theme_mode = None;
+            super::modal::leave_modal(state);
+            Some(SettingsAction::SaveTheme {
+                name: theme_name,
+                mode: theme_mode,
+            })
+        }
         SettingsSection::Theme => {
             let theme_name = pending_theme_name(state);
             let theme_mode = pending_theme_mode(state);
@@ -240,6 +246,42 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                     state.settings.section = SettingsSection::Sound;
                     state.settings.list.selected = usize::from(!state.sound_enabled());
                 }
+            }
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                if state.settings.group_theme_target.is_none() {
+                    state.settings.section = SettingsSection::ThemeMode;
+                    state.settings.list.selected =
+                        current_theme_mode_index(pending_theme_mode(state));
+                }
+            }
+            _ => match super::modal::modal_action_from_key(&key, super::modal::SETTINGS_ACTIONS) {
+                Some(super::modal::ModalAction::Apply) => return apply_settings(state),
+                Some(super::modal::ModalAction::Close) => cancel_settings(state),
+                _ => {}
+            },
+        },
+        SettingsSection::ThemeMode => match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                let previous = state.settings.list.selected;
+                state.settings.list.move_prev();
+                if state.settings.list.selected != previous {
+                    preview_selected_theme_mode(state);
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let previous = state.settings.list.selected;
+                state.settings.list.move_next(ThemeMode::ALL.len());
+                if state.settings.list.selected != previous {
+                    preview_selected_theme_mode(state);
+                }
+            }
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                state.settings.section = SettingsSection::Theme;
+                state.settings.list.selected = target_theme_index(state);
+            }
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                state.settings.section = SettingsSection::PaneLabels;
+                state.settings.list.selected = usize::from(!state.agent_border_labels_enabled());
             }
             _ => match super::modal::modal_action_from_key(&key, super::modal::SETTINGS_ACTIONS) {
                 Some(super::modal::ModalAction::Apply) => return apply_settings(state),
@@ -307,8 +349,8 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 state.settings.list.selected = toast_delivery_index(state.toast_delivery());
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
-                state.settings.section = SettingsSection::Theme;
-                state.settings.list.selected = target_theme_index(state);
+                state.settings.section = SettingsSection::ThemeMode;
+                state.settings.list.selected = current_theme_mode_index(pending_theme_mode(state));
             }
             _ => {
                 if let Some(super::modal::ModalAction::Close) =
@@ -331,7 +373,7 @@ pub(crate) fn open_settings(state: &mut AppState) {
     state.settings.group_theme_target = None;
     state.settings.section = SettingsSection::Theme;
     let theme_name = state.global_theme_name.clone();
-    state.settings.list.selected = ThemeMode::ALL.len() + current_theme_index(&theme_name);
+    state.settings.list.selected = current_theme_index(&theme_name);
     state.preview_theme(&theme_name);
     state.mode = Mode::Settings;
 }
@@ -410,6 +452,14 @@ impl AppState {
         }
 
         match self.settings.section {
+            SettingsSection::ThemeMode => {
+                let list_y = area.y + 3;
+                if row >= list_y && row < list_y + ThemeMode::ALL.len() as u16 * 2 {
+                    Some(((row - list_y) / 2) as usize)
+                } else {
+                    None
+                }
+            }
             SettingsSection::Theme => {
                 let max_visible = area.height as usize;
                 let scroll = if self.settings.list.selected >= max_visible {
@@ -453,6 +503,9 @@ impl AppState {
                 if let Some(section) = self.settings_tab_at(mouse.column, mouse.row) {
                     self.settings.section = section;
                     self.settings.list.select(match section {
+                        SettingsSection::ThemeMode => {
+                            current_theme_mode_index(pending_theme_mode(self))
+                        }
                         SettingsSection::Theme => target_theme_index(self),
                         SettingsSection::Sound => usize::from(!self.sound_enabled()),
                         SettingsSection::Toast => toast_delivery_index(self.toast_delivery()),
@@ -465,6 +518,10 @@ impl AppState {
                 if let Some(idx) = self.settings_list_index_at(mouse.column, mouse.row) {
                     self.settings.list.select(idx);
                     return match self.settings.section {
+                        SettingsSection::ThemeMode => {
+                            preview_selected_theme_mode(self);
+                            None
+                        }
                         SettingsSection::Theme => {
                             preview_selected_theme(self);
                             None
@@ -653,17 +710,40 @@ mod tests {
     }
 
     #[test]
-    fn global_theme_settings_apply_returns_theme_family_and_mode() {
+    fn global_theme_settings_apply_returns_theme_family() {
         let mut state = state_with_workspaces(&["test"]);
 
         open_settings(&mut state);
         update_settings_state(
             &mut state,
-            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::SaveTheme {
+                name: "tokyo-night".to_string(),
+                mode: ThemeMode::System,
+            })
+        );
+    }
+
+    #[test]
+    fn global_mode_settings_apply_returns_theme_mode() {
+        let mut state = state_with_workspaces(&["test"]);
+
+        open_settings(&mut state);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Left, KeyModifiers::empty()),
         );
         update_settings_state(
             &mut state,
-            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
         );
         let action = update_settings_state(
             &mut state,

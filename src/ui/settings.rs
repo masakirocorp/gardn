@@ -83,6 +83,25 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         SettingsSection::Theme => {
             render_settings_theme(app, frame, content_area);
         }
+        SettingsSection::ThemeMode => {
+            render_modal_choice_list(
+                frame,
+                content_area,
+                "theme mode",
+                "choose how herdr resolves light and dark palettes",
+                &[
+                    ("system", ThemeMode::System),
+                    ("light", ThemeMode::Light),
+                    ("dark", ThemeMode::Dark),
+                ],
+                app.settings
+                    .pending_theme_mode
+                    .unwrap_or(app.global_theme_mode),
+                app.settings.list.selected,
+                p,
+                2,
+            );
+        }
         SettingsSection::Sound => {
             render_settings_toggle(
                 frame,
@@ -285,31 +304,7 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
         ])));
     }
 
-    if app.settings.group_theme_target.is_none() {
-        let selected_mode = app
-            .settings
-            .pending_theme_mode
-            .unwrap_or(app.global_theme_mode);
-        items.extend(ThemeMode::ALL.iter().enumerate().map(|(idx, mode)| {
-            let marker = if app.settings.list.selected == idx {
-                " ✓"
-            } else if selected_mode == *mode {
-                " ·"
-            } else {
-                ""
-            };
-            ListItem::new(Line::from(vec![
-                Span::styled(mode.as_str(), Style::default().fg(p.subtext0)),
-                Span::styled(marker, Style::default().fg(p.green)),
-            ]))
-        }));
-    }
-
-    let offset = if app.settings.group_theme_target.is_some() {
-        1
-    } else {
-        ThemeMode::ALL.len()
-    };
+    let offset = usize::from(app.settings.group_theme_target.is_some());
     let selected_theme = app
         .settings
         .pending_theme_name
