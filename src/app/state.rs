@@ -882,32 +882,32 @@ impl ContextMenuState {
         match self.kind {
             ContextMenuKind::Group {
                 can_delete: true, ..
-            } => &["Rename", "Theme", "Delete"],
+            } => &["rename", "theme", "delete"],
             ContextMenuKind::Group {
                 can_delete: false, ..
-            } => &["Rename", "Theme"],
-            ContextMenuKind::Workspace { .. } => &["Rename", "Close"],
-            ContextMenuKind::Tab { .. } => &["New tab", "Rename", "Close"],
+            } => &["rename", "theme"],
+            ContextMenuKind::Workspace { .. } => &["rename", "close"],
+            ContextMenuKind::Tab { .. } => &["new tab", "rename", "close"],
             ContextMenuKind::Pane {
                 has_manual_label: true,
                 ..
             } => &[
-                "Rename pane",
-                "Clear pane name",
-                "Split vertical",
-                "Split horizontal",
-                "Fullscreen",
-                "Close pane",
+                "rename pane",
+                "clear pane name",
+                "split vertical",
+                "split horizontal",
+                "fullscreen",
+                "close pane",
             ],
             ContextMenuKind::Pane {
                 has_manual_label: false,
                 ..
             } => &[
-                "Rename pane",
-                "Split vertical",
-                "Split horizontal",
-                "Fullscreen",
-                "Close pane",
+                "rename pane",
+                "split vertical",
+                "split horizontal",
+                "fullscreen",
+                "close pane",
             ],
         }
     }

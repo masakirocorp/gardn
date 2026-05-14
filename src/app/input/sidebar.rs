@@ -934,7 +934,7 @@ mod tests {
 
         assert_eq!(app.state.mode, Mode::ContextMenu);
         let context = app.state.context_menu.as_ref().unwrap();
-        assert_eq!(context.items(), &["Rename", "Theme", "Delete"]);
+        assert_eq!(context.items(), &["rename", "theme", "delete"]);
         assert_eq!(
             context.kind,
             ContextMenuKind::Group {

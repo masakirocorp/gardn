@@ -243,7 +243,7 @@ pub(super) fn render_confirm_close_overlay(app: &AppState, frame: &mut Frame, ar
         .add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(app.palette.overlay0);
 
-    let title_line = Line::from(vec![Span::styled(" Close workspace?", warn)]);
+    let title_line = Line::from(vec![Span::styled(" close workspace?", warn)]);
 
     let detail_line = Line::from(vec![
         Span::styled(
@@ -329,7 +329,7 @@ pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Fr
         .add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(app.palette.overlay0);
 
-    let title_line = Line::from(vec![Span::styled(" Delete group?", warn)]);
+    let title_line = Line::from(vec![Span::styled(" delete group?", warn)]);
     let detail_line = Line::from(vec![
         Span::styled(
             format!(" {group_name}"),

@@ -229,7 +229,7 @@ pub(crate) fn release_notes_lines<'a>(body: &'a str, p: &Palette) -> Vec<(usize,
                 Line::from(vec![
                     Span::raw(" "),
                     Span::styled(
-                        text.to_uppercase(),
+                        text.to_lowercase(),
                         Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
                     ),
                 ]),

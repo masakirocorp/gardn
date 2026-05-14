@@ -656,13 +656,13 @@ pub(crate) fn handle_confirm_delete_group_key(state: &mut AppState, key: KeyEven
 pub(super) fn apply_context_menu_action(state: &mut AppState, menu: ContextMenuState, idx: usize) {
     let item = menu.items().get(idx).copied();
     match (menu.kind, item) {
-        (ContextMenuKind::Workspace { ws_idx }, Some("Rename")) => {
+        (ContextMenuKind::Workspace { ws_idx }, Some("rename")) => {
             open_rename_workspace(state, ws_idx);
         }
-        (ContextMenuKind::Group { group_idx, .. }, Some("Rename")) => {
+        (ContextMenuKind::Group { group_idx, .. }, Some("rename")) => {
             open_rename_group_at(state, group_idx);
         }
-        (ContextMenuKind::Group { group_idx, .. }, Some("Theme")) => {
+        (ContextMenuKind::Group { group_idx, .. }, Some("theme")) => {
             super::settings::open_group_theme_settings(state, group_idx);
         }
         (
@@ -670,11 +670,11 @@ pub(super) fn apply_context_menu_action(state: &mut AppState, menu: ContextMenuS
                 group_idx,
                 can_delete: true,
             },
-            Some("Delete"),
+            Some("delete"),
         ) => {
             open_confirm_delete_group(state, group_idx);
         }
-        (ContextMenuKind::Workspace { ws_idx }, Some("Close")) => {
+        (ContextMenuKind::Workspace { ws_idx }, Some("close")) => {
             state.selected = ws_idx;
             if state.confirm_close {
                 open_confirm_close(state);
@@ -683,19 +683,19 @@ pub(super) fn apply_context_menu_action(state: &mut AppState, menu: ContextMenuS
                 state.mode = Mode::Navigate;
             }
         }
-        (ContextMenuKind::Tab { ws_idx, tab_idx }, Some("New tab")) => {
+        (ContextMenuKind::Tab { ws_idx, tab_idx }, Some("new tab")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
             open_new_tab_dialog(state);
         }
-        (ContextMenuKind::Tab { ws_idx, tab_idx }, Some("Rename")) => {
+        (ContextMenuKind::Tab { ws_idx, tab_idx }, Some("rename")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
             open_rename_active_tab(state, false);
         }
-        (ContextMenuKind::Tab { ws_idx, tab_idx }, Some("Close")) => {
+        (ContextMenuKind::Tab { ws_idx, tab_idx }, Some("close")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
@@ -706,10 +706,10 @@ pub(super) fn apply_context_menu_action(state: &mut AppState, menu: ContextMenuS
                 Mode::Navigate
             };
         }
-        (ContextMenuKind::Pane { pane_id, .. }, Some("Rename pane")) => {
+        (ContextMenuKind::Pane { pane_id, .. }, Some("rename pane")) => {
             open_rename_pane(state, pane_id);
         }
-        (ContextMenuKind::Pane { pane_id, .. }, Some("Clear pane name")) => {
+        (ContextMenuKind::Pane { pane_id, .. }, Some("clear pane name")) => {
             if let Some(ws_idx) = state.active {
                 if let Some(ws) = state.workspaces.get_mut(ws_idx) {
                     if let Some(pane) = ws.pane_state_mut(pane_id) {
@@ -720,19 +720,19 @@ pub(super) fn apply_context_menu_action(state: &mut AppState, menu: ContextMenuS
             }
             state.mode = Mode::Terminal;
         }
-        (ContextMenuKind::Pane { .. }, Some("Split vertical")) => {
+        (ContextMenuKind::Pane { .. }, Some("split vertical")) => {
             state.split_pane(Direction::Horizontal);
             state.mode = Mode::Terminal;
         }
-        (ContextMenuKind::Pane { .. }, Some("Split horizontal")) => {
+        (ContextMenuKind::Pane { .. }, Some("split horizontal")) => {
             state.split_pane(Direction::Vertical);
             state.mode = Mode::Terminal;
         }
-        (ContextMenuKind::Pane { .. }, Some("Fullscreen")) => {
+        (ContextMenuKind::Pane { .. }, Some("fullscreen")) => {
             state.toggle_fullscreen();
             state.mode = Mode::Terminal;
         }
-        (ContextMenuKind::Pane { .. }, Some("Close pane")) => {
+        (ContextMenuKind::Pane { .. }, Some("close pane")) => {
             state.close_pane();
             state.mode = if state.active.is_some() {
                 Mode::Terminal

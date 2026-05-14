@@ -37,7 +37,7 @@ pub(super) fn render_navigate_overlay(app: &AppState, frame: &mut Frame, area: R
 
     let kb = &app.keybinds;
     let line = Line::from(vec![
-        Span::styled(" NAVIGATE ", mode_style),
+        Span::styled(" navigate ", mode_style),
         Span::raw(" "),
         Span::styled("esc", key),
         Span::styled(" back  ", dim),
@@ -252,7 +252,7 @@ pub(super) fn render_resize_overlay(app: &AppState, frame: &mut Frame, area: Rec
         .add_modifier(Modifier::BOLD);
 
     let line = Line::from(vec![
-        Span::styled(" RESIZE ", mode_style),
+        Span::styled(" resize ", mode_style),
         Span::raw("  "),
         Span::styled("h/l", key),
         Span::styled(" width  ", dim),

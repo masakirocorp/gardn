@@ -53,19 +53,19 @@ fn init_logging() {
 }
 
 const DEFAULT_CONFIG: &str = r##"# herdr configuration
-# Place this file at ~/.config/herdr/config.toml
+# place this file at ~/.config/herdr/config.toml
 
-# Show first-run notification setup on startup.
-# Missing also shows onboarding; set false after you've chosen.
+# show first-run notification setup on startup.
+# missing also shows onboarding; set false after you've chosen.
 # onboarding = true
 
 [theme]
-# Built-in themes: catppuccin, tokyo-night, dracula, nord, gruvbox,
+# built-in themes: catppuccin, tokyo-night, dracula, nord, gruvbox,
 #                  one-dark, solarized, kanagawa, rose-pine, vesper
 # name = "catppuccin"
 
-# Override individual color tokens on top of the base theme.
-# Accepts: hex (#rrggbb), named colors, rgb(r,g,b), or panel_bg = "reset"
+# override individual color tokens on top of the base theme.
+# accepts: hex (#rrggbb), named colors, rgb(r,g,b), or panel_bg = "reset"
 # [theme.custom]
 # panel_bg = "reset"
 # accent = "#f5c2e7"
@@ -73,14 +73,14 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # green = "#a6e3a1"
 
 [keys]
-# Prefix key to enter navigate mode (default: "ctrl+b")
-# Examples: "ctrl+b", "f12", "esc", "-"
-# Accepted syntax: plain keys, ctrl/shift/alt modifiers, and special keys like enter/tab/esc/left/right/up/down
-# Most reliable bindings are plain keys, ctrl+letter, esc/tab/enter, and function keys.
+# prefix key to enter navigate mode (default: "ctrl+b")
+# examples: "ctrl+b", "f12", "esc", "-"
+# accepted syntax: plain keys, ctrl/shift/alt modifiers, and special keys like enter/tab/esc/left/right/up/down
+# most reliable bindings are plain keys, ctrl+letter, esc/tab/enter, and function keys.
 # alt+... and punctuation-with-modifiers may depend on your terminal/tmux setup.
 # prefix = "ctrl+b"
 
-# Navigate-mode actions
+# navigate-mode actions
 # new_workspace = "n"
 # rename_workspace = "shift+n"
 # close_workspace = "shift+d"
@@ -115,7 +115,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # resize_mode = "r"
 # toggle_sidebar = "b"
 
-# Custom prefix-mode commands. Press prefix, then the configured key.
+# custom prefix-mode commands. press prefix, then the configured key.
 # type = "shell" runs detached in the background.
 # type = "pane" opens a temporary pane and closes it when the command exits.
 # [[keys.command]]
@@ -124,56 +124,56 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # command = "lazygit"
 
 [ui]
-# Sidebar width (auto-scaled based on workspace names, this sets the default)
+# sidebar width (auto-scaled based on workspace names, this sets the default)
 # sidebar_width = 26
 
-# Capture mouse input for Herdr's mouse UI.
-# Set false to let the terminal handle normal clicks, such as Cmd-clicking URLs.
-# Pane apps like lazygit and btop can still receive mouse when they request it.
+# capture mouse input for herdr's mouse ui.
+# set false to let the terminal handle normal clicks, such as cmd-clicking urls.
+# pane apps like lazygit and btop can still receive mouse when they request it.
 # mouse_capture = true
 
-# Ask for confirmation before closing a workspace
+# ask for confirmation before closing a workspace
 # confirm_close = true
 
-# Show detected/reported agent labels in split pane borders when no manual pane name is set.
+# show detected/reported agent labels in split pane borders when no manual pane name is set.
 # show_agent_labels_on_pane_borders = false
 
-# Agent panel scope: "current" (this space), "group" (this group), or "all" (all agents).
-# Changing it from the agents menu saves this setting.
+# agent panel scope: "current" (this space), "group" (this group), or "all" (all agents).
+# changing it from the agents menu saves this setting.
 # agent_panel_scope = "current"
 
-# Accent color for highlights, borders, and navigation UI.
-# Accepts: hex (#89b4fa), named colors (cyan, blue, magenta), or rgb(r,g,b)
+# accent color for highlights, borders, and navigation ui.
+# accepts: hex (#89b4fa), named colors (cyan, blue, magenta), or rgb(r,g,b)
 # accent = "cyan"
 
-# Background notification popup delivery
+# background notification popup delivery
 [ui.toast]
 # off = disable pop-up notifications
 # herdr = show top-right in-app toasts
 # terminal = ask the outer terminal to show a desktop notification
 # delivery = "off"
 
-# Play sounds when agents change state in background workspaces
+# play sounds when agents change state in background workspaces
 [ui.sound]
 # enabled = true
-# Optional custom mp3 sound files. Relative paths are resolved from this config file's directory.
+# optional custom mp3 sound files. relative paths are resolved from this config file's directory.
 # path = "sounds/notification.mp3"   # one mp3 file for all sound notifications
 # done_path = "sounds/done.mp3"      # overrides only finished notifications
 # request_path = "sounds/request.mp3" # overrides only needs-attention notifications
 
-# Per-agent overrides: default | on | off
-# By default, droid is muted.
+# per-agent overrides: default | on | off
+# by default, droid is muted.
 # [ui.sound.agents]
 # droid = "off"
 
 [advanced]
-# Allow launching herdr from inside a herdr-managed pane.
+# allow launching herdr from inside a herdr-managed pane.
 # allow_nested = false
-# Experimental local Kitty graphics rendering for attached clients.
-# Requires a Kitty graphics-compatible outer terminal. Detach/headless replay is not supported yet.
+# experimental local kitty graphics rendering for attached clients.
+# requires a kitty graphics-compatible outer terminal. detach/headless replay is not supported yet.
 # kitty_graphics = false
-# Maximum scrollback buffer size in bytes retained per pane terminal.
-# Matches Ghostty's default scrollback-limit behavior.
+# maximum scrollback buffer size in bytes retained per pane terminal.
+# matches ghostty's default scrollback-limit behavior.
 # scrollback_limit_bytes = 10000000
 "##;
 
@@ -233,7 +233,7 @@ fn main() -> io::Result<()> {
         std::process::exit(code);
     }
 
-    // Subcommands and flags (no TUI, no logging needed)
+    // subcommands and flags (no tui, no logging needed)
     if args.get(1).map(|s| s.as_str()) == Some("remote-client-bridge") {
         return remote::run_remote_client_bridge();
     }
@@ -258,9 +258,9 @@ fn main() -> io::Result<()> {
     }
 
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("herdr — terminal workspace manager for AI coding agents");
+        println!("herdr — terminal workspace manager for ai coding agents");
         println!();
-        println!("Usage: herdr [options]");
+        println!("usage: herdr [options]");
         println!("       herdr --session <name> [options]");
         println!("       herdr --remote <ssh-target> [--session <name>]");
         println!("       herdr session attach <name>");
@@ -274,70 +274,70 @@ fn main() -> io::Result<()> {
         println!("       herdr session <subcommand> ...");
         println!("       herdr integration <subcommand> ...");
         println!();
-        println!("Common commands:");
+        println!("common commands:");
         for (command, description) in [
-            ("herdr", "Launch or attach to the persistent session"),
+            ("herdr", "launch or attach to the persistent session"),
             (
                 "herdr status [server|client]",
-                "Show local client and running server status",
+                "show local client and running server status",
             ),
-            ("herdr update", "Download and install the latest version"),
+            ("herdr update", "download and install the latest version"),
             (
                 "herdr server stop",
-                "Stop the running server via the API socket",
+                "stop the running server via the api socket",
             ),
             (
                 "herdr server reload-config",
-                "Reload config.toml in the running server",
+                "reload config.toml in the running server",
             ),
             (
                 "herdr workspace <subcommand>",
-                "Workspace helpers over the socket API",
+                "workspace helpers over the socket api",
             ),
-            ("herdr tab <subcommand>", "Tab helpers over the socket API"),
+            ("herdr tab <subcommand>", "tab helpers over the socket api"),
             (
                 "herdr pane <subcommand>",
-                "Pane control helpers over the socket API",
+                "pane control helpers over the socket api",
             ),
             (
                 "herdr wait <subcommand>",
-                "Blocking wait helpers over the socket API",
+                "blocking wait helpers over the socket api",
             ),
             (
                 "herdr session <subcommand>",
-                "Manage named persistent sessions",
+                "manage named persistent sessions",
             ),
             (
                 "herdr integration <subcommand>",
-                "Manage built-in agent integrations",
+                "manage built-in agent integrations",
             ),
         ] {
             println!("  {command:<32} {description}");
         }
         println!();
-        println!("Advanced commands:");
+        println!("advanced commands:");
         for (command, description) in [
-            ("herdr server", "Run as headless server"),
+            ("herdr server", "run as headless server"),
             (
                 "herdr client",
-                "Connect to a running server as a thin client",
+                "connect to a running server as a thin client",
             ),
         ] {
             println!("  {command:<32} {description}");
         }
         println!();
-        println!("Options:");
-        println!("  --no-session        Run monolithically (no server/client, escape hatch)");
-        println!("  --session <name>    Use or create a named persistent session");
-        println!("  --remote <target>   Attach through SSH to a remote Herdr server");
-        println!("  --default-config    Print default configuration and exit");
-        println!("  --version, -V       Print version and exit");
-        println!("  --help, -h          Show this help");
+        println!("options:");
+        println!("  --no-session        run monolithically (no server/client, escape hatch)");
+        println!("  --session <name>    use or create a named persistent session");
+        println!("  --remote <target>   attach through ssh to a remote herdr server");
+        println!("  --default-config    print default configuration and exit");
+        println!("  --version, -V       print version and exit");
+        println!("  --help, -h          show this help");
         println!();
-        println!("Config: {}", config::config_path().display());
-        println!("Logs:   {}", logging::help_log_paths_summary());
-        println!("Env:    HERDR_CONFIG_PATH overrides config file path");
-        println!("Home:   https://herdr.dev");
+        println!("config: {}", config::config_path().display());
+        println!("logs:   {}", logging::help_log_paths_summary());
+        println!("env:    HERDR_CONFIG_PATH overrides config file path");
+        println!("home:   https://herdr.dev");
         return Ok(());
     }
 
@@ -459,7 +459,7 @@ fn main() -> io::Result<()> {
     logging::startup("app");
 
     // Background update check (non-blocking, best-effort)
-    // Only checks for newer versions and notifies the TUI.
+    // only checks for newer versions and notifies the tui.
     // Skipped in --no-session mode (testing).
 
     let rt = tokio::runtime::Builder::new_multi_thread()
