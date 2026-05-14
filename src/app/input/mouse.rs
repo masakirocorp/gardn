@@ -1666,6 +1666,43 @@ mod tests {
     }
 
     #[test]
+    fn group_icon_picker_updates_icon_for_existing_group() {
+        let mut app = app_for_mouse_test();
+        let group_idx = app.state.create_group("Work".to_string());
+        app.state.set_group_icon(group_idx, "●".to_string());
+        super::super::modal::open_rename_group_at(&mut app.state, group_idx);
+
+        let inner = app.state.rename_modal_inner().unwrap();
+        let icon_button = crate::ui::group_icon_button_rect(inner);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            icon_button.x,
+            icon_button.y,
+        ));
+
+        let (diamond, _) = crate::ui::group_icon_picker_rects(inner)
+            .into_iter()
+            .find(|(_, icon)| *icon == "◆")
+            .expect("diamond icon should be offered");
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            diamond.x,
+            diamond.y,
+        ));
+
+        app.state.name_input = "Work renamed".to_string();
+        let (save, _, _) = crate::ui::rename_button_rects(inner);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            save.x,
+            save.y,
+        ));
+
+        assert_eq!(app.state.groups[group_idx].name, "Work renamed");
+        assert_eq!(app.state.groups[group_idx].icon, "◆");
+    }
+
+    #[test]
     fn clicking_confirm_close_accepts_after_workspace_context_menu_close() {
         let mut app = app_for_mouse_test();
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];

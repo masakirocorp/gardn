@@ -118,6 +118,12 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
     .areas::<5>(inner);
 
     render_modal_header(frame, rows[0], title, &app.palette);
+    if matches!(app.mode, Mode::RenameGroup) {
+        frame.render_widget(
+            Paragraph::new(" name + icon").style(Style::default().fg(app.palette.overlay1)),
+            rows[1],
+        );
+    }
 
     let input_rect = if matches!(app.mode, Mode::RenameGroup) {
         let icon_rect = group_icon_button_rect(inner);
