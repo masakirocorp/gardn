@@ -1588,18 +1588,20 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_mouse_wheel_moves_one_command_per_event() {
+    fn command_palette_mouse_wheel_divides_raw_events() {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::CommandPalette;
 
         app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
         assert_eq!(app.state.command_palette.selected, 1);
 
-        app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
-        assert_eq!(app.state.command_palette.selected, 2);
+        for _ in 0..15 {
+            app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
+            assert_eq!(app.state.command_palette.selected, 1);
+        }
 
         app.handle_mouse(mouse(MouseEventKind::ScrollUp, 40, 8));
-        assert_eq!(app.state.command_palette.selected, 1);
+        assert_eq!(app.state.command_palette.selected, 0);
     }
 
     #[test]
@@ -1612,7 +1614,7 @@ mod tests {
 
         let count =
             crate::app::input::command_palette::command_palette_visible_commands(&app.state).len();
-        for _ in 0..count + 5 {
+        for _ in 0..(count + 5) * 16 {
             app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
         }
         assert_eq!(app.state.command_palette.selected, count - 1);

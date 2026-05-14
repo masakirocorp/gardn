@@ -5,14 +5,17 @@ use crate::app::{
     command_palette::{
         command_palette_filtered_commands, CommandPaletteAction, CommandPaletteCommand,
     },
-    state::{AppState, Mode},
+    state::{AppState, CommandPaletteWheelGate, Mode},
     App,
 };
+
+const WHEEL_EVENTS_PER_SELECTION_STEP: u8 = 16;
 
 pub(super) fn open_command_palette(state: &mut AppState) {
     state.command_palette.query.clear();
     state.command_palette.selected = 0;
     state.command_palette.scroll = 0;
+    state.command_palette.wheel_gate = None;
     state.mode = Mode::CommandPalette;
 }
 
@@ -22,6 +25,7 @@ pub(super) fn command_palette_visible_commands(state: &AppState) -> Vec<CommandP
 
 impl App {
     pub(crate) fn handle_command_palette_key(&mut self, key: KeyEvent) {
+        self.state.command_palette.wheel_gate = None;
         match key.code {
             KeyCode::Esc => leave_command_palette(&mut self.state),
             KeyCode::Enter => self.execute_selected_command_palette_command(),
@@ -101,7 +105,21 @@ fn move_command_palette_selection(state: &mut AppState, down: bool) -> bool {
 }
 
 pub(super) fn scroll_command_palette_selection(state: &mut AppState, down: bool) {
+    if let Some(gate) = state.command_palette.wheel_gate {
+        if gate.down == down && gate.remaining_events > 0 {
+            state.command_palette.wheel_gate = Some(CommandPaletteWheelGate {
+                down,
+                remaining_events: gate.remaining_events - 1,
+            });
+            return;
+        }
+    }
+
     move_command_palette_selection(state, down);
+    state.command_palette.wheel_gate = Some(CommandPaletteWheelGate {
+        down,
+        remaining_events: WHEEL_EVENTS_PER_SELECTION_STEP.saturating_sub(1),
+    });
 }
 
 fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {

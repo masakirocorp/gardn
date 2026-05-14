@@ -950,6 +950,13 @@ pub struct CommandPaletteState {
     pub query: String,
     pub selected: usize,
     pub scroll: usize,
+    pub wheel_gate: Option<CommandPaletteWheelGate>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommandPaletteWheelGate {
+    pub down: bool,
+    pub remaining_events: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1298,6 +1305,7 @@ impl AppState {
                 query: String::new(),
                 selected: 0,
                 scroll: 0,
+                wheel_gate: None,
             },
             workspace_scroll: 0,
             agent_panel_scroll: 0,
