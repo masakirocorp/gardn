@@ -662,6 +662,25 @@ impl AppState {
         }
         None
     }
+
+    pub(super) fn collapsed_right_sidebar_agent_target_at(
+        &self,
+        row: u16,
+    ) -> Option<(usize, usize, crate::layout::PaneId)> {
+        if !self.right_sidebar_collapsed {
+            return None;
+        }
+
+        let rows = crate::ui::collapsed_right_sidebar_agent_rows_rect(self.view.right_sidebar_rect);
+        if rows == Rect::default() || row < rows.y || row >= rows.y + rows.height {
+            return None;
+        }
+
+        let idx = (row - rows.y) as usize + self.agent_panel_scroll;
+        let entries = crate::ui::agent_panel_entries(self);
+        let detail = entries.get(idx)?;
+        Some((detail.ws_idx, detail.tab_idx, detail.pane_id))
+    }
 }
 
 #[cfg(test)]
@@ -1544,6 +1563,46 @@ mod tests {
             MouseEventKind::Down(MouseButton::Left),
             body.x + 1,
             body.y + 3,
+        ));
+
+        assert_eq!(app.state.workspaces[0].active_tab, second_tab);
+        assert_eq!(
+            app.state.workspaces[0].tabs[second_tab].layout.focused(),
+            second_pane
+        );
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn clicking_collapsed_right_sidebar_agent_row_switches_pane() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let first_pane = ws.tabs[0].root_pane;
+        ws.tabs[0]
+            .panes
+            .get_mut(&first_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Pi);
+        let second_tab = ws.test_add_tab(Some("logs"));
+        let second_pane = ws.tabs[second_tab].root_pane;
+        ws.tabs[second_tab]
+            .panes
+            .get_mut(&second_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Claude);
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.right_sidebar_collapsed = true;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+
+        let rows =
+            crate::ui::collapsed_right_sidebar_agent_rows_rect(app.state.view.right_sidebar_rect);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            rows.x + 1,
+            rows.y + 1,
         ));
 
         assert_eq!(app.state.workspaces[0].active_tab, second_tab);

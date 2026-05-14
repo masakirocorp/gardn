@@ -396,6 +396,14 @@ impl AppState {
                     }
 
                     if self.right_sidebar_collapsed {
+                        if let Some((ws_idx, tab_idx, pane_id)) =
+                            self.collapsed_right_sidebar_agent_target_at(mouse.row)
+                        {
+                            self.switch_workspace(ws_idx);
+                            self.switch_tab(tab_idx);
+                            self.focus_pane(pane_id);
+                            self.mode = Mode::Terminal;
+                        }
                         return None;
                     }
 

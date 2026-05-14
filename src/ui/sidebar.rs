@@ -255,6 +255,14 @@ pub(crate) fn right_sidebar_content_rect(area: Rect) -> Rect {
     )
 }
 
+pub(crate) fn collapsed_right_sidebar_agent_rows_rect(area: Rect) -> Rect {
+    let content = right_sidebar_content_rect(area);
+    if content == Rect::default() || content.height <= 1 {
+        return Rect::default();
+    }
+    Rect::new(content.x, content.y, content.width, content.height - 1)
+}
+
 pub(crate) fn workspace_list_body_rect(area: Rect, has_scrollbar: bool) -> Rect {
     if area.width == 0 || area.height <= WORKSPACE_SECTION_HEADER_ROWS {
         return Rect::default();
@@ -704,11 +712,59 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
         buf[(area.x, y)].set_style(sep_style);
     }
     if app.right_sidebar_collapsed {
+        render_right_sidebar_collapsed_agents(app, frame, area);
         render_right_sidebar_toggle(app, frame, area, true, p);
         return;
     }
     render_agent_detail(app, frame, right_sidebar_content_rect(area), false);
     render_right_sidebar_toggle(app, frame, area, false, p);
+}
+
+fn render_right_sidebar_collapsed_agents(app: &AppState, frame: &mut Frame, area: Rect) {
+    let rows = collapsed_right_sidebar_agent_rows_rect(area);
+    if rows == Rect::default() {
+        return;
+    }
+
+    let p = &app.palette;
+    for (visible_idx, detail) in agent_panel_entries(app)
+        .iter()
+        .skip(app.agent_panel_scroll)
+        .enumerate()
+    {
+        let y = rows.y + visible_idx as u16;
+        if y >= rows.y + rows.height {
+            break;
+        }
+
+        let is_active = app.is_active_pane(detail.ws_idx, detail.tab_idx, detail.pane_id);
+        let row_style = if is_active {
+            Style::default().bg(p.surface_dim)
+        } else {
+            Style::default()
+        };
+        if is_active {
+            let buf = frame.buffer_mut();
+            for x in rows.x..rows.x + rows.width {
+                buf[(x, y)].set_style(row_style);
+            }
+        }
+
+        let (icon, icon_style) = agent_icon(detail.state, detail.seen, app.spinner_tick, p);
+        let number_style = if is_active {
+            Style::default().fg(p.text).bg(p.surface_dim)
+        } else {
+            Style::default().fg(p.overlay0)
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(format!("{}", visible_idx + 1), number_style),
+                Span::styled(" ", row_style),
+                Span::styled(icon, icon_style),
+            ])),
+            Rect::new(rows.x, y, rows.width, 1),
+        );
+    }
 }
 
 fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navigating: bool) {

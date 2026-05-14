@@ -58,12 +58,12 @@ pub(crate) use self::{
     sidebar::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_scroll_metrics,
         agent_panel_scrollbar_rect, agent_panel_toggle_rect, collapsed_group_header_rect,
-        collapsed_sidebar_sections, collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect,
-        compute_workspace_card_areas, compute_workspace_card_areas_in_list,
-        expanded_sidebar_sections, expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
-        right_sidebar_content_rect, right_sidebar_toggle_rect, sidebar_section_divider_rect,
-        workspace_drop_indicator_row, workspace_list_rect, workspace_list_scroll_metrics,
-        workspace_list_scrollbar_rect,
+        collapsed_right_sidebar_agent_rows_rect, collapsed_sidebar_sections,
+        collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect, compute_workspace_card_areas,
+        compute_workspace_card_areas_in_list, expanded_sidebar_sections,
+        expanded_sidebar_toggle_rect, left_sidebar_workspace_rect, right_sidebar_content_rect,
+        right_sidebar_toggle_rect, sidebar_section_divider_rect, workspace_drop_indicator_row,
+        workspace_list_rect, workspace_list_scroll_metrics, workspace_list_scrollbar_rect,
     },
 };
 pub(crate) use self::{
@@ -642,7 +642,11 @@ mod tests {
     fn collapsed_right_sidebar_keeps_expand_rail() {
         let mut app = crate::app::state::AppState::test_new();
         app.right_sidebar_collapsed = true;
-        app.workspaces = vec![Workspace::test_new("one")];
+        let mut ws = Workspace::test_new("one");
+        let pane = ws.tabs[0].root_pane;
+        ws.tabs[0].panes.get_mut(&pane).unwrap().detected_agent =
+            Some(crate::detect::Agent::Claude);
+        app.workspaces = vec![ws];
         app.active = Some(0);
         app.selected = 0;
         app.mode = Mode::Terminal;
@@ -656,8 +660,10 @@ mod tests {
         terminal.draw(|frame| render(&app, frame)).unwrap();
         let buffer = terminal.backend().buffer();
         let toggle = right_sidebar_toggle_rect(app.view.right_sidebar_rect, true);
+        let rows = collapsed_right_sidebar_agent_rows_rect(app.view.right_sidebar_rect);
 
         assert_eq!(buffer[(toggle.x, toggle.y)].symbol(), "«");
+        assert!(buffer_row_text(buffer, rows, rows.y).starts_with("1 "));
     }
 
     #[test]
