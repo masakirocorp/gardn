@@ -203,7 +203,7 @@ command = "notify-send herdr 'custom command ran'"
 
 ## theme
 
-herdr ships with 10 built-in color themes. set one in config:
+herdr ships with built-in color themes plus `system` for terminal-default colors. set one in config:
 
 ```toml
 [theme]
@@ -221,11 +221,13 @@ mode = "system"
 
 groups can override the theme family from the sidebar menu, but inherit the global mode.
 themes without a light variant use their dark palette in light mode.
+`name = "system"` keeps Herdr chrome on the host terminal foreground/background where possible.
 
 ### built-in themes
 
 | name | description |
 |------|-------------|
+| `system` | host terminal foreground/background colors |
 | `catppuccin` | soft pastel mocha palette (default) |
 | `tokyo-night` | blue-purple aesthetic |
 | `dracula` | purple/pink/green classic |

@@ -123,6 +123,67 @@ impl Palette {
         }
     }
 
+    /// System — respect the host terminal defaults for chrome background and foreground.
+    pub fn system(
+        host_theme: TerminalTheme,
+        appearance: crate::terminal_theme::ThemeAppearance,
+    ) -> Self {
+        let base = match appearance {
+            ThemeAppearance::Light => Self::catppuccin_light(),
+            ThemeAppearance::Dark => Self::catppuccin(),
+        };
+        let host_fg = host_theme.foreground.map(Self::terminal_color);
+        let host_bg = host_theme.background.map(Self::terminal_color);
+
+        Self {
+            accent: host_fg.unwrap_or(base.accent),
+            panel_bg: Color::Reset,
+            surface0: host_bg
+                .map(|color| Self::surface_from_background(color, appearance, 0.08))
+                .unwrap_or(base.surface0),
+            surface1: host_bg
+                .map(|color| Self::surface_from_background(color, appearance, 0.14))
+                .unwrap_or(base.surface1),
+            surface_dim: host_bg
+                .map(|color| Self::surface_from_background(color, appearance, 0.05))
+                .unwrap_or(base.surface_dim),
+            overlay0: base.overlay0,
+            overlay1: base.overlay1,
+            text: host_fg.unwrap_or(Color::Reset),
+            subtext0: host_fg.unwrap_or(base.subtext0),
+            mauve: base.mauve,
+            green: base.green,
+            yellow: base.yellow,
+            red: base.red,
+            blue: base.blue,
+            teal: base.teal,
+            peach: base.peach,
+        }
+    }
+
+    fn terminal_color(color: crate::terminal_theme::RgbColor) -> Color {
+        Color::Rgb(color.r, color.g, color.b)
+    }
+
+    fn surface_from_background(
+        color: Color,
+        appearance: crate::terminal_theme::ThemeAppearance,
+        amount: f32,
+    ) -> Color {
+        let Color::Rgb(r, g, b) = color else {
+            return color;
+        };
+        let adjust = |channel: u8| -> u8 {
+            let channel = channel as f32;
+            let value = match appearance {
+                ThemeAppearance::Light => channel * (1.0 - amount),
+                ThemeAppearance::Dark => channel + (255.0 - channel) * amount,
+            };
+            value.round().clamp(0.0, 255.0) as u8
+        };
+        Color::Rgb(adjust(r), adjust(g), adjust(b))
+    }
+
     /// Catppuccin Latte.
     pub fn catppuccin_light() -> Self {
         Self {
@@ -474,7 +535,18 @@ impl Palette {
         name: &str,
         appearance: crate::terminal_theme::ThemeAppearance,
     ) -> Option<Self> {
+        Self::from_theme_with_terminal(name, appearance, TerminalTheme::default())
+    }
+
+    pub fn from_theme_with_terminal(
+        name: &str,
+        appearance: crate::terminal_theme::ThemeAppearance,
+        host_theme: TerminalTheme,
+    ) -> Option<Self> {
         let normalized = name.to_lowercase().replace([' ', '_'], "-");
+        if normalized == "system" {
+            return Some(Self::system(host_theme, appearance));
+        }
         if appearance == crate::terminal_theme::ThemeAppearance::Dark {
             return Self::from_name(&normalized);
         }
@@ -640,6 +712,7 @@ impl SettingsSection {
 
 /// All built-in theme names in display order.
 pub const THEME_NAMES: &[&str] = &[
+    "system",
     "catppuccin",
     "tokyo-night",
     "dracula",
@@ -996,7 +1069,11 @@ impl AppState {
     }
 
     pub fn palette_for_theme_mode(&self, theme_name: &str, mode: ThemeMode) -> Option<Palette> {
-        Palette::from_theme(theme_name, self.theme_appearance_for_mode(mode))
+        Palette::from_theme_with_terminal(
+            theme_name,
+            self.theme_appearance_for_mode(mode),
+            self.host_terminal_theme,
+        )
     }
 
     pub fn palette_for_theme(&self, theme_name: &str) -> Option<Palette> {
@@ -1395,5 +1472,30 @@ mod tests {
                 .panel_bg,
             Palette::nord().panel_bg
         );
+    }
+
+    #[test]
+    fn system_theme_uses_terminal_default_colors() {
+        let host_theme = TerminalTheme {
+            foreground: Some(crate::terminal_theme::RgbColor {
+                r: 220,
+                g: 221,
+                b: 222,
+            }),
+            background: Some(crate::terminal_theme::RgbColor {
+                r: 10,
+                g: 11,
+                b: 12,
+            }),
+        };
+
+        let palette =
+            Palette::from_theme_with_terminal("system", ThemeAppearance::Dark, host_theme)
+                .expect("system theme resolves");
+
+        assert_eq!(palette.panel_bg, Color::Reset);
+        assert_eq!(palette.text, Color::Rgb(220, 221, 222));
+        assert_eq!(palette.accent, Color::Rgb(220, 221, 222));
+        assert_ne!(palette.surface0, Palette::catppuccin().surface0);
     }
 }

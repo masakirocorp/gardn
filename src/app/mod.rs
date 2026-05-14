@@ -163,14 +163,15 @@ fn resolve_palette_with_legacy_accent(
     // Start with the named theme (default: catppuccin)
     let base_name = config.theme.name.as_deref().unwrap_or("catppuccin");
     let appearance = config.theme.mode.resolve(host_theme);
-    let mut palette = state::Palette::from_theme(base_name, appearance).unwrap_or_else(|| {
-        tracing::warn!(
-            theme = base_name,
-            "unknown theme, falling back to catppuccin"
-        );
-        state::Palette::from_theme("catppuccin", appearance)
-            .unwrap_or_else(state::Palette::catppuccin)
-    });
+    let mut palette = state::Palette::from_theme_with_terminal(base_name, appearance, host_theme)
+        .unwrap_or_else(|| {
+            tracing::warn!(
+                theme = base_name,
+                "unknown theme, falling back to catppuccin"
+            );
+            state::Palette::from_theme("catppuccin", appearance)
+                .unwrap_or_else(state::Palette::catppuccin)
+        });
 
     // Apply custom overrides if present
     if let Some(custom) = &config.theme.custom {

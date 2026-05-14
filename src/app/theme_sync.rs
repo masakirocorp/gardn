@@ -2,6 +2,10 @@ use std::sync::atomic::Ordering;
 
 use super::App;
 
+fn is_system_theme(name: &str) -> bool {
+    name.eq_ignore_ascii_case("system")
+}
+
 impl App {
     pub(super) fn query_host_terminal_theme(&self) {
         use std::io::Write;
@@ -28,7 +32,10 @@ impl App {
             return false;
         }
         self.state.host_terminal_theme = theme;
-        if self.state.global_theme_mode == crate::config::ThemeMode::System {
+        if self.state.global_theme_mode == crate::config::ThemeMode::System
+            || is_system_theme(&self.state.theme_name)
+            || is_system_theme(&self.state.global_theme_name)
+        {
             self.state.refresh_global_palette();
             self.state.apply_effective_theme();
         }

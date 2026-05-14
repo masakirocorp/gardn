@@ -705,7 +705,7 @@ mod tests {
 
         assert_eq!(
             app.state.groups[group_idx].theme_name.as_deref(),
-            Some("catppuccin")
+            Some("system")
         );
     }
 

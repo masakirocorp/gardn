@@ -132,7 +132,7 @@ not a gui window, not a web dashboard, not electron. herdr runs inside whatever 
 - **tabs** — first-class in the socket api and cli
 - **mouse-native** — click panes/tabs/workspaces/agents, drag borders, select text to copy, right-click menus; not keyboard-only
 - **notifications** — sounds and toasts for background events; tab-aware suppression
-- **10 built-in themes** — catppuccin (default), tokyo night, dracula, nord, gruvbox, one dark, solarized, kanagawa, rosé pine, vesper
+- **themes** — system terminal colors, catppuccin (default), tokyo night, dracula, nord, gruvbox, one dark, solarized, kanagawa, rosé pine, vesper
 - **session persistence** — pane processes survive client detach; sessions restore after full restart
 
 ## agents can use herdr too
