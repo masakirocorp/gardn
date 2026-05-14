@@ -607,6 +607,38 @@ mod tests {
     }
 
     #[test]
+    fn collapsed_left_sidebar_still_renders_right_sidebar_agents() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut ws = Workspace::test_new("one");
+        let pane = ws.tabs[0].root_pane;
+        ws.tabs[0].panes.get_mut(&pane).unwrap().detected_agent =
+            Some(crate::detect::Agent::Claude);
+        app.sidebar_collapsed = true;
+        app.workspaces = vec![ws];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        compute_view(&mut app, Rect::new(0, 0, 140, 20));
+
+        let backend = TestBackend::new(140, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let content = right_sidebar_content_rect(app.view.right_sidebar_rect);
+        let body = agent_panel_body_rect(content, false, false);
+
+        assert_ne!(app.view.right_sidebar_rect, Rect::default());
+        let body_text = (body.y..body.y + body.height)
+            .map(|row| buffer_row_text(buffer, body, row))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(buffer_row_text(buffer, content, content.y).starts_with(" agents"));
+        assert!(body_text.contains("claude"));
+    }
+
+    #[test]
     fn collapsed_right_sidebar_keeps_expand_rail() {
         let mut app = crate::app::state::AppState::test_new();
         app.right_sidebar_collapsed = true;
