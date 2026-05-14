@@ -43,10 +43,10 @@ pub(super) fn keybind_help_groups(
         "navigation",
         vec![
             ("esc".to_string(), "back"),
-            ("↑ / ↓".to_string(), "workspace list"),
+            ("↑ / ↓".to_string(), "space list"),
             ("h j k l / arrows".to_string(), "move focus"),
             ("tab / shift+tab".to_string(), "cycle pane"),
-            ("enter".to_string(), "open workspace"),
+            ("enter".to_string(), "open space"),
             ("s".to_string(), "settings"),
             ("q".to_string(), "quit"),
         ],
