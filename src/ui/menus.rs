@@ -172,7 +172,7 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
             if app.group_menu_action_for_row(idx).is_none() {
                 if item == "---" {
                     ListItem::new(Line::from("-".repeat(inner.width as usize)))
-                        .style(Style::default().fg(app.palette.surface_dim))
+                        .style(Style::default().fg(app.palette.overlay0))
                 } else {
                     ListItem::new(Line::from(format!(" {item}")))
                         .style(Style::default().fg(app.palette.overlay0))
@@ -213,7 +213,7 @@ pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
         .map(|item| {
             if *item == "---" {
                 ListItem::new(Line::from("-".repeat(inner.width as usize)))
-                    .style(Style::default().fg(app.palette.surface_dim))
+                    .style(Style::default().fg(app.palette.overlay0))
             } else {
                 ListItem::new(Line::from(item.to_string()))
                     .style(Style::default().fg(app.palette.text))

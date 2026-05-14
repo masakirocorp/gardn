@@ -618,7 +618,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
     let sep_style = if is_navigating {
         Style::default().fg(p.accent).bg(p.panel_bg)
     } else {
-        Style::default().fg(p.surface_dim).bg(p.panel_bg)
+        Style::default().fg(p.overlay0).bg(p.panel_bg)
     };
     let sep_x = area.x + area.width.saturating_sub(1);
     let buf = frame.buffer_mut();
@@ -696,7 +696,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         let buf = frame.buffer_mut();
         for x in ws_area.x..ws_area.x + ws_area.width {
             buf[(x, divider_y)].set_symbol("─");
-            buf[(x, divider_y)].set_style(Style::default().fg(p.surface_dim));
+            buf[(x, divider_y)].set_style(Style::default().fg(p.overlay0));
         }
     }
 
@@ -779,7 +779,7 @@ pub(super) fn render_sidebar(app: &AppState, frame: &mut Frame, area: Rect) {
     let sep_style = if is_navigating {
         Style::default().fg(p.accent).bg(p.panel_bg)
     } else {
-        Style::default().fg(p.surface_dim).bg(p.panel_bg)
+        Style::default().fg(p.overlay0).bg(p.panel_bg)
     };
 
     let sep_x = area.x + area.width.saturating_sub(1);
@@ -810,7 +810,7 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
     let sep_style = if !has_active_workspace && matches!(app.mode, Mode::Navigate) {
         Style::default().fg(p.accent).bg(p.panel_bg)
     } else {
-        Style::default().fg(p.surface_dim).bg(p.panel_bg)
+        Style::default().fg(p.overlay0).bg(p.panel_bg)
     };
     let buf = frame.buffer_mut();
     for y in area.y..area.y + area.height {
@@ -895,7 +895,7 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
         frame.render_widget(
             Paragraph::new(Span::styled(
                 " spaces",
-                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+                Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
             )),
             Rect::new(area.x, area.y, area.width, 1),
         );
@@ -918,7 +918,7 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
         if area.height > 1 {
             let sep_line = "─".repeat(area.width as usize);
             frame.render_widget(
-                Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.surface_dim))),
+                Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.overlay0))),
                 Rect::new(area.x, area.y + 1, area.width, 1),
             );
         }
@@ -1159,7 +1159,7 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
     if leading_separator {
         let sep_line = "─".repeat(area.width as usize);
         frame.render_widget(
-            Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.surface_dim))),
+            Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.overlay0))),
             Rect::new(area.x, area.y, area.width, 1),
         );
     }
@@ -1168,7 +1168,7 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
             " agents",
-            Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+            Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
         )])),
         Rect::new(area.x, header_y, area.width, 1),
     );
@@ -1190,7 +1190,7 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
     if sep_y < area.y + area.height {
         let sep_line = "─".repeat(area.width as usize);
         frame.render_widget(
-            Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.surface_dim))),
+            Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.overlay0))),
             Rect::new(area.x, sep_y, area.width, 1),
         );
     }

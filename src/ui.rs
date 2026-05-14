@@ -701,7 +701,7 @@ mod tests {
         assert_eq!(buffer[(divider_x, 1)].symbol(), "│");
         assert_eq!(
             buffer[(divider_x, 1)].style().fg,
-            Some(app.palette.surface_dim)
+            Some(app.palette.overlay0)
         );
     }
 
@@ -724,7 +724,7 @@ mod tests {
         assert_eq!(buffer[(divider_x, 1)].symbol(), "│");
         assert_eq!(
             buffer[(divider_x, 1)].style().fg,
-            Some(app.palette.surface_dim)
+            Some(app.palette.overlay0)
         );
     }
 
