@@ -96,7 +96,7 @@ pub(super) fn open_global_menu(state: &mut AppState) {
 
 pub(super) fn open_group_menu(state: &mut AppState) {
     let highlighted = if state.group_filter_enabled {
-        state.active_group + 2
+        state.active_group + 3
     } else {
         0
     };

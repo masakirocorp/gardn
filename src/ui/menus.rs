@@ -9,6 +9,12 @@ use ratatui::{
 use super::widgets::{panel_contrast_fg, render_panel_shell};
 use crate::app::AppState;
 
+fn count_suffix(text: &str) -> Option<(&str, &str)> {
+    let start = text.rfind(" (")?;
+    text.ends_with(')')
+        .then_some((&text[..start], &text[start..]))
+}
+
 fn render_bottom_bar(frame: &mut Frame, area: Rect, line: Line<'_>, bg: ratatui::style::Color) {
     frame.render_widget(Clear, area);
     let buf = frame.buffer_mut();
@@ -164,8 +170,18 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
         .enumerate()
         .map(|(idx, item)| {
             if app.group_menu_action_for_row(idx).is_none() {
-                ListItem::new(Line::from("-".repeat(inner.width as usize)))
-                    .style(Style::default().fg(app.palette.surface_dim))
+                if item == "---" {
+                    ListItem::new(Line::from("-".repeat(inner.width as usize)))
+                        .style(Style::default().fg(app.palette.surface_dim))
+                } else {
+                    ListItem::new(Line::from(format!(" {item}")))
+                        .style(Style::default().fg(app.palette.overlay0))
+                }
+            } else if let Some((name, count)) = count_suffix(item) {
+                ListItem::new(Line::from(vec![
+                    Span::styled(name.to_string(), Style::default().fg(app.palette.text)),
+                    Span::styled(count.to_string(), Style::default().fg(app.palette.overlay0)),
+                ]))
             } else {
                 ListItem::new(Line::from(item.clone()))
             }
@@ -195,14 +211,13 @@ pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
         .agent_menu_labels()
         .iter()
         .map(|item| {
-            let style = if *item == "---" {
-                Style::default()
-                    .fg(app.palette.overlay0)
-                    .add_modifier(Modifier::DIM)
+            if *item == "---" {
+                ListItem::new(Line::from("-".repeat(inner.width as usize)))
+                    .style(Style::default().fg(app.palette.surface_dim))
             } else {
-                Style::default().fg(app.palette.text)
-            };
-            ListItem::new(Line::from(format!(" {item}"))).style(style)
+                ListItem::new(Line::from(item.to_string()))
+                    .style(Style::default().fg(app.palette.text))
+            }
         })
         .collect();
     let list = List::new(items)
@@ -212,8 +227,7 @@ pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
                 .bg(app.palette.accent)
                 .fg(panel_contrast_fg(&app.palette))
                 .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol(" ");
+        );
     let mut state = ListState::default().with_selected(Some(app.agent_menu.highlighted));
     frame.render_stateful_widget(list, inner, &mut state);
 }

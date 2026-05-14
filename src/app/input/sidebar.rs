@@ -277,19 +277,42 @@ impl AppState {
         if ws_area == Rect::default() {
             return Rect::default();
         }
-        Rect::new(ws_area.x, ws_area.y, ws_area.width, 1)
+        let width = (self.group_selector_label().chars().count() as u16 + 2).min(ws_area.width);
+        Rect::new(
+            ws_area.x + ws_area.width.saturating_sub(width),
+            ws_area.y,
+            width,
+            1,
+        )
+    }
+
+    pub(crate) fn group_selector_label(&self) -> String {
+        if self.group_filter_enabled {
+            format!("{} {}", self.active_group_icon(), self.active_group_name())
+        } else {
+            "all spaces".to_string()
+        }
     }
 
     pub(crate) fn group_menu_labels(&self) -> Vec<String> {
         let all_marker = if self.group_filter_enabled { " " } else { "*" };
-        let mut labels = vec![format!("{all_marker} 0 all spaces"), "---".to_string()];
+        let mut labels = vec![
+            format!("{all_marker} all spaces ({})", self.workspaces.len()),
+            "---".to_string(),
+            "groups".to_string(),
+        ];
         labels.extend(self.groups.iter().enumerate().map(|(idx, group)| {
             let marker = if self.group_filter_enabled && idx == self.active_group {
                 "*"
             } else {
                 " "
             };
-            format!("{marker} {} {} {}", idx + 1, group.icon, group.name)
+            let count = self
+                .workspaces
+                .iter()
+                .filter(|ws| ws.group_id == group.id)
+                .count();
+            format!("{marker} {} {} ({count})", group.icon, group.name)
         }));
         labels.push("---".to_string());
         labels.push("+ new group".to_string());
@@ -304,7 +327,11 @@ impl AppState {
             return None;
         }
 
-        let group_start = 2;
+        if row_idx == 2 {
+            return None;
+        }
+
+        let group_start = 3;
         let group_end = group_start + self.groups.len();
         if (group_start..group_end).contains(&row_idx) {
             return Some(GroupMenuAction::Group(row_idx - group_start));
@@ -764,22 +791,25 @@ mod tests {
         ));
 
         assert_eq!(app.state.mode, Mode::GroupMenu);
-        assert_eq!(app.state.group_menu.highlighted, 3);
+        assert_eq!(app.state.group_menu.highlighted, 4);
     }
 
     #[test]
-    fn group_menu_numbers_all_spaces_before_groups() {
+    fn group_menu_lists_all_spaces_before_groups() {
         let mut app = app_for_mouse_test();
         app.state.create_group("Work".to_string());
+        app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
+        app.state.workspaces[1].group_id = app.state.groups[1].id.clone();
 
         let labels = app.state.group_menu_labels();
 
-        assert!(labels[0].contains("0 all spaces"));
+        assert!(labels[0].contains("all spaces (2)"));
         assert_eq!(labels[1], "---");
-        assert!(labels[2].contains("1 "));
-        assert!(labels[3].contains("2 "));
-        assert_eq!(labels[4], "---");
-        assert_eq!(labels[5], "+ new group");
+        assert_eq!(labels[2], "groups");
+        assert!(labels[3].contains("group 1 (1)"));
+        assert!(labels[4].contains("Work (1)"));
+        assert_eq!(labels[5], "---");
+        assert_eq!(labels[6], "+ new group");
     }
 
     #[test]
@@ -1887,7 +1917,7 @@ mod tests {
         ));
 
         assert_eq!(app.state.mode, Mode::GroupMenu);
-        assert_eq!(app.state.group_menu.highlighted, 3);
+        assert_eq!(app.state.group_menu.highlighted, 4);
         assert!(app.state.group_menu_rect().width > app.state.view.sidebar_rect.width);
     }
 
@@ -2179,10 +2209,25 @@ mod tests {
         app.state.workspaces = vec![first, second];
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
 
-        assert_eq!(app.state.workspace_drop_index_at_row(1), Some(0));
-        assert_eq!(app.state.workspace_drop_index_at_row(2), Some(0));
-        assert_eq!(app.state.workspace_drop_index_at_row(3), Some(1));
-        assert_eq!(app.state.workspace_drop_index_at_row(4), Some(1));
+        let cards = &app.state.view.workspace_card_areas;
+        let first = cards[0].rect;
+        let second = cards[1].rect;
+        assert_eq!(
+            app.state
+                .workspace_drop_index_at_row(first.y.saturating_sub(1)),
+            Some(0)
+        );
+        assert_eq!(app.state.workspace_drop_index_at_row(first.y), Some(0));
+        assert_eq!(
+            app.state
+                .workspace_drop_index_at_row(first.y + first.height),
+            Some(1)
+        );
+        assert_eq!(
+            app.state
+                .workspace_drop_index_at_row(second.y.saturating_sub(1)),
+            Some(1)
+        );
 
         let _ = fs::remove_dir_all(first_repo);
         let _ = fs::remove_dir_all(second_repo);
@@ -2208,7 +2253,7 @@ mod tests {
 
         let last = cards.last().unwrap().rect;
         assert_eq!(bottom_slot, last.y + last.height);
-        assert!(bottom_slot < app.state.sidebar_footer_rect().y.saturating_sub(1));
+        assert!(bottom_slot < app.state.sidebar_footer_rect().y);
     }
 
     #[test]

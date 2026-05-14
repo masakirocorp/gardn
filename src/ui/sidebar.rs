@@ -13,7 +13,7 @@ use crate::app::state::{AgentPanelScope, Palette};
 use crate::app::{AppState, Mode};
 use crate::detect::AgentState;
 
-const WORKSPACE_SECTION_HEADER_ROWS: u16 = 1;
+const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const AGENT_PANEL_HEADER_ROWS: u16 = 2;
 
 pub(crate) struct AgentPanelEntry {
@@ -130,9 +130,14 @@ pub(crate) fn agent_panel_toggle_rect(
     }
 
     let label = agent_panel_toggle_label(scope);
-    let width = label.chars().count() as u16 + 1;
+    let width = (label.chars().count() as u16 + 2).min(area.width);
     let y_offset = u16::from(leading_separator);
-    Rect::new(area.x, area.y + y_offset + 1, width.min(area.width), 1)
+    Rect::new(
+        area.x + area.width.saturating_sub(width),
+        area.y + y_offset,
+        width,
+        1,
+    )
 }
 
 pub(crate) fn agent_panel_entries(app: &AppState) -> Vec<AgentPanelEntry> {
@@ -251,6 +256,30 @@ fn truncate_text(text: &str, max_width: usize) -> String {
     }
     let prefix: String = text.chars().take(max_width.saturating_sub(1)).collect();
     format!("{prefix}…")
+}
+
+fn count_suffix(text: &str) -> Option<(&str, &str)> {
+    let start = text.rfind(" (")?;
+    text.ends_with(')')
+        .then_some((&text[..start], &text[start..]))
+}
+
+fn centered_count_line(text: &str, width: u16, base: Style, count: Style) -> Line<'static> {
+    let width = width as usize;
+    let text = truncate_text(text, width);
+    let len = text.chars().count();
+    let left = width.saturating_sub(len) / 2;
+    let right = width.saturating_sub(len).saturating_sub(left);
+
+    let mut spans = vec![Span::styled(" ".repeat(left), base)];
+    if let Some((name, suffix)) = count_suffix(&text) {
+        spans.push(Span::styled(name.to_string(), base));
+        spans.push(Span::styled(suffix.to_string(), count));
+    } else {
+        spans.push(Span::styled(text, base));
+    }
+    spans.push(Span::styled(" ".repeat(right), base));
+    Line::from(spans)
 }
 
 fn format_agent_panel_primary_label(entry: &AgentPanelEntry, max_width: usize) -> String {
@@ -863,19 +892,36 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
     let list_bottom = area.y + area.height.saturating_sub(1);
     if area.height > 0 {
         let selector_rect = app.group_selector_rect();
-        let selector_label = if app.group_filter_enabled {
-            format!("{} {}", app.active_group_icon(), app.active_group_name())
-        } else {
-            "all spaces".to_string()
-        };
-        let name_width = selector_rect.width.saturating_sub(3) as usize;
-        let name = truncate_text(&selector_label, name_width);
-        let selector = format!("{name} v");
-
         frame.render_widget(
-            Paragraph::new(Span::styled(selector, Style::default().fg(p.overlay0))),
-            selector_rect,
+            Paragraph::new(Span::styled(
+                " spaces",
+                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+            )),
+            Rect::new(area.x, area.y, area.width, 1),
         );
+
+        if selector_rect != Rect::default() {
+            let base = Style::default().fg(p.overlay1).bg(p.surface0);
+            let count = Style::default().fg(p.overlay0).bg(p.surface0);
+
+            frame.render_widget(
+                Paragraph::new(centered_count_line(
+                    &app.group_selector_label(),
+                    selector_rect.width,
+                    base,
+                    count,
+                )),
+                selector_rect,
+            );
+        }
+
+        if area.height > 1 {
+            let sep_line = "─".repeat(area.width as usize);
+            frame.render_widget(
+                Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.surface_dim))),
+                Rect::new(area.x, area.y + 1, area.width, 1),
+            );
+        }
     }
 
     let metrics = workspace_list_scroll_metrics(app, area);
@@ -1128,12 +1174,24 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
     );
     let toggle_rect = agent_panel_toggle_rect(area, app.agent_panel_scope, leading_separator);
     if toggle_rect != Rect::default() {
+        let style = Style::default().fg(p.overlay1).bg(p.surface0);
         frame.render_widget(
-            Paragraph::new(Span::styled(
-                format!(" {}", agent_panel_toggle_label(app.agent_panel_scope)),
-                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+            Paragraph::new(centered_count_line(
+                agent_panel_toggle_label(app.agent_panel_scope),
+                toggle_rect.width,
+                style,
+                style,
             )),
             toggle_rect,
+        );
+    }
+
+    let sep_y = header_y + 1;
+    if sep_y < area.y + area.height {
+        let sep_line = "─".repeat(area.width as usize);
+        frame.render_widget(
+            Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.surface_dim))),
+            Rect::new(area.x, sep_y, area.width, 1),
         );
     }
 
