@@ -21,6 +21,8 @@ enum WheelRouting {
 
 const WORKSPACE_DRAG_THRESHOLD: u16 = 1;
 const TAB_DRAG_THRESHOLD: u16 = 1;
+const COMMAND_PALETTE_WHEEL_COALESCE_WINDOW: std::time::Duration =
+    std::time::Duration::from_millis(120);
 
 mod command_palette;
 mod modal;
@@ -144,6 +146,33 @@ impl App {
     pub(super) fn handle_mouse(&mut self, mouse: MouseEvent) {
         if self.handle_overlay_mouse(mouse) {
             return;
+        }
+
+        if self.state.mode == Mode::CommandPalette {
+            let down = match mouse.kind {
+                MouseEventKind::ScrollDown => Some(true),
+                MouseEventKind::ScrollUp => Some(false),
+                _ => None,
+            };
+
+            if let Some(down) = down {
+                let now = std::time::Instant::now();
+                let same_burst =
+                    self.last_command_palette_wheel
+                        .is_some_and(|(last_down, last_at)| {
+                            last_down == down
+                                && now.duration_since(last_at)
+                                    <= COMMAND_PALETTE_WHEEL_COALESCE_WINDOW
+                        });
+                self.last_command_palette_wheel = Some((down, now));
+                if !same_burst {
+                    command_palette::scroll_command_palette_selection(
+                        &mut self.state,
+                        if down { 1 } else { -1 },
+                    );
+                }
+                return;
+            }
         }
 
         if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))

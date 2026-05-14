@@ -15,7 +15,6 @@ use crate::{
 #[cfg(test)]
 use super::WheelRouting;
 use super::{
-    command_palette::scroll_command_palette_selection,
     modal::{
         apply_context_menu_action, apply_global_menu_action, apply_rename_action,
         confirm_close_accept, confirm_close_cancel, confirm_delete_group_accept,
@@ -208,11 +207,6 @@ impl AppState {
         }
 
         if self.mode == Mode::CommandPalette {
-            match mouse.kind {
-                MouseEventKind::ScrollUp => scroll_command_palette_selection(self, -1),
-                MouseEventKind::ScrollDown => scroll_command_palette_selection(self, 1),
-                _ => {}
-            }
             return None;
         }
 
@@ -1606,6 +1600,13 @@ mod tests {
             assert_eq!(app.state.command_palette.selected, 1);
         }
 
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
+        assert_eq!(app.state.command_palette.selected, 1);
+
+        app.last_command_palette_wheel = Some((
+            true,
+            std::time::Instant::now() - std::time::Duration::from_millis(200),
+        ));
         app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
         assert_eq!(app.state.command_palette.selected, 2);
 

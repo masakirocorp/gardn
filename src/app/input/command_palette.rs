@@ -5,18 +5,14 @@ use crate::app::{
     command_palette::{
         command_palette_filtered_commands, CommandPaletteAction, CommandPaletteCommand,
     },
-    state::CommandPaletteWheelCooldown,
     state::{AppState, Mode},
     App,
 };
-
-const WHEEL_EVENTS_PER_SELECTION_STEP: u8 = 6;
 
 pub(super) fn open_command_palette(state: &mut AppState) {
     state.command_palette.query.clear();
     state.command_palette.selected = 0;
     state.command_palette.scroll = 0;
-    state.command_palette.wheel_scroll_cooldown = None;
     state.mode = Mode::CommandPalette;
 }
 
@@ -26,6 +22,7 @@ pub(super) fn command_palette_visible_commands(state: &AppState) -> Vec<CommandP
 
 impl App {
     pub(crate) fn handle_command_palette_key(&mut self, key: KeyEvent) {
+        self.last_command_palette_wheel = None;
         match key.code {
             KeyCode::Esc => leave_command_palette(&mut self.state),
             KeyCode::Enter => self.execute_selected_command_palette_command(),
@@ -43,14 +40,12 @@ impl App {
             }
             KeyCode::Backspace => {
                 self.state.command_palette.query.pop();
-                self.state.command_palette.wheel_scroll_cooldown = None;
                 clamp_command_palette_selection(&mut self.state);
             }
             KeyCode::Char(c)
                 if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
             {
                 self.state.command_palette.query.push(c);
-                self.state.command_palette.wheel_scroll_cooldown = None;
                 clamp_command_palette_selection(&mut self.state);
             }
             _ => {}
@@ -107,23 +102,7 @@ fn move_command_palette_selection(state: &mut AppState, down: bool) -> bool {
 }
 
 pub(super) fn scroll_command_palette_selection(state: &mut AppState, delta: i16) {
-    let down = delta.is_positive();
-    if let Some(cooldown) = state.command_palette.wheel_scroll_cooldown {
-        if cooldown.down == down && cooldown.remaining_events > 0 {
-            state.command_palette.wheel_scroll_cooldown = Some(CommandPaletteWheelCooldown {
-                down: cooldown.down,
-                remaining_events: cooldown.remaining_events - 1,
-            });
-            return;
-        }
-    }
-
-    if move_command_palette_selection(state, down) {
-        state.command_palette.wheel_scroll_cooldown = Some(CommandPaletteWheelCooldown {
-            down,
-            remaining_events: WHEEL_EVENTS_PER_SELECTION_STEP.saturating_sub(1),
-        });
-    }
+    move_command_palette_selection(state, delta.is_positive());
 }
 
 fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
