@@ -268,22 +268,25 @@ impl AppState {
                         }
                     }
 
-                    let action = self
-                        .rename_modal_inner()
-                        .map(crate::ui::rename_button_rects)
-                        .and_then(|(save, clear, cancel)| {
-                            modal_action_from_buttons(
-                                mouse.column,
-                                mouse.row,
-                                &[
-                                    (save, ModalAction::Save),
-                                    (clear, ModalAction::Clear),
-                                    (cancel, ModalAction::Cancel),
-                                ],
-                            )
-                        })
-                        .unwrap_or(ModalAction::Cancel);
-                    apply_rename_action(self, action);
+                    let Some(inner) = self.rename_modal_inner() else {
+                        apply_rename_action(self, ModalAction::Cancel);
+                        return None;
+                    };
+
+                    let (save, clear, cancel) = crate::ui::rename_button_rects(inner);
+                    if let Some(action) = modal_action_from_buttons(
+                        mouse.column,
+                        mouse.row,
+                        &[
+                            (save, ModalAction::Save),
+                            (clear, ModalAction::Clear),
+                            (cancel, ModalAction::Cancel),
+                        ],
+                    ) {
+                        apply_rename_action(self, action);
+                    } else if !rect_contains(inner, mouse.column, mouse.row) {
+                        apply_rename_action(self, ModalAction::Cancel);
+                    }
                     return None;
                 }
 
@@ -1663,6 +1666,22 @@ mod tests {
         assert_eq!(app.state.groups[1].name, "showcode");
         assert_eq!(app.state.groups[1].icon, "◆");
         assert_eq!(app.state.active_group, 1);
+    }
+
+    #[test]
+    fn new_group_modal_body_click_does_not_close() {
+        let mut app = app_for_mouse_test();
+        super::super::modal::open_new_group_dialog(&mut app.state);
+
+        let inner = app.state.rename_modal_inner().unwrap();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            inner.x + 5,
+            inner.y + 2,
+        ));
+
+        assert_eq!(app.state.mode, Mode::RenameGroup);
+        assert!(app.state.creating_new_group);
     }
 
     #[test]
