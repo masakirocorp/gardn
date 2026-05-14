@@ -60,13 +60,8 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
     ])
     .areas::<5>(inner);
 
-    render_modal_header_bar(frame, rows[0], "command palette", &app.palette, true);
-    render_modal_subtitle(
-        frame,
-        rows[1],
-        " type to filter, enter to run, esc to close",
-        &app.palette,
-    );
+    render_modal_header_bar(frame, rows[0], "command palette", &app.palette, false);
+    render_modal_subtitle(frame, rows[1], "type to filter commands", &app.palette);
 
     let input = Rect::new(rows[2].x, rows[2].y, rows[2].width, 1);
     render_modal_text_input(frame, input, &app.command_palette.query, &app.palette);

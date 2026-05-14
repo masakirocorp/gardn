@@ -371,8 +371,8 @@ pub(crate) fn render_modal_choice_list<T>(
         let marker = if is_active { " ✓" } else { "" };
         let style = if is_selected {
             Style::default()
-                .bg(p.surface0)
-                .fg(p.text)
+                .fg(panel_contrast_fg(p))
+                .bg(p.accent)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(p.subtext0)

@@ -78,7 +78,7 @@ pub(crate) use self::{
     },
     panes::pane_is_scrolled_back,
     tabs::compute_tab_bar_view,
-    widgets::{centered_popup_rect, modal_close_button_rect, modal_stack_areas},
+    widgets::{centered_popup_rect, modal_stack_areas},
 };
 use crate::app::state::{ContextMenuKind, ViewLayout};
 use crate::app::{AppState, Mode};

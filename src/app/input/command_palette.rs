@@ -78,14 +78,6 @@ pub(super) fn close_command_palette(state: &mut AppState) {
     leave_command_palette(state);
 }
 
-pub(super) fn command_palette_close_button_at(state: &AppState, col: u16, row: u16) -> bool {
-    let Some(inner) = command_palette_inner_rect(state) else {
-        return false;
-    };
-    let button = crate::ui::modal_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
-    col >= button.x && col < button.x + button.width && row == button.y
-}
-
 pub(super) fn command_palette_action_button_at(
     state: &AppState,
     col: u16,

@@ -149,15 +149,6 @@ impl App {
         if self.state.mode == Mode::CommandPalette {
             match mouse.kind {
                 MouseEventKind::Down(MouseButton::Left) => {
-                    if command_palette::command_palette_close_button_at(
-                        &self.state,
-                        mouse.column,
-                        mouse.row,
-                    ) {
-                        command_palette::close_command_palette(&mut self.state);
-                        return;
-                    }
-
                     match command_palette::command_palette_action_button_at(
                         &self.state,
                         mouse.column,

@@ -6,10 +6,10 @@ use ratatui::{
     Frame,
 };
 
-use super::scrollbar::{release_notes_scrollbar_rect, render_scrollbar};
+use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    modal_close_button_rect, modal_stack_areas, render_modal_header_bar, render_modal_shell,
-    render_modal_subtitle,
+    modal_close_button_rect, modal_scroll_area, modal_stack_areas, render_modal_header_bar,
+    render_modal_shell, render_modal_subtitle,
 };
 use crate::app::{
     state::{Palette, ReleaseNotesState},
@@ -62,17 +62,7 @@ pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, ar
         max_offset_from_bottom: app.release_notes_max_scroll() as usize,
         viewport_rows: sections.notes_body.height.max(1) as usize,
     };
-    let track = release_notes_scrollbar_rect(sections.notes_body, metrics);
-    let notes_text_area = track
-        .map(|_| {
-            Rect::new(
-                sections.notes_body.x,
-                sections.notes_body.y,
-                sections.notes_body.width.saturating_sub(1),
-                sections.notes_body.height,
-            )
-        })
-        .unwrap_or(sections.notes_body);
+    let scroll_area = modal_scroll_area(sections.notes_body, metrics);
 
     if let Some(instructions_area) = sections.instructions {
         render_release_notes_preview_panel(frame, instructions_area, &notes.version, &app.palette);
@@ -86,14 +76,14 @@ pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, ar
     )
     .wrap(Wrap { trim: false })
     .scroll((notes.scroll, 0));
-    frame.render_widget(body, notes_text_area);
-    if let Some(track) = track {
+    frame.render_widget(body, scroll_area.body);
+    if let Some(track) = scroll_area.track {
         render_scrollbar(
             frame,
             metrics,
             track,
+            app.palette.surface_dim,
             app.palette.overlay0,
-            app.palette.overlay1,
             "▐",
         );
     }
@@ -102,9 +92,6 @@ pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, ar
         Paragraph::new(Line::from(vec![
             Span::styled(" scroll ", Style::default().fg(app.palette.overlay0)),
             Span::styled("wheel ↑↓", Style::default().fg(app.palette.text)),
-            Span::styled("  ·  ", Style::default().fg(app.palette.overlay0)),
-            Span::styled("close", Style::default().fg(app.palette.overlay0)),
-            Span::styled(" esc / enter ", Style::default().fg(app.palette.text)),
         ])),
         stack.footer.unwrap_or_default(),
     );

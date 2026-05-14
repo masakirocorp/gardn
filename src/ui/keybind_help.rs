@@ -1,14 +1,15 @@
 use ratatui::{
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Layout},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
     Frame,
 };
 
-use super::scrollbar::{release_notes_scrollbar_rect, render_scrollbar};
+use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    modal_stack_areas, render_modal_header_bar, render_modal_shell, render_modal_subtitle,
+    modal_scroll_area, modal_stack_areas, render_modal_header_bar, render_modal_shell,
+    render_modal_subtitle,
 };
 use crate::app::AppState;
 
@@ -234,17 +235,7 @@ pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
         max_offset_from_bottom: app.keybind_help_max_scroll() as usize,
         viewport_rows: body_area.height.max(1) as usize,
     };
-    let track = release_notes_scrollbar_rect(body_area, metrics);
-    let text_area = track
-        .map(|_| {
-            Rect::new(
-                body_area.x,
-                body_area.y,
-                body_area.width.saturating_sub(1),
-                body_area.height,
-            )
-        })
-        .unwrap_or(body_area);
+    let scroll_area = modal_scroll_area(body_area, metrics);
 
     let body = Paragraph::new(
         keybind_help_lines(app)
@@ -254,14 +245,14 @@ pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
     )
     .wrap(Wrap { trim: false })
     .scroll((app.keybind_help.scroll, 0));
-    frame.render_widget(body, text_area);
-    if let Some(track) = track {
+    frame.render_widget(body, scroll_area.body);
+    if let Some(track) = scroll_area.track {
         render_scrollbar(
             frame,
             metrics,
             track,
+            app.palette.surface_dim,
             app.palette.overlay0,
-            app.palette.overlay1,
             "▐",
         );
     }
@@ -273,9 +264,6 @@ pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
             Span::styled("  ·  ", Style::default().fg(app.palette.overlay0)),
             Span::styled("jump", Style::default().fg(app.palette.overlay0)),
             Span::styled(" pgup / pgdn ", Style::default().fg(app.palette.text)),
-            Span::styled("  ·  ", Style::default().fg(app.palette.overlay0)),
-            Span::styled("close", Style::default().fg(app.palette.overlay0)),
-            Span::styled(" esc / enter ", Style::default().fg(app.palette.text)),
         ])),
         stack.footer.unwrap_or_default(),
     );

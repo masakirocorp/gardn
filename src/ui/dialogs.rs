@@ -119,7 +119,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
     ])
     .areas::<5>(inner);
 
-    render_modal_header_bar(frame, rows[0], title, &app.palette, true);
+    render_modal_header_bar(frame, rows[0], title, &app.palette, false);
     if matches!(app.mode, Mode::RenameGroup) {
         render_modal_subtitle(frame, rows[1], " name + icon", &app.palette);
     }

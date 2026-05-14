@@ -48,7 +48,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     ])
     .areas::<3>(stack.header);
 
-    render_modal_header_bar(frame, header_rows[0], "settings", p, true);
+    render_modal_header_bar(frame, header_rows[0], "settings", p, false);
 
     let tabs = Tabs::new(SettingsSection::ALL.iter().map(|s| s.label()))
         .select(
@@ -190,7 +190,7 @@ fn render_group_theme_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     ])
     .areas::<3>(stack.header);
 
-    render_modal_header_bar(frame, header_rows[0], "group theme", p, true);
+    render_modal_header_bar(frame, header_rows[0], "group theme", p, false);
 
     let group_label = app
         .settings
@@ -258,17 +258,14 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
     let p = &app.palette;
     let mut items: Vec<ListItem> = Vec::new();
     if app.settings.group_theme_target.is_some() {
-        let marker = if app.settings.list.selected == 0 {
-            " ✓"
-        } else {
-            ""
-        };
+        let selected = app.settings.list.selected == 0;
+        let marker = if selected { " ✓" } else { "" };
         items.push(ListItem::new(Line::from(vec![
             Span::styled(
                 format!("default ({})", app.global_theme_name),
-                Style::default().fg(p.subtext0),
+                modal_option_style(p, selected),
             ),
-            Span::styled(marker, Style::default().fg(p.green)),
+            Span::styled(marker, modal_option_marker_style(p, selected)),
         ])));
     }
 
@@ -279,7 +276,8 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
         .as_deref()
         .unwrap_or(&app.global_theme_name);
     items.extend(THEME_NAMES.iter().enumerate().map(|(idx, name)| {
-        let marker = if app.settings.list.selected == idx + offset {
+        let selected = app.settings.list.selected == idx + offset;
+        let marker = if selected {
             " ✓"
         } else if app.settings.group_theme_target.is_none() && selected_theme == *name {
             " ·"
@@ -287,8 +285,8 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
             ""
         };
         ListItem::new(Line::from(vec![
-            Span::styled(*name, Style::default().fg(p.subtext0)),
-            Span::styled(marker, Style::default().fg(p.green)),
+            Span::styled(*name, modal_option_style(p, selected)),
+            Span::styled(marker, modal_option_marker_style(p, selected)),
         ]))
     }));
 
@@ -296,11 +294,11 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
     let list = List::new(items)
         .highlight_style(
             Style::default()
-                .bg(p.surface0)
-                .fg(p.text)
+                .fg(panel_contrast_fg(p))
+                .bg(p.accent)
                 .add_modifier(Modifier::BOLD),
         )
-        .highlight_symbol(" ▸ ")
+        .highlight_symbol(" ")
         .style(Style::default().fg(p.subtext0));
 
     let viewport_rows = area.height as usize;
@@ -319,7 +317,9 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
         },
     );
 
-    let mut state = ListState::default().with_selected(Some(app.settings.list.selected));
+    let mut state = ListState::default()
+        .with_selected(Some(app.settings.list.selected))
+        .with_offset(scroll);
     frame.render_stateful_widget(list, scroll_area.body, &mut state);
     if let Some(track) = scroll_area.track {
         render_scrollbar(
@@ -355,8 +355,30 @@ fn render_settings_toggle(
         current_value,
         selected_idx,
         p,
-        1,
+        2,
     );
+}
+
+fn modal_option_style(p: &Palette, selected: bool) -> Style {
+    if selected {
+        Style::default()
+            .fg(panel_contrast_fg(p))
+            .bg(p.accent)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(p.subtext0)
+    }
+}
+
+fn modal_option_marker_style(p: &Palette, selected: bool) -> Style {
+    if selected {
+        Style::default()
+            .fg(panel_contrast_fg(p))
+            .bg(p.accent)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(p.green)
+    }
 }
 
 #[cfg(test)]

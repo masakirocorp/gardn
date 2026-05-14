@@ -265,17 +265,6 @@ impl AppState {
                         return None;
                     };
 
-                    let close = crate::ui::modal_close_button_rect(Rect::new(
-                        inner.x,
-                        inner.y,
-                        inner.width,
-                        1,
-                    ));
-                    if rect_contains(close, mouse.column, mouse.row) {
-                        apply_rename_action(self, ModalAction::Cancel);
-                        return None;
-                    }
-
                     if self.mode == Mode::RenameGroup {
                         if self.group_icon_picker_open {
                             for (rect, icon) in crate::ui::group_icon_picker_rects(inner) {

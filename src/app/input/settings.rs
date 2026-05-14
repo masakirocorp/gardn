@@ -439,13 +439,6 @@ impl AppState {
         None
     }
 
-    fn settings_close_button_at(&self, col: u16, row: u16) -> bool {
-        let inner = self.settings_inner_rect();
-        let button =
-            crate::ui::modal_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
-        col >= button.x && col < button.x + button.width && row == button.y
-    }
-
     pub(crate) fn settings_content_rect(&self) -> Rect {
         let inner = self.settings_inner_rect();
         crate::ui::modal_stack_areas(inner, 3, 2, 0, 1).content
@@ -479,8 +472,8 @@ impl AppState {
             }
             SettingsSection::Sound => {
                 let list_y = area.y + 3;
-                if row >= list_y && row < list_y + 2 {
-                    Some((row - list_y) as usize)
+                if row >= list_y && row < list_y + 4 {
+                    Some(((row - list_y) / 2) as usize)
                 } else {
                     None
                 }
@@ -495,8 +488,8 @@ impl AppState {
             }
             SettingsSection::PaneLabels => {
                 let list_y = area.y + 3;
-                if row >= list_y && row < list_y + 2 {
-                    Some((row - list_y) as usize)
+                if row >= list_y && row < list_y + 4 {
+                    Some(((row - list_y) / 2) as usize)
                 } else {
                     None
                 }
@@ -507,11 +500,6 @@ impl AppState {
     pub(super) fn handle_settings_mouse(&mut self, mouse: MouseEvent) -> Option<SettingsAction> {
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                if self.settings_close_button_at(mouse.column, mouse.row) {
-                    cancel_settings(self);
-                    return None;
-                }
-
                 if let Some(section) = self.settings_tab_at(mouse.column, mouse.row) {
                     self.settings.section = section;
                     self.settings.list.select(match section {
