@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-REPO="ogulcancelik/herdr"
+REPO="masakirocorp/herdr"
 BIN="herdr"
 INSTALL_DIR="${HERDR_INSTALL_DIR:-$HOME/.local/bin}"
 

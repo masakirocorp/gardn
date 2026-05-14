@@ -148,7 +148,7 @@ jobs:
             echo "website/latest.json is already at v$VERSION"
             exit 0
           fi
-          python3 scripts/changelog.py sync-latest-json --version "$VERSION" --output website/latest.json
+          python3 scripts/changelog.py sync-latest-json --version "$VERSION" --repo "$GITHUB_REPOSITORY" --output website/latest.json
 
       - name: Commit website latest manifest
         run: |
