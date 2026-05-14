@@ -403,7 +403,6 @@ impl App {
             command_palette: state::CommandPaletteState {
                 query: String::new(),
                 selected: 0,
-                scroll: 0,
                 wheel_gate: None,
             },
             workspace_scroll: 0,

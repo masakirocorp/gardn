@@ -14,7 +14,6 @@ const WHEEL_EVENTS_PER_SELECTION_STEP: u8 = 16;
 pub(super) fn open_command_palette(state: &mut AppState) {
     state.command_palette.query.clear();
     state.command_palette.selected = 0;
-    state.command_palette.scroll = 0;
     state.command_palette.wheel_gate = None;
     state.mode = Mode::CommandPalette;
 }
@@ -76,21 +75,16 @@ fn clamp_command_palette_selection(state: &mut AppState) {
     let count = command_palette_visible_commands(state).len();
     if count == 0 {
         state.command_palette.selected = 0;
-        state.command_palette.scroll = 0;
         return;
     }
 
     state.command_palette.selected = state.command_palette.selected.min(count - 1);
-    if state.command_palette.selected < state.command_palette.scroll {
-        state.command_palette.scroll = state.command_palette.selected;
-    }
 }
 
 fn move_command_palette_selection(state: &mut AppState, down: bool) -> bool {
     let count = command_palette_visible_commands(state).len();
     if count == 0 {
         state.command_palette.selected = 0;
-        state.command_palette.scroll = 0;
         return false;
     }
 

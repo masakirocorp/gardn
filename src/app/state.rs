@@ -949,7 +949,6 @@ pub struct KeybindHelpState {
 pub struct CommandPaletteState {
     pub query: String,
     pub selected: usize,
-    pub scroll: usize,
     pub wheel_gate: Option<CommandPaletteWheelGate>,
 }
 
@@ -1304,7 +1303,6 @@ impl AppState {
             command_palette: CommandPaletteState {
                 query: String::new(),
                 selected: 0,
-                scroll: 0,
                 wheel_gate: None,
             },
             workspace_scroll: 0,
