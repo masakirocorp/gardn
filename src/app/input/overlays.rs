@@ -132,21 +132,13 @@ impl App {
 }
 
 impl AppState {
-    pub(super) fn onboarding_full_area(&self) -> Rect {
-        self.view.sidebar_rect.union(self.view.terminal_area)
+    fn modal_inner(&self, popup_w: u16, popup_h: u16) -> Option<Rect> {
+        crate::ui::centered_popup_rect(self.screen_rect(), popup_w, popup_h)
+            .map(|popup| Block::default().borders(Borders::ALL).inner(popup))
     }
 
     pub(super) fn onboarding_modal_inner(&self, popup_w: u16, popup_h: u16) -> Option<Rect> {
-        let area = self.onboarding_full_area();
-        let popup_w = popup_w.min(area.width.saturating_sub(4));
-        let popup_h = popup_h.min(area.height.saturating_sub(2));
-        if popup_w < 4 || popup_h < 4 {
-            return None;
-        }
-        let popup_x = area.x + (area.width.saturating_sub(popup_w)) / 2;
-        let popup_y = area.y + (area.height.saturating_sub(popup_h)) / 2;
-        let popup = Rect::new(popup_x, popup_y, popup_w, popup_h);
-        Some(Block::default().borders(Borders::ALL).inner(popup))
+        self.modal_inner(popup_w, popup_h)
     }
 
     fn release_notes_modal_inner(&self) -> Option<Rect> {
@@ -173,8 +165,7 @@ impl AppState {
 
     pub(super) fn rename_modal_inner(&self) -> Option<Rect> {
         let (width, height) = crate::ui::rename_modal_size(self);
-        crate::ui::centered_popup_rect(self.screen_rect(), width, height)
-            .map(|popup| Block::default().borders(Borders::ALL).inner(popup))
+        self.modal_inner(width, height)
     }
 
     fn release_notes_body_rect(&self) -> Option<Rect> {
@@ -293,7 +284,7 @@ impl AppState {
     }
 
     fn keybind_help_modal_inner(&self) -> Option<Rect> {
-        self.onboarding_modal_inner(76, 22)
+        self.modal_inner(76, 22)
     }
 
     fn keybind_help_close_button_at(&self, col: u16, row: u16) -> bool {
@@ -393,6 +384,11 @@ mod tests {
 
     use super::super::{app_for_mouse_test, mouse};
     use super::*;
+    use crate::app::state::ReleaseNotesState;
+
+    fn add_right_sidebar(app: &mut crate::app::App) {
+        app.state.view.right_sidebar_rect = Rect::new(106, 0, 34, 20);
+    }
 
     #[test]
     fn clicking_keybind_help_close_button_closes_overlay() {
@@ -418,6 +414,49 @@ mod tests {
     }
 
     #[test]
+    fn keybind_help_close_uses_full_screen_geometry_with_right_sidebar() {
+        let mut app = app_for_mouse_test();
+        add_right_sidebar(&mut app);
+        app.state.mode = Mode::KeybindHelp;
+
+        let inner = app.state.keybind_help_modal_inner().unwrap();
+        let close =
+            crate::ui::release_notes_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            close.x,
+            close.y,
+        ));
+
+        assert_eq!(app.state.mode, Mode::Navigate);
+    }
+
+    #[test]
+    fn release_notes_close_uses_full_screen_geometry_with_right_sidebar() {
+        let mut app = app_for_mouse_test();
+        add_right_sidebar(&mut app);
+        app.state.mode = Mode::ReleaseNotes;
+        app.state.release_notes = Some(ReleaseNotesState {
+            version: "0.0.0".to_string(),
+            body: "test notes".to_string(),
+            scroll: 0,
+            preview: true,
+        });
+
+        let inner = app.state.release_notes_modal_inner().unwrap();
+        let close =
+            crate::ui::release_notes_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            close.x,
+            close.y,
+        ));
+
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert!(app.state.release_notes.is_none());
+    }
+
+    #[test]
     fn onboarding_hover_does_not_change_selection() {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::Onboarding;
@@ -432,6 +471,26 @@ mod tests {
     #[test]
     fn onboarding_click_continue_requests_completion() {
         let mut app = app_for_mouse_test();
+        app.state.mode = Mode::Onboarding;
+
+        let inner = app.state.onboarding_modal_inner(64, 16).unwrap();
+        let actions = crate::ui::modal_stack_areas(inner, 2, 0, 1, 1)
+            .actions
+            .unwrap();
+        let continue_rect = crate::ui::onboarding_welcome_continue_rect(actions);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            continue_rect.x,
+            continue_rect.y,
+        ));
+
+        assert!(app.state.request_complete_onboarding);
+    }
+
+    #[test]
+    fn onboarding_continue_uses_full_screen_geometry_with_right_sidebar() {
+        let mut app = app_for_mouse_test();
+        add_right_sidebar(&mut app);
         app.state.mode = Mode::Onboarding;
 
         let inner = app.state.onboarding_modal_inner(64, 16).unwrap();

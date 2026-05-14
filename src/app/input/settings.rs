@@ -560,6 +560,28 @@ mod tests {
     }
 
     #[test]
+    fn group_theme_apply_uses_full_screen_geometry_with_right_sidebar() {
+        let mut app = app_for_mouse_test();
+        app.state.view.right_sidebar_rect = Rect::new(106, 0, 34, 20);
+        let group_idx = app.state.create_group("Side".to_string());
+
+        open_group_theme_settings(&mut app.state, group_idx);
+        app.state.settings.list.selected = 1;
+        let inner = app.state.settings_inner_rect();
+        let (apply, _) = crate::ui::settings_button_rects(inner);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            apply.x,
+            apply.y,
+        ));
+
+        assert_eq!(
+            app.state.groups[group_idx].theme_name.as_deref(),
+            Some("catppuccin")
+        );
+    }
+
+    #[test]
     fn settings_sound_toggle_returns_save_action() {
         let mut state = state_with_workspaces(&["test"]);
         open_settings(&mut state);
