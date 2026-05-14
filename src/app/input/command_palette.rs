@@ -22,7 +22,6 @@ pub(super) fn command_palette_visible_commands(state: &AppState) -> Vec<CommandP
 
 impl App {
     pub(crate) fn handle_command_palette_key(&mut self, key: KeyEvent) {
-        self.last_command_palette_wheel = None;
         match key.code {
             KeyCode::Esc => leave_command_palette(&mut self.state),
             KeyCode::Enter => self.execute_selected_command_palette_command(),
@@ -101,8 +100,8 @@ fn move_command_palette_selection(state: &mut AppState, down: bool) -> bool {
     changed
 }
 
-pub(super) fn scroll_command_palette_selection(state: &mut AppState, delta: i16) {
-    move_command_palette_selection(state, delta.is_positive());
+pub(super) fn scroll_command_palette_selection(state: &mut AppState, down: bool) {
+    move_command_palette_selection(state, down);
 }
 
 fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
