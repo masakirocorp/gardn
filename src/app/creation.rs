@@ -1,12 +1,37 @@
 use tracing::error;
 
+use std::collections::HashSet;
+
 use super::{
     api_helpers::{pane_agent_status, tab_attention_priority},
     App, Mode,
 };
-use crate::workspace::Workspace;
+use crate::workspace::{derive_label_from_cwd, Workspace};
 
 impl App {
+    pub(super) fn collision_free_workspace_name(
+        &self,
+        initial_cwd: &std::path::Path,
+    ) -> Option<String> {
+        let base = derive_label_from_cwd(initial_cwd);
+        let group_id = self.state.active_group_id();
+        let names: HashSet<_> = self
+            .state
+            .workspaces
+            .iter()
+            .filter(|ws| ws.group_id == group_id)
+            .map(|ws| ws.display_name())
+            .collect();
+
+        if !names.contains(&base) {
+            return None;
+        }
+
+        (2..)
+            .map(|suffix| format!("{base} {suffix}"))
+            .find(|candidate| !names.contains(candidate))
+    }
+
     pub(super) fn seed_cwd_from_workspace(&self, ws_idx: usize) -> Option<std::path::PathBuf> {
         self.state.workspaces.get(ws_idx)?.resolved_identity_cwd()
     }
@@ -110,6 +135,7 @@ impl App {
         focus: bool,
     ) -> std::io::Result<usize> {
         let (rows, cols) = self.state.estimate_pane_size();
+        let custom_name = self.collision_free_workspace_name(&initial_cwd);
         let mut ws = Workspace::new(
             initial_cwd,
             rows,
@@ -121,6 +147,9 @@ impl App {
             self.render_dirty.clone(),
         )?;
         ws.group_id = self.state.active_group_id().to_string();
+        if let Some(name) = custom_name {
+            ws.set_custom_name(name);
+        }
         self.state.workspaces.push(ws);
         let idx = self.state.workspaces.len() - 1;
         let workspace_id = self.state.workspaces[idx].id.clone();

@@ -108,7 +108,7 @@ pub(super) fn open_agent_menu(state: &mut AppState) {
     let highlighted = match state.agent_panel_scope {
         crate::app::state::AgentPanelScope::AllWorkspaces => 0,
         crate::app::state::AgentPanelScope::CurrentWorkspace => 2,
-        crate::app::state::AgentPanelScope::CurrentGroup => 3,
+        crate::app::state::AgentPanelScope::CurrentGroup => 4,
     };
     state.agent_menu = MenuListState::new(highlighted);
     state.mode = Mode::AgentMenu;

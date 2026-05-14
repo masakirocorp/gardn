@@ -1681,6 +1681,30 @@ mod tests {
     }
 
     #[test]
+    fn workspace_creation_names_duplicate_cwd_labels_with_suffix() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("herdr"), Workspace::test_new("herdr 2")];
+
+        let name = app.collision_free_workspace_name(std::path::Path::new("/tmp/herdr"));
+
+        assert_eq!(name.as_deref(), Some("herdr 3"));
+    }
+
+    #[test]
+    fn workspace_creation_suffixes_only_within_active_group() {
+        let mut app = test_app();
+        let work_group = app.state.create_group("Work".to_string());
+        let mut existing = Workspace::test_new("herdr");
+        existing.group_id = app.state.groups[work_group].id.clone();
+        app.state.workspaces = vec![existing];
+        app.state.active_group = 0;
+
+        let name = app.collision_free_workspace_name(std::path::Path::new("/tmp/herdr"));
+
+        assert_eq!(name, None);
+    }
+
+    #[test]
     fn server_stop_request_sets_should_quit_flag() {
         let mut app = test_app();
 

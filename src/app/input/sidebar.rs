@@ -204,7 +204,7 @@ impl AppState {
 
     pub(crate) fn sidebar_new_button_rect(&self) -> Rect {
         let footer = self.sidebar_footer_rect();
-        let width = 5u16.min(footer.width.max(1));
+        let width = 9u16.min(footer.width.max(1));
         Rect::new(footer.x, footer.y, width, footer.height)
     }
 
@@ -388,18 +388,68 @@ impl AppState {
                 "this space ({})",
                 crate::ui::agent_panel_scope_count(self, AgentPanelScope::CurrentWorkspace)
             ),
+            format!("  {}", self.agent_menu_space_context_label()),
             format!(
                 "this group ({})",
                 crate::ui::agent_panel_scope_count(self, AgentPanelScope::CurrentGroup)
             ),
+            format!("  {}", self.agent_menu_group_context_label()),
         ]
+    }
+
+    fn agent_menu_current_workspace_idx(&self) -> Option<usize> {
+        let idx = if matches!(
+            self.mode,
+            Mode::Navigate
+                | Mode::RenameWorkspace
+                | Mode::RenameGroup
+                | Mode::RenamePane
+                | Mode::Resize
+                | Mode::ConfirmClose
+                | Mode::ConfirmDeleteGroup
+                | Mode::ContextMenu
+                | Mode::Settings
+                | Mode::GlobalMenu
+                | Mode::GroupMenu
+                | Mode::AgentMenu
+                | Mode::KeybindHelp
+        ) {
+            Some(self.selected)
+        } else {
+            self.active
+        }?;
+        self.workspace_in_active_group(idx).then_some(idx)
+    }
+
+    fn agent_menu_space_context_label(&self) -> String {
+        self.agent_menu_current_workspace_idx()
+            .and_then(|idx| self.workspaces.get(idx))
+            .map(|ws| ws.display_name())
+            .unwrap_or_else(|| "no space".to_string())
+    }
+
+    fn agent_menu_group_context_label(&self) -> String {
+        if let Some(group_id) = self
+            .agent_menu_current_workspace_idx()
+            .and_then(|idx| self.workspaces.get(idx))
+            .map(|ws| ws.group_id.as_str())
+        {
+            return self
+                .groups
+                .iter()
+                .find(|group| group.id == group_id)
+                .map(|group| group.name.clone())
+                .unwrap_or_else(|| "group 1".to_string());
+        }
+
+        self.active_group_name().to_string()
     }
 
     pub(crate) fn agent_menu_action_for_row(&self, row_idx: usize) -> Option<AgentMenuAction> {
         match row_idx {
             0 => Some(AgentMenuAction::AllAgents),
             2 => Some(AgentMenuAction::ThisSpace),
-            3 => Some(AgentMenuAction::ThisGroup),
+            4 => Some(AgentMenuAction::ThisGroup),
             _ => None,
         }
     }
@@ -415,7 +465,12 @@ impl AppState {
         let labels = self.agent_menu_labels();
         let content_width = labels
             .iter()
-            .map(|label| label.chars().count() as u16)
+            .enumerate()
+            .filter_map(|(idx, label)| {
+                self.agent_menu_action_for_row(idx)
+                    .is_some()
+                    .then_some(label.chars().count() as u16)
+            })
             .max()
             .unwrap_or(8)
             .saturating_add(2);
@@ -1345,8 +1400,36 @@ mod tests {
 
         assert_eq!(
             app.state.agent_menu_labels(),
-            vec!["all agents (2)", "---", "this space (0)", "this group (1)"]
+            vec![
+                "all agents (2)",
+                "---",
+                "this space (0)",
+                "  triage",
+                "this group (1)",
+                "  group 1",
+            ]
         );
+    }
+
+    #[test]
+    fn agent_scope_menu_context_labels_do_not_widen_menu() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("very-long-space-name-that-should-clip");
+        let pane = ws.tabs[0].root_pane;
+        ws.tabs[0].panes.get_mut(&pane).unwrap().detected_agent = Some(Agent::Claude);
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+
+        let labels_width = app
+            .state
+            .agent_menu_labels()
+            .iter()
+            .map(|label| label.chars().count() as u16)
+            .max()
+            .unwrap();
+
+        assert!(labels_width > app.state.agent_menu_rect().width);
     }
 
     #[test]

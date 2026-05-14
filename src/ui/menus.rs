@@ -210,9 +210,13 @@ pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
     let items: Vec<ListItem> = app
         .agent_menu_labels()
         .iter()
-        .map(|item| {
+        .enumerate()
+        .map(|(idx, item)| {
             if item == "---" {
                 ListItem::new(Line::from("-".repeat(inner.width as usize)))
+                    .style(Style::default().fg(app.palette.overlay0))
+            } else if app.agent_menu_action_for_row(idx).is_none() {
+                ListItem::new(Line::from(item.clone()))
                     .style(Style::default().fg(app.palette.overlay0))
             } else if let Some((name, count)) = count_suffix(item) {
                 ListItem::new(Line::from(vec![
