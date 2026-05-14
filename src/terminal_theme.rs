@@ -12,6 +12,12 @@ pub struct TerminalTheme {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThemeAppearance {
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DefaultColorKind {
     Foreground,
     Background,
@@ -30,6 +36,17 @@ impl TerminalTheme {
 
     pub fn is_empty(self) -> bool {
         self.foreground.is_none() && self.background.is_none()
+    }
+
+    pub fn appearance(self) -> Option<ThemeAppearance> {
+        let bg = self.background?;
+        let luminance =
+            (u32::from(bg.r) * 299 + u32::from(bg.g) * 587 + u32::from(bg.b) * 114) / 1000;
+        if luminance >= 128 {
+            Some(ThemeAppearance::Light)
+        } else {
+            Some(ThemeAppearance::Dark)
+        }
     }
 }
 
@@ -138,5 +155,35 @@ mod tests {
         assert_eq!(parse_hex_component("80"), Some(128));
         assert_eq!(parse_hex_component("800"), Some(128));
         assert_eq!(parse_hex_component("8000"), Some(128));
+    }
+
+    #[test]
+    fn terminal_theme_appearance_uses_background_luminance() {
+        assert_eq!(
+            TerminalTheme::default()
+                .with_color(
+                    DefaultColorKind::Background,
+                    RgbColor {
+                        r: 245,
+                        g: 245,
+                        b: 245,
+                    },
+                )
+                .appearance(),
+            Some(ThemeAppearance::Light)
+        );
+        assert_eq!(
+            TerminalTheme::default()
+                .with_color(
+                    DefaultColorKind::Background,
+                    RgbColor {
+                        r: 20,
+                        g: 20,
+                        b: 20,
+                    },
+                )
+                .appearance(),
+            Some(ThemeAppearance::Dark)
+        );
     }
 }

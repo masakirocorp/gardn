@@ -148,22 +148,28 @@ fn agent_panel_scope_from_config(
 }
 
 /// Resolve the palette from config: base theme + optional custom overrides.
-fn resolve_palette(config: &crate::config::Config) -> state::Palette {
-    resolve_palette_with_legacy_accent(config, true)
+fn resolve_palette(
+    config: &crate::config::Config,
+    host_theme: crate::terminal_theme::TerminalTheme,
+) -> state::Palette {
+    resolve_palette_with_legacy_accent(config, true, host_theme)
 }
 
 fn resolve_palette_with_legacy_accent(
     config: &crate::config::Config,
     use_legacy_ui_accent: bool,
+    host_theme: crate::terminal_theme::TerminalTheme,
 ) -> state::Palette {
     // Start with the named theme (default: catppuccin)
     let base_name = config.theme.name.as_deref().unwrap_or("catppuccin");
-    let mut palette = state::Palette::from_name(base_name).unwrap_or_else(|| {
+    let appearance = config.theme.mode.resolve(host_theme);
+    let mut palette = state::Palette::from_theme(base_name, appearance).unwrap_or_else(|| {
         tracing::warn!(
             theme = base_name,
             "unknown theme, falling back to catppuccin"
         );
-        state::Palette::catppuccin()
+        state::Palette::from_theme("catppuccin", appearance)
+            .unwrap_or_else(state::Palette::catppuccin)
     });
 
     // Apply custom overrides if present
@@ -319,12 +325,14 @@ impl App {
 
         let agent_panel_scope = agent_panel_scope_from_config(config.ui.agent_panel_scope);
         let active_group = active_group.min(groups.len().saturating_sub(1));
-        let global_palette = resolve_palette(config);
+        let host_terminal_theme = crate::terminal_theme::TerminalTheme::default();
+        let global_palette = resolve_palette(config, host_terminal_theme);
         let global_theme_name = config
             .theme
             .name
             .clone()
             .unwrap_or_else(|| "catppuccin".to_string());
+        let global_theme_mode = config.theme.mode;
 
         info!(
             pane_scrollback_limit_bytes = config.advanced.scrollback_limit_bytes,
@@ -441,16 +449,27 @@ impl App {
             global_palette,
             theme_name: global_theme_name.clone(),
             global_theme_name,
+            global_theme_mode,
+            global_theme_custom: config.theme.custom.clone(),
+            global_theme_use_legacy_ui_accent: config.ui.accent != "cyan"
+                && config
+                    .theme
+                    .custom
+                    .as_ref()
+                    .and_then(|custom| custom.accent.as_ref())
+                    .is_none(),
             settings: state::SettingsState {
                 section: state::SettingsSection::Theme,
                 list: state::SelectionListState::new(0),
                 original_palette: None,
                 original_theme: None,
+                pending_theme_name: None,
+                pending_theme_mode: None,
                 group_theme_target: None,
             },
             global_menu: state::MenuListState::new(0),
             group_menu: state::MenuListState::new(0),
-            host_terminal_theme: crate::terminal_theme::TerminalTheme::default(),
+            host_terminal_theme,
             session_dirty: false,
         };
 
@@ -800,13 +819,26 @@ impl App {
         }
 
         if !invalid_section("theme") {
-            self.state.global_palette =
-                resolve_palette_with_legacy_accent(config, !invalid_section("ui"));
             self.state.global_theme_name = config
                 .theme
                 .name
                 .clone()
                 .unwrap_or_else(|| "catppuccin".to_string());
+            self.state.global_theme_mode = config.theme.mode;
+            self.state.global_theme_custom = config.theme.custom.clone();
+            self.state.global_theme_use_legacy_ui_accent = !invalid_section("ui")
+                && config.ui.accent != "cyan"
+                && config
+                    .theme
+                    .custom
+                    .as_ref()
+                    .and_then(|custom| custom.accent.as_ref())
+                    .is_none();
+            self.state.global_palette = resolve_palette_with_legacy_accent(
+                config,
+                !invalid_section("ui"),
+                self.state.host_terminal_theme,
+            );
             self.state.apply_effective_theme();
         }
 
@@ -1354,6 +1386,27 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("agent_panel_scope = \"current\""));
         assert!(app.state.config_diagnostic.is_none());
+
+        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn settings_save_theme_persists_family_and_mode() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("settings-save-theme-mode");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "onboarding = false\n[theme]\nname = \"nord\"\n").unwrap();
+        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        app.save_theme("gruvbox", crate::config::ThemeMode::Light);
+
+        assert_eq!(app.state.global_theme_name, "gruvbox");
+        assert_eq!(app.state.global_theme_mode, crate::config::ThemeMode::Light);
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("name = \"gruvbox\""));
+        assert!(content.contains("mode = \"light\""));
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -2238,16 +2291,22 @@ mod tests {
     #[test]
     fn route_client_input_updates_host_terminal_theme_from_osc_response() {
         let mut app = test_app();
+        app.state.global_theme_name = "gruvbox".to_string();
+        app.state.global_theme_mode = crate::config::ThemeMode::System;
 
-        app.route_client_input(b"\x1b]11;#123456\x07".to_vec());
+        app.route_client_input(b"\x1b]11;#f5f5f5\x07".to_vec());
 
         assert_eq!(
             app.state.host_terminal_theme.background,
             Some(crate::terminal_theme::RgbColor {
-                r: 0x12,
-                g: 0x34,
-                b: 0x56,
+                r: 0xf5,
+                g: 0xf5,
+                b: 0xf5,
             })
+        );
+        assert_eq!(
+            app.state.palette.panel_bg,
+            state::Palette::gruvbox_light().panel_bg
         );
     }
 

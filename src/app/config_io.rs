@@ -41,9 +41,20 @@ impl App {
         });
     }
 
-    pub(super) fn save_theme(&mut self, name: &str) {
+    pub(super) fn save_theme(&mut self, name: &str, mode: crate::config::ThemeMode) {
         if self.update_config_file("theme", |content| {
-            crate::config::upsert_section_value(content, "theme", "name", &format!("\"{name}\""))
+            let content = crate::config::upsert_section_value(
+                content,
+                "theme",
+                "name",
+                &format!("\"{name}\""),
+            );
+            crate::config::upsert_section_value(
+                &content,
+                "theme",
+                "mode",
+                &format!("\"{}\"", mode.as_str()),
+            )
         }) {
             self.apply_config_from_disk(false);
         }

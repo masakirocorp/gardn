@@ -28,6 +28,10 @@ impl App {
             return false;
         }
         self.state.host_terminal_theme = theme;
+        if self.state.global_theme_mode == crate::config::ThemeMode::System {
+            self.state.refresh_global_palette();
+            self.state.apply_effective_theme();
+        }
         self.apply_host_terminal_theme_to_panes();
         true
     }

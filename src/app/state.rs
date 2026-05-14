@@ -1,4 +1,6 @@
-use crate::config::{Keybinds, SoundConfig, ToastConfig, ToastDelivery};
+use crate::config::{
+    CustomThemeColors, Keybinds, SoundConfig, ThemeMode, ToastConfig, ToastDelivery,
+};
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Direction, Rect};
 use ratatui::style::Color;
@@ -7,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::layout::{PaneId, PaneInfo, SplitBorder};
 use crate::selection::Selection;
-use crate::terminal_theme::TerminalTheme;
+use crate::terminal_theme::{TerminalTheme, ThemeAppearance};
 use crate::workspace::Workspace;
 
 static NEXT_GROUP_ID: AtomicU64 = AtomicU64::new(1);
@@ -121,6 +123,28 @@ impl Palette {
         }
     }
 
+    /// Catppuccin Latte.
+    pub fn catppuccin_light() -> Self {
+        Self {
+            accent: Color::Rgb(30, 102, 245),
+            panel_bg: Color::Rgb(239, 241, 245),
+            surface0: Color::Rgb(204, 208, 218),
+            surface1: Color::Rgb(188, 192, 204),
+            surface_dim: Color::Rgb(220, 224, 232),
+            overlay0: Color::Rgb(108, 111, 133),
+            overlay1: Color::Rgb(92, 95, 119),
+            text: Color::Rgb(76, 79, 105),
+            subtext0: Color::Rgb(108, 111, 133),
+            mauve: Color::Rgb(136, 57, 239),
+            green: Color::Rgb(64, 160, 43),
+            yellow: Color::Rgb(223, 142, 29),
+            red: Color::Rgb(210, 15, 57),
+            blue: Color::Rgb(30, 102, 245),
+            teal: Color::Rgb(23, 146, 153),
+            peach: Color::Rgb(254, 100, 11),
+        }
+    }
+
     /// Tokyo Night — blue-purple aesthetic.
     pub fn tokyo_night() -> Self {
         Self {
@@ -140,6 +164,28 @@ impl Palette {
             blue: Color::Rgb(122, 162, 247),
             teal: Color::Rgb(125, 207, 255),
             peach: Color::Rgb(255, 158, 100),
+        }
+    }
+
+    /// Tokyo Night Day.
+    pub fn tokyo_night_light() -> Self {
+        Self {
+            accent: Color::Rgb(52, 84, 138),
+            panel_bg: Color::Rgb(213, 214, 219),
+            surface0: Color::Rgb(188, 189, 194),
+            surface1: Color::Rgb(172, 173, 178),
+            surface_dim: Color::Rgb(203, 204, 209),
+            overlay0: Color::Rgb(116, 124, 149),
+            overlay1: Color::Rgb(97, 103, 125),
+            text: Color::Rgb(52, 59, 88),
+            subtext0: Color::Rgb(86, 95, 137),
+            mauve: Color::Rgb(90, 74, 120),
+            green: Color::Rgb(72, 94, 48),
+            yellow: Color::Rgb(143, 94, 21),
+            red: Color::Rgb(140, 67, 81),
+            blue: Color::Rgb(52, 84, 138),
+            teal: Color::Rgb(51, 99, 122),
+            peach: Color::Rgb(150, 80, 39),
         }
     }
 
@@ -209,6 +255,28 @@ impl Palette {
         }
     }
 
+    /// Gruvbox Light.
+    pub fn gruvbox_light() -> Self {
+        Self {
+            accent: Color::Rgb(181, 118, 20),
+            panel_bg: Color::Rgb(251, 241, 199),
+            surface0: Color::Rgb(235, 219, 178),
+            surface1: Color::Rgb(213, 196, 161),
+            surface_dim: Color::Rgb(242, 229, 188),
+            overlay0: Color::Rgb(146, 131, 116),
+            overlay1: Color::Rgb(124, 111, 100),
+            text: Color::Rgb(60, 56, 54),
+            subtext0: Color::Rgb(80, 73, 69),
+            mauve: Color::Rgb(177, 98, 134),
+            green: Color::Rgb(121, 116, 14),
+            yellow: Color::Rgb(181, 118, 20),
+            red: Color::Rgb(157, 0, 6),
+            blue: Color::Rgb(7, 102, 120),
+            teal: Color::Rgb(66, 123, 88),
+            peach: Color::Rgb(175, 58, 3),
+        }
+    }
+
     /// One Dark — Atom's classic dark theme.
     pub fn one_dark() -> Self {
         Self {
@@ -231,6 +299,28 @@ impl Palette {
         }
     }
 
+    /// Atom One Light.
+    pub fn one_light() -> Self {
+        Self {
+            accent: Color::Rgb(64, 120, 242),
+            panel_bg: Color::Rgb(250, 250, 250),
+            surface0: Color::Rgb(230, 230, 230),
+            surface1: Color::Rgb(210, 210, 210),
+            surface_dim: Color::Rgb(238, 238, 238),
+            overlay0: Color::Rgb(160, 161, 167),
+            overlay1: Color::Rgb(105, 108, 117),
+            text: Color::Rgb(56, 58, 66),
+            subtext0: Color::Rgb(92, 99, 112),
+            mauve: Color::Rgb(166, 38, 164),
+            green: Color::Rgb(80, 161, 79),
+            yellow: Color::Rgb(193, 132, 1),
+            red: Color::Rgb(228, 86, 73),
+            blue: Color::Rgb(64, 120, 242),
+            teal: Color::Rgb(1, 132, 188),
+            peach: Color::Rgb(152, 104, 1),
+        }
+    }
+
     /// Solarized Dark — Ethan Schoonover's classic.
     pub fn solarized() -> Self {
         Self {
@@ -243,6 +333,28 @@ impl Palette {
             overlay1: Color::Rgb(101, 123, 131),
             text: Color::Rgb(147, 161, 161),
             subtext0: Color::Rgb(131, 148, 150),
+            mauve: Color::Rgb(211, 54, 130),
+            green: Color::Rgb(133, 153, 0),
+            yellow: Color::Rgb(181, 137, 0),
+            red: Color::Rgb(220, 50, 47),
+            blue: Color::Rgb(38, 139, 210),
+            teal: Color::Rgb(42, 161, 152),
+            peach: Color::Rgb(203, 75, 22),
+        }
+    }
+
+    /// Solarized Light.
+    pub fn solarized_light() -> Self {
+        Self {
+            accent: Color::Rgb(38, 139, 210),
+            panel_bg: Color::Rgb(253, 246, 227),
+            surface0: Color::Rgb(238, 232, 213),
+            surface1: Color::Rgb(147, 161, 161),
+            surface_dim: Color::Rgb(246, 239, 219),
+            overlay0: Color::Rgb(147, 161, 161),
+            overlay1: Color::Rgb(101, 123, 131),
+            text: Color::Rgb(88, 110, 117),
+            subtext0: Color::Rgb(101, 123, 131),
             mauve: Color::Rgb(211, 54, 130),
             green: Color::Rgb(133, 153, 0),
             yellow: Color::Rgb(181, 137, 0),
@@ -297,6 +409,28 @@ impl Palette {
         }
     }
 
+    /// Rose Pine Dawn.
+    pub fn rose_pine_light() -> Self {
+        Self {
+            accent: Color::Rgb(144, 122, 169),
+            panel_bg: Color::Rgb(250, 244, 237),
+            surface0: Color::Rgb(242, 233, 222),
+            surface1: Color::Rgb(223, 218, 217),
+            surface_dim: Color::Rgb(246, 238, 229),
+            overlay0: Color::Rgb(152, 147, 165),
+            overlay1: Color::Rgb(121, 117, 147),
+            text: Color::Rgb(87, 82, 121),
+            subtext0: Color::Rgb(110, 106, 134),
+            mauve: Color::Rgb(144, 122, 169),
+            green: Color::Rgb(40, 105, 131),
+            yellow: Color::Rgb(234, 157, 52),
+            red: Color::Rgb(180, 99, 122),
+            blue: Color::Rgb(40, 105, 131),
+            teal: Color::Rgb(86, 148, 159),
+            peach: Color::Rgb(215, 130, 126),
+        }
+    }
+
     /// Vesper — minimal high-contrast monochrome with peach and mint accents.
     pub fn vesper() -> Self {
         Self {
@@ -333,6 +467,26 @@ impl Palette {
             "rose-pine" | "rosepine" => Some(Self::rose_pine()),
             "vesper" => Some(Self::vesper()),
             _ => None,
+        }
+    }
+
+    pub fn from_theme(
+        name: &str,
+        appearance: crate::terminal_theme::ThemeAppearance,
+    ) -> Option<Self> {
+        let normalized = name.to_lowercase().replace([' ', '_'], "-");
+        if appearance == crate::terminal_theme::ThemeAppearance::Dark {
+            return Self::from_name(&normalized);
+        }
+
+        match normalized.as_str() {
+            "catppuccin" | "catppuccin-mocha" => Some(Self::catppuccin_light()),
+            "tokyo-night" | "tokyonight" => Some(Self::tokyo_night_light()),
+            "gruvbox" | "gruvbox-dark" => Some(Self::gruvbox_light()),
+            "one-dark" | "onedark" => Some(Self::one_light()),
+            "solarized" | "solarized-dark" => Some(Self::solarized_light()),
+            "rose-pine" | "rosepine" => Some(Self::rose_pine_light()),
+            _ => Self::from_name(&normalized),
         }
     }
 
@@ -551,6 +705,10 @@ pub struct SettingsState {
     pub original_palette: Option<Palette>,
     /// The theme name before opening settings.
     pub original_theme: Option<String>,
+    /// Pending global theme family while settings is open.
+    pub pending_theme_name: Option<String>,
+    /// Pending global theme mode while settings is open.
+    pub pending_theme_mode: Option<ThemeMode>,
     /// Group whose theme is being edited, if settings was opened from a group menu.
     pub group_theme_target: Option<usize>,
 }
@@ -806,6 +964,12 @@ pub struct AppState {
     pub theme_name: String,
     /// Default app theme name from config.
     pub global_theme_name: String,
+    /// Default app light/dark mode from config.
+    pub global_theme_mode: ThemeMode,
+    /// Custom color overrides from config, applied only to the global fallback theme.
+    pub global_theme_custom: Option<CustomThemeColors>,
+    /// Whether legacy `ui.accent` should override the global theme accent.
+    pub global_theme_use_legacy_ui_accent: bool,
     /// Settings panel state.
     pub settings: SettingsState,
     /// Highlight state for the bottom-right global launcher menu.
@@ -819,6 +983,43 @@ pub struct AppState {
 }
 
 impl AppState {
+    pub fn theme_appearance_for_mode(&self, mode: ThemeMode) -> ThemeAppearance {
+        mode.resolve(self.host_terminal_theme)
+    }
+
+    pub fn palette_for_theme_mode(&self, theme_name: &str, mode: ThemeMode) -> Option<Palette> {
+        Palette::from_theme(theme_name, self.theme_appearance_for_mode(mode))
+    }
+
+    pub fn palette_for_theme(&self, theme_name: &str) -> Option<Palette> {
+        self.palette_for_theme_mode(theme_name, self.global_theme_mode)
+    }
+
+    pub fn configured_global_palette(&self, theme_name: &str, mode: ThemeMode) -> Option<Palette> {
+        let mut palette = self.palette_for_theme_mode(theme_name, mode)?;
+        if let Some(custom) = &self.global_theme_custom {
+            palette = palette.with_overrides(custom);
+        }
+        if self.global_theme_use_legacy_ui_accent
+            && self
+                .global_theme_custom
+                .as_ref()
+                .and_then(|custom| custom.accent.as_ref())
+                .is_none()
+        {
+            palette.accent = self.accent;
+        }
+        Some(palette)
+    }
+
+    pub fn refresh_global_palette(&mut self) {
+        if let Some(palette) =
+            self.configured_global_palette(&self.global_theme_name, self.global_theme_mode)
+        {
+            self.global_palette = palette;
+        }
+    }
+
     pub fn active_group_id(&self) -> &str {
         self.groups
             .get(self.active_group)
@@ -1126,11 +1327,16 @@ impl AppState {
             global_palette: Palette::catppuccin(),
             theme_name: "catppuccin".to_string(),
             global_theme_name: "catppuccin".to_string(),
+            global_theme_mode: ThemeMode::System,
+            global_theme_custom: None,
+            global_theme_use_legacy_ui_accent: false,
             settings: SettingsState {
                 section: SettingsSection::Theme,
                 list: SelectionListState::new(0),
                 original_palette: None,
                 original_theme: None,
+                pending_theme_name: None,
+                pending_theme_mode: None,
                 group_theme_target: None,
             },
             global_menu: MenuListState::new(0),
@@ -1171,5 +1377,15 @@ mod tests {
             KeyCode::Char('b'),
             KeyModifiers::SHIFT,
         ));
+    }
+
+    #[test]
+    fn dark_only_theme_uses_dark_palette_in_light_mode() {
+        assert_eq!(
+            Palette::from_theme("nord", ThemeAppearance::Light)
+                .unwrap()
+                .panel_bg,
+            Palette::nord().panel_bg
+        );
     }
 }

@@ -6,14 +6,17 @@ use crate::{
         state::{AppState, SettingsSection, THEME_NAMES},
         App, Mode,
     },
-    config::ToastDelivery,
+    config::{ThemeMode, ToastDelivery},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 // The shared `Save` verb is semantic: these actions persist settings.
 #[allow(clippy::enum_variant_names)]
 pub(super) enum SettingsAction {
-    SaveTheme(String),
+    SaveTheme {
+        name: String,
+        mode: ThemeMode,
+    },
     SaveGroupTheme {
         group_idx: usize,
         name: Option<String>,
@@ -27,7 +30,7 @@ impl App {
     pub(crate) fn handle_settings_key(&mut self, key: KeyEvent) {
         if let Some(action) = update_settings_state(&mut self.state, key) {
             match action {
-                SettingsAction::SaveTheme(name) => self.save_theme(&name),
+                SettingsAction::SaveTheme { name, mode } => self.save_theme(&name, mode),
                 SettingsAction::SaveGroupTheme { group_idx, name } => {
                     self.state.set_group_theme(group_idx, name);
                 }
@@ -70,7 +73,21 @@ fn toast_delivery_for_index(idx: usize) -> ToastDelivery {
 }
 
 fn theme_list_len(state: &AppState) -> usize {
-    THEME_NAMES.len() + usize::from(state.settings.group_theme_target.is_some())
+    if state.settings.group_theme_target.is_some() {
+        THEME_NAMES.len() + 1
+    } else {
+        ThemeMode::ALL.len() + THEME_NAMES.len()
+    }
+}
+
+fn theme_mode_for_index(idx: usize) -> Option<ThemeMode> {
+    ThemeMode::ALL.get(idx).copied()
+}
+
+fn theme_name_for_index(idx: usize) -> Option<String> {
+    THEME_NAMES
+        .get(idx.checked_sub(ThemeMode::ALL.len())?)
+        .map(|name| (*name).to_string())
 }
 
 fn selected_group_theme_name(state: &AppState) -> Option<String> {
@@ -81,13 +98,13 @@ fn selected_group_theme_name(state: &AppState) -> Option<String> {
             Some(THEME_NAMES[state.settings.list.selected - 1].to_string())
         }
     } else {
-        Some(THEME_NAMES[state.settings.list.selected].to_string())
+        theme_name_for_index(state.settings.list.selected)
     }
 }
 
 fn target_theme_index(state: &AppState) -> usize {
     let Some(group_idx) = state.settings.group_theme_target else {
-        return current_theme_index(&state.theme_name);
+        return ThemeMode::ALL.len() + current_theme_index(&state.global_theme_name);
     };
     state
         .groups
@@ -98,6 +115,50 @@ fn target_theme_index(state: &AppState) -> usize {
 }
 
 fn preview_selected_theme(state: &mut AppState) {
+    if state.settings.group_theme_target.is_some() {
+        if let Some(name) = selected_group_theme_name(state) {
+            state.preview_theme(&name);
+        } else {
+            let theme_name = state.global_theme_name.clone();
+            state.preview_theme(&theme_name);
+        }
+        return;
+    }
+
+    if let Some(mode) = theme_mode_for_index(state.settings.list.selected) {
+        state.settings.pending_theme_mode = Some(mode);
+    } else if let Some(name) = theme_name_for_index(state.settings.list.selected) {
+        state.settings.pending_theme_name = Some(name);
+    }
+
+    let name = state
+        .settings
+        .pending_theme_name
+        .clone()
+        .unwrap_or_else(|| state.global_theme_name.clone());
+    let mode = state
+        .settings
+        .pending_theme_mode
+        .unwrap_or(state.global_theme_mode);
+    state.preview_theme_with_mode(&name, mode);
+}
+
+fn pending_theme_name(state: &AppState) -> String {
+    state
+        .settings
+        .pending_theme_name
+        .clone()
+        .unwrap_or_else(|| state.global_theme_name.clone())
+}
+
+fn pending_theme_mode(state: &AppState) -> ThemeMode {
+    state
+        .settings
+        .pending_theme_mode
+        .unwrap_or(state.global_theme_mode)
+}
+
+fn preview_group_theme(state: &mut AppState) {
     if let Some(name) = selected_group_theme_name(state) {
         state.preview_theme(&name);
     } else {
@@ -113,6 +174,8 @@ fn cancel_settings(state: &mut AppState) {
     if let Some(theme_name) = state.settings.original_theme.take() {
         state.theme_name = theme_name;
     }
+    state.settings.pending_theme_name = None;
+    state.settings.pending_theme_mode = None;
     state.settings.group_theme_target = None;
     super::modal::leave_modal(state);
 }
@@ -120,11 +183,17 @@ fn cancel_settings(state: &mut AppState) {
 fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
     match state.settings.section {
         SettingsSection::Theme => {
-            let theme_name = state.theme_name.clone();
-            let group_theme_name = selected_group_theme_name(state);
+            let theme_name = pending_theme_name(state);
+            let theme_mode = pending_theme_mode(state);
+            let group_theme_name = state
+                .settings
+                .group_theme_target
+                .and_then(|_| selected_group_theme_name(state));
             let group_theme_target = state.settings.group_theme_target.take();
             state.settings.original_palette = None;
             state.settings.original_theme = None;
+            state.settings.pending_theme_name = None;
+            state.settings.pending_theme_mode = None;
             super::modal::leave_modal(state);
             if let Some(group_idx) = group_theme_target {
                 return Some(SettingsAction::SaveGroupTheme {
@@ -132,7 +201,10 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
                     name: group_theme_name,
                 });
             }
-            Some(SettingsAction::SaveTheme(theme_name))
+            Some(SettingsAction::SaveTheme {
+                name: theme_name,
+                mode: theme_mode,
+            })
         }
         _ => {
             state.settings.group_theme_target = None;
@@ -254,10 +326,12 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
 pub(crate) fn open_settings(state: &mut AppState) {
     state.settings.original_palette = Some(state.palette.clone());
     state.settings.original_theme = Some(state.theme_name.clone());
+    state.settings.pending_theme_name = Some(state.global_theme_name.clone());
+    state.settings.pending_theme_mode = Some(state.global_theme_mode);
     state.settings.group_theme_target = None;
     state.settings.section = SettingsSection::Theme;
     let theme_name = state.global_theme_name.clone();
-    state.settings.list.selected = current_theme_index(&theme_name);
+    state.settings.list.selected = ThemeMode::ALL.len() + current_theme_index(&theme_name);
     state.preview_theme(&theme_name);
     state.mode = Mode::Settings;
 }
@@ -268,6 +342,8 @@ pub(crate) fn open_group_theme_settings(state: &mut AppState, group_idx: usize) 
     };
     state.settings.original_palette = Some(state.palette.clone());
     state.settings.original_theme = Some(state.theme_name.clone());
+    state.settings.pending_theme_name = None;
+    state.settings.pending_theme_mode = None;
     state.settings.group_theme_target = Some(group_idx);
     state.settings.section = SettingsSection::Theme;
 
@@ -276,12 +352,7 @@ pub(crate) fn open_group_theme_settings(state: &mut AppState, group_idx: usize) 
         .as_deref()
         .map(|name| current_theme_index(name) + 1)
         .unwrap_or(0);
-    if let Some(theme_name) = theme_name {
-        state.preview_theme(&theme_name);
-    } else {
-        let theme_name = state.global_theme_name.clone();
-        state.preview_theme(&theme_name);
-    }
+    preview_group_theme(state);
     state.mode = Mode::Settings;
 }
 
@@ -578,6 +649,33 @@ mod tests {
         assert_eq!(
             app.state.groups[group_idx].theme_name.as_deref(),
             Some("catppuccin")
+        );
+    }
+
+    #[test]
+    fn global_theme_settings_apply_returns_theme_family_and_mode() {
+        let mut state = state_with_workspaces(&["test"]);
+
+        open_settings(&mut state);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
+        );
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
+        );
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::SaveTheme {
+                name: "catppuccin".to_string(),
+                mode: ThemeMode::Light,
+            })
         );
     }
 

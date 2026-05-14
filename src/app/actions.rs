@@ -125,7 +125,7 @@ impl AppState {
             return;
         };
 
-        if let Some(palette) = super::state::Palette::from_name(theme_name) {
+        if let Some(palette) = self.palette_for_theme(theme_name) {
             self.palette = palette;
             self.theme_name = theme_name.to_string();
         } else {
@@ -135,7 +135,15 @@ impl AppState {
     }
 
     pub fn preview_theme(&mut self, theme_name: &str) -> bool {
-        let Some(palette) = super::state::Palette::from_name(theme_name) else {
+        self.preview_theme_with_mode(theme_name, self.global_theme_mode)
+    }
+
+    pub fn preview_theme_with_mode(
+        &mut self,
+        theme_name: &str,
+        mode: crate::config::ThemeMode,
+    ) -> bool {
+        let Some(palette) = self.palette_for_theme_mode(theme_name, mode) else {
             return false;
         };
         self.palette = palette;
@@ -1116,7 +1124,9 @@ impl AppState {
 mod tests {
     use super::*;
     use crate::app::state::Palette;
+    use crate::config::ThemeMode;
     use crate::detect::{Agent, AgentState};
+    use crate::terminal_theme::{DefaultColorKind, RgbColor, TerminalTheme};
     use crate::workspace::Workspace;
     use ratatui::layout::Direction;
 
@@ -1162,6 +1172,41 @@ mod tests {
 
         assert_eq!(state.theme_name, "nord");
         assert_eq!(state.palette.accent, Palette::nord().accent);
+    }
+
+    #[test]
+    fn group_theme_override_inherits_global_light_mode() {
+        let mut state = app_with_workspaces(&["one", "two"]);
+        state.global_theme_mode = ThemeMode::Light;
+        let side_group = state.create_group("Side".to_string());
+        state.move_workspace_to_group(1, side_group);
+        state.set_group_theme(side_group, Some("gruvbox".to_string()));
+
+        state.switch_group(side_group);
+
+        assert_eq!(state.theme_name, "gruvbox");
+        assert_eq!(state.palette.panel_bg, Palette::gruvbox_light().panel_bg);
+    }
+
+    #[test]
+    fn system_theme_mode_uses_terminal_background() {
+        let mut state = app_with_workspaces(&["one"]);
+        state.global_theme_name = "gruvbox".to_string();
+        state.global_theme_mode = ThemeMode::System;
+        state.host_terminal_theme = TerminalTheme::default().with_color(
+            DefaultColorKind::Background,
+            RgbColor {
+                r: 245,
+                g: 245,
+                b: 245,
+            },
+        );
+
+        state.refresh_global_palette();
+        state.apply_effective_theme();
+
+        assert_eq!(state.theme_name, "gruvbox");
+        assert_eq!(state.palette.panel_bg, Palette::gruvbox_light().panel_bg);
     }
 
     #[test]

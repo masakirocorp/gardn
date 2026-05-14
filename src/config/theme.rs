@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 /// Theme configuration: pick a built-in or override individual tokens.
@@ -11,17 +11,53 @@ use tracing::warn;
 /// accent = "#f5c2e7"
 /// red = "#ff6188"
 /// ```
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct ThemeConfig {
     /// Built-in theme name. Default: "catppuccin".
     pub name: Option<String>,
+    /// Light/dark resolution mode. Default: "system".
+    pub mode: ThemeMode,
     /// Custom overrides — applied on top of the selected base theme.
     pub custom: Option<CustomThemeColors>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeMode {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl ThemeMode {
+    pub const ALL: &[Self] = &[Self::System, Self::Light, Self::Dark];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+
+    pub fn resolve(
+        self,
+        host_theme: crate::terminal_theme::TerminalTheme,
+    ) -> crate::terminal_theme::ThemeAppearance {
+        match self {
+            Self::Light => crate::terminal_theme::ThemeAppearance::Light,
+            Self::Dark => crate::terminal_theme::ThemeAppearance::Dark,
+            Self::System => host_theme
+                .appearance()
+                .unwrap_or(crate::terminal_theme::ThemeAppearance::Dark),
+        }
+    }
+}
+
 /// Per-token color overrides. All fields optional — only set what you want to change.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct CustomThemeColors {
     pub accent: Option<String>,
@@ -123,6 +159,17 @@ name = "dracula"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.theme.name.as_deref(), Some("dracula"));
+        assert_eq!(config.theme.mode, ThemeMode::System);
+    }
+
+    #[test]
+    fn theme_mode_parses() {
+        let toml = r#"
+[theme]
+mode = "light"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.theme.mode, ThemeMode::Light);
     }
 
     #[test]
@@ -158,6 +205,7 @@ red = "rgb(255, 85, 85)"
     fn theme_defaults_when_missing() {
         let config: Config = toml::from_str("").unwrap();
         assert!(config.theme.name.is_none());
+        assert_eq!(config.theme.mode, ThemeMode::System);
         assert!(config.theme.custom.is_none());
     }
 }

@@ -12,7 +12,7 @@ use super::widgets::{
 };
 use crate::{
     app::{state::Palette, AppState},
-    config::ToastDelivery,
+    config::{ThemeMode, ToastDelivery},
 };
 
 pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -285,10 +285,41 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
         ])));
     }
 
-    let offset = usize::from(app.settings.group_theme_target.is_some());
+    if app.settings.group_theme_target.is_none() {
+        let selected_mode = app
+            .settings
+            .pending_theme_mode
+            .unwrap_or(app.global_theme_mode);
+        items.extend(ThemeMode::ALL.iter().enumerate().map(|(idx, mode)| {
+            let marker = if app.settings.list.selected == idx {
+                " ✓"
+            } else if selected_mode == *mode {
+                " ·"
+            } else {
+                ""
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(mode.as_str(), Style::default().fg(p.subtext0)),
+                Span::styled(marker, Style::default().fg(p.green)),
+            ]))
+        }));
+    }
+
+    let offset = if app.settings.group_theme_target.is_some() {
+        1
+    } else {
+        ThemeMode::ALL.len()
+    };
+    let selected_theme = app
+        .settings
+        .pending_theme_name
+        .as_deref()
+        .unwrap_or(&app.global_theme_name);
     items.extend(THEME_NAMES.iter().enumerate().map(|(idx, name)| {
         let marker = if app.settings.list.selected == idx + offset {
             " ✓"
+        } else if app.settings.group_theme_target.is_none() && selected_theme == *name {
+            " ·"
         } else {
             ""
         };

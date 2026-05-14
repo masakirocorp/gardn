@@ -162,7 +162,7 @@ impl App {
         let previous_agent_panel_scope = self.state.agent_panel_scope;
         if let Some(action) = self.state.handle_mouse(mouse) {
             match action {
-                SettingsAction::SaveTheme(name) => self.save_theme(&name),
+                SettingsAction::SaveTheme { name, mode } => self.save_theme(&name, mode),
                 SettingsAction::SaveGroupTheme { group_idx, name } => {
                     self.state.set_group_theme(group_idx, name);
                 }

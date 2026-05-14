@@ -208,7 +208,19 @@ herdr ships with 10 built-in color themes. set one in config:
 ```toml
 [theme]
 name = "tokyo-night"
+mode = "system"
 ```
+
+`mode` controls light/dark resolution globally:
+
+| mode | behavior |
+|------|----------|
+| `system` | follow the host terminal background; unknown backgrounds fall back dark |
+| `light` | use light variants where available |
+| `dark` | use dark variants |
+
+groups can override the theme family from the sidebar menu, but inherit the global mode.
+themes without a light variant use their dark palette in light mode.
 
 ### built-in themes
 
