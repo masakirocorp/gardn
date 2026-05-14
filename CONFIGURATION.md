@@ -141,7 +141,7 @@ focus_pane_right = "alt+l"
 | `new_group` | unset | create a new group |
 | `rename_group` | unset | rename the active group |
 | `delete_group` | unset | delete the active group after confirmation |
-| `toggle_group_filter` | unset | toggle between current group and all groups |
+| `toggle_group_filter` | unset | toggle between the active group and all spaces |
 | `previous_group` | unset | switch to the previous group directly from terminal mode |
 | `next_group` | unset | switch to the next group directly from terminal mode |
 | `previous_agent` | unset | focus the previous agent shown in the sidebar agent list |
@@ -304,7 +304,7 @@ accent = "cyan"
 | `mouse_capture` | `true` | capture mouse input for Herdr's mouse UI; set false to let the terminal handle normal clicks while still forwarding mouse to pane apps that request it |
 | `confirm_close` | `true` | ask before closing a workspace |
 | `show_agent_labels_on_pane_borders` | `false` | show detected/reported agent labels in split pane borders when no manual pane name is set |
-| `agent_panel_scope` | `all` | sidebar agent list scope: `current` or `all` |
+| `agent_panel_scope` | `all` | sidebar agent list scope: `current` (shown as `space`) or `all` (shown as `visible`) |
 | `accent` | `cyan` | highlight and border color |
 
 Changing the agent panel scope from the sidebar writes `agent_panel_scope` to config so it survives session resets and upgrades.

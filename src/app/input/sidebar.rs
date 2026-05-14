@@ -4,6 +4,13 @@ use crate::app::state::{AppState, Mode, ViewLayout};
 
 use super::ScrollbarClickTarget;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GroupMenuAction {
+    AllSpaces,
+    Group(usize),
+    NewGroup,
+}
+
 impl AppState {
     pub(super) fn workspace_list_rect(&self) -> Rect {
         let sidebar = self.view.sidebar_rect;
@@ -263,70 +270,50 @@ impl AppState {
         if ws_area == Rect::default() {
             return Rect::default();
         }
-        let all = self.group_all_toggle_rect();
-        let width = ws_area.width.saturating_sub(all.width.saturating_add(1));
-        Rect::new(ws_area.x, ws_area.y, width, 1)
-    }
-
-    pub(crate) fn group_all_toggle_rect(&self) -> Rect {
-        if self.sidebar_collapsed || self.view.layout == ViewLayout::Mobile {
-            return Rect::default();
-        }
-
-        let ws_area =
-            crate::ui::workspace_list_rect(self.view.sidebar_rect, self.sidebar_section_split);
-        if ws_area == Rect::default() {
-            return Rect::default();
-        }
-        let width = self.group_filter_toggle_label().chars().count() as u16;
-        let width = width.min(ws_area.width.max(1));
-        Rect::new(
-            ws_area.x + ws_area.width.saturating_sub(width),
-            ws_area.y,
-            width,
-            1,
-        )
+        Rect::new(ws_area.x, ws_area.y, ws_area.width, 1)
     }
 
     pub(crate) fn group_menu_labels(&self) -> Vec<String> {
-        let mut labels: Vec<String> = self
-            .groups
-            .iter()
-            .enumerate()
-            .map(|(idx, group)| {
-                let marker = if idx == self.active_group { "*" } else { " " };
-                format!("{marker} {} {}", group.icon, group.name)
-            })
-            .collect();
+        let all_marker = if self.group_filter_enabled { " " } else { "*" };
+        let mut labels = vec![format!("{all_marker} 0 all spaces"), "---".to_string()];
+        labels.extend(self.groups.iter().enumerate().map(|(idx, group)| {
+            let marker = if self.group_filter_enabled && idx == self.active_group {
+                "*"
+            } else {
+                " "
+            };
+            format!("{marker} {} {} {}", idx + 1, group.icon, group.name)
+        }));
         labels.push("---".to_string());
         labels.push("+ new group".to_string());
         labels
     }
 
-    pub(crate) fn group_menu_action_for_row(&self, row_idx: usize) -> Option<usize> {
-        if row_idx < self.groups.len() {
-            return Some(row_idx);
+    pub(crate) fn group_menu_action_for_row(&self, row_idx: usize) -> Option<GroupMenuAction> {
+        if row_idx == 0 {
+            return Some(GroupMenuAction::AllSpaces);
+        }
+        if row_idx == 1 {
+            return None;
         }
 
-        let separator_idx = self.groups.len();
+        let group_start = 2;
+        let group_end = group_start + self.groups.len();
+        if (group_start..group_end).contains(&row_idx) {
+            return Some(GroupMenuAction::Group(row_idx - group_start));
+        }
+
+        let separator_idx = group_end;
         if row_idx == separator_idx {
             return None;
         }
 
         let new_group_idx = separator_idx + 1;
         if row_idx == new_group_idx {
-            return Some(self.groups.len());
+            return Some(GroupMenuAction::NewGroup);
         }
 
         None
-    }
-
-    pub(crate) fn group_filter_toggle_label(&self) -> &'static str {
-        if self.group_filter_enabled {
-            "current"
-        } else {
-            "all"
-        }
     }
 
     pub(crate) fn group_menu_rect(&self) -> Rect {
@@ -369,15 +356,6 @@ impl AppState {
 
     pub(super) fn on_group_selector(&self, col: u16, row: u16) -> bool {
         let rect = self.group_selector_rect();
-        rect.width > 0
-            && col >= rect.x
-            && col < rect.x + rect.width
-            && row >= rect.y
-            && row < rect.y + rect.height
-    }
-
-    pub(super) fn on_group_all_toggle(&self, col: u16, row: u16) -> bool {
-        let rect = self.group_all_toggle_rect();
         rect.width > 0
             && col >= rect.x
             && col < rect.x + rect.width
@@ -726,7 +704,22 @@ mod tests {
         ));
 
         assert_eq!(app.state.mode, Mode::GroupMenu);
-        assert_eq!(app.state.group_menu.highlighted, 1);
+        assert_eq!(app.state.group_menu.highlighted, 3);
+    }
+
+    #[test]
+    fn group_menu_numbers_all_spaces_before_groups() {
+        let mut app = app_for_mouse_test();
+        app.state.create_group("Work".to_string());
+
+        let labels = app.state.group_menu_labels();
+
+        assert!(labels[0].contains("0 all spaces"));
+        assert_eq!(labels[1], "---");
+        assert!(labels[2].contains("1 "));
+        assert!(labels[3].contains("2 "));
+        assert_eq!(labels[4], "---");
+        assert_eq!(labels[5], "+ new group");
     }
 
     #[test]
@@ -741,10 +734,16 @@ mod tests {
         ));
 
         let menu = app.state.group_menu_rect();
+        let work_row = app
+            .state
+            .group_menu_labels()
+            .iter()
+            .position(|label| label.contains("Work"))
+            .unwrap() as u16;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 2,
+            menu.y + 1 + work_row,
         ));
 
         assert_eq!(app.state.active_group, 1);
@@ -762,10 +761,16 @@ mod tests {
         ));
 
         let menu = app.state.group_menu_rect();
+        let new_group_row = app
+            .state
+            .group_menu_labels()
+            .iter()
+            .position(|label| label.contains("new group"))
+            .unwrap() as u16;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + app.state.groups.len() as u16 + 2,
+            menu.y + 1 + new_group_row,
         ));
 
         assert_eq!(app.state.mode, Mode::RenameGroup);
@@ -788,10 +793,16 @@ mod tests {
         ));
 
         let menu = app.state.group_menu_rect();
+        let work_row = app
+            .state
+            .group_menu_labels()
+            .iter()
+            .position(|label| label.contains("Work"))
+            .unwrap() as u16;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Right),
             menu.x + 2,
-            menu.y + 2,
+            menu.y + 1 + work_row,
         ));
 
         assert_eq!(app.state.mode, Mode::ContextMenu);
@@ -902,10 +913,16 @@ mod tests {
         ));
 
         let menu = app.state.group_menu_rect();
+        let separator_row = app
+            .state
+            .group_menu_labels()
+            .iter()
+            .position(|label| label == "---")
+            .unwrap() as u16;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + app.state.groups.len() as u16 + 1,
+            menu.y + 1 + separator_row,
         ));
 
         assert_eq!(app.state.mode, Mode::GroupMenu);
@@ -924,13 +941,18 @@ mod tests {
         ));
 
         let menu = app.state.group_menu_rect();
-        let new_group_row = app.state.groups.len() as u16 + 2;
+        let new_group_row = app
+            .state
+            .group_menu_labels()
+            .iter()
+            .position(|label| label.contains("new group"))
+            .unwrap() as u16;
         app.handle_mouse(mouse(
             MouseEventKind::Moved,
             menu.x + 2,
-            menu.y + new_group_row,
+            menu.y + 1 + new_group_row,
         ));
-        assert_eq!(app.state.group_menu.highlighted, new_group_row as usize - 1);
+        assert_eq!(app.state.group_menu.highlighted, new_group_row as usize);
         assert!(!app
             .state
             .group_menu_labels()
@@ -971,36 +993,29 @@ mod tests {
     }
 
     #[test]
-    fn clicking_group_all_toggle_shows_every_workspace() {
+    fn clicking_all_spaces_group_menu_item_shows_every_workspace() {
         let mut app = app_for_mouse_test();
         let work_group = app.state.create_group("Work".to_string());
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
         app.state.workspaces[1].group_id = app.state.groups[work_group].id.clone();
         app.state.switch_group(work_group);
         assert_eq!(app.state.visible_workspace_indices(), vec![1]);
-        assert_eq!(app.state.group_filter_toggle_label(), "current");
 
-        let toggle = app.state.group_all_toggle_rect();
+        let selector = app.state.group_selector_rect();
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            toggle.x,
-            toggle.y,
+            selector.x,
+            selector.y,
+        ));
+        let menu = app.state.group_menu_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + 1,
         ));
 
         assert!(!app.state.group_filter_enabled);
-        assert_eq!(app.state.group_filter_toggle_label(), "all");
         assert_eq!(app.state.visible_workspace_indices(), vec![0, 1]);
-
-        let toggle = app.state.group_all_toggle_rect();
-        app.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            toggle.x,
-            toggle.y,
-        ));
-
-        assert!(app.state.group_filter_enabled);
-        assert_eq!(app.state.group_filter_toggle_label(), "current");
-        assert_eq!(app.state.visible_workspace_indices(), vec![1]);
     }
 
     #[test]
@@ -1681,7 +1696,7 @@ mod tests {
         ));
 
         assert_eq!(app.state.mode, Mode::GroupMenu);
-        assert_eq!(app.state.group_menu.highlighted, 1);
+        assert_eq!(app.state.group_menu.highlighted, 3);
         assert!(app.state.group_menu_rect().width > app.state.view.sidebar_rect.width);
     }
 

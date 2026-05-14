@@ -95,7 +95,12 @@ pub(super) fn open_global_menu(state: &mut AppState) {
 }
 
 pub(super) fn open_group_menu(state: &mut AppState) {
-    state.group_menu = MenuListState::new(state.active_group);
+    let highlighted = if state.group_filter_enabled {
+        state.active_group + 2
+    } else {
+        0
+    };
+    state.group_menu = MenuListState::new(highlighted);
     state.mode = Mode::GroupMenu;
 }
 
@@ -185,14 +190,19 @@ pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
             }
         }
         KeyCode::Enter => {
-            let Some(idx) = state.group_menu_action_for_row(state.group_menu.highlighted) else {
+            let Some(action) = state.group_menu_action_for_row(state.group_menu.highlighted) else {
                 return;
             };
-            if idx < state.groups.len() {
-                state.switch_group(idx);
-                leave_modal(state);
-            } else if idx == state.groups.len() {
-                open_new_group_dialog(state);
+            match action {
+                super::sidebar::GroupMenuAction::AllSpaces => {
+                    state.show_all_groups();
+                    leave_modal(state);
+                }
+                super::sidebar::GroupMenuAction::Group(idx) => {
+                    state.switch_group(idx);
+                    leave_modal(state);
+                }
+                super::sidebar::GroupMenuAction::NewGroup => open_new_group_dialog(state),
             }
         }
         _ => {}
@@ -710,7 +720,11 @@ impl AppState {
         global_menu_actions(self).get(idx).copied()
     }
 
-    pub(super) fn group_menu_item_at(&self, col: u16, row: u16) -> Option<usize> {
+    pub(super) fn group_menu_item_at(
+        &self,
+        col: u16,
+        row: u16,
+    ) -> Option<super::sidebar::GroupMenuAction> {
         let row_idx = self.group_menu_row_at(col, row)?;
         self.group_menu_action_for_row(row_idx)
     }

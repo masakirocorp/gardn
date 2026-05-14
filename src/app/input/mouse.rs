@@ -129,10 +129,12 @@ impl AppState {
         if self.mode == Mode::GroupMenu {
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right)) {
                 if let Some(row_idx) = self.group_menu_row_at(mouse.column, mouse.row) {
-                    if row_idx < self.groups.len() {
+                    if let Some(super::sidebar::GroupMenuAction::Group(group_idx)) =
+                        self.group_menu_action_for_row(row_idx)
+                    {
                         self.context_menu = Some(ContextMenuState {
                             kind: ContextMenuKind::Group {
-                                group_idx: row_idx,
+                                group_idx,
                                 can_delete: self.groups.len() > 1,
                             },
                             x: mouse.column,
@@ -146,12 +148,19 @@ impl AppState {
             }
 
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
-                if let Some(idx) = self.group_menu_item_at(mouse.column, mouse.row) {
-                    if idx < self.groups.len() {
-                        self.switch_group(idx);
-                        leave_modal(self);
-                    } else if idx == self.groups.len() {
-                        super::modal::open_new_group_dialog(self);
+                if let Some(action) = self.group_menu_item_at(mouse.column, mouse.row) {
+                    match action {
+                        super::sidebar::GroupMenuAction::AllSpaces => {
+                            self.show_all_groups();
+                            leave_modal(self);
+                        }
+                        super::sidebar::GroupMenuAction::Group(idx) => {
+                            self.switch_group(idx);
+                            leave_modal(self);
+                        }
+                        super::sidebar::GroupMenuAction::NewGroup => {
+                            super::modal::open_new_group_dialog(self);
+                        }
                     }
                 } else {
                     let rect = self.group_menu_rect();
@@ -468,11 +477,6 @@ impl AppState {
                             self.focus_pane(pane_id);
                             self.mode = Mode::Terminal;
                         }
-                        return None;
-                    }
-
-                    if self.on_group_all_toggle(mouse.column, mouse.row) {
-                        self.toggle_group_filter();
                         return None;
                     }
 

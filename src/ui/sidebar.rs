@@ -91,8 +91,8 @@ fn agent_panel_current_workspace_idx(app: &AppState) -> Option<usize> {
 
 fn agent_panel_toggle_label(scope: AgentPanelScope) -> &'static str {
     match scope {
-        AgentPanelScope::CurrentWorkspace => "current",
-        AgentPanelScope::AllWorkspaces => "all",
+        AgentPanelScope::CurrentWorkspace => "space",
+        AgentPanelScope::AllWorkspaces => "visible",
     }
 }
 
@@ -786,7 +786,6 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
     let list_bottom = area.y + area.height.saturating_sub(1);
     if area.height > 0 {
         let selector_rect = app.group_selector_rect();
-        let all_rect = app.group_all_toggle_rect();
         let selector_label = if app.group_filter_enabled {
             format!("{} {}", app.active_group_icon(), app.active_group_name())
         } else {
@@ -799,14 +798,6 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
         frame.render_widget(
             Paragraph::new(Span::styled(selector, Style::default().fg(p.overlay0))),
             selector_rect,
-        );
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                app.group_filter_toggle_label(),
-                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
-            ))
-            .alignment(Alignment::Right),
-            all_rect,
         );
     }
 
@@ -1159,6 +1150,18 @@ fn render_right_sidebar_toggle(
 mod tests {
     use super::*;
     use crate::{detect::Agent, workspace::Workspace};
+
+    #[test]
+    fn agent_panel_toggle_labels_match_visible_space_scope() {
+        assert_eq!(
+            agent_panel_toggle_label(AgentPanelScope::CurrentWorkspace),
+            "space"
+        );
+        assert_eq!(
+            agent_panel_toggle_label(AgentPanelScope::AllWorkspaces),
+            "visible"
+        );
+    }
 
     #[test]
     fn all_workspaces_agent_panel_entries_use_workspace_and_optional_tab_labels() {

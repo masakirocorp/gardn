@@ -138,7 +138,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Show detected/reported agent labels in split pane borders when no manual pane name is set.
 # show_agent_labels_on_pane_borders = false
 
-# Agent panel scope: "current" or "all". Toggling it in the sidebar saves this setting.
+# Agent panel scope: "current" (space) or "all" (visible). Toggling it in the sidebar saves this setting.
 # agent_panel_scope = "all"
 
 # Accent color for highlights, borders, and navigation UI.
