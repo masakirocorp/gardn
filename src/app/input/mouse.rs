@@ -1601,6 +1601,9 @@ mod tests {
         app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
         assert_eq!(app.state.command_palette.selected, 1);
 
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
+        assert_eq!(app.state.command_palette.selected, 1);
+
         app.handle_mouse(mouse(MouseEventKind::ScrollUp, 40, 8));
         assert_eq!(app.state.command_palette.selected, 0);
     }

@@ -11,7 +11,10 @@ use crate::app::{
     AppState,
 };
 
-use super::widgets::{panel_contrast_fg, render_modal_header, render_modal_shell};
+use super::{
+    scrollbar::{render_scrollbar, should_show_scrollbar},
+    widgets::{panel_contrast_fg, render_modal_header, render_modal_shell},
+};
 
 pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) {
     super::dim_background(frame, frame.area());
@@ -76,6 +79,15 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
         0
     };
     let end = (start + visible_rows).min(palette_rows.len());
+    let metrics = crate::pane::ScrollMetrics {
+        offset_from_bottom: palette_rows
+            .len()
+            .saturating_sub(start)
+            .saturating_sub(visible_rows),
+        max_offset_from_bottom: palette_rows.len().saturating_sub(visible_rows),
+        viewport_rows: visible_rows,
+    };
+    let has_scrollbar = should_show_scrollbar(metrics) && rows[3].width > 1;
 
     let lines = palette_rows[start..end]
         .iter()
@@ -101,7 +113,34 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
         })
         .collect::<Vec<_>>();
 
-    frame.render_widget(Paragraph::new(lines), rows[3]);
+    let list_area = if has_scrollbar {
+        Rect::new(
+            rows[3].x,
+            rows[3].y,
+            rows[3].width.saturating_sub(1),
+            rows[3].height,
+        )
+    } else {
+        rows[3]
+    };
+    frame.render_widget(Paragraph::new(lines), list_area);
+
+    if has_scrollbar {
+        let track = Rect::new(
+            rows[3].x + rows[3].width.saturating_sub(1),
+            rows[3].y,
+            1,
+            rows[3].height,
+        );
+        render_scrollbar(
+            frame,
+            metrics,
+            track,
+            app.palette.surface_dim,
+            app.palette.overlay0,
+            "▕",
+        );
+    }
 }
 
 enum CommandPaletteRow<'a> {

@@ -950,6 +950,7 @@ pub struct CommandPaletteState {
     pub query: String,
     pub selected: usize,
     pub scroll: usize,
+    pub wheel_scroll_skip: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1298,6 +1299,7 @@ impl AppState {
                 query: String::new(),
                 selected: 0,
                 scroll: 0,
+                wheel_scroll_skip: None,
             },
             workspace_scroll: 0,
             agent_panel_scroll: 0,

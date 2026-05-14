@@ -13,6 +13,7 @@ pub(super) fn open_command_palette(state: &mut AppState) {
     state.command_palette.query.clear();
     state.command_palette.selected = 0;
     state.command_palette.scroll = 0;
+    state.command_palette.wheel_scroll_skip = None;
     state.mode = Mode::CommandPalette;
 }
 
@@ -25,22 +26,28 @@ impl App {
         match key.code {
             KeyCode::Esc => leave_command_palette(&mut self.state),
             KeyCode::Enter => self.execute_selected_command_palette_command(),
-            KeyCode::Up => move_command_palette_selection(&mut self.state, false),
-            KeyCode::Down => move_command_palette_selection(&mut self.state, true),
+            KeyCode::Up => {
+                move_command_palette_selection(&mut self.state, false);
+            }
+            KeyCode::Down => {
+                move_command_palette_selection(&mut self.state, true);
+            }
             KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                move_command_palette_selection(&mut self.state, false)
+                move_command_palette_selection(&mut self.state, false);
             }
             KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                move_command_palette_selection(&mut self.state, true)
+                move_command_palette_selection(&mut self.state, true);
             }
             KeyCode::Backspace => {
                 self.state.command_palette.query.pop();
+                self.state.command_palette.wheel_scroll_skip = None;
                 clamp_command_palette_selection(&mut self.state);
             }
             KeyCode::Char(c)
                 if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
             {
                 self.state.command_palette.query.push(c);
+                self.state.command_palette.wheel_scroll_skip = None;
                 clamp_command_palette_selection(&mut self.state);
             }
             _ => {}
@@ -78,29 +85,32 @@ fn clamp_command_palette_selection(state: &mut AppState) {
     }
 }
 
-fn move_command_palette_selection(state: &mut AppState, down: bool) {
+fn move_command_palette_selection(state: &mut AppState, down: bool) -> bool {
     let count = command_palette_visible_commands(state).len();
     if count == 0 {
         state.command_palette.selected = 0;
         state.command_palette.scroll = 0;
-        return;
+        return false;
     }
 
-    if down {
-        state.command_palette.selected = (state.command_palette.selected + 1) % count;
+    let next = if down {
+        (state.command_palette.selected + 1).min(count - 1)
     } else {
-        state.command_palette.selected = if state.command_palette.selected == 0 {
-            count - 1
-        } else {
-            state.command_palette.selected - 1
-        };
-    }
+        state.command_palette.selected.saturating_sub(1)
+    };
+    let changed = next != state.command_palette.selected;
+    state.command_palette.selected = next;
+    changed
 }
 
 pub(super) fn scroll_command_palette_selection(state: &mut AppState, delta: i16) {
-    let steps = delta.unsigned_abs().max(1);
-    for _ in 0..steps {
-        move_command_palette_selection(state, delta.is_positive());
+    let down = delta.is_positive();
+    if state.command_palette.wheel_scroll_skip == Some(down) {
+        state.command_palette.wheel_scroll_skip = None;
+        return;
+    }
+    if move_command_palette_selection(state, down) {
+        state.command_palette.wheel_scroll_skip = Some(down);
     }
 }
 
@@ -288,14 +298,13 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_selection_wraps() {
+    fn command_palette_selection_clamps() {
         let mut app = app_with_space();
-        let count = command_palette_visible_commands(&app.state).len();
 
         app.handle_command_palette_key(KeyEvent::new(KeyCode::Up, KeyModifiers::empty()));
-        assert_eq!(app.state.command_palette.selected, count - 1);
+        assert_eq!(app.state.command_palette.selected, 0);
 
         app.handle_command_palette_key(KeyEvent::new(KeyCode::Down, KeyModifiers::empty()));
-        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.selected, 1);
     }
 }
