@@ -704,7 +704,7 @@ mod tests {
         terminal.draw(|frame| render(&app, frame)).unwrap();
         let buffer = terminal.backend().buffer();
 
-        let rows = collapsed_workspace_rows_rect(app.view.sidebar_rect);
+        let rows = collapsed_workspace_rows_rect(app.view.sidebar_rect, true);
         let active_row = rows.y + 1;
         let active_style = buffer[(rows.x, active_row)].style();
 

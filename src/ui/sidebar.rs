@@ -435,10 +435,17 @@ pub(crate) fn compute_workspace_card_areas_in_list(
 }
 
 /// Auto-scale sidebar width based on workspace identity + agent summary.
-pub(crate) fn collapsed_sidebar_sections(area: Rect) -> (Rect, Option<u16>, Rect) {
+pub(crate) fn collapsed_sidebar_sections(
+    area: Rect,
+    show_agent_detail: bool,
+) -> (Rect, Option<u16>, Rect) {
     let content = Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height);
     if content.width == 0 || content.height == 0 {
         return (Rect::default(), None, Rect::default());
+    }
+
+    if !show_agent_detail {
+        return (content, None, Rect::default());
     }
 
     if content.height < 7 {
@@ -466,8 +473,8 @@ pub(crate) fn collapsed_group_header_rect(area: Rect) -> Rect {
     Rect::new(area.x, area.y, content_w, 1)
 }
 
-pub(crate) fn collapsed_workspace_rows_rect(area: Rect) -> Rect {
-    let (ws_area, _, _) = collapsed_sidebar_sections(area);
+pub(crate) fn collapsed_workspace_rows_rect(area: Rect, show_agent_detail: bool) -> Rect {
+    let (ws_area, _, _) = collapsed_sidebar_sections(area, show_agent_detail);
     if ws_area == Rect::default() || ws_area.height <= 1 {
         return Rect::default();
     }
@@ -487,9 +494,10 @@ fn collapsed_group_label(app: &AppState) -> String {
     }
 }
 
-/// Collapsed sidebar: workspace glance on top, compact agent list below.
+/// Collapsed sidebar: workspace glance, plus compact agent list only when no right sidebar exists.
 pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: Rect) {
     let is_navigating = matches!(app.mode, Mode::Navigate);
+    let show_agent_detail = app.view.right_sidebar_rect == Rect::default();
 
     let p = &app.palette;
     fill_rect(frame, area, Style::default().bg(p.panel_bg));
@@ -505,7 +513,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         buf[(sep_x, y)].set_style(sep_style);
     }
 
-    let (ws_area, divider_y, detail_area) = collapsed_sidebar_sections(area);
+    let (ws_area, divider_y, detail_area) = collapsed_sidebar_sections(area, show_agent_detail);
     let group_header = collapsed_group_header_rect(area);
     if group_header != Rect::default() {
         let label = collapsed_group_label(app);
@@ -520,7 +528,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         );
     }
 
-    let workspace_rows = collapsed_workspace_rows_rect(area);
+    let workspace_rows = collapsed_workspace_rows_rect(area, show_agent_detail);
     if ws_area == Rect::default() || workspace_rows == Rect::default() {
         render_sidebar_toggle(app, frame, area, true, p);
         return;
@@ -576,6 +584,11 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
             buf[(x, divider_y)].set_symbol("─");
             buf[(x, divider_y)].set_style(Style::default().fg(p.surface_dim));
         }
+    }
+
+    if !show_agent_detail {
+        render_sidebar_toggle(app, frame, area, true, p);
+        return;
     }
 
     let detail_ws_idx = if is_navigating {
