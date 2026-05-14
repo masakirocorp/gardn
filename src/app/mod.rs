@@ -135,6 +135,13 @@ fn repeat_key_identity(
     (key.code, key.modifiers)
 }
 
+fn command_palette_accepts_repeat_key(key: &crate::input::TerminalKey) -> bool {
+    matches!(
+        key.code,
+        crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Down
+    )
+}
+
 fn auto_updates_enabled(no_session: bool) -> bool {
     !no_session && !cfg!(debug_assertions)
 }
@@ -930,9 +937,11 @@ impl App {
                                 && !self.suppressed_repeat_keys.contains(&key_id)
                             {
                                 self.handle_terminal_key_headless(key);
+                            } else if self.state.mode == Mode::CommandPalette
+                                && command_palette_accepts_repeat_key(&key)
+                            {
+                                self.handle_non_terminal_key(key);
                             }
-                            // Repeats in non-terminal modes are ignored
-                            // (same as monolithic behavior).
                         }
                         crossterm::event::KeyEventKind::Release => {
                             self.suppressed_repeat_keys.remove(&key_id);
@@ -1545,6 +1554,31 @@ mod tests {
         assert!(!handled);
         assert_eq!(app.state.mode, Mode::ReleaseNotes);
         assert!(app.state.release_notes.is_some());
+    }
+
+    #[tokio::test]
+    async fn command_palette_handles_repeated_arrow_keys() {
+        let mut app = test_app();
+        app.state.mode = Mode::CommandPalette;
+
+        let press_handled = app
+            .handle_raw_input_event(raw_key(
+                KeyCode::Down,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            ))
+            .await;
+        let repeat_handled = app
+            .handle_raw_input_event(raw_key(
+                KeyCode::Down,
+                KeyModifiers::empty(),
+                KeyEventKind::Repeat,
+            ))
+            .await;
+
+        assert!(press_handled);
+        assert!(repeat_handled);
+        assert_eq!(app.state.command_palette.selected, 2);
     }
 
     #[tokio::test]

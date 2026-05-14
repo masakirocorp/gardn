@@ -6,7 +6,10 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{command_palette::command_palette_filtered_commands, AppState};
+use crate::app::{
+    command_palette::{command_palette_filtered_commands, CommandPaletteCommand},
+    AppState,
+};
 
 use super::widgets::{panel_contrast_fg, render_modal_header, render_modal_shell};
 
@@ -59,41 +62,64 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
         .command_palette
         .selected
         .min(commands.len().saturating_sub(1));
+    let palette_rows = command_palette_rows(&commands);
+    let selected_row = palette_rows
+        .iter()
+        .position(|row| matches!(row, CommandPaletteRow::Command(idx, _) if *idx == selected))
+        .unwrap_or(0);
     let visible_rows = rows[3].height as usize;
     let start = if visible_rows == 0 {
         0
-    } else if selected >= visible_rows {
-        selected + 1 - visible_rows
+    } else if selected_row >= visible_rows {
+        selected_row + 1 - visible_rows
     } else {
         0
     };
-    let end = (start + visible_rows).min(commands.len());
+    let end = (start + visible_rows).min(palette_rows.len());
 
-    let lines = commands[start..end]
+    let lines = palette_rows[start..end]
         .iter()
-        .enumerate()
-        .map(|(offset, command)| {
-            let idx = start + offset;
-            let selected = idx == selected;
-            let style = if selected {
+        .map(|row| match row {
+            CommandPaletteRow::Header(group) => Line::from(Span::styled(
+                format!(" {}", group),
                 Style::default()
-                    .fg(panel_contrast_fg(&app.palette))
-                    .bg(app.palette.accent)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(app.palette.text)
-            };
-            let group_style = if selected {
-                style
-            } else {
-                Style::default().fg(app.palette.overlay1)
-            };
-            Line::from(vec![
-                Span::styled(format!(" {}", command.title), style),
-                Span::styled(format!("  {}", command.group), group_style),
-            ])
+                    .fg(app.palette.overlay1)
+                    .add_modifier(Modifier::DIM),
+            )),
+            CommandPaletteRow::Command(idx, command) => {
+                let selected = *idx == selected;
+                let style = if selected {
+                    Style::default()
+                        .fg(panel_contrast_fg(&app.palette))
+                        .bg(app.palette.accent)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(app.palette.text)
+                };
+                Line::from(Span::styled(format!("  {}", command.title), style))
+            }
         })
         .collect::<Vec<_>>();
 
     frame.render_widget(Paragraph::new(lines), rows[3]);
+}
+
+enum CommandPaletteRow<'a> {
+    Header(&'static str),
+    Command(usize, &'a CommandPaletteCommand),
+}
+
+fn command_palette_rows(commands: &[CommandPaletteCommand]) -> Vec<CommandPaletteRow<'_>> {
+    let mut rows = Vec::new();
+    let mut last_group = None;
+
+    for (idx, command) in commands.iter().enumerate() {
+        if last_group != Some(command.group) {
+            rows.push(CommandPaletteRow::Header(command.group));
+            last_group = Some(command.group);
+        }
+        rows.push(CommandPaletteRow::Command(idx, command));
+    }
+
+    rows
 }

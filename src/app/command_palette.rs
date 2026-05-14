@@ -75,6 +75,20 @@ impl CommandPaletteCommand {
     }
 }
 
+fn command_palette_group_order(group: &str) -> usize {
+    match group {
+        "spaces" => 0,
+        "tabs" => 1,
+        "panes" => 2,
+        "groups" => 3,
+        "agents" => 4,
+        "layout" => 5,
+        "app" => 6,
+        "custom" => 7,
+        _ => 8,
+    }
+}
+
 pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCommand> {
     let mut commands = vec![
         CommandPaletteCommand::new("new space", "spaces", CommandPaletteAction::NewWorkspace),
@@ -262,8 +276,12 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
 
 pub(crate) fn command_palette_filtered_commands(state: &AppState) -> Vec<CommandPaletteCommand> {
     let query = state.command_palette.query.as_str();
-    command_palette_commands(state)
+    let mut commands = command_palette_commands(state)
         .into_iter()
-        .filter(|command| command.matches(query))
-        .collect()
+        .enumerate()
+        .filter(|(_, command)| command.matches(query))
+        .collect::<Vec<_>>();
+
+    commands.sort_by_key(|(idx, command)| (command_palette_group_order(command.group), *idx));
+    commands.into_iter().map(|(_, command)| command).collect()
 }

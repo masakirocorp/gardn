@@ -3,9 +3,9 @@ use std::time::{Duration, Instant};
 use crossterm::terminal;
 
 use super::{
-    auto_updates_enabled, repeat_key_identity, App, Mode, ANIMATION_INTERVAL,
-    AUTO_UPDATE_CHECK_INTERVAL, GIT_REMOTE_STATUS_REFRESH_INTERVAL, MIN_RENDER_INTERVAL,
-    RESIZE_POLL_INTERVAL,
+    auto_updates_enabled, command_palette_accepts_repeat_key, repeat_key_identity, App, Mode,
+    ANIMATION_INTERVAL, AUTO_UPDATE_CHECK_INTERVAL, GIT_REMOTE_STATUS_REFRESH_INTERVAL,
+    MIN_RENDER_INTERVAL, RESIZE_POLL_INTERVAL,
 };
 use crate::events::AppEvent;
 use crate::workspace::{Workspace, WorkspaceGitStatus};
@@ -67,9 +67,13 @@ impl App {
                         true
                     }
                     crossterm::event::KeyEventKind::Repeat => {
-                        if self.state.mode == Mode::Terminal
-                            && !self.suppressed_repeat_keys.contains(&key_id)
-                        {
+                        let accepts_repeat = match self.state.mode {
+                            Mode::Terminal => !self.suppressed_repeat_keys.contains(&key_id),
+                            Mode::CommandPalette => command_palette_accepts_repeat_key(&key),
+                            _ => false,
+                        };
+
+                        if accepts_repeat {
                             self.handle_key(key).await;
                             true
                         } else {

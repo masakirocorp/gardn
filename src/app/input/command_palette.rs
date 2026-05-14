@@ -87,9 +87,13 @@ fn move_command_palette_selection(state: &mut AppState, down: bool) {
     }
 
     if down {
-        state.command_palette.selected = (state.command_palette.selected + 1).min(count - 1);
+        state.command_palette.selected = (state.command_palette.selected + 1) % count;
     } else {
-        state.command_palette.selected = state.command_palette.selected.saturating_sub(1);
+        state.command_palette.selected = if state.command_palette.selected == 0 {
+            count - 1
+        } else {
+            state.command_palette.selected - 1
+        };
     }
 }
 
@@ -274,5 +278,17 @@ mod tests {
 
         assert_eq!(app.state.mode, Mode::RenameTab);
         assert!(app.state.creating_new_tab);
+    }
+
+    #[test]
+    fn command_palette_selection_wraps() {
+        let mut app = app_with_space();
+        let count = command_palette_visible_commands(&app.state).len();
+
+        app.handle_command_palette_key(KeyEvent::new(KeyCode::Up, KeyModifiers::empty()));
+        assert_eq!(app.state.command_palette.selected, count - 1);
+
+        app.handle_command_palette_key(KeyEvent::new(KeyCode::Down, KeyModifiers::empty()));
+        assert_eq!(app.state.command_palette.selected, 0);
     }
 }
