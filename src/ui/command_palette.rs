@@ -16,7 +16,7 @@ use super::{
     widgets::{panel_contrast_fg, render_modal_header, render_modal_shell},
 };
 
-const COMMAND_PALETTE_SCROLLBAR_WIDTH: u16 = 3;
+const COMMAND_PALETTE_SCROLLBAR_WIDTH: u16 = 1;
 
 pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) {
     super::dim_background(frame, frame.area());
@@ -83,6 +83,11 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
     let has_scrollbar =
         should_show_scrollbar(metrics) && rows[3].width > COMMAND_PALETTE_SCROLLBAR_WIDTH;
 
+    let list_width = rows[3]
+        .width
+        .saturating_sub(u16::from(has_scrollbar) * COMMAND_PALETTE_SCROLLBAR_WIDTH)
+        as usize;
+
     let lines = palette_rows[start..end]
         .iter()
         .map(|row| match row {
@@ -102,7 +107,10 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
                 } else {
                     Style::default().fg(app.palette.text)
                 };
-                Line::from(Span::styled(format!("  {}", command.title), style))
+                Line::from(Span::styled(
+                    format_command_palette_row(&command.title, list_width),
+                    style,
+                ))
             }
         })
         .collect::<Vec<_>>();
@@ -160,4 +168,14 @@ fn command_palette_rows(commands: &[CommandPaletteCommand]) -> Vec<CommandPalett
     }
 
     rows
+}
+
+fn format_command_palette_row(title: &str, width: usize) -> String {
+    let text = format!("  {title}");
+    let len = text.chars().count();
+    if len >= width {
+        text
+    } else {
+        format!("{text}{}", " ".repeat(width - len))
+    }
 }
