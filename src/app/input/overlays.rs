@@ -173,7 +173,8 @@ impl AppState {
 
     pub(super) fn rename_modal_inner(&self) -> Option<Rect> {
         let (width, height) = crate::ui::rename_modal_size(self);
-        self.onboarding_modal_inner(width, height)
+        crate::ui::centered_popup_rect(self.screen_rect(), width, height)
+            .map(|popup| Block::default().borders(Borders::ALL).inner(popup))
     }
 
     fn release_notes_body_rect(&self) -> Option<Rect> {

@@ -1685,6 +1685,81 @@ mod tests {
     }
 
     #[test]
+    fn group_modal_buttons_use_full_screen_geometry_with_right_sidebar() {
+        let mut app = app_for_mouse_test();
+        app.state.view.right_sidebar_rect = Rect::new(106, 0, 34, 20);
+        super::super::modal::open_new_group_dialog(&mut app.state);
+        app.state.name_input = "Work".to_string();
+        app.state.group_icon_input = "◆".to_string();
+
+        let inner = app.state.rename_modal_inner().unwrap();
+        let (save, _, _) = crate::ui::rename_button_rects(inner);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            save.x,
+            save.y,
+        ));
+
+        assert_eq!(app.state.groups[1].name, "Work");
+        assert_eq!(app.state.groups[1].icon, "◆");
+        assert_eq!(app.state.mode, Mode::Navigate);
+    }
+
+    #[test]
+    fn group_modal_clear_uses_full_screen_geometry_with_right_sidebar() {
+        let mut app = app_for_mouse_test();
+        app.state.view.right_sidebar_rect = Rect::new(106, 0, 34, 20);
+        super::super::modal::open_new_group_dialog(&mut app.state);
+        app.state.name_input = "Work".to_string();
+
+        let inner = app.state.rename_modal_inner().unwrap();
+        let (_, clear, _) = crate::ui::rename_button_rects(inner);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            clear.x,
+            clear.y,
+        ));
+
+        assert_eq!(app.state.name_input, "");
+        assert_eq!(app.state.mode, Mode::RenameGroup);
+    }
+
+    #[test]
+    fn group_modal_cancel_uses_full_screen_geometry_with_right_sidebar() {
+        let mut app = app_for_mouse_test();
+        app.state.view.right_sidebar_rect = Rect::new(106, 0, 34, 20);
+        super::super::modal::open_new_group_dialog(&mut app.state);
+
+        let inner = app.state.rename_modal_inner().unwrap();
+        let (_, _, cancel) = crate::ui::rename_button_rects(inner);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            cancel.x,
+            cancel.y,
+        ));
+
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert!(!app.state.creating_new_group);
+    }
+
+    #[test]
+    fn group_modal_icon_uses_full_screen_geometry_with_right_sidebar() {
+        let mut app = app_for_mouse_test();
+        app.state.view.right_sidebar_rect = Rect::new(106, 0, 34, 20);
+        super::super::modal::open_new_group_dialog(&mut app.state);
+
+        let inner = app.state.rename_modal_inner().unwrap();
+        let icon_button = crate::ui::group_icon_button_rect(inner);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            icon_button.x,
+            icon_button.y,
+        ));
+
+        assert!(app.state.group_icon_picker_open);
+    }
+
+    #[test]
     fn group_icon_picker_updates_icon_for_existing_group() {
         let mut app = app_for_mouse_test();
         let group_idx = app.state.create_group("Work".to_string());
