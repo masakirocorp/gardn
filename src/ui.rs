@@ -612,7 +612,7 @@ mod tests {
         let (agent_area, _) = right_sidebar_panel_rects(&app, app.view.right_sidebar_rect);
 
         assert!(buffer_row_text(buffer, content, content.y).starts_with(" activity"));
-        assert!(buffer_row_text(buffer, agent_area, agent_area.y).starts_with(" ▾ agents"));
+        assert!(buffer_row_text(buffer, agent_area, agent_area.y).starts_with(" ▾ agents (0)"));
         assert_eq!(
             agent_panel_body_rect(agent_area, false, false).y,
             agent_area.y + 1
@@ -649,7 +649,7 @@ mod tests {
             .join("\n");
 
         assert!(buffer_row_text(buffer, content, content.y).starts_with(" activity"));
-        assert!(buffer_row_text(buffer, agent_area, agent_area.y).starts_with(" ▾ agents"));
+        assert!(buffer_row_text(buffer, agent_area, agent_area.y).starts_with(" ▾ agents (1)"));
         assert!(body_text.contains("claude"));
     }
 

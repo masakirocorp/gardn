@@ -118,7 +118,7 @@ fn agent_panel_toggle_label(scope: AgentPanelScope) -> &'static str {
     match scope {
         AgentPanelScope::CurrentWorkspace => "this space",
         AgentPanelScope::CurrentGroup => "this group",
-        AgentPanelScope::AllWorkspaces => "all agents",
+        AgentPanelScope::AllWorkspaces => "all",
     }
 }
 
@@ -1054,6 +1054,13 @@ fn port_panel_entries(app: &AppState) -> Vec<PortPanelEntry> {
     entries
 }
 
+fn activity_agents_count(app: &AppState) -> usize {
+    agent_panel_entries(app)
+        .into_iter()
+        .filter(|entry| !agent_panel_entry_needs_triage(entry))
+        .count()
+}
+
 fn port_entries_for_endpoint(app: &AppState, endpoint: &PortEndpoint) -> Vec<PortPanelEntry> {
     endpoint
         .owners
@@ -1174,7 +1181,7 @@ fn render_ports_section(app: &AppState, frame: &mut Frame, area: Rect, entries: 
     };
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
-            format!(" {chevron} ports"),
+            format!(" {chevron} ports ({})", entries.len()),
             Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
         )])),
         Rect::new(area.x, area.y, area.width, 1),
@@ -1632,7 +1639,7 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
     };
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
-            format!(" {chevron} agents"),
+            format!(" {chevron} agents ({})", activity_agents_count(app)),
             Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
         )])),
         Rect::new(area.x, header_y, area.width, 1),
@@ -1815,7 +1822,7 @@ mod tests {
         );
         assert_eq!(
             agent_panel_toggle_label(AgentPanelScope::AllWorkspaces),
-            "all agents"
+            "all"
         );
     }
 
@@ -2164,8 +2171,8 @@ mod tests {
             .expect("render right sidebar");
 
         let text = buffer_text(terminal.backend().buffer(), 32, 18);
-        assert!(text.contains("▸ agents"));
-        assert!(text.contains("▸ ports"));
+        assert!(text.contains("▸ agents (0)"));
+        assert!(text.contains("▸ ports (0)"));
         assert!(!text.contains("no agents"));
         assert!(!text.contains("no active ports"));
     }

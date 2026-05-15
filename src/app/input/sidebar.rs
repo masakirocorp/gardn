@@ -285,14 +285,14 @@ impl AppState {
         if self.group_filter_enabled {
             format!("{} {}", self.active_group_icon(), self.active_group_name())
         } else {
-            "all spaces".to_string()
+            "all".to_string()
         }
     }
 
     pub(crate) fn group_menu_labels(&self) -> Vec<String> {
         let all_marker = if self.group_filter_enabled { " " } else { "*" };
         let mut labels = vec![
-            format!("{all_marker} all spaces ({})", self.workspaces.len()),
+            format!("{all_marker} all ({})", self.workspaces.len()),
             "---".to_string(),
             "groups".to_string(),
         ];
@@ -381,7 +381,7 @@ impl AppState {
     pub(crate) fn agent_menu_labels(&self) -> Vec<String> {
         vec![
             format!(
-                "all agents ({})",
+                "all ({})",
                 crate::ui::agent_panel_scope_count(self, AgentPanelScope::AllWorkspaces)
             ),
             "---".to_string(),
@@ -902,7 +902,7 @@ mod tests {
 
         let labels = app.state.group_menu_labels();
 
-        assert!(labels[0].contains("all spaces (2)"));
+        assert!(labels[0].contains("all (2)"));
         assert_eq!(labels[1], "---");
         assert_eq!(labels[2], "groups");
         assert!(labels[3].contains("group 1 (1)"));
@@ -1512,7 +1512,7 @@ mod tests {
         assert_eq!(
             app.state.agent_menu_labels(),
             vec![
-                "all agents (2)",
+                "all (2)",
                 "---",
                 "this space (0)",
                 "  triage",
