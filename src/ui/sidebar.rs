@@ -1273,6 +1273,11 @@ fn render_port_entry(
     };
     let secondary_style = Style::default().fg(p.overlay0).add_modifier(Modifier::DIM);
     let primary_width = area.width.saturating_sub(8) as usize;
+    let row_style = if app.is_active_pane(entry.ws_idx, entry.tab_idx, entry.pane_id) {
+        Style::default().bg(p.surface_dim)
+    } else {
+        Style::default()
+    };
 
     frame.render_widget(
         Paragraph::new(Line::from(vec![
@@ -1282,11 +1287,13 @@ fn render_port_entry(
                 truncate_text(&entry.primary_label, primary_width),
                 label_style,
             ),
-        ])),
+        ]))
+        .style(row_style),
         Rect::new(area.x, row_y, area.width, 1),
     );
     frame.render_widget(
-        Paragraph::new(port_secondary_line(entry, p, area.width)).style(secondary_style),
+        Paragraph::new(port_secondary_line(entry, p, area.width))
+            .style(secondary_style.patch(row_style)),
         Rect::new(area.x, row_y + 1, area.width, 1),
     );
 }
@@ -2253,6 +2260,55 @@ mod tests {
         assert!(text.contains(":5173"));
         assert!(text.contains("pane 1"));
         assert!(text.contains("localhost · vite"));
+    }
+
+    #[test]
+    fn active_port_row_uses_selected_background() {
+        let mut app = crate::app::state::AppState::test_new();
+        let workspace = Workspace::test_new("web");
+        let pane_id = workspace.tabs[0].root_pane;
+        let workspace_id = workspace.id.clone();
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+        app.port_registry.sync_observations(
+            std::time::Instant::now(),
+            [crate::ports::PortObservation {
+                bind_addr: "127.0.0.1".parse().unwrap(),
+                port: 5173,
+                pid: 42,
+                command: Some("vite".to_string()),
+            }],
+            |_| {
+                Some(crate::ports::PortOwner {
+                    pid: 42,
+                    command: None,
+                    workspace_id: workspace_id.clone(),
+                    tab_idx: 0,
+                    pane_id,
+                    confidence: crate::ports::PortOwnerConfidence::ProcessTree,
+                })
+            },
+        );
+
+        let backend = TestBackend::new(32, 18);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_right_sidebar(&app, frame, Rect::new(0, 0, 32, 18)))
+            .expect("render right sidebar");
+
+        let (_, port_area) = right_sidebar_panel_rects(&app, Rect::new(0, 0, 32, 18));
+        let row_y = port_area.y + PORT_PANEL_HEADER_ROWS;
+        let buffer = terminal.backend().buffer();
+        assert_eq!(
+            buffer[(port_area.x, row_y)].style().bg,
+            Some(app.palette.surface_dim)
+        );
+        assert_eq!(
+            buffer[(port_area.x, row_y + 1)].style().bg,
+            Some(app.palette.surface_dim)
+        );
     }
 
     #[test]
