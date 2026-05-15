@@ -36,7 +36,7 @@ impl AppState {
             if self.right_sidebar_collapsed {
                 return Rect::default();
             }
-            return crate::ui::right_sidebar_content_rect(self.view.right_sidebar_rect);
+            return crate::ui::right_sidebar_panel_rects(self, self.view.right_sidebar_rect).0;
         }
         let sidebar = self.view.sidebar_rect;
         if self.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
@@ -768,6 +768,19 @@ impl AppState {
             .map(|detail| (detail.ws_idx, detail.tab_idx, detail.pane_id))
     }
 
+    pub(super) fn port_detail_target_at(
+        &self,
+        row: u16,
+    ) -> Option<(usize, usize, crate::layout::PaneId)> {
+        if self.right_sidebar_collapsed || self.view.right_sidebar_rect == Rect::default() {
+            return None;
+        }
+
+        let (_, port_area) =
+            crate::ui::right_sidebar_panel_rects(self, self.view.right_sidebar_rect);
+        crate::ui::port_panel_entry_at_row(self, port_area, row)
+    }
+
     pub(super) fn collapsed_right_sidebar_agent_target_at(
         &self,
         row: u16,
@@ -790,7 +803,7 @@ impl AppState {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, time::Instant};
 
     use crossterm::event::{MouseButton, MouseEventKind};
     use ratatui::layout::Rect;
@@ -1913,6 +1926,61 @@ mod tests {
         assert_eq!(
             app.state.workspaces[0].tabs[second_tab].layout.focused(),
             second_pane
+        );
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn clicking_right_sidebar_port_row_switches_to_owner_pane() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("web");
+        let first_pane = ws.tabs[0].root_pane;
+        let second_tab = ws.test_add_tab(Some("server"));
+        let second_pane = ws.tabs[second_tab].root_pane;
+        let workspace_id = ws.id.clone();
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+        app.state.port_registry.sync_observations(
+            Instant::now(),
+            [crate::ports::PortObservation {
+                bind_addr: "127.0.0.1".parse().unwrap(),
+                port: 5173,
+                pid: 42,
+                command: Some("vite".to_string()),
+            }],
+            |_| {
+                Some(crate::ports::PortOwner {
+                    pid: 42,
+                    command: None,
+                    workspace_id: workspace_id.clone(),
+                    tab_idx: second_tab,
+                    pane_id: second_pane,
+                    confidence: crate::ports::PortOwnerConfidence::ProcessTree,
+                })
+            },
+        );
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+
+        let (_, port_area) =
+            crate::ui::right_sidebar_panel_rects(&app.state, app.state.view.right_sidebar_rect);
+        assert_ne!(port_area, Rect::default());
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            port_area.x + 1,
+            port_area.y + 2,
+        ));
+
+        assert_eq!(app.state.workspaces[0].active_tab, second_tab);
+        assert_eq!(
+            app.state.workspaces[0].tabs[second_tab].layout.focused(),
+            second_pane
+        );
+        assert_ne!(
+            app.state.workspaces[0].tabs[second_tab].layout.focused(),
+            first_pane
         );
         assert_eq!(app.state.mode, Mode::Terminal);
     }

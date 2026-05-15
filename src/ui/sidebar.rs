@@ -36,6 +36,9 @@ pub(crate) struct AgentPanelSection {
 
 #[derive(Clone)]
 struct PortPanelEntry {
+    ws_idx: usize,
+    tab_idx: usize,
+    pane_id: crate::layout::PaneId,
     port: u16,
     exposure: PortExposure,
     state: PortState,
@@ -907,24 +910,32 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
         render_right_sidebar_toggle(app, frame, area, true, p);
         return;
     }
-    let content = right_sidebar_content_rect(area);
     let port_entries = port_panel_entries(app);
-    if port_entries.is_empty() || content.height < 8 {
-        render_agent_detail(app, frame, content, false);
-    } else {
-        let port_height = port_panel_height(content, port_entries.len());
-        let agent_height = content.height.saturating_sub(port_height + 1);
-        let agent_area = Rect::new(content.x, content.y, content.width, agent_height);
-        let port_area = Rect::new(
-            content.x,
-            content.y + agent_height + 1,
-            content.width,
-            port_height,
-        );
-        render_agent_detail(app, frame, agent_area, false);
+    let (agent_area, port_area) = right_sidebar_panel_rects(app, area);
+    render_agent_detail(app, frame, agent_area, false);
+    if port_area != Rect::default() {
         render_ports_section(app, frame, port_area, &port_entries);
     }
     render_right_sidebar_toggle(app, frame, area, false, p);
+}
+
+pub(crate) fn right_sidebar_panel_rects(app: &AppState, area: Rect) -> (Rect, Rect) {
+    let content = right_sidebar_content_rect(area);
+    let port_entries = port_panel_entries(app);
+    if port_entries.is_empty() || content.height < 8 {
+        return (content, Rect::default());
+    }
+
+    let port_height = port_panel_height(content, port_entries.len());
+    let agent_height = content.height.saturating_sub(port_height + 1);
+    let agent_area = Rect::new(content.x, content.y, content.width, agent_height);
+    let port_area = Rect::new(
+        content.x,
+        content.y + agent_height + 1,
+        content.width,
+        port_height,
+    );
+    (agent_area, port_area)
 }
 
 fn port_panel_height(area: Rect, entry_count: usize) -> u16 {
@@ -956,6 +967,9 @@ fn port_entries_for_endpoint(app: &AppState, endpoint: &PortEndpoint) -> Vec<Por
                 return None;
             }
             Some(PortPanelEntry {
+                ws_idx,
+                tab_idx: owner.tab_idx,
+                pane_id: owner.pane_id,
                 port: endpoint.port,
                 exposure: endpoint.exposure,
                 state: endpoint.state,
@@ -1021,12 +1035,7 @@ fn port_owner_secondary_label(endpoint: &PortEndpoint, command: Option<&str>) ->
         .join(" · ")
 }
 
-fn render_ports_section(
-    app: &AppState,
-    frame: &mut Frame,
-    area: Rect,
-    entries: &[PortPanelEntry],
-) {
+fn render_ports_section(app: &AppState, frame: &mut Frame, area: Rect, entries: &[PortPanelEntry]) {
     if area.height < 3 || area.width == 0 {
         return;
     }
@@ -1057,6 +1066,30 @@ fn render_ports_section(
     }
 }
 
+pub(crate) fn port_panel_entry_at_row(
+    app: &AppState,
+    area: Rect,
+    row: u16,
+) -> Option<(usize, usize, crate::layout::PaneId)> {
+    if area == Rect::default() || area.height < 3 || row < area.y + 2 || row >= area.y + area.height
+    {
+        return None;
+    }
+
+    let mut row_y = area.y + 2;
+    for entry in port_panel_entries(app) {
+        if row_y + 1 >= area.y + area.height {
+            break;
+        }
+        if row == row_y || row == row_y + 1 {
+            return Some((entry.ws_idx, entry.tab_idx, entry.pane_id));
+        }
+        row_y += 2;
+    }
+
+    None
+}
+
 fn render_port_entry(
     app: &AppState,
     frame: &mut Frame,
@@ -1082,7 +1115,10 @@ fn render_port_entry(
         Paragraph::new(Line::from(vec![
             Span::styled(format!(" :{}", entry.port), port_style),
             Span::styled(" ", Style::default()),
-            Span::styled(truncate_text(&entry.primary_label, primary_width), label_style),
+            Span::styled(
+                truncate_text(&entry.primary_label, primary_width),
+                label_style,
+            ),
         ])),
         Rect::new(area.x, row_y, area.width, 1),
     );
@@ -1090,7 +1126,10 @@ fn render_port_entry(
         Paragraph::new(Span::styled(
             format!(
                 "   {}",
-                truncate_text(&entry.secondary_label, (area.width as usize).saturating_sub(3))
+                truncate_text(
+                    &entry.secondary_label,
+                    (area.width as usize).saturating_sub(3)
+                )
             ),
             secondary_style,
         )),

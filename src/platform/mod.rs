@@ -126,7 +126,10 @@ mod tests {
         assert_eq!(listeners.len(), 2);
         assert_eq!(listeners[0].pid, 10);
         assert_eq!(listeners[0].command.as_deref(), Some("node"));
-        assert_eq!(listeners[0].bind_addr, "127.0.0.1".parse::<IpAddr>().unwrap());
+        assert_eq!(
+            listeners[0].bind_addr,
+            "127.0.0.1".parse::<IpAddr>().unwrap()
+        );
         assert_eq!(listeners[0].port, 5173);
         assert_eq!(listeners[1].pid, 20);
         assert_eq!(listeners[1].bind_addr, "::1".parse::<IpAddr>().unwrap());

@@ -441,6 +441,15 @@ impl AppState {
                         return None;
                     }
 
+                    if let Some((ws_idx, tab_idx, pane_id)) = self.port_detail_target_at(mouse.row)
+                    {
+                        self.switch_workspace(ws_idx);
+                        self.switch_tab(tab_idx);
+                        self.focus_pane(pane_id);
+                        self.mode = Mode::Terminal;
+                        return None;
+                    }
+
                     if let Some((ws_idx, tab_idx, pane_id)) = self.agent_detail_target_at(mouse.row)
                     {
                         self.switch_workspace(ws_idx);

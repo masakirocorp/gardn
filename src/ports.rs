@@ -111,7 +111,8 @@ impl PortEndpoint {
             .any(|existing| existing.pid == owner.pid && existing.pane_id == owner.pane_id)
         {
             self.owners.push(owner);
-            self.owners.sort_by_key(|owner| (owner.tab_idx, owner.pane_id.raw(), owner.pid));
+            self.owners
+                .sort_by_key(|owner| (owner.tab_idx, owner.pane_id.raw(), owner.pid));
         }
     }
 }
@@ -211,11 +212,9 @@ mod tests {
         let now = Instant::now();
         let mut registry = PortRegistry::default();
 
-        registry.sync_observations(
-            now,
-            [observation("127.0.0.1", 5173, 42)],
-            |pid| (pid == 42).then(|| owner(pid, 7)),
-        );
+        registry.sync_observations(now, [observation("127.0.0.1", 5173, 42)], |pid| {
+            (pid == 42).then(|| owner(pid, 7))
+        });
 
         let endpoints = registry.endpoints();
         assert_eq!(endpoints.len(), 1);
@@ -230,11 +229,9 @@ mod tests {
     fn registry_hides_unowned_ports() {
         let mut registry = PortRegistry::default();
 
-        registry.sync_observations(
-            Instant::now(),
-            [observation("127.0.0.1", 3000, 99)],
-            |_| None,
-        );
+        registry.sync_observations(Instant::now(), [observation("127.0.0.1", 3000, 99)], |_| {
+            None
+        });
 
         assert!(registry.endpoints().is_empty());
     }
