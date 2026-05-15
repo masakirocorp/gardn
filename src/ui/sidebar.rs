@@ -1173,15 +1173,15 @@ fn port_exposure_style(exposure: PortExposure, p: &Palette) -> Style {
 fn port_icon(entry: &PortPanelEntry, p: &Palette) -> (&'static str, Style) {
     match (entry.state, entry.exposure) {
         (PortState::Stale, _) => (
-            "○",
+            "□",
             Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
         ),
         (_, PortExposure::All) => (
-            "◉",
+            "■",
             Style::default().fg(p.yellow).add_modifier(Modifier::BOLD),
         ),
-        (_, PortExposure::Lan) => ("●", Style::default().fg(p.blue)),
-        (_, PortExposure::Loopback) => ("●", Style::default().fg(p.teal)),
+        (_, PortExposure::Lan) => ("■", Style::default().fg(p.blue)),
+        (_, PortExposure::Loopback) => ("■", Style::default().fg(p.teal)),
     }
 }
 
