@@ -450,7 +450,11 @@ fn indexed_navigation_action(state: &AppState, key: &KeyEvent) -> Option<Navigat
         .indexed_workspaces
         .is_some_and(|mods| key_matches(key, KeyCode::Char(c), mods))
     {
-        return Some(NavigateAction::SwitchWorkspace(idx));
+        return state
+            .visible_workspace_indices()
+            .get(idx)
+            .copied()
+            .map(NavigateAction::SwitchWorkspace);
     }
     if kb
         .indexed_agents
@@ -798,7 +802,12 @@ mod tests {
 
     use super::super::{state_with_workspaces, unique_temp_path, wait_for_file};
     use super::*;
-    use crate::{app::App, config::Config, input::TerminalKey, workspace::Workspace};
+    use crate::{
+        app::{state::Group, App},
+        config::Config,
+        input::TerminalKey,
+        workspace::Workspace,
+    };
 
     #[test]
     fn custom_rename_key_enters_rename_mode() {
@@ -1114,6 +1123,30 @@ mod tests {
         );
 
         assert_eq!(action, Some(NavigateAction::SwitchTab(2)));
+    }
+
+    #[test]
+    fn indexed_workspace_shortcut_respects_active_group_filter() {
+        let mut state = state_with_workspaces(&["a", "b", "c"]);
+        state.groups.push(Group {
+            id: "side".into(),
+            name: "side".into(),
+            icon: "■".into(),
+            theme_name: None,
+        });
+        state.workspaces[1].group_id = "side".into();
+        state.workspaces[2].group_id = "side".into();
+        state.active_group = 1;
+        state.group_filter_enabled = true;
+        state.keybinds.indexed_workspaces = Some(KeyModifiers::CONTROL);
+        state.keybinds.indexed_workspaces_label = Some("ctrl+1..9".into());
+
+        let action = terminal_direct_navigation_action(
+            &state,
+            &KeyEvent::new(KeyCode::Char('2'), KeyModifiers::CONTROL),
+        );
+
+        assert_eq!(action, Some(NavigateAction::SwitchWorkspace(2)));
     }
 
     #[tokio::test]
