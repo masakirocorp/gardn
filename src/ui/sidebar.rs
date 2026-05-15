@@ -1170,19 +1170,32 @@ fn port_exposure_style(exposure: PortExposure, p: &Palette) -> Style {
     }
 }
 
+fn port_icon(entry: &PortPanelEntry, p: &Palette) -> (&'static str, Style) {
+    match (entry.state, entry.exposure) {
+        (PortState::Stale, _) => (
+            "○",
+            Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+        ),
+        (_, PortExposure::All) => (
+            "◉",
+            Style::default().fg(p.yellow).add_modifier(Modifier::BOLD),
+        ),
+        (_, PortExposure::Lan) => ("●", Style::default().fg(p.blue)),
+        (_, PortExposure::Loopback) => ("●", Style::default().fg(p.teal)),
+    }
+}
+
 fn port_secondary_line(entry: &PortPanelEntry, p: &Palette, width: u16) -> Line<'static> {
-    let mut spans = vec![Span::styled("       ", Style::default())];
+    let mut spans = vec![Span::styled("   ", Style::default())];
 
     spans.push(Span::styled(
         entry.exposure_label,
         port_exposure_style(entry.exposure, p),
     ));
 
-    let command = entry
-        .command_label
-        .as_deref()
-        .map(|command| truncate_text(command, (width as usize).saturating_sub(14)));
-    if let Some(command) = command {
+    if let Some(command) = entry.command_label.as_deref() {
+        let used = 6 + entry.exposure_label.chars().count();
+        let command = truncate_text(command, (width as usize).saturating_sub(used));
         spans.push(Span::styled(" · ", Style::default().fg(p.overlay0)));
         spans.push(Span::styled(
             command,
@@ -1381,32 +1394,31 @@ fn render_port_entry(
     row_y: u16,
 ) {
     let p = &app.palette;
-    let port_style = match (entry.state, entry.exposure) {
-        (PortState::Stale, _) => Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
-        (_, PortExposure::All) => Style::default().fg(p.yellow).add_modifier(Modifier::BOLD),
-        _ => Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
-    };
     let label_style = if entry.state == PortState::Stale {
         Style::default().fg(p.overlay0).add_modifier(Modifier::DIM)
+    } else if app.is_active_pane(entry.ws_idx, entry.tab_idx, entry.pane_id) {
+        Style::default().fg(p.text).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(p.text)
+        Style::default().fg(p.subtext0).add_modifier(Modifier::BOLD)
     };
     let secondary_style = Style::default().fg(p.overlay0).add_modifier(Modifier::DIM);
-    let primary_width = area.width.saturating_sub(8) as usize;
     let row_style = if app.is_active_pane(entry.ws_idx, entry.tab_idx, entry.pane_id) {
         Style::default().bg(p.surface_dim)
     } else {
         Style::default()
     };
+    let (icon, icon_style) = port_icon(entry, p);
+    let primary_label = truncate_text(
+        &format!(":{} · {}", entry.port, entry.primary_label),
+        area.width.saturating_sub(3) as usize,
+    );
 
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(format!(" :{}", entry.port), port_style),
             Span::styled(" ", Style::default()),
-            Span::styled(
-                truncate_text(&entry.primary_label, primary_width),
-                label_style,
-            ),
+            Span::styled(icon, icon_style),
+            Span::styled(" ", Style::default()),
+            Span::styled(primary_label, label_style),
         ]))
         .style(row_style),
         Rect::new(area.x, row_y, area.width, 1),
@@ -1534,20 +1546,23 @@ fn render_right_sidebar_collapsed_agents(app: &AppState, frame: &mut Frame, area
                 buf[(x, row_y)].set_style(row_style);
             }
         }
-        let port_style = match (entry.state, entry.exposure) {
-            (PortState::Stale, _) => Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
-            (_, PortExposure::All) => Style::default().fg(p.yellow).add_modifier(Modifier::BOLD),
-            _ => Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
-        };
-        let label = format!(
-            ":{}",
-            truncate_text(
-                &entry.port.to_string(),
-                rows.width.saturating_sub(1) as usize
-            )
-        );
+        let (icon, icon_style) = port_icon(&entry, p);
+        let digits: String = entry
+            .port
+            .to_string()
+            .chars()
+            .take(rows.width.saturating_sub(2) as usize)
+            .collect();
+        let label = format!(":{digits}");
         frame.render_widget(
-            Paragraph::new(Span::styled(label, port_style)).style(row_style),
+            Paragraph::new(Line::from(vec![
+                Span::styled(icon, icon_style),
+                Span::styled(
+                    label,
+                    Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+                ),
+            ]))
+            .style(row_style),
             Rect::new(rows.x, row_y, rows.width, 1),
         );
         row_y = row_y.saturating_add(1);
