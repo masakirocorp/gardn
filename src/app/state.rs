@@ -881,6 +881,7 @@ pub(crate) enum DragTarget {
     SidebarDivider,
     RightSidebarDivider,
     SidebarSectionDivider,
+    RightSidebarPortsDivider,
 }
 
 /// Active mouse drag on a split border or sidebar divider.
@@ -1082,6 +1083,8 @@ pub struct AppState {
     pub right_sidebar_collapsed: bool,
     /// Ratio of sidebar height allocated to the workspaces section.
     pub sidebar_section_split: f32,
+    /// Ratio of right sidebar height allocated to the agents section.
+    pub right_sidebar_ports_split: f32,
     pub agent_panel_scope: AgentPanelScope,
     /// Capture mouse input for Herdr's own mouse UI. When false, Herdr only
     /// captures mouse while the focused pane app requests mouse reporting.
@@ -1394,6 +1397,7 @@ impl AppState {
             right_sidebar_width: 28,
             right_sidebar_collapsed: false,
             sidebar_section_split: 0.5,
+            right_sidebar_ports_split: 0.7,
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
             mouse_capture: true,
             confirm_close: true,

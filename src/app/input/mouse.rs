@@ -341,6 +341,14 @@ impl AppState {
                     return None;
                 }
 
+                if self.on_right_sidebar_ports_divider(mouse.column, mouse.row) {
+                    self.drag = Some(DragState {
+                        target: DragTarget::RightSidebarPortsDivider,
+                    });
+                    self.set_right_sidebar_ports_split(mouse.row);
+                    return None;
+                }
+
                 if !in_chrome {
                     if let Some(border) = self.find_border_at(mouse.column, mouse.row) {
                         self.drag = Some(DragState {
@@ -700,6 +708,9 @@ impl AppState {
                         }
                         DragTarget::SidebarSectionDivider => {
                             self.set_sidebar_section_split(mouse.row);
+                        }
+                        DragTarget::RightSidebarPortsDivider => {
+                            self.set_right_sidebar_ports_split(mouse.row);
                         }
                         DragTarget::ReleaseNotesScrollbar { .. }
                         | DragTarget::KeybindHelpScrollbar { .. }

@@ -43,7 +43,8 @@ struct PortPanelEntry {
     exposure: PortExposure,
     state: PortState,
     primary_label: String,
-    secondary_label: String,
+    command_label: Option<String>,
+    exposure_label: &'static str,
 }
 
 fn sidebar_section_heights(total_h: u16, split_ratio: f32) -> (u16, u16) {
@@ -914,6 +915,7 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
     let (agent_area, port_area) = right_sidebar_panel_rects(app, area);
     render_agent_detail(app, frame, agent_area, false);
     if port_area != Rect::default() {
+        render_right_sidebar_ports_divider(app, frame, area);
         render_ports_section(app, frame, port_area, &port_entries);
     }
     render_right_sidebar_toggle(app, frame, area, false, p);
@@ -926,22 +928,40 @@ pub(crate) fn right_sidebar_panel_rects(app: &AppState, area: Rect) -> (Rect, Re
         return (content, Rect::default());
     }
 
-    let port_height = port_panel_height(content, port_entries.len());
-    let agent_height = content.height.saturating_sub(port_height + 1);
+    let min_port_height = 4;
+    let max_agent_height = content.height.saturating_sub(min_port_height + 1);
+    let agent_height = ((content.height as f32) * app.right_sidebar_ports_split).round() as u16;
+    let agent_height = agent_height.clamp(3, max_agent_height);
     let agent_area = Rect::new(content.x, content.y, content.width, agent_height);
     let port_area = Rect::new(
         content.x,
         content.y + agent_height + 1,
         content.width,
-        port_height,
+        content.height.saturating_sub(agent_height + 1),
     );
     (agent_area, port_area)
 }
 
-fn port_panel_height(area: Rect, entry_count: usize) -> u16 {
-    let wanted = 2 + (entry_count as u16).saturating_mul(2);
-    let max = (area.height / 3).max(4);
-    wanted.min(max).min(area.height)
+pub(crate) fn right_sidebar_ports_divider_rect(app: &AppState, area: Rect) -> Rect {
+    let (_, port_area) = right_sidebar_panel_rects(app, area);
+    if port_area == Rect::default() || port_area.y == 0 {
+        return Rect::default();
+    }
+    Rect::new(port_area.x, port_area.y - 1, port_area.width, 1)
+}
+
+fn render_right_sidebar_ports_divider(app: &AppState, frame: &mut Frame, area: Rect) {
+    let rect = right_sidebar_ports_divider_rect(app, area);
+    if rect == Rect::default() {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "─".repeat(rect.width as usize),
+            Style::default().fg(app.palette.surface1),
+        )),
+        rect,
+    );
 }
 
 fn port_panel_entries(app: &AppState) -> Vec<PortPanelEntry> {
@@ -974,7 +994,8 @@ fn port_entries_for_endpoint(app: &AppState, endpoint: &PortEndpoint) -> Vec<Por
                 exposure: endpoint.exposure,
                 state: endpoint.state,
                 primary_label: port_owner_primary_label(app, ws_idx, owner.tab_idx, owner.pane_id),
-                secondary_label: port_owner_secondary_label(endpoint, owner.command.as_deref()),
+                command_label: owner.command.clone(),
+                exposure_label: port_exposure_label(endpoint.exposure),
             })
         })
         .collect()
@@ -1003,36 +1024,58 @@ fn port_owner_primary_label(
     if app.agent_panel_scope != AgentPanelScope::CurrentWorkspace {
         return workspace.display_name();
     }
-    let pane = workspace
+    if workspace.tabs.len() > 1 {
+        return workspace
+            .tabs
+            .get(tab_idx)
+            .map(crate::workspace::Tab::display_name)
+            .unwrap_or_else(|| "tab".to_string());
+    }
+
+    workspace
         .public_pane_number(pane_id)
         .map(|number| format!("pane {number}"))
-        .unwrap_or_else(|| "pane".to_string());
-    if workspace.tabs.len() <= 1 {
-        return pane;
-    }
-    let tab = workspace
-        .tabs
-        .get(tab_idx)
-        .map(crate::workspace::Tab::display_name)
-        .unwrap_or_else(|| "tab".to_string());
-    format!("{tab} · {pane}")
+        .unwrap_or_else(|| "pane".to_string())
 }
 
-fn port_owner_secondary_label(endpoint: &PortEndpoint, command: Option<&str>) -> String {
-    let exposure = match endpoint.exposure {
+fn port_exposure_label(exposure: PortExposure) -> &'static str {
+    match exposure {
         PortExposure::Loopback => "loopback",
         PortExposure::Lan => "lan",
         PortExposure::All => "all interfaces",
-    };
-    let state = match endpoint.state {
-        PortState::Active => None,
-        PortState::Stale => Some("stale"),
-    };
-    [command, Some(exposure), state]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" · ")
+    }
+}
+
+fn port_exposure_style(exposure: PortExposure, p: &Palette) -> Style {
+    match exposure {
+        PortExposure::Loopback => Style::default().fg(p.teal),
+        PortExposure::Lan => Style::default().fg(p.blue),
+        PortExposure::All => Style::default().fg(p.yellow).add_modifier(Modifier::BOLD),
+    }
+}
+
+fn port_secondary_line(entry: &PortPanelEntry, p: &Palette, width: u16) -> Line<'static> {
+    let command = entry
+        .command_label
+        .as_deref()
+        .map(|command| truncate_text(command, (width as usize).saturating_sub(10)));
+    let mut spans = vec![Span::styled("   ", Style::default())];
+
+    if let Some(command) = command {
+        spans.push(Span::styled(command, Style::default().fg(p.green)));
+        spans.push(Span::styled(" · ", Style::default().fg(p.overlay0)));
+    }
+
+    spans.push(Span::styled(
+        entry.exposure_label,
+        port_exposure_style(entry.exposure, p),
+    ));
+
+    if entry.state == PortState::Stale {
+        spans.push(Span::styled(" · stale", Style::default().fg(p.overlay0)));
+    }
+
+    Line::from(spans)
 }
 
 fn render_ports_section(app: &AppState, frame: &mut Frame, area: Rect, entries: &[PortPanelEntry]) {
@@ -1123,16 +1166,7 @@ fn render_port_entry(
         Rect::new(area.x, row_y, area.width, 1),
     );
     frame.render_widget(
-        Paragraph::new(Span::styled(
-            format!(
-                "   {}",
-                truncate_text(
-                    &entry.secondary_label,
-                    (area.width as usize).saturating_sub(3)
-                )
-            ),
-            secondary_style,
-        )),
+        Paragraph::new(port_secondary_line(entry, p, area.width)).style(secondary_style),
         Rect::new(area.x, row_y + 1, area.width, 1),
     );
 }
@@ -2024,6 +2058,42 @@ mod tests {
         );
 
         assert!(port_panel_entries(&app).is_empty());
+    }
+
+    #[test]
+    fn current_space_port_label_uses_tab_name_without_pane_suffix() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("web");
+        let tab_idx = workspace.test_add_tab(Some("dev server"));
+        let pane_id = workspace.tabs[tab_idx].root_pane;
+        let workspace_id = workspace.id.clone();
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+        app.port_registry.sync_observations(
+            std::time::Instant::now(),
+            [crate::ports::PortObservation {
+                bind_addr: "127.0.0.1".parse().unwrap(),
+                port: 4321,
+                pid: 42,
+                command: Some("node".to_string()),
+            }],
+            |_| {
+                Some(crate::ports::PortOwner {
+                    pid: 42,
+                    command: None,
+                    workspace_id: workspace_id.clone(),
+                    tab_idx,
+                    pane_id,
+                    confidence: crate::ports::PortOwnerConfidence::ProcessTree,
+                })
+            },
+        );
+
+        let entry = port_panel_entries(&app).pop().expect("port entry");
+
+        assert_eq!(entry.primary_label, "dev server");
     }
 
     #[test]

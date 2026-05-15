@@ -599,6 +599,31 @@ impl AppState {
         self.mark_session_dirty();
     }
 
+    pub(super) fn on_right_sidebar_ports_divider(&self, col: u16, row: u16) -> bool {
+        if self.right_sidebar_collapsed || self.view.right_sidebar_rect == Rect::default() {
+            return false;
+        }
+        let rect = crate::ui::right_sidebar_ports_divider_rect(self, self.view.right_sidebar_rect);
+        rect.width > 0
+            && col >= rect.x
+            && col < rect.x + rect.width
+            && row >= rect.y
+            && row < rect.y + rect.height
+    }
+
+    pub(super) fn set_right_sidebar_ports_split(&mut self, row: u16) {
+        if self.right_sidebar_collapsed || self.view.right_sidebar_rect == Rect::default() {
+            return;
+        }
+        let content = crate::ui::right_sidebar_content_rect(self.view.right_sidebar_rect);
+        if content.height < 8 {
+            return;
+        }
+        let relative_y = row.saturating_sub(content.y);
+        let ratio = (relative_y as f32) / (content.height as f32);
+        self.right_sidebar_ports_split = ratio.clamp(0.2, 0.85);
+    }
+
     pub(super) fn workspace_at_row(&self, row: u16) -> Option<usize> {
         let footer = self.sidebar_footer_rect();
         if footer == Rect::default() {
@@ -1983,6 +2008,61 @@ mod tests {
             first_pane
         );
         assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn dragging_right_sidebar_ports_divider_resizes_sections() {
+        let mut app = app_for_mouse_test();
+        let ws = Workspace::test_new("web");
+        let pane_id = ws.tabs[0].root_pane;
+        let workspace_id = ws.id.clone();
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.port_registry.sync_observations(
+            Instant::now(),
+            [crate::ports::PortObservation {
+                bind_addr: "127.0.0.1".parse().unwrap(),
+                port: 4321,
+                pid: 42,
+                command: Some("node".to_string()),
+            }],
+            |_| {
+                Some(crate::ports::PortOwner {
+                    pid: 42,
+                    command: None,
+                    workspace_id: workspace_id.clone(),
+                    tab_idx: 0,
+                    pane_id,
+                    confidence: crate::ports::PortOwnerConfidence::ProcessTree,
+                })
+            },
+        );
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 24));
+
+        let divider = crate::ui::right_sidebar_ports_divider_rect(
+            &app.state,
+            app.state.view.right_sidebar_rect,
+        );
+        assert_ne!(divider, Rect::default());
+        let original_split = app.state.right_sidebar_ports_split;
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            divider.x + 1,
+            divider.y,
+        ));
+        assert!(matches!(
+            app.state.drag.as_ref().map(|drag| &drag.target),
+            Some(DragTarget::RightSidebarPortsDivider)
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            divider.x + 1,
+            divider.y + 3,
+        ));
+
+        assert!(app.state.right_sidebar_ports_split > original_split);
     }
 
     #[test]
