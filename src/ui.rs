@@ -614,7 +614,7 @@ mod tests {
         assert!(buffer_row_text(buffer, agent_area, agent_area.y).starts_with(" agents"));
         assert_eq!(
             agent_panel_body_rect(agent_area, false, false).y,
-            agent_area.y + 2
+            agent_area.y + 1
         );
     }
 

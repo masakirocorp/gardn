@@ -15,9 +15,9 @@ use crate::detect::AgentState;
 use crate::ports::{PortEndpoint, PortExposure, PortState};
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
-const ACTIVITY_PANEL_HEADER_ROWS: u16 = 2;
-const AGENT_PANEL_HEADER_ROWS: u16 = 2;
-const PORT_PANEL_HEADER_ROWS: u16 = 2;
+const ACTIVITY_PANEL_HEADER_ROWS: u16 = 1;
+const AGENT_PANEL_HEADER_ROWS: u16 = 1;
+const PORT_PANEL_HEADER_ROWS: u16 = 1;
 
 #[derive(Clone)]
 pub(crate) struct AgentPanelEntry {
@@ -969,12 +969,6 @@ fn render_activity_header(app: &AppState, frame: &mut Frame, area: Rect) {
         )),
         Rect::new(content.x, content.y, content.width, 1),
     );
-
-    let sep_line = "─".repeat(content.width as usize);
-    frame.render_widget(
-        Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.overlay0))),
-        Rect::new(content.x, content.y + 1, content.width, 1),
-    );
 }
 
 fn agent_panel_desired_height(app: &AppState) -> u16 {
@@ -1132,12 +1126,6 @@ fn render_ports_section(app: &AppState, frame: &mut Frame, area: Rect, entries: 
             Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
         )])),
         Rect::new(area.x, area.y, area.width, 1),
-    );
-
-    let sep_line = "─".repeat(area.width as usize);
-    frame.render_widget(
-        Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.overlay0))),
-        Rect::new(area.x, area.y + 1, area.width, 1),
     );
 
     if entries.is_empty() {
@@ -1568,7 +1556,7 @@ pub(crate) fn agent_panel_entry_at_row(
 fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_separator: bool) {
     let p = &app.palette;
 
-    if area.height < 3 {
+    if area.height < 2 {
         return;
     }
 
@@ -1599,15 +1587,6 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
                 style,
             )),
             toggle_rect,
-        );
-    }
-
-    let sep_y = header_y + 1;
-    if sep_y < area.y + area.height {
-        let sep_line = "─".repeat(area.width as usize);
-        frame.render_widget(
-            Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.overlay0))),
-            Rect::new(area.x, sep_y, area.width, 1),
         );
     }
 
@@ -1825,7 +1804,7 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), 30, 12);
         let rows = text.lines().collect::<Vec<_>>();
         assert!(text.contains("no agents"));
-        assert!(rows[2].contains("no agents"));
+        assert!(rows[1].contains("no agents"));
         assert!(!text.contains("this space has none"));
     }
 
