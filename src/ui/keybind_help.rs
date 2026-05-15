@@ -1,16 +1,15 @@
 use ratatui::{
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Layout},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
     Frame,
 };
 
-use super::release_notes::release_notes_close_button_rect;
-use super::scrollbar::{release_notes_scrollbar_rect, render_scrollbar};
+use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    modal_stack_areas, panel_contrast_fg, render_action_button, render_modal_header,
-    render_modal_shell,
+    modal_scroll_area, modal_stack_areas, render_modal_header_bar, render_modal_scroll_hints,
+    render_modal_shell, render_modal_subtitle,
 };
 use crate::app::AppState;
 
@@ -44,10 +43,10 @@ pub(super) fn keybind_help_groups(
         "navigation",
         vec![
             ("esc".to_string(), "back"),
-            ("↑ / ↓".to_string(), "workspace list"),
+            ("↑ / ↓".to_string(), "space list"),
             ("h j k l / arrows".to_string(), "move focus"),
             ("tab / shift+tab".to_string(), "cycle pane"),
-            ("enter".to_string(), "open workspace"),
+            ("enter".to_string(), "open space"),
             ("s".to_string(), "settings"),
             ("q".to_string(), "quit"),
         ],
@@ -220,42 +219,22 @@ pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
     let header_rows =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(stack.header);
 
-    render_modal_header(frame, header_rows[0], "keybinds", &app.palette);
-    render_action_button(
+    render_modal_header_bar(frame, header_rows[0], "keybinds", &app.palette, true);
+    render_modal_subtitle(
         frame,
-        release_notes_close_button_rect(header_rows[0]),
-        Some("esc"),
-        "close",
-        Style::default()
-            .fg(panel_contrast_fg(&app.palette))
-            .bg(app.palette.accent)
-            .add_modifier(Modifier::BOLD),
-    );
-    frame.render_widget(
-        Paragraph::new(" available commands and configured shortcuts")
-            .style(Style::default().fg(app.palette.overlay1)),
         header_rows[1],
+        " available commands and configured shortcuts",
+        &app.palette,
     );
 
     let body_area = stack.content;
-    let metrics = crate::pane::ScrollMetrics {
-        offset_from_bottom: app
-            .keybind_help_max_scroll()
-            .saturating_sub(app.keybind_help.scroll) as usize,
-        max_offset_from_bottom: app.keybind_help_max_scroll() as usize,
-        viewport_rows: body_area.height.max(1) as usize,
-    };
-    let track = release_notes_scrollbar_rect(body_area, metrics);
-    let text_area = track
-        .map(|_| {
-            Rect::new(
-                body_area.x,
-                body_area.y,
-                body_area.width.saturating_sub(1),
-                body_area.height,
-            )
-        })
-        .unwrap_or(body_area);
+    let viewport_rows = body_area.height.max(1) as usize;
+    let metrics = crate::ui::modal_scroll_metrics(
+        app.keybind_help_max_scroll() as usize + viewport_rows,
+        viewport_rows,
+        app.keybind_help.scroll as usize,
+    );
+    let scroll_area = modal_scroll_area(body_area, metrics);
 
     let body = Paragraph::new(
         keybind_help_lines(app)
@@ -265,29 +244,17 @@ pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
     )
     .wrap(Wrap { trim: false })
     .scroll((app.keybind_help.scroll, 0));
-    frame.render_widget(body, text_area);
-    if let Some(track) = track {
+    frame.render_widget(body, scroll_area.body);
+    if let Some(track) = scroll_area.track {
         render_scrollbar(
             frame,
             metrics,
             track,
+            app.palette.surface_dim,
             app.palette.overlay0,
-            app.palette.overlay1,
             "▐",
         );
     }
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(" scroll ", Style::default().fg(app.palette.overlay0)),
-            Span::styled("wheel ↑↓", Style::default().fg(app.palette.text)),
-            Span::styled("  ·  ", Style::default().fg(app.palette.overlay0)),
-            Span::styled("jump", Style::default().fg(app.palette.overlay0)),
-            Span::styled(" pgup / pgdn ", Style::default().fg(app.palette.text)),
-            Span::styled("  ·  ", Style::default().fg(app.palette.overlay0)),
-            Span::styled("close", Style::default().fg(app.palette.overlay0)),
-            Span::styled(" esc / enter ", Style::default().fg(app.palette.text)),
-        ])),
-        stack.footer.unwrap_or_default(),
-    );
+    render_modal_scroll_hints(frame, stack.footer.unwrap_or_default(), &app.palette);
 }

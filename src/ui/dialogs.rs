@@ -2,13 +2,15 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Clear, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
 use super::widgets::{
-    action_button_row_rects, centered_popup_rect, panel_contrast_fg, render_action_button,
-    render_modal_header, render_modal_shell, render_panel_shell, ActionButtonSpec,
+    action_button_row_rects, centered_popup_rect, danger_action_style, panel_contrast_fg,
+    primary_action_style, render_action_button, render_modal_header_bar, render_modal_shell,
+    render_modal_subtitle, render_modal_text_input, render_panel_shell, secondary_action_style,
+    ActionButtonSpec,
 };
 use crate::app::{AppState, Mode};
 
@@ -24,15 +26,13 @@ pub(crate) fn rename_button_rects(inner: Rect) -> (Rect, Rect, Rect) {
                 hint: Some("^c"),
                 label: "clear",
             },
-            ActionButtonSpec {
-                hint: Some("esc"),
-                label: "cancel",
-            },
         ],
         2,
         inner.height.saturating_sub(1),
     );
-    (rects[0], rects[1], rects[2])
+    let close =
+        super::widgets::modal_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
+    (rects[0], rects[1], close)
 }
 
 pub(crate) fn rename_modal_size(app: &AppState) -> (u16, u16) {
@@ -117,12 +117,9 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
     ])
     .areas::<5>(inner);
 
-    render_modal_header(frame, rows[0], title, &app.palette);
+    render_modal_header_bar(frame, rows[0], title, &app.palette, true);
     if matches!(app.mode, Mode::RenameGroup) {
-        frame.render_widget(
-            Paragraph::new(" name + icon").style(Style::default().fg(app.palette.overlay1)),
-            rows[1],
-        );
+        render_modal_subtitle(frame, rows[1], " name + icon", &app.palette);
     }
 
     let input_rect = if matches!(app.mode, Mode::RenameGroup) {
@@ -148,15 +145,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
     } else {
         Rect::new(rows[2].x, rows[2].y, rows[2].width, 1)
     };
-    frame.render_widget(Clear, input_rect);
-    frame.render_widget(
-        Paragraph::new(format!(" {}█", app.name_input)).style(
-            Style::default()
-                .fg(app.palette.text)
-                .bg(app.palette.surface0),
-        ),
-        input_rect,
-    );
+    render_modal_text_input(frame, input_rect, &app.name_input, &app.palette);
 
     if matches!(app.mode, Mode::RenameGroup) && app.group_icon_picker_open {
         for (rect, icon) in group_icon_picker_rects(inner) {
@@ -180,37 +169,21 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         }
     }
 
-    let (save_rect, clear_rect, cancel_rect) = rename_button_rects(inner);
+    let (save_rect, clear_rect, _) = rename_button_rects(inner);
 
     render_action_button(
         frame,
         save_rect,
         Some("↵"),
         "save",
-        Style::default()
-            .fg(panel_contrast_fg(&app.palette))
-            .bg(app.palette.accent)
-            .add_modifier(Modifier::BOLD),
+        primary_action_style(&app.palette),
     );
     render_action_button(
         frame,
         clear_rect,
         Some("^c"),
         "clear",
-        Style::default()
-            .fg(app.palette.text)
-            .bg(app.palette.surface0)
-            .add_modifier(Modifier::BOLD),
-    );
-    render_action_button(
-        frame,
-        cancel_rect,
-        Some("esc"),
-        "cancel",
-        Style::default()
-            .fg(app.palette.text)
-            .bg(app.palette.surface0)
-            .add_modifier(Modifier::BOLD),
+        secondary_action_style(&app.palette),
     );
 }
 
@@ -277,20 +250,14 @@ pub(super) fn render_confirm_close_overlay(app: &AppState, frame: &mut Frame, ar
             confirm_rect,
             Some("↵"),
             "confirm",
-            Style::default()
-                .fg(panel_contrast_fg(&app.palette))
-                .bg(app.palette.red)
-                .add_modifier(Modifier::BOLD),
+            danger_action_style(&app.palette),
         );
         render_action_button(
             frame,
             cancel_rect,
             Some("esc"),
             "cancel",
-            Style::default()
-                .fg(app.palette.text)
-                .bg(app.palette.surface0)
-                .add_modifier(Modifier::BOLD),
+            secondary_action_style(&app.palette),
         );
     }
 }
@@ -362,20 +329,14 @@ pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Fr
             confirm_rect,
             Some("↵"),
             "confirm",
-            Style::default()
-                .fg(panel_contrast_fg(&app.palette))
-                .bg(app.palette.red)
-                .add_modifier(Modifier::BOLD),
+            danger_action_style(&app.palette),
         );
         render_action_button(
             frame,
             cancel_rect,
             Some("esc"),
             "cancel",
-            Style::default()
-                .fg(app.palette.text)
-                .bg(app.palette.surface0)
-                .add_modifier(Modifier::BOLD),
+            secondary_action_style(&app.palette),
         );
     }
 }

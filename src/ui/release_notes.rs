@@ -6,10 +6,10 @@ use ratatui::{
     Frame,
 };
 
-use super::scrollbar::{release_notes_scrollbar_rect, render_scrollbar};
+use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    action_button_width, modal_stack_areas, panel_contrast_fg, render_action_button,
-    render_modal_header, render_modal_shell,
+    modal_close_button_rect, modal_scroll_area, modal_stack_areas, render_modal_header_bar,
+    render_modal_scroll_hints, render_modal_shell, render_modal_subtitle,
 };
 use crate::app::{
     state::{Palette, ReleaseNotesState},
@@ -42,62 +42,28 @@ pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, ar
     let header_rows =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(stack.header);
 
-    let header_title_area = Rect::new(
-        header_rows[0].x + 1,
-        header_rows[0].y,
-        header_rows[0].width.saturating_sub(2),
-        header_rows[0].height,
-    );
-    let header_subtitle_area = Rect::new(
-        header_rows[1].x + 1,
-        header_rows[1].y,
-        header_rows[1].width.saturating_sub(2),
-        header_rows[1].height,
-    );
-
-    render_modal_header(
+    render_modal_header_bar(
         frame,
-        header_title_area,
+        header_rows[0],
         &format!("v{}", notes.version),
         &app.palette,
+        true,
     );
     let subtitle = if notes.preview {
         "update ready"
     } else {
         "what's new in this release"
     };
-    frame.render_widget(
-        Paragraph::new(subtitle).style(Style::default().fg(app.palette.overlay1)),
-        header_subtitle_area,
-    );
-    render_action_button(
-        frame,
-        release_notes_close_button_rect(header_rows[0]),
-        Some("esc"),
-        "close",
-        Style::default()
-            .fg(panel_contrast_fg(&app.palette))
-            .bg(app.palette.accent)
-            .add_modifier(Modifier::BOLD),
-    );
+    render_modal_subtitle(frame, header_rows[1], subtitle, &app.palette);
 
     let sections = release_notes_sections(stack.content, notes.preview);
-    let metrics = crate::pane::ScrollMetrics {
-        offset_from_bottom: app.release_notes_max_scroll().saturating_sub(notes.scroll) as usize,
-        max_offset_from_bottom: app.release_notes_max_scroll() as usize,
-        viewport_rows: sections.notes_body.height.max(1) as usize,
-    };
-    let track = release_notes_scrollbar_rect(sections.notes_body, metrics);
-    let notes_text_area = track
-        .map(|_| {
-            Rect::new(
-                sections.notes_body.x,
-                sections.notes_body.y,
-                sections.notes_body.width.saturating_sub(1),
-                sections.notes_body.height,
-            )
-        })
-        .unwrap_or(sections.notes_body);
+    let viewport_rows = sections.notes_body.height.max(1) as usize;
+    let metrics = crate::ui::modal_scroll_metrics(
+        app.release_notes_max_scroll() as usize + viewport_rows,
+        viewport_rows,
+        notes.scroll as usize,
+    );
+    let scroll_area = modal_scroll_area(sections.notes_body, metrics);
 
     if let Some(instructions_area) = sections.instructions {
         render_release_notes_preview_panel(frame, instructions_area, &notes.version, &app.palette);
@@ -111,28 +77,19 @@ pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, ar
     )
     .wrap(Wrap { trim: false })
     .scroll((notes.scroll, 0));
-    frame.render_widget(body, notes_text_area);
-    if let Some(track) = track {
+    frame.render_widget(body, scroll_area.body);
+    if let Some(track) = scroll_area.track {
         render_scrollbar(
             frame,
             metrics,
             track,
+            app.palette.surface_dim,
             app.palette.overlay0,
-            app.palette.overlay1,
             "▐",
         );
     }
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(" scroll ", Style::default().fg(app.palette.overlay0)),
-            Span::styled("wheel ↑↓", Style::default().fg(app.palette.text)),
-            Span::styled("  ·  ", Style::default().fg(app.palette.overlay0)),
-            Span::styled("close", Style::default().fg(app.palette.overlay0)),
-            Span::styled(" esc / enter ", Style::default().fg(app.palette.text)),
-        ])),
-        stack.footer.unwrap_or_default(),
-    );
+    render_modal_scroll_hints(frame, stack.footer.unwrap_or_default(), &app.palette);
 }
 
 fn release_notes_inline_spans<'a>(
@@ -279,7 +236,7 @@ pub(crate) fn release_notes_sections(area: Rect, preview: bool) -> ReleaseNotesS
 }
 
 pub(super) fn release_notes_preview_lines<'a>(_version: &str, p: &Palette) -> Vec<Line<'a>> {
-    let title_style = Style::default().fg(p.text).add_modifier(Modifier::BOLD);
+    let title_style = Style::default().fg(p.accent).add_modifier(Modifier::BOLD);
     let text_style = Style::default().fg(p.text);
     let code_style = Style::default()
         .fg(p.accent)
@@ -340,6 +297,5 @@ pub(crate) fn release_notes_display_lines<'a>(
 }
 
 pub(crate) fn release_notes_close_button_rect(area: Rect) -> Rect {
-    let width = action_button_width(Some("esc"), "close");
-    Rect::new(area.x + area.width.saturating_sub(width), area.y, width, 1)
+    modal_close_button_rect(area)
 }

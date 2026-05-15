@@ -75,10 +75,183 @@ pub(super) fn render_modal_shell(
 
 pub(super) fn render_modal_header(frame: &mut Frame, area: Rect, title: &str, p: &Palette) {
     let line = Line::from(vec![Span::styled(
-        title,
+        format!(" {title}"),
         Style::default().fg(p.text).add_modifier(Modifier::BOLD),
     )]);
     frame.render_widget(Paragraph::new(line), area);
+}
+
+pub(crate) fn modal_close_button_rect(area: Rect) -> Rect {
+    let width = action_button_width(Some("esc"), "close");
+    Rect::new(area.x + area.width.saturating_sub(width), area.y, width, 1)
+}
+
+pub(super) fn render_modal_header_bar(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    p: &Palette,
+    show_close: bool,
+) {
+    let close = show_close.then(|| modal_close_button_rect(area));
+    let title_width = close
+        .map(|button| button.x.saturating_sub(area.x).saturating_sub(1))
+        .unwrap_or(area.width);
+    render_modal_header(
+        frame,
+        Rect::new(area.x, area.y, title_width, area.height),
+        title,
+        p,
+    );
+    if let Some(button) = close {
+        render_action_button(
+            frame,
+            button,
+            Some("esc"),
+            "close",
+            secondary_action_style(p),
+        );
+    }
+}
+
+pub(super) fn render_modal_subtitle(
+    frame: &mut Frame,
+    area: Rect,
+    text: impl Into<String>,
+    p: &Palette,
+) {
+    let text = text.into();
+    frame.render_widget(
+        Paragraph::new(format!(" {}", text.trim_start())).style(Style::default().fg(p.overlay1)),
+        area,
+    );
+}
+
+pub(super) fn modal_section_heading_style(p: &Palette) -> Style {
+    Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
+}
+
+pub(super) fn render_modal_divider(frame: &mut Frame, area: Rect, p: &Palette) {
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "─".repeat(area.width as usize),
+            Style::default().fg(p.surface0),
+        )),
+        area,
+    );
+}
+
+pub(super) fn render_modal_scroll_hints(frame: &mut Frame, area: Rect, p: &Palette) {
+    render_modal_hint_line(
+        frame,
+        area,
+        p,
+        &[("scroll", "wheel ↑↓"), ("jump", "pgup / pgdn")],
+    );
+}
+
+pub(super) fn render_modal_hint_line(
+    frame: &mut Frame,
+    area: Rect,
+    p: &Palette,
+    hints: &[(&str, &str)],
+) {
+    let mut spans = Vec::new();
+    for (idx, (label, keys)) in hints.iter().enumerate() {
+        if idx == 0 {
+            spans.push(Span::styled(" ", Style::default().fg(p.overlay0)));
+        } else {
+            spans.push(Span::styled("  ·  ", Style::default().fg(p.overlay0)));
+        }
+        spans.push(Span::styled(*label, Style::default().fg(p.overlay0)));
+        spans.push(Span::styled(" ", Style::default().fg(p.overlay0)));
+        spans.push(Span::styled(*keys, Style::default().fg(p.text)));
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+pub(super) fn render_modal_text_input(frame: &mut Frame, area: Rect, value: &str, p: &Palette) {
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(format!(" {value}█")).style(Style::default().fg(p.text).bg(p.surface0)),
+        area,
+    );
+}
+
+pub(super) fn primary_action_style(p: &Palette) -> Style {
+    Style::default()
+        .fg(panel_contrast_fg(p))
+        .bg(p.accent)
+        .add_modifier(Modifier::BOLD)
+}
+
+pub(super) fn secondary_action_style(p: &Palette) -> Style {
+    Style::default()
+        .fg(p.text)
+        .bg(p.surface0)
+        .add_modifier(Modifier::BOLD)
+}
+
+pub(super) fn danger_action_style(p: &Palette) -> Style {
+    Style::default()
+        .fg(panel_contrast_fg(p))
+        .bg(p.red)
+        .add_modifier(Modifier::BOLD)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ModalScrollArea {
+    pub body: Rect,
+    pub track: Option<Rect>,
+}
+
+pub(crate) fn modal_scroll_area(
+    area: Rect,
+    metrics: crate::pane::ScrollMetrics,
+) -> ModalScrollArea {
+    let track = modal_scrollbar_rect(area, metrics);
+    let body = if track.is_some() {
+        Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height)
+    } else {
+        area
+    };
+    ModalScrollArea { body, track }
+}
+
+pub(crate) fn modal_scroll_metrics(
+    total_rows: usize,
+    viewport_rows: usize,
+    scroll: usize,
+) -> crate::pane::ScrollMetrics {
+    let viewport_rows = viewport_rows.max(1);
+    let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
+    let scroll = scroll.min(max_offset_from_bottom);
+    crate::pane::ScrollMetrics {
+        offset_from_bottom: max_offset_from_bottom.saturating_sub(scroll),
+        max_offset_from_bottom,
+        viewport_rows,
+    }
+}
+
+pub(crate) fn modal_scroll_from_offset_from_bottom(
+    total_rows: usize,
+    viewport_rows: usize,
+    offset_from_bottom: usize,
+) -> usize {
+    let max_scroll = total_rows.saturating_sub(viewport_rows.max(1));
+    max_scroll.saturating_sub(offset_from_bottom.min(max_scroll))
+}
+
+pub(crate) fn modal_scrollbar_rect(
+    area: Rect,
+    metrics: crate::pane::ScrollMetrics,
+) -> Option<Rect> {
+    (metrics.max_offset_from_bottom > 0 && area.width > 1).then_some(Rect::new(
+        area.x + area.width.saturating_sub(1),
+        area.y,
+        1,
+        area.height,
+    ))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -234,9 +407,12 @@ pub(crate) fn render_modal_choice_list<T>(
     ])
     .areas::<3>(area);
 
+    let [title_area, description_area] =
+        Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(desc_area);
+    render_modal_description(frame, title_area, title, modal_section_heading_style(p));
     render_modal_description(
         frame,
-        desc_area,
+        description_area,
         description,
         Style::default().fg(p.overlay1),
     );
@@ -248,14 +424,14 @@ pub(crate) fn render_modal_choice_list<T>(
         let marker = if is_active { " ✓" } else { "" };
         let style = if is_selected {
             Style::default()
-                .bg(p.surface0)
-                .fg(p.text)
+                .fg(panel_contrast_fg(p))
+                .bg(p.accent)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(p.subtext0)
+            Style::default().fg(p.text)
         };
         frame.render_widget(
-            Paragraph::new(format!(" {title}: {label}{marker}"))
+            Paragraph::new(format!(" {label}{marker}"))
                 .style(style)
                 .wrap(Wrap { trim: false }),
             *row,

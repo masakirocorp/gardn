@@ -3,11 +3,13 @@ use ratatui::layout::Rect;
 
 use crate::{
     app::{
-        state::{AppState, SettingsSection, THEME_NAMES},
+        state::{AppState, DragState, DragTarget, SettingsSection, THEME_NAMES},
         App, Mode,
     },
     config::{ThemeMode, ToastDelivery},
 };
+
+use super::ScrollbarClickTarget;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 // The shared `Save` verb is semantic: these actions persist settings.
@@ -74,6 +76,36 @@ fn toast_delivery_for_index(idx: usize) -> ToastDelivery {
 
 fn theme_list_len(state: &AppState) -> usize {
     THEME_NAMES.len() + usize::from(state.settings.group_theme_target.is_some())
+}
+
+fn settings_theme_max_scroll(state: &AppState) -> usize {
+    theme_list_len(state).saturating_sub(state.settings_content_rect().height as usize)
+}
+
+fn ensure_settings_selection_visible(state: &mut AppState) {
+    let viewport_rows = state.settings_content_rect().height.max(1) as usize;
+    let max_scroll = theme_list_len(state).saturating_sub(viewport_rows);
+    state.settings.scroll = state.settings.scroll.min(max_scroll);
+
+    if state.settings.list.selected < state.settings.scroll {
+        state.settings.scroll = state.settings.list.selected;
+    } else if state.settings.list.selected >= state.settings.scroll + viewport_rows {
+        state.settings.scroll = state.settings.list.selected + 1 - viewport_rows;
+    }
+    state.settings.scroll = state.settings.scroll.min(max_scroll);
+}
+
+fn set_settings_theme_offset_from_bottom(state: &mut AppState, offset_from_bottom: usize) {
+    let max_scroll = settings_theme_max_scroll(state);
+    state.settings.scroll = max_scroll.saturating_sub(offset_from_bottom.min(max_scroll));
+}
+
+fn settings_theme_scroll_metrics(state: &AppState) -> crate::pane::ScrollMetrics {
+    crate::ui::modal_scroll_metrics(
+        theme_list_len(state),
+        state.settings_content_rect().height as usize,
+        state.settings.scroll,
+    )
 }
 
 fn selected_group_theme_name(state: &AppState) -> Option<String> {
@@ -212,10 +244,23 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
                 mode: theme_mode,
             })
         }
-        _ => {
+        SettingsSection::Sound => {
+            let enabled = state.settings.list.selected == 0;
             state.settings.group_theme_target = None;
             super::modal::leave_modal(state);
-            None
+            Some(SettingsAction::SaveSound(enabled))
+        }
+        SettingsSection::Toast => {
+            let delivery = toast_delivery_for_index(state.settings.list.selected);
+            state.settings.group_theme_target = None;
+            super::modal::leave_modal(state);
+            Some(SettingsAction::SaveToastDelivery(delivery))
+        }
+        SettingsSection::PaneLabels => {
+            let enabled = state.settings.list.selected == 0;
+            state.settings.group_theme_target = None;
+            super::modal::leave_modal(state);
+            Some(SettingsAction::SaveAgentBorderLabels(enabled))
         }
     }
 }
@@ -230,6 +275,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             KeyCode::Up | KeyCode::Char('k') => {
                 let previous = state.settings.list.selected;
                 state.settings.list.move_prev();
+                ensure_settings_selection_visible(state);
                 if state.settings.list.selected != previous {
                     preview_selected_theme(state);
                 }
@@ -237,9 +283,23 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             KeyCode::Down | KeyCode::Char('j') => {
                 let previous = state.settings.list.selected;
                 state.settings.list.move_next(theme_list_len(state));
+                ensure_settings_selection_visible(state);
                 if state.settings.list.selected != previous {
                     preview_selected_theme(state);
                 }
+            }
+            KeyCode::PageUp => {
+                state.settings.scroll = state
+                    .settings
+                    .scroll
+                    .saturating_sub(super::MODAL_PAGE_SCROLL_ROWS as usize);
+            }
+            KeyCode::PageDown => {
+                state.settings.scroll = state
+                    .settings
+                    .scroll
+                    .saturating_add(super::MODAL_PAGE_SCROLL_ROWS as usize)
+                    .min(settings_theme_max_scroll(state));
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 if state.settings.group_theme_target.is_none() {
@@ -278,6 +338,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 state.settings.section = SettingsSection::Theme;
                 state.settings.list.selected = target_theme_index(state);
+                ensure_settings_selection_visible(state);
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::PaneLabels;
@@ -304,6 +365,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::Theme;
                 state.settings.list.selected = target_theme_index(state);
+                ensure_settings_selection_visible(state);
             }
             _ => {
                 if let Some(super::modal::ModalAction::Close) =
@@ -374,6 +436,8 @@ pub(crate) fn open_settings(state: &mut AppState) {
     state.settings.section = SettingsSection::Theme;
     let theme_name = state.global_theme_name.clone();
     state.settings.list.selected = current_theme_index(&theme_name);
+    state.settings.scroll = 0;
+    ensure_settings_selection_visible(state);
     state.preview_theme(&theme_name);
     state.mode = Mode::Settings;
 }
@@ -394,6 +458,8 @@ pub(crate) fn open_group_theme_settings(state: &mut AppState, group_idx: usize) 
         .as_deref()
         .map(|name| current_theme_index(name) + 1)
         .unwrap_or(0);
+    state.settings.scroll = 0;
+    ensure_settings_selection_visible(state);
     preview_group_theme(state);
     state.mode = Mode::Settings;
 }
@@ -461,19 +527,13 @@ impl AppState {
                 }
             }
             SettingsSection::Theme => {
-                let max_visible = area.height as usize;
-                let scroll = if self.settings.list.selected >= max_visible {
-                    self.settings.list.selected - max_visible + 1
-                } else {
-                    0
-                };
-                let idx = scroll + (row - area.y) as usize;
+                let idx = self.settings.scroll + (row - area.y) as usize;
                 (idx < theme_list_len(self)).then_some(idx)
             }
             SettingsSection::Sound => {
                 let list_y = area.y + 3;
-                if row >= list_y && row < list_y + 2 {
-                    Some((row - list_y) as usize)
+                if row >= list_y && row < list_y + 4 {
+                    Some(((row - list_y) / 2) as usize)
                 } else {
                     None
                 }
@@ -488,8 +548,8 @@ impl AppState {
             }
             SettingsSection::PaneLabels => {
                 let list_y = area.y + 3;
-                if row >= list_y && row < list_y + 2 {
-                    Some((row - list_y) as usize)
+                if row >= list_y && row < list_y + 4 {
+                    Some(((row - list_y) / 2) as usize)
                 } else {
                     None
                 }
@@ -497,9 +557,65 @@ impl AppState {
         }
     }
 
+    fn settings_theme_scrollbar_target_at(
+        &self,
+        col: u16,
+        row: u16,
+    ) -> Option<ScrollbarClickTarget> {
+        if self.settings.section != SettingsSection::Theme {
+            return None;
+        }
+        let metrics = settings_theme_scroll_metrics(self);
+        let track = crate::ui::modal_scrollbar_rect(self.settings_content_rect(), metrics)?;
+        if !(col >= track.x
+            && col < track.x + track.width
+            && row >= track.y
+            && row < track.y + track.height)
+        {
+            return None;
+        }
+        if let Some(grab_row_offset) = crate::ui::scrollbar_thumb_grab_offset(metrics, track, row) {
+            Some(ScrollbarClickTarget::Thumb { grab_row_offset })
+        } else {
+            Some(ScrollbarClickTarget::Track {
+                offset_from_bottom: crate::ui::scrollbar_offset_from_row(metrics, track, row),
+            })
+        }
+    }
+
+    fn settings_theme_offset_for_drag_row(&self, row: u16, grab_row_offset: u16) -> Option<usize> {
+        if self.settings.section != SettingsSection::Theme {
+            return None;
+        }
+        let metrics = settings_theme_scroll_metrics(self);
+        let track = crate::ui::modal_scrollbar_rect(self.settings_content_rect(), metrics)?;
+        Some(crate::ui::scrollbar_offset_from_drag_row(
+            metrics,
+            track,
+            row,
+            grab_row_offset,
+        ))
+    }
+
     pub(super) fn handle_settings_mouse(&mut self, mouse: MouseEvent) -> Option<SettingsAction> {
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
+                if let Some(target) =
+                    self.settings_theme_scrollbar_target_at(mouse.column, mouse.row)
+                {
+                    match target {
+                        ScrollbarClickTarget::Thumb { grab_row_offset } => {
+                            self.drag = Some(DragState {
+                                target: DragTarget::SettingsThemeScrollbar { grab_row_offset },
+                            });
+                        }
+                        ScrollbarClickTarget::Track { offset_from_bottom } => {
+                            set_settings_theme_offset_from_bottom(self, offset_from_bottom);
+                        }
+                    }
+                    return None;
+                }
+
                 if let Some(section) = self.settings_tab_at(mouse.column, mouse.row) {
                     self.settings.section = section;
                     self.settings.list.select(match section {
@@ -513,10 +629,16 @@ impl AppState {
                             usize::from(!self.agent_border_labels_enabled())
                         }
                     });
+                    if section == SettingsSection::Theme {
+                        ensure_settings_selection_visible(self);
+                    }
                     return None;
                 }
                 if let Some(idx) = self.settings_list_index_at(mouse.column, mouse.row) {
                     self.settings.list.select(idx);
+                    if self.settings.section == SettingsSection::Theme {
+                        ensure_settings_selection_visible(self);
+                    }
                     return match self.settings.section {
                         SettingsSection::ThemeMode => {
                             preview_selected_theme_mode(self);
@@ -557,10 +679,55 @@ impl AppState {
                         None
                     }
                     _ => {
-                        cancel_settings(self);
+                        let popup = self.settings_popup_rect();
+                        let inside = popup.width > 0
+                            && popup.height > 0
+                            && mouse.column >= popup.x
+                            && mouse.column < popup.x + popup.width
+                            && mouse.row >= popup.y
+                            && mouse.row < popup.y + popup.height;
+                        if !inside {
+                            cancel_settings(self);
+                        }
                         None
                     }
                 }
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if let Some(DragState {
+                    target: DragTarget::SettingsThemeScrollbar { grab_row_offset },
+                }) = &self.drag
+                {
+                    if let Some(offset_from_bottom) =
+                        self.settings_theme_offset_for_drag_row(mouse.row, *grab_row_offset)
+                    {
+                        set_settings_theme_offset_from_bottom(self, offset_from_bottom);
+                    }
+                }
+                None
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                if self.drag.as_ref().is_some_and(|drag| {
+                    matches!(drag.target, DragTarget::SettingsThemeScrollbar { .. })
+                }) {
+                    self.drag = None;
+                }
+                None
+            }
+            MouseEventKind::ScrollUp if self.settings.section == SettingsSection::Theme => {
+                self.settings.scroll = self
+                    .settings
+                    .scroll
+                    .saturating_sub(super::MODAL_WHEEL_SCROLL_ROWS as usize);
+                None
+            }
+            MouseEventKind::ScrollDown if self.settings.section == SettingsSection::Theme => {
+                self.settings.scroll = self
+                    .settings
+                    .scroll
+                    .saturating_add(super::MODAL_WHEEL_SCROLL_ROWS as usize)
+                    .min(settings_theme_max_scroll(self));
+                None
             }
             _ => None,
         }
@@ -786,5 +953,25 @@ mod tests {
         app.handle_mouse(mouse(MouseEventKind::Moved, area.x + 2, area.y + 2));
 
         assert_eq!(app.state.settings.list.selected, 0);
+    }
+
+    #[test]
+    fn settings_theme_wheel_scrolls_without_changing_selection() {
+        let mut app = app_for_mouse_test();
+        open_settings(&mut app.state);
+        app.state.settings.list.select(0);
+
+        let area = app.state.settings_content_rect();
+        let expected_scroll = settings_theme_max_scroll(&app.state)
+            .min(super::super::MODAL_WHEEL_SCROLL_ROWS as usize);
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, area.x + 2, area.y + 2));
+
+        assert_eq!(app.state.settings.list.selected, 0);
+        assert_eq!(app.state.settings.scroll, expected_scroll);
+
+        app.handle_mouse(mouse(MouseEventKind::ScrollUp, area.x + 2, area.y + 2));
+
+        assert_eq!(app.state.settings.list.selected, 0);
+        assert_eq!(app.state.settings.scroll, 0);
     }
 }

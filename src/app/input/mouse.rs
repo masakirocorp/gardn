@@ -260,33 +260,31 @@ impl AppState {
                     self.mode,
                     Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane
                 ) {
-                    if self.mode == Mode::RenameGroup {
-                        if let Some(inner) = self.rename_modal_inner() {
-                            if self.group_icon_picker_open {
-                                for (rect, icon) in crate::ui::group_icon_picker_rects(inner) {
-                                    if rect_contains(rect, mouse.column, mouse.row) {
-                                        self.group_icon_input = icon.to_string();
-                                        self.group_icon_picker_open = false;
-                                        return None;
-                                    }
-                                }
-                            }
-
-                            if rect_contains(
-                                crate::ui::group_icon_button_rect(inner),
-                                mouse.column,
-                                mouse.row,
-                            ) {
-                                self.group_icon_picker_open = !self.group_icon_picker_open;
-                                return None;
-                            }
-                        }
-                    }
-
                     let Some(inner) = self.rename_modal_inner() else {
                         apply_rename_action(self, ModalAction::Cancel);
                         return None;
                     };
+
+                    if self.mode == Mode::RenameGroup {
+                        if self.group_icon_picker_open {
+                            for (rect, icon) in crate::ui::group_icon_picker_rects(inner) {
+                                if rect_contains(rect, mouse.column, mouse.row) {
+                                    self.group_icon_input = icon.to_string();
+                                    self.group_icon_picker_open = false;
+                                    return None;
+                                }
+                            }
+                        }
+
+                        if rect_contains(
+                            crate::ui::group_icon_button_rect(inner),
+                            mouse.column,
+                            mouse.row,
+                        ) {
+                            self.group_icon_picker_open = !self.group_icon_picker_open;
+                            return None;
+                        }
+                    }
 
                     let (save, clear, cancel) = crate::ui::rename_button_rects(inner);
                     if let Some(action) = modal_action_from_buttons(
@@ -696,7 +694,8 @@ impl AppState {
                         }
                         DragTarget::ReleaseNotesScrollbar { .. }
                         | DragTarget::KeybindHelpScrollbar { .. }
-                        | DragTarget::CommandPaletteScrollbar { .. } => {}
+                        | DragTarget::CommandPaletteScrollbar { .. }
+                        | DragTarget::SettingsThemeScrollbar { .. } => {}
                     }
                 }
             }
@@ -1555,36 +1554,37 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_mouse_wheel_divides_raw_events() {
+    fn command_palette_mouse_wheel_scrolls_rows_without_changing_selection() {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::CommandPalette;
 
         app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
-        assert_eq!(app.state.command_palette.selected, 1);
-
-        for _ in 0..15 {
-            app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
-            assert_eq!(app.state.command_palette.selected, 1);
-        }
+        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.scroll, 3);
 
         app.handle_mouse(mouse(MouseEventKind::ScrollUp, 40, 8));
         assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.scroll, 0);
     }
 
     #[test]
-    fn command_palette_mouse_wheel_clamps_at_bounds() {
+    fn command_palette_mouse_wheel_clamps_scroll_at_bounds() {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::CommandPalette;
 
         app.handle_mouse(mouse(MouseEventKind::ScrollUp, 40, 8));
         assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.scroll, 0);
 
-        let count =
-            crate::app::input::command_palette::command_palette_visible_commands(&app.state).len();
-        for _ in 0..(count + 5) * 16 {
+        for _ in 0..100 {
             app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
         }
-        assert_eq!(app.state.command_palette.selected, count - 1);
+        let scroll = app.state.command_palette.scroll;
+        assert!(scroll > 0);
+
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
+        assert_eq!(app.state.command_palette.scroll, scroll);
+        assert_eq!(app.state.command_palette.selected, 0);
     }
 
     #[test]
@@ -1605,15 +1605,17 @@ mod tests {
         app.state.mode = Mode::CommandPalette;
 
         app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
-        assert_eq!(app.state.command_palette.selected, 1);
-        assert!(app.state.command_palette.wheel_gate.is_some());
+        let scroll = app.state.command_palette.scroll;
+        assert_eq!(app.state.command_palette.selected, 0);
 
         app.handle_mouse(mouse(MouseEventKind::Moved, 18, 6));
-        assert_eq!(app.state.command_palette.selected, 0);
-        assert!(app.state.command_palette.wheel_gate.is_none());
+        assert!(app.state.command_palette.selected > 0);
+        assert_eq!(app.state.command_palette.scroll, scroll);
 
+        let selected = app.state.command_palette.selected;
         app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
-        assert_eq!(app.state.command_palette.selected, 1);
+        assert_eq!(app.state.command_palette.selected, selected);
+        assert_eq!(app.state.command_palette.scroll, scroll + 3);
     }
 
     #[test]
@@ -1621,7 +1623,7 @@ mod tests {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::CommandPalette;
 
-        for _ in 0..10 * 16 {
+        for _ in 0..10 {
             app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
         }
         assert!(app.state.command_palette.scroll > 0);
@@ -1630,7 +1632,6 @@ mod tests {
         app.handle_mouse(mouse(MouseEventKind::Moved, 18, 6));
 
         assert_eq!(app.state.command_palette.scroll, scroll);
-        assert_ne!(app.state.command_palette.selected, 10);
     }
 
     #[test]
@@ -1652,7 +1653,7 @@ mod tests {
         app.handle_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), 89, 17));
 
         assert!(app.state.command_palette.scroll > 0);
-        assert!(app.state.command_palette.selected > 0);
+        assert_eq!(app.state.command_palette.selected, 0);
 
         app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 89, 17));
         assert!(app.state.drag.is_none());

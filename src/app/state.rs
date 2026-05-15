@@ -827,6 +827,8 @@ pub struct SettingsState {
     pub section: SettingsSection,
     /// Selected item index within the current section.
     pub list: SelectionListState,
+    /// First visible row for scrollable settings sections.
+    pub scroll: usize,
     /// The palette before opening settings (for cancel/restore).
     pub original_palette: Option<Palette>,
     /// The theme name before opening settings.
@@ -868,6 +870,9 @@ pub(crate) enum DragTarget {
         grab_row_offset: u16,
     },
     KeybindHelpScrollbar {
+        grab_row_offset: u16,
+    },
+    SettingsThemeScrollbar {
         grab_row_offset: u16,
     },
     CommandPaletteScrollbar {
@@ -995,13 +1000,6 @@ pub struct CommandPaletteState {
     pub query: String,
     pub selected: usize,
     pub scroll: usize,
-    pub wheel_gate: Option<CommandPaletteWheelGate>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CommandPaletteWheelGate {
-    pub down: bool,
-    pub remaining_events: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1350,7 +1348,6 @@ impl AppState {
                 query: String::new(),
                 selected: 0,
                 scroll: 0,
-                wheel_gate: None,
             },
             workspace_scroll: 0,
             agent_panel_scroll: 0,
@@ -1494,6 +1491,7 @@ impl AppState {
             settings: SettingsState {
                 section: SettingsSection::Theme,
                 list: SelectionListState::new(0),
+                scroll: 0,
                 original_palette: None,
                 original_theme: None,
                 pending_theme_name: None,

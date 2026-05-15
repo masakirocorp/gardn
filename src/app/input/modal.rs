@@ -281,8 +281,8 @@ pub(crate) fn handle_keybind_help_key(state: &mut AppState, key: KeyEvent) {
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => state.scroll_keybind_help(-1),
         KeyCode::Down | KeyCode::Char('j') => state.scroll_keybind_help(1),
-        KeyCode::PageUp => state.scroll_keybind_help(-8),
-        KeyCode::PageDown => state.scroll_keybind_help(8),
+        KeyCode::PageUp => state.scroll_keybind_help(-super::MODAL_PAGE_SCROLL_ROWS),
+        KeyCode::PageDown => state.scroll_keybind_help(super::MODAL_PAGE_SCROLL_ROWS),
         KeyCode::Home => state.keybind_help.scroll = 0,
         KeyCode::End => state.keybind_help.scroll = state.keybind_help_max_scroll(),
         KeyCode::Esc | KeyCode::Enter | KeyCode::Char('?') => leave_modal(state),

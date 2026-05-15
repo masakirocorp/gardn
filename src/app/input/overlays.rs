@@ -11,7 +11,7 @@ use crate::app::{
 
 use super::{
     modal::{leave_modal, modal_action_from_buttons, ModalAction},
-    ScrollbarClickTarget,
+    ScrollbarClickTarget, MODAL_WHEEL_SCROLL_ROWS,
 };
 
 impl App {
@@ -41,6 +41,12 @@ impl App {
                                     .set_release_notes_offset_from_bottom(offset_from_bottom);
                             }
                         }
+                    } else if !rect_contains(
+                        self.state.release_notes_popup_rect(),
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        self.dismiss_release_notes();
                     }
                 }
                 MouseEventKind::Drag(MouseButton::Left) => {
@@ -60,8 +66,8 @@ impl App {
                 MouseEventKind::Up(MouseButton::Left) => {
                     self.state.drag = None;
                 }
-                MouseEventKind::ScrollUp => self.scroll_release_notes(-3),
-                MouseEventKind::ScrollDown => self.scroll_release_notes(3),
+                MouseEventKind::ScrollUp => self.scroll_release_notes(-MODAL_WHEEL_SCROLL_ROWS),
+                MouseEventKind::ScrollDown => self.scroll_release_notes(MODAL_WHEEL_SCROLL_ROWS),
                 _ => {}
             }
             return true;
@@ -120,8 +126,12 @@ impl App {
                 MouseEventKind::Up(MouseButton::Left) => {
                     self.state.drag = None;
                 }
-                MouseEventKind::ScrollUp => self.state.scroll_keybind_help(-3),
-                MouseEventKind::ScrollDown => self.state.scroll_keybind_help(3),
+                MouseEventKind::ScrollUp => {
+                    self.state.scroll_keybind_help(-MODAL_WHEEL_SCROLL_ROWS)
+                }
+                MouseEventKind::ScrollDown => {
+                    self.state.scroll_keybind_help(MODAL_WHEEL_SCROLL_ROWS)
+                }
                 _ => {}
             }
             return true;
@@ -146,6 +156,15 @@ impl AppState {
             crate::ui::RELEASE_NOTES_MODAL_SIZE.0,
             crate::ui::RELEASE_NOTES_MODAL_SIZE.1,
         )
+    }
+
+    fn release_notes_popup_rect(&self) -> Rect {
+        crate::ui::centered_popup_rect(
+            self.screen_rect(),
+            crate::ui::RELEASE_NOTES_MODAL_SIZE.0,
+            crate::ui::RELEASE_NOTES_MODAL_SIZE.1,
+        )
+        .unwrap_or_default()
     }
 
     fn release_notes_close_button_at(&self, col: u16, row: u16) -> bool {
@@ -203,12 +222,11 @@ impl AppState {
         };
         total_rows = rows_for_width(wrap_width);
 
-        let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
-        Some(crate::pane::ScrollMetrics {
-            offset_from_bottom: max_offset_from_bottom.saturating_sub(notes.scroll as usize),
-            max_offset_from_bottom,
+        Some(crate::ui::modal_scroll_metrics(
+            total_rows,
             viewport_rows,
-        })
+            notes.scroll as usize,
+        ))
     }
 
     pub(crate) fn release_notes_max_scroll(&self) -> u16 {
@@ -313,18 +331,26 @@ impl AppState {
     fn keybind_help_scroll_metrics(&self) -> Option<crate::pane::ScrollMetrics> {
         let body = self.keybind_help_body_rect()?;
         let viewport_rows = body.height.max(1) as usize;
-        let wrap_width = body.width.max(1) as usize;
-        let total_rows = crate::ui::keybind_help_lines(self)
-            .into_iter()
-            .map(|(width, _)| width.max(1).div_ceil(wrap_width))
-            .sum::<usize>();
-        let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
-        Some(crate::pane::ScrollMetrics {
-            offset_from_bottom: max_offset_from_bottom
-                .saturating_sub(self.keybind_help.scroll as usize),
-            max_offset_from_bottom,
+        let lines = crate::ui::keybind_help_lines(self);
+        let rows_for_width = |wrap_width: usize| {
+            lines
+                .iter()
+                .map(|(width, _)| width.max(&1).div_ceil(wrap_width.max(1)))
+                .sum::<usize>()
+        };
+        let full_width = body.width.max(1) as usize;
+        let mut total_rows = rows_for_width(full_width);
+        let wrap_width = if total_rows > viewport_rows && full_width > 1 {
+            body.width.saturating_sub(1).max(1) as usize
+        } else {
+            full_width
+        };
+        total_rows = rows_for_width(wrap_width);
+        Some(crate::ui::modal_scroll_metrics(
+            total_rows,
             viewport_rows,
-        })
+            self.keybind_help.scroll as usize,
+        ))
     }
 
     fn keybind_help_scrollbar_target_at(&self, col: u16, row: u16) -> Option<ScrollbarClickTarget> {
@@ -375,6 +401,15 @@ impl AppState {
         let current = self.keybind_help.scroll as i16;
         self.keybind_help.scroll = current.saturating_add(delta).clamp(0, max_scroll as i16) as u16;
     }
+}
+
+fn rect_contains(rect: Rect, col: u16, row: u16) -> bool {
+    rect.width > 0
+        && rect.height > 0
+        && col >= rect.x
+        && col < rect.x + rect.width
+        && row >= rect.y
+        && row < rect.y + rect.height
 }
 
 #[cfg(test)]

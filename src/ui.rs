@@ -20,6 +20,7 @@ mod status;
 mod tabs;
 mod widgets;
 
+pub(crate) use self::command_palette::command_palette_button_rects;
 use self::command_palette::render_command_palette_overlay;
 use self::dialogs::{
     render_confirm_close_overlay, render_confirm_delete_group_overlay, render_rename_overlay,
@@ -77,7 +78,10 @@ pub(crate) use self::{
     },
     panes::pane_is_scrolled_back,
     tabs::compute_tab_bar_view,
-    widgets::{centered_popup_rect, modal_stack_areas},
+    widgets::{
+        centered_popup_rect, modal_scroll_from_offset_from_bottom, modal_scroll_metrics,
+        modal_scrollbar_rect, modal_stack_areas,
+    },
 };
 use crate::app::state::{ContextMenuKind, ViewLayout};
 use crate::app::{AppState, Mode};
@@ -1039,6 +1043,16 @@ mod tests {
     }
 
     #[test]
+    fn modal_scroll_metrics_converts_top_scroll_to_offset_from_bottom() {
+        let metrics = modal_scroll_metrics(20, 5, 3);
+
+        assert_eq!(metrics.viewport_rows, 5);
+        assert_eq!(metrics.max_offset_from_bottom, 15);
+        assert_eq!(metrics.offset_from_bottom, 12);
+        assert_eq!(modal_scroll_from_offset_from_bottom(20, 5, 12), 3);
+    }
+
+    #[test]
     fn scrollbar_thumb_reaches_bottom_when_scrolled_to_bottom() {
         let metrics = crate::pane::ScrollMetrics {
             offset_from_bottom: 0,
@@ -1134,7 +1148,7 @@ mod tests {
             "detach from this session, then run herdr update in your shell"
         );
         assert_eq!(lines[0].spans[0].style.fg, Some(palette.accent));
-        assert_eq!(lines[0].spans[1].style.fg, Some(palette.text));
+        assert_eq!(lines[0].spans[1].style.fg, Some(palette.accent));
     }
 
     #[test]

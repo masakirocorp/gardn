@@ -7,6 +7,8 @@ use ratatui::{
 use crate::app::AppState;
 use crate::layout::PaneInfo;
 
+use super::widgets::modal_scrollbar_rect;
+
 pub(crate) fn pane_scrollbar_rect(info: &PaneInfo) -> Option<Rect> {
     info.scrollbar_rect
 }
@@ -15,12 +17,7 @@ pub(crate) fn release_notes_scrollbar_rect(
     body: Rect,
     metrics: crate::pane::ScrollMetrics,
 ) -> Option<Rect> {
-    (should_show_scrollbar(metrics) && body.width > 1).then_some(Rect::new(
-        body.x + body.width - 1,
-        body.y,
-        1,
-        body.height,
-    ))
+    modal_scrollbar_rect(body, metrics)
 }
 
 pub(crate) fn should_show_scrollbar(metrics: crate::pane::ScrollMetrics) -> bool {

@@ -7,8 +7,8 @@ use ratatui::{
 };
 
 use super::widgets::{
-    action_button_width, modal_stack_areas, panel_contrast_fg, render_action_button,
-    render_modal_shell,
+    action_button_width, modal_stack_areas, primary_action_style, render_action_button,
+    render_modal_header, render_modal_shell,
 };
 use crate::app::AppState;
 
@@ -47,14 +47,7 @@ fn render_onboarding_welcome(app: &AppState, frame: &mut Frame, area: Rect) {
     ])
     .areas::<4>(stack.content);
 
-    frame.render_widget(
-        Paragraph::new("  herdr").style(
-            Style::default()
-                .fg(app.palette.text)
-                .add_modifier(Modifier::BOLD),
-        ),
-        header_rows[0],
-    );
+    render_modal_header(frame, header_rows[0], "herdr", &app.palette);
     frame.render_widget(
         Paragraph::new("  terminal workspace manager for coding agents")
             .style(Style::default().fg(app.palette.overlay0)),
@@ -100,9 +93,6 @@ fn render_onboarding_welcome(app: &AppState, frame: &mut Frame, area: Rect) {
         continue_rect,
         Some("↵"),
         "continue",
-        Style::default()
-            .fg(panel_contrast_fg(&app.palette))
-            .bg(app.palette.accent)
-            .add_modifier(Modifier::BOLD),
+        primary_action_style(&app.palette),
     );
 }

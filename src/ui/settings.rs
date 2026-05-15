@@ -2,13 +2,16 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{List, ListItem, ListState, Paragraph, Tabs},
+    widgets::{List, ListItem, ListState, Tabs},
     Frame,
 };
 
+use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    action_button_row_rects, centered_popup_rect, modal_stack_areas, panel_contrast_fg,
-    render_action_button, render_modal_choice_list, render_panel_shell, ActionButtonSpec,
+    action_button_row_rects, centered_popup_rect, modal_scroll_area, modal_stack_areas,
+    panel_contrast_fg, primary_action_style, render_action_button, render_modal_choice_list,
+    render_modal_divider, render_modal_header_bar, render_modal_hint_line,
+    render_modal_scroll_hints, render_modal_subtitle, render_panel_shell, ActionButtonSpec,
 };
 use crate::{
     app::{state::Palette, AppState},
@@ -45,13 +48,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     ])
     .areas::<3>(stack.header);
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![Span::styled(
-            " settings",
-            Style::default().fg(p.text).add_modifier(Modifier::BOLD),
-        )])),
-        header_rows[0],
-    );
+    render_modal_header_bar(frame, header_rows[0], "settings", p, true);
 
     let tabs = Tabs::new(SettingsSection::ALL.iter().map(|s| s.label()))
         .select(
@@ -71,11 +68,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         .padding(" ", " ");
     frame.render_widget(tabs, header_rows[1]);
 
-    let sep = "─".repeat(inner.width as usize);
-    frame.render_widget(
-        Paragraph::new(Span::styled(&sep, Style::default().fg(p.surface0))),
-        header_rows[2],
-    );
+    render_modal_divider(frame, header_rows[2], p);
 
     let content_area = stack.content;
 
@@ -146,37 +139,25 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     if let Some(footer_area) = stack.footer {
         let footer_rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)])
             .areas::<2>(footer_area);
-        let (apply_rect, close_rect) = settings_button_rects(inner);
+        let (apply_rect, _) = settings_button_rects(inner);
         render_action_button(
             frame,
             apply_rect,
             Some("↵"),
             "apply",
-            Style::default()
-                .fg(panel_contrast_fg(p))
-                .bg(p.accent)
-                .add_modifier(Modifier::BOLD),
-        );
-        render_action_button(
-            frame,
-            close_rect,
-            Some("esc"),
-            "close",
-            Style::default()
-                .fg(p.text)
-                .bg(p.surface0)
-                .add_modifier(Modifier::BOLD),
+            primary_action_style(p),
         );
 
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(" ↑↓", Style::default().fg(p.overlay0)),
-                Span::styled(" select  ", Style::default().fg(p.overlay1)),
-                Span::styled("tab", Style::default().fg(p.overlay0)),
-                Span::styled(" section", Style::default().fg(p.overlay1)),
-            ])),
-            footer_rows[0],
-        );
+        if app.settings.section == SettingsSection::Theme {
+            render_modal_scroll_hints(frame, footer_rows[0], p);
+        } else {
+            render_modal_hint_line(
+                frame,
+                footer_rows[0],
+                p,
+                &[("move", "↑↓"), ("section", "tab")],
+            );
+        }
     }
 }
 
@@ -203,13 +184,7 @@ fn render_group_theme_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     ])
     .areas::<3>(stack.header);
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![Span::styled(
-            " group theme",
-            Style::default().fg(p.text).add_modifier(Modifier::BOLD),
-        )])),
-        header_rows[0],
-    );
+    render_modal_header_bar(frame, header_rows[0], "group theme", p, true);
 
     let group_label = app
         .settings
@@ -217,71 +192,41 @@ fn render_group_theme_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
         .and_then(|idx| app.groups.get(idx))
         .map(|group| format!(" {} {}", group.icon, group.name))
         .unwrap_or_else(|| " group".to_string());
-    frame.render_widget(
-        Paragraph::new(Span::styled(group_label, Style::default().fg(p.overlay1))),
-        header_rows[1],
-    );
+    render_modal_subtitle(frame, header_rows[1], group_label, p);
 
-    let sep = "─".repeat(inner.width as usize);
-    frame.render_widget(
-        Paragraph::new(Span::styled(&sep, Style::default().fg(p.surface0))),
-        header_rows[2],
-    );
+    render_modal_divider(frame, header_rows[2], p);
 
     render_settings_theme(app, frame, stack.content);
 
     if let Some(footer_area) = stack.footer {
         let footer_rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)])
             .areas::<2>(footer_area);
-        let (apply_rect, close_rect) = settings_button_rects(inner);
+        let (apply_rect, _) = settings_button_rects(inner);
         render_action_button(
             frame,
             apply_rect,
             Some("↵"),
             "apply",
-            Style::default()
-                .fg(panel_contrast_fg(p))
-                .bg(p.accent)
-                .add_modifier(Modifier::BOLD),
-        );
-        render_action_button(
-            frame,
-            close_rect,
-            Some("esc"),
-            "close",
-            Style::default()
-                .fg(p.text)
-                .bg(p.surface0)
-                .add_modifier(Modifier::BOLD),
+            primary_action_style(p),
         );
 
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(" ↑↓", Style::default().fg(p.overlay0)),
-                Span::styled(" select", Style::default().fg(p.overlay1)),
-            ])),
-            footer_rows[0],
-        );
+        render_modal_scroll_hints(frame, footer_rows[0], p);
     }
 }
 
 pub(crate) fn settings_button_rects(inner: Rect) -> (Rect, Rect) {
     let rects = action_button_row_rects(
         inner,
-        &[
-            ActionButtonSpec {
-                hint: Some("↵"),
-                label: "apply",
-            },
-            ActionButtonSpec {
-                hint: Some("esc"),
-                label: "close",
-            },
-        ],
+        &[ActionButtonSpec {
+            hint: Some("↵"),
+            label: "apply",
+        }],
         2,
         inner.height.saturating_sub(1),
     );
-    (rects[0], rects[1])
+    let close =
+        super::widgets::modal_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
+    (rects[0], close)
 }
 
 fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -290,17 +235,14 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
     let p = &app.palette;
     let mut items: Vec<ListItem> = Vec::new();
     if app.settings.group_theme_target.is_some() {
-        let marker = if app.settings.list.selected == 0 {
-            " ✓"
-        } else {
-            ""
-        };
+        let selected = app.settings.list.selected == 0;
+        let marker = if selected { " ✓" } else { "" };
         items.push(ListItem::new(Line::from(vec![
             Span::styled(
                 format!("default ({})", app.global_theme_name),
-                Style::default().fg(p.subtext0),
+                modal_option_style(p, selected),
             ),
-            Span::styled(marker, Style::default().fg(p.green)),
+            Span::styled(marker, modal_option_marker_style(p, selected)),
         ])));
     }
 
@@ -311,7 +253,8 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
         .as_deref()
         .unwrap_or(&app.global_theme_name);
     items.extend(THEME_NAMES.iter().enumerate().map(|(idx, name)| {
-        let marker = if app.settings.list.selected == idx + offset {
+        let selected = app.settings.list.selected == idx + offset;
+        let marker = if selected {
             " ✓"
         } else if app.settings.group_theme_target.is_none() && selected_theme == *name {
             " ·"
@@ -319,23 +262,36 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
             ""
         };
         ListItem::new(Line::from(vec![
-            Span::styled(*name, Style::default().fg(p.subtext0)),
-            Span::styled(marker, Style::default().fg(p.green)),
+            Span::styled(*name, modal_option_style(p, selected)),
+            Span::styled(marker, modal_option_marker_style(p, selected)),
         ]))
     }));
 
+    let total_items = items.len();
     let list = List::new(items)
         .highlight_style(
             Style::default()
-                .bg(p.surface0)
-                .fg(p.text)
+                .fg(panel_contrast_fg(p))
+                .bg(p.accent)
                 .add_modifier(Modifier::BOLD),
         )
-        .highlight_symbol(" ▸ ")
+        .highlight_symbol(" ")
         .style(Style::default().fg(p.subtext0));
 
-    let mut state = ListState::default().with_selected(Some(app.settings.list.selected));
-    frame.render_stateful_widget(list, area, &mut state);
+    let viewport_rows = area.height as usize;
+    let metrics = crate::ui::modal_scroll_metrics(total_items, viewport_rows, app.settings.scroll);
+    let scroll = metrics
+        .max_offset_from_bottom
+        .saturating_sub(metrics.offset_from_bottom);
+    let scroll_area = modal_scroll_area(area, metrics);
+
+    let mut state = ListState::default()
+        .with_selected(Some(app.settings.list.selected))
+        .with_offset(scroll);
+    frame.render_stateful_widget(list, scroll_area.body, &mut state);
+    if let Some(track) = scroll_area.track {
+        render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▐");
+    }
 }
 
 fn render_settings_toggle(
@@ -356,8 +312,30 @@ fn render_settings_toggle(
         current_value,
         selected_idx,
         p,
-        1,
+        2,
     );
+}
+
+fn modal_option_style(p: &Palette, selected: bool) -> Style {
+    if selected {
+        Style::default()
+            .fg(panel_contrast_fg(p))
+            .bg(p.accent)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(p.text)
+    }
+}
+
+fn modal_option_marker_style(p: &Palette, selected: bool) -> Style {
+    if selected {
+        Style::default()
+            .fg(panel_contrast_fg(p))
+            .bg(p.accent)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(p.green)
+    }
 }
 
 #[cfg(test)]
