@@ -373,12 +373,20 @@ impl AppState {
             return;
         }
 
-        let visible = self.visible_workspace_indices();
-        let Some(target_pos) = visible.iter().position(|visible_idx| *visible_idx == idx) else {
+        let Some(target_pos) = crate::ui::workspace_list_position_for_workspace(self, idx) else {
             return;
         };
 
-        let mut cards = crate::ui::compute_workspace_card_areas(self, self.view.sidebar_rect);
+        let workspace_area = if self.view.right_sidebar_rect != ratatui::layout::Rect::default() {
+            crate::ui::left_sidebar_workspace_rect(self.view.sidebar_rect)
+        } else {
+            self.view.sidebar_rect
+        };
+        let mut cards = if self.view.right_sidebar_rect != ratatui::layout::Rect::default() {
+            crate::ui::compute_workspace_card_areas_in_list(self, workspace_area)
+        } else {
+            crate::ui::compute_workspace_card_areas(self, workspace_area)
+        };
         if cards.is_empty() {
             self.workspace_scroll = target_pos;
             return;
@@ -386,11 +394,7 @@ impl AppState {
 
         let first_pos = cards
             .first()
-            .and_then(|card| {
-                visible
-                    .iter()
-                    .position(|visible_idx| *visible_idx == card.ws_idx)
-            })
+            .and_then(|card| crate::ui::workspace_list_position_for_workspace(self, card.ws_idx))
             .unwrap_or(0);
         if target_pos < first_pos {
             self.workspace_scroll = target_pos;
@@ -399,11 +403,7 @@ impl AppState {
 
         while cards
             .last()
-            .and_then(|card| {
-                visible
-                    .iter()
-                    .position(|visible_idx| *visible_idx == card.ws_idx)
-            })
+            .and_then(|card| crate::ui::workspace_list_position_for_workspace(self, card.ws_idx))
             .unwrap_or(target_pos)
             < target_pos
         {
@@ -412,7 +412,11 @@ impl AppState {
             if self.workspace_scroll == previous_scroll {
                 break;
             }
-            cards = crate::ui::compute_workspace_card_areas(self, self.view.sidebar_rect);
+            cards = if self.view.right_sidebar_rect != ratatui::layout::Rect::default() {
+                crate::ui::compute_workspace_card_areas_in_list(self, workspace_area)
+            } else {
+                crate::ui::compute_workspace_card_areas(self, workspace_area)
+            };
             if cards.is_empty() {
                 break;
             }
@@ -1474,6 +1478,44 @@ mod tests {
             .workspace_card_areas
             .iter()
             .any(|card| card.ws_idx == 7));
+    }
+
+    #[test]
+    fn switching_workspace_keeps_all_mode_group_headers_visible() {
+        let mut state = app_with_workspaces(&["charliezugasti", "herdr", "herdr 2"]);
+        let group_two = state.create_group("group 2".to_string());
+        state.move_workspace_to_group(1, group_two);
+        state.move_workspace_to_group(2, group_two);
+        state.group_filter_enabled = false;
+        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 140, 20));
+
+        state.switch_workspace(2);
+        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 140, 20));
+
+        assert!(state
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .any(|header| header.group_idx == 0));
+        assert!(state
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .any(|header| header.group_idx == group_two));
+
+        state.switch_workspace(0);
+        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 140, 20));
+
+        assert!(state
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .any(|header| header.group_idx == 0));
+        assert!(state
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .any(|header| header.group_idx == group_two));
     }
 
     #[test]

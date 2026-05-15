@@ -483,11 +483,8 @@ fn workspace_list_visible_count(app: &AppState, area: Rect, scroll: usize) -> us
 
     let mut used_rows = 0u16;
     let mut visible = 0usize;
-    for ws_idx in app.visible_workspace_indices().into_iter().skip(scroll) {
-        let Some(ws) = app.workspaces.get(ws_idx) else {
-            continue;
-        };
-        let needed = workspace_row_height(ws).saturating_add(1);
+    for entry in workspace_list_entries(app).into_iter().skip(scroll) {
+        let needed = entry.row_height(app);
         if used_rows.saturating_add(needed) > body.height {
             break;
         }
@@ -502,7 +499,7 @@ pub(crate) fn workspace_list_scroll_metrics(
     area: Rect,
 ) -> crate::pane::ScrollMetrics {
     let viewport_rows = workspace_list_visible_count(app, area, app.workspace_scroll);
-    let total_rows = app.visible_workspace_indices().len();
+    let total_rows = workspace_list_entries(app).len();
     let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
     let offset_from_bottom = total_rows
         .saturating_sub(app.workspace_scroll)
@@ -621,44 +618,170 @@ pub(crate) fn compute_workspace_card_areas(
     compute_workspace_card_areas_in_list(app, ws_area)
 }
 
+pub(crate) fn compute_workspace_group_header_areas(
+    app: &AppState,
+    area: Rect,
+) -> Vec<crate::app::state::WorkspaceGroupHeaderArea> {
+    let ws_area = workspace_list_rect(area, app.sidebar_section_split);
+    compute_workspace_group_header_areas_in_list(app, ws_area)
+}
+
+pub(crate) fn compute_workspace_group_empty_areas(
+    app: &AppState,
+    area: Rect,
+) -> Vec<crate::app::state::WorkspaceGroupEmptyArea> {
+    let ws_area = workspace_list_rect(area, app.sidebar_section_split);
+    compute_workspace_group_empty_areas_in_list(app, ws_area)
+}
+
 pub(crate) fn compute_workspace_card_areas_in_list(
     app: &AppState,
     ws_area: Rect,
 ) -> Vec<crate::app::state::WorkspaceCardArea> {
+    compute_workspace_list_areas_in_list(app, ws_area).0
+}
+
+pub(crate) fn compute_workspace_group_header_areas_in_list(
+    app: &AppState,
+    ws_area: Rect,
+) -> Vec<crate::app::state::WorkspaceGroupHeaderArea> {
+    compute_workspace_list_areas_in_list(app, ws_area).1
+}
+
+pub(crate) fn compute_workspace_group_empty_areas_in_list(
+    app: &AppState,
+    ws_area: Rect,
+) -> Vec<crate::app::state::WorkspaceGroupEmptyArea> {
+    compute_workspace_list_areas_in_list(app, ws_area).2
+}
+
+pub(crate) fn workspace_list_entry_count(app: &AppState) -> usize {
+    workspace_list_entries(app).len()
+}
+
+pub(crate) fn workspace_list_position_for_workspace(
+    app: &AppState,
+    ws_idx: usize,
+) -> Option<usize> {
+    workspace_list_entries(app).iter().position(
+        |entry| matches!(entry, WorkspaceListEntry::Workspace { ws_idx: idx } if *idx == ws_idx),
+    )
+}
+
+fn compute_workspace_list_areas_in_list(
+    app: &AppState,
+    ws_area: Rect,
+) -> (
+    Vec<crate::app::state::WorkspaceCardArea>,
+    Vec<crate::app::state::WorkspaceGroupHeaderArea>,
+    Vec<crate::app::state::WorkspaceGroupEmptyArea>,
+) {
     if ws_area == Rect::default() {
-        return Vec::new();
+        return (Vec::new(), Vec::new(), Vec::new());
     }
 
     let metrics = workspace_list_scroll_metrics(app, ws_area);
     let body = workspace_list_body_rect(ws_area, should_show_scrollbar(metrics));
     if body.width == 0 || body.height == 0 {
-        return Vec::new();
+        return (Vec::new(), Vec::new(), Vec::new());
     }
 
     let mut row_y = body.y;
     let body_bottom = body.y + body.height;
     let mut cards = Vec::new();
+    let mut headers = Vec::new();
+    let mut empties = Vec::new();
 
-    for ws_idx in app
-        .visible_workspace_indices()
+    for entry in workspace_list_entries(app)
         .into_iter()
         .skip(app.workspace_scroll)
     {
-        let Some(ws) = app.workspaces.get(ws_idx) else {
-            continue;
-        };
-        let row_height = workspace_row_height(ws);
-        if row_y.saturating_add(row_height).saturating_add(1) > body_bottom {
+        let row_height = entry.row_height(app);
+        if row_y.saturating_add(row_height) > body_bottom {
             break;
         }
-        cards.push(crate::app::state::WorkspaceCardArea {
-            ws_idx,
-            rect: Rect::new(body.x, row_y, body.width, row_height),
-        });
-        row_y = row_y.saturating_add(row_height + 1);
+
+        match entry {
+            WorkspaceListEntry::GroupHeader { group_idx } => {
+                headers.push(crate::app::state::WorkspaceGroupHeaderArea {
+                    group_idx,
+                    rect: Rect::new(body.x, row_y, body.width, 1),
+                });
+            }
+            WorkspaceListEntry::EmptyGroup { group_idx } => {
+                empties.push(crate::app::state::WorkspaceGroupEmptyArea {
+                    group_idx,
+                    rect: Rect::new(body.x, row_y, body.width, 1),
+                });
+            }
+            WorkspaceListEntry::Workspace { ws_idx } => {
+                let Some(ws) = app.workspaces.get(ws_idx) else {
+                    continue;
+                };
+                cards.push(crate::app::state::WorkspaceCardArea {
+                    ws_idx,
+                    rect: Rect::new(body.x, row_y, body.width, workspace_row_height(ws)),
+                });
+            }
+        }
+        row_y = row_y.saturating_add(row_height);
     }
 
-    cards
+    (cards, headers, empties)
+}
+
+#[derive(Clone, Copy)]
+enum WorkspaceListEntry {
+    GroupHeader { group_idx: usize },
+    EmptyGroup { group_idx: usize },
+    Workspace { ws_idx: usize },
+}
+
+impl WorkspaceListEntry {
+    fn row_height(self, app: &AppState) -> u16 {
+        match self {
+            Self::GroupHeader { .. } => 1,
+            Self::EmptyGroup { .. } => 1,
+            Self::Workspace { ws_idx } => app
+                .workspaces
+                .get(ws_idx)
+                .map(|ws| workspace_row_height(ws).saturating_add(1))
+                .unwrap_or(0),
+        }
+    }
+}
+
+fn workspace_list_entries(app: &AppState) -> Vec<WorkspaceListEntry> {
+    if app.sidebar_collapsed || app.group_filter_enabled {
+        return app
+            .visible_workspace_indices()
+            .into_iter()
+            .map(|ws_idx| WorkspaceListEntry::Workspace { ws_idx })
+            .collect();
+    }
+
+    let mut entries = Vec::new();
+    for (group_idx, group) in app.groups.iter().enumerate() {
+        let group_workspaces = app
+            .workspaces
+            .iter()
+            .enumerate()
+            .filter_map(|(ws_idx, ws)| (ws.group_id == group.id).then_some(ws_idx))
+            .collect::<Vec<_>>();
+        entries.push(WorkspaceListEntry::GroupHeader { group_idx });
+        if !app.workspace_group_collapsed(&group.id) {
+            if group_workspaces.is_empty() {
+                entries.push(WorkspaceListEntry::EmptyGroup { group_idx });
+            } else {
+                entries.extend(
+                    group_workspaces
+                        .into_iter()
+                        .map(|ws_idx| WorkspaceListEntry::Workspace { ws_idx }),
+                );
+            }
+        }
+    }
+    entries
 }
 
 /// Auto-scale sidebar width based on workspace identity + agent summary.
@@ -1624,8 +1747,15 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
     let scrollbar_rect = workspace_list_scrollbar_rect(app, area);
     let body = workspace_list_body_rect(area, should_show_scrollbar(metrics));
     let cards = &app.view.workspace_card_areas;
+    let headers = &app.view.workspace_group_header_areas;
+    let empty_rows = &app.view.workspace_group_empty_areas;
 
-    if cards.is_empty() && body.height > 0 && body.width > 10 {
+    if cards.is_empty()
+        && headers.is_empty()
+        && empty_rows.is_empty()
+        && body.height > 0
+        && body.width > 10
+    {
         let title = if app.workspaces.is_empty() {
             " no spaces"
         } else {
@@ -1637,6 +1767,40 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
                 Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
             ))),
             Rect::new(body.x, body.y, body.width, 1),
+        );
+    }
+
+    for header in headers {
+        let Some(group) = app.groups.get(header.group_idx) else {
+            continue;
+        };
+        let count = app
+            .workspaces
+            .iter()
+            .filter(|workspace| workspace.group_id == group.id)
+            .count();
+        let chevron = if app.workspace_group_collapsed(&group.id) {
+            "▸"
+        } else {
+            "▾"
+        };
+        let label = format!(" {chevron} {} {} ({count})", group.icon, group.name);
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                truncate_text(&label, header.rect.width as usize),
+                Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
+            )),
+            header.rect,
+        );
+    }
+
+    for empty in empty_rows {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "   no spaces",
+                Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+            )),
+            empty.rect,
         );
     }
 
@@ -2055,7 +2219,7 @@ fn render_right_sidebar_toggle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{detect::Agent, workspace::Workspace};
+    use crate::{app::state::Group, detect::Agent, workspace::Workspace};
     use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
 
     #[test]
@@ -2109,6 +2273,99 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), 28, 12);
         assert!(!text.contains("new space"));
         assert!(!text.contains("menu"));
+    }
+
+    #[test]
+    fn all_spaces_workspace_list_groups_rows_by_group() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.group_filter_enabled = false;
+        app.groups.push(Group {
+            id: "work".into(),
+            name: "work".into(),
+            icon: "■".into(),
+            theme_name: None,
+        });
+        app.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
+        app.workspaces[1].group_id = "work".into();
+        let area = Rect::new(0, 0, 32, 14);
+        app.view.workspace_card_areas = compute_workspace_card_areas_in_list(&app, area);
+        app.view.workspace_group_header_areas =
+            compute_workspace_group_header_areas_in_list(&app, area);
+        app.view.workspace_group_empty_areas =
+            compute_workspace_group_empty_areas_in_list(&app, area);
+
+        let backend = TestBackend::new(32, 14);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_workspace_list(&app, frame, area, false))
+            .expect("render workspace list");
+
+        let text = buffer_text(terminal.backend().buffer(), 32, 14);
+        assert!(text.contains("▾ ● group 1 (1)"));
+        assert!(text.contains("▾ ■ work (1)"));
+        assert!(text.contains("home"));
+        assert!(text.contains("api"));
+    }
+
+    #[test]
+    fn collapsed_workspace_group_hides_its_rows() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.group_filter_enabled = false;
+        app.groups.push(Group {
+            id: "work".into(),
+            name: "work".into(),
+            icon: "■".into(),
+            theme_name: None,
+        });
+        app.collapsed_workspace_groups.push("work".into());
+        app.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
+        app.workspaces[1].group_id = "work".into();
+        let area = Rect::new(0, 0, 32, 14);
+        app.view.workspace_card_areas = compute_workspace_card_areas_in_list(&app, area);
+        app.view.workspace_group_header_areas =
+            compute_workspace_group_header_areas_in_list(&app, area);
+        app.view.workspace_group_empty_areas =
+            compute_workspace_group_empty_areas_in_list(&app, area);
+
+        let backend = TestBackend::new(32, 14);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_workspace_list(&app, frame, area, false))
+            .expect("render workspace list");
+
+        let text = buffer_text(terminal.backend().buffer(), 32, 14);
+        assert!(text.contains("▸ ■ work (1)"));
+        assert!(text.contains("home"));
+        assert!(!text.contains("api"));
+    }
+
+    #[test]
+    fn empty_groups_render_empty_row_in_all_spaces() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.group_filter_enabled = false;
+        app.groups.push(Group {
+            id: "work".into(),
+            name: "work".into(),
+            icon: "■".into(),
+            theme_name: None,
+        });
+        app.workspaces = vec![Workspace::test_new("home")];
+        let area = Rect::new(0, 0, 32, 14);
+        app.view.workspace_card_areas = compute_workspace_card_areas_in_list(&app, area);
+        app.view.workspace_group_header_areas =
+            compute_workspace_group_header_areas_in_list(&app, area);
+        app.view.workspace_group_empty_areas =
+            compute_workspace_group_empty_areas_in_list(&app, area);
+
+        let backend = TestBackend::new(32, 14);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_workspace_list(&app, frame, area, false))
+            .expect("render workspace list");
+
+        let text = buffer_text(terminal.backend().buffer(), 32, 14);
+        assert!(text.contains("▾ ■ work (0)"));
+        assert!(text.contains("no spaces"));
     }
 
     #[test]

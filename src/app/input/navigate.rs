@@ -311,7 +311,7 @@ pub(super) fn handle_navigate_reserved_key(state: &mut AppState, key: KeyEvent) 
         }
         KeyCode::Char(c @ '1'..='9') => {
             let idx = (c as usize) - ('1' as usize);
-            if let Some(ws_idx) = state.visible_workspace_indices().get(idx).copied() {
+            if let Some(ws_idx) = state.sidebar_visible_workspace_indices().get(idx).copied() {
                 state.switch_workspace(ws_idx);
                 leave_navigate_mode(state);
             }
@@ -451,7 +451,7 @@ fn indexed_navigation_action(state: &AppState, key: &KeyEvent) -> Option<Navigat
         .is_some_and(|mods| key_matches(key, KeyCode::Char(c), mods))
     {
         return state
-            .visible_workspace_indices()
+            .sidebar_visible_workspace_indices()
             .get(idx)
             .copied()
             .map(NavigateAction::SwitchWorkspace);
