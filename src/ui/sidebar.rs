@@ -394,6 +394,10 @@ fn format_agent_panel_primary_label(entry: &AgentPanelEntry, max_width: usize) -
     )
 }
 
+fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
+    section_label == "triage"
+}
+
 fn workspace_row_height(ws: &crate::workspace::Workspace) -> u16 {
     if ws.branch().is_some() {
         2
@@ -1518,6 +1522,7 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
 fn render_agent_entry(
     app: &AppState,
     frame: &mut Frame,
+    show_status: bool,
     detail: &AgentPanelEntry,
     area: Rect,
     row_y: u16,
@@ -1558,12 +1563,14 @@ fn render_agent_entry(
         Rect::new(area.x, row_y, area.width, 1),
     );
 
-    let mut status_spans = vec![
-        Span::styled("   ", Style::default()),
-        Span::styled(label, status_style),
-    ];
+    let mut status_spans = vec![Span::styled("   ", Style::default())];
+    if show_status {
+        status_spans.push(Span::styled(label, status_style));
+    }
     if let Some(agent_label) = &detail.agent_label {
-        status_spans.push(Span::styled(" · ", agent_style));
+        if show_status {
+            status_spans.push(Span::styled(" · ", agent_style));
+        }
         status_spans.push(Span::styled(agent_label, agent_style));
     }
     frame.render_widget(
@@ -1701,12 +1708,13 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
             Rect::new(body.x, row_y, body.width, 1),
         );
         row_y = row_y.saturating_add(1);
+        let show_status = agent_panel_section_shows_entry_status(section.label);
 
         for detail in section.entries.iter().skip(skip) {
             if row_y.saturating_add(1) >= body_bottom {
                 break;
             }
-            render_agent_entry(app, frame, detail, body, row_y);
+            render_agent_entry(app, frame, show_status, detail, body, row_y);
             row_y = row_y.saturating_add(2);
             if row_y < body_bottom {
                 row_y = row_y.saturating_add(1);
@@ -2067,6 +2075,55 @@ mod tests {
         assert_eq!(sections[1].entries[0].primary_label, "group 1 / working");
         assert_eq!(sections[2].label, "idle");
         assert_eq!(sections[2].entries[0].primary_label, "group 1 / idle");
+    }
+
+    #[test]
+    fn non_triage_agent_rows_omit_redundant_status() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("worker");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        pane_state.detected_agent = Some(Agent::Codex);
+        pane_state.state = AgentState::Working;
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+
+        let backend = TestBackend::new(34, 12);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_right_sidebar(&app, frame, Rect::new(0, 0, 34, 12)))
+            .expect("render right sidebar");
+
+        let text = buffer_text(terminal.backend().buffer(), 34, 12);
+        assert!(text.contains("working"));
+        assert!(text.contains("codex"));
+        assert!(!text.contains("working · codex"));
+    }
+
+    #[test]
+    fn triage_agent_rows_keep_status_reason() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("done");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        pane_state.detected_agent = Some(Agent::Claude);
+        pane_state.state = AgentState::Idle;
+        pane_state.seen = false;
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        let backend = TestBackend::new(34, 12);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_right_sidebar(&app, frame, Rect::new(0, 0, 34, 12)))
+            .expect("render right sidebar");
+
+        let text = buffer_text(terminal.backend().buffer(), 34, 12);
+        assert!(text.contains("triage"));
+        assert!(text.contains("done · claude"));
     }
 
     #[test]
