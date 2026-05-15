@@ -28,6 +28,14 @@ pub(crate) fn toast_notification_rect(
     Rect::new(x, y, width, height)
 }
 
+pub(crate) fn toast_kind_color(kind: ToastKind, p: &Palette) -> Color {
+    match kind {
+        ToastKind::NeedsAttention => p.red,
+        ToastKind::Finished => p.teal,
+        ToastKind::UpdateInstalled => p.accent,
+    }
+}
+
 pub(super) fn render_toast_notification(
     frame: &mut Frame,
     area: Rect,
@@ -35,11 +43,7 @@ pub(super) fn render_toast_notification(
     offset_for_warning: bool,
     p: &Palette,
 ) {
-    let dot_color = match toast.kind {
-        ToastKind::NeedsAttention => p.red,
-        ToastKind::Finished => p.blue,
-        ToastKind::UpdateInstalled => p.accent,
-    };
+    let dot_color = toast_kind_color(toast.kind, p);
     let toast_area = toast_notification_rect(area, toast, offset_for_warning);
 
     frame.render_widget(Clear, toast_area);
@@ -139,5 +143,19 @@ pub(super) fn state_label_color(state: AgentState, seen: bool, p: &Palette) -> C
         (AgentState::Idle, false) => p.teal,
         (AgentState::Idle, true) => p.green,
         (AgentState::Unknown, _) => p.overlay0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toast_colors_match_sidebar_status_colors() {
+        let p = Palette::catppuccin();
+
+        assert_eq!(toast_kind_color(ToastKind::NeedsAttention, &p), p.red);
+        assert_eq!(toast_kind_color(ToastKind::Finished, &p), p.teal);
+        assert_eq!(toast_kind_color(ToastKind::UpdateInstalled, &p), p.accent);
     }
 }
