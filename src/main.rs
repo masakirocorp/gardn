@@ -35,6 +35,7 @@ mod logging;
 mod pane;
 mod persist;
 mod platform;
+mod ports;
 mod raw_input;
 mod release_notes;
 mod remote;

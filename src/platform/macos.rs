@@ -349,6 +349,10 @@ pub fn process_cwd(pid: u32) -> Option<PathBuf> {
     Some(PathBuf::from(OsStr::from_bytes(&vip_path[..nul])))
 }
 
+pub fn active_tcp_listeners() -> Vec<super::TcpListenerInfo> {
+    super::active_tcp_listeners_from_lsof()
+}
+
 pub fn session_processes(child_pid: u32) -> Vec<u32> {
     if child_pid == 0 {
         return Vec::new();

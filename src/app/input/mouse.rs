@@ -409,8 +409,33 @@ impl AppState {
                     }
 
                     if self.right_sidebar_collapsed {
+                        if self.on_collapsed_right_sidebar_scope_toggle(mouse.column, mouse.row) {
+                            super::modal::open_agent_menu(self);
+                            return None;
+                        }
+
+                        if self.on_collapsed_activity_agents_header(mouse.column, mouse.row) {
+                            self.toggle_activity_agents();
+                            return None;
+                        }
+
+                        if self.on_collapsed_activity_ports_header(mouse.column, mouse.row) {
+                            self.toggle_activity_ports();
+                            return None;
+                        }
+
                         if let Some((ws_idx, tab_idx, pane_id)) =
                             self.collapsed_right_sidebar_agent_target_at(mouse.row)
+                        {
+                            self.switch_workspace(ws_idx);
+                            self.switch_tab(tab_idx);
+                            self.focus_pane(pane_id);
+                            self.mode = Mode::Terminal;
+                            return None;
+                        }
+
+                        if let Some((ws_idx, tab_idx, pane_id)) =
+                            self.collapsed_right_sidebar_port_target_at(mouse.row)
                         {
                             self.switch_workspace(ws_idx);
                             self.switch_tab(tab_idx);
@@ -422,6 +447,16 @@ impl AppState {
 
                     if self.on_agent_panel_scope_toggle(mouse.column, mouse.row) {
                         super::modal::open_agent_menu(self);
+                        return None;
+                    }
+
+                    if self.on_activity_agents_header(mouse.column, mouse.row) {
+                        self.toggle_activity_agents();
+                        return None;
+                    }
+
+                    if self.on_activity_ports_header(mouse.column, mouse.row) {
+                        self.toggle_activity_ports();
                         return None;
                     }
 
@@ -438,6 +473,15 @@ impl AppState {
                                 self.set_agent_panel_offset_from_bottom(offset_from_bottom);
                             }
                         }
+                        return None;
+                    }
+
+                    if let Some((ws_idx, tab_idx, pane_id)) = self.port_detail_target_at(mouse.row)
+                    {
+                        self.switch_workspace(ws_idx);
+                        self.switch_tab(tab_idx);
+                        self.focus_pane(pane_id);
+                        self.mode = Mode::Terminal;
                         return None;
                     }
 

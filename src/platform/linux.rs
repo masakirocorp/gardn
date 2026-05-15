@@ -92,6 +92,10 @@ pub fn process_cwd(pid: u32) -> Option<PathBuf> {
     std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
 }
 
+pub fn active_tcp_listeners() -> Vec<super::TcpListenerInfo> {
+    super::active_tcp_listeners_from_lsof()
+}
+
 pub fn session_processes(child_pid: u32) -> Vec<u32> {
     let Some(session_id) = process_session_id(child_pid) else {
         return Vec::new();

@@ -1669,6 +1669,11 @@ impl HeadlessServer {
         // No resize polling needed — server has no terminal.
         // Client resize messages drive size changes instead.
 
+        if now >= self.app.next_port_scan {
+            changed |= self.app.refresh_ports(now);
+            self.app.next_port_scan = now + app::PORT_SCAN_INTERVAL;
+        }
+
         if self
             .app
             .config_diagnostic_deadline
@@ -1960,6 +1965,17 @@ mod tests {
             ServerMessage::Frame(frame) => frame,
             other => panic!("expected frame, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn headless_scheduled_tasks_refresh_ports() {
+        let mut server = test_headless_server();
+        let now = Instant::now();
+        server.app.next_port_scan = now;
+
+        server.handle_scheduled_tasks_headless(now);
+
+        assert_eq!(server.app.next_port_scan, now + app::PORT_SCAN_INTERVAL);
     }
 
     fn test_client_writer() -> (

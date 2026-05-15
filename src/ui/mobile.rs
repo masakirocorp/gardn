@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use super::sidebar::{agent_panel_entries, AgentPanelEntry};
-use super::status::{agent_icon, state_dot};
+use super::status::{agent_icon, state_dot, toast_kind_color};
 use super::widgets::fill_rect;
 use crate::app::state::{Palette, ToastKind, ToastNotification};
 use crate::app::AppState;
@@ -200,11 +200,7 @@ pub(crate) fn render_mobile_toast_banner(
         return;
     }
 
-    let dot_color = match toast.kind {
-        ToastKind::NeedsAttention => p.red,
-        ToastKind::Finished => p.blue,
-        ToastKind::UpdateInstalled => p.accent,
-    };
+    let dot_color = toast_kind_color(toast.kind, p);
     let banner = mobile_toast_banner_rect(area, offset_for_warning);
     let bg = p.surface0;
 

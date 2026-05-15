@@ -60,14 +60,17 @@ pub(crate) use self::{
     settings::settings_button_rects,
     sidebar::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_entry_at_row,
-        agent_panel_scope_count, agent_panel_scroll_metrics, agent_panel_scrollbar_rect,
-        agent_panel_toggle_rect, collapsed_group_header_rect,
-        collapsed_right_sidebar_agent_rows_rect, collapsed_sidebar_sections,
-        collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect, compute_workspace_card_areas,
-        compute_workspace_card_areas_in_list, expanded_sidebar_sections,
-        expanded_sidebar_toggle_rect, left_sidebar_workspace_rect, right_sidebar_content_rect,
-        right_sidebar_toggle_rect, sidebar_section_divider_rect, workspace_drop_indicator_row,
-        workspace_list_rect, workspace_list_scroll_metrics, workspace_list_scrollbar_rect,
+        agent_panel_scroll_metrics, agent_panel_scrollbar_rect, agent_panel_toggle_rect,
+        collapsed_group_header_rect, collapsed_right_sidebar_activity_header_rect,
+        collapsed_right_sidebar_agent_entry_at_row, collapsed_right_sidebar_agent_rows_rect,
+        collapsed_right_sidebar_port_entry_at_row, collapsed_right_sidebar_ports_header_rect,
+        collapsed_sidebar_sections, collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect,
+        compute_workspace_card_areas, compute_workspace_card_areas_in_list,
+        expanded_sidebar_sections, expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
+        right_sidebar_agents_header_rect, right_sidebar_content_rect, right_sidebar_panel_rects,
+        right_sidebar_ports_header_rect, right_sidebar_toggle_rect, sidebar_section_divider_rect,
+        workspace_drop_indicator_row, workspace_list_rect, workspace_list_scroll_metrics,
+        workspace_list_scrollbar_rect,
     },
 };
 pub(crate) use self::{
@@ -77,6 +80,7 @@ pub(crate) use self::{
         mobile_switcher_workspace_doc_range, MobileSwitcherTarget,
     },
     panes::pane_is_scrolled_back,
+    sidebar::port_panel_entry_at_row,
     tabs::compute_tab_bar_view,
     widgets::{
         centered_popup_rect, modal_scroll_from_offset_from_bottom, modal_scroll_metrics,
@@ -209,7 +213,7 @@ fn compute_view_internal(
         .workspace_scroll
         .min(app.visible_workspace_indices().len().saturating_sub(1));
     if right_sidebar_area != Rect::default() && !app.right_sidebar_collapsed {
-        let agent_area = right_sidebar_content_rect(right_sidebar_area);
+        let (agent_area, _) = right_sidebar_panel_rects(app, right_sidebar_area);
         let max_agent_scroll =
             agent_panel_scroll_metrics(app, agent_area, false).max_offset_from_bottom;
         app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
@@ -592,7 +596,7 @@ mod tests {
     }
 
     #[test]
-    fn right_sidebar_agents_start_without_top_separator() {
+    fn right_sidebar_activity_wraps_agent_section() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = vec![Workspace::test_new("one")];
         app.active = Some(0);
@@ -606,12 +610,13 @@ mod tests {
         terminal.draw(|frame| render(&app, frame)).unwrap();
         let buffer = terminal.backend().buffer();
         let content = right_sidebar_content_rect(app.view.right_sidebar_rect);
+        let (agent_area, _) = right_sidebar_panel_rects(&app, app.view.right_sidebar_rect);
 
-        assert_ne!(buffer[(content.x, content.y)].symbol(), "─");
-        assert!(buffer_row_text(buffer, content, content.y).starts_with(" agents"));
+        assert!(buffer_row_text(buffer, content, content.y).starts_with(" activity"));
+        assert!(buffer_row_text(buffer, agent_area, agent_area.y).starts_with(" ▾ agents (0)"));
         assert_eq!(
-            agent_panel_body_rect(content, false, false).y,
-            content.y + 2
+            agent_panel_body_rect(agent_area, false, false).y,
+            agent_area.y + 1
         );
     }
 
@@ -635,7 +640,8 @@ mod tests {
         terminal.draw(|frame| render(&app, frame)).unwrap();
         let buffer = terminal.backend().buffer();
         let content = right_sidebar_content_rect(app.view.right_sidebar_rect);
-        let body = agent_panel_body_rect(content, false, false);
+        let (agent_area, _) = right_sidebar_panel_rects(&app, app.view.right_sidebar_rect);
+        let body = agent_panel_body_rect(agent_area, false, false);
 
         assert_ne!(app.view.right_sidebar_rect, Rect::default());
         let body_text = (body.y..body.y + body.height)
@@ -643,7 +649,8 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(buffer_row_text(buffer, content, content.y).starts_with(" agents"));
+        assert!(buffer_row_text(buffer, content, content.y).starts_with(" activity"));
+        assert!(buffer_row_text(buffer, agent_area, agent_area.y).starts_with(" ▾ agents (1)"));
         assert!(body_text.contains("claude"));
     }
 
@@ -672,7 +679,55 @@ mod tests {
         let rows = collapsed_right_sidebar_agent_rows_rect(app.view.right_sidebar_rect);
 
         assert_eq!(buffer[(toggle.x, toggle.y)].symbol(), "«");
-        assert!(buffer_row_text(buffer, rows, rows.y).starts_with("1 "));
+        assert!(buffer_row_text(buffer, rows, rows.y).starts_with("▾a1"));
+        assert!(buffer_row_text(buffer, rows, rows.y + 1).starts_with("1 "));
+    }
+
+    #[test]
+    fn collapsed_right_sidebar_includes_ports() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.right_sidebar_collapsed = true;
+        let ws = Workspace::test_new("web");
+        let pane = ws.tabs[0].root_pane;
+        let workspace_id = ws.id.clone();
+        app.workspaces = vec![ws];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+        app.port_registry.sync_observations(
+            std::time::Instant::now(),
+            [crate::ports::PortObservation {
+                bind_addr: "127.0.0.1".parse().unwrap(),
+                port: 5173,
+                pid: 42,
+                command: Some("vite".to_string()),
+            }],
+            |_| {
+                Some(crate::ports::PortOwner {
+                    pid: 42,
+                    command: None,
+                    workspace_id: workspace_id.clone(),
+                    tab_idx: 0,
+                    pane_id: pane,
+                    confidence: crate::ports::PortOwnerConfidence::ProcessTree,
+                })
+            },
+        );
+
+        compute_view(&mut app, Rect::new(0, 0, 140, 20));
+
+        let backend = TestBackend::new(140, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let rows = collapsed_right_sidebar_agent_rows_rect(app.view.right_sidebar_rect);
+        let text = (rows.y..rows.y + rows.height)
+            .map(|row| buffer_row_text(buffer, rows, row))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("p1"));
+        assert!(text.contains(":5"));
     }
 
     #[test]

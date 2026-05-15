@@ -1048,6 +1048,7 @@ pub struct AppState {
     pub release_notes: Option<ReleaseNotesState>,
     pub keybind_help: KeybindHelpState,
     pub command_palette: CommandPaletteState,
+    pub port_registry: crate::ports::PortRegistry,
     pub workspace_scroll: usize,
     pub agent_panel_scroll: usize,
     pub tab_scroll: usize,
@@ -1081,6 +1082,8 @@ pub struct AppState {
     pub right_sidebar_collapsed: bool,
     /// Ratio of sidebar height allocated to the workspaces section.
     pub sidebar_section_split: f32,
+    pub activity_agents_expanded: bool,
+    pub activity_ports_expanded: bool,
     pub agent_panel_scope: AgentPanelScope,
     /// Capture mouse input for Herdr's own mouse UI. When false, Herdr only
     /// captures mouse while the focused pane app requests mouse reporting.
@@ -1349,6 +1352,7 @@ impl AppState {
                 selected: 0,
                 scroll: 0,
             },
+            port_registry: crate::ports::PortRegistry::default(),
             workspace_scroll: 0,
             agent_panel_scroll: 0,
             tab_scroll: 0,
@@ -1392,6 +1396,8 @@ impl AppState {
             right_sidebar_width: 28,
             right_sidebar_collapsed: false,
             sidebar_section_split: 0.5,
+            activity_agents_expanded: true,
+            activity_ports_expanded: true,
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
             mouse_capture: true,
             confirm_close: true,

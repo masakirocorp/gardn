@@ -5,7 +5,7 @@ use crossterm::terminal;
 use super::{
     auto_updates_enabled, command_palette_accepts_repeat_key, repeat_key_identity, App, Mode,
     ANIMATION_INTERVAL, AUTO_UPDATE_CHECK_INTERVAL, GIT_REMOTE_STATUS_REFRESH_INTERVAL,
-    MIN_RENDER_INTERVAL, RESIZE_POLL_INTERVAL,
+    MIN_RENDER_INTERVAL, PORT_SCAN_INTERVAL, PORT_STALE_TTL, RESIZE_POLL_INTERVAL,
 };
 use crate::events::AppEvent;
 use crate::workspace::{Workspace, WorkspaceGitStatus};
@@ -124,6 +124,47 @@ impl App {
         false
     }
 
+    pub(crate) fn refresh_ports(&mut self, now: Instant) -> bool {
+        let mut owners = std::collections::HashMap::new();
+        for workspace in &self.state.workspaces {
+            for (tab_idx, tab) in workspace.tabs.iter().enumerate() {
+                for (pane_id, runtime) in &tab.runtimes {
+                    let child_pid = runtime.child_pid();
+                    if child_pid == 0 {
+                        continue;
+                    }
+                    let mut pids = crate::platform::session_processes(child_pid);
+                    if pids.is_empty() {
+                        pids.push(child_pid);
+                    }
+                    for pid in pids {
+                        owners.insert(
+                            pid,
+                            crate::ports::PortOwner {
+                                pid,
+                                command: None,
+                                workspace_id: workspace.id.clone(),
+                                tab_idx,
+                                pane_id: *pane_id,
+                                confidence: crate::ports::PortOwnerConfidence::ProcessTree,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+
+        let before = self.state.port_registry.endpoints();
+        let observations = crate::platform::active_tcp_listeners()
+            .into_iter()
+            .map(crate::ports::PortObservation::from);
+        self.state
+            .port_registry
+            .sync_observations(now, observations, |pid| owners.get(&pid).cloned());
+        self.state.port_registry.prune_stale(now, PORT_STALE_TTL);
+        self.state.port_registry.endpoints() != before
+    }
+
     pub(crate) fn handle_scheduled_tasks(&mut self, now: Instant) -> bool {
         let mut changed = false;
 
@@ -132,6 +173,11 @@ impl App {
         if now >= self.next_resize_poll {
             changed |= self.handle_resize_poll();
             self.next_resize_poll = now + RESIZE_POLL_INTERVAL;
+        }
+
+        if now >= self.next_port_scan {
+            changed |= self.refresh_ports(now);
+            self.next_port_scan = now + PORT_SCAN_INTERVAL;
         }
 
         if self

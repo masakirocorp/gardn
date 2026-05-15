@@ -260,6 +260,10 @@ impl PaneRuntime {
         self.terminal.apply_host_terminal_theme(theme);
     }
 
+    pub fn child_pid(&self) -> u32 {
+        self.child_pid.load(Ordering::Acquire)
+    }
+
     pub fn spawn(
         pane_id: PaneId,
         rows: u16,
