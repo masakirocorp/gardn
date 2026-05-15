@@ -922,8 +922,7 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
 
 pub(crate) fn right_sidebar_panel_rects(app: &AppState, area: Rect) -> (Rect, Rect) {
     let content = right_sidebar_content_rect(area);
-    let port_entries = port_panel_entries(app);
-    if port_entries.is_empty() || content.height < 8 {
+    if content.height < 6 {
         return (content, Rect::default());
     }
 
@@ -1078,6 +1077,17 @@ fn render_ports_section(app: &AppState, frame: &mut Frame, area: Rect, entries: 
         )])),
         Rect::new(area.x, area.y, area.width, 1),
     );
+
+    if entries.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                " no active ports",
+                Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+            )),
+            Rect::new(area.x, area.y + 1, area.width, 1),
+        );
+        return;
+    }
 
     let mut row_y = area.y + 1;
     let bottom = area.y + area.height;
@@ -2005,6 +2015,24 @@ mod tests {
         assert!(text.contains(":5173"));
         assert!(text.contains("pane 1"));
         assert!(text.contains("localhost · vite"));
+    }
+
+    #[test]
+    fn right_sidebar_renders_empty_ports_section() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("web")];
+        app.active = Some(0);
+        app.selected = 0;
+
+        let backend = TestBackend::new(32, 18);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_right_sidebar(&app, frame, Rect::new(0, 0, 32, 18)))
+            .expect("render right sidebar");
+
+        let text = buffer_text(terminal.backend().buffer(), 32, 18);
+        assert!(text.contains("ports"));
+        assert!(text.contains("no active ports"));
     }
 
     #[test]
