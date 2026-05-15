@@ -16,6 +16,7 @@ use crate::ports::{PortEndpoint, PortExposure, PortState};
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const ACTIVITY_PANEL_HEADER_ROWS: u16 = 2;
+const ACTIVITY_SECTION_GAP_ROWS: u16 = 1;
 const AGENT_PANEL_HEADER_ROWS: u16 = 1;
 const PORT_PANEL_HEADER_ROWS: u16 = 1;
 
@@ -925,19 +926,22 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
 
 pub(crate) fn right_sidebar_panel_rects(app: &AppState, area: Rect) -> (Rect, Rect) {
     let content = right_sidebar_activity_body_rect(area);
-    if content.height < 6 {
+    if content.height < 5 {
         return (content, Rect::default());
     }
 
     let port_entries = port_panel_entries(app);
     let port_height = port_panel_desired_height(&port_entries).min(content.height - 3);
-    let agent_height = agent_panel_desired_height(app).min(content.height - port_height);
+    let agent_height = agent_panel_desired_height(app)
+        .min(content.height - port_height - ACTIVITY_SECTION_GAP_ROWS);
     let agent_area = Rect::new(content.x, content.y, content.width, agent_height);
     let port_area = Rect::new(
         content.x,
-        content.y + agent_height,
+        content.y + agent_height + ACTIVITY_SECTION_GAP_ROWS,
         content.width,
-        content.height.saturating_sub(agent_height),
+        content
+            .height
+            .saturating_sub(agent_height + ACTIVITY_SECTION_GAP_ROWS),
     );
     (agent_area, port_area)
 }
@@ -969,6 +973,20 @@ fn render_activity_header(app: &AppState, frame: &mut Frame, area: Rect) {
         )),
         Rect::new(content.x, content.y, content.width, 1),
     );
+
+    let toggle_rect = agent_panel_toggle_rect(content, app.agent_panel_scope, false);
+    if toggle_rect != Rect::default() {
+        let style = Style::default().fg(p.overlay1).bg(p.surface0);
+        frame.render_widget(
+            Paragraph::new(centered_count_line(
+                agent_panel_toggle_label(app.agent_panel_scope),
+                toggle_rect.width,
+                style,
+                style,
+            )),
+            toggle_rect,
+        );
+    }
 
     let sep_line = "─".repeat(content.width as usize);
     frame.render_widget(
@@ -1122,13 +1140,13 @@ fn port_secondary_line(entry: &PortPanelEntry, p: &Palette, width: u16) -> Line<
 }
 
 fn render_ports_section(app: &AppState, frame: &mut Frame, area: Rect, entries: &[PortPanelEntry]) {
-    if area.height < 3 || area.width == 0 {
+    if area.height < 2 || area.width == 0 {
         return;
     }
     let p = &app.palette;
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
-            " ports",
+            " ▾ ports",
             Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
         )])),
         Rect::new(area.x, area.y, area.width, 1),
@@ -1577,12 +1595,16 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
     let header_y = area.y + u16::from(leading_separator);
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
-            " agents",
+            " ▾ agents",
             Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
         )])),
         Rect::new(area.x, header_y, area.width, 1),
     );
-    let toggle_rect = agent_panel_toggle_rect(area, app.agent_panel_scope, leading_separator);
+    let toggle_rect = if leading_separator {
+        agent_panel_toggle_rect(area, app.agent_panel_scope, true)
+    } else {
+        Rect::default()
+    };
     if toggle_rect != Rect::default() {
         let style = Style::default().fg(p.overlay1).bg(p.surface0);
         frame.render_widget(

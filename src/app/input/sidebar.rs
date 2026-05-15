@@ -731,11 +731,24 @@ impl AppState {
         if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
             return false;
         }
-        let detail_area = self.agent_panel_rect();
+        let (detail_area, leading_separator) = if self.view.right_sidebar_rect != Rect::default() {
+            if self.right_sidebar_collapsed {
+                return false;
+            }
+            (
+                crate::ui::right_sidebar_content_rect(self.view.right_sidebar_rect),
+                false,
+            )
+        } else {
+            (
+                self.agent_panel_rect(),
+                self.agent_panel_has_leading_separator(),
+            )
+        };
         let rect = crate::ui::agent_panel_toggle_rect(
             detail_area,
             self.agent_panel_scope,
-            self.agent_panel_has_leading_separator(),
+            leading_separator,
         );
         rect.width > 0
             && col >= rect.x
@@ -1378,6 +1391,28 @@ mod tests {
         assert_eq!(app.state.mode, Mode::AgentMenu);
         assert_eq!(app.state.agent_menu.highlighted, 2);
         assert_eq!(app.state.agent_panel_scroll, 3);
+    }
+
+    #[test]
+    fn clicking_right_sidebar_activity_toggle_opens_scope_menu() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+
+        let activity = crate::ui::right_sidebar_content_rect(app.state.view.right_sidebar_rect);
+        let toggle =
+            crate::ui::agent_panel_toggle_rect(activity, app.state.agent_panel_scope, false);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            toggle.x,
+            toggle.y,
+        ));
+
+        assert_eq!(app.state.mode, Mode::AgentMenu);
+        assert_eq!(app.state.agent_menu.highlighted, 2);
     }
 
     #[test]
