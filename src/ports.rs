@@ -21,8 +21,6 @@ pub(crate) enum PortExposure {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PortScheme {
     Unknown,
-    Http,
-    Https,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,6 +158,17 @@ impl PortRegistry {
         let mut endpoints: Vec<_> = self.endpoints.values().cloned().collect();
         endpoints.sort_by_key(|endpoint| (endpoint.port, endpoint.bind_addr));
         endpoints
+    }
+}
+
+impl From<crate::platform::TcpListenerInfo> for PortObservation {
+    fn from(listener: crate::platform::TcpListenerInfo) -> Self {
+        Self {
+            bind_addr: listener.bind_addr,
+            port: listener.port,
+            pid: listener.pid,
+            command: listener.command,
+        }
     }
 }
 

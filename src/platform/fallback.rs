@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::{ForegroundJob, Signal};
+use super::{ForegroundJob, Signal, TcpListenerInfo};
 
 /// Unsupported platform stub.
 pub fn foreground_job(_child_pid: u32) -> Option<ForegroundJob> {
@@ -15,6 +15,10 @@ pub fn foreground_process_group_id(_child_pid: u32) -> Option<u32> {
 /// Unsupported platform stub.
 pub fn process_cwd(_pid: u32) -> Option<PathBuf> {
     None
+}
+
+pub fn active_tcp_listeners() -> Vec<TcpListenerInfo> {
+    Vec::new()
 }
 
 /// Unsupported platform stub.
