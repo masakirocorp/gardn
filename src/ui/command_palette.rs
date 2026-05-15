@@ -55,8 +55,9 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
         Constraint::Min(1),
         Constraint::Length(1),
         Constraint::Length(1),
+        Constraint::Length(1),
     ])
-    .areas::<6>(inner);
+    .areas::<7>(inner);
 
     render_modal_header_bar(frame, rows[0], "command palette", &app.palette, true);
     render_modal_subtitle(frame, rows[1], "type to filter commands", &app.palette);
@@ -64,7 +65,7 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
     let input = Rect::new(rows[2].x, rows[2].y, rows[2].width, 1);
     render_modal_text_input(frame, input, &app.command_palette.query, &app.palette);
 
-    render_modal_scroll_hints(frame, rows[4], &app.palette);
+    render_modal_scroll_hints(frame, rows[5], &app.palette);
 
     let (run_rect, _) = command_palette_button_rects(inner);
     render_action_button(
@@ -218,7 +219,7 @@ fn pad_right(text: String, width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+    use ratatui::{backend::TestBackend, buffer::Buffer, layout::Rect, Terminal};
 
     use super::*;
 
@@ -237,6 +238,27 @@ mod tests {
         assert!(text.contains("↵ run"));
         assert!(text.contains("scroll wheel ↑↓"));
         assert!(text.contains("jump pgup / pgdn"));
+
+        let popup = crate::ui::centered_popup_rect(Rect::new(0, 0, 100, 24), 76, 18)
+            .expect("command palette popup");
+        let inner = Rect::new(
+            popup.x + 1,
+            popup.y + 1,
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
+        );
+        let gap_y = inner.y + inner.height.saturating_sub(3);
+        assert!(buffer_row_text(terminal.backend().buffer(), inner, gap_y)
+            .trim()
+            .is_empty());
+    }
+
+    fn buffer_row_text(buffer: &Buffer, area: Rect, y: u16) -> String {
+        let mut text = String::new();
+        for x in area.x..area.x + area.width {
+            text.push_str(buffer[(x, y)].symbol());
+        }
+        text
     }
 
     fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {
