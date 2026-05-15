@@ -77,7 +77,7 @@ keybindings live under `[keys]`.
 
 supported syntax:
 - plain keys: `n`, `x`, `-`, `` ` ``
-- modifiers: `ctrl+b`, `shift+n`, `alt+x`
+- modifiers: `ctrl+b`, `shift+n`, `alt+x`, `cmd+x`, `super+x`, `hyper+x`
 - special keys: `enter`, `esc`, `tab`, `backspace`, `left`, `right`, `up`, `down`
 - function keys: `f1`, `f12`
 - uppercase letters also imply shift: `D` works like `shift+d`
@@ -126,6 +126,11 @@ focus_pane_down = "alt+j"
 focus_pane_up = "alt+k"
 focus_pane_right = "alt+l"
 toggle_right_sidebar = ""
+
+[keys.indexed]
+tabs = ""       # e.g. "ctrl" makes ctrl+1..9 switch tabs
+workspaces = "" # e.g. "ctrl+shift" makes ctrl+shift+1..9 switch visible spaces
+agents = ""     # e.g. "alt" makes alt+1..9 focus agent rows
 ```
 
 ### key reference
@@ -152,6 +157,9 @@ toggle_right_sidebar = ""
 | `previous_agent` | unset | focus the previous agent shown in the sidebar agent list |
 | `next_agent` | unset | focus the next agent shown in the sidebar agent list |
 | `open_agent_menu` | unset | open the agent scope menu |
+| `indexed.tabs` | unset | modifier-only shortcut family for switching tabs with 1-9 |
+| `indexed.workspaces` | unset | modifier-only shortcut family for switching visible spaces with 1-9 |
+| `indexed.agents` | unset | modifier-only shortcut family for focusing agent rows with 1-9 |
 | `new_tab` | `c` | create a new tab |
 | `rename_tab` | unset | rename the active tab |
 | `previous_tab` | unset | switch to the previous tab directly from terminal mode |
