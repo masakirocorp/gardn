@@ -16,7 +16,7 @@ use crate::ports::{PortEndpoint, PortExposure, PortState};
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const AGENT_PANEL_HEADER_ROWS: u16 = 2;
-const PORT_PANEL_HEADER_ROWS: u16 = 1;
+const PORT_PANEL_HEADER_ROWS: u16 = 2;
 
 #[derive(Clone)]
 pub(crate) struct AgentPanelEntry {
@@ -923,7 +923,7 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
 
 pub(crate) fn right_sidebar_panel_rects(app: &AppState, area: Rect) -> (Rect, Rect) {
     let content = right_sidebar_content_rect(area);
-    if content.height < 5 {
+    if content.height < 6 {
         return (content, Rect::default());
     }
 
@@ -1085,7 +1085,7 @@ fn port_secondary_line(entry: &PortPanelEntry, p: &Palette, width: u16) -> Line<
 }
 
 fn render_ports_section(app: &AppState, frame: &mut Frame, area: Rect, entries: &[PortPanelEntry]) {
-    if area.height < 2 || area.width == 0 {
+    if area.height < 3 || area.width == 0 {
         return;
     }
     let p = &app.palette;
@@ -1097,18 +1097,24 @@ fn render_ports_section(app: &AppState, frame: &mut Frame, area: Rect, entries: 
         Rect::new(area.x, area.y, area.width, 1),
     );
 
+    let sep_line = "─".repeat(area.width as usize);
+    frame.render_widget(
+        Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.overlay0))),
+        Rect::new(area.x, area.y + 1, area.width, 1),
+    );
+
     if entries.is_empty() {
         frame.render_widget(
             Paragraph::new(Span::styled(
                 " no active ports",
                 Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
             )),
-            Rect::new(area.x, area.y + 1, area.width, 1),
+            Rect::new(area.x, area.y + PORT_PANEL_HEADER_ROWS, area.width, 1),
         );
         return;
     }
 
-    let mut row_y = area.y + 1;
+    let mut row_y = area.y + PORT_PANEL_HEADER_ROWS;
     let bottom = area.y + area.height;
     for entry in entries {
         if row_y + 1 >= bottom {
@@ -1124,12 +1130,15 @@ pub(crate) fn port_panel_entry_at_row(
     area: Rect,
     row: u16,
 ) -> Option<(usize, usize, crate::layout::PaneId)> {
-    if area == Rect::default() || area.height < 3 || row < area.y + 1 || row >= area.y + area.height
+    if area == Rect::default()
+        || area.height < 3
+        || row < area.y + PORT_PANEL_HEADER_ROWS
+        || row >= area.y + area.height
     {
         return None;
     }
 
-    let mut row_y = area.y + 1;
+    let mut row_y = area.y + PORT_PANEL_HEADER_ROWS;
     for entry in port_panel_entries(app) {
         if row_y + 1 >= area.y + area.height {
             break;
