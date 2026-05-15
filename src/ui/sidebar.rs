@@ -398,6 +398,22 @@ fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
     section_label == "triage"
 }
 
+fn agent_panel_section_header_style(section: &AgentPanelSection, p: &Palette) -> Style {
+    let color = match section.label {
+        "triage" => section
+            .entries
+            .iter()
+            .find(|entry| entry.state == AgentState::Blocked)
+            .or_else(|| section.entries.first())
+            .map(|entry| state_label_color(entry.state, entry.seen, p))
+            .unwrap_or(p.overlay0),
+        "working" => state_label_color(AgentState::Working, true, p),
+        "idle" => state_label_color(AgentState::Idle, true, p),
+        _ => p.overlay0,
+    };
+    Style::default().fg(color).add_modifier(Modifier::BOLD)
+}
+
 fn workspace_row_height(ws: &crate::workspace::Workspace) -> u16 {
     if ws.branch().is_some() {
         2
@@ -1703,7 +1719,7 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
         frame.render_widget(
             Paragraph::new(Span::styled(
                 format!(" {}", section.label),
-                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+                agent_panel_section_header_style(&section, p),
             )),
             Rect::new(body.x, row_y, body.width, 1),
         );
@@ -2124,6 +2140,58 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), 34, 12);
         assert!(text.contains("triage"));
         assert!(text.contains("done · claude"));
+    }
+
+    #[test]
+    fn agent_section_headers_use_status_colors() {
+        let mut triage = AgentPanelSection {
+            label: "triage",
+            entries: vec![AgentPanelEntry {
+                ws_idx: 0,
+                tab_idx: 0,
+                pane_id: crate::layout::PaneId::from_raw(1),
+                primary_label: "blocked".into(),
+                primary_tab_label: None,
+                agent_label: Some("opencode".into()),
+                state: AgentState::Blocked,
+                seen: false,
+            }],
+        };
+        let p = crate::app::state::Palette::catppuccin();
+
+        assert_eq!(
+            agent_panel_section_header_style(&triage, &p).fg,
+            Some(p.red)
+        );
+        assert_eq!(
+            agent_panel_section_header_style(
+                &AgentPanelSection {
+                    label: "working",
+                    entries: Vec::new(),
+                },
+                &p,
+            )
+            .fg,
+            Some(p.yellow)
+        );
+        assert_eq!(
+            agent_panel_section_header_style(
+                &AgentPanelSection {
+                    label: "idle",
+                    entries: Vec::new(),
+                },
+                &p,
+            )
+            .fg,
+            Some(p.green)
+        );
+
+        triage.entries[0].state = AgentState::Idle;
+        triage.entries[0].seen = false;
+        assert_eq!(
+            agent_panel_section_header_style(&triage, &p).fg,
+            Some(p.teal)
+        );
     }
 
     #[test]
