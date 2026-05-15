@@ -915,7 +915,6 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
     let (agent_area, port_area) = right_sidebar_panel_rects(app, area);
     render_agent_detail(app, frame, agent_area, false);
     if port_area != Rect::default() {
-        render_right_sidebar_ports_divider(app, frame, area);
         render_ports_section(app, frame, port_area, &port_entries);
     }
     render_right_sidebar_toggle(app, frame, area, false, p);
@@ -928,40 +927,26 @@ pub(crate) fn right_sidebar_panel_rects(app: &AppState, area: Rect) -> (Rect, Re
         return (content, Rect::default());
     }
 
-    let min_port_height = 4;
-    let max_agent_height = content.height.saturating_sub(min_port_height + 1);
+    let min_port_height = 3;
+    let max_agent_height = content.height.saturating_sub(min_port_height);
     let agent_height = ((content.height as f32) * app.right_sidebar_ports_split).round() as u16;
     let agent_height = agent_height.clamp(3, max_agent_height);
     let agent_area = Rect::new(content.x, content.y, content.width, agent_height);
     let port_area = Rect::new(
         content.x,
-        content.y + agent_height + 1,
+        content.y + agent_height,
         content.width,
-        content.height.saturating_sub(agent_height + 1),
+        content.height.saturating_sub(agent_height),
     );
     (agent_area, port_area)
 }
 
 pub(crate) fn right_sidebar_ports_divider_rect(app: &AppState, area: Rect) -> Rect {
     let (_, port_area) = right_sidebar_panel_rects(app, area);
-    if port_area == Rect::default() || port_area.y == 0 {
+    if port_area == Rect::default() {
         return Rect::default();
     }
-    Rect::new(port_area.x, port_area.y - 1, port_area.width, 1)
-}
-
-fn render_right_sidebar_ports_divider(app: &AppState, frame: &mut Frame, area: Rect) {
-    let rect = right_sidebar_ports_divider_rect(app, area);
-    if rect == Rect::default() {
-        return;
-    }
-    frame.render_widget(
-        Paragraph::new(Span::styled(
-            "─".repeat(rect.width as usize),
-            Style::default().fg(app.palette.surface1),
-        )),
-        rect,
-    );
+    Rect::new(port_area.x, port_area.y, port_area.width, 1)
 }
 
 fn port_panel_entries(app: &AppState) -> Vec<PortPanelEntry> {
@@ -1048,8 +1033,8 @@ fn port_exposure_label(exposure: PortExposure) -> &'static str {
 
 fn port_exposure_style(exposure: PortExposure, p: &Palette) -> Style {
     match exposure {
-        PortExposure::Loopback => Style::default().fg(p.teal),
-        PortExposure::Lan => Style::default().fg(p.blue),
+        PortExposure::Loopback => Style::default().fg(p.teal).add_modifier(Modifier::DIM),
+        PortExposure::Lan => Style::default().fg(p.blue).add_modifier(Modifier::DIM),
         PortExposure::All => Style::default().fg(p.yellow).add_modifier(Modifier::BOLD),
     }
 }
@@ -1059,10 +1044,13 @@ fn port_secondary_line(entry: &PortPanelEntry, p: &Palette, width: u16) -> Line<
         .command_label
         .as_deref()
         .map(|command| truncate_text(command, (width as usize).saturating_sub(10)));
-    let mut spans = vec![Span::styled("   ", Style::default())];
+    let mut spans = vec![Span::styled("       ", Style::default())];
 
     if let Some(command) = command {
-        spans.push(Span::styled(command, Style::default().fg(p.green)));
+        spans.push(Span::styled(
+            command,
+            Style::default().fg(p.green).add_modifier(Modifier::DIM),
+        ));
         spans.push(Span::styled(" · ", Style::default().fg(p.overlay0)));
     }
 
@@ -1090,15 +1078,8 @@ fn render_ports_section(app: &AppState, frame: &mut Frame, area: Rect, entries: 
         )])),
         Rect::new(area.x, area.y, area.width, 1),
     );
-    frame.render_widget(
-        Paragraph::new(Span::styled(
-            "─".repeat(area.width as usize),
-            Style::default().fg(p.overlay0),
-        )),
-        Rect::new(area.x, area.y + 1, area.width, 1),
-    );
 
-    let mut row_y = area.y + 2;
+    let mut row_y = area.y + 1;
     let bottom = area.y + area.height;
     for entry in entries {
         if row_y + 1 >= bottom {
@@ -1114,12 +1095,12 @@ pub(crate) fn port_panel_entry_at_row(
     area: Rect,
     row: u16,
 ) -> Option<(usize, usize, crate::layout::PaneId)> {
-    if area == Rect::default() || area.height < 3 || row < area.y + 2 || row >= area.y + area.height
+    if area == Rect::default() || area.height < 3 || row < area.y + 1 || row >= area.y + area.height
     {
         return None;
     }
 
-    let mut row_y = area.y + 2;
+    let mut row_y = area.y + 1;
     for entry in port_panel_entries(app) {
         if row_y + 1 >= area.y + area.height {
             break;
@@ -1147,9 +1128,9 @@ fn render_port_entry(
         _ => Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
     };
     let label_style = if entry.state == PortState::Stale {
-        Style::default().fg(p.overlay0)
+        Style::default().fg(p.overlay0).add_modifier(Modifier::DIM)
     } else {
-        Style::default().fg(p.subtext0)
+        Style::default().fg(p.text)
     };
     let secondary_style = Style::default().fg(p.overlay0).add_modifier(Modifier::DIM);
     let primary_width = area.width.saturating_sub(8) as usize;
