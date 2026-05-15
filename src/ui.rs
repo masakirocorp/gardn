@@ -66,9 +66,9 @@ pub(crate) use self::{
         collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect, compute_workspace_card_areas,
         compute_workspace_card_areas_in_list, expanded_sidebar_sections,
         expanded_sidebar_toggle_rect, left_sidebar_workspace_rect, right_sidebar_content_rect,
-        right_sidebar_panel_rects, right_sidebar_ports_divider_rect, right_sidebar_toggle_rect,
-        sidebar_section_divider_rect, workspace_drop_indicator_row, workspace_list_rect,
-        workspace_list_scroll_metrics, workspace_list_scrollbar_rect,
+        right_sidebar_panel_rects, right_sidebar_toggle_rect, sidebar_section_divider_rect,
+        workspace_drop_indicator_row, workspace_list_rect, workspace_list_scroll_metrics,
+        workspace_list_scrollbar_rect,
     },
 };
 pub(crate) use self::{

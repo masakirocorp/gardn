@@ -16,6 +16,7 @@ use crate::ports::{PortEndpoint, PortExposure, PortState};
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const AGENT_PANEL_HEADER_ROWS: u16 = 2;
+const PORT_PANEL_HEADER_ROWS: u16 = 1;
 
 #[derive(Clone)]
 pub(crate) struct AgentPanelEntry {
@@ -922,14 +923,13 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
 
 pub(crate) fn right_sidebar_panel_rects(app: &AppState, area: Rect) -> (Rect, Rect) {
     let content = right_sidebar_content_rect(area);
-    if content.height < 6 {
+    if content.height < 5 {
         return (content, Rect::default());
     }
 
-    let min_port_height = 3;
-    let max_agent_height = content.height.saturating_sub(min_port_height);
-    let agent_height = ((content.height as f32) * app.right_sidebar_ports_split).round() as u16;
-    let agent_height = agent_height.clamp(3, max_agent_height);
+    let port_entries = port_panel_entries(app);
+    let port_height = port_panel_desired_height(&port_entries).min(content.height - 3);
+    let agent_height = agent_panel_desired_height(app).min(content.height - port_height);
     let agent_area = Rect::new(content.x, content.y, content.width, agent_height);
     let port_area = Rect::new(
         content.x,
@@ -940,12 +940,31 @@ pub(crate) fn right_sidebar_panel_rects(app: &AppState, area: Rect) -> (Rect, Re
     (agent_area, port_area)
 }
 
-pub(crate) fn right_sidebar_ports_divider_rect(app: &AppState, area: Rect) -> Rect {
-    let (_, port_area) = right_sidebar_panel_rects(app, area);
-    if port_area == Rect::default() {
-        return Rect::default();
+fn agent_panel_desired_height(app: &AppState) -> u16 {
+    AGENT_PANEL_HEADER_ROWS + agent_panel_body_desired_height(app)
+}
+
+fn agent_panel_body_desired_height(app: &AppState) -> u16 {
+    let sections = agent_panel_sections(app);
+    if sections.is_empty() {
+        return 1;
     }
-    Rect::new(port_area.x, port_area.y, port_area.width, 1)
+
+    sections
+        .iter()
+        .map(|section| {
+            1 + (section.entries.len() as u16) * 2 + section.entries.len().saturating_sub(1) as u16
+        })
+        .sum()
+}
+
+fn port_panel_desired_height(entries: &[PortPanelEntry]) -> u16 {
+    PORT_PANEL_HEADER_ROWS
+        + if entries.is_empty() {
+            1
+        } else {
+            (entries.len() as u16) * 2
+        }
 }
 
 fn port_panel_entries(app: &AppState) -> Vec<PortPanelEntry> {
@@ -1066,7 +1085,7 @@ fn port_secondary_line(entry: &PortPanelEntry, p: &Palette, width: u16) -> Line<
 }
 
 fn render_ports_section(app: &AppState, frame: &mut Frame, area: Rect, entries: &[PortPanelEntry]) {
-    if area.height < 3 || area.width == 0 {
+    if area.height < 2 || area.width == 0 {
         return;
     }
     let p = &app.palette;
@@ -2033,6 +2052,34 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), 32, 18);
         assert!(text.contains("ports"));
         assert!(text.contains("no active ports"));
+    }
+
+    #[test]
+    fn right_sidebar_stacks_ports_after_agent_rows() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("web")];
+        app.active = Some(0);
+        app.selected = 0;
+
+        let backend = TestBackend::new(32, 18);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_right_sidebar(&app, frame, Rect::new(0, 0, 32, 18)))
+            .expect("render right sidebar");
+
+        let text = buffer_text(terminal.backend().buffer(), 32, 18);
+        let lines: Vec<_> = text.lines().collect();
+        let agents_row = lines
+            .iter()
+            .position(|line| line.contains("agents"))
+            .expect("agents header");
+        let ports_row = lines
+            .iter()
+            .position(|line| line.contains("ports"))
+            .expect("ports header");
+
+        assert!(ports_row > agents_row);
+        assert!(ports_row < 8);
     }
 
     #[test]
