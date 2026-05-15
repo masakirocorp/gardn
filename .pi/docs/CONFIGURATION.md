@@ -77,14 +77,14 @@ keybindings live under `[keys]`.
 
 supported syntax:
 - plain keys: `n`, `x`, `-`, `` ` ``
-- modifiers: `ctrl+b`, `shift+n`, `alt+x`
+- modifiers: `ctrl+b`, `shift+n`, `alt+x`, `cmd+x`, `super+x`
 - special keys: `enter`, `esc`, `tab`, `backspace`, `left`, `right`, `up`, `down`
 - function keys: `f1`, `f12`
 - uppercase letters also imply shift: `D` works like `shift+d`
 
 notes:
 - most reliable bindings are plain keys, `ctrl+letter`, `esc`/`tab`/`enter`, and function keys
-- `alt+...` and punctuation-with-modifiers may vary depending on terminal/tmux setup
+- `alt+...`, `cmd`/`super`, and punctuation-with-modifiers may vary depending on terminal/tmux setup
 - bindings marked `unset` in the key reference are supported actions with no default key assigned
 - for navigate-mode actions, duplicate keybindings are treated as config errors; later conflicting bindings fall back to defaults
 
@@ -98,7 +98,6 @@ rename_workspace = "shift+n"
 close_workspace = "X"
 reload_config = ""      # optional, unset by default
 open_notification_target = "" # optional, unset by default
-command_palette = "p"
 new_tab = "c"
 split_vertical = "d"
 split_horizontal = "D"
@@ -109,23 +108,19 @@ resize_mode = "r"
 toggle_sidebar = "b"
 previous_workspace = "ctrl+alt+["
 next_workspace = "ctrl+alt+]"
-open_group_menu = ""
-new_group = ""
-rename_group = ""
-delete_group = ""
-toggle_group_filter = ""
-previous_group = ""
-next_group = ""
 previous_agent = "ctrl+["
 next_agent = "ctrl+]"
-open_agent_menu = ""
 previous_tab = "alt+["
 next_tab = "alt+]"
 focus_pane_left = "alt+h"
 focus_pane_down = "alt+j"
 focus_pane_up = "alt+k"
 focus_pane_right = "alt+l"
-toggle_right_sidebar = ""
+
+[keys.indexed]
+tabs = ""       # optional; e.g. "ctrl" makes ctrl+1..9 switch tabs
+workspaces = "" # optional; e.g. "ctrl+shift" makes ctrl+shift+1..9 switch workspaces
+agents = ""     # optional; follows visible agent panel order
 ```
 
 ### key reference
@@ -133,25 +128,16 @@ toggle_right_sidebar = ""
 | key | default | action |
 |-----|---------|--------|
 | `prefix` | `ctrl+b` | enter or leave navigate mode |
-| `new_workspace` | `n` | create a new space |
-| `rename_workspace` | `shift+n` | rename selected space |
-| `close_workspace` | `shift+d` | close selected space |
+| `new_workspace` | `n` | create a new workspace |
+| `rename_workspace` | `shift+n` | rename selected workspace |
+| `close_workspace` | `shift+d` | close selected workspace |
 | `detach` | unset | optional explicit detach shortcut in the persistent session |
 | `reload_config` | unset | reload `config.toml` in the running app/server |
 | `open_notification_target` | unset | jump to the currently visible notification target |
-| `command_palette` | `p` | open the command palette |
-| `previous_workspace` | unset | switch to the previous space directly from terminal mode |
-| `next_workspace` | unset | switch to the next space directly from terminal mode |
-| `open_group_menu` | unset | open the group switcher menu |
-| `new_group` | unset | create a new group |
-| `rename_group` | unset | rename the active group |
-| `delete_group` | unset | delete the active group after confirmation |
-| `toggle_group_filter` | unset | toggle between the active group and all spaces |
-| `previous_group` | unset | switch to the previous group directly from terminal mode |
-| `next_group` | unset | switch to the next group directly from terminal mode |
+| `previous_workspace` | unset | switch to the previous workspace directly from terminal mode |
+| `next_workspace` | unset | switch to the next workspace directly from terminal mode |
 | `previous_agent` | unset | focus the previous agent shown in the sidebar agent list |
 | `next_agent` | unset | focus the next agent shown in the sidebar agent list |
-| `open_agent_menu` | unset | open the agent scope menu |
 | `new_tab` | `c` | create a new tab |
 | `rename_tab` | unset | rename the active tab |
 | `previous_tab` | unset | switch to the previous tab directly from terminal mode |
@@ -168,7 +154,23 @@ toggle_right_sidebar = ""
 | `fullscreen` | `f` | toggle focused pane fullscreen |
 | `resize_mode` | `r` | enter or leave resize mode |
 | `toggle_sidebar` | `b` | collapse or expand the sidebar |
-| `toggle_right_sidebar` | unset | collapse or expand the right sidebar |
+
+### indexed keybindings
+
+Use `[keys.indexed]` to bind number keys `1` through `9` as positional shortcuts. Each value is a modifier combo only. Empty values disable that shortcut family.
+
+```toml
+[keys.indexed]
+tabs = ""
+workspaces = ""
+agents = ""
+```
+
+| key | default | action |
+|-----|---------|--------|
+| `tabs` | unset | switch to tab 1-9 in the active workspace, left to right |
+| `workspaces` | unset | switch to workspace 1-9 in sidebar order, top to bottom |
+| `agents` | unset | focus agent row 1-9 in the visible agent panel order |
 
 ### custom command keybindings
 
@@ -210,32 +212,17 @@ command = "notify-send herdr 'custom command ran'"
 
 ## theme
 
-herdr ships with built-in color themes, light variants for the main palettes, plus `system` for terminal-default colors. set one in config:
+herdr ships with 17 built-in color themes. set one in config:
 
 ```toml
 [theme]
 name = "tokyo-night"
-mode = "system"
 ```
-
-`mode` controls light/dark resolution globally:
-
-| mode | behavior |
-|------|----------|
-| `system` | follow the host terminal background; unknown backgrounds fall back dark |
-| `light` | use light variants where available |
-| `dark` | use dark variants |
-
-groups can override the theme family from the sidebar menu, but inherit the global mode.
-themes without a light variant use their dark palette in light mode.
-`name = "system"` keeps Herdr chrome on the host terminal foreground/background where possible.
-built-in themes also color blank pane terminal backgrounds; apps that set their own colors still win.
 
 ### built-in themes
 
 | name | description |
 |------|-------------|
-| `system` | host terminal foreground/background colors |
 | `catppuccin` | soft pastel mocha palette (default) |
 | `catppuccin-latte` | light catppuccin palette |
 | `tokyo-night` | blue-purple aesthetic |
@@ -306,7 +293,7 @@ sidebar_width = 26
 mouse_capture = true
 confirm_close = true
 show_agent_labels_on_pane_borders = false
-agent_panel_scope = "current"
+agent_panel_scope = "all"
 accent = "cyan"
 ```
 
@@ -318,10 +305,10 @@ accent = "cyan"
 | `mouse_capture` | `true` | capture mouse input for Herdr's mouse UI; set false to let the terminal handle normal clicks while still forwarding mouse to pane apps that request it |
 | `confirm_close` | `true` | ask before closing a workspace |
 | `show_agent_labels_on_pane_borders` | `false` | show detected/reported agent labels in split pane borders when no manual pane name is set |
-| `agent_panel_scope` | `current` | right sidebar roster scope: `current` (shown as `this space`), `group` (shown as `this group`), or `all` (shown as `all agents`) |
+| `agent_panel_scope` | `all` | sidebar agent list scope: `current` or `all` |
 | `accent` | `cyan` | highlight and border color |
 
-Changing the agent panel scope from the agents menu writes `agent_panel_scope` to config so it survives session resets and upgrades. The `triage` section is always global.
+Changing the agent panel scope from the sidebar writes `agent_panel_scope` to config so it survives session resets and upgrades.
 
 `accent` accepts:
 - named colors like `cyan`, `blue`, `magenta`

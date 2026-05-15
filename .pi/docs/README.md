@@ -25,7 +25,7 @@ workspaces, tabs, panes. mouse-native: click, drag, split. every agent at a glan
 curl -fsSL https://herdr.dev/install.sh | sh
 ```
 
-or download the binary from [releases](https://github.com/masakirocorp/herdr/releases). requires linux or macos.
+or download the binary from [releases](https://github.com/ogulcancelik/herdr/releases). requires linux or macos.
 
 ### update
 
@@ -128,11 +128,10 @@ not a gui window, not a web dashboard, not electron. herdr runs inside whatever 
 ## what you get
 
 - **workspaces** — organized around git repos or folder names, each with its own tabs and panes
-- **groups** — Arc-style sidebar filters for sets of workspaces inside one session
 - **tabs** — first-class in the socket api and cli
 - **mouse-native** — click panes/tabs/workspaces/agents, drag borders, select text to copy, right-click menus; not keyboard-only
 - **notifications** — sounds and toasts for background events; tab-aware suppression
-- **themes** — system terminal colors, built-ins, and light variants that color Herdr chrome and blank pane backgrounds
+- **17 built-in themes** — catppuccin, tokyo night, gruvbox, one, solarized, kanagawa, rosé pine, vesper, and light variants for the main palettes
 - **session persistence** — pane processes survive client detach; sessions restore after full restart
 
 ## agents can use herdr too
@@ -196,16 +195,15 @@ press `ctrl+b` to enter navigate mode.
 
 | key | action |
 |-----|--------|
-| `n` | new space |
-| `shift+n` | rename space |
-| `shift+d` | close space |
+| `n` | new workspace |
+| `shift+n` | rename workspace |
+| `shift+d` | close workspace |
 | `c` | new tab |
 | `v` / `-` | split pane |
 | `x` | close pane |
 | `b` | toggle sidebar |
 | `f` | fullscreen pane |
 | `r` | resize mode |
-| `p` | command palette |
 | `q` | detach (quit client) |
 
 resize mode: `h`/`l` resize width, `j`/`k` resize height, `esc` exit.
@@ -265,7 +263,7 @@ full logging and environment variable details: [`CONFIGURATION.md`](./CONFIGURAT
 ## building from source
 
 ```bash
-git clone https://github.com/masakirocorp/herdr
+git clone https://github.com/ogulcancelik/herdr
 cd herdr
 cargo build --release
 ./target/release/herdr
@@ -291,3 +289,13 @@ ghostty does not ship a default `shift+enter=text:\n` or `shift+enter=text:\x1b\
 if shift+enter behaves differently in pi inside herdr, first remove those custom terminal keybinds and retest. do not file this as a herdr keyboard encoding bug unless it reproduces with a clean terminal config.
 
 related context: #78, #81, #106, and earendil-works/pi#1872.
+
+## mandatory star history
+
+<a href="https://www.star-history.com/?repos=ogulcancelik%2Fherdr&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ogulcancelik/herdr&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ogulcancelik/herdr&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ogulcancelik/herdr&type=date&legend=top-left" />
+ </picture>
+</a>

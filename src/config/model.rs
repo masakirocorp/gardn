@@ -9,6 +9,7 @@ pub enum ToastDelivery {
     Off,
     Herdr,
     Terminal,
+    System,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
@@ -57,6 +58,7 @@ pub struct Config {
     pub keys: KeysConfig,
     pub ui: UiConfig,
     pub advanced: AdvancedConfig,
+    pub experimental: ExperimentalConfig,
 }
 
 #[derive(Debug)]
@@ -143,8 +145,21 @@ pub struct KeysConfig {
     pub toggle_sidebar: String,
     /// Toggle right sidebar collapse. Unset by default.
     pub toggle_right_sidebar: String,
+    /// Optional indexed shortcuts expanded over number keys 1-9.
+    pub indexed: IndexedKeysConfig,
     /// Prefix-mode custom command bindings.
     pub command: Vec<CommandKeybindConfig>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct IndexedKeysConfig {
+    /// Modifier combo for tab shortcuts 1-9. Unset by default.
+    pub tabs: String,
+    /// Modifier combo for workspace shortcuts 1-9. Unset by default.
+    pub workspaces: String,
+    /// Modifier combo for agent shortcuts 1-9. Unset by default.
+    pub agents: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -171,13 +186,18 @@ pub struct UiConfig {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct AdvancedConfig {
+    /// Maximum scrollback buffer size in bytes retained per pane terminal. Default: 10000000.
+    #[serde(alias = "scrollback_lines")]
+    pub scrollback_limit_bytes: usize,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct ExperimentalConfig {
     /// Allow launching herdr inside an existing herdr pane. Default: false.
     pub allow_nested: bool,
     /// Experimental local Kitty graphics rendering for attached clients. Default: false.
     pub kitty_graphics: bool,
-    /// Maximum scrollback buffer size in bytes retained per pane terminal. Default: 10000000.
-    #[serde(alias = "scrollback_lines")]
-    pub scrollback_limit_bytes: usize,
 }
 
 impl Default for KeysConfig {
@@ -220,6 +240,7 @@ impl Default for KeysConfig {
             resize_mode: "r".into(),
             toggle_sidebar: "b".into(),
             toggle_right_sidebar: "".into(),
+            indexed: IndexedKeysConfig::default(),
             command: Vec::new(),
         }
     }
@@ -273,8 +294,6 @@ impl<'de> Deserialize<'de> for ToastConfig {
 impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
-            allow_nested: false,
-            kitty_graphics: false,
             scrollback_limit_bytes: DEFAULT_SCROLLBACK_LIMIT_BYTES,
         }
     }
@@ -328,6 +347,16 @@ delivery = "terminal"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.ui.toast.delivery, ToastDelivery::Terminal);
+    }
+
+    #[test]
+    fn toast_config_parses_system_delivery() {
+        let toml = r#"
+[ui.toast]
+delivery = "system"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.ui.toast.delivery, ToastDelivery::System);
     }
 
     #[test]
@@ -385,27 +414,35 @@ delivery = "terminal"
     #[test]
     fn kitty_graphics_default_off_and_parse() {
         let config = Config::default();
-        assert!(!config.advanced.kitty_graphics);
+        assert!(!config.experimental.kitty_graphics);
 
         let toml = r#"
-[advanced]
+[experimental]
 kitty_graphics = true
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert!(config.advanced.kitty_graphics);
+        assert!(config.experimental.kitty_graphics);
+    }
+
+    #[test]
+    fn experimental_config_parses() {
+        let toml = r#"
+[experimental]
+allow_nested = true
+kitty_graphics = true
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.experimental.allow_nested);
+        assert!(config.experimental.kitty_graphics);
     }
 
     #[test]
     fn advanced_config_parses() {
         let toml = r#"
 [advanced]
-allow_nested = true
-kitty_graphics = true
 scrollback_limit_bytes = 12345
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert!(config.advanced.allow_nested);
-        assert!(config.advanced.kitty_graphics);
         assert_eq!(config.advanced.scrollback_limit_bytes, 12345);
     }
 

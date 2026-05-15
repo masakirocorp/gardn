@@ -74,11 +74,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # green = "#a6e3a1"
 
 [keys]
-# prefix key to enter navigate mode (default: "ctrl+b")
-# examples: "ctrl+b", "f12", "esc", "-"
-# accepted syntax: plain keys, ctrl/shift/alt modifiers, and special keys like enter/tab/esc/left/right/up/down
-# most reliable bindings are plain keys, ctrl+letter, esc/tab/enter, and function keys.
-# alt+... and punctuation-with-modifiers may depend on your terminal/tmux setup.
+# Prefix key to enter navigate mode (default: "ctrl+b")
+# Examples: "ctrl+b", "f12", "esc", "-"
+# Accepted syntax: plain keys, ctrl/shift/alt/cmd/super modifiers, and special keys like enter/tab/esc/left/right/up/down
+# Most reliable bindings are plain keys, ctrl+letter, esc/tab/enter, and function keys.
+# alt+..., cmd/super, and punctuation-with-modifiers may depend on your terminal/tmux setup.
 # prefix = "ctrl+b"
 
 # navigate-mode actions
@@ -127,6 +127,13 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # type = "pane"
 # command = "lazygit"
 
+# Optional modifier-only shortcuts expanded over number keys 1-9.
+# Empty means disabled. Examples: "ctrl", "ctrl+shift", "alt".
+# [keys.indexed]
+# tabs = ""       # e.g. "ctrl" makes ctrl+1..9 switch tabs
+# workspaces = "" # e.g. "ctrl+shift" makes ctrl+shift+1..9 switch workspaces
+# agents = ""     # e.g. "alt" makes alt+1..9 focus agent rows
+
 [ui]
 # sidebar width (auto-scaled based on workspace names, this sets the default)
 # sidebar_width = 26
@@ -155,6 +162,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # off = disable pop-up notifications
 # herdr = show top-right in-app toasts
 # terminal = ask the outer terminal to show a desktop notification
+# system = ask the OS notification service directly
 # delivery = "off"
 
 # play sounds when agents change state in background workspaces
@@ -170,14 +178,16 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # [ui.sound.agents]
 # droid = "off"
 
-[advanced]
-# allow launching herdr from inside a herdr-managed pane.
+[experimental]
+# Allow launching herdr from inside a herdr-managed pane.
 # allow_nested = false
-# experimental local kitty graphics rendering for attached clients.
-# requires a kitty graphics-compatible outer terminal. detach/headless replay is not supported yet.
+# Experimental local Kitty graphics rendering for attached clients.
+# Requires a Kitty graphics-compatible outer terminal.
 # kitty_graphics = false
-# maximum scrollback buffer size in bytes retained per pane terminal.
-# matches ghostty's default scrollback-limit behavior.
+
+[advanced]
+# Maximum scrollback buffer size in bytes retained per pane terminal.
+# Matches Ghostty's default scrollback-limit behavior.
 # scrollback_limit_bytes = 10000000
 "##;
 
@@ -186,7 +196,7 @@ fn should_block_nested(config: &config::Config) -> bool {
 }
 
 fn should_block_nested_for_env(config: &config::Config, herdr_env: Option<&str>) -> bool {
-    !config.advanced.allow_nested && herdr_env == Some(HERDR_ENV_VALUE)
+    !config.experimental.allow_nested && herdr_env == Some(HERDR_ENV_VALUE)
 }
 
 fn random_nested_message() -> &'static str {
@@ -550,7 +560,8 @@ mod tests {
 
     #[test]
     fn nested_herdr_does_not_block_when_allowed() {
-        let config: config::Config = toml::from_str("[advanced]\nallow_nested = true\n").unwrap();
+        let config: config::Config =
+            toml::from_str("[experimental]\nallow_nested = true\n").unwrap();
         assert!(!should_block_nested_for_env(&config, Some(HERDR_ENV_VALUE)));
     }
 
