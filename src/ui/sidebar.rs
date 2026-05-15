@@ -12,6 +12,7 @@ use super::widgets::fill_rect;
 use crate::app::state::{AgentPanelScope, Palette};
 use crate::app::{AppState, Mode};
 use crate::detect::AgentState;
+use crate::ports::{PortEndpoint, PortExposure, PortState};
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const AGENT_PANEL_HEADER_ROWS: u16 = 2;
@@ -31,6 +32,15 @@ pub(crate) struct AgentPanelEntry {
 pub(crate) struct AgentPanelSection {
     pub label: &'static str,
     pub entries: Vec<AgentPanelEntry>,
+}
+
+#[derive(Clone)]
+struct PortPanelEntry {
+    port: u16,
+    exposure: PortExposure,
+    state: PortState,
+    primary_label: String,
+    secondary_label: String,
 }
 
 fn sidebar_section_heights(total_h: u16, split_ratio: f32) -> (u16, u16) {
@@ -897,8 +907,195 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
         render_right_sidebar_toggle(app, frame, area, true, p);
         return;
     }
-    render_agent_detail(app, frame, right_sidebar_content_rect(area), false);
+    let content = right_sidebar_content_rect(area);
+    let port_entries = port_panel_entries(app);
+    if port_entries.is_empty() || content.height < 8 {
+        render_agent_detail(app, frame, content, false);
+    } else {
+        let port_height = port_panel_height(content, port_entries.len());
+        let agent_height = content.height.saturating_sub(port_height + 1);
+        let agent_area = Rect::new(content.x, content.y, content.width, agent_height);
+        let port_area = Rect::new(
+            content.x,
+            content.y + agent_height + 1,
+            content.width,
+            port_height,
+        );
+        render_agent_detail(app, frame, agent_area, false);
+        render_ports_section(app, frame, port_area, &port_entries);
+    }
     render_right_sidebar_toggle(app, frame, area, false, p);
+}
+
+fn port_panel_height(area: Rect, entry_count: usize) -> u16 {
+    let wanted = 2 + (entry_count as u16).saturating_mul(2);
+    let max = (area.height / 3).max(4);
+    wanted.min(max).min(area.height)
+}
+
+fn port_panel_entries(app: &AppState) -> Vec<PortPanelEntry> {
+    let mut entries = Vec::new();
+    for endpoint in app.port_registry.endpoints() {
+        entries.extend(port_entries_for_endpoint(app, &endpoint));
+    }
+    entries.sort_by_key(|entry| (entry.state == PortState::Stale, entry.port));
+    entries
+}
+
+fn port_entries_for_endpoint(app: &AppState, endpoint: &PortEndpoint) -> Vec<PortPanelEntry> {
+    endpoint
+        .owners
+        .iter()
+        .filter_map(|owner| {
+            let (ws_idx, _workspace) = app
+                .workspaces
+                .iter()
+                .enumerate()
+                .find(|(_, workspace)| workspace.id == owner.workspace_id)?;
+            if !port_owner_in_scope(app, ws_idx) {
+                return None;
+            }
+            Some(PortPanelEntry {
+                port: endpoint.port,
+                exposure: endpoint.exposure,
+                state: endpoint.state,
+                primary_label: port_owner_primary_label(app, ws_idx, owner.tab_idx, owner.pane_id),
+                secondary_label: port_owner_secondary_label(endpoint, owner.command.as_deref()),
+            })
+        })
+        .collect()
+}
+
+fn port_owner_in_scope(app: &AppState, ws_idx: usize) -> bool {
+    match app.agent_panel_scope {
+        AgentPanelScope::CurrentWorkspace => agent_panel_current_workspace_idx(app) == Some(ws_idx),
+        AgentPanelScope::CurrentGroup => app
+            .workspaces
+            .get(ws_idx)
+            .is_some_and(|workspace| workspace.group_id == app.active_group_id()),
+        AgentPanelScope::AllWorkspaces => true,
+    }
+}
+
+fn port_owner_primary_label(
+    app: &AppState,
+    ws_idx: usize,
+    tab_idx: usize,
+    pane_id: crate::layout::PaneId,
+) -> String {
+    let Some(workspace) = app.workspaces.get(ws_idx) else {
+        return "space".to_string();
+    };
+    if app.agent_panel_scope != AgentPanelScope::CurrentWorkspace {
+        return workspace.display_name();
+    }
+    let pane = workspace
+        .public_pane_number(pane_id)
+        .map(|number| format!("pane {number}"))
+        .unwrap_or_else(|| "pane".to_string());
+    if workspace.tabs.len() <= 1 {
+        return pane;
+    }
+    let tab = workspace
+        .tabs
+        .get(tab_idx)
+        .map(crate::workspace::Tab::display_name)
+        .unwrap_or_else(|| "tab".to_string());
+    format!("{tab} · {pane}")
+}
+
+fn port_owner_secondary_label(endpoint: &PortEndpoint, command: Option<&str>) -> String {
+    let exposure = match endpoint.exposure {
+        PortExposure::Loopback => "loopback",
+        PortExposure::Lan => "lan",
+        PortExposure::All => "all interfaces",
+    };
+    let state = match endpoint.state {
+        PortState::Active => None,
+        PortState::Stale => Some("stale"),
+    };
+    [command, Some(exposure), state]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+fn render_ports_section(
+    app: &AppState,
+    frame: &mut Frame,
+    area: Rect,
+    entries: &[PortPanelEntry],
+) {
+    if area.height < 3 || area.width == 0 {
+        return;
+    }
+    let p = &app.palette;
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![Span::styled(
+            " ports",
+            Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
+        )])),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "─".repeat(area.width as usize),
+            Style::default().fg(p.overlay0),
+        )),
+        Rect::new(area.x, area.y + 1, area.width, 1),
+    );
+
+    let mut row_y = area.y + 2;
+    let bottom = area.y + area.height;
+    for entry in entries {
+        if row_y + 1 >= bottom {
+            break;
+        }
+        render_port_entry(app, frame, entry, area, row_y);
+        row_y += 2;
+    }
+}
+
+fn render_port_entry(
+    app: &AppState,
+    frame: &mut Frame,
+    entry: &PortPanelEntry,
+    area: Rect,
+    row_y: u16,
+) {
+    let p = &app.palette;
+    let port_style = match (entry.state, entry.exposure) {
+        (PortState::Stale, _) => Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+        (_, PortExposure::All) => Style::default().fg(p.yellow).add_modifier(Modifier::BOLD),
+        _ => Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+    };
+    let label_style = if entry.state == PortState::Stale {
+        Style::default().fg(p.overlay0)
+    } else {
+        Style::default().fg(p.subtext0)
+    };
+    let secondary_style = Style::default().fg(p.overlay0).add_modifier(Modifier::DIM);
+    let primary_width = area.width.saturating_sub(8) as usize;
+
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(format!(" :{}", entry.port), port_style),
+            Span::styled(" ", Style::default()),
+            Span::styled(truncate_text(&entry.primary_label, primary_width), label_style),
+        ])),
+        Rect::new(area.x, row_y, area.width, 1),
+    );
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            format!(
+                "   {}",
+                truncate_text(&entry.secondary_label, (area.width as usize).saturating_sub(3))
+            ),
+            secondary_style,
+        )),
+        Rect::new(area.x, row_y + 1, area.width, 1),
+    );
 }
 
 fn render_right_sidebar_collapsed_agents(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -1711,6 +1908,83 @@ mod tests {
         let label = format_agent_panel_primary_label(&entry, 18);
 
         assert_eq!(label, "agent-bro… · test…");
+    }
+
+    #[test]
+    fn right_sidebar_renders_scoped_ports_section() {
+        let mut app = crate::app::state::AppState::test_new();
+        let workspace = Workspace::test_new("web");
+        let pane_id = workspace.tabs[0].root_pane;
+        let workspace_id = workspace.id.clone();
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+        app.port_registry.sync_observations(
+            std::time::Instant::now(),
+            [crate::ports::PortObservation {
+                bind_addr: "127.0.0.1".parse().unwrap(),
+                port: 5173,
+                pid: 42,
+                command: Some("vite".to_string()),
+            }],
+            |_| {
+                Some(crate::ports::PortOwner {
+                    pid: 42,
+                    command: None,
+                    workspace_id: workspace_id.clone(),
+                    tab_idx: 0,
+                    pane_id,
+                    confidence: crate::ports::PortOwnerConfidence::ProcessTree,
+                })
+            },
+        );
+
+        let backend = TestBackend::new(32, 18);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_right_sidebar(&app, frame, Rect::new(0, 0, 32, 18)))
+            .expect("render right sidebar");
+
+        let text = buffer_text(terminal.backend().buffer(), 32, 18);
+        assert!(text.contains("ports"));
+        assert!(text.contains(":5173"));
+        assert!(text.contains("pane 1"));
+        assert!(text.contains("vite · loopback"));
+    }
+
+    #[test]
+    fn current_space_ports_hide_other_spaces() {
+        let mut app = crate::app::state::AppState::test_new();
+        let first = Workspace::test_new("web");
+        let second = Workspace::test_new("api");
+        let second_pane = second.tabs[0].root_pane;
+        let second_id = second.id.clone();
+        app.workspaces = vec![first, second];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+        app.port_registry.sync_observations(
+            std::time::Instant::now(),
+            [crate::ports::PortObservation {
+                bind_addr: "127.0.0.1".parse().unwrap(),
+                port: 3000,
+                pid: 99,
+                command: Some("node".to_string()),
+            }],
+            |_| {
+                Some(crate::ports::PortOwner {
+                    pid: 99,
+                    command: None,
+                    workspace_id: second_id.clone(),
+                    tab_idx: 0,
+                    pane_id: second_pane,
+                    confidence: crate::ports::PortOwnerConfidence::ProcessTree,
+                })
+            },
+        );
+
+        assert!(port_panel_entries(&app).is_empty());
     }
 
     #[test]
