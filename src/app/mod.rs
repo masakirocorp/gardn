@@ -452,6 +452,8 @@ impl App {
             right_sidebar_width,
             right_sidebar_collapsed,
             sidebar_section_split,
+            activity_agents_expanded: true,
+            activity_ports_expanded: true,
             agent_panel_scope,
             mouse_capture: config.ui.mouse_capture,
             confirm_close: config.ui.confirm_close,

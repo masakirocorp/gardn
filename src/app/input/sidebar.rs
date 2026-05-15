@@ -757,6 +757,38 @@ impl AppState {
             && row < rect.y + rect.height
     }
 
+    pub(super) fn on_activity_agents_header(&self, col: u16, row: u16) -> bool {
+        if self.right_sidebar_collapsed || self.view.right_sidebar_rect == Rect::default() {
+            return false;
+        }
+        let rect = crate::ui::right_sidebar_agents_header_rect(self, self.view.right_sidebar_rect);
+        rect.width > 0
+            && col >= rect.x
+            && col < rect.x + rect.width
+            && row >= rect.y
+            && row < rect.y + rect.height
+    }
+
+    pub(super) fn on_activity_ports_header(&self, col: u16, row: u16) -> bool {
+        if self.right_sidebar_collapsed || self.view.right_sidebar_rect == Rect::default() {
+            return false;
+        }
+        let rect = crate::ui::right_sidebar_ports_header_rect(self, self.view.right_sidebar_rect);
+        rect.width > 0
+            && col >= rect.x
+            && col < rect.x + rect.width
+            && row >= rect.y
+            && row < rect.y + rect.height
+    }
+
+    pub(super) fn toggle_activity_agents(&mut self) {
+        self.activity_agents_expanded = !self.activity_agents_expanded;
+    }
+
+    pub(super) fn toggle_activity_ports(&mut self) {
+        self.activity_ports_expanded = !self.activity_ports_expanded;
+    }
+
     pub(super) fn agent_detail_target_at(
         &self,
         row: u16,
@@ -1413,6 +1445,38 @@ mod tests {
 
         assert_eq!(app.state.mode, Mode::AgentMenu);
         assert_eq!(app.state.agent_menu.highlighted, 2);
+    }
+
+    #[test]
+    fn clicking_activity_section_headers_toggles_rows() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+
+        let agents = crate::ui::right_sidebar_agents_header_rect(
+            &app.state,
+            app.state.view.right_sidebar_rect,
+        );
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            agents.x,
+            agents.y,
+        ));
+        let ports = crate::ui::right_sidebar_ports_header_rect(
+            &app.state,
+            app.state.view.right_sidebar_rect,
+        );
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            ports.x,
+            ports.y,
+        ));
+
+        assert!(!app.state.activity_agents_expanded);
+        assert!(!app.state.activity_ports_expanded);
     }
 
     #[test]

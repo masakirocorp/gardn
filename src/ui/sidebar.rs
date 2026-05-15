@@ -931,7 +931,7 @@ pub(crate) fn right_sidebar_panel_rects(app: &AppState, area: Rect) -> (Rect, Re
     }
 
     let port_entries = port_panel_entries(app);
-    let port_height = port_panel_desired_height(&port_entries).min(content.height - 3);
+    let port_height = port_panel_desired_height(app, &port_entries).min(content.height - 2);
     let agent_height = agent_panel_desired_height(app)
         .min(content.height - port_height - ACTIVITY_SECTION_GAP_ROWS);
     let agent_area = Rect::new(content.x, content.y, content.width, agent_height);
@@ -996,7 +996,12 @@ fn render_activity_header(app: &AppState, frame: &mut Frame, area: Rect) {
 }
 
 fn agent_panel_desired_height(app: &AppState) -> u16 {
-    AGENT_PANEL_HEADER_ROWS + agent_panel_body_desired_height(app)
+    AGENT_PANEL_HEADER_ROWS
+        + if app.activity_agents_expanded {
+            agent_panel_body_desired_height(app)
+        } else {
+            0
+        }
 }
 
 fn agent_panel_body_desired_height(app: &AppState) -> u16 {
@@ -1013,13 +1018,31 @@ fn agent_panel_body_desired_height(app: &AppState) -> u16 {
         .sum()
 }
 
-fn port_panel_desired_height(entries: &[PortPanelEntry]) -> u16 {
+fn port_panel_desired_height(app: &AppState, entries: &[PortPanelEntry]) -> u16 {
     PORT_PANEL_HEADER_ROWS
-        + if entries.is_empty() {
+        + if !app.activity_ports_expanded {
+            0
+        } else if entries.is_empty() {
             1
         } else {
             (entries.len() as u16) * 2
         }
+}
+
+pub(crate) fn right_sidebar_agents_header_rect(app: &AppState, area: Rect) -> Rect {
+    let (agent_area, _) = right_sidebar_panel_rects(app, area);
+    if agent_area == Rect::default() || agent_area.height == 0 {
+        return Rect::default();
+    }
+    Rect::new(agent_area.x, agent_area.y, agent_area.width, 1)
+}
+
+pub(crate) fn right_sidebar_ports_header_rect(app: &AppState, area: Rect) -> Rect {
+    let (_, port_area) = right_sidebar_panel_rects(app, area);
+    if port_area == Rect::default() || port_area.height == 0 {
+        return Rect::default();
+    }
+    Rect::new(port_area.x, port_area.y, port_area.width, 1)
 }
 
 fn port_panel_entries(app: &AppState) -> Vec<PortPanelEntry> {
@@ -1140,17 +1163,26 @@ fn port_secondary_line(entry: &PortPanelEntry, p: &Palette, width: u16) -> Line<
 }
 
 fn render_ports_section(app: &AppState, frame: &mut Frame, area: Rect, entries: &[PortPanelEntry]) {
-    if area.height < 2 || area.width == 0 {
+    if area.height == 0 || area.width == 0 {
         return;
     }
     let p = &app.palette;
+    let chevron = if app.activity_ports_expanded {
+        "▾"
+    } else {
+        "▸"
+    };
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
-            " ▾ ports",
+            format!(" {chevron} ports"),
             Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
         )])),
         Rect::new(area.x, area.y, area.width, 1),
     );
+
+    if !app.activity_ports_expanded || area.height < 2 {
+        return;
+    }
 
     if entries.is_empty() {
         frame.render_widget(
@@ -1580,7 +1612,7 @@ pub(crate) fn agent_panel_entry_at_row(
 fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_separator: bool) {
     let p = &app.palette;
 
-    if area.height < 2 {
+    if area.height <= u16::from(leading_separator) {
         return;
     }
 
@@ -1593,9 +1625,14 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
     }
 
     let header_y = area.y + u16::from(leading_separator);
+    let chevron = if app.activity_agents_expanded {
+        "▾"
+    } else {
+        "▸"
+    };
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
-            " ▾ agents",
+            format!(" {chevron} agents"),
             Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
         )])),
         Rect::new(area.x, header_y, area.width, 1),
@@ -1616,6 +1653,10 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
             )),
             toggle_rect,
         );
+    }
+
+    if !leading_separator && !app.activity_agents_expanded {
+        return;
     }
 
     let metrics = agent_panel_scroll_metrics(app, area, leading_separator);
@@ -2105,6 +2146,28 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), 32, 18);
         assert!(text.contains("ports"));
         assert!(text.contains("no active ports"));
+    }
+
+    #[test]
+    fn collapsed_activity_sections_hide_their_rows() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("web")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.activity_agents_expanded = false;
+        app.activity_ports_expanded = false;
+
+        let backend = TestBackend::new(32, 18);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_right_sidebar(&app, frame, Rect::new(0, 0, 32, 18)))
+            .expect("render right sidebar");
+
+        let text = buffer_text(terminal.backend().buffer(), 32, 18);
+        assert!(text.contains("▸ agents"));
+        assert!(text.contains("▸ ports"));
+        assert!(!text.contains("no agents"));
+        assert!(!text.contains("no active ports"));
     }
 
     #[test]

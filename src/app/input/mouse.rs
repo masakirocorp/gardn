@@ -425,6 +425,16 @@ impl AppState {
                         return None;
                     }
 
+                    if self.on_activity_agents_header(mouse.column, mouse.row) {
+                        self.toggle_activity_agents();
+                        return None;
+                    }
+
+                    if self.on_activity_ports_header(mouse.column, mouse.row) {
+                        self.toggle_activity_ports();
+                        return None;
+                    }
+
                     if let Some(target) =
                         self.agent_panel_scrollbar_target_at(mouse.column, mouse.row)
                     {
