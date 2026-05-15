@@ -62,9 +62,10 @@ pub(crate) use self::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_entry_at_row,
         agent_panel_scroll_metrics, agent_panel_scrollbar_rect, agent_panel_toggle_rect,
         collapsed_group_header_rect, collapsed_right_sidebar_agent_rows_rect,
-        collapsed_sidebar_sections, collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect,
-        compute_workspace_card_areas, compute_workspace_card_areas_in_list,
-        expanded_sidebar_sections, expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
+        collapsed_right_sidebar_port_entry_at_row, collapsed_sidebar_sections,
+        collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect, compute_workspace_card_areas,
+        compute_workspace_card_areas_in_list, expanded_sidebar_sections,
+        expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
         right_sidebar_agents_header_rect, right_sidebar_content_rect, right_sidebar_panel_rects,
         right_sidebar_ports_header_rect, right_sidebar_toggle_rect, sidebar_section_divider_rect,
         workspace_drop_indicator_row, workspace_list_rect, workspace_list_scroll_metrics,
@@ -678,6 +679,53 @@ mod tests {
 
         assert_eq!(buffer[(toggle.x, toggle.y)].symbol(), "«");
         assert!(buffer_row_text(buffer, rows, rows.y).starts_with("1 "));
+    }
+
+    #[test]
+    fn collapsed_right_sidebar_includes_ports() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.right_sidebar_collapsed = true;
+        let ws = Workspace::test_new("web");
+        let pane = ws.tabs[0].root_pane;
+        let workspace_id = ws.id.clone();
+        app.workspaces = vec![ws];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+        app.port_registry.sync_observations(
+            std::time::Instant::now(),
+            [crate::ports::PortObservation {
+                bind_addr: "127.0.0.1".parse().unwrap(),
+                port: 5173,
+                pid: 42,
+                command: Some("vite".to_string()),
+            }],
+            |_| {
+                Some(crate::ports::PortOwner {
+                    pid: 42,
+                    command: None,
+                    workspace_id: workspace_id.clone(),
+                    tab_idx: 0,
+                    pane_id: pane,
+                    confidence: crate::ports::PortOwnerConfidence::ProcessTree,
+                })
+            },
+        );
+
+        compute_view(&mut app, Rect::new(0, 0, 140, 20));
+
+        let backend = TestBackend::new(140, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let rows = collapsed_right_sidebar_agent_rows_rect(app.view.right_sidebar_rect);
+        let text = (rows.y..rows.y + rows.height)
+            .map(|row| buffer_row_text(buffer, rows, row))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("p1"));
+        assert!(text.contains(":5"));
     }
 
     #[test]

@@ -1253,6 +1253,46 @@ pub(crate) fn port_panel_entry_at_row(
     None
 }
 
+pub(crate) fn collapsed_right_sidebar_port_entry_at_row(
+    app: &AppState,
+    area: Rect,
+    row: u16,
+) -> Option<(usize, usize, crate::layout::PaneId)> {
+    let rows = collapsed_right_sidebar_agent_rows_rect(area);
+    if rows == Rect::default() || row < rows.y || row >= rows.y + rows.height {
+        return None;
+    }
+
+    let mut row_y = rows.y;
+    for _ in agent_panel_entries(app).iter().skip(app.agent_panel_scroll) {
+        if row_y >= rows.y + rows.height {
+            return None;
+        }
+        row_y = row_y.saturating_add(1);
+    }
+
+    let entries = port_panel_entries(app);
+    if entries.is_empty() || row_y >= rows.y + rows.height {
+        return None;
+    }
+    if row == row_y {
+        return None;
+    }
+    row_y = row_y.saturating_add(1);
+
+    for entry in entries {
+        if row_y >= rows.y + rows.height {
+            break;
+        }
+        if row == row_y {
+            return Some((entry.ws_idx, entry.tab_idx, entry.pane_id));
+        }
+        row_y = row_y.saturating_add(1);
+    }
+
+    None
+}
+
 fn render_port_entry(
     app: &AppState,
     frame: &mut Frame,
@@ -1305,13 +1345,13 @@ fn render_right_sidebar_collapsed_agents(app: &AppState, frame: &mut Frame, area
     }
 
     let p = &app.palette;
+    let mut row_y = rows.y;
     for (visible_idx, detail) in agent_panel_entries(app)
         .iter()
         .skip(app.agent_panel_scroll)
         .enumerate()
     {
-        let y = rows.y + visible_idx as u16;
-        if y >= rows.y + rows.height {
+        if row_y >= rows.y + rows.height {
             break;
         }
 
@@ -1324,7 +1364,7 @@ fn render_right_sidebar_collapsed_agents(app: &AppState, frame: &mut Frame, area
         if is_active {
             let buf = frame.buffer_mut();
             for x in rows.x..rows.x + rows.width {
-                buf[(x, y)].set_style(row_style);
+                buf[(x, row_y)].set_style(row_style);
             }
         }
 
@@ -1340,8 +1380,57 @@ fn render_right_sidebar_collapsed_agents(app: &AppState, frame: &mut Frame, area
                 Span::styled(" ", row_style),
                 Span::styled(icon, icon_style),
             ])),
-            Rect::new(rows.x, y, rows.width, 1),
+            Rect::new(rows.x, row_y, rows.width, 1),
         );
+        row_y = row_y.saturating_add(1);
+    }
+
+    let port_entries = port_panel_entries(app);
+    if port_entries.is_empty() || row_y >= rows.y + rows.height {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            format!("p{}", port_entries.len().min(9)),
+            Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
+        )),
+        Rect::new(rows.x, row_y, rows.width, 1),
+    );
+    row_y = row_y.saturating_add(1);
+
+    for entry in port_entries {
+        if row_y >= rows.y + rows.height {
+            break;
+        }
+        let is_active = app.is_active_pane(entry.ws_idx, entry.tab_idx, entry.pane_id);
+        let row_style = if is_active {
+            Style::default().bg(p.surface_dim)
+        } else {
+            Style::default()
+        };
+        if is_active {
+            let buf = frame.buffer_mut();
+            for x in rows.x..rows.x + rows.width {
+                buf[(x, row_y)].set_style(row_style);
+            }
+        }
+        let port_style = match (entry.state, entry.exposure) {
+            (PortState::Stale, _) => Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+            (_, PortExposure::All) => Style::default().fg(p.yellow).add_modifier(Modifier::BOLD),
+            _ => Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+        };
+        let label = format!(
+            ":{}",
+            truncate_text(
+                &entry.port.to_string(),
+                rows.width.saturating_sub(1) as usize
+            )
+        );
+        frame.render_widget(
+            Paragraph::new(Span::styled(label, port_style)).style(row_style),
+            Rect::new(rows.x, row_y, rows.width, 1),
+        );
+        row_y = row_y.saturating_add(1);
     }
 }
 

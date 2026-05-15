@@ -835,6 +835,21 @@ impl AppState {
         let detail = entries.get(idx)?;
         Some((detail.ws_idx, detail.tab_idx, detail.pane_id))
     }
+
+    pub(super) fn collapsed_right_sidebar_port_target_at(
+        &self,
+        row: u16,
+    ) -> Option<(usize, usize, crate::layout::PaneId)> {
+        if !self.right_sidebar_collapsed {
+            return None;
+        }
+
+        crate::ui::collapsed_right_sidebar_port_entry_at_row(
+            self,
+            self.view.right_sidebar_rect,
+            row,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -2111,6 +2126,66 @@ mod tests {
         assert_eq!(
             app.state.workspaces[0].tabs[second_tab].layout.focused(),
             second_pane
+        );
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn clicking_collapsed_right_sidebar_port_row_switches_pane() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("web");
+        let first_pane = ws.tabs[0].root_pane;
+        let second_tab = ws.test_add_tab(Some("server"));
+        let second_pane = ws.tabs[second_tab].root_pane;
+        let workspace_id = ws.id.clone();
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.right_sidebar_collapsed = true;
+        app.state.port_registry.sync_observations(
+            Instant::now(),
+            [crate::ports::PortObservation {
+                bind_addr: "127.0.0.1".parse().unwrap(),
+                port: 5173,
+                pid: 42,
+                command: Some("vite".to_string()),
+            }],
+            |_| {
+                Some(crate::ports::PortOwner {
+                    pid: 42,
+                    command: None,
+                    workspace_id: workspace_id.clone(),
+                    tab_idx: second_tab,
+                    pane_id: second_pane,
+                    confidence: crate::ports::PortOwnerConfidence::ProcessTree,
+                })
+            },
+        );
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+
+        let row = (0..app.state.view.right_sidebar_rect.height)
+            .map(|offset| app.state.view.right_sidebar_rect.y + offset)
+            .find(|row| {
+                app.state
+                    .collapsed_right_sidebar_port_target_at(*row)
+                    .is_some()
+            })
+            .expect("collapsed port row");
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            app.state.view.right_sidebar_rect.x + 1,
+            row,
+        ));
+
+        assert_eq!(app.state.workspaces[0].active_tab, second_tab);
+        assert_eq!(
+            app.state.workspaces[0].tabs[second_tab].layout.focused(),
+            second_pane
+        );
+        assert_ne!(
+            app.state.workspaces[0].tabs[second_tab].layout.focused(),
+            first_pane
         );
         assert_eq!(app.state.mode, Mode::Terminal);
     }
