@@ -449,12 +449,7 @@ impl AppState {
 
     pub(crate) fn agent_menu_rect(&self) -> Rect {
         let screen = self.screen_rect();
-        let area = self.agent_panel_rect();
-        let header = crate::ui::agent_panel_toggle_rect(
-            area,
-            self.agent_panel_scope,
-            self.agent_panel_has_leading_separator(),
-        );
+        let header = self.agent_menu_anchor_rect();
         let labels = self.agent_menu_labels();
         let content_width = labels
             .iter()
@@ -469,10 +464,37 @@ impl AppState {
             .saturating_add(2);
         let menu_w = content_width.saturating_add(2).min(screen.width.max(1));
         let menu_h = (labels.len() as u16 + 2).min(screen.height.max(1));
-        let x = header.x.min(screen.x + screen.width.saturating_sub(menu_w));
+        let desired_x = if self.view.right_sidebar_rect != Rect::default() {
+            header.x + header.width.saturating_sub(menu_w)
+        } else {
+            header.x
+        };
+        let x = desired_x.min(screen.x + screen.width.saturating_sub(menu_w));
         let max_y = screen.y + screen.height.saturating_sub(menu_h);
         let y = header.y.saturating_add(1).min(max_y);
         Rect::new(x, y, menu_w, menu_h)
+    }
+
+    fn agent_menu_anchor_rect(&self) -> Rect {
+        if self.view.right_sidebar_rect != Rect::default() {
+            if self.right_sidebar_collapsed {
+                return crate::ui::collapsed_right_sidebar_activity_header_rect(
+                    self.view.right_sidebar_rect,
+                );
+            }
+
+            return crate::ui::agent_panel_toggle_rect(
+                crate::ui::right_sidebar_content_rect(self.view.right_sidebar_rect),
+                self.agent_panel_scope,
+                false,
+            );
+        }
+
+        crate::ui::agent_panel_toggle_rect(
+            self.agent_panel_rect(),
+            self.agent_panel_scope,
+            self.agent_panel_has_leading_separator(),
+        )
     }
 
     pub(super) fn on_sidebar_divider(&self, col: u16, row: u16) -> bool {
@@ -2243,6 +2265,12 @@ mod tests {
 
         assert_eq!(app.state.mode, Mode::AgentMenu);
         assert_eq!(app.state.agent_menu.highlighted, 2);
+        let menu = app.state.agent_menu_rect();
+        assert!(menu.x > app.state.screen_rect().width / 2);
+        assert_eq!(
+            menu.x + menu.width,
+            app.state.view.right_sidebar_rect.x + app.state.view.right_sidebar_rect.width
+        );
     }
 
     #[test]
