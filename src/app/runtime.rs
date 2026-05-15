@@ -124,7 +124,7 @@ impl App {
         false
     }
 
-    fn refresh_ports(&mut self, now: Instant) -> bool {
+    pub(crate) fn refresh_ports(&mut self, now: Instant) -> bool {
         let mut owners = std::collections::HashMap::new();
         for workspace in &self.state.workspaces {
             for (tab_idx, tab) in workspace.tabs.iter().enumerate() {
