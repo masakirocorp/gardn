@@ -271,13 +271,6 @@ pub(crate) fn agent_panel_triage_entries(app: &AppState) -> Vec<AgentPanelEntry>
         .collect()
 }
 
-pub(crate) fn agent_panel_scope_count(app: &AppState, scope: AgentPanelScope) -> usize {
-    agent_panel_entries_for_scope(app, scope)
-        .into_iter()
-        .filter(|entry| !agent_panel_entry_needs_triage(entry))
-        .count()
-}
-
 pub(crate) fn agent_panel_sections(app: &AppState) -> Vec<AgentPanelSection> {
     let scoped_entries = agent_panel_entries(app);
     let mut sections = Vec::new();

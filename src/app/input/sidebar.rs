@@ -1,6 +1,6 @@
 use ratatui::layout::Rect;
 
-use crate::app::state::{AgentPanelScope, AppState, Mode, ViewLayout};
+use crate::app::state::{AppState, Mode, ViewLayout};
 
 use super::ScrollbarClickTarget;
 
@@ -380,20 +380,11 @@ impl AppState {
 
     pub(crate) fn agent_menu_labels(&self) -> Vec<String> {
         vec![
-            format!(
-                "all ({})",
-                crate::ui::agent_panel_scope_count(self, AgentPanelScope::AllWorkspaces)
-            ),
+            "all".to_string(),
             "---".to_string(),
-            format!(
-                "this space ({})",
-                crate::ui::agent_panel_scope_count(self, AgentPanelScope::CurrentWorkspace)
-            ),
+            "this space".to_string(),
             format!("  {}", self.agent_menu_space_context_label()),
-            format!(
-                "this group ({})",
-                crate::ui::agent_panel_scope_count(self, AgentPanelScope::CurrentGroup)
-            ),
+            "this group".to_string(),
             format!("  {}", self.agent_menu_group_context_label()),
         ]
     }
@@ -1512,11 +1503,11 @@ mod tests {
         assert_eq!(
             app.state.agent_menu_labels(),
             vec![
-                "all (2)",
+                "all",
                 "---",
-                "this space (0)",
+                "this space",
                 "  triage",
-                "this group (1)",
+                "this group",
                 "  group 1",
             ]
         );
