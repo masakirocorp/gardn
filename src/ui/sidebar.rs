@@ -15,7 +15,7 @@ use crate::detect::AgentState;
 use crate::ports::{PortEndpoint, PortExposure, PortState};
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
-const ACTIVITY_PANEL_HEADER_ROWS: u16 = 1;
+const ACTIVITY_PANEL_HEADER_ROWS: u16 = 2;
 const AGENT_PANEL_HEADER_ROWS: u16 = 1;
 const PORT_PANEL_HEADER_ROWS: u16 = 1;
 
@@ -968,6 +968,12 @@ fn render_activity_header(app: &AppState, frame: &mut Frame, area: Rect) {
             Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
         )),
         Rect::new(content.x, content.y, content.width, 1),
+    );
+
+    let sep_line = "─".repeat(content.width as usize);
+    frame.render_widget(
+        Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.overlay0))),
+        Rect::new(content.x, content.y + 1, content.width, 1),
     );
 }
 
