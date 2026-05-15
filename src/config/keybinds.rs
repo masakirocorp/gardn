@@ -479,13 +479,13 @@ impl Config {
                 &mut diagnostics,
             ),
             optional_binding(
-                terminal_direct_scope(),
+                direct_navigation_scopes(),
                 "keys.previous_group",
                 &self.keys.previous_group,
                 &mut diagnostics,
             ),
             optional_binding(
-                terminal_direct_scope(),
+                direct_navigation_scopes(),
                 "keys.next_group",
                 &self.keys.next_group,
                 &mut diagnostics,
@@ -1388,6 +1388,22 @@ rename_tab = "g"
             (KeyCode::Char('g'), KeyModifiers::empty())
         );
         assert_eq!(kb.rename_tab, None);
+    }
+
+    #[test]
+    fn group_navigation_keybind_conflicts_with_navigate_bindings() {
+        let toml = r#"
+[keys]
+previous_group = "b"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        let diagnostics = config.collect_diagnostics();
+        let kb = config.keybinds();
+
+        assert!(diagnostics
+            .iter()
+            .any(|d| d.contains("keys.previous_group") && d.contains("keys.toggle_sidebar")));
+        assert_eq!(kb.previous_group, None);
     }
 
     #[test]
