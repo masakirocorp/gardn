@@ -1003,12 +1003,12 @@ fn agent_panel_body_desired_height(app: &AppState) -> u16 {
         return 1;
     }
 
-    sections
+    let section_rows = sections.len() as u16;
+    let entry_rows = sections
         .iter()
-        .map(|section| {
-            1 + (section.entries.len() as u16) * 2 + section.entries.len().saturating_sub(1) as u16
-        })
-        .sum()
+        .map(|section| section.entries.len() as u16)
+        .sum::<u16>();
+    section_rows + entry_rows * 2 + entry_rows.saturating_sub(1)
 }
 
 fn port_panel_desired_height(app: &AppState, entries: &[PortPanelEntry]) -> u16 {
@@ -2168,6 +2168,38 @@ mod tests {
         assert!(text.contains("▸ ports (0)"));
         assert!(!text.contains("no agents"));
         assert!(!text.contains("no active ports"));
+    }
+
+    #[test]
+    fn working_section_has_room_for_visible_agent_row() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut done = Workspace::test_new("done");
+        let done_pane = done.tabs[0].root_pane;
+        let done_state = done.tabs[0].panes.get_mut(&done_pane).unwrap();
+        done_state.detected_agent = Some(Agent::Claude);
+        done_state.state = AgentState::Idle;
+        done_state.seen = false;
+
+        let mut worker = Workspace::test_new("worker");
+        let worker_pane = worker.tabs[0].root_pane;
+        let worker_state = worker.tabs[0].panes.get_mut(&worker_pane).unwrap();
+        worker_state.detected_agent = Some(Agent::Codex);
+        worker_state.state = AgentState::Working;
+
+        app.workspaces = vec![done, worker];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        let backend = TestBackend::new(38, 18);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_right_sidebar(&app, frame, Rect::new(0, 0, 38, 18)))
+            .expect("render right sidebar");
+
+        let text = buffer_text(terminal.backend().buffer(), 38, 18);
+        assert!(text.contains("working"));
+        assert!(text.contains("worker"));
     }
 
     #[test]
