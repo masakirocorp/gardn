@@ -15,6 +15,7 @@ use crate::detect::AgentState;
 use crate::ports::{PortEndpoint, PortExposure, PortState};
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
+const ACTIVITY_PANEL_HEADER_ROWS: u16 = 2;
 const AGENT_PANEL_HEADER_ROWS: u16 = 2;
 const PORT_PANEL_HEADER_ROWS: u16 = 2;
 
@@ -914,6 +915,7 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
     }
     let port_entries = port_panel_entries(app);
     let (agent_area, port_area) = right_sidebar_panel_rects(app, area);
+    render_activity_header(app, frame, area);
     render_agent_detail(app, frame, agent_area, false);
     if port_area != Rect::default() {
         render_ports_section(app, frame, port_area, &port_entries);
@@ -922,7 +924,7 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
 }
 
 pub(crate) fn right_sidebar_panel_rects(app: &AppState, area: Rect) -> (Rect, Rect) {
-    let content = right_sidebar_content_rect(area);
+    let content = right_sidebar_activity_body_rect(area);
     if content.height < 6 {
         return (content, Rect::default());
     }
@@ -938,6 +940,41 @@ pub(crate) fn right_sidebar_panel_rects(app: &AppState, area: Rect) -> (Rect, Re
         content.height.saturating_sub(agent_height),
     );
     (agent_area, port_area)
+}
+
+fn right_sidebar_activity_body_rect(area: Rect) -> Rect {
+    let content = right_sidebar_content_rect(area);
+    if content.height <= ACTIVITY_PANEL_HEADER_ROWS {
+        return Rect::default();
+    }
+    Rect::new(
+        content.x,
+        content.y + ACTIVITY_PANEL_HEADER_ROWS,
+        content.width,
+        content.height - ACTIVITY_PANEL_HEADER_ROWS,
+    )
+}
+
+fn render_activity_header(app: &AppState, frame: &mut Frame, area: Rect) {
+    let content = right_sidebar_content_rect(area);
+    if content.height < ACTIVITY_PANEL_HEADER_ROWS || content.width == 0 {
+        return;
+    }
+
+    let p = &app.palette;
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            " activity",
+            Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
+        )),
+        Rect::new(content.x, content.y, content.width, 1),
+    );
+
+    let sep_line = "─".repeat(content.width as usize);
+    frame.render_widget(
+        Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.overlay0))),
+        Rect::new(content.x, content.y + 1, content.width, 1),
+    );
 }
 
 fn agent_panel_desired_height(app: &AppState) -> u16 {

@@ -211,7 +211,7 @@ fn compute_view_internal(
         .workspace_scroll
         .min(app.visible_workspace_indices().len().saturating_sub(1));
     if right_sidebar_area != Rect::default() && !app.right_sidebar_collapsed {
-        let agent_area = right_sidebar_content_rect(right_sidebar_area);
+        let (agent_area, _) = right_sidebar_panel_rects(app, right_sidebar_area);
         let max_agent_scroll =
             agent_panel_scroll_metrics(app, agent_area, false).max_offset_from_bottom;
         app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
@@ -594,7 +594,7 @@ mod tests {
     }
 
     #[test]
-    fn right_sidebar_agents_start_without_top_separator() {
+    fn right_sidebar_activity_wraps_agent_section() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = vec![Workspace::test_new("one")];
         app.active = Some(0);
@@ -608,12 +608,13 @@ mod tests {
         terminal.draw(|frame| render(&app, frame)).unwrap();
         let buffer = terminal.backend().buffer();
         let content = right_sidebar_content_rect(app.view.right_sidebar_rect);
+        let (agent_area, _) = right_sidebar_panel_rects(&app, app.view.right_sidebar_rect);
 
-        assert_ne!(buffer[(content.x, content.y)].symbol(), "─");
-        assert!(buffer_row_text(buffer, content, content.y).starts_with(" agents"));
+        assert!(buffer_row_text(buffer, content, content.y).starts_with(" activity"));
+        assert!(buffer_row_text(buffer, agent_area, agent_area.y).starts_with(" agents"));
         assert_eq!(
-            agent_panel_body_rect(content, false, false).y,
-            content.y + 2
+            agent_panel_body_rect(agent_area, false, false).y,
+            agent_area.y + 2
         );
     }
 
@@ -637,7 +638,8 @@ mod tests {
         terminal.draw(|frame| render(&app, frame)).unwrap();
         let buffer = terminal.backend().buffer();
         let content = right_sidebar_content_rect(app.view.right_sidebar_rect);
-        let body = agent_panel_body_rect(content, false, false);
+        let (agent_area, _) = right_sidebar_panel_rects(&app, app.view.right_sidebar_rect);
+        let body = agent_panel_body_rect(agent_area, false, false);
 
         assert_ne!(app.view.right_sidebar_rect, Rect::default());
         let body_text = (body.y..body.y + body.height)
@@ -645,7 +647,8 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(buffer_row_text(buffer, content, content.y).starts_with(" agents"));
+        assert!(buffer_row_text(buffer, content, content.y).starts_with(" activity"));
+        assert!(buffer_row_text(buffer, agent_area, agent_area.y).starts_with(" agents"));
         assert!(body_text.contains("claude"));
     }
 
