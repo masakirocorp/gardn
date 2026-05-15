@@ -825,15 +825,11 @@ impl AppState {
             return None;
         }
 
-        let rows = crate::ui::collapsed_right_sidebar_agent_rows_rect(self.view.right_sidebar_rect);
-        if rows == Rect::default() || row < rows.y || row >= rows.y + rows.height {
-            return None;
-        }
-
-        let idx = (row - rows.y) as usize + self.agent_panel_scroll;
-        let entries = crate::ui::agent_panel_entries(self);
-        let detail = entries.get(idx)?;
-        Some((detail.ws_idx, detail.tab_idx, detail.pane_id))
+        crate::ui::collapsed_right_sidebar_agent_entry_at_row(
+            self,
+            self.view.right_sidebar_rect,
+            row,
+        )
     }
 
     pub(super) fn collapsed_right_sidebar_port_target_at(
@@ -849,6 +845,42 @@ impl AppState {
             self.view.right_sidebar_rect,
             row,
         )
+    }
+
+    pub(super) fn on_collapsed_right_sidebar_scope_toggle(&self, col: u16, row: u16) -> bool {
+        if !self.right_sidebar_collapsed || self.view.right_sidebar_rect == Rect::default() {
+            return false;
+        }
+        let rect =
+            crate::ui::collapsed_right_sidebar_activity_header_rect(self.view.right_sidebar_rect);
+        rect.width > 0
+            && col >= rect.x
+            && col < rect.x + rect.width
+            && row >= rect.y
+            && row < rect.y + rect.height
+    }
+
+    pub(super) fn on_collapsed_activity_agents_header(&self, col: u16, row: u16) -> bool {
+        if !self.right_sidebar_collapsed || self.view.right_sidebar_rect == Rect::default() {
+            return false;
+        }
+        let rows = crate::ui::collapsed_right_sidebar_agent_rows_rect(self.view.right_sidebar_rect);
+        rows.width > 0 && col >= rows.x && col < rows.x + rows.width && row == rows.y
+    }
+
+    pub(super) fn on_collapsed_activity_ports_header(&self, col: u16, row: u16) -> bool {
+        if !self.right_sidebar_collapsed || self.view.right_sidebar_rect == Rect::default() {
+            return false;
+        }
+        let rect = crate::ui::collapsed_right_sidebar_ports_header_rect(
+            self,
+            self.view.right_sidebar_rect,
+        );
+        rect.width > 0
+            && col >= rect.x
+            && col < rect.x + rect.width
+            && row >= rect.y
+            && row < rect.y + rect.height
     }
 }
 
@@ -2119,7 +2151,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             rows.x + 1,
-            rows.y + 1,
+            rows.y + 2,
         ));
 
         assert_eq!(app.state.workspaces[0].active_tab, second_tab);
@@ -2188,6 +2220,60 @@ mod tests {
             first_pane
         );
         assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn clicking_collapsed_right_sidebar_header_opens_scope_menu() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.right_sidebar_collapsed = true;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+
+        let header = crate::ui::collapsed_right_sidebar_activity_header_rect(
+            app.state.view.right_sidebar_rect,
+        );
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            header.x,
+            header.y,
+        ));
+
+        assert_eq!(app.state.mode, Mode::AgentMenu);
+        assert_eq!(app.state.agent_menu.highlighted, 2);
+    }
+
+    #[test]
+    fn clicking_collapsed_activity_headers_toggles_sections() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.right_sidebar_collapsed = true;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+
+        let rows =
+            crate::ui::collapsed_right_sidebar_agent_rows_rect(app.state.view.right_sidebar_rect);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            rows.x,
+            rows.y,
+        ));
+        let ports = crate::ui::collapsed_right_sidebar_ports_header_rect(
+            &app.state,
+            app.state.view.right_sidebar_rect,
+        );
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            ports.x,
+            ports.y,
+        ));
+
+        assert!(!app.state.activity_agents_expanded);
+        assert!(!app.state.activity_ports_expanded);
     }
 
     #[test]

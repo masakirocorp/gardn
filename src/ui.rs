@@ -61,11 +61,12 @@ pub(crate) use self::{
     sidebar::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_entry_at_row,
         agent_panel_scroll_metrics, agent_panel_scrollbar_rect, agent_panel_toggle_rect,
-        collapsed_group_header_rect, collapsed_right_sidebar_agent_rows_rect,
-        collapsed_right_sidebar_port_entry_at_row, collapsed_sidebar_sections,
-        collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect, compute_workspace_card_areas,
-        compute_workspace_card_areas_in_list, expanded_sidebar_sections,
-        expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
+        collapsed_group_header_rect, collapsed_right_sidebar_activity_header_rect,
+        collapsed_right_sidebar_agent_entry_at_row, collapsed_right_sidebar_agent_rows_rect,
+        collapsed_right_sidebar_port_entry_at_row, collapsed_right_sidebar_ports_header_rect,
+        collapsed_sidebar_sections, collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect,
+        compute_workspace_card_areas, compute_workspace_card_areas_in_list,
+        expanded_sidebar_sections, expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
         right_sidebar_agents_header_rect, right_sidebar_content_rect, right_sidebar_panel_rects,
         right_sidebar_ports_header_rect, right_sidebar_toggle_rect, sidebar_section_divider_rect,
         workspace_drop_indicator_row, workspace_list_rect, workspace_list_scroll_metrics,
@@ -678,7 +679,8 @@ mod tests {
         let rows = collapsed_right_sidebar_agent_rows_rect(app.view.right_sidebar_rect);
 
         assert_eq!(buffer[(toggle.x, toggle.y)].symbol(), "«");
-        assert!(buffer_row_text(buffer, rows, rows.y).starts_with("1 "));
+        assert!(buffer_row_text(buffer, rows, rows.y).starts_with("▾a1"));
+        assert!(buffer_row_text(buffer, rows, rows.y + 1).starts_with("1 "));
     }
 
     #[test]

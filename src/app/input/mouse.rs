@@ -409,6 +409,21 @@ impl AppState {
                     }
 
                     if self.right_sidebar_collapsed {
+                        if self.on_collapsed_right_sidebar_scope_toggle(mouse.column, mouse.row) {
+                            super::modal::open_agent_menu(self);
+                            return None;
+                        }
+
+                        if self.on_collapsed_activity_agents_header(mouse.column, mouse.row) {
+                            self.toggle_activity_agents();
+                            return None;
+                        }
+
+                        if self.on_collapsed_activity_ports_header(mouse.column, mouse.row) {
+                            self.toggle_activity_ports();
+                            return None;
+                        }
+
                         if let Some((ws_idx, tab_idx, pane_id)) =
                             self.collapsed_right_sidebar_agent_target_at(mouse.row)
                         {

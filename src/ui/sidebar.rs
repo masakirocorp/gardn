@@ -449,10 +449,18 @@ pub(crate) fn right_sidebar_content_rect(area: Rect) -> Rect {
 
 pub(crate) fn collapsed_right_sidebar_agent_rows_rect(area: Rect) -> Rect {
     let content = right_sidebar_content_rect(area);
-    if content == Rect::default() || content.height <= 1 {
+    if content == Rect::default() || content.height <= 2 {
         return Rect::default();
     }
-    Rect::new(content.x, content.y, content.width, content.height - 1)
+    Rect::new(content.x, content.y + 1, content.width, content.height - 2)
+}
+
+pub(crate) fn collapsed_right_sidebar_activity_header_rect(area: Rect) -> Rect {
+    let content = right_sidebar_content_rect(area);
+    if content == Rect::default() {
+        return Rect::default();
+    }
+    Rect::new(content.x, content.y, content.width, 1)
 }
 
 pub(crate) fn workspace_list_body_rect(area: Rect, has_scrollbar: bool) -> Rect {
@@ -1068,10 +1076,17 @@ fn port_panel_entries(app: &AppState) -> Vec<PortPanelEntry> {
 }
 
 fn activity_agents_count(app: &AppState) -> usize {
-    agent_panel_entries(app)
+    agent_panel_sections(app)
         .into_iter()
-        .filter(|entry| !agent_panel_entry_needs_triage(entry))
-        .count()
+        .map(|section| section.entries.len())
+        .sum()
+}
+
+fn collapsed_right_sidebar_agent_entries(app: &AppState) -> Vec<AgentPanelEntry> {
+    agent_panel_sections(app)
+        .into_iter()
+        .flat_map(|section| section.entries)
+        .collect()
 }
 
 fn port_entries_for_endpoint(app: &AppState, endpoint: &PortEndpoint) -> Vec<PortPanelEntry> {
@@ -1264,15 +1279,20 @@ pub(crate) fn collapsed_right_sidebar_port_entry_at_row(
     }
 
     let mut row_y = rows.y;
-    for _ in agent_panel_entries(app).iter().skip(app.agent_panel_scroll) {
-        if row_y >= rows.y + rows.height {
-            return None;
+    row_y = row_y.saturating_add(1);
+    if app.activity_agents_expanded {
+        for _ in collapsed_right_sidebar_agent_entries(app)
+            .iter()
+            .skip(app.agent_panel_scroll)
+        {
+            if row_y >= rows.y + rows.height {
+                return None;
+            }
+            row_y = row_y.saturating_add(1);
         }
-        row_y = row_y.saturating_add(1);
     }
 
-    let entries = port_panel_entries(app);
-    if entries.is_empty() || row_y >= rows.y + rows.height {
+    if row_y >= rows.y + rows.height {
         return None;
     }
     if row == row_y {
@@ -1280,7 +1300,11 @@ pub(crate) fn collapsed_right_sidebar_port_entry_at_row(
     }
     row_y = row_y.saturating_add(1);
 
-    for entry in entries {
+    if !app.activity_ports_expanded {
+        return None;
+    }
+
+    for entry in port_panel_entries(app) {
         if row_y >= rows.y + rows.height {
             break;
         }
@@ -1291,6 +1315,62 @@ pub(crate) fn collapsed_right_sidebar_port_entry_at_row(
     }
 
     None
+}
+
+pub(crate) fn collapsed_right_sidebar_agent_entry_at_row(
+    app: &AppState,
+    area: Rect,
+    row: u16,
+) -> Option<(usize, usize, crate::layout::PaneId)> {
+    let rows = collapsed_right_sidebar_agent_rows_rect(area);
+    if rows == Rect::default() || row < rows.y || row >= rows.y + rows.height {
+        return None;
+    }
+
+    let mut row_y = rows.y;
+    if row == row_y {
+        return None;
+    }
+    row_y = row_y.saturating_add(1);
+    if !app.activity_agents_expanded {
+        return None;
+    }
+
+    for detail in collapsed_right_sidebar_agent_entries(app)
+        .iter()
+        .skip(app.agent_panel_scroll)
+    {
+        if row_y >= rows.y + rows.height {
+            break;
+        }
+        if row == row_y {
+            return Some((detail.ws_idx, detail.tab_idx, detail.pane_id));
+        }
+        row_y = row_y.saturating_add(1);
+    }
+
+    None
+}
+
+pub(crate) fn collapsed_right_sidebar_ports_header_rect(app: &AppState, area: Rect) -> Rect {
+    let rows = collapsed_right_sidebar_agent_rows_rect(area);
+    if rows == Rect::default() {
+        return Rect::default();
+    }
+
+    let mut row_y = rows.y.saturating_add(1);
+    if app.activity_agents_expanded {
+        row_y = row_y.saturating_add(
+            collapsed_right_sidebar_agent_entries(app)
+                .len()
+                .saturating_sub(app.agent_panel_scroll) as u16,
+        );
+    }
+
+    if row_y >= rows.y + rows.height {
+        return Rect::default();
+    }
+    Rect::new(rows.x, row_y, rows.width, 1)
 }
 
 fn render_port_entry(
@@ -1339,6 +1419,20 @@ fn render_port_entry(
 }
 
 fn render_right_sidebar_collapsed_agents(app: &AppState, frame: &mut Frame, area: Rect) {
+    let header = collapsed_right_sidebar_activity_header_rect(area);
+    if header != Rect::default() {
+        let p = &app.palette;
+        let label = agent_panel_toggle_label(app.agent_panel_scope);
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                truncate_text(label, header.width as usize),
+                Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
+            ))
+            .alignment(Alignment::Center),
+            header,
+        );
+    }
+
     let rows = collapsed_right_sidebar_agent_rows_rect(area);
     if rows == Rect::default() {
         return;
@@ -1346,57 +1440,83 @@ fn render_right_sidebar_collapsed_agents(app: &AppState, frame: &mut Frame, area
 
     let p = &app.palette;
     let mut row_y = rows.y;
-    for (visible_idx, detail) in agent_panel_entries(app)
-        .iter()
-        .skip(app.agent_panel_scroll)
-        .enumerate()
-    {
-        if row_y >= rows.y + rows.height {
-            break;
-        }
-
-        let is_active = app.is_active_pane(detail.ws_idx, detail.tab_idx, detail.pane_id);
-        let row_style = if is_active {
-            Style::default().bg(p.surface_dim)
-        } else {
-            Style::default()
-        };
-        if is_active {
-            let buf = frame.buffer_mut();
-            for x in rows.x..rows.x + rows.width {
-                buf[(x, row_y)].set_style(row_style);
-            }
-        }
-
-        let (icon, icon_style) = agent_icon(detail.state, detail.seen, app.spinner_tick, p);
-        let number_style = if is_active {
-            Style::default().fg(p.text).bg(p.surface_dim)
-        } else {
-            Style::default().fg(p.overlay0)
-        };
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(format!("{}", visible_idx + 1), number_style),
-                Span::styled(" ", row_style),
-                Span::styled(icon, icon_style),
-            ])),
-            Rect::new(rows.x, row_y, rows.width, 1),
-        );
-        row_y = row_y.saturating_add(1);
-    }
-
-    let port_entries = port_panel_entries(app);
-    if port_entries.is_empty() || row_y >= rows.y + rows.height {
-        return;
-    }
+    let agent_entries = collapsed_right_sidebar_agent_entries(app);
+    let agent_chevron = if app.activity_agents_expanded {
+        "▾"
+    } else {
+        "▸"
+    };
     frame.render_widget(
         Paragraph::new(Span::styled(
-            format!("p{}", port_entries.len().min(9)),
+            format!("{agent_chevron}a{}", activity_agents_count(app).min(9)),
             Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
         )),
         Rect::new(rows.x, row_y, rows.width, 1),
     );
     row_y = row_y.saturating_add(1);
+
+    if app.activity_agents_expanded {
+        for (visible_idx, detail) in agent_entries
+            .iter()
+            .skip(app.agent_panel_scroll)
+            .enumerate()
+        {
+            if row_y >= rows.y + rows.height {
+                break;
+            }
+
+            let is_active = app.is_active_pane(detail.ws_idx, detail.tab_idx, detail.pane_id);
+            let row_style = if is_active {
+                Style::default().bg(p.surface_dim)
+            } else {
+                Style::default()
+            };
+            if is_active {
+                let buf = frame.buffer_mut();
+                for x in rows.x..rows.x + rows.width {
+                    buf[(x, row_y)].set_style(row_style);
+                }
+            }
+
+            let (icon, icon_style) = agent_icon(detail.state, detail.seen, app.spinner_tick, p);
+            let number_style = if is_active {
+                Style::default().fg(p.text).bg(p.surface_dim)
+            } else {
+                Style::default().fg(p.overlay0)
+            };
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(format!("{}", visible_idx + 1), number_style),
+                    Span::styled(" ", row_style),
+                    Span::styled(icon, icon_style),
+                ])),
+                Rect::new(rows.x, row_y, rows.width, 1),
+            );
+            row_y = row_y.saturating_add(1);
+        }
+    }
+
+    let port_entries = port_panel_entries(app);
+    if row_y >= rows.y + rows.height {
+        return;
+    }
+    let port_chevron = if app.activity_ports_expanded {
+        "▾"
+    } else {
+        "▸"
+    };
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            format!("{port_chevron}p{}", port_entries.len().min(9)),
+            Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
+        )),
+        Rect::new(rows.x, row_y, rows.width, 1),
+    );
+    row_y = row_y.saturating_add(1);
+
+    if !app.activity_ports_expanded {
+        return;
+    }
 
     for entry in port_entries {
         if row_y >= rows.y + rows.height {
