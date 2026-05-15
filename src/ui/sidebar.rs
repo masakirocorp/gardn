@@ -1025,7 +1025,7 @@ fn port_owner_primary_label(
 
 fn port_exposure_label(exposure: PortExposure) -> &'static str {
     match exposure {
-        PortExposure::Loopback => "loopback",
+        PortExposure::Loopback => "localhost",
         PortExposure::Lan => "lan",
         PortExposure::All => "all interfaces",
     }
@@ -1040,24 +1040,24 @@ fn port_exposure_style(exposure: PortExposure, p: &Palette) -> Style {
 }
 
 fn port_secondary_line(entry: &PortPanelEntry, p: &Palette, width: u16) -> Line<'static> {
-    let command = entry
-        .command_label
-        .as_deref()
-        .map(|command| truncate_text(command, (width as usize).saturating_sub(10)));
     let mut spans = vec![Span::styled("       ", Style::default())];
-
-    if let Some(command) = command {
-        spans.push(Span::styled(
-            command,
-            Style::default().fg(p.green).add_modifier(Modifier::DIM),
-        ));
-        spans.push(Span::styled(" · ", Style::default().fg(p.overlay0)));
-    }
 
     spans.push(Span::styled(
         entry.exposure_label,
         port_exposure_style(entry.exposure, p),
     ));
+
+    let command = entry
+        .command_label
+        .as_deref()
+        .map(|command| truncate_text(command, (width as usize).saturating_sub(14)));
+    if let Some(command) = command {
+        spans.push(Span::styled(" · ", Style::default().fg(p.overlay0)));
+        spans.push(Span::styled(
+            command,
+            Style::default().fg(p.green).add_modifier(Modifier::DIM),
+        ));
+    }
 
     if entry.state == PortState::Stale {
         spans.push(Span::styled(" · stale", Style::default().fg(p.overlay0)));
@@ -2004,7 +2004,7 @@ mod tests {
         assert!(text.contains("ports"));
         assert!(text.contains(":5173"));
         assert!(text.contains("pane 1"));
-        assert!(text.contains("vite · loopback"));
+        assert!(text.contains("localhost · vite"));
     }
 
     #[test]
