@@ -1980,7 +1980,7 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
     }
 
     if let Some(track) = scrollbar_rect {
-        render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▕");
+        render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▐");
     }
 }
 
