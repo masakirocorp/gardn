@@ -8,6 +8,7 @@ use super::ScrollbarClickTarget;
 pub(super) struct WorkspaceDropTarget {
     pub insert_idx: usize,
     pub group_idx: Option<usize>,
+    pub indicator_row: Option<u16>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -750,30 +751,43 @@ impl AppState {
             return None;
         }
 
+        if !self.sidebar_collapsed && !self.group_filter_enabled {
+            if let Some(group_idx) = self.workspace_group_empty_at_row(row) {
+                return Some(WorkspaceDropTarget {
+                    insert_idx: self.group_insert_end(group_idx),
+                    group_idx: Some(group_idx),
+                    indicator_row: Some(row),
+                });
+            }
+
+            let drops = if self.view.workspace_group_drop_areas.is_empty() {
+                crate::ui::compute_workspace_group_drop_areas(self, self.view.sidebar_rect)
+            } else {
+                self.view.workspace_group_drop_areas.clone()
+            };
+
+            return drops.iter().find_map(|drop| {
+                (row >= drop.rect.y && row < drop.rect.y + drop.rect.height).then_some(
+                    WorkspaceDropTarget {
+                        insert_idx: drop.insert_idx,
+                        group_idx: Some(drop.group_idx),
+                        indicator_row: Some(drop.rect.y),
+                    },
+                )
+            });
+        }
+
         let cards = if self.view.workspace_card_areas.is_empty() {
             crate::ui::compute_workspace_card_areas(self, self.view.sidebar_rect)
         } else {
             self.view.workspace_card_areas.clone()
         };
 
-        if let Some(group_idx) = self.workspace_group_header_at_row(row) {
-            return Some(WorkspaceDropTarget {
-                insert_idx: self.group_insert_end(group_idx),
-                group_idx: Some(group_idx),
-            });
-        }
-
-        if let Some(group_idx) = self.workspace_group_empty_at_row(row) {
-            return Some(WorkspaceDropTarget {
-                insert_idx: self.group_insert_end(group_idx),
-                group_idx: Some(group_idx),
-            });
-        }
-
         if cards.is_empty() {
             return Some(WorkspaceDropTarget {
                 insert_idx: 0,
                 group_idx: None,
+                indicator_row: None,
             });
         }
 
@@ -800,6 +814,7 @@ impl AppState {
         best.map(|(insert_idx, _)| WorkspaceDropTarget {
             insert_idx,
             group_idx: self.group_idx_for_insert_idx(insert_idx),
+            indicator_row: crate::ui::workspace_drop_indicator_row(&cards, area, insert_idx),
         })
     }
 
@@ -2588,6 +2603,7 @@ mod tests {
                 source_ws_idx: 1,
                 insert_idx: Some(0),
                 target_group_idx: Some(0),
+                ..
             })
         ));
         app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 2, target_row));
@@ -2625,7 +2641,7 @@ mod tests {
         app.state.workspaces = vec![Workspace::test_new("a")];
         app.state.active = Some(0);
         app.state.selected = 0;
-        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 24));
         let source = app.state.view.workspace_card_areas[0].rect;
         let empty = app.state.view.workspace_group_empty_areas[0].rect;
 
@@ -2637,11 +2653,173 @@ mod tests {
                 source_ws_idx: 0,
                 insert_idx: Some(1),
                 target_group_idx: Some(1),
+                ..
             })
         ));
         app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 2, empty.y));
 
         assert_eq!(app.state.workspaces[0].group_id, "work");
+    }
+
+    #[test]
+    fn dragging_workspace_to_group_top_moves_it_before_group_spaces() {
+        let mut app = app_for_mouse_test();
+        app.state.group_filter_enabled = false;
+        app.state.groups.push(Group {
+            id: "work".into(),
+            name: "work".into(),
+            icon: "■".into(),
+            theme_name: None,
+        });
+        app.state.workspaces = vec![
+            Workspace::test_new("a"),
+            Workspace::test_new("b"),
+            Workspace::test_new("c"),
+        ];
+        app.state.workspaces[2].group_id = "work".into();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 24));
+        let source = app.state.view.workspace_card_areas[1].rect;
+        let target = app
+            .state
+            .view
+            .workspace_group_drop_areas
+            .iter()
+            .find(|area| area.group_idx == 1 && area.insert_idx == 2)
+            .copied()
+            .expect("work top drop slot");
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, source.y));
+        app.handle_mouse(mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            2,
+            target.rect.y,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            2,
+            target.rect.y,
+        ));
+
+        let work_names: Vec<_> = app
+            .state
+            .workspaces
+            .iter()
+            .filter(|workspace| workspace.group_id == "work")
+            .map(|workspace| workspace.display_name())
+            .collect();
+        assert_eq!(work_names, vec!["b", "c"]);
+    }
+
+    #[test]
+    fn dragging_workspace_between_groups_moves_it_to_previous_group_end() {
+        let mut app = app_for_mouse_test();
+        app.state.group_filter_enabled = false;
+        app.state.groups.push(Group {
+            id: "work".into(),
+            name: "work".into(),
+            icon: "■".into(),
+            theme_name: None,
+        });
+        app.state.workspaces = vec![
+            Workspace::test_new("a"),
+            Workspace::test_new("b"),
+            Workspace::test_new("c"),
+        ];
+        app.state.workspaces[2].group_id = "work".into();
+        app.state.active = Some(2);
+        app.state.selected = 2;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 24));
+        let source = app.state.view.workspace_card_areas[2].rect;
+        let target = app
+            .state
+            .view
+            .workspace_group_drop_areas
+            .iter()
+            .find(|area| area.group_idx == 0 && area.insert_idx == 2)
+            .copied()
+            .expect("default group end drop slot");
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, source.y));
+        app.handle_mouse(mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            2,
+            target.rect.y,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            2,
+            target.rect.y,
+        ));
+
+        let default_names: Vec<_> = app
+            .state
+            .workspaces
+            .iter()
+            .filter(|workspace| workspace.group_id != "work")
+            .map(|workspace| workspace.display_name())
+            .collect();
+        assert_eq!(default_names, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn expanded_group_header_is_not_a_drop_target() {
+        let mut app = app_for_mouse_test();
+        app.state.group_filter_enabled = false;
+        app.state.groups.push(Group {
+            id: "work".into(),
+            name: "work".into(),
+            icon: "■".into(),
+            theme_name: None,
+        });
+        app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
+        app.state.workspaces[1].group_id = "work".into();
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let header = app
+            .state
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .find(|header| header.group_idx == 1)
+            .copied()
+            .expect("work group header");
+
+        assert_eq!(app.state.workspace_drop_target_at_row(header.rect.y), None);
+    }
+
+    #[test]
+    fn dragging_over_collapsed_group_header_expands_it() {
+        let mut app = app_for_mouse_test();
+        app.state.group_filter_enabled = false;
+        app.state.groups.push(Group {
+            id: "work".into(),
+            name: "work".into(),
+            icon: "■".into(),
+            theme_name: None,
+        });
+        app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
+        app.state.workspaces[1].group_id = "work".into();
+        app.state.toggle_workspace_group(1);
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let source = app.state.view.workspace_card_areas[0].rect;
+        let header = app
+            .state
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .find(|header| header.group_idx == 1)
+            .copied()
+            .expect("work group header");
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, source.y));
+        app.handle_mouse(mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            2,
+            header.rect.y,
+        ));
+
+        assert!(!app.state.workspace_group_collapsed("work"));
     }
 
     #[test]

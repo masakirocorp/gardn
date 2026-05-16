@@ -677,6 +677,13 @@ pub struct WorkspaceGroupEmptyArea {
     pub rect: Rect,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkspaceGroupDropArea {
+    pub group_idx: usize,
+    pub insert_idx: usize,
+    pub rect: Rect,
+}
+
 /// Computed view geometry — derived from AppState + terminal size.
 /// Updated before each render, consumed by render and mouse handling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -692,6 +699,7 @@ pub struct ViewState {
     pub workspace_card_areas: Vec<WorkspaceCardArea>,
     pub workspace_group_header_areas: Vec<WorkspaceGroupHeaderArea>,
     pub workspace_group_empty_areas: Vec<WorkspaceGroupEmptyArea>,
+    pub workspace_group_drop_areas: Vec<WorkspaceGroupDropArea>,
     pub tab_bar_rect: Rect,
     pub tab_hit_areas: Vec<Rect>,
     pub tab_scroll_left_hit_area: Rect,
@@ -860,6 +868,7 @@ pub(crate) enum DragTarget {
         source_ws_idx: usize,
         insert_idx: Option<usize>,
         target_group_idx: Option<usize>,
+        indicator_row: Option<u16>,
     },
     TabReorder {
         ws_idx: usize,
@@ -1416,6 +1425,7 @@ impl AppState {
                 workspace_card_areas: Vec::new(),
                 workspace_group_header_areas: Vec::new(),
                 workspace_group_empty_areas: Vec::new(),
+                workspace_group_drop_areas: Vec::new(),
                 tab_bar_rect: Rect::default(),
                 tab_hit_areas: Vec::new(),
                 tab_scroll_left_hit_area: Rect::default(),

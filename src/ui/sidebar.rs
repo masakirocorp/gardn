@@ -634,6 +634,14 @@ pub(crate) fn compute_workspace_group_empty_areas(
     compute_workspace_group_empty_areas_in_list(app, ws_area)
 }
 
+pub(crate) fn compute_workspace_group_drop_areas(
+    app: &AppState,
+    area: Rect,
+) -> Vec<crate::app::state::WorkspaceGroupDropArea> {
+    let ws_area = workspace_list_rect(area, app.sidebar_section_split);
+    compute_workspace_group_drop_areas_in_list(app, ws_area)
+}
+
 pub(crate) fn compute_workspace_card_areas_in_list(
     app: &AppState,
     ws_area: Rect,
@@ -655,6 +663,13 @@ pub(crate) fn compute_workspace_group_empty_areas_in_list(
     compute_workspace_list_areas_in_list(app, ws_area).2
 }
 
+pub(crate) fn compute_workspace_group_drop_areas_in_list(
+    app: &AppState,
+    ws_area: Rect,
+) -> Vec<crate::app::state::WorkspaceGroupDropArea> {
+    compute_workspace_list_areas_in_list(app, ws_area).3
+}
+
 pub(crate) fn workspace_list_entry_count(app: &AppState) -> usize {
     workspace_list_entries(app).len()
 }
@@ -664,7 +679,7 @@ pub(crate) fn workspace_list_position_for_workspace(
     ws_idx: usize,
 ) -> Option<usize> {
     workspace_list_entries(app).iter().position(
-        |entry| matches!(entry, WorkspaceListEntry::Workspace { ws_idx: idx } if *idx == ws_idx),
+        |entry| matches!(entry, WorkspaceListEntry::Workspace { ws_idx: idx, .. } if *idx == ws_idx),
     )
 }
 
@@ -675,15 +690,16 @@ fn compute_workspace_list_areas_in_list(
     Vec<crate::app::state::WorkspaceCardArea>,
     Vec<crate::app::state::WorkspaceGroupHeaderArea>,
     Vec<crate::app::state::WorkspaceGroupEmptyArea>,
+    Vec<crate::app::state::WorkspaceGroupDropArea>,
 ) {
     if ws_area == Rect::default() {
-        return (Vec::new(), Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     }
 
     let metrics = workspace_list_scroll_metrics(app, ws_area);
     let body = workspace_list_body_rect(ws_area, should_show_scrollbar(metrics));
     if body.width == 0 || body.height == 0 {
-        return (Vec::new(), Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     }
 
     let mut row_y = body.y;
@@ -691,6 +707,7 @@ fn compute_workspace_list_areas_in_list(
     let mut cards = Vec::new();
     let mut headers = Vec::new();
     let mut empties = Vec::new();
+    let mut drops = Vec::new();
 
     for entry in workspace_list_entries(app)
         .into_iter()
@@ -714,27 +731,56 @@ fn compute_workspace_list_areas_in_list(
                     rect: Rect::new(body.x, row_y, body.width, 1),
                 });
             }
-            WorkspaceListEntry::Workspace { ws_idx } => {
+            WorkspaceListEntry::DropSlot {
+                group_idx,
+                insert_idx,
+            } => {
+                drops.push(crate::app::state::WorkspaceGroupDropArea {
+                    group_idx,
+                    insert_idx,
+                    rect: Rect::new(body.x, row_y, body.width, 1),
+                });
+            }
+            WorkspaceListEntry::Workspace { ws_idx, group_idx } => {
                 let Some(ws) = app.workspaces.get(ws_idx) else {
                     continue;
                 };
+                let row_height = workspace_row_height(ws);
                 cards.push(crate::app::state::WorkspaceCardArea {
                     ws_idx,
-                    rect: Rect::new(body.x, row_y, body.width, workspace_row_height(ws)),
+                    rect: Rect::new(body.x, row_y, body.width, row_height),
                 });
+                if let Some(group_idx) = group_idx {
+                    drops.push(crate::app::state::WorkspaceGroupDropArea {
+                        group_idx,
+                        insert_idx: ws_idx + 1,
+                        rect: Rect::new(body.x, row_y.saturating_add(row_height), body.width, 1),
+                    });
+                }
             }
         }
         row_y = row_y.saturating_add(row_height);
     }
 
-    (cards, headers, empties)
+    (cards, headers, empties, drops)
 }
 
 #[derive(Clone, Copy)]
 enum WorkspaceListEntry {
-    GroupHeader { group_idx: usize },
-    EmptyGroup { group_idx: usize },
-    Workspace { ws_idx: usize },
+    GroupHeader {
+        group_idx: usize,
+    },
+    EmptyGroup {
+        group_idx: usize,
+    },
+    DropSlot {
+        group_idx: usize,
+        insert_idx: usize,
+    },
+    Workspace {
+        ws_idx: usize,
+        group_idx: Option<usize>,
+    },
 }
 
 impl WorkspaceListEntry {
@@ -742,7 +788,8 @@ impl WorkspaceListEntry {
         match self {
             Self::GroupHeader { .. } => 1,
             Self::EmptyGroup { .. } => 1,
-            Self::Workspace { ws_idx } => app
+            Self::DropSlot { .. } => 1,
+            Self::Workspace { ws_idx, .. } => app
                 .workspaces
                 .get(ws_idx)
                 .map(|ws| workspace_row_height(ws).saturating_add(1))
@@ -756,7 +803,10 @@ fn workspace_list_entries(app: &AppState) -> Vec<WorkspaceListEntry> {
         return app
             .visible_workspace_indices()
             .into_iter()
-            .map(|ws_idx| WorkspaceListEntry::Workspace { ws_idx })
+            .map(|ws_idx| WorkspaceListEntry::Workspace {
+                ws_idx,
+                group_idx: None,
+            })
             .collect();
     }
 
@@ -773,11 +823,16 @@ fn workspace_list_entries(app: &AppState) -> Vec<WorkspaceListEntry> {
             if group_workspaces.is_empty() {
                 entries.push(WorkspaceListEntry::EmptyGroup { group_idx });
             } else {
-                entries.extend(
-                    group_workspaces
-                        .into_iter()
-                        .map(|ws_idx| WorkspaceListEntry::Workspace { ws_idx }),
-                );
+                entries.push(WorkspaceListEntry::DropSlot {
+                    group_idx,
+                    insert_idx: group_workspaces[0],
+                });
+                for ws_idx in group_workspaces {
+                    entries.push(WorkspaceListEntry::Workspace {
+                        ws_idx,
+                        group_idx: Some(group_idx),
+                    });
+                }
             }
         }
     }
@@ -1701,10 +1756,9 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
         _ => None,
     };
     let insertion_row = match app.drag.as_ref().map(|drag| &drag.target) {
-        Some(crate::app::state::DragTarget::WorkspaceReorder {
-            insert_idx: Some(insert_idx),
-            ..
-        }) => workspace_drop_indicator_row(&app.view.workspace_card_areas, area, *insert_idx),
+        Some(crate::app::state::DragTarget::WorkspaceReorder { indicator_row, .. }) => {
+            *indicator_row
+        }
         _ => None,
     };
 

@@ -640,6 +640,26 @@ impl AppState {
                     }
                 }
 
+                let dragging_workspace = self.workspace_press.is_some()
+                    || matches!(
+                        self.drag.as_ref().map(|drag| &drag.target),
+                        Some(DragTarget::WorkspaceReorder { .. })
+                    );
+                if dragging_workspace {
+                    if let Some(group_idx) = self.workspace_group_header_at_row(mouse.row) {
+                        if self
+                            .groups
+                            .get(group_idx)
+                            .is_some_and(|group| self.workspace_group_collapsed(&group.id))
+                        {
+                            self.toggle_workspace_group(group_idx);
+                            self.workspace_scroll = self
+                                .workspace_scroll
+                                .min(crate::ui::workspace_list_entry_count(self).saturating_sub(1));
+                        }
+                    }
+                }
+
                 let workspace_drop_target = self.workspace_drop_target_at_row(mouse.row);
                 let tab_drop_index = self.tab_drop_index_at(mouse.column, mouse.row);
                 if self.drag.is_none() {
@@ -654,6 +674,8 @@ impl AppState {
                                         .map(|target| target.insert_idx),
                                     target_group_idx: workspace_drop_target
                                         .and_then(|target| target.group_idx),
+                                    indicator_row: workspace_drop_target
+                                        .and_then(|target| target.indicator_row),
                                 },
                             });
                         }
@@ -677,12 +699,14 @@ impl AppState {
                         DragTarget::WorkspaceReorder {
                             insert_idx,
                             target_group_idx,
+                            indicator_row,
                             ..
                         },
                 }) = &mut self.drag
                 {
                     *insert_idx = workspace_drop_target.map(|target| target.insert_idx);
                     *target_group_idx = workspace_drop_target.and_then(|target| target.group_idx);
+                    *indicator_row = workspace_drop_target.and_then(|target| target.indicator_row);
                 } else if let Some(DragState {
                     target:
                         DragTarget::TabReorder {
@@ -796,6 +820,7 @@ impl AppState {
                                 source_ws_idx,
                                 insert_idx: Some(insert_idx),
                                 target_group_idx,
+                                ..
                             },
                     }) => {
                         let workspace_id =

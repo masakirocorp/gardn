@@ -66,6 +66,7 @@ pub(crate) use self::{
         collapsed_right_sidebar_port_entry_at_row, collapsed_right_sidebar_ports_header_rect,
         collapsed_sidebar_sections, collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect,
         compute_workspace_card_areas, compute_workspace_card_areas_in_list,
+        compute_workspace_group_drop_areas, compute_workspace_group_drop_areas_in_list,
         compute_workspace_group_empty_areas, compute_workspace_group_empty_areas_in_list,
         compute_workspace_group_header_areas, compute_workspace_group_header_areas_in_list,
         expanded_sidebar_sections, expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
@@ -229,10 +230,13 @@ fn compute_view_internal(
         app.agent_panel_scroll = 0;
     }
 
-    let (workspace_card_areas, workspace_group_header_areas, workspace_group_empty_areas) = if app
-        .sidebar_collapsed
-    {
-        (Vec::new(), Vec::new(), Vec::new())
+    let (
+        workspace_card_areas,
+        workspace_group_header_areas,
+        workspace_group_empty_areas,
+        workspace_group_drop_areas,
+    ) = if app.sidebar_collapsed {
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new())
     } else if right_sidebar_area != Rect::default() {
         (
             compute_workspace_card_areas_in_list(app, left_sidebar_workspace_rect(sidebar_area)),
@@ -244,12 +248,17 @@ fn compute_view_internal(
                 app,
                 left_sidebar_workspace_rect(sidebar_area),
             ),
+            compute_workspace_group_drop_areas_in_list(
+                app,
+                left_sidebar_workspace_rect(sidebar_area),
+            ),
         )
     } else {
         (
             compute_workspace_card_areas(app, sidebar_area),
             compute_workspace_group_header_areas(app, sidebar_area),
             compute_workspace_group_empty_areas(app, sidebar_area),
+            compute_workspace_group_drop_areas(app, sidebar_area),
         )
     };
 
@@ -292,6 +301,7 @@ fn compute_view_internal(
         workspace_card_areas,
         workspace_group_header_areas,
         workspace_group_empty_areas,
+        workspace_group_drop_areas,
         tab_bar_rect,
         tab_hit_areas: tab_bar_view.tab_hit_areas,
         tab_scroll_left_hit_area: tab_bar_view.scroll_left_hit_area,
@@ -366,6 +376,7 @@ fn compute_mobile_view(
         workspace_card_areas: Vec::new(),
         workspace_group_header_areas: Vec::new(),
         workspace_group_empty_areas: Vec::new(),
+        workspace_group_drop_areas: Vec::new(),
         tab_bar_rect: Rect::default(),
         tab_hit_areas: Vec::new(),
         tab_scroll_left_hit_area: Rect::default(),
