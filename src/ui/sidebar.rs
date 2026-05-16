@@ -709,8 +709,11 @@ fn compute_workspace_list_areas_in_list(
     let mut empties = Vec::new();
     let mut drops = Vec::new();
 
-    for entry in workspace_list_entries(app)
-        .into_iter()
+    let entries = workspace_list_entries(app);
+    for (entry_pos, entry) in entries
+        .iter()
+        .copied()
+        .enumerate()
         .skip(app.workspace_scroll)
     {
         let row_height = entry.row_height(app);
@@ -731,16 +734,6 @@ fn compute_workspace_list_areas_in_list(
                     rect: Rect::new(body.x, row_y, body.width, 1),
                 });
             }
-            WorkspaceListEntry::DropSlot {
-                group_idx,
-                insert_idx,
-            } => {
-                drops.push(crate::app::state::WorkspaceGroupDropArea {
-                    group_idx,
-                    insert_idx,
-                    rect: Rect::new(body.x, row_y, body.width, 1),
-                });
-            }
             WorkspaceListEntry::Workspace { ws_idx, group_idx } => {
                 let Some(ws) = app.workspaces.get(ws_idx) else {
                     continue;
@@ -751,10 +744,34 @@ fn compute_workspace_list_areas_in_list(
                     rect: Rect::new(body.x, row_y, body.width, row_height),
                 });
                 if let Some(group_idx) = group_idx {
+                    let group_is_seen =
+                        drops
+                            .iter()
+                            .any(|drop: &crate::app::state::WorkspaceGroupDropArea| {
+                                drop.group_idx == group_idx
+                            });
+                    if !group_is_seen {
+                        drops.push(crate::app::state::WorkspaceGroupDropArea {
+                            group_idx,
+                            insert_idx: ws_idx,
+                            rect: Rect::new(body.x, row_y, body.width, 1),
+                        });
+                    }
                     drops.push(crate::app::state::WorkspaceGroupDropArea {
                         group_idx,
                         insert_idx: ws_idx + 1,
-                        rect: Rect::new(body.x, row_y.saturating_add(row_height), body.width, 1),
+                        rect: Rect::new(
+                            body.x,
+                            workspace_after_drop_row(
+                                &entries,
+                                entry_pos,
+                                row_y,
+                                row_height,
+                                body_bottom,
+                            ),
+                            body.width,
+                            1,
+                        ),
                     });
                 }
             }
@@ -765,6 +782,26 @@ fn compute_workspace_list_areas_in_list(
     (cards, headers, empties, drops)
 }
 
+fn workspace_after_drop_row(
+    entries: &[WorkspaceListEntry],
+    entry_pos: usize,
+    row_y: u16,
+    row_height: u16,
+    body_bottom: u16,
+) -> u16 {
+    let after_row = row_y.saturating_add(row_height);
+    if matches!(
+        entries.get(entry_pos + 1),
+        Some(WorkspaceListEntry::Workspace { .. })
+    ) {
+        after_row.min(body_bottom.saturating_sub(1))
+    } else {
+        after_row
+            .saturating_sub(1)
+            .min(body_bottom.saturating_sub(1))
+    }
+}
+
 #[derive(Clone, Copy)]
 enum WorkspaceListEntry {
     GroupHeader {
@@ -772,10 +809,6 @@ enum WorkspaceListEntry {
     },
     EmptyGroup {
         group_idx: usize,
-    },
-    DropSlot {
-        group_idx: usize,
-        insert_idx: usize,
     },
     Workspace {
         ws_idx: usize,
@@ -788,11 +821,10 @@ impl WorkspaceListEntry {
         match self {
             Self::GroupHeader { .. } => 1,
             Self::EmptyGroup { .. } => 1,
-            Self::DropSlot { .. } => 1,
             Self::Workspace { ws_idx, .. } => app
                 .workspaces
                 .get(ws_idx)
-                .map(|ws| workspace_row_height(ws).saturating_add(1))
+                .map(workspace_row_height)
                 .unwrap_or(0),
         }
     }
@@ -823,10 +855,6 @@ fn workspace_list_entries(app: &AppState) -> Vec<WorkspaceListEntry> {
             if group_workspaces.is_empty() {
                 entries.push(WorkspaceListEntry::EmptyGroup { group_idx });
             } else {
-                entries.push(WorkspaceListEntry::DropSlot {
-                    group_idx,
-                    insert_idx: group_workspaces[0],
-                });
                 for ws_idx in group_workspaces {
                     entries.push(WorkspaceListEntry::Workspace {
                         ws_idx,
@@ -1039,28 +1067,26 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
 
 pub(crate) fn workspace_drop_indicator_row(
     cards: &[crate::app::state::WorkspaceCardArea],
-    area: Rect,
+    _area: Rect,
     insert_idx: usize,
 ) -> Option<u16> {
-    if area.height == 0 {
-        return None;
-    }
-    let list_bottom = area.y + area.height.saturating_sub(1);
-
     let first = cards.first()?;
     if insert_idx == first.ws_idx {
-        return first.rect.y.checked_sub(1).filter(|y| *y < list_bottom);
+        return Some(first.rect.y);
     }
 
     if let Some(card) = cards.iter().find(|card| card.ws_idx == insert_idx) {
-        return card.rect.y.checked_sub(1).filter(|y| *y < list_bottom);
+        return Some(card.rect.y);
     }
 
     cards
         .last()
         .filter(|card| insert_idx == card.ws_idx.saturating_add(1))
-        .map(|card| card.rect.y.saturating_add(card.rect.height))
-        .filter(|y| *y < list_bottom)
+        .map(|card| {
+            card.rect
+                .y
+                .saturating_add(card.rect.height.saturating_sub(1))
+        })
 }
 
 pub(super) fn render_sidebar(app: &AppState, frame: &mut Frame, area: Rect) {

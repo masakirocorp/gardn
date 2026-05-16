@@ -752,6 +752,10 @@ impl AppState {
         }
 
         if !self.sidebar_collapsed && !self.group_filter_enabled {
+            if self.workspace_group_header_at_row(row).is_some() {
+                return None;
+            }
+
             if let Some(group_idx) = self.workspace_group_empty_at_row(row) {
                 return Some(WorkspaceDropTarget {
                     insert_idx: self.group_insert_end(group_idx),
@@ -2960,7 +2964,7 @@ mod tests {
     }
 
     #[test]
-    fn top_drop_slot_is_distinct_from_gap_below_first_workspace() {
+    fn compact_workspace_rows_still_have_distinct_drop_targets() {
         let mut app = app_for_mouse_test();
         let first_repo = temp_git_repo("main");
         let second_repo = temp_git_repo("main");
@@ -2987,6 +2991,7 @@ mod tests {
         let cards = &app.state.view.workspace_card_areas;
         let first = cards[0].rect;
         let second = cards[1].rect;
+        assert_eq!(second.y, first.y + first.height);
         assert_eq!(
             app.state
                 .workspace_drop_index_at_row(first.y.saturating_sub(1)),
@@ -3009,7 +3014,7 @@ mod tests {
     }
 
     #[test]
-    fn bottom_drop_slot_stays_below_last_workspace_not_footer() {
+    fn bottom_drop_slot_stays_on_last_workspace_not_footer() {
         let mut app = app_for_mouse_test();
         app.state.workspaces = vec![
             Workspace::test_new("a"),
@@ -3027,7 +3032,7 @@ mod tests {
         .unwrap();
 
         let last = cards.last().unwrap().rect;
-        assert_eq!(bottom_slot, last.y + last.height);
+        assert_eq!(bottom_slot, last.y + last.height.saturating_sub(1));
         assert!(bottom_slot < app.state.sidebar_footer_rect().y);
     }
 
