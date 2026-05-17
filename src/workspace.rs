@@ -378,6 +378,35 @@ impl Workspace {
         Ok(new_pane)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn split_focused_command(
+        &mut self,
+        direction: Direction,
+        rows: u16,
+        cols: u16,
+        cwd: Option<PathBuf>,
+        command: &str,
+        extra_env: &[(String, String)],
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+    ) -> std::io::Result<crate::workspace::tab::NewPane> {
+        let new_pane = self
+            .active_tab_mut()
+            .expect("workspace must always have at least one tab")
+            .split_focused_command(
+                direction,
+                rows,
+                cols,
+                cwd,
+                command,
+                extra_env,
+                scrollback_limit_bytes,
+                host_terminal_theme,
+            )?;
+        self.register_new_pane(new_pane.pane_id);
+        Ok(new_pane)
+    }
+
     pub fn split_pane(
         &mut self,
         pane_id: PaneId,

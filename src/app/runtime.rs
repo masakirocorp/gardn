@@ -191,6 +191,7 @@ impl App {
 
         if now >= self.next_command_scan {
             changed |= self.state.refresh_command_catalog();
+            changed |= self.state.refresh_command_run_statuses();
             self.next_command_scan = now + COMMAND_SCAN_INTERVAL;
         }
 

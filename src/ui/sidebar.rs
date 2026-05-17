@@ -1315,6 +1315,15 @@ pub(crate) fn right_sidebar_commands_header_rect(app: &AppState, area: Rect) -> 
     Rect::new(command_area.x, command_area.y, command_area.width, 1)
 }
 
+pub(crate) fn right_sidebar_command_entry_at_row(
+    app: &AppState,
+    area: Rect,
+    row: u16,
+) -> Option<String> {
+    let (_, command_area, _) = right_sidebar_activity_panel_rects(app, area);
+    command_panel_entry_at_row(app, command_area, row)
+}
+
 fn command_panel_entries(app: &AppState) -> Vec<CommandPanelEntry> {
     let mut entries = app
         .command_catalog
@@ -1338,6 +1347,29 @@ fn command_panel_entries(app: &AppState) -> Vec<CommandPanelEntry> {
 
 fn command_status_rank(status: Option<CommandRunStatus>) -> usize {
     status.map_or(usize::MAX, CommandRunStatus::rank)
+}
+
+fn command_panel_entry_at_row(app: &AppState, area: Rect, row: u16) -> Option<String> {
+    if area == Rect::default()
+        || area.height < 3
+        || row < area.y + COMMAND_PANEL_HEADER_ROWS
+        || row >= area.y + area.height
+    {
+        return None;
+    }
+
+    let mut row_y = area.y + COMMAND_PANEL_HEADER_ROWS;
+    for entry in command_panel_entries(app) {
+        if row_y + 1 >= area.y + area.height {
+            break;
+        }
+        if row == row_y || row == row_y + 1 {
+            return Some(entry.command.id);
+        }
+        row_y += 2;
+    }
+
+    None
 }
 
 fn port_panel_entries(app: &AppState) -> Vec<PortPanelEntry> {

@@ -399,6 +399,7 @@ impl App {
             request_reload_config: false,
             request_client_sound_config_reload: false,
             request_clipboard_write: None,
+            request_command_action: None,
             creating_new_tab: false,
             creating_new_group: false,
             group_icon_input: state::DEFAULT_GROUP_ICON.to_string(),

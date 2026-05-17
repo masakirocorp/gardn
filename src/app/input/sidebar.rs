@@ -950,6 +950,14 @@ impl AppState {
         crate::ui::port_panel_entry_at_row(self, port_area, row)
     }
 
+    pub(super) fn command_detail_target_at(&self, row: u16) -> Option<String> {
+        if self.right_sidebar_collapsed || self.view.right_sidebar_rect == Rect::default() {
+            return None;
+        }
+
+        crate::ui::right_sidebar_command_entry_at_row(self, self.view.right_sidebar_rect, row)
+    }
+
     pub(super) fn collapsed_right_sidebar_agent_target_at(
         &self,
         row: u16,

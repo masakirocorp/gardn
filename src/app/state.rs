@@ -1025,6 +1025,12 @@ pub struct CommandPaletteState {
     pub scroll: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandPanelAction {
+    RunOrFocus(String),
+    Stop(String),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarWidthSource {
     ConfigDefault,
@@ -1063,6 +1069,7 @@ pub struct AppState {
     /// Set when UI interaction requested a clipboard write that must be
     /// handled by the outer App/event loop instead of directly from AppState.
     pub request_clipboard_write: Option<Vec<u8>>,
+    pub request_command_action: Option<CommandPanelAction>,
     pub creating_new_tab: bool,
     pub creating_new_group: bool,
     pub group_icon_input: String,
@@ -1484,6 +1491,7 @@ impl AppState {
             request_reload_config: false,
             request_client_sound_config_reload: false,
             request_clipboard_write: None,
+            request_command_action: None,
             creating_new_tab: false,
             creating_new_group: false,
             group_icon_input: DEFAULT_GROUP_ICON.to_string(),
