@@ -1978,7 +1978,14 @@ fn workspace_summary_spans(
     };
 
     if summary.conflicted + summary.added + summary.modified + summary.deleted == 0 {
-        return vec![summary_span("clean", p.overlay0, max_width)];
+        if summary.repo_count > 1 {
+            return vec![summary_span(
+                &format!("{} repos", summary.repo_count),
+                p.overlay0,
+                max_width,
+            )];
+        }
+        return Vec::new();
     }
 
     let mut pieces = Vec::new();
