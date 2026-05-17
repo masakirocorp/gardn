@@ -630,14 +630,6 @@ pub(crate) fn compute_workspace_group_empty_areas(
     compute_workspace_group_empty_areas_in_list(app, ws_area)
 }
 
-pub(crate) fn compute_workspace_group_drop_areas(
-    app: &AppState,
-    area: Rect,
-) -> Vec<crate::app::state::WorkspaceGroupDropArea> {
-    let ws_area = workspace_list_rect(area, app.sidebar_section_split);
-    compute_workspace_group_drop_areas_in_list(app, ws_area)
-}
-
 pub(crate) fn compute_workspace_card_areas_in_list(
     app: &AppState,
     ws_area: Rect,

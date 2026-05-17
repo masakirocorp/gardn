@@ -735,8 +735,8 @@ impl AppState {
         }
 
         if !self.sidebar_collapsed && !self.group_filter_enabled {
-            let headers =
-                crate::ui::compute_workspace_group_header_areas(self, self.view.sidebar_rect);
+            let list = self.workspace_list_rect();
+            let headers = crate::ui::compute_workspace_group_header_areas_in_list(self, list);
             if headers
                 .iter()
                 .any(|header| row >= header.rect.y && row < header.rect.y + header.rect.height)
@@ -744,8 +744,7 @@ impl AppState {
                 return None;
             }
 
-            let empties =
-                crate::ui::compute_workspace_group_empty_areas(self, self.view.sidebar_rect);
+            let empties = crate::ui::compute_workspace_group_empty_areas_in_list(self, list);
             if let Some(group_idx) = empties.iter().find_map(|empty| {
                 (row >= empty.rect.y && row < empty.rect.y + empty.rect.height)
                     .then_some(empty.group_idx)
@@ -757,7 +756,7 @@ impl AppState {
                 });
             }
 
-            let drops = crate::ui::compute_workspace_group_drop_areas(self, self.view.sidebar_rect);
+            let drops = crate::ui::compute_workspace_group_drop_areas_in_list(self, list);
 
             return drops.iter().find_map(|drop| {
                 (row >= drop.rect.y && row < drop.rect.y + drop.rect.height).then_some(
@@ -1066,6 +1065,39 @@ mod tests {
 
         assert!(app.state.workspace_group_collapsed("work"));
         assert_eq!(app.state.sidebar_visible_workspace_indices(), vec![0]);
+    }
+
+    #[test]
+    fn collapsing_group_moves_selection_to_visible_workspace() {
+        let mut app = app_for_mouse_test();
+        app.state.group_filter_enabled = false;
+        app.state.groups.push(Group {
+            id: "work".into(),
+            name: "work".into(),
+            icon: "■".into(),
+            theme_name: None,
+        });
+        app.state.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
+        app.state.workspaces[1].group_id = "work".into();
+        app.state.selected = 1;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+        let header = app
+            .state
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .find(|header| header.group_idx == 1)
+            .copied()
+            .expect("work group header");
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            header.rect.x,
+            header.rect.y,
+        ));
+
+        assert!(app.state.workspace_group_collapsed("work"));
+        assert_eq!(app.state.selected, 0);
     }
 
     #[test]
@@ -2699,8 +2731,10 @@ mod tests {
         app.state.selected = 0;
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 24));
         let source = app.state.view.workspace_card_areas[1].rect;
-        let drop_areas =
-            crate::ui::compute_workspace_group_drop_areas(&app.state, app.state.view.sidebar_rect);
+        let drop_areas = crate::ui::compute_workspace_group_drop_areas_in_list(
+            &app.state,
+            app.state.workspace_list_rect(),
+        );
         let target = drop_areas
             .iter()
             .find(|area| area.group_idx == 1 && area.insert_idx == 2)
@@ -2749,8 +2783,10 @@ mod tests {
         app.state.selected = 2;
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 24));
         let source = app.state.view.workspace_card_areas[2].rect;
-        let drop_areas =
-            crate::ui::compute_workspace_group_drop_areas(&app.state, app.state.view.sidebar_rect);
+        let drop_areas = crate::ui::compute_workspace_group_drop_areas_in_list(
+            &app.state,
+            app.state.workspace_list_rect(),
+        );
         let target = drop_areas
             .iter()
             .find(|area| area.group_idx == 0 && area.insert_idx == 2)
@@ -2777,6 +2813,37 @@ mod tests {
             .map(|workspace| workspace.display_name())
             .collect();
         assert_eq!(default_names, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn workspace_drop_targets_use_left_workspace_area_with_right_sidebar() {
+        let mut app = app_for_mouse_test();
+        app.state.group_filter_enabled = false;
+        app.state.groups.push(Group {
+            id: "work".into(),
+            name: "work".into(),
+            icon: "■".into(),
+            theme_name: None,
+        });
+        app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
+        app.state.workspaces[1].group_id = "work".into();
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 24));
+        assert_ne!(app.state.view.right_sidebar_rect, Rect::default());
+        let list = app.state.workspace_list_rect();
+        let drop_areas = crate::ui::compute_workspace_group_drop_areas_in_list(&app.state, list);
+        let target = drop_areas
+            .iter()
+            .find(|area| area.group_idx == 1 && area.insert_idx == 1)
+            .copied()
+            .expect("work group top drop slot");
+
+        let hit = app
+            .state
+            .workspace_drop_target_at_row(target.rect.y)
+            .expect("drop target");
+
+        assert_eq!(hit.group_idx, Some(1));
+        assert_eq!(hit.insert_idx, 1);
     }
 
     #[test]

@@ -1262,6 +1262,7 @@ impl AppState {
         let Some(group_id) = self.groups.get(group_idx).map(|group| group.id.clone()) else {
             return;
         };
+        let previous_selected = self.selected;
         if let Some(idx) = self
             .collapsed_workspace_groups
             .iter()
@@ -1271,6 +1272,32 @@ impl AppState {
         } else {
             self.collapsed_workspace_groups.push(group_id);
         }
+        self.workspace_scroll = self
+            .workspace_scroll
+            .min(crate::ui::workspace_list_entry_count(self).saturating_sub(1));
+        if !self
+            .sidebar_visible_workspace_indices()
+            .contains(&self.selected)
+        {
+            let visible = self.sidebar_visible_workspace_indices();
+            if let Some(next) = visible
+                .iter()
+                .copied()
+                .find(|idx| *idx > previous_selected)
+                .or_else(|| {
+                    visible
+                        .iter()
+                        .rev()
+                        .copied()
+                        .find(|idx| *idx < previous_selected)
+                })
+                .or_else(|| visible.first().copied())
+            {
+                self.selected = next;
+                self.ensure_workspace_visible(next);
+            }
+        }
+        self.mark_session_dirty();
     }
 
     pub fn first_visible_workspace(&self) -> Option<usize> {

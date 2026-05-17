@@ -66,7 +66,7 @@ pub(crate) use self::{
         collapsed_right_sidebar_port_entry_at_row, collapsed_right_sidebar_ports_header_rect,
         collapsed_sidebar_sections, collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect,
         compute_workspace_card_areas, compute_workspace_card_areas_in_list,
-        compute_workspace_group_drop_areas, compute_workspace_group_empty_areas,
+        compute_workspace_group_drop_areas_in_list, compute_workspace_group_empty_areas,
         compute_workspace_group_empty_areas_in_list, compute_workspace_group_header_areas,
         compute_workspace_group_header_areas_in_list, expanded_sidebar_sections,
         expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
