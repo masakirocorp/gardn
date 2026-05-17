@@ -109,6 +109,8 @@ pub struct PaneSnapshot {
     pub cwd: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
 }
 
 /// Serializable BSP tree.
@@ -252,10 +254,19 @@ fn first_pane_id_in_layout(layout: &LayoutSnapshot) -> Option<u32> {
 }
 
 /// Capture the current app state into a serializable snapshot.
+#[allow(clippy::too_many_arguments)]
 pub fn capture(
     groups: &[crate::app::state::Group],
     active_group: usize,
     workspaces: &[Workspace],
+    terminals: &std::collections::HashMap<
+        crate::terminal::TerminalId,
+        crate::terminal::TerminalState,
+    >,
+    terminal_runtimes: &std::collections::HashMap<
+        crate::terminal::TerminalId,
+        crate::terminal::TerminalRuntime,
+    >,
     active: Option<usize>,
     selected: usize,
     agent_panel_scope: crate::app::state::AgentPanelScope,
@@ -269,7 +280,10 @@ pub fn capture(
         version: SNAPSHOT_VERSION,
         groups: groups.iter().map(capture_group).collect(),
         active_group,
-        workspaces: workspaces.iter().map(capture_workspace).collect(),
+        workspaces: workspaces
+            .iter()
+            .map(|workspace| capture_workspace(workspace, terminals, terminal_runtimes))
+            .collect(),
         active,
         selected,
         agent_panel_scope,
@@ -290,27 +304,67 @@ fn capture_group(group: &crate::app::state::Group) -> GroupSnapshot {
     }
 }
 
-fn capture_workspace(ws: &Workspace) -> WorkspaceSnapshot {
+fn capture_workspace(
+    ws: &Workspace,
+    terminals: &std::collections::HashMap<
+        crate::terminal::TerminalId,
+        crate::terminal::TerminalState,
+    >,
+    terminal_runtimes: &std::collections::HashMap<
+        crate::terminal::TerminalId,
+        crate::terminal::TerminalRuntime,
+    >,
+) -> WorkspaceSnapshot {
     WorkspaceSnapshot {
         id: Some(ws.id.clone()),
         custom_name: ws.custom_name.clone(),
         group_id: ws.group_id.clone(),
         identity_cwd: ws
-            .resolved_identity_cwd()
+            .resolved_identity_cwd_from(terminals, terminal_runtimes)
             .unwrap_or_else(|| ws.identity_cwd.clone()),
-        tabs: ws.tabs.iter().map(capture_tab).collect(),
+        tabs: ws
+            .tabs
+            .iter()
+            .map(|tab| capture_tab(tab, terminals, terminal_runtimes))
+            .collect(),
         active_tab: ws.active_tab,
     }
 }
 
-fn capture_tab(tab: &crate::workspace::Tab) -> TabSnapshot {
+fn capture_tab(
+    tab: &crate::workspace::Tab,
+    terminals: &std::collections::HashMap<
+        crate::terminal::TerminalId,
+        crate::terminal::TerminalState,
+    >,
+    terminal_runtimes: &std::collections::HashMap<
+        crate::terminal::TerminalId,
+        crate::terminal::TerminalRuntime,
+    >,
+) -> TabSnapshot {
     let mut panes = HashMap::new();
     for id in tab.panes.keys() {
         let cwd = tab
-            .cwd_for_pane(*id)
+            .cwd_for_pane(*id, terminals, terminal_runtimes)
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| "/".into()));
-        let label = tab.panes.get(id).and_then(|pane| pane.manual_label.clone());
-        panes.insert(id.raw(), PaneSnapshot { cwd, label });
+        let label = tab
+            .panes
+            .get(id)
+            .and_then(|pane| terminals.get(&pane.attached_terminal_id))
+            .and_then(|terminal| terminal.manual_label.clone());
+        let agent_name = tab
+            .panes
+            .get(id)
+            .and_then(|pane| terminals.get(&pane.attached_terminal_id))
+            .and_then(|terminal| terminal.agent_name.clone());
+        panes.insert(
+            id.raw(),
+            PaneSnapshot {
+                cwd,
+                label,
+                agent_name,
+            },
+        );
     }
     TabSnapshot {
         custom_name: tab.custom_name.clone(),
@@ -389,6 +443,7 @@ mod tests {
     fn state_with_workspaces(names: &[&str]) -> AppState {
         let mut state = AppState::test_new();
         state.workspaces = names.iter().map(|name| Workspace::test_new(name)).collect();
+        state.ensure_test_terminals();
         if !state.workspaces.is_empty() {
             state.active = Some(0);
             state.selected = 0;
@@ -402,6 +457,8 @@ mod tests {
             &state.groups,
             state.active_group,
             &state.workspaces,
+            &state.terminals,
+            &state.terminal_runtimes,
             state.active,
             state.selected,
             state.agent_panel_scope,
@@ -501,6 +558,7 @@ mod tests {
             PaneSnapshot {
                 cwd: PathBuf::from("/home/can/Projects/herdr"),
                 label: None,
+                agent_name: None,
             },
         );
         panes.insert(
@@ -508,6 +566,7 @@ mod tests {
             PaneSnapshot {
                 cwd: PathBuf::from("/home/can/Projects/website"),
                 label: Some("website".into()),
+                agent_name: None,
             },
         );
 
@@ -722,7 +781,7 @@ mod tests {
         let root = state.workspaces[0].tabs[0].root_pane;
         let second = state.workspaces[0].test_split(Direction::Horizontal);
         state.workspaces[0].tabs[0].layout.focus_pane(second);
-        state.toggle_fullscreen();
+        state.toggle_zoom();
 
         let snapshot = capture_from_state(&state);
         let tab = &snapshot.workspaces[0].tabs[0];
@@ -795,13 +854,17 @@ mod tests {
     fn capture_contract_tracks_workspace_identity_and_pane_cwds() {
         let mut state = state_with_workspaces(&["one"]);
         let root = state.workspaces[0].tabs[0].root_pane;
-        state.workspaces[0].tabs[0]
-            .pane_cwds
-            .insert(root, PathBuf::from("/tmp/pion"));
+        state.workspaces[0].identity_cwd = PathBuf::from("/tmp/pion");
         let second = state.workspaces[0].test_split(Direction::Horizontal);
-        state.workspaces[0].tabs[0]
-            .pane_cwds
-            .insert(second, PathBuf::from("/tmp/herdr"));
+        state.ensure_test_terminals();
+        let root_terminal_id = state.workspaces[0].tabs[0].panes[&root]
+            .attached_terminal_id
+            .clone();
+        state.terminals.get_mut(&root_terminal_id).unwrap().cwd = PathBuf::from("/tmp/pion");
+        let second_terminal_id = state.workspaces[0].tabs[0].panes[&second]
+            .attached_terminal_id
+            .clone();
+        state.terminals.get_mut(&second_terminal_id).unwrap().cwd = PathBuf::from("/tmp/herdr");
 
         let snapshot = capture_from_state(&state);
         let workspace = &snapshot.workspaces[0];
@@ -839,6 +902,7 @@ mod tests {
             PaneSnapshot {
                 cwd: PathBuf::from("/tmp/this-directory-does-not-exist-for-herdr-test"),
                 label: None,
+                agent_name: None,
             },
         );
         panes.insert(
@@ -848,6 +912,7 @@ mod tests {
                     .map(PathBuf::from)
                     .unwrap_or_else(|_| PathBuf::from("/tmp")),
                 label: None,
+                agent_name: None,
             },
         );
 

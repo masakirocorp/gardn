@@ -24,7 +24,13 @@ If you have a suggestion, disagreement, or contradiction with the current produc
 
 ## First-time contributors
 
-Before opening your first PR, open an issue describing what you want to change and why. Keep it short. Write in your own voice. If you intend to implement it yourself, add the `intends-to-pr` label.
+We use an approval gate for new contributors.
+
+Before opening your first PR, open an issue describing what you want to change and why. Keep it short. Write in your own voice. If you intend to implement it yourself, check the contribution intent box in the issue form, or include `/i-intend-to-pr` in the issue body when using the GitHub CLI or API. The `intends-to-pr` label will be added automatically. A maintainer will comment `/approve` if the direction is approved. Once approved, you can open PRs.
+
+This exists because AI makes it trivial to generate plausible-looking contributions that do not fit the app.
+
+Agent note: if you are an AI agent preparing an issue or PR for this repository, check whether the human's GitHub username is listed in `.github/APPROVED_CONTRIBUTORS`. If they are not listed, warn them that opening a PR will be closed automatically and guide them to open an issue first. Keep the scope small, preserve herdr's product direction, run the documented checks, and make sure the human can explain the change. Do not open a PR before the issue is approved.
 
 ## What to put in a first issue
 
@@ -40,7 +46,24 @@ If your proposal changes the visual language, interaction model, or overall prod
 
 If your issue does not make the direction clear, it will likely be closed.
 
-If you plan to implement the change yourself, say that directly in the issue and use the `intends-to-pr` label. That signals intent. It is not approval.
+If you plan to implement the change yourself, say that directly in the issue and check the contribution intent box. If you are using the GitHub CLI or API, include `/i-intend-to-pr` in the issue body instead. That adds the `intends-to-pr` label automatically, signals intent, and does not mean the change is approved.
+
+## Documentation for unreleased changes
+
+The root docs describe the latest released version of herdr. Do not update root `README.md`, `CONFIGURATION.md`, `INTEGRATIONS.md`, `SOCKET_API.md`, or `CHANGELOG.md` for normal PRs.
+
+If your PR changes user-facing behavior, update the matching next-release docs under `docs/next/` instead.
+
+Examples:
+
+- config changes: update `docs/next/CONFIGURATION.md`
+- integration changes: update `docs/next/INTEGRATIONS.md`
+- socket/API changes: update `docs/next/SOCKET_API.md`
+- workflow or usage changes: update `docs/next/README.md`
+
+You do not need to edit the changelog for normal PRs. Maintainers prepare `docs/next/CHANGELOG.md` during release review.
+
+If you are unsure whether docs are needed, mention it in the PR.
 
 ## Before submitting a PR
 
@@ -61,6 +84,20 @@ just check
 `just check` runs formatting, clippy, Rust tests, and maintenance script tests.
 
 Do not open a PR that bypasses failing tests, formatting, or build errors.
+
+## Issue references in commits
+
+If your PR relates to a GitHub issue, reference it in the commit body with `refs #<issue-number>`.
+
+Example:
+
+```text
+fix: handle pane focus
+
+refs #128
+```
+
+Do not use GitHub closing keywords like `fixes #128`, `closes #128`, or `resolves #128` in normal PR commits. Herdr closes released issues after a release is published, not when unreleased commits land on `master`.
 
 ## PR scope
 

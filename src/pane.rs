@@ -20,14 +20,12 @@ mod osc;
 mod state;
 mod terminal;
 
-use self::{
-    state::stabilize_agent_state,
-    terminal::{GhosttyPaneTerminal, PaneTerminal},
-};
+use self::terminal::{GhosttyPaneTerminal, PaneTerminal};
 pub use self::{
-    state::{EffectiveStateChange, PaneState},
+    state::PaneState,
     terminal::{InputState, ScrollMetrics, TerminalCursorState},
 };
+use crate::terminal::stabilize_agent_state;
 
 const RELEASE_REACQUIRE_SUPPRESSION: std::time::Duration = std::time::Duration::from_secs(1);
 const PANE_TERM: &str = "xterm-256color";
@@ -160,6 +158,7 @@ impl AgentDetectionPresence {
 /// PTY runtime for a pane. Owns the terminal, I/O channels, and background tasks.
 /// Dropping this shuts down all background tasks and closes the PTY.
 pub struct PaneRuntime {
+    pane_id: PaneId,
     terminal: Arc<PaneTerminal>,
     sender: mpsc::Sender<Bytes>,
     resize_tx: watch::Sender<(u16, u16, u32, u32)>,
@@ -181,10 +180,11 @@ pub enum WheelRouting {
 
 impl Drop for PaneRuntime {
     fn drop(&mut self) {
-        // Abort detection task immediately.
+        // Abort detection task immediately and terminate the owned session.
         // Reader/writer/resize tasks shut down naturally via channel close
         // and PTY EOF when the rest of PaneRuntime is dropped.
         self.detect_handle.abort();
+        shutdown_pane_processes(self.pane_id, self.child_pid.load(Ordering::Acquire));
     }
 }
 
@@ -251,9 +251,9 @@ fn shutdown_pane_processes(pane_id: PaneId, child_pid: u32) {
 }
 
 impl PaneRuntime {
-    pub fn shutdown(self, pane_id: PaneId) {
+    pub fn shutdown(self) {
         self.detect_handle.abort();
-        shutdown_pane_processes(pane_id, self.child_pid.load(Ordering::Acquire));
+        shutdown_pane_processes(self.pane_id, self.child_pid.load(Ordering::Acquire));
     }
 
     pub fn apply_host_terminal_theme(&self, theme: crate::terminal_theme::TerminalTheme) {
@@ -329,6 +329,46 @@ impl PaneRuntime {
             render_dirty,
             cmd,
             "failed to spawn command pane",
+        )
+    }
+
+    pub fn spawn_argv_command(
+        pane_id: PaneId,
+        rows: u16,
+        cols: u16,
+        cwd: std::path::PathBuf,
+        argv: &[String],
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<AtomicBool>,
+    ) -> std::io::Result<Self> {
+        let Some((program, args)) = argv.split_first() else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "argv must not be empty",
+            ));
+        };
+        let mut cmd = CommandBuilder::new(program);
+        for arg in args {
+            cmd.arg(arg);
+        }
+        cmd.cwd(cwd);
+        cmd.env(crate::HERDR_ENV_VAR, crate::HERDR_ENV_VALUE);
+        apply_pane_terminal_env(&mut cmd);
+        crate::integration::apply_pane_env(&mut cmd, pane_id);
+        Self::spawn_command_builder(
+            pane_id,
+            rows,
+            cols,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            events,
+            render_notify,
+            render_dirty,
+            cmd,
+            "failed to spawn argv command pane",
         )
     }
 
@@ -712,6 +752,7 @@ impl PaneRuntime {
         }
 
         Ok(Self {
+            pane_id,
             terminal,
             sender: input_tx,
             resize_tx,
@@ -794,6 +835,7 @@ impl PaneRuntime {
             x: area.x + cursor.x,
             y: area.y + cursor.y,
             visible: cursor.visible,
+            shape: cursor.shape,
         })
     }
 
@@ -1009,6 +1051,7 @@ impl PaneRuntime {
 
         (
             Self {
+                pane_id: PaneId::from_raw(0),
                 terminal: Arc::new(PaneTerminal::new(
                     GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap(),
                 )),
@@ -1091,6 +1134,7 @@ mod tests {
             .mode_set(crate::ghostty::MODE_FOCUS_EVENT, true)
             .unwrap();
         let runtime = PaneRuntime {
+            pane_id: PaneId::from_raw(0),
             terminal: Arc::new(PaneTerminal::new(
                 GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap(),
             )),
@@ -1114,6 +1158,7 @@ mod tests {
         let (resize_tx, _resize_rx) = watch::channel((80, 24, 0, 0));
         let terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
         let runtime = PaneRuntime {
+            pane_id: PaneId::from_raw(0),
             terminal: Arc::new(PaneTerminal::new(
                 GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap(),
             )),
@@ -1197,6 +1242,7 @@ mod tests {
 
         tx.try_send(AppEvent::UpdateReady {
             version: "9.9.9".into(),
+            install_command: "herdr update".into(),
         })
         .unwrap();
 

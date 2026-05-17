@@ -33,7 +33,10 @@ impl App {
     }
 
     pub(super) fn seed_cwd_from_workspace(&self, ws_idx: usize) -> Option<std::path::PathBuf> {
-        self.state.workspaces.get(ws_idx)?.resolved_identity_cwd()
+        self.state
+            .workspaces
+            .get(ws_idx)?
+            .resolved_identity_cwd_from(&self.state.terminals, &self.state.terminal_runtimes)
     }
 
     pub(super) fn workspace_creation_source(&self) -> Option<usize> {
@@ -108,13 +111,17 @@ impl App {
         };
         let (rows, cols) = self.state.estimate_pane_size();
         let ws = &mut self.state.workspaces[ws_idx];
-        let idx = ws.create_tab(
+        let (idx, terminal, runtime) = ws.create_tab(
             rows,
             cols,
             initial_cwd,
             self.state.pane_scrollback_limit_bytes,
             self.state.host_terminal_theme,
         )?;
+        self.state
+            .terminal_runtimes
+            .insert(terminal.id.clone(), runtime);
+        self.state.terminals.insert(terminal.id.clone(), terminal);
         if focus {
             ws.switch_tab(idx);
             self.state.mode = Mode::Terminal;
@@ -136,7 +143,7 @@ impl App {
     ) -> std::io::Result<usize> {
         let (rows, cols) = self.state.estimate_pane_size();
         let custom_name = self.collision_free_workspace_name(&initial_cwd);
-        let mut ws = Workspace::new(
+        let (mut ws, terminal, runtime) = Workspace::new(
             initial_cwd,
             rows,
             cols,
@@ -150,6 +157,10 @@ impl App {
         if let Some(name) = custom_name {
             ws.set_custom_name(name);
         }
+        self.state
+            .terminal_runtimes
+            .insert(terminal.id.clone(), runtime);
+        self.state.terminals.insert(terminal.id.clone(), terminal);
         self.state.workspaces.push(ws);
         let idx = self.state.workspaces.len() - 1;
         let workspace_id = self.state.workspaces[idx].id.clone();
@@ -212,7 +223,12 @@ impl App {
         let (agg_state, seen) = tab
             .panes
             .values()
-            .map(|pane| (pane.state, pane.seen))
+            .filter_map(|pane| {
+                self.state
+                    .terminals
+                    .get(&pane.attached_terminal_id)
+                    .map(|terminal| (terminal.state, pane.seen))
+            })
             .max_by_key(|(state, seen)| tab_attention_priority(*state, *seen))
             .unwrap_or((crate::detect::AgentState::Unknown, true));
         Some(crate::api::schema::TabInfo {
@@ -265,7 +281,7 @@ impl App {
     ) -> Option<crate::api::schema::PaneInfo> {
         let ws = self.state.workspaces.get(ws_idx)?;
         let pane = ws.pane_state(pane_id)?;
-        let runtime = ws.runtime(pane_id);
+        let terminal = self.state.terminals.get(&pane.attached_terminal_id)?;
         let tab_idx = ws.find_tab_index_for_pane(pane_id)?;
         let focused = self.state.active == Some(ws_idx)
             && ws.active_tab == tab_idx
@@ -274,16 +290,22 @@ impl App {
                 .is_some_and(|focused| focused == pane_id);
         Some(crate::api::schema::PaneInfo {
             pane_id: self.public_pane_id(ws_idx, pane_id)?,
+            terminal_id: terminal.id.to_string(),
             workspace_id: self.public_workspace_id(ws_idx),
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
             focused,
-            cwd: runtime
-                .and_then(|rt| rt.cwd())
+            cwd: ws.tabs[tab_idx]
+                .cwd_for_pane(
+                    pane_id,
+                    &self.state.terminals,
+                    &self.state.terminal_runtimes,
+                )
                 .map(|cwd| cwd.display().to_string()),
-            label: pane.manual_label.clone(),
-            agent: pane.effective_agent_label().map(str::to_string),
-            agent_status: pane_agent_status(pane.state, pane.seen),
-            revision: 0,
+            label: terminal.manual_label.clone(),
+            agent: terminal.effective_agent_label().map(str::to_string),
+            agent_status: pane_agent_status(terminal.state, pane.seen),
+            custom_status: terminal.effective_custom_status().map(str::to_string),
+            revision: terminal.revision,
         })
     }
 
@@ -291,9 +313,8 @@ impl App {
         &self,
         ws_idx: usize,
         pane_id: crate::layout::PaneId,
-    ) -> Option<(&crate::pane::PaneRuntime, String)> {
-        let ws = self.state.workspaces.get(ws_idx)?;
-        let runtime = ws.runtime(pane_id)?;
+    ) -> Option<(&crate::terminal::TerminalRuntime, String)> {
+        let runtime = self.state.runtime_for_pane_in_workspace(ws_idx, pane_id)?;
         Some((runtime, self.public_workspace_id(ws_idx)))
     }
 
@@ -301,19 +322,18 @@ impl App {
         &self,
         ws_idx: usize,
         pane_id: crate::layout::PaneId,
-    ) -> Option<&crate::pane::PaneRuntime> {
-        let ws = self.state.workspaces.get(ws_idx)?;
-        ws.runtime(pane_id)
+    ) -> Option<&crate::terminal::TerminalRuntime> {
+        self.state.runtime_for_pane_in_workspace(ws_idx, pane_id)
     }
 
     pub(super) fn workspace_info(&self, index: usize) -> crate::api::schema::WorkspaceInfo {
         let ws = &self.state.workspaces[index];
-        let (agg_state, seen) = ws.aggregate_state();
+        let (agg_state, seen) = ws.aggregate_state(&self.state.terminals);
         crate::api::schema::WorkspaceInfo {
             workspace_id: self.public_workspace_id(index),
             group_id: ws.group_id.clone(),
             number: index + 1,
-            label: ws.display_name(),
+            label: ws.display_name_from(&self.state.terminals, &self.state.terminal_runtimes),
             focused: self.state.active == Some(index),
             pane_count: ws.public_pane_numbers.len(),
             tab_count: ws.tabs.len(),

@@ -12,7 +12,8 @@ use crate::events::AppEvent;
 use crate::layout::PaneId;
 #[cfg(test)]
 use crate::layout::TileLayout;
-use crate::pane::{PaneRuntime, PaneState};
+use crate::pane::PaneState;
+use crate::terminal::{TerminalId, TerminalRuntime, TerminalState};
 
 mod aggregate;
 mod git;
@@ -78,6 +79,8 @@ pub struct Workspace {
     pub(crate) next_public_pane_number: usize,
     pub tabs: Vec<Tab>,
     pub active_tab: usize,
+    #[cfg(test)]
+    pub(crate) test_runtimes: HashMap<PaneId, TerminalRuntime>,
 }
 
 impl Deref for Workspace {
@@ -106,10 +109,9 @@ impl Workspace {
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
         render_dirty: Arc<AtomicBool>,
-    ) -> std::io::Result<Self> {
-        let tab = Tab::new(
-            1,
-            initial_cwd.clone(),
+    ) -> std::io::Result<(Self, TerminalState, TerminalRuntime)> {
+        Self::new_with_tab(
+            initial_cwd,
             rows,
             cols,
             scrollback_limit_bytes,
@@ -117,22 +119,93 @@ impl Workspace {
             events,
             render_notify,
             render_dirty,
-        )?;
+            None,
+        )
+    }
+
+    pub fn new_argv_command(
+        initial_cwd: PathBuf,
+        rows: u16,
+        cols: u16,
+        argv: &[String],
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<AtomicBool>,
+    ) -> std::io::Result<(Self, TerminalState, TerminalRuntime)> {
+        Self::new_with_tab(
+            initial_cwd,
+            rows,
+            cols,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            events,
+            render_notify,
+            render_dirty,
+            Some(argv),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_with_tab(
+        initial_cwd: PathBuf,
+        rows: u16,
+        cols: u16,
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<AtomicBool>,
+        argv: Option<&[String]>,
+    ) -> std::io::Result<(Self, TerminalState, TerminalRuntime)> {
+        let (tab, terminal, runtime) = if let Some(argv) = argv {
+            Tab::new_argv_command(
+                1,
+                initial_cwd.clone(),
+                rows,
+                cols,
+                argv,
+                scrollback_limit_bytes,
+                host_terminal_theme,
+                events,
+                render_notify,
+                render_dirty,
+            )?
+        } else {
+            Tab::new(
+                1,
+                initial_cwd.clone(),
+                rows,
+                cols,
+                scrollback_limit_bytes,
+                host_terminal_theme,
+                events,
+                render_notify,
+                render_dirty,
+            )?
+        };
         let mut public_pane_numbers = HashMap::new();
         public_pane_numbers.insert(tab.root_pane, 1);
-        Ok(Self {
-            id: generate_workspace_id(),
-            custom_name: None,
-            group_id: DEFAULT_GROUP_ID.to_string(),
-            identity_cwd: initial_cwd.clone(),
-            cached_git_branch: git_branch(&initial_cwd),
-            cached_git_ahead_behind: None,
-            cached_git_work_summary: None,
-            public_pane_numbers,
-            next_public_pane_number: 2,
-            tabs: vec![tab],
-            active_tab: 0,
-        })
+        Ok((
+            Self {
+                id: generate_workspace_id(),
+                custom_name: None,
+                group_id: DEFAULT_GROUP_ID.to_string(),
+                identity_cwd: initial_cwd.clone(),
+                cached_git_branch: git_branch(&initial_cwd),
+                cached_git_ahead_behind: None,
+                cached_git_work_summary: None,
+                public_pane_numbers,
+                next_public_pane_number: 2,
+                tabs: vec![tab],
+                active_tab: 0,
+                #[cfg(test)]
+                test_runtimes: HashMap::new(),
+            },
+            terminal,
+            runtime,
+        ))
     }
 
     pub fn active_tab(&self) -> Option<&Tab> {
@@ -169,7 +242,26 @@ impl Workspace {
         cwd: PathBuf,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
-    ) -> std::io::Result<usize> {
+    ) -> std::io::Result<(usize, TerminalState, TerminalRuntime)> {
+        self.create_tab_with_runtime(
+            rows,
+            cols,
+            cwd,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            None,
+        )
+    }
+
+    fn create_tab_with_runtime(
+        &mut self,
+        rows: u16,
+        cols: u16,
+        cwd: PathBuf,
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        argv: Option<&[String]>,
+    ) -> std::io::Result<(usize, TerminalState, TerminalRuntime)> {
         let number = self.tabs.len() + 1;
         let events = self
             .active_tab()
@@ -184,20 +276,35 @@ impl Workspace {
             .map(|tab| tab.render_dirty.clone())
             .expect("workspace must always have at least one tab");
 
-        let tab = Tab::new(
-            number,
-            cwd,
-            rows,
-            cols,
-            scrollback_limit_bytes,
-            host_terminal_theme,
-            events,
-            render_notify,
-            render_dirty,
-        )?;
+        let (tab, terminal, runtime) = if let Some(argv) = argv {
+            Tab::new_argv_command(
+                number,
+                cwd,
+                rows,
+                cols,
+                argv,
+                scrollback_limit_bytes,
+                host_terminal_theme,
+                events,
+                render_notify,
+                render_dirty,
+            )?
+        } else {
+            Tab::new(
+                number,
+                cwd,
+                rows,
+                cols,
+                scrollback_limit_bytes,
+                host_terminal_theme,
+                events,
+                render_notify,
+                render_dirty,
+            )?
+        };
         self.register_new_pane(tab.root_pane);
         self.tabs.push(tab);
-        Ok(self.tabs.len() - 1)
+        Ok((self.tabs.len() - 1, terminal, runtime))
     }
 
     pub fn close_tab(&mut self, idx: usize) -> bool {
@@ -255,8 +362,8 @@ impl Workspace {
         cwd: Option<PathBuf>,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
-    ) -> std::io::Result<PaneId> {
-        let new_id = self
+    ) -> std::io::Result<crate::workspace::tab::NewPane> {
+        let new_pane = self
             .active_tab_mut()
             .expect("workspace must always have at least one tab")
             .split_focused(
@@ -267,8 +374,8 @@ impl Workspace {
                 scrollback_limit_bytes,
                 host_terminal_theme,
             )?;
-        self.register_new_pane(new_id);
-        Ok(new_id)
+        self.register_new_pane(new_pane.pane_id);
+        Ok(new_pane)
     }
 
     pub fn split_pane(
@@ -281,20 +388,84 @@ impl Workspace {
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
         focus_new_pane: bool,
-    ) -> Option<std::io::Result<(usize, PaneId)>> {
-        let tab_idx = self.find_tab_index_for_pane(pane_id)?;
-        let tab = &mut self.tabs[tab_idx];
-        let previous_focus = tab.layout.focused();
-        tab.layout.focus_pane(pane_id);
-        let new_id = match tab.split_focused(
+    ) -> Option<std::io::Result<(usize, crate::workspace::tab::NewPane)>> {
+        self.split_pane_with_runtime(
+            pane_id,
             direction,
             rows,
             cols,
             cwd,
             scrollback_limit_bytes,
             host_terminal_theme,
-        ) {
-            Ok(new_id) => new_id,
+            focus_new_pane,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn split_pane_argv_command(
+        &mut self,
+        pane_id: PaneId,
+        direction: Direction,
+        rows: u16,
+        cols: u16,
+        cwd: Option<PathBuf>,
+        argv: &[String],
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        focus_new_pane: bool,
+    ) -> Option<std::io::Result<(usize, crate::workspace::tab::NewPane)>> {
+        self.split_pane_with_runtime(
+            pane_id,
+            direction,
+            rows,
+            cols,
+            cwd,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            focus_new_pane,
+            Some(argv),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn split_pane_with_runtime(
+        &mut self,
+        pane_id: PaneId,
+        direction: Direction,
+        rows: u16,
+        cols: u16,
+        cwd: Option<PathBuf>,
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        focus_new_pane: bool,
+        argv: Option<&[String]>,
+    ) -> Option<std::io::Result<(usize, crate::workspace::tab::NewPane)>> {
+        let tab_idx = self.find_tab_index_for_pane(pane_id)?;
+        let tab = &mut self.tabs[tab_idx];
+        let previous_focus = tab.layout.focused();
+        tab.layout.focus_pane(pane_id);
+        let new_pane = match if let Some(argv) = argv {
+            tab.split_focused_argv_command(
+                direction,
+                rows,
+                cols,
+                cwd,
+                argv,
+                scrollback_limit_bytes,
+                host_terminal_theme,
+            )
+        } else {
+            tab.split_focused(
+                direction,
+                rows,
+                cols,
+                cwd,
+                scrollback_limit_bytes,
+                host_terminal_theme,
+            )
+        } {
+            Ok(new_pane) => new_pane,
             Err(err) => {
                 tab.layout.focus_pane(previous_focus);
                 return Some(Err(err));
@@ -303,8 +474,8 @@ impl Workspace {
         if !focus_new_pane {
             tab.layout.focus_pane(previous_focus);
         }
-        self.register_new_pane(new_id);
-        Some(Ok((tab_idx, new_id)))
+        self.register_new_pane(new_pane.pane_id);
+        Some(Ok((tab_idx, new_pane)))
     }
 
     /// Close the focused pane. Returns true if the workspace should close.
@@ -318,11 +489,8 @@ impl Workspace {
             return tab_count <= 1 || self.close_active_tab_and_report();
         }
 
-        if let Some((removed, runtime)) = self.active_tab_mut().and_then(Tab::close_focused) {
+        if let Some((removed, _terminal_id)) = self.active_tab_mut().and_then(Tab::close_focused) {
             self.unregister_pane(removed);
-            if let Some(runtime) = runtime {
-                runtime.shutdown(removed);
-            }
         }
         false
     }
@@ -350,7 +518,7 @@ impl Workspace {
             return false;
         }
 
-        if let Some((removed, _)) = self.tabs[tab_idx].remove_pane(pane_id) {
+        if let Some((removed, _terminal_id)) = self.tabs[tab_idx].remove_pane(pane_id) {
             self.unregister_pane(removed);
         }
         false
@@ -365,9 +533,17 @@ impl Workspace {
     }
 
     pub fn resolved_identity_cwd(&self) -> Option<PathBuf> {
+        Some(self.identity_cwd.clone())
+    }
+
+    pub fn resolved_identity_cwd_from(
+        &self,
+        terminals: &HashMap<TerminalId, TerminalState>,
+        terminal_runtimes: &HashMap<TerminalId, TerminalRuntime>,
+    ) -> Option<PathBuf> {
         self.tabs
             .first()
-            .and_then(Tab::root_cwd)
+            .and_then(|tab| tab.cwd_for_pane(tab.root_pane, terminals, terminal_runtimes))
             .or_else(|| Some(self.identity_cwd.clone()))
     }
 
@@ -377,6 +553,20 @@ impl Workspace {
         }
 
         self.resolved_identity_cwd()
+            .map(|cwd| derive_label_from_cwd(&cwd))
+            .unwrap_or_else(|| "workspace".into())
+    }
+
+    pub fn display_name_from(
+        &self,
+        terminals: &HashMap<TerminalId, TerminalState>,
+        terminal_runtimes: &HashMap<TerminalId, TerminalRuntime>,
+    ) -> String {
+        if let Some(name) = &self.custom_name {
+            return name.clone();
+        }
+
+        self.resolved_identity_cwd_from(terminals, terminal_runtimes)
             .map(|cwd| derive_label_from_cwd(&cwd))
             .unwrap_or_else(|| "workspace".into())
     }
@@ -423,11 +613,6 @@ impl Workspace {
         }
     }
 
-    pub fn refresh_git_branch(&mut self) {
-        let cwd = self.resolved_identity_cwd();
-        self.cached_git_branch = cwd.as_deref().and_then(git_branch);
-    }
-
     #[cfg(test)]
     pub fn refresh_git_ahead_behind(&mut self) {
         let cwd = self.resolved_identity_cwd();
@@ -436,7 +621,33 @@ impl Workspace {
         self.cached_git_work_summary = git_work_summary(&self.git_status_cwds());
     }
 
+    #[cfg(test)]
     pub fn git_status_cwds(&self) -> Vec<PathBuf> {
+        let mut cwds = self
+            .tabs
+            .iter()
+            .flat_map(|tab| {
+                tab.layout.pane_ids().into_iter().filter_map(|id| {
+                    self.test_runtimes
+                        .get(&id)
+                        .and_then(TerminalRuntime::cwd)
+                        .or_else(|| tab.runtimes.get(&id).and_then(TerminalRuntime::cwd))
+                })
+            })
+            .collect::<Vec<_>>();
+        cwds.sort();
+        cwds.dedup();
+        if cwds.is_empty() {
+            cwds.push(self.identity_cwd.clone());
+        }
+        cwds
+    }
+
+    pub fn git_status_cwds_from(
+        &self,
+        terminals: &HashMap<TerminalId, TerminalState>,
+        terminal_runtimes: &HashMap<TerminalId, TerminalRuntime>,
+    ) -> Vec<PathBuf> {
         let mut cwds = self
             .tabs
             .iter()
@@ -444,11 +655,14 @@ impl Workspace {
                 tab.layout
                     .pane_ids()
                     .into_iter()
-                    .filter_map(|id| tab.cwd_for_pane(id))
+                    .filter_map(|id| tab.cwd_for_pane(id, terminals, terminal_runtimes))
             })
             .collect::<Vec<_>>();
         cwds.sort();
         cwds.dedup();
+        if cwds.is_empty() {
+            cwds.push(self.identity_cwd.clone());
+        }
         cwds
     }
 
@@ -467,10 +681,6 @@ impl Workspace {
         }
     }
 
-    pub fn focused_runtime(&self) -> Option<&PaneRuntime> {
-        self.active_tab().and_then(Tab::focused_runtime)
-    }
-
     pub fn find_tab_index_for_pane(&self, pane_id: PaneId) -> Option<usize> {
         self.tabs
             .iter()
@@ -481,14 +691,8 @@ impl Workspace {
         self.tabs.iter().find_map(|tab| tab.panes.get(&pane_id))
     }
 
-    pub fn pane_state_mut(&mut self, pane_id: PaneId) -> Option<&mut PaneState> {
-        self.tabs
-            .iter_mut()
-            .find_map(|tab| tab.panes.get_mut(&pane_id))
-    }
-
-    pub fn runtime(&self, pane_id: PaneId) -> Option<&PaneRuntime> {
-        self.tabs.iter().find_map(|tab| tab.runtimes.get(&pane_id))
+    pub fn terminal_id(&self, pane_id: PaneId) -> Option<&TerminalId> {
+        self.tabs.iter().find_map(|tab| tab.terminal_id(pane_id))
     }
 
     pub fn focused_pane_id(&self) -> Option<PaneId> {
@@ -517,11 +721,8 @@ impl Workspace {
             return false;
         }
 
-        if let Some((removed, runtime)) = self.tabs[tab_idx].close_pane(pane_id) {
+        if let Some((removed, _terminal_id)) = self.tabs[tab_idx].close_pane(pane_id) {
             self.unregister_pane(removed);
-            if let Some(runtime) = runtime {
-                runtime.shutdown(removed);
-            }
         }
         false
     }
@@ -566,17 +767,15 @@ impl Workspace {
         let render_dirty = Arc::new(AtomicBool::new(false));
         let identity_cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
         let (layout, root_id) = TileLayout::new();
+        let terminal_id = TerminalId::alloc();
         let mut panes = HashMap::new();
-        panes.insert(root_id, PaneState::new());
-        let mut pane_cwds = HashMap::new();
-        pane_cwds.insert(root_id, identity_cwd.clone());
+        panes.insert(root_id, PaneState::new(terminal_id));
         let tab = Tab {
             custom_name: None,
             number: 1,
             root_pane: root_id,
             layout,
             panes,
-            pane_cwds,
             runtimes: HashMap::new(),
             zoomed: false,
             events,
@@ -597,15 +796,19 @@ impl Workspace {
             next_public_pane_number: 2,
             tabs: vec![tab],
             active_tab: 0,
+            test_runtimes: HashMap::new(),
         }
+    }
+
+    pub(crate) fn insert_test_runtime(&mut self, pane_id: PaneId, runtime: TerminalRuntime) {
+        self.test_runtimes.insert(pane_id, runtime);
     }
 
     pub(crate) fn test_split(&mut self, direction: Direction) -> PaneId {
         let tab = self.active_tab_mut().expect("workspace must have tab");
         let new_id = tab.layout.split_focused(direction);
-        tab.panes.insert(new_id, PaneState::new());
-        let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
-        tab.pane_cwds.insert(new_id, cwd);
+        tab.panes
+            .insert(new_id, PaneState::new(TerminalId::alloc()));
         self.register_new_pane(new_id);
         new_id
     }
@@ -616,17 +819,13 @@ impl Workspace {
         let render_dirty = Arc::new(AtomicBool::new(false));
         let (layout, root_id) = TileLayout::new();
         let mut panes = HashMap::new();
-        panes.insert(root_id, PaneState::new());
-        let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
-        let mut pane_cwds = HashMap::new();
-        pane_cwds.insert(root_id, cwd);
+        panes.insert(root_id, PaneState::new(TerminalId::alloc()));
         let tab = Tab {
             custom_name: name.map(str::to_string),
             number: self.tabs.len() + 1,
             root_pane: root_id,
             layout,
             panes,
-            pane_cwds,
             runtimes: HashMap::new(),
             zoomed: false,
             events,
@@ -648,12 +847,19 @@ mod tests {
         let mut ws = Workspace::test_new("ignored");
         ws.custom_name = None;
         let root_pane = ws.tabs[0].root_pane;
-        ws.tabs[0]
-            .pane_cwds
-            .insert(root_pane, PathBuf::from("/tmp/pion"));
+        let terminal_id = ws.tabs[0].terminal_id(root_pane).unwrap().clone();
+        let mut terminals = HashMap::new();
+        terminals.insert(
+            terminal_id.clone(),
+            TerminalState::new(terminal_id, PathBuf::from("/herdr-test/pion")),
+        );
+        let terminal_runtimes = HashMap::new();
 
-        assert_eq!(ws.display_name(), "pion");
-        assert_eq!(ws.resolved_identity_cwd(), Some(PathBuf::from("/tmp/pion")));
+        assert_eq!(ws.display_name_from(&terminals, &terminal_runtimes), "pion");
+        assert_eq!(
+            ws.resolved_identity_cwd_from(&terminals, &terminal_runtimes),
+            Some(PathBuf::from("/herdr-test/pion"))
+        );
     }
 
     #[test]

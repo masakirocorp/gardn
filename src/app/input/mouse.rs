@@ -1022,7 +1022,8 @@ impl AppState {
                         .active
                         .and_then(|ws_idx| self.workspaces.get(ws_idx))
                         .and_then(|ws| ws.pane_state(info.id))
-                        .and_then(|pane| pane.manual_label.as_ref())
+                        .and_then(|pane| self.terminals.get(&pane.attached_terminal_id))
+                        .and_then(|terminal| terminal.manual_label.as_ref())
                         .is_some();
                     self.context_menu = Some(ContextMenuState {
                         kind: ContextMenuKind::Pane {
@@ -1296,12 +1297,14 @@ impl AppState {
     pub(super) fn find_border_at(&self, col: u16, row: u16) -> Option<&SplitBorder> {
         self.view.split_borders.iter().find(|b| match b.direction {
             Direction::Horizontal => {
-                (col as i32 - b.pos as i32).unsigned_abs() <= 1
+                col >= b.pos.saturating_sub(1)
+                    && col <= b.pos
                     && row >= b.area.y
                     && row < b.area.y + b.area.height
             }
             Direction::Vertical => {
-                (row as i32 - b.pos as i32).unsigned_abs() <= 1
+                row >= b.pos.saturating_sub(1)
+                    && row <= b.pos
                     && col >= b.area.x
                     && col < b.area.x + b.area.width
             }
@@ -1374,16 +1377,16 @@ impl AppState {
     }
 
     pub(super) fn scroll_pane_up(&self, pane_id: crate::layout::PaneId, lines: usize) {
-        if let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) {
-            if let Some(rt) = ws.runtimes.get(&pane_id) {
+        if let Some(ws_idx) = self.active {
+            if let Some(rt) = self.runtime_for_pane_in_workspace(ws_idx, pane_id) {
                 rt.scroll_up(lines);
             }
         }
     }
 
     pub(super) fn scroll_pane_down(&self, pane_id: crate::layout::PaneId, lines: usize) {
-        if let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) {
-            if let Some(rt) = ws.runtimes.get(&pane_id) {
+        if let Some(ws_idx) = self.active {
+            if let Some(rt) = self.runtime_for_pane_in_workspace(ws_idx, pane_id) {
                 rt.scroll_down(lines);
             }
         }
@@ -1394,9 +1397,8 @@ impl AppState {
         pane_id: crate::layout::PaneId,
     ) -> Option<crate::pane::ScrollMetrics> {
         self.active
-            .and_then(|i| self.workspaces.get(i))
-            .and_then(|ws| ws.runtime(pane_id))
-            .and_then(crate::pane::PaneRuntime::scroll_metrics)
+            .and_then(|i| self.runtime_for_pane_in_workspace(i, pane_id))
+            .and_then(crate::terminal::TerminalRuntime::scroll_metrics)
     }
 
     pub(super) fn handle_terminal_wheel(&mut self, mouse: MouseEvent) {
@@ -1425,8 +1427,8 @@ impl AppState {
             return;
         }
 
-        if let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) {
-            if let Some(rt) = ws.focused_runtime() {
+        if let Some(ws_idx) = self.active {
+            if let Some(rt) = self.focused_runtime_in_workspace(ws_idx) {
                 match mouse.kind {
                     MouseEventKind::ScrollUp => rt.scroll_up(LINES_PER_NOTCH),
                     MouseEventKind::ScrollDown => rt.scroll_down(LINES_PER_NOTCH),
@@ -1437,10 +1439,10 @@ impl AppState {
     }
 
     pub(super) fn forward_pane_mouse_button(&self, info: &PaneInfo, mouse: MouseEvent) -> bool {
-        let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) else {
+        let Some(ws_idx) = self.active else {
             return false;
         };
-        let Some(rt) = ws.runtimes.get(&info.id) else {
+        let Some(rt) = self.runtime_for_pane_in_workspace(ws_idx, info.id) else {
             return false;
         };
         let column = mouse.column.saturating_sub(info.inner_rect.x);
@@ -1456,10 +1458,10 @@ impl AppState {
     }
 
     fn forward_pane_reported_wheel(&self, info: &PaneInfo, mouse: MouseEvent) -> bool {
-        let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) else {
+        let Some(ws_idx) = self.active else {
             return false;
         };
-        let Some(rt) = ws.runtimes.get(&info.id) else {
+        let Some(rt) = self.runtime_for_pane_in_workspace(ws_idx, info.id) else {
             return false;
         };
         if !rt
@@ -1482,10 +1484,10 @@ impl AppState {
     }
 
     pub(super) fn forward_pane_wheel(&self, info: &PaneInfo, mouse: MouseEvent) -> bool {
-        let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) else {
+        let Some(ws_idx) = self.active else {
             return false;
         };
-        let Some(rt) = ws.runtimes.get(&info.id) else {
+        let Some(rt) = self.runtime_for_pane_in_workspace(ws_idx, info.id) else {
             return false;
         };
         match rt.wheel_routing() {
@@ -1522,8 +1524,8 @@ impl AppState {
         pane_id: crate::layout::PaneId,
         offset_from_bottom: usize,
     ) {
-        if let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) {
-            if let Some(rt) = ws.runtimes.get(&pane_id) {
+        if let Some(ws_idx) = self.active {
+            if let Some(rt) = self.runtime_for_pane_in_workspace(ws_idx, pane_id) {
                 rt.set_scroll_offset_from_bottom(offset_from_bottom);
             }
         }
@@ -1534,7 +1536,7 @@ impl AppState {
         col: u16,
         row: u16,
     ) -> Option<(crate::layout::PaneId, ScrollbarClickTarget)> {
-        let ws = self.active.and_then(|i| self.workspaces.get(i))?;
+        let ws_idx = self.active?;
         let info = self.view.pane_infos.iter().find(|info| {
             crate::ui::pane_scrollbar_rect(info).is_some_and(|track| {
                 col >= track.x
@@ -1543,7 +1545,7 @@ impl AppState {
                     && row < track.y + track.height
             })
         })?;
-        let rt = ws.runtimes.get(&info.id)?;
+        let rt = self.runtime_for_pane_in_workspace(ws_idx, info.id)?;
         let metrics = rt.scroll_metrics()?;
         if metrics.max_offset_from_bottom == 0 {
             return None;
@@ -1567,14 +1569,14 @@ impl AppState {
         row: u16,
         grab_row_offset: u16,
     ) -> Option<usize> {
-        let ws = self.active.and_then(|i| self.workspaces.get(i))?;
+        let ws_idx = self.active?;
         let info = self
             .view
             .pane_infos
             .iter()
             .find(|info| info.id == pane_id)?;
         let track = crate::ui::pane_scrollbar_rect(info)?;
-        let rt = ws.runtimes.get(&pane_id)?;
+        let rt = self.runtime_for_pane_in_workspace(ws_idx, pane_id)?;
         let metrics = rt.scroll_metrics()?;
         if metrics.max_offset_from_bottom == 0 {
             return None;
@@ -1764,12 +1766,19 @@ mod tests {
         background.tabs[0].layout.focus_pane(first_pane);
 
         app.state.workspaces = vec![active, background];
+        app.state.ensure_test_terminals();
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.toast_config.delivery = crate::config::ToastDelivery::Herdr;
-        app.state.workspaces[1]
+        let target_terminal_id = app.state.workspaces[1]
             .panes
-            .get_mut(&target_pane)
+            .get(&target_pane)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+        app.state
+            .terminals
+            .get_mut(&target_terminal_id)
             .unwrap()
             .state = AgentState::Working;
 
@@ -2062,6 +2071,118 @@ mod tests {
         assert_ne!(root_layout_ratio(&before), root_layout_ratio(&after));
     }
 
+    #[test]
+    fn pane_split_hitbox_does_not_overlap_right_pane_content() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.workspaces[0].test_split(Direction::Horizontal);
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let border = app.state.view.split_borders[0].clone();
+        let row = border.area.y.saturating_add(1);
+
+        assert!(app
+            .state
+            .find_border_at(border.pos.saturating_sub(1), row)
+            .is_some());
+        assert!(app.state.find_border_at(border.pos, row).is_some());
+        assert!(app
+            .state
+            .find_border_at(border.pos.saturating_add(1), row)
+            .is_none());
+    }
+
+    #[test]
+    fn pane_split_hitbox_does_not_overlap_bottom_pane_content() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.workspaces[0].test_split(Direction::Vertical);
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let border = app.state.view.split_borders[0].clone();
+        let col = border.area.x.saturating_add(1);
+
+        assert!(app
+            .state
+            .find_border_at(col, border.pos.saturating_sub(1))
+            .is_some());
+        assert!(app.state.find_border_at(col, border.pos).is_some());
+        assert!(app
+            .state
+            .find_border_at(col, border.pos.saturating_add(1))
+            .is_none());
+    }
+
+    #[test]
+    fn selecting_from_right_pane_first_content_column_starts_selection() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let second_pane = ws.test_split(Direction::Horizontal);
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+
+        let second_info = app
+            .state
+            .view
+            .pane_infos
+            .iter()
+            .find(|info| info.id == second_pane)
+            .expect("second pane info")
+            .clone();
+        let col = second_info.inner_rect.x;
+        let row = second_info.inner_rect.y;
+
+        assert!(app.state.find_border_at(col, row).is_none());
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), col, row));
+
+        assert!(app.state.drag.is_none());
+        assert_eq!(
+            app.state
+                .selection
+                .as_ref()
+                .map(|selection| selection.pane_id),
+            Some(second_pane)
+        );
+    }
+
+    #[test]
+    fn selecting_from_bottom_pane_first_content_row_starts_selection() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let second_pane = ws.test_split(Direction::Vertical);
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+
+        let second_info = app
+            .state
+            .view
+            .pane_infos
+            .iter()
+            .find(|info| info.id == second_pane)
+            .expect("second pane info")
+            .clone();
+        let col = second_info.inner_rect.x;
+        let row = second_info.inner_rect.y;
+
+        assert!(app.state.find_border_at(col, row).is_none());
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), col, row));
+
+        assert!(app.state.drag.is_none());
+        assert_eq!(
+            app.state
+                .selection
+                .as_ref()
+                .map(|selection| selection.pane_id),
+            Some(second_pane)
+        );
+    }
+
     #[tokio::test]
     async fn dragging_vertical_pane_split_still_resizes_when_pane_mouse_reporting_is_enabled() {
         let mut app = app_for_mouse_test();
@@ -2087,17 +2208,17 @@ mod tests {
             .expect("second pane info")
             .clone();
 
-        app.state.workspaces[0].tabs[0].runtimes.insert(
+        app.state.insert_test_runtime(
             first_pane,
-            crate::pane::PaneRuntime::test_with_screen_bytes(
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(
                 first_info.inner_rect.width.max(1),
                 first_info.inner_rect.height.max(1),
                 b"\x1b[?1002h",
             ),
         );
-        app.state.workspaces[0].tabs[0].runtimes.insert(
+        app.state.insert_test_runtime(
             second_pane,
-            crate::pane::PaneRuntime::test_with_screen_bytes(
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(
                 second_info.inner_rect.width.max(1),
                 second_info.inner_rect.height.max(1),
                 b"\x1b[?1002h",
@@ -2156,17 +2277,17 @@ mod tests {
             .expect("second pane info")
             .clone();
 
-        app.state.workspaces[0].tabs[0].runtimes.insert(
+        app.state.insert_test_runtime(
             first_pane,
-            crate::pane::PaneRuntime::test_with_screen_bytes(
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(
                 first_info.inner_rect.width.max(1),
                 first_info.inner_rect.height.max(1),
                 b"\x1b[?1002h",
             ),
         );
-        app.state.workspaces[0].tabs[0].runtimes.insert(
+        app.state.insert_test_runtime(
             second_pane,
-            crate::pane::PaneRuntime::test_with_screen_bytes(
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(
                 second_info.inner_rect.width.max(1),
                 second_info.inner_rect.height.max(1),
                 b"\x1b[?1002h",

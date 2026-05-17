@@ -6,7 +6,7 @@ use tracing::{info, warn};
 use crate::detect::{Agent, AgentState};
 use crate::events::AppEvent;
 use crate::layout::{find_in_direction, NavDirection, PaneId};
-use crate::pane::EffectiveStateChange;
+use crate::terminal::EffectiveStateChange;
 #[cfg(test)]
 use crate::workspace::GitWorkSummary;
 use crate::workspace::WorkspaceGitStatus;
@@ -93,6 +93,7 @@ pub struct PaneStateUpdate {
     pub agent_label: Option<String>,
     pub known_agent: Option<Agent>,
     pub state: AgentState,
+    pub custom_status: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -678,15 +679,76 @@ impl AppState {
         self.agent_panel_scroll = self.agent_panel_scroll.min(max_scroll);
     }
 
+    pub(crate) fn terminal_ids_for_workspace(
+        &self,
+        ws_idx: usize,
+    ) -> Vec<crate::terminal::TerminalId> {
+        self.workspaces
+            .get(ws_idx)
+            .into_iter()
+            .flat_map(|ws| &ws.tabs)
+            .flat_map(|tab| tab.panes.values())
+            .map(|pane| pane.attached_terminal_id.clone())
+            .collect()
+    }
+
+    pub(crate) fn terminal_ids_for_tab(
+        &self,
+        ws_idx: usize,
+        tab_idx: usize,
+    ) -> Vec<crate::terminal::TerminalId> {
+        self.workspaces
+            .get(ws_idx)
+            .and_then(|ws| ws.tabs.get(tab_idx))
+            .into_iter()
+            .flat_map(|tab| tab.panes.values())
+            .map(|pane| pane.attached_terminal_id.clone())
+            .collect()
+    }
+
+    pub(crate) fn terminal_id_for_pane(
+        &self,
+        ws_idx: usize,
+        pane_id: PaneId,
+    ) -> Option<crate::terminal::TerminalId> {
+        self.workspaces
+            .get(ws_idx)?
+            .pane_state(pane_id)
+            .map(|pane| pane.attached_terminal_id.clone())
+    }
+
+    pub(crate) fn remove_unattached_terminal_ids(
+        &mut self,
+        terminal_ids: impl IntoIterator<Item = crate::terminal::TerminalId>,
+    ) {
+        for terminal_id in terminal_ids {
+            let still_attached = self.workspaces.iter().any(|ws| {
+                ws.tabs.iter().any(|tab| {
+                    tab.panes
+                        .values()
+                        .any(|pane| pane.attached_terminal_id == terminal_id)
+                })
+            });
+            if !still_attached {
+                self.terminals.remove(&terminal_id);
+                if let Some(runtime) = self.terminal_runtimes.remove(&terminal_id) {
+                    runtime.shutdown();
+                }
+            }
+        }
+    }
+
     pub fn close_selected_workspace(&mut self) {
         if self.workspaces.is_empty() {
             return;
         }
         self.mark_session_dirty();
         let closed_idx = self.selected;
+        let terminal_ids = self.terminal_ids_for_workspace(self.selected);
         let workspace_id = self.workspaces[self.selected].id.clone();
         crate::logging::workspace_closed(&workspace_id);
         self.workspaces.remove(self.selected);
+        self.remove_unattached_terminal_ids(terminal_ids);
         if self.workspaces.is_empty() {
             self.active = None;
             self.selected = 0;
@@ -791,7 +853,7 @@ impl AppState {
         }
     }
 
-    pub fn toggle_fullscreen(&mut self) {
+    pub fn toggle_zoom(&mut self) {
         if let Some(tab) = self
             .active
             .and_then(|i| self.workspaces.get_mut(i))
@@ -806,12 +868,26 @@ impl AppState {
 
     pub fn close_pane(&mut self) {
         self.mark_session_dirty();
-        let should_close_workspace = self
-            .active
+        let active = self.active;
+        let terminal_ids = active
+            .and_then(|i| {
+                self.workspaces
+                    .get(i)
+                    .and_then(|ws| ws.focused_pane_id().map(|pane_id| (i, pane_id)))
+            })
+            .and_then(|(i, pane_id)| self.terminal_id_for_pane(i, pane_id))
+            .into_iter()
+            .collect::<Vec<_>>();
+        let should_close_workspace = active
             .and_then(|i| self.workspaces.get_mut(i))
             .is_some_and(|ws| ws.close_focused());
         if should_close_workspace {
+            if let Some(active) = active {
+                self.selected = active;
+            }
             self.close_selected_workspace();
+        } else {
+            self.remove_unattached_terminal_ids(terminal_ids);
         }
     }
 
@@ -832,17 +908,23 @@ impl AppState {
             self.close_selected_workspace();
             return;
         }
-
-        self.mark_session_dirty();
-        let Some(ws) = self.workspaces.get_mut(ws_idx) else {
-            return;
-        };
-        let workspace_id = ws.id.clone();
-        let closing_tab_id = format!("{}:{}", workspace_id, ws.active_tab + 1);
-        ws.close_active_tab();
-        crate::logging::tab_closed(&workspace_id, &closing_tab_id);
-        self.tab_scroll_follow_active = true;
-        self.refresh_tab_bar_view();
+        if let Some(ws_idx) = self.active {
+            let terminal_ids = self
+                .workspaces
+                .get(ws_idx)
+                .map(|ws| self.terminal_ids_for_tab(ws_idx, ws.active_tab))
+                .unwrap_or_default();
+            let Some(ws) = self.workspaces.get_mut(ws_idx) else {
+                return;
+            };
+            let workspace_id = ws.id.clone();
+            let closing_tab_id = format!("{}:{}", workspace_id, ws.active_tab + 1);
+            ws.close_active_tab();
+            self.remove_unattached_terminal_ids(terminal_ids);
+            crate::logging::tab_closed(&workspace_id, &closing_tab_id);
+            self.tab_scroll_follow_active = true;
+            self.refresh_tab_bar_view();
+        }
     }
 }
 
@@ -856,36 +938,22 @@ impl AppState {
     }
 
     pub fn copy_selection(&mut self) {
-        let text = {
-            let sel = match self.selection.as_mut() {
-                Some(s) => {
-                    if !s.finish() {
-                        self.selection = None;
-                        return;
-                    }
-                    s
-                }
-                None => return,
-            };
-
-            let ws = match self.active.and_then(|i| self.workspaces.get(i)) {
-                Some(ws) => ws,
-                None => {
-                    self.selection = None;
-                    return;
-                }
-            };
-
-            let rt = match ws.runtime(sel.pane_id) {
-                Some(r) => r,
-                None => {
-                    self.selection = None;
-                    return;
-                }
-            };
-
-            rt.extract_selection(sel)
+        let mut sel = match self.selection.take() {
+            Some(sel) => sel,
+            None => return,
         };
+        if !sel.finish() {
+            return;
+        }
+
+        let ws_idx = match self.active {
+            Some(ws_idx) if self.workspaces.get(ws_idx).is_some() => ws_idx,
+            _ => return,
+        };
+
+        let text = self
+            .runtime_for_pane_in_workspace(ws_idx, sel.pane_id)
+            .and_then(|rt| rt.extract_selection(&sel));
 
         if let Some(text) = text {
             if !text.is_empty() {
@@ -906,22 +974,29 @@ impl AppState {
     pub fn apply_workspace_git_statuses(&mut self, results: Vec<WorkspaceGitStatus>) -> bool {
         let mut changed = false;
         for result in results {
-            let Some(ws) = self
+            let Some(ws_idx) = self
                 .workspaces
-                .iter_mut()
-                .find(|ws| ws.id == result.workspace_id)
+                .iter()
+                .position(|ws| ws.id == result.workspace_id)
             else {
                 continue;
             };
 
-            if ws.resolved_identity_cwd().as_ref() != Some(&result.resolved_identity_cwd) {
+            if self.workspaces[ws_idx]
+                .resolved_identity_cwd_from(&self.terminals, &self.terminal_runtimes)
+                .as_ref()
+                != Some(&result.resolved_identity_cwd)
+            {
+                continue;
+            }
+            if self.workspaces[ws_idx]
+                .git_status_cwds_from(&self.terminals, &self.terminal_runtimes)
+                != result.cwd_fingerprint
+            {
                 continue;
             }
 
-            if ws.git_status_cwds() != result.cwd_fingerprint {
-                continue;
-            }
-
+            let ws = &mut self.workspaces[ws_idx];
             if ws.cached_git_branch != result.branch {
                 ws.cached_git_branch = result.branch;
                 changed = true;
@@ -944,8 +1019,12 @@ impl AppState {
                 self.handle_pane_died(pane_id);
                 Vec::new()
             }
-            AppEvent::UpdateReady { version } => {
+            AppEvent::UpdateReady {
+                version,
+                install_command,
+            } => {
                 self.update_available = Some(version.clone());
+                self.update_install_command = install_command.clone();
                 self.latest_release_notes_available = true;
                 self.update_dismissed = true;
                 if matches!(
@@ -955,7 +1034,7 @@ impl AppState {
                     self.toast = Some(ToastNotification {
                         kind: ToastKind::UpdateInstalled,
                         title: format!("v{version} available"),
-                        context: "detach, then run `herdr update`".to_string(),
+                        context: format!("detach, then run `{install_command}`"),
                         target: None,
                     });
                 }
@@ -966,7 +1045,9 @@ impl AppState {
                 agent,
                 state,
             } => self
-                .update_pane_state(pane_id, |pane| pane.set_detected_state(agent, state))
+                .update_terminal_state(pane_id, |terminal| {
+                    terminal.set_detected_state(agent, state)
+                })
                 .into_iter()
                 .collect(),
             AppEvent::HookStateReported {
@@ -975,10 +1056,18 @@ impl AppState {
                 agent_label,
                 state,
                 message,
+                custom_status,
                 seq,
             } => self
-                .update_pane_state(pane_id, |pane| {
-                    pane.set_hook_authority(source, agent_label, state, message, seq)
+                .update_terminal_state(pane_id, |terminal| {
+                    terminal.set_hook_authority_with_custom_status(
+                        source,
+                        agent_label,
+                        state,
+                        message,
+                        custom_status,
+                        seq,
+                    )
                 })
                 .into_iter()
                 .collect(),
@@ -987,8 +1076,8 @@ impl AppState {
                 source,
                 seq,
             } => self
-                .update_pane_state(pane_id, |pane| {
-                    pane.clear_hook_authority(source.as_deref(), seq)
+                .update_terminal_state(pane_id, |terminal| {
+                    terminal.clear_hook_authority(source.as_deref(), seq)
                 })
                 .into_iter()
                 .collect(),
@@ -999,8 +1088,8 @@ impl AppState {
                 seq,
                 ..
             } => self
-                .update_pane_state(pane_id, |pane| {
-                    pane.release_agent(&source, &agent_label, seq)
+                .update_terminal_state(pane_id, |terminal| {
+                    terminal.release_agent(&source, &agent_label, seq)
                 })
                 .into_iter()
                 .collect(),
@@ -1014,20 +1103,21 @@ impl AppState {
         }
     }
 
-    fn update_pane_state<F>(&mut self, pane_id: PaneId, update: F) -> Option<PaneStateUpdate>
+    fn update_terminal_state<F>(&mut self, pane_id: PaneId, update: F) -> Option<PaneStateUpdate>
     where
-        F: FnOnce(&mut crate::pane::PaneState) -> Option<EffectiveStateChange>,
+        F: FnOnce(&mut crate::terminal::TerminalState) -> Option<EffectiveStateChange>,
     {
         let ws_idx = self
             .workspaces
             .iter()
             .position(|ws| ws.pane_state(pane_id).is_some())?;
+        let terminal_id = self.workspaces[ws_idx]
+            .pane_state(pane_id)?
+            .attached_terminal_id
+            .clone();
         let change = {
-            let pane = self.workspaces[ws_idx]
-                .tabs
-                .iter_mut()
-                .find_map(|tab| tab.panes.get_mut(&pane_id))?;
-            update(pane)?
+            let terminal = self.terminals.get_mut(&terminal_id)?;
+            update(terminal)?
         };
         let update = PaneStateUpdate {
             pane_id,
@@ -1038,6 +1128,7 @@ impl AppState {
             agent_label: change.agent_label.clone(),
             known_agent: change.known_agent,
             state: change.state,
+            custom_status: change.custom_status.clone(),
         };
         self.apply_pane_state_change(ws_idx, pane_id, &change);
         Some(update)
@@ -1118,6 +1209,8 @@ impl AppState {
             return;
         };
 
+        let pane_terminal_id = self.terminal_id_for_pane(ws_idx, pane_id);
+        let workspace_terminal_ids = self.terminal_ids_for_workspace(ws_idx);
         let should_close_workspace = {
             let ws = &mut self.workspaces[ws_idx];
             ws.remove_pane(pane_id)
@@ -1126,6 +1219,7 @@ impl AppState {
 
         if should_close_workspace {
             self.workspaces.remove(ws_idx);
+            self.remove_unattached_terminal_ids(workspace_terminal_ids);
             if self.workspaces.is_empty() {
                 self.active = None;
                 self.selected = 0;
@@ -1142,6 +1236,8 @@ impl AppState {
                     self.selected = self.workspaces.len() - 1;
                 }
             }
+        } else {
+            self.remove_unattached_terminal_ids(pane_terminal_id);
         }
     }
 }
@@ -1166,6 +1262,7 @@ mod tests {
             let ws = Workspace::test_new(name);
             state.workspaces.push(ws);
         }
+        state.ensure_test_terminals();
         if !state.workspaces.is_empty() {
             state.active = Some(0);
             state.mode = Mode::Terminal;
@@ -1362,6 +1459,7 @@ mod tests {
 
         let updates = state.handle_app_event(crate::events::AppEvent::UpdateReady {
             version: "0.5.0".into(),
+            install_command: "herdr update".into(),
         });
 
         assert!(updates.is_empty());
@@ -1373,11 +1471,16 @@ mod tests {
     }
 
     fn mark_agent(state: &mut AppState, ws_idx: usize, tab_idx: usize, pane_id: PaneId) {
-        state.workspaces[ws_idx].tabs[tab_idx]
+        state.ensure_test_terminals();
+        let terminal_id = state.workspaces[ws_idx].tabs[tab_idx]
             .panes
-            .get_mut(&pane_id)
+            .get(&pane_id)
             .unwrap()
-            .set_detected_state(Some(Agent::Pi), AgentState::Idle);
+            .attached_terminal_id
+            .clone();
+        if let Some(terminal) = state.terminals.get_mut(&terminal_id) {
+            terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
+        }
     }
 
     #[test]
@@ -1391,6 +1494,7 @@ mod tests {
 
         let mut state = AppState::test_new();
         state.workspaces = vec![first, second];
+        state.ensure_test_terminals();
         state.active = Some(0);
         state.selected = 0;
         state.mode = Mode::Terminal;
@@ -1448,6 +1552,7 @@ mod tests {
 
         let mut state = AppState::test_new();
         state.workspaces = vec![first, second];
+        state.ensure_test_terminals();
         state.active = Some(0);
         state.selected = 0;
         state.mode = Mode::Terminal;
@@ -1472,6 +1577,7 @@ mod tests {
 
         let mut state = AppState::test_new();
         state.workspaces = vec![workspace];
+        state.ensure_test_terminals();
         state.active = Some(0);
         state.selected = 0;
         state.mode = Mode::Terminal;
@@ -1725,9 +1831,15 @@ mod tests {
             state: AgentState::Working,
         });
 
-        let pane = state.workspaces[0].panes.get(&pane_id).unwrap();
-        assert_eq!(pane.state, AgentState::Working);
-        assert_eq!(pane.detected_agent, Some(Agent::Pi));
+        let terminal_id = state.workspaces[0]
+            .panes
+            .get(&pane_id)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+        let terminal = state.terminals.get(&terminal_id).unwrap();
+        assert_eq!(terminal.state, AgentState::Working);
+        assert_eq!(terminal.detected_agent, Some(Agent::Pi));
     }
 
     #[test]
@@ -1737,11 +1849,13 @@ mod tests {
         let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
 
         // First set it to Working
-        state.workspaces[1]
+        let bg_terminal_id = state.workspaces[1]
             .panes
-            .get_mut(&bg_pane_id)
+            .get(&bg_pane_id)
             .unwrap()
-            .state = AgentState::Working;
+            .attached_terminal_id
+            .clone();
+        state.terminals.get_mut(&bg_terminal_id).unwrap().state = AgentState::Working;
 
         // Now transition to Idle while in background
         state.handle_app_event(AppEvent::StateChanged {
@@ -1760,9 +1874,14 @@ mod tests {
         state.active = Some(0);
         state.outer_terminal_focus = Some(true);
         let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
-        let pane = state.workspaces[0].panes.get_mut(&pane_id).unwrap();
-        pane.state = AgentState::Working;
-        pane.seen = false;
+        let terminal_id = state.workspaces[0]
+            .panes
+            .get(&pane_id)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+        state.terminals.get_mut(&terminal_id).unwrap().state = AgentState::Working;
+        state.workspaces[0].panes.get_mut(&pane_id).unwrap().seen = false;
 
         state.handle_app_event(AppEvent::StateChanged {
             pane_id,
@@ -1770,8 +1889,9 @@ mod tests {
             state: AgentState::Idle,
         });
 
+        let terminal = state.terminals.get(&terminal_id).unwrap();
+        assert_eq!(terminal.state, AgentState::Idle);
         let pane = state.workspaces[0].panes.get(&pane_id).unwrap();
-        assert_eq!(pane.state, AgentState::Idle);
         assert!(pane.seen);
     }
 
@@ -1847,6 +1967,7 @@ mod tests {
             agent_label: "hermes".into(),
             state: AgentState::Blocked,
             message: None,
+            custom_status: None,
             seq: None,
         });
 
@@ -1862,11 +1983,13 @@ mod tests {
         state.active = Some(0);
         state.toast_config.delivery = crate::config::ToastDelivery::Herdr;
         let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
-        state.workspaces[1]
+        let bg_terminal_id = state.workspaces[1]
             .panes
-            .get_mut(&bg_pane_id)
+            .get(&bg_pane_id)
             .unwrap()
-            .state = AgentState::Working;
+            .attached_terminal_id
+            .clone();
+        state.terminals.get_mut(&bg_terminal_id).unwrap().state = AgentState::Working;
 
         state.handle_app_event(AppEvent::StateChanged {
             pane_id: bg_pane_id,
@@ -1890,6 +2013,7 @@ mod tests {
         state.toast_config.delivery = crate::config::ToastDelivery::Herdr;
         state.workspaces[1].tabs[0].set_custom_name("main".into());
         let second_tab = state.workspaces[1].test_add_tab(Some("logs"));
+        state.ensure_test_terminals();
         let bg_pane_id = state.workspaces[1].tabs[second_tab].root_pane;
 
         state.handle_app_event(AppEvent::StateChanged {
@@ -1911,6 +2035,7 @@ mod tests {
         state.toast_config.delivery = crate::config::ToastDelivery::Herdr;
         state.workspaces[0].tabs[0].set_custom_name("main".into());
         let second_tab = state.workspaces[0].test_add_tab(Some("logs"));
+        state.ensure_test_terminals();
         let bg_pane_id = state.workspaces[0].tabs[second_tab].root_pane;
 
         state.handle_app_event(AppEvent::StateChanged {
@@ -1973,6 +2098,7 @@ mod tests {
 
         let updates = state.handle_app_event(AppEvent::UpdateReady {
             version: "0.5.0".into(),
+            install_command: "herdr update".into(),
         });
 
         assert!(updates.is_empty());
@@ -1986,21 +2112,42 @@ mod tests {
     }
 
     #[test]
-    fn toggle_fullscreen_works() {
+    fn update_ready_uses_event_install_command_in_toast() {
+        let mut state = AppState::test_new();
+        state.toast_config.delivery = crate::config::ToastDelivery::Herdr;
+
+        state.handle_app_event(AppEvent::UpdateReady {
+            version: "0.5.0".into(),
+            install_command: "brew update && brew upgrade herdr".into(),
+        });
+
+        assert_eq!(
+            state.update_install_command,
+            "brew update && brew upgrade herdr"
+        );
+        let toast = state.toast.as_ref().expect("update toast");
+        assert_eq!(
+            toast.context,
+            "detach, then run `brew update && brew upgrade herdr`"
+        );
+    }
+
+    #[test]
+    fn toggle_zoom_works() {
         let mut state = app_with_workspaces(&["test"]);
         state.workspaces[0].test_split(Direction::Horizontal);
 
         assert!(!state.workspaces[0].zoomed);
-        state.toggle_fullscreen();
+        state.toggle_zoom();
         assert!(state.workspaces[0].zoomed);
-        state.toggle_fullscreen();
+        state.toggle_zoom();
         assert!(!state.workspaces[0].zoomed);
     }
 
     #[test]
-    fn toggle_fullscreen_single_pane_noop() {
+    fn toggle_zoom_single_pane_noop() {
         let mut state = app_with_workspaces(&["test"]);
-        state.toggle_fullscreen();
+        state.toggle_zoom();
         assert!(!state.workspaces[0].zoomed);
     }
 
@@ -2012,5 +2159,76 @@ mod tests {
 
         state.close_pane();
         assert_eq!(state.workspaces[0].panes.len(), 1);
+    }
+
+    #[test]
+    fn close_pane_removes_unattached_terminal_state() {
+        let mut state = app_with_workspaces(&["test"]);
+        let pane_id = state.workspaces[0].test_split(Direction::Horizontal);
+        state.ensure_test_terminals();
+        let terminal_id = state.terminal_id_for_pane(0, pane_id).unwrap();
+
+        state.close_pane();
+
+        assert!(!state.terminals.contains_key(&terminal_id));
+    }
+
+    #[test]
+    fn close_tab_removes_unattached_terminal_states() {
+        let mut state = app_with_workspaces(&["test"]);
+        let tab_idx = state.workspaces[0].test_add_tab(Some("logs"));
+        state.ensure_test_terminals();
+        state.workspaces[0].switch_tab(tab_idx);
+        let pane_id = state.workspaces[0].tabs[tab_idx].root_pane;
+        let terminal_id = state.terminal_id_for_pane(0, pane_id).unwrap();
+
+        state.close_tab();
+
+        assert!(!state.terminals.contains_key(&terminal_id));
+    }
+
+    #[test]
+    fn close_workspace_removes_unattached_terminal_states() {
+        let mut state = app_with_workspaces(&["one", "two"]);
+        let terminal_id = state
+            .terminal_id_for_pane(0, state.workspaces[0].tabs[0].root_pane)
+            .unwrap();
+
+        state.close_selected_workspace();
+
+        assert!(!state.terminals.contains_key(&terminal_id));
+    }
+
+    #[test]
+    fn close_tab_last_tab_closes_active_workspace_not_selected_workspace() {
+        let mut state = app_with_workspaces(&["selected", "active"]);
+        let active_terminal_id = state
+            .terminal_id_for_pane(1, state.workspaces[1].tabs[0].root_pane)
+            .unwrap();
+        state.active = Some(1);
+        state.selected = 0;
+        state.confirm_close = false;
+
+        state.close_tab();
+
+        assert_eq!(state.workspaces.len(), 1);
+        assert_eq!(state.workspaces[0].display_name(), "selected");
+        assert!(!state.terminals.contains_key(&active_terminal_id));
+    }
+
+    #[test]
+    fn close_pane_last_pane_closes_active_workspace_not_selected_workspace() {
+        let mut state = app_with_workspaces(&["selected", "active"]);
+        let active_terminal_id = state
+            .terminal_id_for_pane(1, state.workspaces[1].tabs[0].root_pane)
+            .unwrap();
+        state.active = Some(1);
+        state.selected = 0;
+
+        state.close_pane();
+
+        assert_eq!(state.workspaces.len(), 1);
+        assert_eq!(state.workspaces[0].display_name(), "selected");
+        assert!(!state.terminals.contains_key(&active_terminal_id));
     }
 }

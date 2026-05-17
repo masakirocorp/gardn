@@ -25,6 +25,7 @@ pub enum AppEvent {
         agent_label: String,
         state: AgentState,
         message: Option<String>,
+        custom_status: Option<String>,
         seq: Option<u64>,
     },
     /// Hook authority was explicitly cleared for a pane.
@@ -41,8 +42,11 @@ pub enum AppEvent {
         known_agent: Option<Agent>,
         seq: Option<u64>,
     },
-    /// A new version is available and ready to install explicitly.
-    UpdateReady { version: String },
+    /// A new version is available through the active installation manager.
+    UpdateReady {
+        version: String,
+        install_command: String,
+    },
     /// A pane child emitted a valid OSC 52 clipboard write. The main loop
     /// re-emits it through herdr's own clipboard writer.
     ClipboardWrite { content: Vec<u8> },

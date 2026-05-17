@@ -113,6 +113,8 @@ pub struct Keybinds {
     pub close_tab_label: Option<String>,
     pub rename_pane: Option<(KeyCode, KeyModifiers)>,
     pub rename_pane_label: Option<String>,
+    pub edit_scrollback: Option<(KeyCode, KeyModifiers)>,
+    pub edit_scrollback_label: Option<String>,
     pub focus_pane_left: Option<(KeyCode, KeyModifiers)>,
     pub focus_pane_left_label: Option<String>,
     pub focus_pane_down: Option<(KeyCode, KeyModifiers)>,
@@ -127,8 +129,8 @@ pub struct Keybinds {
     pub split_horizontal_label: String,
     pub close_pane: (KeyCode, KeyModifiers),
     pub close_pane_label: String,
-    pub fullscreen: (KeyCode, KeyModifiers),
-    pub fullscreen_label: String,
+    pub zoom: (KeyCode, KeyModifiers),
+    pub zoom_label: String,
     pub resize_mode: (KeyCode, KeyModifiers),
     pub resize_mode_label: String,
     pub toggle_sidebar: (KeyCode, KeyModifiers),
@@ -380,8 +382,8 @@ impl Config {
             ),
             required_binding(
                 BindingScope::Navigate,
-                "keys.fullscreen",
-                &self.keys.fullscreen,
+                "keys.zoom",
+                &self.keys.zoom,
                 "f",
                 (KeyCode::Char('f'), KeyModifiers::empty()),
                 &mut diagnostics,
@@ -536,6 +538,12 @@ impl Config {
                 navigate_scope(),
                 "keys.rename_pane",
                 &self.keys.rename_pane,
+                &mut diagnostics,
+            ),
+            optional_binding(
+                navigate_scope(),
+                "keys.edit_scrollback",
+                &self.keys.edit_scrollback,
                 &mut diagnostics,
             ),
             optional_binding(
@@ -867,28 +875,30 @@ impl Config {
             close_tab_label: optional_bindings[18].label.clone(),
             rename_pane: optional_bindings[19].value,
             rename_pane_label: optional_bindings[19].label.clone(),
-            focus_pane_left: optional_bindings[20].value,
-            focus_pane_left_label: optional_bindings[20].label.clone(),
-            focus_pane_down: optional_bindings[21].value,
-            focus_pane_down_label: optional_bindings[21].label.clone(),
-            focus_pane_up: optional_bindings[22].value,
-            focus_pane_up_label: optional_bindings[22].label.clone(),
-            focus_pane_right: optional_bindings[23].value,
-            focus_pane_right_label: optional_bindings[23].label.clone(),
+            focus_pane_left: optional_bindings[21].value,
+            focus_pane_left_label: optional_bindings[21].label.clone(),
+            focus_pane_down: optional_bindings[22].value,
+            focus_pane_down_label: optional_bindings[22].label.clone(),
+            focus_pane_up: optional_bindings[23].value,
+            focus_pane_up_label: optional_bindings[23].label.clone(),
+            focus_pane_right: optional_bindings[24].value,
+            focus_pane_right_label: optional_bindings[24].label.clone(),
+            edit_scrollback: optional_bindings[20].value,
+            edit_scrollback_label: optional_bindings[20].label.clone(),
             split_vertical: bindings[4].value,
             split_vertical_label: bindings[4].label.clone(),
             split_horizontal: bindings[5].value,
             split_horizontal_label: bindings[5].label.clone(),
             close_pane: bindings[6].value,
             close_pane_label: bindings[6].label.clone(),
-            fullscreen: bindings[7].value,
-            fullscreen_label: bindings[7].label.clone(),
+            zoom: bindings[7].value,
+            zoom_label: bindings[7].label.clone(),
             resize_mode: bindings[8].value,
             resize_mode_label: bindings[8].label.clone(),
             toggle_sidebar: bindings[9].value,
             toggle_sidebar_label: bindings[9].label.clone(),
-            toggle_right_sidebar: optional_bindings[24].value,
-            toggle_right_sidebar_label: optional_bindings[24].label.clone(),
+            toggle_right_sidebar: optional_bindings[25].value,
+            toggle_right_sidebar_label: optional_bindings[25].label.clone(),
             custom_commands,
         };
 
@@ -1193,7 +1203,8 @@ mod tests {
         assert_eq!(kb.split_vertical.0, KeyCode::Char('v'));
         assert_eq!(kb.split_horizontal.0, KeyCode::Char('-'));
         assert_eq!(kb.close_pane.0, KeyCode::Char('x'));
-        assert_eq!(kb.fullscreen.0, KeyCode::Char('f'));
+        assert_eq!(kb.edit_scrollback, None);
+        assert_eq!(kb.zoom.0, KeyCode::Char('f'));
         assert_eq!(kb.resize_mode.0, KeyCode::Char('r'));
         assert_eq!(kb.toggle_sidebar.0, KeyCode::Char('b'));
         assert_eq!(kb.toggle_right_sidebar, None);
@@ -1211,7 +1222,7 @@ close_workspace = "ctrl+d"
 split_vertical = "s"
 split_horizontal = "shift+s"
 close_pane = "ctrl+w"
-fullscreen = "z"
+zoom = "z"
 resize_mode = "ctrl+r"
 toggle_sidebar = "tab"
 command_palette = "p"
@@ -1226,6 +1237,7 @@ previous_group = "ctrl+["
 next_group = "ctrl+]"
 open_agent_menu = "alt+m"
 toggle_right_sidebar = "alt+b"
+edit_scrollback = "e"
 focus_pane_left = "alt+h"
 focus_pane_right = "alt+right"
 "#;
@@ -1253,7 +1265,7 @@ focus_pane_right = "alt+right"
             (KeyCode::Char('s'), KeyModifiers::SHIFT)
         );
         assert_eq!(kb.close_pane, (KeyCode::Char('w'), KeyModifiers::CONTROL));
-        assert_eq!(kb.fullscreen.0, KeyCode::Char('z'));
+        assert_eq!(kb.zoom.0, KeyCode::Char('z'));
         assert_eq!(kb.resize_mode, (KeyCode::Char('r'), KeyModifiers::CONTROL));
         assert_eq!(kb.toggle_sidebar, (KeyCode::Tab, KeyModifiers::empty()));
         assert_eq!(
@@ -1302,6 +1314,10 @@ focus_pane_right = "alt+right"
             Some((KeyCode::Char('b'), KeyModifiers::ALT))
         );
         assert_eq!(
+            kb.edit_scrollback,
+            Some((KeyCode::Char('e'), KeyModifiers::empty()))
+        );
+        assert_eq!(
             kb.focus_pane_left,
             Some((KeyCode::Char('h'), KeyModifiers::ALT))
         );
@@ -1311,6 +1327,17 @@ focus_pane_right = "alt+right"
         );
         assert_eq!(kb.focus_pane_down, None);
         assert_eq!(kb.focus_pane_up, None);
+    }
+
+    #[test]
+    fn legacy_fullscreen_keybind_alias_maps_to_zoom() {
+        let toml = r#"
+[keys]
+fullscreen = "z"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        let kb = config.keybinds();
+        assert_eq!(kb.zoom.0, KeyCode::Char('z'));
     }
 
     #[test]

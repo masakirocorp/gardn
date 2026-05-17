@@ -30,6 +30,7 @@ pub(crate) struct AgentPanelEntry {
     pub agent_label: Option<String>,
     pub state: AgentState,
     pub seen: bool,
+    pub custom_status: Option<String>,
 }
 
 pub(crate) struct AgentPanelSection {
@@ -140,7 +141,7 @@ fn agent_panel_workspace_context_label(app: &AppState, ws_idx: usize) -> String 
     format!(
         "{} / {}",
         agent_panel_group_label(app, ws_idx),
-        ws.display_name()
+        ws.display_name_from(&app.terminals, &app.terminal_runtimes)
     )
 }
 
@@ -173,7 +174,7 @@ fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<
             let Some(ws) = app.workspaces.get(ws_idx) else {
                 return Vec::new();
             };
-            ws.pane_details()
+            ws.pane_details(&app.terminals)
                 .into_iter()
                 .map(|detail| AgentPanelEntry {
                     ws_idx,
@@ -184,6 +185,7 @@ fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<
                     agent_label: None,
                     state: detail.state,
                     seen: detail.seen,
+                    custom_status: detail.custom_status,
                 })
                 .collect()
         }
@@ -199,8 +201,9 @@ fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<
                 .filter(|(_, ws)| ws.group_id == group_id)
                 .flat_map(|(ws_idx, ws)| {
                     let multi_tab = ws.tabs.len() > 1;
-                    let workspace_label = ws.display_name();
-                    ws.pane_details()
+                    let workspace_label =
+                        ws.display_name_from(&app.terminals, &app.terminal_runtimes);
+                    ws.pane_details(&app.terminals)
                         .into_iter()
                         .map(move |detail| AgentPanelEntry {
                             ws_idx,
@@ -211,6 +214,7 @@ fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<
                             agent_label: Some(detail.agent_label),
                             state: detail.state,
                             seen: detail.seen,
+                            custom_status: detail.custom_status,
                         })
                 })
                 .collect()
@@ -222,7 +226,7 @@ fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<
             .flat_map(|(ws_idx, ws)| {
                 let multi_tab = ws.tabs.len() > 1;
                 let workspace_label = agent_panel_workspace_context_label(app, ws_idx);
-                ws.pane_details()
+                ws.pane_details(&app.terminals)
                     .into_iter()
                     .map(move |detail| AgentPanelEntry {
                         ws_idx,
@@ -233,6 +237,7 @@ fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<
                         agent_label: Some(detail.agent_label),
                         state: detail.state,
                         seen: detail.seen,
+                        custom_status: detail.custom_status,
                     })
             })
             .collect(),
@@ -254,7 +259,7 @@ pub(crate) fn agent_panel_triage_entries(app: &AppState) -> Vec<AgentPanelEntry>
         .flat_map(|(ws_idx, ws)| {
             let multi_tab = ws.tabs.len() > 1;
             let context_label = agent_panel_workspace_context_label(app, ws_idx);
-            ws.pane_details()
+            ws.pane_details(&app.terminals)
                 .into_iter()
                 .map(move |detail| AgentPanelEntry {
                     ws_idx,
@@ -265,6 +270,7 @@ pub(crate) fn agent_panel_triage_entries(app: &AppState) -> Vec<AgentPanelEntry>
                     agent_label: Some(detail.agent_label),
                     state: detail.state,
                     seen: detail.seen,
+                    custom_status: detail.custom_status,
                 })
         })
         .filter(agent_panel_entry_needs_triage)
@@ -963,7 +969,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         if y >= workspace_rows.y + workspace_rows.height {
             break;
         }
-        let (agg_state, agg_seen) = ws.aggregate_state();
+        let (agg_state, agg_seen) = ws.aggregate_state(&app.terminals);
         let (icon, icon_style) = state_dot(agg_state, agg_seen, p);
         let is_selected = ws_idx == app.selected && is_navigating;
         let is_active = Some(ws_idx) == app.active;
@@ -1026,7 +1032,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
     if detail_content_area != Rect::default() {
         if let Some(ws_idx) = detail_ws_idx {
             if let Some(ws) = app.workspaces.get(ws_idx) {
-                for (detail_idx, detail) in ws.pane_details().iter().enumerate() {
+                for (detail_idx, detail) in ws.pane_details(&app.terminals).iter().enumerate() {
                     let y = detail_content_area.y + detail_idx as u16;
                     if y >= detail_content_area.y + detail_content_area.height {
                         break;
@@ -1881,7 +1887,7 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
         let is_active = Some(i) == app.active;
         let is_dragged = dragged_ws_idx == Some(i);
         let highlighted = selected || is_active || is_dragged;
-        let (agg_state, agg_seen) = ws.aggregate_state();
+        let (agg_state, agg_seen) = ws.aggregate_state(&app.terminals);
 
         if highlighted {
             let bg = if selected {
@@ -1924,7 +1930,10 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
             Span::styled(" ", Style::default()),
             Span::styled(icon, icon_style),
             Span::styled(" ", Style::default()),
-            Span::styled(ws.display_name(), name_style),
+            Span::styled(
+                ws.display_name_from(&app.terminals, &app.terminal_runtimes),
+                name_style,
+            ),
         ];
 
         frame.render_widget(
@@ -2066,6 +2075,12 @@ fn render_agent_entry(
             status_spans.push(Span::styled(" · ", agent_style));
         }
         status_spans.push(Span::styled(agent_label, agent_style));
+    }
+    if let Some(custom_status) = &detail.custom_status {
+        if show_status || detail.agent_label.is_some() {
+            status_spans.push(Span::styled(" · ", agent_style));
+        }
+        status_spans.push(Span::styled(custom_status.clone(), agent_style));
     }
     frame.render_widget(
         Paragraph::new(Line::from(status_spans)).style(row_style),
@@ -2475,24 +2490,28 @@ mod tests {
     #[test]
     fn all_workspaces_agent_panel_entries_use_workspace_and_optional_tab_labels() {
         let mut app = crate::app::state::AppState::test_new();
-        let mut first = Workspace::test_new("one");
+        let first = Workspace::test_new("one");
         let first_pane = first.tabs[0].root_pane;
-        first.tabs[0]
-            .panes
-            .get_mut(&first_pane)
-            .unwrap()
-            .detected_agent = Some(Agent::Pi);
-
         let mut second = Workspace::test_new("two");
         let second_tab = second.test_add_tab(Some("logs"));
         let second_pane = second.tabs[second_tab].root_pane;
-        second.tabs[second_tab]
-            .panes
-            .get_mut(&second_pane)
-            .unwrap()
-            .detected_agent = Some(Agent::Claude);
 
         app.workspaces = vec![first, second];
+        app.ensure_test_terminals();
+        let first_terminal_id = app.workspaces[0].tabs[0].panes[&first_pane]
+            .attached_terminal_id
+            .clone();
+        app.terminals
+            .get_mut(&first_terminal_id)
+            .unwrap()
+            .detected_agent = Some(Agent::Pi);
+        let second_terminal_id = app.workspaces[1].tabs[second_tab].panes[&second_pane]
+            .attached_terminal_id
+            .clone();
+        app.terminals
+            .get_mut(&second_terminal_id)
+            .unwrap()
+            .detected_agent = Some(Agent::Claude);
         app.active = Some(0);
         app.selected = 0;
         app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
@@ -2726,6 +2745,7 @@ mod tests {
                 agent_label: Some("opencode".into()),
                 state: AgentState::Blocked,
                 seen: false,
+                custom_status: None,
             }],
         };
         let p = crate::app::state::Palette::catppuccin();
@@ -2776,6 +2796,7 @@ mod tests {
             agent_label: Some("claude".into()),
             state: AgentState::Idle,
             seen: true,
+            custom_status: None,
         };
 
         let label = format_agent_panel_primary_label(&entry, 18);

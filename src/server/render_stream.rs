@@ -151,6 +151,7 @@ impl CursorTrackingBackend {
             x: pos.x,
             y: pos.y,
             visible: true,
+            shape: 0,
         })
     }
 }
@@ -257,6 +258,34 @@ pub(crate) fn render_virtual_with_cell_size(
     (buffer, cursor)
 }
 
+/// Renders one server-owned terminal directly for `terminal attach` clients.
+pub(crate) fn render_terminal_virtual(
+    runtime: &crate::terminal::TerminalRuntime,
+    area: Rect,
+) -> (ratatui::buffer::Buffer, Option<CursorState>) {
+    let backend = CursorTrackingBackend::new(area.width, area.height);
+    let mut terminal = ratatui::Terminal::new(backend).expect("TestBackend::new should never fail");
+
+    terminal
+        .draw(|frame| {
+            runtime.render_with_theme_background(frame, area, true, None);
+        })
+        .expect("render to TestBackend should never fail");
+
+    let buffer = terminal.backend().buffer().clone();
+    let cursor = runtime
+        .cursor_state(area, true)
+        .map(|cursor| CursorState {
+            x: cursor.x,
+            y: cursor.y,
+            visible: cursor.visible && !crate::ui::pane_is_scrolled_back(runtime),
+            shape: cursor.shape,
+        })
+        .or_else(|| terminal.backend().rendered_cursor());
+
+    (buffer, cursor)
+}
+
 pub(crate) fn visible_hyperlinks(app_state: &AppState) -> Vec<((u16, u16), String, String)> {
     let Some(ws_idx) = app_state.active else {
         return Vec::new();
@@ -271,7 +300,10 @@ pub(crate) fn visible_hyperlinks(app_state: &AppState) -> Vec<((u16, u16), Strin
 
     let mut links = Vec::new();
     for info in &app_state.view.pane_infos {
-        if let Some(runtime) = tab.runtimes.get(&info.id) {
+        if let Some(runtime) = tab
+            .terminal_id(info.id)
+            .and_then(|terminal_id| app_state.terminal_runtimes.get(terminal_id))
+        {
             links.extend(runtime.visible_hyperlinks(info.inner_rect));
         }
     }
@@ -284,17 +316,17 @@ fn focused_terminal_cursor(app_state: &AppState) -> Option<CursorState> {
     }
 
     let ws_idx = app_state.active?;
-    let ws = app_state.workspaces.get(ws_idx)?;
     let info = app_state
         .view
         .pane_infos
         .iter()
         .find(|info| info.is_focused)?;
-    let rt = ws.runtime(info.id)?;
+    let rt = app_state.runtime_for_pane_in_workspace(ws_idx, info.id)?;
     let cursor = rt.cursor_state(info.inner_rect, true)?;
     Some(CursorState {
         x: cursor.x,
         y: cursor.y,
         visible: cursor.visible && !crate::ui::pane_is_scrolled_back(rt),
+        shape: cursor.shape,
     })
 }

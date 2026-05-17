@@ -36,6 +36,8 @@ impl App {
                 &self.state.groups,
                 self.state.active_group,
                 &self.state.workspaces,
+                &self.state.terminals,
+                &self.state.terminal_runtimes,
                 self.state.active,
                 self.state.selected,
                 self.state.agent_panel_scope,

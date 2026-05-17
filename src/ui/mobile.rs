@@ -267,7 +267,7 @@ fn render_header_status(app: &AppState, frame: &mut Frame, area: Rect) {
         return;
     };
 
-    let (state, seen) = ws.aggregate_state();
+    let (state, seen) = ws.aggregate_state(&app.terminals);
     let (dot, dot_style) = if matches!(state, AgentState::Working) {
         (
             super::spinner_frame(app.spinner_tick),
@@ -287,7 +287,10 @@ fn render_header_status(app: &AppState, frame: &mut Frame, area: Rect) {
             Span::styled(dot, dot_style.bg(p.panel_bg)),
             Span::raw(" "),
             Span::styled(
-                truncate(&ws.display_name(), name_w.saturating_sub(4) as usize),
+                truncate(
+                    &ws.display_name_from(&app.terminals, &app.terminal_runtimes),
+                    name_w.saturating_sub(4) as usize,
+                ),
                 Style::default()
                     .fg(p.text)
                     .bg(p.panel_bg)
@@ -434,14 +437,17 @@ fn render_mobile_switcher_content(app: &AppState, frame: &mut Frame, viewport: R
         let active = Some(ws_idx) == app.active;
         let selected = ws_idx == app.selected;
         let bg = mobile_item_bg(selected, active, p);
-        let (state, seen) = ws.aggregate_state();
+        let (state, seen) = ws.aggregate_state(&app.terminals);
         let (dot, dot_style) = state_dot(state, seen, p);
         let title = Line::from(vec![
             Span::styled("  ", Style::default().bg(bg)),
             Span::styled(dot, dot_style.bg(bg)),
             Span::styled(" ", Style::default().bg(bg)),
             Span::styled(
-                truncate(&ws.display_name(), content.width.saturating_sub(5) as usize),
+                truncate(
+                    &ws.display_name_from(&app.terminals, &app.terminal_runtimes),
+                    content.width.saturating_sub(5) as usize,
+                ),
                 Style::default()
                     .fg(p.text)
                     .bg(bg)
@@ -602,6 +608,9 @@ fn mobile_agent_detail(entry: &AgentPanelEntry) -> String {
     parts.push(super::status::state_label(entry.state, entry.seen).to_string());
     if let Some(agent_label) = entry.agent_label.as_deref() {
         parts.push(agent_label.to_string());
+    }
+    if let Some(custom_status) = entry.custom_status.as_deref() {
+        parts.push(custom_status.to_string());
     }
 
     format!("  {}", parts.join(" · "))
@@ -825,7 +834,7 @@ fn agent_priority_label(app: &AppState) -> String {
     let mut blocked = 0usize;
     let mut working = 0usize;
     let mut done = 0usize;
-    for detail in ws.pane_details() {
+    for detail in ws.pane_details(&app.terminals) {
         match (detail.state, detail.seen) {
             (AgentState::Blocked, _) => blocked += 1,
             (AgentState::Working, _) => working += 1,
@@ -900,6 +909,7 @@ mod tests {
             agent_label: agent_label.map(str::to_string),
             state: AgentState::Idle,
             seen: true,
+            custom_status: None,
         }
     }
 
