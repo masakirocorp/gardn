@@ -3299,7 +3299,7 @@ mod tests {
     }
 
     #[test]
-    fn right_sidebar_stacks_ports_after_agent_rows() {
+    fn right_sidebar_stacks_commands_between_agents_and_ports() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = vec![Workspace::test_new("web")];
         app.active = Some(0);
@@ -3321,9 +3321,13 @@ mod tests {
             .iter()
             .position(|line| line.contains("ports"))
             .expect("ports header");
+        let commands_row = lines
+            .iter()
+            .position(|line| line.contains("commands"))
+            .expect("commands header");
 
-        assert!(ports_row > agents_row);
-        assert!(ports_row < 8);
+        assert!(commands_row > agents_row);
+        assert!(ports_row > commands_row);
     }
 
     #[test]
