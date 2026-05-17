@@ -649,23 +649,6 @@ impl AppState {
         })
     }
 
-    pub(super) fn workspace_group_empty_at_row(&self, row: u16) -> Option<usize> {
-        if self.sidebar_collapsed || self.group_filter_enabled {
-            return None;
-        }
-
-        let empties = if self.view.workspace_group_empty_areas.is_empty() {
-            crate::ui::compute_workspace_group_empty_areas(self, self.view.sidebar_rect)
-        } else {
-            self.view.workspace_group_empty_areas.clone()
-        };
-
-        empties.iter().find_map(|empty| {
-            (row >= empty.rect.y && row < empty.rect.y + empty.rect.height)
-                .then_some(empty.group_idx)
-        })
-    }
-
     pub(super) fn collapsed_workspace_at_row(&self, row: u16) -> Option<usize> {
         if !self.sidebar_collapsed {
             return None;
@@ -752,11 +735,21 @@ impl AppState {
         }
 
         if !self.sidebar_collapsed && !self.group_filter_enabled {
-            if self.workspace_group_header_at_row(row).is_some() {
+            let headers =
+                crate::ui::compute_workspace_group_header_areas(self, self.view.sidebar_rect);
+            if headers
+                .iter()
+                .any(|header| row >= header.rect.y && row < header.rect.y + header.rect.height)
+            {
                 return None;
             }
 
-            if let Some(group_idx) = self.workspace_group_empty_at_row(row) {
+            let empties =
+                crate::ui::compute_workspace_group_empty_areas(self, self.view.sidebar_rect);
+            if let Some(group_idx) = empties.iter().find_map(|empty| {
+                (row >= empty.rect.y && row < empty.rect.y + empty.rect.height)
+                    .then_some(empty.group_idx)
+            }) {
                 return Some(WorkspaceDropTarget {
                     insert_idx: self.group_insert_end(group_idx),
                     group_idx: Some(group_idx),
@@ -764,11 +757,7 @@ impl AppState {
                 });
             }
 
-            let drops = if self.view.workspace_group_drop_areas.is_empty() {
-                crate::ui::compute_workspace_group_drop_areas(self, self.view.sidebar_rect)
-            } else {
-                self.view.workspace_group_drop_areas.clone()
-            };
+            let drops = crate::ui::compute_workspace_group_drop_areas(self, self.view.sidebar_rect);
 
             return drops.iter().find_map(|drop| {
                 (row >= drop.rect.y && row < drop.rect.y + drop.rect.height).then_some(
@@ -1077,6 +1066,31 @@ mod tests {
 
         assert!(app.state.workspace_group_collapsed("work"));
         assert_eq!(app.state.sidebar_visible_workspace_indices(), vec![0]);
+    }
+
+    #[test]
+    fn mouse_wheel_workspace_selection_skips_collapsed_group_workspaces() {
+        let mut app = app_for_mouse_test();
+        app.state.group_filter_enabled = false;
+        app.state.groups.push(Group {
+            id: "work".into(),
+            name: "work".into(),
+            icon: "■".into(),
+            theme_name: None,
+        });
+        app.state.workspaces = vec![
+            Workspace::test_new("a"),
+            Workspace::test_new("b"),
+            Workspace::test_new("c"),
+        ];
+        app.state.workspaces[1].group_id = "work".into();
+        app.state.toggle_workspace_group(1);
+        app.state.selected = 0;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 24));
+
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, 2, 5));
+
+        assert_eq!(app.state.selected, 2);
     }
 
     #[test]
@@ -2685,10 +2699,9 @@ mod tests {
         app.state.selected = 0;
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 24));
         let source = app.state.view.workspace_card_areas[1].rect;
-        let target = app
-            .state
-            .view
-            .workspace_group_drop_areas
+        let drop_areas =
+            crate::ui::compute_workspace_group_drop_areas(&app.state, app.state.view.sidebar_rect);
+        let target = drop_areas
             .iter()
             .find(|area| area.group_idx == 1 && area.insert_idx == 2)
             .copied()
@@ -2736,10 +2749,9 @@ mod tests {
         app.state.selected = 2;
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 24));
         let source = app.state.view.workspace_card_areas[2].rect;
-        let target = app
-            .state
-            .view
-            .workspace_group_drop_areas
+        let drop_areas =
+            crate::ui::compute_workspace_group_drop_areas(&app.state, app.state.view.sidebar_rect);
+        let target = drop_areas
             .iter()
             .find(|area| area.group_idx == 0 && area.insert_idx == 2)
             .copied()
@@ -2824,6 +2836,12 @@ mod tests {
         ));
 
         assert!(!app.state.workspace_group_collapsed("work"));
+        assert_eq!(
+            app.state
+                .workspace_drop_target_at_row(header.rect.y + 1)
+                .map(|target| target.group_idx),
+            Some(Some(1))
+        );
     }
 
     #[test]

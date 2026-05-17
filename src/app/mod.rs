@@ -421,7 +421,6 @@ impl App {
                 workspace_card_areas: Vec::new(),
                 workspace_group_header_areas: Vec::new(),
                 workspace_group_empty_areas: Vec::new(),
-                workspace_group_drop_areas: Vec::new(),
                 tab_bar_rect: Rect::default(),
                 tab_hit_areas: Vec::new(),
                 tab_scroll_left_hit_area: Rect::default(),

@@ -66,10 +66,10 @@ pub(crate) use self::{
         collapsed_right_sidebar_port_entry_at_row, collapsed_right_sidebar_ports_header_rect,
         collapsed_sidebar_sections, collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect,
         compute_workspace_card_areas, compute_workspace_card_areas_in_list,
-        compute_workspace_group_drop_areas, compute_workspace_group_drop_areas_in_list,
-        compute_workspace_group_empty_areas, compute_workspace_group_empty_areas_in_list,
-        compute_workspace_group_header_areas, compute_workspace_group_header_areas_in_list,
-        expanded_sidebar_sections, expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
+        compute_workspace_group_drop_areas, compute_workspace_group_empty_areas,
+        compute_workspace_group_empty_areas_in_list, compute_workspace_group_header_areas,
+        compute_workspace_group_header_areas_in_list, expanded_sidebar_sections,
+        expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
         right_sidebar_agents_header_rect, right_sidebar_content_rect, right_sidebar_panel_rects,
         right_sidebar_ports_header_rect, right_sidebar_toggle_rect, sidebar_section_divider_rect,
         workspace_drop_indicator_row, workspace_list_entry_count,
@@ -230,13 +230,10 @@ fn compute_view_internal(
         app.agent_panel_scroll = 0;
     }
 
-    let (
-        workspace_card_areas,
-        workspace_group_header_areas,
-        workspace_group_empty_areas,
-        workspace_group_drop_areas,
-    ) = if app.sidebar_collapsed {
-        (Vec::new(), Vec::new(), Vec::new(), Vec::new())
+    let (workspace_card_areas, workspace_group_header_areas, workspace_group_empty_areas) = if app
+        .sidebar_collapsed
+    {
+        (Vec::new(), Vec::new(), Vec::new())
     } else if right_sidebar_area != Rect::default() {
         (
             compute_workspace_card_areas_in_list(app, left_sidebar_workspace_rect(sidebar_area)),
@@ -248,17 +245,12 @@ fn compute_view_internal(
                 app,
                 left_sidebar_workspace_rect(sidebar_area),
             ),
-            compute_workspace_group_drop_areas_in_list(
-                app,
-                left_sidebar_workspace_rect(sidebar_area),
-            ),
         )
     } else {
         (
             compute_workspace_card_areas(app, sidebar_area),
             compute_workspace_group_header_areas(app, sidebar_area),
             compute_workspace_group_empty_areas(app, sidebar_area),
-            compute_workspace_group_drop_areas(app, sidebar_area),
         )
     };
 
@@ -301,7 +293,6 @@ fn compute_view_internal(
         workspace_card_areas,
         workspace_group_header_areas,
         workspace_group_empty_areas,
-        workspace_group_drop_areas,
         tab_bar_rect,
         tab_hit_areas: tab_bar_view.tab_hit_areas,
         tab_scroll_left_hit_area: tab_bar_view.scroll_left_hit_area,
@@ -376,7 +367,6 @@ fn compute_mobile_view(
         workspace_card_areas: Vec::new(),
         workspace_group_header_areas: Vec::new(),
         workspace_group_empty_areas: Vec::new(),
-        workspace_group_drop_areas: Vec::new(),
         tab_bar_rect: Rect::default(),
         tab_hit_areas: Vec::new(),
         tab_scroll_left_hit_area: Rect::default(),
@@ -876,11 +866,10 @@ mod tests {
     fn expanded_sidebar_workspace_rows_show_state_before_name_and_work_summary() {
         let mut app = crate::app::state::AppState::test_new();
         let mut ws = Workspace::test_new("one");
-        let repo = temp_git_repo("main");
-        ws.identity_cwd = repo.clone();
-        let root_pane = ws.tabs[0].root_pane;
-        ws.tabs[0].pane_cwds.insert(root_pane, repo.clone());
-        ws.refresh_git_ahead_behind();
+        ws.cached_git_work_summary = Some(GitWorkSummary {
+            repo_count: 1,
+            ..GitWorkSummary::default()
+        });
 
         app.workspaces = vec![ws];
         app.selected = 0;
@@ -900,8 +889,6 @@ mod tests {
         assert!(line1.starts_with(" · one"));
         assert!(!line1.contains("1 one"));
         assert_eq!(line2, "   clean");
-
-        std::fs::remove_dir_all(repo).ok();
     }
 
     #[test]
@@ -1230,21 +1217,6 @@ mod tests {
             .collect::<String>()
             .trim_end()
             .to_string()
-    }
-
-    fn temp_git_repo(branch: &str) -> std::path::PathBuf {
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("unix time")
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!("herdr-ui-test-{unique}"));
-        std::fs::create_dir_all(root.join(".git")).expect("create .git dir");
-        std::fs::write(
-            root.join(".git/HEAD"),
-            format!("ref: refs/heads/{branch}\n"),
-        )
-        .expect("write HEAD");
-        root
     }
 
     #[test]

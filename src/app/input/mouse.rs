@@ -935,7 +935,7 @@ impl AppState {
                 ) {
                     self.scroll_workspace_list(-1);
                 } else {
-                    let visible = self.visible_workspace_indices();
+                    let visible = self.sidebar_visible_workspace_indices();
                     if let Some(pos) = visible.iter().position(|idx| *idx == self.selected) {
                         if let Some(prev) = pos.checked_sub(1).and_then(|idx| visible.get(idx)) {
                             self.selected = *prev;
@@ -962,7 +962,7 @@ impl AppState {
                 ) {
                     self.scroll_workspace_list(1);
                 } else {
-                    let visible = self.visible_workspace_indices();
+                    let visible = self.sidebar_visible_workspace_indices();
                     if let Some(pos) = visible.iter().position(|idx| *idx == self.selected) {
                         if let Some(next) = visible.get(pos + 1) {
                             self.selected = *next;

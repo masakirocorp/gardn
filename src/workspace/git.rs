@@ -78,13 +78,11 @@ pub(super) fn git_work_summary(cwds: &[PathBuf]) -> Option<GitWorkSummary> {
         return None;
     }
 
-    let mut summary = GitWorkSummary {
-        repo_count: roots.len(),
-        ..GitWorkSummary::default()
-    };
+    let mut summary = GitWorkSummary::default();
 
     for root in roots {
         if let Some(root_summary) = git_work_summary_for_root(&root) {
+            summary.repo_count += 1;
             summary.conflicted += root_summary.conflicted;
             summary.added += root_summary.added;
             summary.modified += root_summary.modified;
@@ -92,7 +90,7 @@ pub(super) fn git_work_summary(cwds: &[PathBuf]) -> Option<GitWorkSummary> {
         }
     }
 
-    Some(summary)
+    (summary.repo_count > 0).then_some(summary)
 }
 
 fn git_work_summary_for_root(root: &Path) -> Option<GitWorkSummary> {
@@ -266,5 +264,15 @@ mod tests {
         let summary = parse_git_status_porcelain(b"R  new.txt\0old.txt\0");
 
         assert_eq!(summary.modified, 1);
+    }
+
+    #[test]
+    fn git_work_summary_returns_none_when_status_fails_for_all_roots() {
+        let root = temp_test_dir("invalid-status-repo");
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+
+        assert_eq!(git_work_summary(std::slice::from_ref(&root)), None);
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
