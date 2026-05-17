@@ -1,4 +1,7 @@
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+
+use super::GitWorkSummary;
 
 pub fn derive_label_from_cwd(cwd: &Path) -> String {
     if let Some(repo_root) = git_repo_root(cwd) {
@@ -49,7 +52,7 @@ fn parse_git_head_branch(head: &str) -> Option<String> {
     (!branch.is_empty()).then(|| branch.to_string())
 }
 
-fn git_repo_root(start: &Path) -> Option<PathBuf> {
+pub(super) fn git_repo_root(start: &Path) -> Option<PathBuf> {
     let mut current = if start.is_dir() {
         start.to_path_buf()
     } else {
@@ -64,6 +67,105 @@ fn git_repo_root(start: &Path) -> Option<PathBuf> {
             return None;
         }
     }
+}
+
+pub(super) fn git_work_summary(cwds: &[PathBuf]) -> Option<GitWorkSummary> {
+    let roots = cwds
+        .iter()
+        .filter_map(|cwd| git_repo_root(cwd))
+        .collect::<HashSet<_>>();
+    if roots.is_empty() {
+        return None;
+    }
+
+    let mut summary = GitWorkSummary {
+        repo_count: roots.len(),
+        ..GitWorkSummary::default()
+    };
+
+    for root in roots {
+        if let Some(root_summary) = git_work_summary_for_root(&root) {
+            summary.conflicted += root_summary.conflicted;
+            summary.added += root_summary.added;
+            summary.modified += root_summary.modified;
+            summary.deleted += root_summary.deleted;
+        }
+    }
+
+    Some(summary)
+}
+
+fn git_work_summary_for_root(root: &Path) -> Option<GitWorkSummary> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .args(["status", "--porcelain=v1", "-z", "--untracked-files=normal"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    Some(parse_git_status_porcelain(&output.stdout))
+}
+
+fn parse_git_status_porcelain(stdout: &[u8]) -> GitWorkSummary {
+    let mut paths = HashMap::<Vec<u8>, GitPathState>::new();
+    let mut records = stdout
+        .split(|byte| *byte == 0)
+        .filter(|record| !record.is_empty());
+
+    while let Some(record) = records.next() {
+        if record.len() < 4 {
+            continue;
+        }
+        let x = record[0];
+        let y = record[1];
+        let path = record[3..].to_vec();
+        let state = git_path_state(x, y);
+        paths
+            .entry(path)
+            .and_modify(|existing| *existing = (*existing).max(state))
+            .or_insert(state);
+
+        if x == b'R' || y == b'R' || x == b'C' || y == b'C' {
+            let _ = records.next();
+        }
+    }
+
+    let mut summary = GitWorkSummary::default();
+    for state in paths.into_values() {
+        match state {
+            GitPathState::Conflicted => summary.conflicted += 1,
+            GitPathState::Added => summary.added += 1,
+            GitPathState::Modified => summary.modified += 1,
+            GitPathState::Deleted => summary.deleted += 1,
+        }
+    }
+    summary
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum GitPathState {
+    Modified,
+    Deleted,
+    Added,
+    Conflicted,
+}
+
+fn git_path_state(x: u8, y: u8) -> GitPathState {
+    if matches!(x, b'U' | b'A' | b'D') && matches!(y, b'U' | b'A' | b'D') {
+        return GitPathState::Conflicted;
+    }
+    if x == b'?' || y == b'?' || x == b'A' || y == b'A' || x == b'C' || y == b'C' {
+        return GitPathState::Added;
+    }
+    if x == b'D' || y == b'D' {
+        return GitPathState::Deleted;
+    }
+    GitPathState::Modified
 }
 
 pub(super) fn git_ahead_behind(cwd: &Path) -> Option<(usize, usize)> {
@@ -145,5 +247,24 @@ mod tests {
         assert_eq!(git_branch(&root), None);
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn git_status_summary_counts_changed_paths_by_kind() {
+        let summary = parse_git_status_porcelain(
+            b"?? new.txt\0 M changed.txt\0D  gone.txt\0UU conflict.txt\0",
+        );
+
+        assert_eq!(summary.added, 1);
+        assert_eq!(summary.modified, 1);
+        assert_eq!(summary.deleted, 1);
+        assert_eq!(summary.conflicted, 1);
+    }
+
+    #[test]
+    fn git_status_summary_counts_renames_as_modified_path() {
+        let summary = parse_git_status_porcelain(b"R  new.txt\0old.txt\0");
+
+        assert_eq!(summary.modified, 1);
     }
 }

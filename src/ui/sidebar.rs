@@ -414,12 +414,8 @@ fn agent_panel_section_header_style(section: &AgentPanelSection, p: &Palette) ->
     Style::default().fg(color).add_modifier(Modifier::BOLD)
 }
 
-fn workspace_row_height(ws: &crate::workspace::Workspace) -> u16 {
-    if ws.branch().is_some() {
-        2
-    } else {
-        1
-    }
+fn workspace_row_height(_ws: &crate::workspace::Workspace) -> u16 {
+    2
 }
 
 pub(crate) fn workspace_list_rect(area: Rect, split_ratio: f32) -> Rect {
@@ -1945,52 +1941,31 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
         );
 
         if row_height > 1 && row_y + 1 < list_bottom {
-            if let Some(branch) = ws.branch() {
-                let upstream_label = ws.git_ahead_behind().and_then(|(ahead, behind)| {
-                    let mut parts = Vec::new();
-                    if ahead > 0 {
-                        parts.push((format!("↑{}", ahead), p.green));
-                    }
-                    if behind > 0 {
-                        parts.push((format!("↓{}", behind), p.red));
-                    }
-                    (!parts.is_empty()).then_some(parts)
-                });
-                let reserved = upstream_label
-                    .as_ref()
-                    .map(|parts| {
-                        parts.iter().map(|(label, _)| label.len()).sum::<usize>() + parts.len()
-                    })
-                    .unwrap_or(0);
-                let max_branch_len = (card.rect.width as usize).saturating_sub(5 + reserved);
-                let branch_display = if branch.len() > max_branch_len {
-                    format!("{}…", &branch[..max_branch_len.saturating_sub(1)])
-                } else {
-                    branch
-                };
-                let branch_color = if selected || is_active {
-                    p.mauve
-                } else {
-                    p.overlay0
-                };
-                let mut spans = vec![
+            let summary = ws.git_work_summary_label();
+            let max_summary_len = (card.rect.width as usize).saturating_sub(3);
+            let summary_display = truncate_text(&summary, max_summary_len);
+            let summary_color = if ws.cached_git_work_summary.is_none() {
+                p.overlay0
+            } else if ws
+                .cached_git_work_summary
+                .is_some_and(|summary| summary.conflicted > 0)
+            {
+                p.red
+            } else if ws
+                .cached_git_work_summary
+                .is_some_and(|summary| summary.added + summary.modified + summary.deleted > 0)
+            {
+                p.yellow
+            } else {
+                p.overlay0
+            };
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![
                     Span::styled("   ", Style::default()),
-                    Span::styled(branch_display, Style::default().fg(branch_color)),
-                ];
-                if let Some(parts) = upstream_label {
-                    spans.push(Span::styled(" ", Style::default()));
-                    for (idx, (label, color)) in parts.into_iter().enumerate() {
-                        if idx > 0 {
-                            spans.push(Span::styled(" ", Style::default()));
-                        }
-                        spans.push(Span::styled(label, Style::default().fg(color)));
-                    }
-                }
-                frame.render_widget(
-                    Paragraph::new(Line::from(spans)),
-                    Rect::new(card.rect.x, row_y + 1, card.rect.width, 1),
-                );
-            }
+                    Span::styled(summary_display, Style::default().fg(summary_color)),
+                ])),
+                Rect::new(card.rect.x, row_y + 1, card.rect.width, 1),
+            );
         }
     }
 

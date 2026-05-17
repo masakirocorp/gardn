@@ -1159,13 +1159,20 @@ mod tests {
         app.render_dirty.store(false, Ordering::Release);
         let workspace_id = app.state.workspaces[0].id.clone();
         let resolved_identity_cwd = app.state.workspaces[0].resolved_identity_cwd().unwrap();
+        let cwd_fingerprint = app.state.workspaces[0].git_status_cwds();
 
         app.handle_internal_event(AppEvent::GitStatusRefreshed {
             results: vec![crate::workspace::WorkspaceGitStatus {
                 workspace_id,
                 resolved_identity_cwd,
+                cwd_fingerprint,
                 branch: Some("render-dirty-test".into()),
                 ahead_behind: Some((1, 0)),
+                work_summary: Some(crate::workspace::GitWorkSummary {
+                    repo_count: 1,
+                    modified: 1,
+                    ..crate::workspace::GitWorkSummary::default()
+                }),
             }],
         });
 

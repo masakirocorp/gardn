@@ -18,7 +18,7 @@ mod aggregate;
 mod git;
 mod tab;
 
-use self::git::git_ahead_behind;
+use self::git::{git_ahead_behind, git_work_summary};
 pub use self::{
     git::{derive_label_from_cwd, git_branch},
     tab::Tab,
@@ -30,8 +30,19 @@ pub const DEFAULT_GROUP_ID: &str = "default";
 pub struct WorkspaceGitStatus {
     pub workspace_id: String,
     pub resolved_identity_cwd: PathBuf,
+    pub cwd_fingerprint: Vec<PathBuf>,
     pub branch: Option<String>,
     pub ahead_behind: Option<(usize, usize)>,
+    pub work_summary: Option<GitWorkSummary>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GitWorkSummary {
+    pub repo_count: usize,
+    pub conflicted: usize,
+    pub added: usize,
+    pub modified: usize,
+    pub deleted: usize,
 }
 
 static NEXT_WORKSPACE_ID: AtomicU64 = AtomicU64::new(1);
@@ -59,6 +70,8 @@ pub struct Workspace {
     pub(crate) cached_git_branch: Option<String>,
     /// Cached ahead/behind counts for the workspace repo's current branch upstream.
     pub(crate) cached_git_ahead_behind: Option<(usize, usize)>,
+    /// Cached aggregate git working-tree state across this space's pane cwd set.
+    pub(crate) cached_git_work_summary: Option<GitWorkSummary>,
     /// Stable-ish public pane numbers within this workspace.
     /// New panes append at the end; closing a pane compacts higher numbers down.
     pub public_pane_numbers: HashMap<PaneId, usize>,
@@ -114,6 +127,7 @@ impl Workspace {
             identity_cwd: initial_cwd.clone(),
             cached_git_branch: git_branch(&initial_cwd),
             cached_git_ahead_behind: None,
+            cached_git_work_summary: None,
             public_pane_numbers,
             next_public_pane_number: 2,
             tabs: vec![tab],
@@ -367,12 +381,46 @@ impl Workspace {
             .unwrap_or_else(|| "workspace".into())
     }
 
+    #[cfg(test)]
     pub fn branch(&self) -> Option<String> {
         self.cached_git_branch.clone()
     }
 
+    #[cfg(test)]
     pub fn git_ahead_behind(&self) -> Option<(usize, usize)> {
         self.cached_git_ahead_behind
+    }
+
+    pub fn git_work_summary_label(&self) -> String {
+        let Some(summary) = self.cached_git_work_summary else {
+            return "shell".into();
+        };
+
+        let mut parts = Vec::new();
+        if summary.conflicted > 0 {
+            parts.push(format!("!{}", summary.conflicted));
+        }
+        if summary.added > 0 {
+            parts.push(format!("+{}", summary.added));
+        }
+        if summary.modified > 0 {
+            parts.push(format!("~{}", summary.modified));
+        }
+        if summary.deleted > 0 {
+            parts.push(format!("-{}", summary.deleted));
+        }
+
+        let state = if parts.is_empty() {
+            "clean".into()
+        } else {
+            parts.join(" ")
+        };
+
+        if summary.repo_count > 1 {
+            format!("{} repos · {state}", summary.repo_count)
+        } else {
+            state
+        }
     }
 
     pub fn refresh_git_branch(&mut self) {
@@ -385,17 +433,37 @@ impl Workspace {
         let cwd = self.resolved_identity_cwd();
         self.cached_git_branch = cwd.as_deref().and_then(git_branch);
         self.cached_git_ahead_behind = cwd.as_deref().and_then(git_ahead_behind);
+        self.cached_git_work_summary = git_work_summary(&self.git_status_cwds());
+    }
+
+    pub fn git_status_cwds(&self) -> Vec<PathBuf> {
+        let mut cwds = self
+            .tabs
+            .iter()
+            .flat_map(|tab| {
+                tab.layout
+                    .pane_ids()
+                    .into_iter()
+                    .filter_map(|id| tab.cwd_for_pane(id))
+            })
+            .collect::<Vec<_>>();
+        cwds.sort();
+        cwds.dedup();
+        cwds
     }
 
     pub fn git_status_for_cwd(
         workspace_id: String,
         resolved_identity_cwd: PathBuf,
+        cwd_fingerprint: Vec<PathBuf>,
     ) -> WorkspaceGitStatus {
         WorkspaceGitStatus {
             branch: git_branch(&resolved_identity_cwd),
             ahead_behind: git_ahead_behind(&resolved_identity_cwd),
             workspace_id,
             resolved_identity_cwd,
+            work_summary: git_work_summary(&cwd_fingerprint),
+            cwd_fingerprint,
         }
     }
 
@@ -524,6 +592,7 @@ impl Workspace {
             identity_cwd: identity_cwd.clone(),
             cached_git_branch: git_branch(&identity_cwd),
             cached_git_ahead_behind: None,
+            cached_git_work_summary: None,
             public_pane_numbers,
             next_public_pane_number: 2,
             tabs: vec![tab],
@@ -585,6 +654,27 @@ mod tests {
 
         assert_eq!(ws.display_name(), "pion");
         assert_eq!(ws.resolved_identity_cwd(), Some(PathBuf::from("/tmp/pion")));
+    }
+
+    #[test]
+    fn git_work_summary_label_describes_shell_clean_and_dirty_spaces() {
+        let mut ws = Workspace::test_new("test");
+        assert_eq!(ws.git_work_summary_label(), "shell");
+
+        ws.cached_git_work_summary = Some(GitWorkSummary {
+            repo_count: 1,
+            ..GitWorkSummary::default()
+        });
+        assert_eq!(ws.git_work_summary_label(), "clean");
+
+        ws.cached_git_work_summary = Some(GitWorkSummary {
+            repo_count: 2,
+            added: 2,
+            modified: 1,
+            deleted: 1,
+            ..GitWorkSummary::default()
+        });
+        assert_eq!(ws.git_work_summary_label(), "2 repos · +2 ~1 -1");
     }
 
     #[test]

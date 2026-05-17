@@ -308,7 +308,10 @@ impl App {
             .state
             .workspaces
             .iter()
-            .filter_map(|ws| ws.resolved_identity_cwd().map(|cwd| (ws.id.clone(), cwd)))
+            .filter_map(|ws| {
+                ws.resolved_identity_cwd()
+                    .map(|cwd| (ws.id.clone(), cwd, ws.git_status_cwds()))
+            })
             .collect();
 
         if workspaces.is_empty() {
@@ -321,8 +324,12 @@ impl App {
         std::thread::spawn(move || {
             let results = workspaces
                 .into_iter()
-                .map(|(workspace_id, resolved_identity_cwd)| {
-                    Workspace::git_status_for_cwd(workspace_id, resolved_identity_cwd)
+                .map(|(workspace_id, resolved_identity_cwd, cwd_fingerprint)| {
+                    Workspace::git_status_for_cwd(
+                        workspace_id,
+                        resolved_identity_cwd,
+                        cwd_fingerprint,
+                    )
                 })
                 .collect::<Vec<WorkspaceGitStatus>>();
             let _ = event_tx.blocking_send(AppEvent::GitStatusRefreshed { results });

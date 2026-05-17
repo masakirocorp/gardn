@@ -7,6 +7,8 @@ use crate::detect::{Agent, AgentState};
 use crate::events::AppEvent;
 use crate::layout::{find_in_direction, NavDirection, PaneId};
 use crate::pane::EffectiveStateChange;
+#[cfg(test)]
+use crate::workspace::GitWorkSummary;
 use crate::workspace::WorkspaceGitStatus;
 
 use super::state::{AppState, Group, Mode, ToastKind, ToastNotification, ToastTarget, ViewLayout};
@@ -916,12 +918,20 @@ impl AppState {
                 continue;
             }
 
+            if ws.git_status_cwds() != result.cwd_fingerprint {
+                continue;
+            }
+
             if ws.cached_git_branch != result.branch {
                 ws.cached_git_branch = result.branch;
                 changed = true;
             }
             if ws.cached_git_ahead_behind != result.ahead_behind {
                 ws.cached_git_ahead_behind = result.ahead_behind;
+                changed = true;
+            }
+            if ws.cached_git_work_summary != result.work_summary {
+                ws.cached_git_work_summary = result.work_summary;
                 changed = true;
             }
         }
@@ -1267,18 +1277,26 @@ mod tests {
         let mut state = app_with_workspaces(&["one", "two"]);
         let first_id = state.workspaces[0].id.clone();
         let first_cwd = state.workspaces[0].resolved_identity_cwd().unwrap();
+        let first_cwd_fingerprint = state.workspaces[0].git_status_cwds();
         let second_id = state.workspaces[1].id.clone();
 
         let changed = state.apply_workspace_git_statuses(vec![WorkspaceGitStatus {
             workspace_id: first_id,
             resolved_identity_cwd: first_cwd,
+            cwd_fingerprint: first_cwd_fingerprint,
             branch: Some("main".into()),
             ahead_behind: Some((2, 1)),
+            work_summary: Some(GitWorkSummary {
+                repo_count: 1,
+                modified: 2,
+                ..GitWorkSummary::default()
+            }),
         }]);
 
         assert!(changed);
         assert_eq!(state.workspaces[0].branch().as_deref(), Some("main"));
         assert_eq!(state.workspaces[0].git_ahead_behind(), Some((2, 1)));
+        assert_eq!(state.workspaces[0].git_work_summary_label(), "~2");
         assert_eq!(state.workspaces[1].id, second_id);
         assert_eq!(state.workspaces[1].git_ahead_behind(), None);
     }
@@ -1293,8 +1311,14 @@ mod tests {
         let changed = state.apply_workspace_git_statuses(vec![WorkspaceGitStatus {
             workspace_id,
             resolved_identity_cwd: std::path::PathBuf::from("/definitely/not/current"),
+            cwd_fingerprint: state.workspaces[0].git_status_cwds(),
             branch: Some("main".into()),
             ahead_behind: Some((0, 1)),
+            work_summary: Some(GitWorkSummary {
+                repo_count: 1,
+                added: 1,
+                ..GitWorkSummary::default()
+            }),
         }]);
 
         assert!(!changed);
@@ -1307,19 +1331,28 @@ mod tests {
         let mut state = app_with_workspaces(&["one"]);
         let workspace_id = state.workspaces[0].id.clone();
         let cwd = state.workspaces[0].resolved_identity_cwd().unwrap();
+        let cwd_fingerprint = state.workspaces[0].git_status_cwds();
         state.workspaces[0].cached_git_branch = Some("main".into());
         state.workspaces[0].cached_git_ahead_behind = Some((1, 2));
+        state.workspaces[0].cached_git_work_summary = Some(GitWorkSummary {
+            repo_count: 1,
+            modified: 1,
+            ..GitWorkSummary::default()
+        });
 
         let changed = state.apply_workspace_git_statuses(vec![WorkspaceGitStatus {
             workspace_id,
             resolved_identity_cwd: cwd,
+            cwd_fingerprint,
             branch: None,
             ahead_behind: None,
+            work_summary: None,
         }]);
 
         assert!(changed);
         assert_eq!(state.workspaces[0].branch(), None);
         assert_eq!(state.workspaces[0].git_ahead_behind(), None);
+        assert_eq!(state.workspaces[0].git_work_summary_label(), "shell");
     }
 
     #[test]
