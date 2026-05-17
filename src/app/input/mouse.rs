@@ -544,6 +544,14 @@ impl AppState {
                         return None;
                     }
 
+                    if let Some(group_idx) = self.workspace_group_header_at_row(mouse.row) {
+                        self.toggle_workspace_group(group_idx);
+                        self.workspace_scroll = self
+                            .workspace_scroll
+                            .min(crate::ui::workspace_list_entry_count(self).saturating_sub(1));
+                        return None;
+                    }
+
                     if let Some(idx) = self.workspace_at_row(mouse.row) {
                         self.workspace_press = Some(WorkspacePressState {
                             ws_idx: idx,
@@ -632,7 +640,27 @@ impl AppState {
                     }
                 }
 
-                let workspace_drop_index = self.workspace_drop_index_at_row(mouse.row);
+                let dragging_workspace = self.workspace_press.is_some()
+                    || matches!(
+                        self.drag.as_ref().map(|drag| &drag.target),
+                        Some(DragTarget::WorkspaceReorder { .. })
+                    );
+                if dragging_workspace {
+                    if let Some(group_idx) = self.workspace_group_header_at_row(mouse.row) {
+                        if self
+                            .groups
+                            .get(group_idx)
+                            .is_some_and(|group| self.workspace_group_collapsed(&group.id))
+                        {
+                            self.toggle_workspace_group(group_idx);
+                            self.workspace_scroll = self
+                                .workspace_scroll
+                                .min(crate::ui::workspace_list_entry_count(self).saturating_sub(1));
+                        }
+                    }
+                }
+
+                let workspace_drop_target = self.workspace_drop_target_at_row(mouse.row);
                 let tab_drop_index = self.tab_drop_index_at(mouse.column, mouse.row);
                 if self.drag.is_none() {
                     if let Some(press) = &self.workspace_press {
@@ -642,7 +670,12 @@ impl AppState {
                             self.drag = Some(DragState {
                                 target: DragTarget::WorkspaceReorder {
                                     source_ws_idx: press.ws_idx,
-                                    insert_idx: workspace_drop_index,
+                                    insert_idx: workspace_drop_target
+                                        .map(|target| target.insert_idx),
+                                    target_group_idx: workspace_drop_target
+                                        .and_then(|target| target.group_idx),
+                                    indicator_row: workspace_drop_target
+                                        .and_then(|target| target.indicator_row),
                                 },
                             });
                         }
@@ -662,10 +695,18 @@ impl AppState {
                 }
 
                 if let Some(DragState {
-                    target: DragTarget::WorkspaceReorder { insert_idx, .. },
+                    target:
+                        DragTarget::WorkspaceReorder {
+                            insert_idx,
+                            target_group_idx,
+                            indicator_row,
+                            ..
+                        },
                 }) = &mut self.drag
                 {
-                    *insert_idx = workspace_drop_index;
+                    *insert_idx = workspace_drop_target.map(|target| target.insert_idx);
+                    *target_group_idx = workspace_drop_target.and_then(|target| target.group_idx);
+                    *indicator_row = workspace_drop_target.and_then(|target| target.indicator_row);
                 } else if let Some(DragState {
                     target:
                         DragTarget::TabReorder {
@@ -778,9 +819,19 @@ impl AppState {
                             DragTarget::WorkspaceReorder {
                                 source_ws_idx,
                                 insert_idx: Some(insert_idx),
+                                target_group_idx,
+                                ..
                             },
                     }) => {
-                        self.move_workspace(source_ws_idx, insert_idx);
+                        let workspace_id =
+                            self.workspaces.get(source_ws_idx).map(|ws| ws.id.clone());
+                        if let Some(group_idx) = target_group_idx {
+                            self.move_workspace_to_group(source_ws_idx, group_idx);
+                        }
+                        let source_idx = workspace_id
+                            .and_then(|id| self.workspaces.iter().position(|ws| ws.id == id))
+                            .unwrap_or(source_ws_idx);
+                        self.move_workspace(source_idx, insert_idx);
                     }
                     Some(DragState {
                         target:
@@ -884,7 +935,7 @@ impl AppState {
                 ) {
                     self.scroll_workspace_list(-1);
                 } else {
-                    let visible = self.visible_workspace_indices();
+                    let visible = self.sidebar_visible_workspace_indices();
                     if let Some(pos) = visible.iter().position(|idx| *idx == self.selected) {
                         if let Some(prev) = pos.checked_sub(1).and_then(|idx| visible.get(idx)) {
                             self.selected = *prev;
@@ -911,7 +962,7 @@ impl AppState {
                 ) {
                     self.scroll_workspace_list(1);
                 } else {
-                    let visible = self.visible_workspace_indices();
+                    let visible = self.sidebar_visible_workspace_indices();
                     if let Some(pos) = visible.iter().position(|idx| *idx == self.selected) {
                         if let Some(next) = visible.get(pos + 1) {
                             self.selected = *next;

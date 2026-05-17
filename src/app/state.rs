@@ -665,6 +665,25 @@ pub struct WorkspaceCardArea {
     pub rect: Rect,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkspaceGroupHeaderArea {
+    pub group_idx: usize,
+    pub rect: Rect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkspaceGroupEmptyArea {
+    pub group_idx: usize,
+    pub rect: Rect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkspaceGroupDropArea {
+    pub group_idx: usize,
+    pub insert_idx: usize,
+    pub rect: Rect,
+}
+
 /// Computed view geometry — derived from AppState + terminal size.
 /// Updated before each render, consumed by render and mouse handling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -678,6 +697,8 @@ pub struct ViewState {
     pub sidebar_rect: Rect,
     pub right_sidebar_rect: Rect,
     pub workspace_card_areas: Vec<WorkspaceCardArea>,
+    pub workspace_group_header_areas: Vec<WorkspaceGroupHeaderArea>,
+    pub workspace_group_empty_areas: Vec<WorkspaceGroupEmptyArea>,
     pub tab_bar_rect: Rect,
     pub tab_hit_areas: Vec<Rect>,
     pub tab_scroll_left_hit_area: Rect,
@@ -845,6 +866,8 @@ pub(crate) enum DragTarget {
     WorkspaceReorder {
         source_ws_idx: usize,
         insert_idx: Option<usize>,
+        target_group_idx: Option<usize>,
+        indicator_row: Option<u16>,
     },
     TabReorder {
         ws_idx: usize,
@@ -1084,6 +1107,7 @@ pub struct AppState {
     pub sidebar_section_split: f32,
     pub activity_agents_expanded: bool,
     pub activity_ports_expanded: bool,
+    pub collapsed_workspace_groups: Vec<String>,
     pub agent_panel_scope: AgentPanelScope,
     /// Capture mouse input for Herdr's own mouse UI. When false, Herdr only
     /// captures mouse while the focused pane app requests mouse reporting.
@@ -1212,6 +1236,68 @@ impl AppState {
             .enumerate()
             .filter_map(|(idx, workspace)| (workspace.group_id == active_group_id).then_some(idx))
             .collect()
+    }
+
+    pub fn workspace_group_collapsed(&self, group_id: &str) -> bool {
+        self.collapsed_workspace_groups
+            .iter()
+            .any(|id| id == group_id)
+    }
+
+    pub fn sidebar_visible_workspace_indices(&self) -> Vec<usize> {
+        if self.sidebar_collapsed || self.group_filter_enabled {
+            return self.visible_workspace_indices();
+        }
+
+        self.workspaces
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, workspace)| {
+                (!self.workspace_group_collapsed(&workspace.group_id)).then_some(idx)
+            })
+            .collect()
+    }
+
+    pub fn toggle_workspace_group(&mut self, group_idx: usize) {
+        let Some(group_id) = self.groups.get(group_idx).map(|group| group.id.clone()) else {
+            return;
+        };
+        let previous_selected = self.selected;
+        if let Some(idx) = self
+            .collapsed_workspace_groups
+            .iter()
+            .position(|id| id == &group_id)
+        {
+            self.collapsed_workspace_groups.remove(idx);
+        } else {
+            self.collapsed_workspace_groups.push(group_id);
+        }
+        self.workspace_scroll = self
+            .workspace_scroll
+            .min(crate::ui::workspace_list_entry_count(self).saturating_sub(1));
+        if !self
+            .sidebar_visible_workspace_indices()
+            .contains(&self.selected)
+        {
+            let visible = self.sidebar_visible_workspace_indices();
+            if let Some(next) = visible
+                .iter()
+                .copied()
+                .find(|idx| *idx > previous_selected)
+                .or_else(|| {
+                    visible
+                        .iter()
+                        .rev()
+                        .copied()
+                        .find(|idx| *idx < previous_selected)
+                })
+                .or_else(|| visible.first().copied())
+            {
+                self.selected = next;
+                self.ensure_workspace_visible(next);
+            }
+        }
+        self.mark_session_dirty();
     }
 
     pub fn first_visible_workspace(&self) -> Option<usize> {
@@ -1363,6 +1449,8 @@ impl AppState {
                 sidebar_rect: Rect::default(),
                 right_sidebar_rect: Rect::default(),
                 workspace_card_areas: Vec::new(),
+                workspace_group_header_areas: Vec::new(),
+                workspace_group_empty_areas: Vec::new(),
                 tab_bar_rect: Rect::default(),
                 tab_hit_areas: Vec::new(),
                 tab_scroll_left_hit_area: Rect::default(),
@@ -1398,6 +1486,7 @@ impl AppState {
             sidebar_section_split: 0.5,
             activity_agents_expanded: true,
             activity_ports_expanded: true,
+            collapsed_workspace_groups: Vec::new(),
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
             mouse_capture: true,
             confirm_close: true,

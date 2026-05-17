@@ -311,7 +311,7 @@ pub(super) fn handle_navigate_reserved_key(state: &mut AppState, key: KeyEvent) 
         }
         KeyCode::Char(c @ '1'..='9') => {
             let idx = (c as usize) - ('1' as usize);
-            if let Some(ws_idx) = state.visible_workspace_indices().get(idx).copied() {
+            if let Some(ws_idx) = state.sidebar_visible_workspace_indices().get(idx).copied() {
                 state.switch_workspace(ws_idx);
                 leave_navigate_mode(state);
             }
@@ -326,7 +326,7 @@ pub(super) fn handle_navigate_reserved_key(state: &mut AppState, key: KeyEvent) 
             true
         }
         KeyCode::Up => {
-            let visible = state.visible_workspace_indices();
+            let visible = state.sidebar_visible_workspace_indices();
             if let Some(pos) = visible.iter().position(|idx| *idx == state.selected) {
                 if let Some(prev) = pos.checked_sub(1).and_then(|idx| visible.get(idx)) {
                     state.selected = *prev;
@@ -336,7 +336,7 @@ pub(super) fn handle_navigate_reserved_key(state: &mut AppState, key: KeyEvent) 
             true
         }
         KeyCode::Down => {
-            let visible = state.visible_workspace_indices();
+            let visible = state.sidebar_visible_workspace_indices();
             if let Some(pos) = visible.iter().position(|idx| *idx == state.selected) {
                 if let Some(next) = visible.get(pos + 1) {
                     state.selected = *next;
@@ -451,7 +451,7 @@ fn indexed_navigation_action(state: &AppState, key: &KeyEvent) -> Option<Navigat
         .is_some_and(|mods| key_matches(key, KeyCode::Char(c), mods))
     {
         return state
-            .visible_workspace_indices()
+            .sidebar_visible_workspace_indices()
             .get(idx)
             .copied()
             .map(NavigateAction::SwitchWorkspace);
@@ -941,6 +941,23 @@ mod tests {
         );
 
         assert_eq!(state.selected, 1);
+        assert_eq!(state.mode, Mode::Navigate);
+    }
+
+    #[test]
+    fn keyboard_movement_skips_collapsed_group_workspaces() {
+        let mut state = state_with_workspaces(&["a", "b", "c"]);
+        let side_group = state.create_group("side".to_string());
+        state.move_workspace_to_group(1, side_group);
+        state.toggle_workspace_group(side_group);
+        state.selected = 0;
+
+        handle_navigate_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.selected, 2);
         assert_eq!(state.mode, Mode::Navigate);
     }
 

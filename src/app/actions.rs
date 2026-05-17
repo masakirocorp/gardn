@@ -7,6 +7,8 @@ use crate::detect::{Agent, AgentState};
 use crate::events::AppEvent;
 use crate::layout::{find_in_direction, NavDirection, PaneId};
 use crate::pane::EffectiveStateChange;
+#[cfg(test)]
+use crate::workspace::GitWorkSummary;
 use crate::workspace::WorkspaceGitStatus;
 
 use super::state::{AppState, Group, Mode, ToastKind, ToastNotification, ToastTarget, ViewLayout};
@@ -373,12 +375,20 @@ impl AppState {
             return;
         }
 
-        let visible = self.visible_workspace_indices();
-        let Some(target_pos) = visible.iter().position(|visible_idx| *visible_idx == idx) else {
+        let Some(target_pos) = crate::ui::workspace_list_position_for_workspace(self, idx) else {
             return;
         };
 
-        let mut cards = crate::ui::compute_workspace_card_areas(self, self.view.sidebar_rect);
+        let workspace_area = if self.view.right_sidebar_rect != ratatui::layout::Rect::default() {
+            crate::ui::left_sidebar_workspace_rect(self.view.sidebar_rect)
+        } else {
+            self.view.sidebar_rect
+        };
+        let mut cards = if self.view.right_sidebar_rect != ratatui::layout::Rect::default() {
+            crate::ui::compute_workspace_card_areas_in_list(self, workspace_area)
+        } else {
+            crate::ui::compute_workspace_card_areas(self, workspace_area)
+        };
         if cards.is_empty() {
             self.workspace_scroll = target_pos;
             return;
@@ -386,11 +396,7 @@ impl AppState {
 
         let first_pos = cards
             .first()
-            .and_then(|card| {
-                visible
-                    .iter()
-                    .position(|visible_idx| *visible_idx == card.ws_idx)
-            })
+            .and_then(|card| crate::ui::workspace_list_position_for_workspace(self, card.ws_idx))
             .unwrap_or(0);
         if target_pos < first_pos {
             self.workspace_scroll = target_pos;
@@ -399,11 +405,7 @@ impl AppState {
 
         while cards
             .last()
-            .and_then(|card| {
-                visible
-                    .iter()
-                    .position(|visible_idx| *visible_idx == card.ws_idx)
-            })
+            .and_then(|card| crate::ui::workspace_list_position_for_workspace(self, card.ws_idx))
             .unwrap_or(target_pos)
             < target_pos
         {
@@ -412,7 +414,11 @@ impl AppState {
             if self.workspace_scroll == previous_scroll {
                 break;
             }
-            cards = crate::ui::compute_workspace_card_areas(self, self.view.sidebar_rect);
+            cards = if self.view.right_sidebar_rect != ratatui::layout::Rect::default() {
+                crate::ui::compute_workspace_card_areas_in_list(self, workspace_area)
+            } else {
+                crate::ui::compute_workspace_card_areas(self, workspace_area)
+            };
             if cards.is_empty() {
                 break;
             }
@@ -912,12 +918,20 @@ impl AppState {
                 continue;
             }
 
+            if ws.git_status_cwds() != result.cwd_fingerprint {
+                continue;
+            }
+
             if ws.cached_git_branch != result.branch {
                 ws.cached_git_branch = result.branch;
                 changed = true;
             }
             if ws.cached_git_ahead_behind != result.ahead_behind {
                 ws.cached_git_ahead_behind = result.ahead_behind;
+                changed = true;
+            }
+            if ws.cached_git_work_summary != result.work_summary {
+                ws.cached_git_work_summary = result.work_summary;
                 changed = true;
             }
         }
@@ -1263,18 +1277,26 @@ mod tests {
         let mut state = app_with_workspaces(&["one", "two"]);
         let first_id = state.workspaces[0].id.clone();
         let first_cwd = state.workspaces[0].resolved_identity_cwd().unwrap();
+        let first_cwd_fingerprint = state.workspaces[0].git_status_cwds();
         let second_id = state.workspaces[1].id.clone();
 
         let changed = state.apply_workspace_git_statuses(vec![WorkspaceGitStatus {
             workspace_id: first_id,
             resolved_identity_cwd: first_cwd,
+            cwd_fingerprint: first_cwd_fingerprint,
             branch: Some("main".into()),
             ahead_behind: Some((2, 1)),
+            work_summary: Some(GitWorkSummary {
+                repo_count: 1,
+                modified: 2,
+                ..GitWorkSummary::default()
+            }),
         }]);
 
         assert!(changed);
         assert_eq!(state.workspaces[0].branch().as_deref(), Some("main"));
         assert_eq!(state.workspaces[0].git_ahead_behind(), Some((2, 1)));
+        assert_eq!(state.workspaces[0].git_work_summary_label(), "~2");
         assert_eq!(state.workspaces[1].id, second_id);
         assert_eq!(state.workspaces[1].git_ahead_behind(), None);
     }
@@ -1289,8 +1311,14 @@ mod tests {
         let changed = state.apply_workspace_git_statuses(vec![WorkspaceGitStatus {
             workspace_id,
             resolved_identity_cwd: std::path::PathBuf::from("/definitely/not/current"),
+            cwd_fingerprint: state.workspaces[0].git_status_cwds(),
             branch: Some("main".into()),
             ahead_behind: Some((0, 1)),
+            work_summary: Some(GitWorkSummary {
+                repo_count: 1,
+                added: 1,
+                ..GitWorkSummary::default()
+            }),
         }]);
 
         assert!(!changed);
@@ -1303,19 +1331,28 @@ mod tests {
         let mut state = app_with_workspaces(&["one"]);
         let workspace_id = state.workspaces[0].id.clone();
         let cwd = state.workspaces[0].resolved_identity_cwd().unwrap();
+        let cwd_fingerprint = state.workspaces[0].git_status_cwds();
         state.workspaces[0].cached_git_branch = Some("main".into());
         state.workspaces[0].cached_git_ahead_behind = Some((1, 2));
+        state.workspaces[0].cached_git_work_summary = Some(GitWorkSummary {
+            repo_count: 1,
+            modified: 1,
+            ..GitWorkSummary::default()
+        });
 
         let changed = state.apply_workspace_git_statuses(vec![WorkspaceGitStatus {
             workspace_id,
             resolved_identity_cwd: cwd,
+            cwd_fingerprint,
             branch: None,
             ahead_behind: None,
+            work_summary: None,
         }]);
 
         assert!(changed);
         assert_eq!(state.workspaces[0].branch(), None);
         assert_eq!(state.workspaces[0].git_ahead_behind(), None);
+        assert_eq!(state.workspaces[0].git_work_summary_label(), "shell");
     }
 
     #[test]
@@ -1474,6 +1511,44 @@ mod tests {
             .workspace_card_areas
             .iter()
             .any(|card| card.ws_idx == 7));
+    }
+
+    #[test]
+    fn switching_workspace_keeps_all_mode_group_headers_visible() {
+        let mut state = app_with_workspaces(&["charliezugasti", "herdr", "herdr 2"]);
+        let group_two = state.create_group("group 2".to_string());
+        state.move_workspace_to_group(1, group_two);
+        state.move_workspace_to_group(2, group_two);
+        state.group_filter_enabled = false;
+        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 140, 20));
+
+        state.switch_workspace(2);
+        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 140, 20));
+
+        assert!(state
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .any(|header| header.group_idx == 0));
+        assert!(state
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .any(|header| header.group_idx == group_two));
+
+        state.switch_workspace(0);
+        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 140, 20));
+
+        assert!(state
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .any(|header| header.group_idx == 0));
+        assert!(state
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .any(|header| header.group_idx == group_two));
     }
 
     #[test]

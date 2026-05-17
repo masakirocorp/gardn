@@ -450,7 +450,7 @@ fn render_mobile_switcher_content(app: &AppState, frame: &mut Frame, viewport: R
         ]);
         let detail = format!(
             "  {} · tab {}/{}",
-            ws.branch().unwrap_or_else(|| "shell".into()),
+            ws.git_work_summary_label(),
             ws.active_tab + 1,
             ws.tabs.len()
         );

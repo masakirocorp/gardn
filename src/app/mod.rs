@@ -419,6 +419,8 @@ impl App {
                 sidebar_rect: Rect::default(),
                 right_sidebar_rect: Rect::default(),
                 workspace_card_areas: Vec::new(),
+                workspace_group_header_areas: Vec::new(),
+                workspace_group_empty_areas: Vec::new(),
                 tab_bar_rect: Rect::default(),
                 tab_hit_areas: Vec::new(),
                 tab_scroll_left_hit_area: Rect::default(),
@@ -454,6 +456,7 @@ impl App {
             sidebar_section_split,
             activity_agents_expanded: true,
             activity_ports_expanded: true,
+            collapsed_workspace_groups: Vec::new(),
             agent_panel_scope,
             mouse_capture: config.ui.mouse_capture,
             confirm_close: config.ui.confirm_close,
@@ -1155,13 +1158,20 @@ mod tests {
         app.render_dirty.store(false, Ordering::Release);
         let workspace_id = app.state.workspaces[0].id.clone();
         let resolved_identity_cwd = app.state.workspaces[0].resolved_identity_cwd().unwrap();
+        let cwd_fingerprint = app.state.workspaces[0].git_status_cwds();
 
         app.handle_internal_event(AppEvent::GitStatusRefreshed {
             results: vec![crate::workspace::WorkspaceGitStatus {
                 workspace_id,
                 resolved_identity_cwd,
+                cwd_fingerprint,
                 branch: Some("render-dirty-test".into()),
                 ahead_behind: Some((1, 0)),
+                work_summary: Some(crate::workspace::GitWorkSummary {
+                    repo_count: 1,
+                    modified: 1,
+                    ..crate::workspace::GitWorkSummary::default()
+                }),
             }],
         });
 
