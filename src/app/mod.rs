@@ -2265,6 +2265,7 @@ mod tests {
         let now = Instant::now();
         app.session_save_deadline = Some(now + Duration::from_secs(2));
         app.next_resize_poll = now + Duration::from_secs(5);
+        app.next_command_scan = now + Duration::from_secs(5);
         app.next_auto_update_check = Some(now + Duration::from_secs(6));
 
         assert_eq!(
@@ -2279,6 +2280,7 @@ mod tests {
         let now = Instant::now();
         app.next_resize_poll = now + Duration::from_millis(100);
         app.session_save_deadline = Some(now + Duration::from_secs(2));
+        app.next_command_scan = now + Duration::from_secs(5);
         app.next_auto_update_check = Some(now + Duration::from_secs(6));
 
         assert_eq!(

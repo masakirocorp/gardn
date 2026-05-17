@@ -396,7 +396,7 @@ impl App {
             self.config_diagnostic_deadline,
             self.toast_deadline,
             self.next_animation_tick,
-            Some(self.next_command_scan),
+            (!self.state.workspaces.is_empty()).then_some(self.next_command_scan),
             self.git_refresh_deadline(),
             self.next_auto_update_check,
             self.session_save_deadline,
