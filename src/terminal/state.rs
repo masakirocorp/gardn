@@ -208,6 +208,8 @@ impl TerminalState {
         self.hook_authority
             .as_ref()
             .map(|authority| authority.agent_label.as_str())
+            .or(self.manual_label.as_deref())
+            .or(self.agent_name.as_deref())
             .or_else(|| self.detected_agent.map(crate::detect::agent_label))
     }
 
@@ -216,6 +218,16 @@ impl TerminalState {
             return crate::detect::parse_agent_label(&authority.agent_label);
         }
         self.detected_agent
+            .or_else(|| {
+                self.manual_label
+                    .as_deref()
+                    .and_then(crate::detect::parse_agent_label)
+            })
+            .or_else(|| {
+                self.agent_name
+                    .as_deref()
+                    .and_then(crate::detect::parse_agent_label)
+            })
     }
 
     pub fn effective_custom_status(&self) -> Option<&str> {
@@ -435,6 +447,21 @@ mod tests {
         terminal.set_manual_label("reviewer".into());
         terminal.clear_manual_label();
         assert_eq!(terminal.border_label(true), Some("claude"));
+    }
+
+    #[test]
+    fn manual_or_server_agent_label_makes_terminal_agent_visible() {
+        let mut terminal = test_terminal();
+
+        terminal.set_manual_label(" reviewer ".into());
+        assert_eq!(terminal.effective_agent_label(), Some("reviewer"));
+        assert!(terminal.is_agent_terminal());
+
+        terminal.clear_manual_label();
+        terminal.agent_name = Some("codex".into());
+        assert_eq!(terminal.effective_agent_label(), Some("codex"));
+        assert_eq!(terminal.effective_known_agent(), Some(Agent::Codex));
+        assert!(terminal.is_agent_terminal());
     }
 
     #[test]

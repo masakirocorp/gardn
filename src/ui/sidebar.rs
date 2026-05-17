@@ -2526,6 +2526,28 @@ mod tests {
     }
 
     #[test]
+    fn agent_panel_entries_include_named_terminals_before_detection() {
+        let mut app = crate::app::state::AppState::test_new();
+        let workspace = Workspace::test_new("one");
+        let pane = workspace.tabs[0].root_pane;
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        let terminal_id = app.workspaces[0].tabs[0].panes[&pane]
+            .attached_terminal_id
+            .clone();
+        app.terminals.get_mut(&terminal_id).unwrap().agent_name = Some("codex".into());
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+
+        let entries = agent_panel_entries(&app);
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].agent_label, None);
+        assert_eq!(entries[0].primary_label, "codex");
+    }
+
+    #[test]
     fn all_workspaces_agent_panel_entries_include_hidden_groups() {
         let mut app = crate::app::state::AppState::test_new();
         let hidden_group = app.create_group("Work".to_string());

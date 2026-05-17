@@ -319,9 +319,7 @@ fn capture_workspace(
         id: Some(ws.id.clone()),
         custom_name: ws.custom_name.clone(),
         group_id: ws.group_id.clone(),
-        identity_cwd: ws
-            .resolved_identity_cwd_from(terminals, terminal_runtimes)
-            .unwrap_or_else(|| ws.identity_cwd.clone()),
+        identity_cwd: ws.identity_cwd.clone(),
         tabs: ws
             .tabs
             .iter()
@@ -468,6 +466,27 @@ mod tests {
             state.right_sidebar_width,
             state.right_sidebar_collapsed,
         )
+    }
+
+    #[test]
+    fn capture_keeps_space_identity_separate_from_runtime_cwd() {
+        let mut state = state_with_workspaces(&["space"]);
+        state.workspaces[0].custom_name = None;
+        state.workspaces[0].identity_cwd = PathBuf::from("/herdr-test/space");
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.workspaces[0].terminal_id(root_pane).unwrap().clone();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = PathBuf::from("/herdr-test/runtime");
+
+        let snap = capture_from_state(&state);
+
+        assert_eq!(
+            snap.workspaces[0].identity_cwd,
+            PathBuf::from("/herdr-test/space")
+        );
+        assert_eq!(
+            snap.workspaces[0].tabs[0].panes[&root_pane.raw()].cwd,
+            PathBuf::from("/herdr-test/runtime")
+        );
     }
 
     fn root_split_ratio(tab: &TabSnapshot) -> Option<f32> {

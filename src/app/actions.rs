@@ -269,6 +269,18 @@ impl AppState {
         let selected_id = self.workspaces.get(self.selected).map(|ws| ws.id.clone());
 
         let deleting_active = self.active_group == group_idx;
+        let terminal_ids = self
+            .workspaces
+            .iter()
+            .filter(|workspace| workspace.group_id == deleted_group_id)
+            .flat_map(|workspace| {
+                workspace
+                    .tabs
+                    .iter()
+                    .flat_map(|tab| tab.panes.values())
+                    .map(|pane| pane.attached_terminal_id.clone())
+            })
+            .collect::<Vec<_>>();
         for workspace in self
             .workspaces
             .iter()
@@ -278,6 +290,7 @@ impl AppState {
         }
         self.workspaces
             .retain(|workspace| workspace.group_id != deleted_group_id);
+        self.remove_unattached_terminal_ids(terminal_ids);
         self.groups.remove(group_idx);
         if deleting_active {
             self.active_group = self.active_group.min(self.groups.len().saturating_sub(1));
@@ -895,6 +908,7 @@ impl AppState {
         let Some(ws_idx) = self.active else {
             return;
         };
+        self.mark_session_dirty();
         let Some(ws) = self.workspaces.get(ws_idx) else {
             return;
         };
@@ -2181,10 +2195,12 @@ mod tests {
         state.workspaces[0].switch_tab(tab_idx);
         let pane_id = state.workspaces[0].tabs[tab_idx].root_pane;
         let terminal_id = state.terminal_id_for_pane(0, pane_id).unwrap();
+        state.session_dirty = false;
 
         state.close_tab();
 
         assert!(!state.terminals.contains_key(&terminal_id));
+        assert!(state.session_dirty);
     }
 
     #[test]
@@ -2197,6 +2213,24 @@ mod tests {
         state.close_selected_workspace();
 
         assert!(!state.terminals.contains_key(&terminal_id));
+    }
+
+    #[test]
+    fn delete_group_removes_unattached_terminal_states() {
+        let mut state = app_with_workspaces(&["keep", "drop"]);
+        let group_idx = state.create_group("work".into());
+        state.move_workspace_to_group(1, group_idx);
+        let dropped_terminal_id = state
+            .terminal_id_for_pane(1, state.workspaces[1].tabs[0].root_pane)
+            .unwrap();
+        let kept_terminal_id = state
+            .terminal_id_for_pane(0, state.workspaces[0].tabs[0].root_pane)
+            .unwrap();
+
+        state.delete_group(group_idx).unwrap();
+
+        assert!(state.terminals.contains_key(&kept_terminal_id));
+        assert!(!state.terminals.contains_key(&dropped_terminal_id));
     }
 
     #[test]

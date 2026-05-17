@@ -12,9 +12,9 @@ impl App {
     pub(super) fn collision_free_workspace_name(
         &self,
         initial_cwd: &std::path::Path,
+        group_id: &str,
     ) -> Option<String> {
         let base = derive_label_from_cwd(initial_cwd);
-        let group_id = self.state.active_group_id();
         let names: HashSet<_> = self
             .state
             .workspaces
@@ -33,16 +33,19 @@ impl App {
     }
 
     pub(super) fn seed_cwd_from_workspace(&self, ws_idx: usize) -> Option<std::path::PathBuf> {
-        self.state
-            .workspaces
-            .get(ws_idx)?
-            .resolved_identity_cwd_from(&self.state.terminals, &self.state.terminal_runtimes)
+        let ws = self.state.workspaces.get(ws_idx)?;
+        ws.active_tab().and_then(|tab| {
+            tab.cwd_for_pane(
+                tab.root_pane,
+                &self.state.terminals,
+                &self.state.terminal_runtimes,
+            )
+        })
     }
 
     pub(super) fn workspace_creation_source(&self) -> Option<usize> {
         if self.state.mode == Mode::Navigate
             && self.state.workspaces.get(self.state.selected).is_some()
-            && self.state.workspace_in_active_group(self.state.selected)
         {
             return Some(self.state.selected);
         }
@@ -59,14 +62,22 @@ impl App {
             })
     }
 
+    pub(super) fn workspace_creation_group_id(&self, source: Option<usize>) -> String {
+        source
+            .and_then(|ws_idx| self.state.workspaces.get(ws_idx))
+            .map(|ws| ws.group_id.clone())
+            .unwrap_or_else(|| self.state.active_group_id().to_string())
+    }
+
     /// Create a workspace with a real PTY (needs event_tx).
     pub(crate) fn create_workspace(&mut self) {
-        let initial_cwd = self
-            .workspace_creation_source()
+        let source = self.workspace_creation_source();
+        let group_id = self.workspace_creation_group_id(source);
+        let initial_cwd = source
             .and_then(|ws_idx| self.seed_cwd_from_workspace(ws_idx))
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| std::path::PathBuf::from("/"));
-        if let Err(e) = self.create_workspace_with_options(initial_cwd, true) {
+        if let Err(e) = self.create_workspace_with_options_in_group(initial_cwd, true, group_id) {
             error!(err = %e, "failed to create workspace");
             self.state.mode = Mode::Navigate;
         }
@@ -141,8 +152,18 @@ impl App {
         initial_cwd: std::path::PathBuf,
         focus: bool,
     ) -> std::io::Result<usize> {
+        let group_id = self.state.active_group_id().to_string();
+        self.create_workspace_with_options_in_group(initial_cwd, focus, group_id)
+    }
+
+    pub(super) fn create_workspace_with_options_in_group(
+        &mut self,
+        initial_cwd: std::path::PathBuf,
+        focus: bool,
+        group_id: String,
+    ) -> std::io::Result<usize> {
         let (rows, cols) = self.state.estimate_pane_size();
-        let custom_name = self.collision_free_workspace_name(&initial_cwd);
+        let custom_name = self.collision_free_workspace_name(&initial_cwd, &group_id);
         let (mut ws, terminal, runtime) = Workspace::new(
             initial_cwd,
             rows,
@@ -153,7 +174,7 @@ impl App {
             self.render_notify.clone(),
             self.render_dirty.clone(),
         )?;
-        ws.group_id = self.state.active_group_id().to_string();
+        ws.group_id = group_id;
         if let Some(name) = custom_name {
             ws.set_custom_name(name);
         }

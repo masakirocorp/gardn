@@ -1785,6 +1785,17 @@ mod tests {
         second.identity_cwd = std::path::PathBuf::from("/tmp/pion");
 
         app.state.workspaces = vec![first, second];
+        app.state.ensure_test_terminals();
+        let selected_root = app.state.workspaces[1].tabs[0].root_pane;
+        let selected_terminal_id = app.state.workspaces[1]
+            .terminal_id(selected_root)
+            .unwrap()
+            .clone();
+        app.state
+            .terminals
+            .get_mut(&selected_terminal_id)
+            .unwrap()
+            .cwd = std::path::PathBuf::from("/tmp/pion-runtime");
         app.state.active = Some(0);
         app.state.selected = 1;
         app.state.mode = Mode::Navigate;
@@ -1793,7 +1804,29 @@ mod tests {
         let seed_cwd = app.seed_cwd_from_workspace(ws_idx).unwrap();
 
         assert_eq!(ws_idx, 1);
-        assert_eq!(seed_cwd, std::path::PathBuf::from("/tmp/pion"));
+        assert_eq!(seed_cwd, std::path::PathBuf::from("/tmp/pion-runtime"));
+    }
+
+    #[test]
+    fn workspace_creation_in_all_mode_uses_selected_workspace_group() {
+        let mut app = test_app();
+        let work_group = app.state.create_group("Work".to_string());
+        let mut first = Workspace::test_new("home");
+        first.group_id = app.state.groups[0].id.clone();
+        let mut second = Workspace::test_new("api");
+        second.group_id = app.state.groups[work_group].id.clone();
+        app.state.workspaces = vec![first, second];
+        app.state.active = Some(0);
+        app.state.selected = 1;
+        app.state.active_group = 0;
+        app.state.group_filter_enabled = false;
+        app.state.mode = Mode::Navigate;
+
+        let source = app.workspace_creation_source();
+        let group_id = app.workspace_creation_group_id(source);
+
+        assert_eq!(source, Some(1));
+        assert_eq!(group_id, app.state.groups[work_group].id);
     }
 
     #[test]
@@ -1801,7 +1834,10 @@ mod tests {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("herdr"), Workspace::test_new("herdr 2")];
 
-        let name = app.collision_free_workspace_name(std::path::Path::new("/tmp/herdr"));
+        let name = app.collision_free_workspace_name(
+            std::path::Path::new("/tmp/herdr"),
+            app.state.active_group_id(),
+        );
 
         assert_eq!(name.as_deref(), Some("herdr 3"));
     }
@@ -1815,7 +1851,10 @@ mod tests {
         app.state.workspaces = vec![existing];
         app.state.active_group = 0;
 
-        let name = app.collision_free_workspace_name(std::path::Path::new("/tmp/herdr"));
+        let name = app.collision_free_workspace_name(
+            std::path::Path::new("/tmp/herdr"),
+            app.state.active_group_id(),
+        );
 
         assert_eq!(name, None);
     }

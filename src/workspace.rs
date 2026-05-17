@@ -538,13 +538,10 @@ impl Workspace {
 
     pub fn resolved_identity_cwd_from(
         &self,
-        terminals: &HashMap<TerminalId, TerminalState>,
-        terminal_runtimes: &HashMap<TerminalId, TerminalRuntime>,
+        _terminals: &HashMap<TerminalId, TerminalState>,
+        _terminal_runtimes: &HashMap<TerminalId, TerminalRuntime>,
     ) -> Option<PathBuf> {
-        self.tabs
-            .first()
-            .and_then(|tab| tab.cwd_for_pane(tab.root_pane, terminals, terminal_runtimes))
-            .or_else(|| Some(self.identity_cwd.clone()))
+        Some(self.identity_cwd.clone())
     }
 
     pub fn display_name(&self) -> String {
@@ -559,16 +556,14 @@ impl Workspace {
 
     pub fn display_name_from(
         &self,
-        terminals: &HashMap<TerminalId, TerminalState>,
-        terminal_runtimes: &HashMap<TerminalId, TerminalRuntime>,
+        _terminals: &HashMap<TerminalId, TerminalState>,
+        _terminal_runtimes: &HashMap<TerminalId, TerminalRuntime>,
     ) -> String {
         if let Some(name) = &self.custom_name {
             return name.clone();
         }
 
-        self.resolved_identity_cwd_from(terminals, terminal_runtimes)
-            .map(|cwd| derive_label_from_cwd(&cwd))
-            .unwrap_or_else(|| "workspace".into())
+        self.display_name()
     }
 
     #[cfg(test)]
@@ -843,9 +838,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn workspace_identity_follows_first_tab_root_pane_cwd() {
+    fn workspace_identity_ignores_runtime_cwd_changes() {
         let mut ws = Workspace::test_new("ignored");
         ws.custom_name = None;
+        ws.identity_cwd = PathBuf::from("/herdr-test/original");
         let root_pane = ws.tabs[0].root_pane;
         let terminal_id = ws.tabs[0].terminal_id(root_pane).unwrap().clone();
         let mut terminals = HashMap::new();
@@ -855,10 +851,13 @@ mod tests {
         );
         let terminal_runtimes = HashMap::new();
 
-        assert_eq!(ws.display_name_from(&terminals, &terminal_runtimes), "pion");
+        assert_eq!(
+            ws.display_name_from(&terminals, &terminal_runtimes),
+            "original"
+        );
         assert_eq!(
             ws.resolved_identity_cwd_from(&terminals, &terminal_runtimes),
-            Some(PathBuf::from("/herdr-test/pion"))
+            Some(PathBuf::from("/herdr-test/original"))
         );
     }
 
