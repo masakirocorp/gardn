@@ -11,6 +11,7 @@ use super::status::{agent_icon, state_dot, state_label, state_label_color};
 use super::widgets::fill_rect;
 use crate::app::state::{AgentPanelScope, Palette};
 use crate::app::{AppState, Mode};
+use crate::commands::{CommandRunStatus, ProjectCommand};
 use crate::detect::AgentState;
 use crate::ports::{PortEndpoint, PortExposure, PortState};
 
@@ -18,6 +19,7 @@ const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const ACTIVITY_PANEL_HEADER_ROWS: u16 = 2;
 const ACTIVITY_SECTION_GAP_ROWS: u16 = 1;
 const AGENT_PANEL_HEADER_ROWS: u16 = 1;
+const COMMAND_PANEL_HEADER_ROWS: u16 = 1;
 const PORT_PANEL_HEADER_ROWS: u16 = 1;
 
 #[derive(Clone)]
@@ -49,6 +51,12 @@ struct PortPanelEntry {
     primary_label: String,
     command_label: Option<String>,
     exposure_label: &'static str,
+}
+
+#[derive(Clone)]
+struct CommandPanelEntry {
+    command: ProjectCommand,
+    status: Option<CommandRunStatus>,
 }
 
 fn sidebar_section_heights(total_h: u16, split_ratio: f32) -> (u16, u16) {
@@ -1134,9 +1142,13 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
         return;
     }
     let port_entries = port_panel_entries(app);
-    let (agent_area, port_area) = right_sidebar_panel_rects(app, area);
+    let command_entries = command_panel_entries(app);
+    let (agent_area, command_area, port_area) = right_sidebar_activity_panel_rects(app, area);
     render_activity_header(app, frame, area);
     render_agent_detail(app, frame, agent_area, false);
+    if command_area != Rect::default() {
+        render_commands_section(app, frame, command_area, &command_entries);
+    }
     if port_area != Rect::default() {
         render_ports_section(app, frame, port_area, &port_entries);
     }
@@ -1144,25 +1156,45 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
 }
 
 pub(crate) fn right_sidebar_panel_rects(app: &AppState, area: Rect) -> (Rect, Rect) {
+    let (agent_area, _, port_area) = right_sidebar_activity_panel_rects(app, area);
+    (agent_area, port_area)
+}
+
+fn right_sidebar_activity_panel_rects(app: &AppState, area: Rect) -> (Rect, Rect, Rect) {
     let content = right_sidebar_activity_body_rect(area);
-    if content.height < 5 {
-        return (content, Rect::default());
+    if content.height < 7 {
+        return (content, Rect::default(), Rect::default());
     }
 
     let port_entries = port_panel_entries(app);
+    let command_entries = command_panel_entries(app);
     let port_height = port_panel_desired_height(app, &port_entries).min(content.height - 2);
-    let agent_height = agent_panel_desired_height(app)
-        .min(content.height - port_height - ACTIVITY_SECTION_GAP_ROWS);
+    let command_height = command_panel_desired_height(app, &command_entries).min(
+        content
+            .height
+            .saturating_sub(port_height + ACTIVITY_SECTION_GAP_ROWS + 2),
+    );
+    let agent_height = agent_panel_desired_height(app).min(
+        content
+            .height
+            .saturating_sub(port_height + command_height + ACTIVITY_SECTION_GAP_ROWS * 2),
+    );
     let agent_area = Rect::new(content.x, content.y, content.width, agent_height);
-    let port_area = Rect::new(
+    let command_area = Rect::new(
         content.x,
         content.y + agent_height + ACTIVITY_SECTION_GAP_ROWS,
         content.width,
+        command_height,
+    );
+    let port_area = Rect::new(
+        content.x,
+        content.y + agent_height + command_height + ACTIVITY_SECTION_GAP_ROWS * 2,
+        content.width,
         content
             .height
-            .saturating_sub(agent_height + ACTIVITY_SECTION_GAP_ROWS),
+            .saturating_sub(agent_height + command_height + ACTIVITY_SECTION_GAP_ROWS * 2),
     );
-    (agent_area, port_area)
+    (agent_area, command_area, port_area)
 }
 
 fn right_sidebar_activity_body_rect(area: Rect) -> Rect {
@@ -1248,6 +1280,17 @@ fn port_panel_desired_height(app: &AppState, entries: &[PortPanelEntry]) -> u16 
         }
 }
 
+fn command_panel_desired_height(app: &AppState, entries: &[CommandPanelEntry]) -> u16 {
+    COMMAND_PANEL_HEADER_ROWS
+        + if !app.activity_commands_expanded {
+            0
+        } else if entries.is_empty() {
+            1
+        } else {
+            (entries.len() as u16) * 2
+        }
+}
+
 pub(crate) fn right_sidebar_agents_header_rect(app: &AppState, area: Rect) -> Rect {
     let (agent_area, _) = right_sidebar_panel_rects(app, area);
     if agent_area == Rect::default() || agent_area.height == 0 {
@@ -1262,6 +1305,39 @@ pub(crate) fn right_sidebar_ports_header_rect(app: &AppState, area: Rect) -> Rec
         return Rect::default();
     }
     Rect::new(port_area.x, port_area.y, port_area.width, 1)
+}
+
+pub(crate) fn right_sidebar_commands_header_rect(app: &AppState, area: Rect) -> Rect {
+    let (_, command_area, _) = right_sidebar_activity_panel_rects(app, area);
+    if command_area == Rect::default() || command_area.height == 0 {
+        return Rect::default();
+    }
+    Rect::new(command_area.x, command_area.y, command_area.width, 1)
+}
+
+fn command_panel_entries(app: &AppState) -> Vec<CommandPanelEntry> {
+    let mut entries = app
+        .command_catalog
+        .iter()
+        .cloned()
+        .map(|command| {
+            let status = app.command_runs.get(&command.id).map(|run| run.status);
+            CommandPanelEntry { command, status }
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|entry| {
+        (
+            command_status_rank(entry.status),
+            entry.command.root.clone(),
+            entry.command.source,
+            entry.command.name.clone(),
+        )
+    });
+    entries
+}
+
+fn command_status_rank(status: Option<CommandRunStatus>) -> usize {
+    status.map_or(usize::MAX, CommandRunStatus::rank)
 }
 
 fn port_panel_entries(app: &AppState) -> Vec<PortPanelEntry> {
@@ -1406,6 +1482,139 @@ fn port_secondary_line(entry: &PortPanelEntry, p: &Palette, width: u16) -> Line<
     }
 
     Line::from(spans)
+}
+
+fn command_icon(status: Option<CommandRunStatus>, p: &Palette) -> (&'static str, Style) {
+    match status {
+        Some(CommandRunStatus::Running) => ("■", Style::default().fg(p.green)),
+        Some(CommandRunStatus::Stopped) => (
+            "□",
+            Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+        ),
+        Some(CommandRunStatus::Failed) => {
+            ("×", Style::default().fg(p.red).add_modifier(Modifier::BOLD))
+        }
+        Some(CommandRunStatus::Unknown) => ("?", Style::default().fg(p.yellow)),
+        None => (
+            "▷",
+            Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+        ),
+    }
+}
+
+fn command_status_label(status: Option<CommandRunStatus>) -> Option<&'static str> {
+    match status {
+        Some(CommandRunStatus::Running) => Some("running"),
+        Some(CommandRunStatus::Stopped) => Some("stopped"),
+        Some(CommandRunStatus::Failed) => Some("failed"),
+        Some(CommandRunStatus::Unknown) => Some("unknown"),
+        None => None,
+    }
+}
+
+fn command_status_style(status: Option<CommandRunStatus>, p: &Palette) -> Style {
+    match status {
+        Some(CommandRunStatus::Running) => {
+            Style::default().fg(p.green).add_modifier(Modifier::BOLD)
+        }
+        Some(CommandRunStatus::Stopped) => {
+            Style::default().fg(p.overlay0).add_modifier(Modifier::DIM)
+        }
+        Some(CommandRunStatus::Failed) => Style::default().fg(p.red).add_modifier(Modifier::BOLD),
+        Some(CommandRunStatus::Unknown) => Style::default().fg(p.yellow),
+        None => Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+    }
+}
+
+fn render_commands_section(
+    app: &AppState,
+    frame: &mut Frame,
+    area: Rect,
+    entries: &[CommandPanelEntry],
+) {
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
+    let p = &app.palette;
+    let chevron = if app.activity_commands_expanded {
+        "▾"
+    } else {
+        "▸"
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![Span::styled(
+            format!(" {chevron} commands ({})", entries.len()),
+            Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
+        )])),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
+
+    if !app.activity_commands_expanded || area.height < 2 {
+        return;
+    }
+
+    if entries.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                " no commands",
+                Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+            )),
+            Rect::new(area.x, area.y + COMMAND_PANEL_HEADER_ROWS, area.width, 1),
+        );
+        return;
+    }
+
+    let mut row_y = area.y + COMMAND_PANEL_HEADER_ROWS;
+    let bottom = area.y + area.height;
+    for entry in entries {
+        if row_y + 1 >= bottom {
+            break;
+        }
+        render_command_entry(app, frame, entry, area, row_y);
+        row_y += 2;
+    }
+}
+
+fn render_command_entry(
+    app: &AppState,
+    frame: &mut Frame,
+    entry: &CommandPanelEntry,
+    area: Rect,
+    row_y: u16,
+) {
+    let p = &app.palette;
+    let (icon, icon_style) = command_icon(entry.status, p);
+    let label_style = match entry.status {
+        Some(CommandRunStatus::Running) => Style::default().fg(p.text).add_modifier(Modifier::BOLD),
+        Some(CommandRunStatus::Failed) => Style::default().fg(p.red).add_modifier(Modifier::BOLD),
+        _ => Style::default().fg(p.subtext0).add_modifier(Modifier::BOLD),
+    };
+    let primary = truncate_text(&entry.command.name, area.width.saturating_sub(3) as usize);
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(" ", Style::default()),
+            Span::styled(icon, icon_style),
+            Span::styled(" ", Style::default()),
+            Span::styled(primary, label_style),
+        ])),
+        Rect::new(area.x, row_y, area.width, 1),
+    );
+
+    let mut spans = vec![
+        Span::styled("   ", Style::default()),
+        Span::styled(
+            entry.command.source.label(),
+            Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+        ),
+    ];
+    if let Some(label) = command_status_label(entry.status) {
+        spans.push(Span::styled(" · ", Style::default().fg(p.overlay0)));
+        spans.push(Span::styled(label, command_status_style(entry.status, p)));
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(spans)),
+        Rect::new(area.x, row_y + 1, area.width, 1),
+    );
 }
 
 fn render_ports_section(app: &AppState, frame: &mut Frame, area: Rect, entries: &[PortPanelEntry]) {
@@ -2833,6 +3042,63 @@ mod tests {
         assert_eq!(label, "agent-bro… · test…");
     }
 
+    fn test_command(name: &str) -> ProjectCommand {
+        ProjectCommand {
+            id: format!("/tmp:web:{name}"),
+            root: std::path::PathBuf::from("/tmp/web"),
+            source: crate::commands::CommandSource::PackageJson,
+            name: name.into(),
+            command: format!("npm run {name}"),
+            confidence: crate::commands::CommandConfidence::Explicit,
+        }
+    }
+
+    #[test]
+    fn right_sidebar_renders_commands_between_agents_and_ports() {
+        let mut app = crate::app::state::AppState::test_new();
+        let command = test_command("dev");
+        app.command_catalog = vec![command];
+        app.workspaces = vec![Workspace::test_new("web")];
+        app.active = Some(0);
+        app.selected = 0;
+
+        let backend = TestBackend::new(36, 18);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_right_sidebar(&app, frame, Rect::new(0, 0, 36, 18)))
+            .expect("render right sidebar");
+
+        let text = buffer_text(terminal.backend().buffer(), 36, 18);
+        assert!(text.contains("commands (1)"));
+        assert!(text.contains("dev"));
+        assert!(text.contains("package.json"));
+        assert!(text.find("commands").unwrap() < text.find("ports").unwrap());
+    }
+
+    #[test]
+    fn right_sidebar_colors_running_command_state() {
+        let mut app = crate::app::state::AppState::test_new();
+        let command = test_command("dev");
+        app.command_runs.insert(
+            command.id.clone(),
+            crate::commands::CommandRun {
+                command_id: command.id.clone(),
+                terminal_id: crate::terminal::TerminalId::alloc(),
+                status: crate::commands::CommandRunStatus::Running,
+            },
+        );
+        app.command_catalog = vec![command];
+
+        let backend = TestBackend::new(36, 14);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_right_sidebar(&app, frame, Rect::new(0, 0, 36, 14)))
+            .expect("render right sidebar");
+
+        let text = buffer_text(terminal.backend().buffer(), 36, 14);
+        assert!(text.contains("running"));
+    }
+
     #[test]
     fn right_sidebar_renders_scoped_ports_section() {
         let mut app = crate::app::state::AppState::test_new();
@@ -2950,6 +3216,7 @@ mod tests {
         app.active = Some(0);
         app.selected = 0;
         app.activity_agents_expanded = false;
+        app.activity_commands_expanded = false;
         app.activity_ports_expanded = false;
 
         let backend = TestBackend::new(32, 18);
@@ -2960,8 +3227,10 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), 32, 18);
         assert!(text.contains("▸ agents (0)"));
+        assert!(text.contains("▸ commands (0)"));
         assert!(text.contains("▸ ports (0)"));
         assert!(!text.contains("no agents"));
+        assert!(!text.contains("no commands"));
         assert!(!text.contains("no active ports"));
     }
 

@@ -4,8 +4,9 @@ use crossterm::terminal;
 
 use super::{
     auto_updates_enabled, command_palette_accepts_repeat_key, repeat_key_identity, App, Mode,
-    ANIMATION_INTERVAL, AUTO_UPDATE_CHECK_INTERVAL, GIT_REMOTE_STATUS_REFRESH_INTERVAL,
-    MIN_RENDER_INTERVAL, PORT_SCAN_INTERVAL, PORT_STALE_TTL, RESIZE_POLL_INTERVAL,
+    ANIMATION_INTERVAL, AUTO_UPDATE_CHECK_INTERVAL, COMMAND_SCAN_INTERVAL,
+    GIT_REMOTE_STATUS_REFRESH_INTERVAL, MIN_RENDER_INTERVAL, PORT_SCAN_INTERVAL, PORT_STALE_TTL,
+    RESIZE_POLL_INTERVAL,
 };
 use crate::events::AppEvent;
 use crate::workspace::{Workspace, WorkspaceGitStatus};
@@ -186,6 +187,11 @@ impl App {
         if now >= self.next_port_scan {
             changed |= self.refresh_ports(now);
             self.next_port_scan = now + PORT_SCAN_INTERVAL;
+        }
+
+        if now >= self.next_command_scan {
+            changed |= self.state.refresh_command_catalog();
+            self.next_command_scan = now + COMMAND_SCAN_INTERVAL;
         }
 
         if self
@@ -389,6 +395,7 @@ impl App {
             self.config_diagnostic_deadline,
             self.toast_deadline,
             self.next_animation_tick,
+            Some(self.next_command_scan),
             self.git_refresh_deadline(),
             self.next_auto_update_check,
             self.session_save_deadline,

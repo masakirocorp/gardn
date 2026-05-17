@@ -22,6 +22,7 @@ mod api;
 mod app;
 mod cli;
 mod client;
+mod commands;
 mod config;
 mod detect;
 mod events;

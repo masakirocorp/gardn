@@ -888,8 +888,25 @@ impl AppState {
             && row < rect.y + rect.height
     }
 
+    pub(super) fn on_activity_commands_header(&self, col: u16, row: u16) -> bool {
+        if self.right_sidebar_collapsed || self.view.right_sidebar_rect == Rect::default() {
+            return false;
+        }
+        let rect =
+            crate::ui::right_sidebar_commands_header_rect(self, self.view.right_sidebar_rect);
+        rect.width > 0
+            && col >= rect.x
+            && col < rect.x + rect.width
+            && row >= rect.y
+            && row < rect.y + rect.height
+    }
+
     pub(super) fn toggle_activity_agents(&mut self) {
         self.activity_agents_expanded = !self.activity_agents_expanded;
+    }
+
+    pub(super) fn toggle_activity_commands(&mut self) {
+        self.activity_commands_expanded = !self.activity_commands_expanded;
     }
 
     pub(super) fn toggle_activity_ports(&mut self) {

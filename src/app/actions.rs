@@ -101,6 +101,64 @@ pub struct PaneStateUpdate {
 // ---------------------------------------------------------------------------
 
 impl AppState {
+    pub(crate) fn command_scope_workspace_indices(&self) -> Vec<usize> {
+        match self.agent_panel_scope {
+            super::state::AgentPanelScope::CurrentWorkspace => {
+                let idx = if matches!(self.mode, Mode::Navigate) {
+                    Some(self.selected)
+                } else {
+                    self.active
+                };
+                idx.filter(|idx| self.workspaces.get(*idx).is_some())
+                    .into_iter()
+                    .collect()
+            }
+            super::state::AgentPanelScope::CurrentGroup => self
+                .workspaces
+                .iter()
+                .enumerate()
+                .filter(|(_, ws)| ws.group_id == self.active_group_id())
+                .map(|(idx, _)| idx)
+                .collect(),
+            super::state::AgentPanelScope::AllWorkspaces => (0..self.workspaces.len()).collect(),
+        }
+    }
+
+    pub(crate) fn refresh_command_catalog(&mut self) -> bool {
+        let mut roots = self
+            .command_scope_workspace_indices()
+            .into_iter()
+            .filter_map(|ws_idx| self.workspaces.get(ws_idx))
+            .flat_map(|ws| {
+                ws.tabs.iter().flat_map(|tab| {
+                    tab.layout.pane_ids().into_iter().filter_map(|pane_id| {
+                        tab.cwd_for_pane(pane_id, &self.terminals, &self.terminal_runtimes)
+                    })
+                })
+            })
+            .map(|cwd| crate::commands::project_root_from_cwd(&cwd))
+            .collect::<Vec<_>>();
+        roots.sort();
+        roots.dedup();
+
+        let mut catalog = roots
+            .into_iter()
+            .flat_map(|root| crate::commands::discover_project_commands(&root))
+            .collect::<Vec<_>>();
+        catalog.sort_by_key(|command| {
+            (
+                command.root.clone(),
+                command.confidence,
+                command.source,
+                command.name.clone(),
+            )
+        });
+
+        let changed = self.command_catalog != catalog;
+        self.command_catalog = catalog;
+        changed
+    }
+
     fn group_index_for_id(&self, group_id: &str) -> Option<usize> {
         self.groups.iter().position(|group| group.id == group_id)
     }
@@ -1282,6 +1340,41 @@ mod tests {
             state.mode = Mode::Terminal;
         }
         state
+    }
+
+    fn temp_project(name: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "herdr-app-commands-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn command_catalog_refresh_uses_pane_cwd_project_roots_in_scope() {
+        let project = temp_project("scope");
+        std::fs::write(
+            project.join("package.json"),
+            r#"{"scripts":{"dev":"vite"}}"#,
+        )
+        .unwrap();
+        let nested = project.join("apps/web");
+        std::fs::create_dir_all(&nested).unwrap();
+        let mut state = app_with_workspaces(&["web"]);
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = nested;
+
+        assert!(state.refresh_command_catalog());
+
+        assert_eq!(state.command_catalog.len(), 1);
+        assert_eq!(state.command_catalog[0].name, "dev");
+        assert_eq!(state.command_catalog[0].root, project);
     }
 
     #[test]

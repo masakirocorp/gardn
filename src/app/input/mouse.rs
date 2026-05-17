@@ -455,6 +455,11 @@ impl AppState {
                         return None;
                     }
 
+                    if self.on_activity_commands_header(mouse.column, mouse.row) {
+                        self.toggle_activity_commands();
+                        return None;
+                    }
+
                     if self.on_activity_ports_header(mouse.column, mouse.row) {
                         self.toggle_activity_ports();
                         return None;
