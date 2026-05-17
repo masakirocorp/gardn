@@ -596,13 +596,17 @@ impl Workspace {
         }
 
         let state = if parts.is_empty() {
-            "clean".into()
+            String::new()
         } else {
             parts.join(" ")
         };
 
         if summary.repo_count > 1 {
-            format!("{} repos · {state}", summary.repo_count)
+            if state.is_empty() {
+                format!("{} repos", summary.repo_count)
+            } else {
+                format!("{} repos · {state}", summary.repo_count)
+            }
         } else {
             state
         }
@@ -862,7 +866,7 @@ mod tests {
     }
 
     #[test]
-    fn git_work_summary_label_describes_shell_clean_and_dirty_spaces() {
+    fn git_work_summary_label_describes_shell_clean_and_dirty_spaces_without_clean_noise() {
         let mut ws = Workspace::test_new("test");
         assert_eq!(ws.git_work_summary_label(), "shell");
 
@@ -870,7 +874,13 @@ mod tests {
             repo_count: 1,
             ..GitWorkSummary::default()
         });
-        assert_eq!(ws.git_work_summary_label(), "clean");
+        assert_eq!(ws.git_work_summary_label(), "");
+
+        ws.cached_git_work_summary = Some(GitWorkSummary {
+            repo_count: 2,
+            ..GitWorkSummary::default()
+        });
+        assert_eq!(ws.git_work_summary_label(), "2 repos");
 
         ws.cached_git_work_summary = Some(GitWorkSummary {
             repo_count: 2,

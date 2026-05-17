@@ -454,12 +454,17 @@ fn render_mobile_switcher_content(app: &AppState, frame: &mut Frame, viewport: R
                     .add_modifier(Modifier::BOLD),
             ),
         ]);
-        let detail = format!(
-            "  {} · tab {}/{}",
-            ws.git_work_summary_label(),
-            ws.active_tab + 1,
-            ws.tabs.len()
-        );
+        let summary = ws.git_work_summary_label();
+        let detail = if summary.is_empty() {
+            format!("  tab {}/{}", ws.active_tab + 1, ws.tabs.len())
+        } else {
+            format!(
+                "  {} · tab {}/{}",
+                summary,
+                ws.active_tab + 1,
+                ws.tabs.len()
+            )
+        };
         render_two_line_item(
             frame,
             viewport,
