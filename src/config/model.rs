@@ -123,6 +123,8 @@ pub struct KeysConfig {
     pub close_tab: String,
     /// Rename the focused pane. Unset by default.
     pub rename_pane: String,
+    /// Open the focused pane scrollback in $EDITOR. Unset by default.
+    pub edit_scrollback: String,
     /// Focus the pane to the left in terminal mode. Unset by default.
     pub focus_pane_left: String,
     /// Focus the pane below in terminal mode. Unset by default.
@@ -137,8 +139,9 @@ pub struct KeysConfig {
     pub split_horizontal: String,
     /// Close the focused pane. Default: "x"
     pub close_pane: String,
-    /// Toggle fullscreen for the focused pane. Default: "f"
-    pub fullscreen: String,
+    /// Toggle zoom for the focused pane. Default: "f"
+    #[serde(alias = "fullscreen")]
+    pub zoom: String,
     /// Enter resize mode. Default: "r"
     pub resize_mode: String,
     /// Toggle sidebar collapse. Default: "b"
@@ -170,6 +173,8 @@ pub struct UiConfig {
     pub mouse_capture: bool,
     /// Ask for confirmation before closing a workspace. Default: true.
     pub confirm_close: bool,
+    /// Ask for a tab name before creating a new tab. Default: true.
+    pub prompt_new_tab_name: bool,
     /// Show agent labels in split pane borders when no manual pane label is set. Default: false.
     pub show_agent_labels_on_pane_borders: bool,
     /// Agent sidebar scope. Saved values are "current", "group", or "all". Default: "current".
@@ -229,6 +234,7 @@ impl Default for KeysConfig {
             next_tab: "".into(),
             close_tab: "".into(),
             rename_pane: "".into(),
+            edit_scrollback: "".into(),
             focus_pane_left: "".into(),
             focus_pane_down: "".into(),
             focus_pane_up: "".into(),
@@ -236,7 +242,7 @@ impl Default for KeysConfig {
             split_vertical: "v".into(),
             split_horizontal: "-".into(),
             close_pane: "x".into(),
-            fullscreen: "f".into(),
+            zoom: "f".into(),
             resize_mode: "r".into(),
             toggle_sidebar: "b".into(),
             toggle_right_sidebar: "".into(),
@@ -252,6 +258,7 @@ impl Default for UiConfig {
             sidebar_width: 26,
             mouse_capture: true,
             confirm_close: true,
+            prompt_new_tab_name: true,
             show_agent_labels_on_pane_borders: false,
             agent_panel_scope: AgentPanelScopeConfig::Current,
             accent: "cyan".into(),
@@ -324,6 +331,19 @@ show_agent_labels_on_pane_borders = true
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.ui.show_agent_labels_on_pane_borders);
+    }
+
+    #[test]
+    fn prompt_new_tab_name_defaults_on_and_parses() {
+        let default_config = Config::default();
+        assert!(default_config.ui.prompt_new_tab_name);
+
+        let toml = r#"
+[ui]
+prompt_new_tab_name = false
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(!config.ui.prompt_new_tab_name);
     }
 
     #[test]

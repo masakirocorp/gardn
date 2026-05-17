@@ -155,7 +155,7 @@ fn resize_background_tab_panes_to_terminal_area(
             if app.active == Some(ws_idx) && tab_idx == ws.active_tab_index() {
                 continue;
             }
-            resize_tab_panes(tab, terminal_area, cell_size);
+            resize_tab_panes(app, tab, terminal_area, cell_size);
         }
     }
 }
@@ -514,13 +514,13 @@ mod tests {
         let first_pane = ws.tabs[0].root_pane;
         let second_pane = ws.test_split(ratatui::layout::Direction::Horizontal);
 
-        ws.tabs[0].runtimes.insert(
+        ws.insert_test_runtime(
             first_pane,
-            crate::pane::PaneRuntime::test_with_screen_bytes(20, 5, b"left"),
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(20, 5, b"left"),
         );
-        ws.tabs[0].runtimes.insert(
+        ws.insert_test_runtime(
             second_pane,
-            crate::pane::PaneRuntime::test_with_screen_bytes(20, 5, b"r\r\nb"),
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(20, 5, b"r\r\nb"),
         );
         ws.tabs[0].layout.focus_pane(first_pane);
 
@@ -872,6 +872,7 @@ mod tests {
         });
 
         app.workspaces = vec![ws];
+        app.ensure_test_terminals();
         app.selected = 0;
         app.mode = Mode::Navigate;
 
@@ -1101,9 +1102,9 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         let mut ws = Workspace::test_new("test");
         let pane_id = ws.tabs[0].root_pane;
-        ws.tabs[0].runtimes.insert(
+        ws.insert_test_runtime(
             pane_id,
-            crate::pane::PaneRuntime::test_with_scrollback_bytes(
+            crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
                 12,
                 4,
                 4096,
@@ -1234,7 +1235,7 @@ mod tests {
     #[test]
     fn release_notes_preview_lines_show_update_steps() {
         let palette = Palette::catppuccin();
-        let lines = release_notes_preview_lines("0.5.0", &palette);
+        let lines = release_notes_preview_lines("0.5.0", "herdr update", &palette);
 
         assert_eq!(lines.len(), 2);
         assert_eq!(line_text(&lines[0]), "● update ready");

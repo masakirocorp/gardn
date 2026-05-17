@@ -938,7 +938,7 @@ fn status_commands_report_client_and_server_versions() {
         "stdout: {full_stdout}"
     );
     assert!(
-        full_stdout.contains("  protocol: 5"),
+        full_stdout.contains("  protocol: 6"),
         "stdout: {full_stdout}"
     );
     assert!(full_stdout.contains("server:\n"), "stdout: {full_stdout}");
@@ -971,7 +971,7 @@ fn status_commands_report_client_and_server_versions() {
         "stdout: {server_stdout}"
     );
     assert!(
-        server_stdout.contains("protocol: 5"),
+        server_stdout.contains("protocol: 6"),
         "stdout: {server_stdout}"
     );
 
@@ -983,7 +983,7 @@ fn status_commands_report_client_and_server_versions() {
         "stdout: {client_stdout}"
     );
     assert!(
-        client_stdout.contains("protocol: 5"),
+        client_stdout.contains("protocol: 6"),
         "stdout: {client_stdout}"
     );
     assert!(
@@ -1215,6 +1215,134 @@ fn tab_management_commands_work() {
     assert!(closed_tab.status.success());
     let closed_tab_json: serde_json::Value = serde_json::from_slice(&closed_tab.stdout).unwrap();
     assert_eq!(closed_tab_json["result"]["type"], "ok");
+
+    cleanup_spawned_herdr(herdr, base);
+}
+
+#[test]
+fn agent_start_command_works() {
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let socket_path = runtime_dir.join("herdr.sock");
+
+    let herdr = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    wait_for_socket(&socket_path, Duration::from_secs(5));
+
+    let started = run_cli_json(
+        &socket_path,
+        &[
+            "agent",
+            "start",
+            "main",
+            "--cwd",
+            base.to_str().unwrap(),
+            "--",
+            "/bin/sh",
+            "-c",
+            "printf cli-agent-start-ok; sleep 2",
+        ],
+    );
+    assert_eq!(started["result"]["type"], "agent_started");
+    assert_eq!(started["result"]["agent"]["name"], "main");
+    assert_eq!(started["result"]["argv"][0], "/bin/sh");
+    let terminal_id = started["result"]["agent"]["terminal_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let listed = run_cli_json(&socket_path, &["agent", "list"]);
+    assert_eq!(listed["result"]["agents"][0]["terminal_id"], terminal_id);
+    assert_eq!(listed["result"]["agents"][0]["name"], "main");
+
+    let duplicate = run_cli(
+        &socket_path,
+        &[
+            "agent",
+            "start",
+            "main",
+            "--cwd",
+            base.to_str().unwrap(),
+            "--",
+            "/bin/sh",
+            "-c",
+            "true",
+        ],
+    );
+    assert!(!duplicate.status.success());
+    let duplicate_json: serde_json::Value = serde_json::from_slice(&duplicate.stderr).unwrap();
+    assert_eq!(duplicate_json["error"]["code"], "agent_name_taken");
+
+    cleanup_spawned_herdr(herdr, base);
+}
+
+#[test]
+fn agent_commands_work() {
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let socket_path = runtime_dir.join("herdr.sock");
+
+    let herdr = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    wait_for_socket(&socket_path, Duration::from_secs(5));
+
+    let created = run_cli(
+        &socket_path,
+        &["workspace", "create", "--cwd", base.to_str().unwrap()],
+    );
+    assert!(created.status.success());
+    let created_json: serde_json::Value = serde_json::from_slice(&created.stdout).unwrap();
+    let root_pane_id = created_json["result"]["root_pane"]["pane_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let terminal_id = created_json["result"]["root_pane"]["terminal_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let renamed = run_cli(&socket_path, &["agent", "rename", &root_pane_id, "worker"]);
+    assert!(renamed.status.success());
+
+    let listed = run_cli_json(&socket_path, &["agent", "list"]);
+    assert_eq!(listed["result"]["type"], "agent_list");
+    assert_eq!(listed["result"]["agents"][0]["terminal_id"], terminal_id);
+    assert_eq!(listed["result"]["agents"][0]["name"], "worker");
+
+    let fetched = run_cli_json(&socket_path, &["agent", "get", "worker"]);
+    assert_eq!(fetched["result"]["agent"]["pane_id"], root_pane_id);
+
+    let waited = run_cli_json(
+        &socket_path,
+        &[
+            "agent",
+            "wait",
+            "worker",
+            "--status",
+            "unknown",
+            "--timeout",
+            "100",
+        ],
+    );
+    assert_eq!(waited["result"]["agent"]["pane_id"], root_pane_id);
+
+    let read = run_cli_json(
+        &socket_path,
+        &["agent", "read", &terminal_id, "--source", "visible"],
+    );
+    assert_eq!(read["result"]["type"], "pane_read");
+
+    let sent = run_cli(
+        &socket_path,
+        &["agent", "send", "worker", "echo cli-agent-ok\n"],
+    );
+    assert!(sent.status.success());
+
+    let agent_renamed = run_cli_json(&socket_path, &["agent", "rename", "worker", "reviewer"]);
+    assert_eq!(agent_renamed["result"]["agent"]["name"], "reviewer");
+
+    let focused = run_cli_json(&socket_path, &["agent", "focus", "reviewer"]);
+    assert_eq!(focused["result"]["agent"]["focused"], true);
 
     cleanup_spawned_herdr(herdr, base);
 }

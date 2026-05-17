@@ -1,4 +1,9 @@
-use std::process::{Command, Stdio};
+use std::{
+    fs, io,
+    io::Write,
+    process::{Command, Stdio},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use bytes::Bytes;
 use crossterm::event::{KeyCode, KeyEvent};
@@ -115,7 +120,11 @@ impl App {
         }
 
         if let Some(action) = navigate_action_for_key(&self.state, &key) {
-            execute_navigate_action(&mut self.state, action);
+            if action == NavigateAction::EditScrollback {
+                self.launch_focused_scrollback_editor();
+            } else {
+                execute_navigate_action(&mut self.state, action);
+            }
             return;
         }
 
@@ -129,10 +138,10 @@ impl App {
     }
 
     fn pass_through_key_to_focused_pane(&mut self, key: TerminalKey) -> bool {
-        let Some(ws) = self.state.active.and_then(|i| self.state.workspaces.get(i)) else {
+        let Some(ws_idx) = self.state.active else {
             return false;
         };
-        let Some(rt) = ws.focused_runtime() else {
+        let Some(rt) = self.state.focused_runtime_in_workspace(ws_idx) else {
             return false;
         };
 
@@ -149,7 +158,9 @@ impl App {
         let previous_toast = self.state.toast.clone();
         let result = match binding.action {
             crate::config::CustomCommandAction::Shell => self.spawn_custom_command(&binding),
-            crate::config::CustomCommandAction::Pane => self.spawn_pane_command(&binding.command),
+            crate::config::CustomCommandAction::Pane => {
+                self.spawn_pane_command(&binding.command, Vec::new())
+            }
         };
         match result {
             Ok(()) => leave_navigate_mode(&mut self.state),
@@ -192,10 +203,13 @@ impl App {
                     if let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) {
                         env.push(("HERDR_ACTIVE_PANE_ID".to_string(), public_pane_id));
                     }
-                    if let Some(pane_cwd) = workspace
-                        .active_tab()
-                        .and_then(|tab| tab.cwd_for_pane(pane_id))
-                    {
+                    if let Some(pane_cwd) = workspace.active_tab().and_then(|tab| {
+                        tab.cwd_for_pane(
+                            pane_id,
+                            &self.state.terminals,
+                            &self.state.terminal_runtimes,
+                        )
+                    }) {
                         env.push((
                             "HERDR_ACTIVE_PANE_CWD".to_string(),
                             pane_cwd.display().to_string(),
@@ -230,7 +244,68 @@ impl App {
         Ok(())
     }
 
-    fn spawn_pane_command(&mut self, command: &str) -> std::io::Result<()> {
+    fn launch_focused_scrollback_editor(&mut self) {
+        let previous_toast = self.state.toast.clone();
+        match self.open_focused_scrollback_in_editor() {
+            Ok(()) => self.sync_toast_deadline(previous_toast),
+            Err(err) => {
+                self.state.toast = Some(crate::app::state::ToastNotification {
+                    kind: crate::app::state::ToastKind::NeedsAttention,
+                    title: "edit scrollback failed".to_string(),
+                    context: err.to_string(),
+                    target: None,
+                });
+                self.sync_toast_deadline(previous_toast);
+            }
+        }
+    }
+
+    fn open_focused_scrollback_in_editor(&mut self) -> std::io::Result<()> {
+        let ws_idx = self
+            .state
+            .active
+            .ok_or_else(|| std::io::Error::other("no active workspace"))?;
+        let ws = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .ok_or_else(|| std::io::Error::other("active workspace disappeared"))?;
+        let pane_id = ws
+            .focused_pane_id()
+            .ok_or_else(|| std::io::Error::other("no focused pane"))?;
+        let scrollback = self
+            .state
+            .runtime_for_pane_in_workspace(ws_idx, pane_id)
+            .ok_or_else(|| std::io::Error::other("focused pane has no scrollback runtime"))?
+            .recent_text(usize::MAX);
+
+        let path = write_scrollback_temp_file(&scrollback)?;
+
+        let quoted_path = shell_quote(&path.display().to_string());
+        let command = format!(
+            r#"scrollback_file={quoted_path}; eval "${{EDITOR:-vi}} \"\$scrollback_file\""; status=$?; rm -f "$scrollback_file"; exit $status"#
+        );
+        if let Err(err) = self.spawn_pane_command(&command, vec![path.clone()]) {
+            let _ = fs::remove_file(&path);
+            return Err(err);
+        }
+
+        if let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) {
+            self.state.toast = Some(crate::app::state::ToastNotification {
+                kind: crate::app::state::ToastKind::Finished,
+                title: "opened scrollback".to_string(),
+                context: format!("focused pane {public_pane_id}"),
+                target: None,
+            });
+        }
+        Ok(())
+    }
+
+    fn spawn_pane_command(
+        &mut self,
+        command: &str,
+        temp_files: Vec<std::path::PathBuf>,
+    ) -> std::io::Result<()> {
         let Some(ws_idx) = self.state.active else {
             return Err(std::io::Error::other("no active workspace"));
         };
@@ -249,10 +324,14 @@ impl App {
             .focused_pane_id()
             .ok_or_else(|| std::io::Error::other("no focused pane"))?;
         let previous_zoomed = ws.active_tab().map(|tab| tab.zoomed).unwrap_or(false);
-        let cwd = ws
-            .active_tab()
-            .and_then(|tab| tab.cwd_for_pane(previous_focus));
-        let new_pane_id = ws.split_focused_command(
+        let cwd = ws.active_tab().and_then(|tab| {
+            tab.cwd_for_pane(
+                previous_focus,
+                &self.state.terminals,
+                &self.state.terminal_runtimes,
+            )
+        });
+        let new_pane = ws.split_focused_command(
             Direction::Horizontal,
             new_rows,
             new_cols,
@@ -262,6 +341,13 @@ impl App {
             self.state.pane_scrollback_limit_bytes,
             self.state.host_terminal_theme,
         )?;
+        let new_pane_id = new_pane.pane_id;
+        self.state
+            .terminal_runtimes
+            .insert(new_pane.terminal.id.clone(), new_pane.runtime);
+        self.state
+            .terminals
+            .insert(new_pane.terminal.id.clone(), new_pane.terminal);
         ws.active_tab_mut()
             .expect("workspace must have an active tab")
             .layout
@@ -276,6 +362,7 @@ impl App {
                 tab_idx,
                 previous_focus,
                 previous_zoomed,
+                temp_files,
             },
         );
         self.state.mode = Mode::Terminal;
@@ -423,7 +510,8 @@ pub(crate) enum NavigateAction {
     SplitVertical,
     SplitHorizontal,
     ClosePane,
-    Fullscreen,
+    EditScrollback,
+    Zoom,
     EnterResizeMode,
     ToggleSidebar,
     ToggleRightSidebar,
@@ -586,6 +674,12 @@ fn navigate_action_for_key(state: &AppState, key: &KeyEvent) -> Option<NavigateA
     {
         return Some(NavigateAction::RenamePane);
     }
+    if kb
+        .edit_scrollback
+        .is_some_and(|(code, mods)| key_matches(key, code, mods))
+    {
+        return Some(NavigateAction::EditScrollback);
+    }
     if key_matches(key, kb.split_vertical.0, kb.split_vertical.1) {
         return Some(NavigateAction::SplitVertical);
     }
@@ -595,8 +689,8 @@ fn navigate_action_for_key(state: &AppState, key: &KeyEvent) -> Option<NavigateA
     if key_matches(key, kb.close_pane.0, kb.close_pane.1) {
         return Some(NavigateAction::ClosePane);
     }
-    if key_matches(key, kb.fullscreen.0, kb.fullscreen.1) {
-        return Some(NavigateAction::Fullscreen);
+    if key_matches(key, kb.zoom.0, kb.zoom.1) {
+        return Some(NavigateAction::Zoom);
     }
     if key_matches(key, kb.resize_mode.0, kb.resize_mode.1) {
         return Some(NavigateAction::EnterResizeMode);
@@ -711,7 +805,14 @@ pub(super) fn execute_navigate_action(state: &mut AppState, action: NavigateActi
             leave_navigate_mode(state);
         }
         NavigateAction::OpenAgentMenu => super::modal::open_agent_menu(state),
-        NavigateAction::NewTab => super::modal::open_new_tab_dialog(state),
+        NavigateAction::NewTab => {
+            if state.prompt_new_tab_name {
+                super::modal::open_new_tab_dialog(state);
+            } else {
+                state.request_new_tab = true;
+                leave_navigate_mode(state);
+            }
+        }
         NavigateAction::RenameTab => super::modal::open_rename_active_tab(state, false),
         NavigateAction::PreviousTab => {
             state.previous_tab();
@@ -752,8 +853,9 @@ pub(super) fn execute_navigate_action(state: &mut AppState, action: NavigateActi
             state.close_pane();
             leave_navigate_mode(state);
         }
-        NavigateAction::Fullscreen => {
-            state.toggle_fullscreen();
+        NavigateAction::EditScrollback => {}
+        NavigateAction::Zoom => {
+            state.toggle_zoom();
             leave_navigate_mode(state);
         }
         NavigateAction::EnterResizeMode => state.mode = Mode::Resize,
@@ -791,6 +893,65 @@ fn leave_navigate_mode(state: &mut AppState) {
     if state.active.is_some() {
         state.mode = Mode::Terminal;
     }
+}
+
+fn write_scrollback_temp_file(content: &str) -> io::Result<std::path::PathBuf> {
+    let mut last_collision = None;
+    for attempt in 0..16 {
+        let path = unique_scrollback_path(attempt);
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+
+        match options.open(&path) {
+            Ok(mut file) => {
+                file.write_all(content.as_bytes())?;
+                return Ok(path);
+            }
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
+                last_collision = Some(err);
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Err(last_collision.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "failed to create unique scrollback temp file",
+        )
+    }))
+}
+
+fn unique_scrollback_path(attempt: u32) -> std::path::PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!(
+        "herdr-scrollback-{}-{nanos}-{attempt}.txt",
+        std::process::id()
+    ))
+}
+
+fn shell_quote(value: &str) -> String {
+    if !value.is_empty()
+        && value.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(
+                    ch,
+                    '@' | '%' | '_' | '+' | '=' | ':' | ',' | '.' | '/' | '-'
+                )
+        })
+    {
+        return value.to_string();
+    }
+
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 #[cfg(test)]
@@ -1226,7 +1387,7 @@ mod tests {
             api_rx,
             crate::api::EventHub::default(),
         );
-        let workspace = Workspace::new(
+        let (workspace, terminal, runtime) = Workspace::new(
             std::env::current_dir().unwrap_or_else(|_| "/".into()),
             24,
             80,
@@ -1238,6 +1399,10 @@ mod tests {
         )
         .expect("workspace should spawn");
         app.state.workspaces = vec![workspace];
+        app.state
+            .terminal_runtimes
+            .insert(terminal.id.clone(), runtime);
+        app.state.terminals.insert(terminal.id.clone(), terminal);
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
@@ -1260,6 +1425,7 @@ mod tests {
             .await;
 
         assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 2);
+        assert_eq!(app.state.terminal_runtimes.len(), 2);
         assert!(app.state.workspaces[0].tabs[0].zoomed);
 
         let _ = wait_for_file(&output_path);
@@ -1279,12 +1445,58 @@ mod tests {
         let _ = std::fs::remove_file(output_path);
     }
 
+    #[tokio::test]
+    async fn edit_scrollback_key_opens_focused_runtime_scrollback_in_editor_pane() {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &Config::default(),
+            true,
+            None,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        let mut workspace = Workspace::test_new("test");
+        let root_pane = workspace.tabs[0].root_pane;
+        workspace.tabs[0].runtimes.insert(
+            root_pane,
+            crate::pane::PaneRuntime::test_with_scrollback_bytes(20, 5, 4096, b"alpha\nbeta\n"),
+        );
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Navigate;
+
+        let output_path = unique_temp_path("edit-scrollback");
+        let previous_editor = std::env::var_os("EDITOR");
+        std::env::set_var(
+            "EDITOR",
+            format!("sh -c 'cp \"$1\" {}' sh", output_path.display()),
+        );
+        app.state.keybinds.edit_scrollback = Some((KeyCode::Char('g'), KeyModifiers::empty()));
+        app.state.keybinds.edit_scrollback_label = Some("g".into());
+
+        app.handle_navigate_key(TerminalKey::new(KeyCode::Char('g'), KeyModifiers::empty()));
+
+        match previous_editor {
+            Some(value) => std::env::set_var("EDITOR", value),
+            None => std::env::remove_var("EDITOR"),
+        }
+
+        let content = wait_for_file(&output_path);
+        assert!(content.contains("alpha"));
+        assert!(content.contains("beta"));
+        assert_eq!(app.state.mode, Mode::Terminal);
+
+        let _ = std::fs::remove_file(output_path);
+    }
+
     #[test]
-    fn fullscreen_action_exits_navigate_mode() {
+    fn zoom_action_exits_navigate_mode() {
         let mut state = state_with_workspaces(&["test"]);
         state.workspaces[0].test_split(Direction::Horizontal);
-        state.keybinds.fullscreen = (KeyCode::Char('g'), KeyModifiers::empty());
-        state.keybinds.fullscreen_label = "g".into();
+        state.keybinds.zoom = (KeyCode::Char('g'), KeyModifiers::empty());
+        state.keybinds.zoom_label = "g".into();
 
         handle_navigate_key(
             &mut state,
@@ -1330,6 +1542,19 @@ mod tests {
         assert!(state.name_input_replace_on_type);
         assert!(!state.request_new_tab);
         assert_eq!(state.workspaces[0].tabs.len(), 1);
+    }
+
+    #[test]
+    fn new_tab_action_can_skip_rename_dialog() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.prompt_new_tab_name = false;
+
+        execute_navigate_action(&mut state, NavigateAction::NewTab);
+
+        assert_eq!(state.mode, Mode::Terminal);
+        assert!(!state.creating_new_tab);
+        assert!(state.request_new_tab);
+        assert!(state.requested_new_tab_name.is_none());
     }
 
     #[test]

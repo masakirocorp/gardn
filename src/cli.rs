@@ -6,12 +6,14 @@ use serde::Serialize;
 
 use crate::api;
 use crate::api::schema::{
-    AgentStatus, EmptyParams, GroupCreateParams, GroupRenameParams, GroupTarget, IntegrationTarget,
-    Method, OutputMatch, PaneListParams, PaneReadParams, PaneRenameParams, PaneSendInputParams,
-    PaneSendKeysParams, PaneSendTextParams, PaneSplitParams, PaneTarget, PaneWaitForOutputParams,
-    PingParams, ReadFormat, ReadSource, Request, SplitDirection, Subscription, TabCreateParams,
-    TabListParams, TabRenameParams, TabTarget, WorkspaceCreateParams, WorkspaceMoveToGroupParams,
-    WorkspaceRenameParams, WorkspaceTarget,
+    AgentReadParams, AgentRenameParams, AgentSendParams, AgentStartParams, AgentStatus,
+    AgentTarget, EmptyParams, GroupCreateParams, GroupRenameParams, GroupTarget, IntegrationTarget,
+    Method, OutputMatch, PaneAgentState, PaneListParams, PaneReadParams, PaneRenameParams,
+    PaneReportAgentParams, PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams,
+    PaneSplitParams, PaneTarget, PaneWaitForOutputParams, PingParams, ReadFormat, ReadSource,
+    Request, SplitDirection, Subscription, TabCreateParams, TabListParams, TabRenameParams,
+    TabTarget, WorkspaceCreateParams, WorkspaceMoveToGroupParams, WorkspaceRenameParams,
+    WorkspaceTarget,
 };
 
 pub enum CommandOutcome {
@@ -35,6 +37,8 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
         "group" => run_group_command(&args[2..])?,
         "workspace" => run_workspace_command(&args[2..])?,
         "tab" => run_tab_command(&args[2..])?,
+        "agent" => run_agent_command(&args[2..])?,
+        "terminal" => run_terminal_command(&args[2..])?,
         "pane" => run_pane_command(&args[2..])?,
         "wait" => run_wait_command(&args[2..])?,
         "integration" => run_integration_command(&args[2..])?,
@@ -290,6 +294,52 @@ fn run_tab_command(args: &[String]) -> std::io::Result<i32> {
     }
 }
 
+fn run_agent_command(args: &[String]) -> std::io::Result<i32> {
+    let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
+        print_agent_help();
+        return Ok(2);
+    };
+
+    match subcommand {
+        "list" => agent_list(&args[1..]),
+        "get" => agent_get(&args[1..]),
+        "read" => agent_read(&args[1..]),
+        "send" => agent_send(&args[1..]),
+        "rename" => agent_rename(&args[1..]),
+        "focus" => agent_focus(&args[1..]),
+        "wait" => agent_wait(&args[1..]),
+        "attach" => agent_attach(&args[1..]),
+        "start" => agent_start(&args[1..]),
+        "help" | "--help" | "-h" => {
+            print_agent_help();
+            Ok(0)
+        }
+        _ => {
+            print_agent_help();
+            Ok(2)
+        }
+    }
+}
+
+fn run_terminal_command(args: &[String]) -> std::io::Result<i32> {
+    let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
+        print_terminal_help();
+        return Ok(2);
+    };
+
+    match subcommand {
+        "attach" => terminal_attach(&args[1..]),
+        "help" | "--help" | "-h" => {
+            print_terminal_help();
+            Ok(0)
+        }
+        _ => {
+            print_terminal_help();
+            Ok(2)
+        }
+    }
+}
+
 fn run_pane_command(args: &[String]) -> std::io::Result<i32> {
     let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
         print_pane_help();
@@ -305,6 +355,7 @@ fn run_pane_command(args: &[String]) -> std::io::Result<i32> {
         "close" => pane_close(&args[1..]),
         "send-text" => pane_send_text(&args[1..]),
         "send-keys" => pane_send_keys(&args[1..]),
+        "report-agent" => pane_report_agent(&args[1..]),
         "run" => pane_run(&args[1..]),
         "help" | "--help" | "-h" => {
             print_pane_help();
@@ -862,6 +913,396 @@ fn tab_close(args: &[String]) -> std::io::Result<i32> {
     })?)
 }
 
+fn agent_start(args: &[String]) -> std::io::Result<i32> {
+    let Some(name) = args.first() else {
+        eprintln!("usage: herdr agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
+        return Ok(2);
+    };
+
+    let Some(separator) = args.iter().position(|arg| arg == "--") else {
+        eprintln!("usage: herdr agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
+        return Ok(2);
+    };
+    if separator == args.len() - 1 {
+        eprintln!("agent start requires argv after --");
+        return Ok(2);
+    }
+
+    let mut cwd = None;
+    let mut workspace_id = None;
+    let mut tab_id = None;
+    let mut split = None;
+    let mut focus = false;
+
+    let mut index = 1;
+    while index < separator {
+        match args[index].as_str() {
+            "--cwd" => {
+                let Some(value) = args.get(index + 1).filter(|_| index + 1 < separator) else {
+                    eprintln!("missing value for --cwd");
+                    return Ok(2);
+                };
+                cwd = Some(value.clone());
+                index += 2;
+            }
+            "--workspace" => {
+                let Some(value) = args.get(index + 1).filter(|_| index + 1 < separator) else {
+                    eprintln!("missing value for --workspace");
+                    return Ok(2);
+                };
+                workspace_id = Some(normalize_workspace_id(value));
+                index += 2;
+            }
+            "--tab" => {
+                let Some(value) = args.get(index + 1).filter(|_| index + 1 < separator) else {
+                    eprintln!("missing value for --tab");
+                    return Ok(2);
+                };
+                tab_id = Some(normalize_tab_id(value));
+                index += 2;
+            }
+            "--split" => {
+                let Some(value) = args.get(index + 1).filter(|_| index + 1 < separator) else {
+                    eprintln!("missing value for --split");
+                    return Ok(2);
+                };
+                split = Some(parse_split_direction(value)?);
+                index += 2;
+            }
+            "--focus" => {
+                focus = true;
+                index += 1;
+            }
+            "--no-focus" => {
+                focus = false;
+                index += 1;
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return Ok(2);
+            }
+        }
+    }
+
+    print_response(&send_request(&Request {
+        id: "cli:agent:start".into(),
+        method: Method::AgentStart(AgentStartParams {
+            name: name.clone(),
+            cwd,
+            workspace_id,
+            tab_id,
+            split,
+            focus,
+            argv: args[separator + 1..].to_vec(),
+        }),
+    })?)
+}
+
+fn agent_list(args: &[String]) -> std::io::Result<i32> {
+    if !args.is_empty() {
+        eprintln!("usage: herdr agent list");
+        return Ok(2);
+    }
+
+    print_response(&send_request(&Request {
+        id: "cli:agent:list".into(),
+        method: Method::AgentList(EmptyParams::default()),
+    })?)
+}
+
+fn agent_get(args: &[String]) -> std::io::Result<i32> {
+    let Some(target) = args.first() else {
+        eprintln!("usage: herdr agent get <target>");
+        return Ok(2);
+    };
+    if args.len() != 1 {
+        eprintln!("usage: herdr agent get <target>");
+        return Ok(2);
+    }
+
+    print_response(&send_request(&Request {
+        id: "cli:agent:get".into(),
+        method: Method::AgentGet(AgentTarget {
+            target: target.clone(),
+        }),
+    })?)
+}
+
+fn agent_focus(args: &[String]) -> std::io::Result<i32> {
+    let Some(target) = args.first() else {
+        eprintln!("usage: herdr agent focus <target>");
+        return Ok(2);
+    };
+    if args.len() != 1 {
+        eprintln!("usage: herdr agent focus <target>");
+        return Ok(2);
+    }
+
+    print_response(&send_request(&Request {
+        id: "cli:agent:focus".into(),
+        method: Method::AgentFocus(AgentTarget {
+            target: target.clone(),
+        }),
+    })?)
+}
+
+fn agent_attach(args: &[String]) -> std::io::Result<i32> {
+    let (target, takeover) =
+        match parse_attach_target(args, "usage: herdr agent attach <target> [--takeover]") {
+            Ok(parsed) => parsed,
+            Err(code) => return Ok(code),
+        };
+
+    let response = resolve_agent_target(&target, "cli:agent:attach:resolve")?;
+    if response.get("error").is_some() {
+        eprintln!("{}", serde_json::to_string(&response).unwrap());
+        return Ok(1);
+    }
+    let Some(terminal_id) = response["result"]["agent"]["terminal_id"].as_str() else {
+        eprintln!("agent attach failed: response did not include terminal_id");
+        return Ok(1);
+    };
+    crate::client::run_terminal_attach(terminal_id.to_owned(), takeover)?;
+    Ok(0)
+}
+
+fn agent_wait(args: &[String]) -> std::io::Result<i32> {
+    let Some(target) = args.first() else {
+        eprintln!("usage: herdr agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
+        return Ok(2);
+    };
+
+    let mut timeout_ms = None;
+    let mut desired_status = None;
+
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--status" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --status");
+                    return Ok(2);
+                };
+                desired_status = Some(parse_agent_wait_status(value)?);
+                index += 2;
+            }
+            "--timeout" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --timeout");
+                    return Ok(2);
+                };
+                timeout_ms = Some(parse_u64_flag("--timeout", value)?);
+                index += 2;
+            }
+            "help" | "--help" | "-h" => {
+                eprintln!("usage: herdr agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
+                return Ok(0);
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return Ok(2);
+            }
+        }
+    }
+
+    let Some(agent_status) = desired_status else {
+        eprintln!("missing required --status");
+        return Ok(2);
+    };
+
+    let response = resolve_agent_target(target, "cli:agent:wait:resolve")?;
+    if response.get("error").is_some() {
+        eprintln!("{}", serde_json::to_string(&response).unwrap());
+        return Ok(1);
+    }
+    if response["result"]["agent"]["agent_status"]
+        .as_str()
+        .is_some_and(|current| agent_wait_status_satisfied(agent_status, current))
+    {
+        println!("{}", serde_json::to_string(&response).unwrap());
+        return Ok(0);
+    }
+
+    let Some(pane_id) = response["result"]["agent"]["pane_id"].as_str() else {
+        eprintln!("agent wait failed: response did not include pane_id");
+        return Ok(1);
+    };
+
+    let subscriptions = if agent_status == AgentStatus::Idle {
+        vec![
+            Subscription::PaneAgentStatusChanged {
+                pane_id: pane_id.to_owned(),
+                agent_status: Some(AgentStatus::Idle),
+            },
+            Subscription::PaneAgentStatusChanged {
+                pane_id: pane_id.to_owned(),
+                agent_status: Some(AgentStatus::Done),
+            },
+        ]
+    } else {
+        vec![Subscription::PaneAgentStatusChanged {
+            pane_id: pane_id.to_owned(),
+            agent_status: Some(agent_status),
+        }]
+    };
+
+    wait_for_agent_change(
+        Request {
+            id: "cli:agent:wait".into(),
+            method: Method::EventsSubscribe(crate::api::schema::EventsSubscribeParams {
+                subscriptions,
+            }),
+        },
+        timeout_ms,
+        "timed out waiting for agent status change",
+    )
+}
+
+fn resolve_agent_target(target: &str, request_id: &str) -> std::io::Result<serde_json::Value> {
+    send_request(&Request {
+        id: request_id.into(),
+        method: Method::AgentGet(AgentTarget {
+            target: target.to_owned(),
+        }),
+    })
+}
+
+fn terminal_attach(args: &[String]) -> std::io::Result<i32> {
+    let (terminal_id, takeover) = match parse_attach_target(
+        args,
+        "usage: herdr terminal attach <terminal_id> [--takeover]",
+    ) {
+        Ok(parsed) => parsed,
+        Err(code) => return Ok(code),
+    };
+    crate::client::run_terminal_attach(terminal_id, takeover)?;
+    Ok(0)
+}
+
+fn parse_attach_target(args: &[String], usage: &str) -> Result<(String, bool), i32> {
+    let Some(target) = args.first() else {
+        eprintln!("{usage}");
+        return Err(2);
+    };
+    let mut takeover = false;
+    for arg in &args[1..] {
+        match arg.as_str() {
+            "--takeover" => takeover = true,
+            "help" | "--help" | "-h" => {
+                eprintln!("{usage}");
+                return Err(0);
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return Err(2);
+            }
+        }
+    }
+    Ok((target.clone(), takeover))
+}
+
+fn agent_rename(args: &[String]) -> std::io::Result<i32> {
+    let Some(target) = args.first() else {
+        eprintln!("usage: herdr agent rename <target> <name>|--clear");
+        return Ok(2);
+    };
+    if args.len() < 2 {
+        eprintln!("usage: herdr agent rename <target> <name>|--clear");
+        return Ok(2);
+    }
+    let name = if args.len() == 2 && args[1] == "--clear" {
+        None
+    } else {
+        Some(args[1..].join(" "))
+    };
+
+    print_response(&send_request(&Request {
+        id: "cli:agent:rename".into(),
+        method: Method::AgentRename(AgentRenameParams {
+            target: target.clone(),
+            name,
+        }),
+    })?)
+}
+
+fn agent_send(args: &[String]) -> std::io::Result<i32> {
+    if args.len() < 2 {
+        eprintln!("usage: herdr agent send <target> <text>");
+        return Ok(2);
+    }
+
+    print_response(&send_request(&Request {
+        id: "cli:agent:send".into(),
+        method: Method::AgentSend(AgentSendParams {
+            target: args[0].clone(),
+            text: args[1..].join(" "),
+        }),
+    })?)
+}
+
+fn agent_read(args: &[String]) -> std::io::Result<i32> {
+    let Some(target) = args.first() else {
+        eprintln!("usage: herdr agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
+        return Ok(2);
+    };
+
+    let mut source = ReadSource::Recent;
+    let mut lines = None;
+    let mut format = ReadFormat::Text;
+    let mut strip_ansi = true;
+
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--source" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --source");
+                    return Ok(2);
+                };
+                source = parse_read_source(value)?;
+                index += 2;
+            }
+            "--lines" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --lines");
+                    return Ok(2);
+                };
+                lines = Some(parse_u32_flag("--lines", value)?);
+                index += 2;
+            }
+            "--format" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --format");
+                    return Ok(2);
+                };
+                format = parse_read_format(value)?;
+                strip_ansi = !matches!(format, ReadFormat::Ansi);
+                index += 2;
+            }
+            "--ansi" => {
+                format = ReadFormat::Ansi;
+                strip_ansi = false;
+                index += 1;
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return Ok(2);
+            }
+        }
+    }
+
+    print_response(&send_request(&Request {
+        id: "cli:agent:read".into(),
+        method: Method::AgentRead(AgentReadParams {
+            target: target.clone(),
+            source,
+            lines,
+            format,
+            strip_ansi,
+        }),
+    })?)
+}
+
 fn pane_list(args: &[String]) -> std::io::Result<i32> {
     let mut workspace_id = None;
 
@@ -1124,6 +1565,102 @@ fn pane_run(args: &[String]) -> std::io::Result<i32> {
         pane_id,
         text,
         keys: vec!["Enter".into()],
+    }))
+}
+
+fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
+    let Some(raw_pane_id) = args.first() else {
+        eprintln!("usage: herdr pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N]");
+        return Ok(2);
+    };
+
+    let pane_id = normalize_pane_id(raw_pane_id);
+    let mut source = None;
+    let mut agent = None;
+    let mut state = None;
+    let mut message = None;
+    let mut custom_status = None;
+    let mut seq = None;
+
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--source" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --source");
+                    return Ok(2);
+                };
+                source = Some(value.clone());
+                index += 2;
+            }
+            "--agent" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --agent");
+                    return Ok(2);
+                };
+                agent = Some(value.clone());
+                index += 2;
+            }
+            "--state" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --state");
+                    return Ok(2);
+                };
+                state = Some(parse_pane_agent_state(value)?);
+                index += 2;
+            }
+            "--message" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --message");
+                    return Ok(2);
+                };
+                message = Some(value.clone());
+                index += 2;
+            }
+            "--custom-status" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --custom-status");
+                    return Ok(2);
+                };
+                custom_status = Some(value.clone());
+                index += 2;
+            }
+            "--seq" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --seq");
+                    return Ok(2);
+                };
+                seq = Some(parse_u64_flag("--seq", value)?);
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return Ok(2);
+            }
+        }
+    }
+
+    let Some(source) = source else {
+        eprintln!("missing required --source");
+        return Ok(2);
+    };
+    let Some(agent) = agent else {
+        eprintln!("missing required --agent");
+        return Ok(2);
+    };
+    let Some(state) = state else {
+        eprintln!("missing required --state");
+        return Ok(2);
+    };
+
+    send_ok_request(Method::PaneReportAgent(PaneReportAgentParams {
+        pane_id,
+        source,
+        agent,
+        state,
+        message,
+        custom_status,
+        seq,
     }))
 }
 
@@ -1517,6 +2054,31 @@ fn parse_read_format(value: &str) -> std::io::Result<ReadFormat> {
     }
 }
 
+fn agent_wait_status_satisfied(desired: AgentStatus, current: &str) -> bool {
+    match desired {
+        AgentStatus::Idle => matches!(current, "idle" | "done"),
+        AgentStatus::Working => current == "working",
+        AgentStatus::Blocked => current == "blocked",
+        AgentStatus::Unknown => current == "unknown",
+        AgentStatus::Done => false,
+    }
+}
+
+fn parse_agent_wait_status(value: &str) -> std::io::Result<AgentStatus> {
+    match value {
+        "idle" => Ok(AgentStatus::Idle),
+        "working" => Ok(AgentStatus::Working),
+        "blocked" => Ok(AgentStatus::Blocked),
+        "unknown" => Ok(AgentStatus::Unknown),
+        "done" => Err(std::io::Error::other(
+            "done is a UI attention state; use idle for CLI agent completion waits",
+        )),
+        _ => Err(std::io::Error::other(format!(
+            "invalid agent status: {value} (expected idle, working, blocked, or unknown)"
+        ))),
+    }
+}
+
 fn parse_agent_status(value: &str) -> std::io::Result<AgentStatus> {
     match value {
         "idle" => Ok(AgentStatus::Idle),
@@ -1526,6 +2088,18 @@ fn parse_agent_status(value: &str) -> std::io::Result<AgentStatus> {
         "unknown" => Ok(AgentStatus::Unknown),
         _ => Err(std::io::Error::other(format!(
             "invalid agent status: {value} (expected idle, working, blocked, done, or unknown)"
+        ))),
+    }
+}
+
+fn parse_pane_agent_state(value: &str) -> std::io::Result<PaneAgentState> {
+    match value {
+        "idle" => Ok(PaneAgentState::Idle),
+        "working" => Ok(PaneAgentState::Working),
+        "blocked" => Ok(PaneAgentState::Blocked),
+        "unknown" => Ok(PaneAgentState::Unknown),
+        _ => Err(std::io::Error::other(format!(
+            "invalid pane agent state: {value} (expected idle, working, blocked, or unknown)"
         ))),
     }
 }
@@ -1651,6 +2225,26 @@ fn print_tab_help() {
     eprintln!("  herdr tab close <tab_id>");
 }
 
+fn print_agent_help() {
+    eprintln!("herdr agent commands:");
+    eprintln!("  herdr agent list");
+    eprintln!("  herdr agent get <target>");
+    eprintln!("  herdr agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
+    eprintln!("  herdr agent send <target> <text>");
+    eprintln!("  herdr agent rename <target> <name>|--clear");
+    eprintln!("  herdr agent focus <target>");
+    eprintln!("  herdr agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
+    eprintln!("  herdr agent attach <target> [--takeover]");
+    eprintln!("  herdr agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
+    eprintln!("  targets accept terminal ids, unique agent names, and legacy pane ids");
+}
+
+fn print_terminal_help() {
+    eprintln!("herdr terminal commands:");
+    eprintln!("  herdr terminal attach <terminal_id> [--takeover]");
+    eprintln!("  detach from direct attach with ctrl+b q; send literal ctrl+b with ctrl+b ctrl+b");
+}
+
 fn print_pane_help() {
     eprintln!("herdr pane commands:");
     eprintln!("  herdr pane list [--workspace <workspace_id>]");
@@ -1663,6 +2257,7 @@ fn print_pane_help() {
     eprintln!("  herdr pane close <pane_id>");
     eprintln!("  herdr pane send-text <pane_id> <text>");
     eprintln!("  herdr pane send-keys <pane_id> <key> [key ...]");
+    eprintln!("  herdr pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N]");
     eprintln!("  herdr pane run <pane_id> <command>");
 }
 

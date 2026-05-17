@@ -127,7 +127,7 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
         ),
         CommandPaletteCommand::new("close pane", "panes", CommandPaletteAction::ClosePane),
         CommandPaletteCommand::new("rename pane", "panes", CommandPaletteAction::RenamePane),
-        CommandPaletteCommand::new("fullscreen pane", "panes", CommandPaletteAction::Fullscreen),
+        CommandPaletteCommand::new("zoom pane", "panes", CommandPaletteAction::Fullscreen),
         CommandPaletteCommand::new("resize panes", "panes", CommandPaletteAction::ResizeMode),
         CommandPaletteCommand::new(
             "focus pane left",
@@ -297,7 +297,7 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
         CommandPaletteAction::SplitHorizontal => Some(kb.split_horizontal_label.clone()),
         CommandPaletteAction::ClosePane => Some(kb.close_pane_label.clone()),
         CommandPaletteAction::RenamePane => kb.rename_pane_label.clone(),
-        CommandPaletteAction::Fullscreen => Some(kb.fullscreen_label.clone()),
+        CommandPaletteAction::Fullscreen => Some(kb.zoom_label.clone()),
         CommandPaletteAction::ResizeMode => Some(kb.resize_mode_label.clone()),
         CommandPaletteAction::FocusPane(crate::layout::NavDirection::Left) => kb
             .focus_pane_left_label

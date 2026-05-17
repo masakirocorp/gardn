@@ -87,7 +87,9 @@ impl PortObservation {
 }
 
 impl PortEndpoint {
-    fn new(observation: &PortObservation, owner: PortOwner, now: Instant) -> Self {
+    fn new(observation: &PortObservation, mut owners: Vec<PortOwner>, now: Instant) -> Self {
+        owners.sort_by_key(|owner| (owner.tab_idx, owner.pane_id.raw(), owner.pid));
+        owners.dedup_by_key(|owner| (owner.pid, owner.pane_id));
         Self {
             transport: PortTransport::Tcp,
             bind_addr: observation.bind_addr,
@@ -95,25 +97,19 @@ impl PortEndpoint {
             exposure: port_exposure(observation.bind_addr),
             scheme: PortScheme::Unknown,
             url: None,
-            owners: vec![owner],
+            owners,
             first_seen_at: now,
             last_seen_at: now,
             state: PortState::Active,
         }
     }
 
-    fn refresh(&mut self, owner: PortOwner, now: Instant) {
+    fn refresh(&mut self, mut owners: Vec<PortOwner>, now: Instant) {
         self.last_seen_at = now;
         self.state = PortState::Active;
-        if !self
-            .owners
-            .iter()
-            .any(|existing| existing.pid == owner.pid && existing.pane_id == owner.pane_id)
-        {
-            self.owners.push(owner);
-            self.owners
-                .sort_by_key(|owner| (owner.tab_idx, owner.pane_id.raw(), owner.pid));
-        }
+        owners.sort_by_key(|owner| (owner.tab_idx, owner.pane_id.raw(), owner.pid));
+        owners.dedup_by_key(|owner| (owner.pid, owner.pane_id));
+        self.owners = owners;
     }
 }
 
@@ -124,7 +120,7 @@ impl PortRegistry {
         observations: impl IntoIterator<Item = PortObservation>,
         mut owner_for_pid: impl FnMut(u32) -> Option<PortOwner>,
     ) {
-        let mut active_keys = HashSet::new();
+        let mut observed = HashMap::<PortKey, (PortObservation, Vec<PortOwner>)>::new();
 
         for observation in observations {
             let Some(mut owner) = owner_for_pid(observation.pid) else {
@@ -135,11 +131,23 @@ impl PortRegistry {
             }
 
             let key = observation.key();
-            active_keys.insert(key);
+            let entry = observed
+                .entry(key)
+                .or_insert_with(|| (observation.clone(), Vec::new()));
+            entry.1.push(owner);
+        }
+
+        let active_keys = observed.keys().copied().collect::<HashSet<_>>();
+        for (key, (observation, mut owners)) in observed {
+            owners.sort_by_key(|owner| (owner.tab_idx, owner.pane_id.raw(), owner.pid));
+            owners.dedup_by_key(|owner| (owner.pid, owner.pane_id));
+            if owners.is_empty() {
+                continue;
+            }
             self.endpoints
                 .entry(key)
-                .and_modify(|endpoint| endpoint.refresh(owner.clone(), now))
-                .or_insert_with(|| PortEndpoint::new(&observation, owner, now));
+                .and_modify(|endpoint| endpoint.refresh(owners.clone(), now))
+                .or_insert_with(|| PortEndpoint::new(&observation, owners, now));
         }
 
         for (key, endpoint) in &mut self.endpoints {
@@ -274,5 +282,27 @@ mod tests {
         assert_eq!(endpoints.len(), 1);
         assert_eq!(endpoints[0].exposure, PortExposure::Lan);
         assert_eq!(endpoints[0].owners.len(), 2);
+    }
+
+    #[test]
+    fn registry_replaces_owners_for_active_listener() {
+        let now = Instant::now();
+        let mut registry = PortRegistry::default();
+
+        registry.sync_observations(now, [observation("127.0.0.1", 5173, 42)], |pid| {
+            Some(owner(pid, 1))
+        });
+        registry.sync_observations(
+            now + Duration::from_secs(1),
+            [observation("127.0.0.1", 5173, 84)],
+            |pid| Some(owner(pid, 2)),
+        );
+
+        let endpoints = registry.endpoints();
+        assert_eq!(endpoints.len(), 1);
+        assert_eq!(endpoints[0].state, PortState::Active);
+        assert_eq!(endpoints[0].owners.len(), 1);
+        assert_eq!(endpoints[0].owners[0].pid, 84);
+        assert_eq!(endpoints[0].owners[0].pane_id, PaneId::from_raw(2));
     }
 }

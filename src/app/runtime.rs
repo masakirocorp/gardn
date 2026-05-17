@@ -99,8 +99,10 @@ impl App {
                 true
             }
             crate::raw_input::RawInputEvent::OuterFocusGained => {
+                self.request_full_redraw();
                 self.state.outer_terminal_focus = Some(true);
-                self.state.mark_active_tab_seen()
+                self.state.mark_active_tab_seen();
+                true
             }
             crate::raw_input::RawInputEvent::OuterFocusLost => {
                 self.state.outer_terminal_focus = Some(false);
@@ -128,7 +130,13 @@ impl App {
         let mut owners = std::collections::HashMap::new();
         for workspace in &self.state.workspaces {
             for (tab_idx, tab) in workspace.tabs.iter().enumerate() {
-                for (pane_id, runtime) in &tab.runtimes {
+                for pane_id in tab.layout.pane_ids() {
+                    let Some(terminal_id) = tab.terminal_id(pane_id) else {
+                        continue;
+                    };
+                    let Some(runtime) = self.state.terminal_runtimes.get(terminal_id) else {
+                        continue;
+                    };
                     let child_pid = runtime.child_pid();
                     if child_pid == 0 {
                         continue;
@@ -145,7 +153,7 @@ impl App {
                                 command: None,
                                 workspace_id: workspace.id.clone(),
                                 tab_idx,
-                                pane_id: *pane_id,
+                                pane_id,
                                 confidence: crate::ports::PortOwnerConfidence::ProcessTree,
                             },
                         );
@@ -246,7 +254,7 @@ impl App {
                 .state
                 .active
                 .and_then(|idx| self.state.workspaces.get(idx))
-                .is_some_and(Workspace::has_working_pane),
+                .is_some_and(|ws| ws.has_working_pane(&self.state.terminals)),
             crate::app::state::AgentPanelScope::CurrentGroup => {
                 let group_id = self
                     .state
@@ -258,13 +266,13 @@ impl App {
                     .workspaces
                     .iter()
                     .filter(|ws| ws.group_id == group_id)
-                    .any(Workspace::has_working_pane)
+                    .any(|ws| ws.has_working_pane(&self.state.terminals))
             }
             crate::app::state::AgentPanelScope::AllWorkspaces => self
                 .state
                 .workspaces
                 .iter()
-                .any(Workspace::has_working_pane),
+                .any(|ws| ws.has_working_pane(&self.state.terminals)),
         }
     }
 
@@ -309,8 +317,17 @@ impl App {
             .workspaces
             .iter()
             .filter_map(|ws| {
-                ws.resolved_identity_cwd()
-                    .map(|cwd| (ws.id.clone(), cwd, ws.git_status_cwds()))
+                ws.resolved_identity_cwd_from(&self.state.terminals, &self.state.terminal_runtimes)
+                    .map(|cwd| {
+                        (
+                            ws.id.clone(),
+                            cwd,
+                            ws.git_status_cwds_from(
+                                &self.state.terminals,
+                                &self.state.terminal_runtimes,
+                            ),
+                        )
+                    })
             })
             .collect();
 

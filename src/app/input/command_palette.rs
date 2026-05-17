@@ -421,7 +421,7 @@ fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
                 return;
             }
         }
-        CommandPaletteAction::Fullscreen => app.state.toggle_fullscreen(),
+        CommandPaletteAction::Fullscreen => app.state.toggle_zoom(),
         CommandPaletteAction::ResizeMode => {
             app.state.mode = Mode::Resize;
             return;

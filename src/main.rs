@@ -43,6 +43,7 @@ mod selection;
 mod server;
 mod session;
 mod sound;
+mod terminal;
 mod terminal_notify;
 mod terminal_theme;
 mod ui;
@@ -107,6 +108,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # next_tab = ""           # optional, unset by default
 # close_tab = ""          # optional, unset by default
 # rename_pane = ""        # optional, unset by default
+# edit_scrollback = ""    # optional, opens focused pane scrollback in $EDITOR
 # focus_pane_left = ""    # optional, unset by default
 # focus_pane_down = ""    # optional, unset by default
 # focus_pane_up = ""      # optional, unset by default
@@ -114,7 +116,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # split_vertical = "v"
 # split_horizontal = "-"
 # close_pane = "x"
-# fullscreen = "f"
+# zoom = "f"             # legacy alias: fullscreen
 # resize_mode = "r"
 # toggle_sidebar = "b"
 # toggle_right_sidebar = "" # optional, unset by default
@@ -145,6 +147,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 
 # ask for confirmation before closing a workspace
 # confirm_close = true
+
+# ask for a tab name before creating a new tab.
+# set false to create tabs immediately with generated names.
+# prompt_new_tab_name = true
 
 # show detected/reported agent labels in split pane borders when no manual pane name is set.
 # show_agent_labels_on_pane_borders = false
@@ -265,7 +271,11 @@ fn main() -> io::Result<()> {
         match update::self_update() {
             Ok(_) => return Ok(()),
             Err(e) => {
-                eprintln!("update failed: {e}");
+                if e.starts_with("self-update is disabled") {
+                    eprintln!("{e}");
+                } else {
+                    eprintln!("update failed: {e}");
+                }
                 std::process::exit(1);
             }
         }
@@ -283,6 +293,7 @@ fn main() -> io::Result<()> {
         println!("       herdr server reload-config");
         println!("       herdr workspace <subcommand> ...");
         println!("       herdr tab <subcommand> ...");
+        println!("       herdr agent <subcommand> ...");
         println!("       herdr pane <subcommand> ...");
         println!("       herdr wait <subcommand> ...");
         println!("       herdr session <subcommand> ...");
@@ -309,6 +320,10 @@ fn main() -> io::Result<()> {
                 "workspace helpers over the socket api",
             ),
             ("herdr tab <subcommand>", "tab helpers over the socket api"),
+            (
+                "herdr agent <subcommand>",
+                "Agent/terminal helpers over the socket API",
+            ),
             (
                 "herdr pane <subcommand>",
                 "pane control helpers over the socket api",
