@@ -1941,29 +1941,11 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
         );
 
         if row_height > 1 && row_y + 1 < list_bottom {
-            let summary = ws.git_work_summary_label();
             let max_summary_len = (card.rect.width as usize).saturating_sub(3);
-            let summary_display = truncate_text(&summary, max_summary_len);
-            let summary_color = if ws.cached_git_work_summary.is_none() {
-                p.overlay0
-            } else if ws
-                .cached_git_work_summary
-                .is_some_and(|summary| summary.conflicted > 0)
-            {
-                p.red
-            } else if ws
-                .cached_git_work_summary
-                .is_some_and(|summary| summary.added + summary.modified + summary.deleted > 0)
-            {
-                p.yellow
-            } else {
-                p.overlay0
-            };
+            let mut spans = vec![Span::styled("   ", Style::default())];
+            spans.extend(workspace_summary_spans(ws, p, max_summary_len));
             frame.render_widget(
-                Paragraph::new(Line::from(vec![
-                    Span::styled("   ", Style::default()),
-                    Span::styled(summary_display, Style::default().fg(summary_color)),
-                ])),
+                Paragraph::new(Line::from(spans)),
                 Rect::new(card.rect.x, row_y + 1, card.rect.width, 1),
             );
         }
@@ -1983,6 +1965,60 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
     if let Some(track) = scrollbar_rect {
         render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▐");
     }
+}
+
+fn workspace_summary_spans(
+    ws: &crate::workspace::Workspace,
+    p: &Palette,
+    max_width: usize,
+) -> Vec<Span<'static>> {
+    let Some(summary) = ws.cached_git_work_summary else {
+        return vec![summary_span("shell", p.overlay0, max_width)];
+    };
+
+    if summary.conflicted + summary.added + summary.modified + summary.deleted == 0 {
+        return vec![summary_span("clean", p.overlay0, max_width)];
+    }
+
+    let mut pieces = Vec::new();
+    if summary.repo_count > 1 {
+        pieces.push((format!("{} repos ·", summary.repo_count), p.overlay0));
+    }
+    if summary.conflicted > 0 {
+        pieces.push((format!("!{}", summary.conflicted), p.red));
+    }
+    if summary.added > 0 {
+        pieces.push((format!("+{}", summary.added), p.green));
+    }
+    if summary.modified > 0 {
+        pieces.push((format!("~{}", summary.modified), p.yellow));
+    }
+    if summary.deleted > 0 {
+        pieces.push((format!("-{}", summary.deleted), p.red));
+    }
+
+    let mut remaining = max_width;
+    let mut spans = Vec::new();
+    for (idx, (piece, color)) in pieces.into_iter().enumerate() {
+        if remaining == 0 {
+            break;
+        }
+        if idx > 0 {
+            spans.push(Span::styled(" ", Style::default().fg(p.overlay0)));
+            remaining = remaining.saturating_sub(1);
+            if remaining == 0 {
+                break;
+            }
+        }
+        let display = truncate_text(&piece, remaining);
+        remaining = remaining.saturating_sub(display.chars().count());
+        spans.push(Span::styled(display, Style::default().fg(color)));
+    }
+    spans
+}
+
+fn summary_span(text: &str, color: ratatui::style::Color, max_width: usize) -> Span<'static> {
+    Span::styled(truncate_text(text, max_width), Style::default().fg(color))
 }
 
 fn render_agent_entry(

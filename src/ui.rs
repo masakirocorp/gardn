@@ -512,7 +512,7 @@ mod tests {
     use crate::{
         app::state::{ContextMenuState, MenuListState, Palette, ViewLayout},
         layout::PaneInfo,
-        workspace::Workspace,
+        workspace::{GitWorkSummary, Workspace},
     };
     use ratatui::{backend::TestBackend, Terminal};
     use ratatui::{style::Color, text::Line};
@@ -902,6 +902,40 @@ mod tests {
         assert_eq!(line2, "   clean");
 
         std::fs::remove_dir_all(repo).ok();
+    }
+
+    #[test]
+    fn expanded_sidebar_work_summary_colors_stats_by_kind() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut ws = Workspace::test_new("one");
+        ws.cached_git_work_summary = Some(GitWorkSummary {
+            repo_count: 1,
+            added: 2,
+            modified: 1,
+            deleted: 1,
+            ..GitWorkSummary::default()
+        });
+
+        app.workspaces = vec![ws];
+        compute_view(&mut app, Rect::new(0, 0, 80, 20));
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let card = app.view.workspace_card_areas[0].rect;
+        let row = card.y + 1;
+
+        assert_eq!(buffer_row_text(buffer, card, row), "   +2 ~1 -1");
+        assert_eq!(
+            buffer[(card.x + 3, row)].style().fg,
+            Some(app.palette.green)
+        );
+        assert_eq!(
+            buffer[(card.x + 6, row)].style().fg,
+            Some(app.palette.yellow)
+        );
+        assert_eq!(buffer[(card.x + 9, row)].style().fg, Some(app.palette.red));
     }
 
     #[test]
