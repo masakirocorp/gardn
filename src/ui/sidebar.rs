@@ -434,7 +434,7 @@ fn format_agent_panel_primary_label(entry: &AgentPanelEntry, max_width: usize) -
 }
 
 fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
-    matches!(section_label, "triage" | "working" | "idle")
+    section_label == "triage"
 }
 
 fn agent_panel_section_header_style(section: &AgentPanelSection, p: &Palette) -> Style {
@@ -3100,6 +3100,43 @@ mod tests {
             second_pane
         );
         assert!(agent_panel_entry_at_row(&app, body, body.y + 5).is_none());
+    }
+
+    #[test]
+    fn agent_secondary_status_only_repeats_in_triage_section() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut done = Workspace::test_new("done");
+        let done_pane = done.tabs[0].root_pane;
+        let done_state = done.tabs[0].panes.get_mut(&done_pane).unwrap();
+        done_state.detected_agent = Some(Agent::Claude);
+        done_state.state = AgentState::Idle;
+        done_state.seen = false;
+
+        let mut idle = Workspace::test_new("idle");
+        let idle_pane = idle.tabs[0].root_pane;
+        let idle_state = idle.tabs[0].panes.get_mut(&idle_pane).unwrap();
+        idle_state.detected_agent = Some(Agent::Codex);
+        idle_state.state = AgentState::Idle;
+        idle_state.seen = true;
+
+        app.workspaces = vec![done, idle];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        let backend = TestBackend::new(40, 12);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_agent_detail(&app, frame, Rect::new(0, 0, 40, 12), false))
+            .expect("render agent panel");
+
+        let text = buffer_text(terminal.backend().buffer(), 40, 12);
+        let rows = text.lines().collect::<Vec<_>>();
+        let triage_row = rows.iter().position(|row| row.contains("triage")).unwrap();
+        let idle_row = rows.iter().position(|row| row.contains("idle")).unwrap();
+
+        assert!(rows[triage_row + 2].contains("done"));
+        assert!(!rows[idle_row + 2].contains("idle"));
     }
 
     #[test]
