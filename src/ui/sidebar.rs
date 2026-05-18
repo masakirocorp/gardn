@@ -1318,10 +1318,11 @@ pub(crate) fn right_sidebar_commands_header_rect(app: &AppState, area: Rect) -> 
 pub(crate) fn right_sidebar_command_entry_at_row(
     app: &AppState,
     area: Rect,
+    col: u16,
     row: u16,
 ) -> Option<String> {
     let (_, command_area, _) = right_sidebar_activity_panel_rects(app, area);
-    command_panel_entry_at_row(app, command_area, row)
+    command_panel_entry_at_button(app, command_area, col, row)
 }
 
 fn command_panel_entries(app: &AppState) -> Vec<CommandPanelEntry> {
@@ -1349,9 +1350,10 @@ fn command_status_rank(status: Option<CommandRunStatus>) -> usize {
     status.map_or(usize::MAX, CommandRunStatus::rank)
 }
 
-fn command_panel_entry_at_row(app: &AppState, area: Rect, row: u16) -> Option<String> {
+fn command_panel_entry_at_button(app: &AppState, area: Rect, col: u16, row: u16) -> Option<String> {
     if area == Rect::default()
         || area.height < 3
+        || col != area.x + 1
         || row < area.y + COMMAND_PANEL_HEADER_ROWS
         || row >= area.y + area.height
     {
@@ -1363,7 +1365,7 @@ fn command_panel_entry_at_row(app: &AppState, area: Rect, row: u16) -> Option<St
         if row_y + 1 >= area.y + area.height {
             break;
         }
-        if row == row_y || row == row_y + 1 {
+        if row == row_y {
             return Some(entry.command.id);
         }
         row_y += 2;

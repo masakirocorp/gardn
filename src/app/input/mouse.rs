@@ -490,7 +490,8 @@ impl AppState {
                         return None;
                     }
 
-                    if let Some(command_id) = self.command_detail_target_at(mouse.row) {
+                    if let Some(command_id) = self.command_detail_target_at(mouse.column, mouse.row)
+                    {
                         self.request_command_action = Some(
                             crate::app::state::CommandPanelAction::RunOrFocus(command_id),
                         );
@@ -1013,7 +1014,7 @@ impl AppState {
             MouseEventKind::Down(MouseButton::Right)
                 if in_right_sidebar && !self.right_sidebar_collapsed =>
             {
-                if let Some(command_id) = self.command_detail_target_at(mouse.row) {
+                if let Some(command_id) = self.command_detail_target_at(mouse.column, mouse.row) {
                     self.request_command_action =
                         Some(crate::app::state::CommandPanelAction::Stop(command_id));
                     return None;
