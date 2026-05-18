@@ -1848,6 +1848,7 @@ mod tests {
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
+        app.state.activity_commands_expanded = true;
         app.state.command_catalog = vec![crate::commands::ProjectCommand {
             id: "/tmp/web:package.json:dev".to_string(),
             root: "/tmp/web".into(),
@@ -1937,6 +1938,7 @@ mod tests {
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
+        app.state.activity_commands_expanded = true;
         app.state.command_catalog = vec![crate::commands::ProjectCommand {
             id: "/tmp/web:package.json:dev".to_string(),
             root: "/tmp/web".into(),
@@ -2002,6 +2004,7 @@ mod tests {
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
+        app.state.activity_commands_expanded = true;
         let command_id = "/tmp/web:package.json:dev".to_string();
         app.state.command_catalog = vec![crate::commands::ProjectCommand {
             id: command_id.clone(),

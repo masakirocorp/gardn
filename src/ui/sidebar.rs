@@ -3797,7 +3797,7 @@ mod tests {
     }
 
     #[test]
-    fn right_sidebar_renders_commands_between_agents_and_ports() {
+    fn right_sidebar_initially_collapses_commands_between_agents_and_ports() {
         let mut app = crate::app::state::AppState::test_new();
         let command = test_command("dev");
         app.command_catalog = vec![command];
@@ -3812,9 +3812,8 @@ mod tests {
             .expect("render right sidebar");
 
         let text = buffer_text(terminal.backend().buffer(), 36, 18);
-        assert!(text.contains("commands (1)"));
-        assert!(text.contains("dev"));
-        assert!(text.contains("package.json"));
+        assert!(text.contains("▸ commands (1)"));
+        assert!(!text.contains("package.json"));
         assert!(!text.contains("available"));
         assert!(text.find("commands").unwrap() < text.find("ports").unwrap());
     }
@@ -3877,6 +3876,7 @@ mod tests {
             },
         );
         app.command_catalog = vec![command];
+        app.activity_commands_expanded = true;
 
         let backend = TestBackend::new(36, 14);
         let mut terminal = Terminal::new(backend).expect("test backend");

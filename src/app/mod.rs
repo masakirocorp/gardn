@@ -473,7 +473,7 @@ impl App {
             right_sidebar_collapsed,
             sidebar_section_split,
             activity_agents_expanded: true,
-            activity_commands_expanded: true,
+            activity_commands_expanded: false,
             activity_ports_expanded: true,
             collapsed_agent_sections: Vec::new(),
             collapsed_command_groups: Vec::new(),

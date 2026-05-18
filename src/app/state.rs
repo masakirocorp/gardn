@@ -1601,7 +1601,7 @@ impl AppState {
             right_sidebar_collapsed: false,
             sidebar_section_split: 0.5,
             activity_agents_expanded: true,
-            activity_commands_expanded: true,
+            activity_commands_expanded: false,
             activity_ports_expanded: true,
             collapsed_agent_sections: Vec::new(),
             collapsed_command_groups: Vec::new(),
