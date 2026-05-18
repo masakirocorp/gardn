@@ -171,11 +171,29 @@ fn agent_panel_workspace_context_label(app: &AppState, ws_idx: usize) -> String 
     let Some(ws) = app.workspaces.get(ws_idx) else {
         return String::new();
     };
-    format!(
-        "{} / {}",
-        agent_panel_group_label(app, ws_idx),
-        ws.display_name_from(&app.terminals, &app.terminal_runtimes)
-    )
+    let workspace_label = ws.display_name_from(&app.terminals, &app.terminal_runtimes);
+    if agent_panel_has_multiple_groups(app) {
+        format!(
+            "{} / {}",
+            agent_panel_group_label(app, ws_idx),
+            workspace_label
+        )
+    } else {
+        workspace_label
+    }
+}
+
+fn agent_panel_has_multiple_groups(app: &AppState) -> bool {
+    let Some(first_group_id) = app
+        .workspaces
+        .first()
+        .map(|workspace| workspace.group_id.as_str())
+    else {
+        return false;
+    };
+    app.workspaces
+        .iter()
+        .any(|workspace| workspace.group_id != first_group_id)
 }
 
 pub(crate) fn agent_panel_toggle_rect(
@@ -437,6 +455,21 @@ fn format_agent_panel_primary_label(entry: &AgentPanelEntry, max_width: usize) -
 
 fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
     section_label == "triage"
+}
+
+fn agent_panel_section_display_label(section_label: &str) -> &str {
+    match section_label {
+        "triage" => "triage · all spaces",
+        label => label,
+    }
+}
+
+fn agent_panel_entry_status_label(entry: &AgentPanelEntry) -> &'static str {
+    if entry.state == AgentState::Idle && !entry.seen {
+        "needs review"
+    } else {
+        state_label(entry.state, entry.seen)
+    }
 }
 
 fn agent_panel_section_header_style(section: &AgentPanelSection, p: &Palette) -> Style {
@@ -2607,7 +2640,7 @@ fn render_agent_entry(
     let is_active = app.is_active_pane(detail.ws_idx, detail.tab_idx, detail.pane_id);
     let (icon, icon_style) = agent_icon(detail.state, detail.seen, app.spinner_tick, p);
     let label_color = state_label_color(detail.state, detail.seen, p);
-    let label = state_label(detail.state, detail.seen);
+    let label = agent_panel_entry_status_label(detail);
 
     let row_style = if is_active {
         Style::default().bg(p.surface_dim)
@@ -2640,14 +2673,14 @@ fn render_agent_entry(
     );
 
     let mut status_spans = vec![Span::styled("   ", Style::default())];
-    if show_status {
-        status_spans.push(Span::styled(label, status_style));
-    }
     if let Some(agent_label) = &detail.agent_label {
-        if show_status {
+        status_spans.push(Span::styled(agent_label, agent_style));
+    }
+    if show_status {
+        if detail.agent_label.is_some() {
             status_spans.push(Span::styled(" · ", agent_style));
         }
-        status_spans.push(Span::styled(agent_label, agent_style));
+        status_spans.push(Span::styled(label, status_style));
     }
     if let Some(custom_status) = &detail.custom_status {
         if show_status || detail.agent_label.is_some() {
@@ -2781,7 +2814,7 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
 
         frame.render_widget(
             Paragraph::new(Span::styled(
-                format!(" {}", section.label),
+                format!(" {}", agent_panel_section_display_label(section.label)),
                 agent_panel_section_header_style(&section, p),
             )),
             Rect::new(body.x, row_y, body.width, 1),
@@ -3193,7 +3226,8 @@ mod tests {
         let triage_row = rows.iter().position(|row| row.contains("triage")).unwrap();
         let idle_row = rows.iter().position(|row| row.contains("idle")).unwrap();
 
-        assert!(rows[triage_row + 2].contains("done"));
+        assert!(rows[triage_row].contains("triage · all spaces"));
+        assert!(rows[triage_row + 2].contains("claude · needs review"));
         assert!(!rows[idle_row + 2].contains("idle"));
     }
 
@@ -3227,10 +3261,10 @@ mod tests {
         app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
 
         let entries = agent_panel_entries(&app);
-        assert_eq!(entries[0].primary_label, "group 1 / one");
+        assert_eq!(entries[0].primary_label, "one");
         assert!(entries[0].primary_tab_label.is_none());
         assert_eq!(entries[0].agent_label.as_deref(), Some("pi"));
-        assert_eq!(entries[1].primary_label, "group 1 / two");
+        assert_eq!(entries[1].primary_label, "two");
         assert_eq!(entries[1].primary_tab_label.as_deref(), Some("logs"));
         assert_eq!(entries[1].agent_label.as_deref(), Some("claude"));
     }
@@ -3408,11 +3442,11 @@ mod tests {
 
         assert_eq!(sections.len(), 3);
         assert_eq!(sections[0].label, "triage");
-        assert_eq!(sections[0].entries[0].primary_label, "group 1 / done");
+        assert_eq!(sections[0].entries[0].primary_label, "done");
         assert_eq!(sections[1].label, "working");
-        assert_eq!(sections[1].entries[0].primary_label, "group 1 / working");
+        assert_eq!(sections[1].entries[0].primary_label, "working");
         assert_eq!(sections[2].label, "idle");
-        assert_eq!(sections[2].entries[0].primary_label, "group 1 / idle");
+        assert_eq!(sections[2].entries[0].primary_label, "idle");
     }
 
     #[test]
@@ -3460,8 +3494,9 @@ mod tests {
             .expect("render right sidebar");
 
         let text = buffer_text(terminal.backend().buffer(), 34, 12);
-        assert!(text.contains("triage"));
-        assert!(text.contains("done · claude"));
+        assert!(text.contains("triage · all spaces"));
+        assert!(text.contains("claude · needs review"));
+        assert!(!text.contains("done · claude"));
     }
 
     #[test]
