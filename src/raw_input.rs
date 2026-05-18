@@ -125,6 +125,13 @@ pub enum RawInputEvent {
         kind: DefaultColorKind,
         color: RgbColor,
     },
+    HostPaletteColor {
+        index: u8,
+        color: RgbColor,
+    },
+    HostCursorColor {
+        color: RgbColor,
+    },
     Unsupported,
 }
 
@@ -299,6 +306,14 @@ fn extract_one_event(buffer: &[u8]) -> Option<(RawInputEvent, usize)> {
 
         if let Some((kind, color)) = parse_default_color_response(seq) {
             return Some((RawInputEvent::HostDefaultColor { kind, color }, seq_len));
+        }
+
+        if let Some((index, color)) = crate::terminal_theme::parse_palette_color_response(seq) {
+            return Some((RawInputEvent::HostPaletteColor { index, color }, seq_len));
+        }
+
+        if let Some(color) = crate::terminal_theme::parse_cursor_color_response(seq) {
+            return Some((RawInputEvent::HostCursorColor { color }, seq_len));
         }
 
         match seq {
@@ -624,6 +639,43 @@ mod tests {
         };
         assert_eq!(consumed, 13);
         assert_eq!(kind, DefaultColorKind::Background);
+        assert_eq!(
+            color,
+            RgbColor {
+                r: 0x11,
+                g: 0x22,
+                b: 0x33
+            }
+        );
+    }
+
+    #[test]
+    fn parses_host_palette_color_response() {
+        let (RawInputEvent::HostPaletteColor { index, color }, consumed) =
+            extract_one_event(b"\x1b]4;2;#112233\x07").unwrap()
+        else {
+            panic!("expected host palette color response");
+        };
+        assert_eq!(consumed, 14);
+        assert_eq!(index, 2);
+        assert_eq!(
+            color,
+            RgbColor {
+                r: 0x11,
+                g: 0x22,
+                b: 0x33
+            }
+        );
+    }
+
+    #[test]
+    fn parses_host_cursor_color_response() {
+        let (RawInputEvent::HostCursorColor { color }, consumed) =
+            extract_one_event(b"\x1b]12;#112233\x07").unwrap()
+        else {
+            panic!("expected host cursor color response");
+        };
+        assert_eq!(consumed, 13);
         assert_eq!(
             color,
             RgbColor {

@@ -730,8 +730,17 @@ impl HeadlessServer {
 
         let mut next_theme = client.host_terminal_theme;
         for event in events {
-            if let crate::raw_input::RawInputEvent::HostDefaultColor { kind, color } = event {
-                next_theme = next_theme.with_color(*kind, *color);
+            match event {
+                crate::raw_input::RawInputEvent::HostDefaultColor { kind, color } => {
+                    next_theme = next_theme.with_color(*kind, *color);
+                }
+                crate::raw_input::RawInputEvent::HostPaletteColor { index, color } => {
+                    next_theme = next_theme.with_palette_color(*index, *color);
+                }
+                crate::raw_input::RawInputEvent::HostCursorColor { color } => {
+                    next_theme = next_theme.with_cursor_color(*color);
+                }
+                _ => {}
             }
         }
 
@@ -2740,6 +2749,7 @@ mod tests {
                         g: 0x22,
                         b: 0x33,
                     }),
+                    ..Default::default()
                 },
                 None,
                 1,
@@ -2763,6 +2773,7 @@ mod tests {
                         g: 0xee,
                         b: 0xff,
                     }),
+                    ..Default::default()
                 },
                 None,
                 2,

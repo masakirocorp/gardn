@@ -1041,6 +1041,16 @@ impl App {
                         self.update_host_terminal_theme(kind, color);
                     }
                 }
+                crate::raw_input::RawInputEvent::HostPaletteColor { index, color } => {
+                    if apply_host_terminal_theme {
+                        self.update_host_terminal_palette_color(index, color);
+                    }
+                }
+                crate::raw_input::RawInputEvent::HostCursorColor { color } => {
+                    if apply_host_terminal_theme {
+                        self.update_host_terminal_cursor_color(color);
+                    }
+                }
                 crate::raw_input::RawInputEvent::Unsupported => {}
             }
         }
@@ -2680,6 +2690,30 @@ mod tests {
         assert_eq!(
             app.state.palette.panel_bg,
             state::Palette::gruvbox_light().panel_bg
+        );
+    }
+
+    #[test]
+    fn route_client_input_updates_host_terminal_palette_from_osc_response() {
+        let mut app = test_app();
+
+        app.route_client_input(b"\x1b]4;2;#112233\x07\x1b]12;#445566\x07".to_vec());
+
+        assert_eq!(
+            app.state.host_terminal_theme.palette[2],
+            Some(crate::terminal_theme::RgbColor {
+                r: 0x11,
+                g: 0x22,
+                b: 0x33,
+            })
+        );
+        assert_eq!(
+            app.state.host_terminal_theme.cursor,
+            Some(crate::terminal_theme::RgbColor {
+                r: 0x44,
+                g: 0x55,
+                b: 0x66,
+            })
         );
     }
 

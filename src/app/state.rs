@@ -1840,6 +1840,7 @@ mod tests {
                 g: 11,
                 b: 12,
             }),
+            ..Default::default()
         };
 
         let palette =

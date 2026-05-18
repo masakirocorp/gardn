@@ -165,6 +165,257 @@ impl Osc52Forwarder {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct OscColorSnapshot {
+    pub theme: crate::terminal_theme::TerminalTheme,
+    pub initial_foreground: Option<crate::terminal_theme::RgbColor>,
+    pub initial_background: Option<crate::terminal_theme::RgbColor>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum OscColorQueryState {
+    #[default]
+    Ground,
+    Escape,
+    OscBody,
+    OscEscape,
+}
+
+#[derive(Debug, Default)]
+pub(super) struct OscColorQueryResponder {
+    state: OscColorQueryState,
+    body: Vec<u8>,
+}
+
+impl OscColorQueryResponder {
+    pub(super) fn observe(&mut self, bytes: &[u8], colors: OscColorSnapshot) -> Vec<Vec<u8>> {
+        let mut replies = Vec::new();
+
+        for &byte in bytes {
+            match self.state {
+                OscColorQueryState::Ground => {
+                    if byte == 0x1b {
+                        self.state = OscColorQueryState::Escape;
+                    }
+                }
+                OscColorQueryState::Escape => {
+                    if byte == b']' {
+                        self.body.clear();
+                        self.state = OscColorQueryState::OscBody;
+                    } else if byte == 0x1b {
+                        self.state = OscColorQueryState::Escape;
+                    } else {
+                        self.state = OscColorQueryState::Ground;
+                    }
+                }
+                OscColorQueryState::OscBody => match byte {
+                    0x07 => {
+                        replies.extend(reply_to_color_query(&self.body, colors));
+                        self.body.clear();
+                        self.state = OscColorQueryState::Ground;
+                    }
+                    0x1b => self.state = OscColorQueryState::OscEscape,
+                    _ => self.body.push(byte),
+                },
+                OscColorQueryState::OscEscape => {
+                    if byte == b'\\' {
+                        replies.extend(reply_to_color_query(&self.body, colors));
+                        self.body.clear();
+                        self.state = OscColorQueryState::Ground;
+                    } else {
+                        self.body.push(0x1b);
+                        self.body.push(byte);
+                        self.state = OscColorQueryState::OscBody;
+                    }
+                }
+            }
+
+            if self.body.len() > 1024 {
+                self.body.clear();
+                self.state = OscColorQueryState::Ground;
+            }
+        }
+
+        replies
+    }
+}
+
+const XTERM_ANSI_16: [crate::terminal_theme::RgbColor; 16] = [
+    crate::terminal_theme::RgbColor {
+        r: 0x00,
+        g: 0x00,
+        b: 0x00,
+    },
+    crate::terminal_theme::RgbColor {
+        r: 0xcd,
+        g: 0x00,
+        b: 0x00,
+    },
+    crate::terminal_theme::RgbColor {
+        r: 0x00,
+        g: 0xcd,
+        b: 0x00,
+    },
+    crate::terminal_theme::RgbColor {
+        r: 0xcd,
+        g: 0xcd,
+        b: 0x00,
+    },
+    crate::terminal_theme::RgbColor {
+        r: 0x00,
+        g: 0x00,
+        b: 0xee,
+    },
+    crate::terminal_theme::RgbColor {
+        r: 0xcd,
+        g: 0x00,
+        b: 0xcd,
+    },
+    crate::terminal_theme::RgbColor {
+        r: 0x00,
+        g: 0xcd,
+        b: 0xcd,
+    },
+    crate::terminal_theme::RgbColor {
+        r: 0xe5,
+        g: 0xe5,
+        b: 0xe5,
+    },
+    crate::terminal_theme::RgbColor {
+        r: 0x7f,
+        g: 0x7f,
+        b: 0x7f,
+    },
+    crate::terminal_theme::RgbColor {
+        r: 0xff,
+        g: 0x00,
+        b: 0x00,
+    },
+    crate::terminal_theme::RgbColor {
+        r: 0x00,
+        g: 0xff,
+        b: 0x00,
+    },
+    crate::terminal_theme::RgbColor {
+        r: 0xff,
+        g: 0xff,
+        b: 0x00,
+    },
+    crate::terminal_theme::RgbColor {
+        r: 0x5c,
+        g: 0x5c,
+        b: 0xff,
+    },
+    crate::terminal_theme::RgbColor {
+        r: 0xff,
+        g: 0x00,
+        b: 0xff,
+    },
+    crate::terminal_theme::RgbColor {
+        r: 0x00,
+        g: 0xff,
+        b: 0xff,
+    },
+    crate::terminal_theme::RgbColor {
+        r: 0xff,
+        g: 0xff,
+        b: 0xff,
+    },
+];
+
+fn reply_to_color_query(body: &[u8], colors: OscColorSnapshot) -> Vec<Vec<u8>> {
+    let Ok(body) = std::str::from_utf8(body) else {
+        return Vec::new();
+    };
+    let mut parts = body.split(';');
+    match parts.next() {
+        Some("4") => palette_query_replies(parts, colors),
+        Some(command) => special_color_query_reply(command, parts, colors)
+            .into_iter()
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
+fn palette_query_replies<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+    colors: OscColorSnapshot,
+) -> Vec<Vec<u8>> {
+    let mut replies = Vec::new();
+    while let (Some(index), Some(value)) = (parts.next(), parts.next()) {
+        if value != "?" {
+            continue;
+        }
+        let Ok(index) = index.parse::<u8>() else {
+            continue;
+        };
+        if let Some(color) = palette_color(colors, index) {
+            replies.push(format_color_reply(&format!("4;{index}"), color));
+        }
+    }
+    replies
+}
+
+fn special_color_query_reply<'a>(
+    command: &str,
+    mut parts: impl Iterator<Item = &'a str>,
+    colors: OscColorSnapshot,
+) -> Option<Vec<u8>> {
+    if parts.next()? != "?" || parts.next().is_some() {
+        return None;
+    }
+    let color = match command {
+        "10" | "13" | "15" | "19" => foreground_color(colors),
+        "11" | "14" | "16" | "17" => background_color(colors),
+        "12" => cursor_color(colors),
+        _ => return None,
+    };
+    Some(format_color_reply(command, color))
+}
+
+fn palette_color(colors: OscColorSnapshot, index: u8) -> Option<crate::terminal_theme::RgbColor> {
+    colors
+        .theme
+        .palette
+        .get(index as usize)
+        .copied()
+        .flatten()
+        .or_else(|| XTERM_ANSI_16.get(index as usize).copied())
+}
+
+fn foreground_color(colors: OscColorSnapshot) -> crate::terminal_theme::RgbColor {
+    colors
+        .theme
+        .foreground
+        .or(colors.initial_foreground)
+        .unwrap_or(XTERM_ANSI_16[7])
+}
+
+fn background_color(colors: OscColorSnapshot) -> crate::terminal_theme::RgbColor {
+    colors
+        .theme
+        .background
+        .or(colors.initial_background)
+        .unwrap_or(XTERM_ANSI_16[0])
+}
+
+fn cursor_color(colors: OscColorSnapshot) -> crate::terminal_theme::RgbColor {
+    colors
+        .theme
+        .cursor
+        .or(colors.theme.foreground)
+        .or(colors.initial_foreground)
+        .unwrap_or(XTERM_ANSI_16[7])
+}
+
+fn format_color_reply(command: &str, color: crate::terminal_theme::RgbColor) -> Vec<u8> {
+    format!(
+        "\x1b]{command};rgb:{:02x}/{:02x}/{:02x}\x1b\\",
+        color.r, color.g, color.b
+    )
+    .into_bytes()
+}
+
 /// Accepts `52;c;<base64>` and `52;;<base64>`.
 /// Queries (`?`) are rejected because herdr has no reply path.
 /// The payload must decode as base64 before it is forwarded.
@@ -366,7 +617,69 @@ mod tests {
                 g: colors.background.g,
                 b: colors.background.b,
             }),
+            ..Default::default()
         }
+    }
+
+    fn color(r: u8, g: u8, b: u8) -> crate::terminal_theme::RgbColor {
+        crate::terminal_theme::RgbColor { r, g, b }
+    }
+
+    fn color_snapshot() -> OscColorSnapshot {
+        OscColorSnapshot {
+            theme: crate::terminal_theme::TerminalTheme::default()
+                .with_palette_color(0, color(1, 2, 3))
+                .with_color(
+                    crate::terminal_theme::DefaultColorKind::Foreground,
+                    color(4, 5, 6),
+                )
+                .with_color(
+                    crate::terminal_theme::DefaultColorKind::Background,
+                    color(7, 8, 9),
+                )
+                .with_cursor_color(color(10, 11, 12)),
+            initial_foreground: None,
+            initial_background: None,
+        }
+    }
+
+    #[test]
+    fn osc_color_query_responder_answers_palette_and_special_queries() {
+        let mut responder = OscColorQueryResponder::default();
+
+        let replies = responder.observe(
+            b"\x1b]4;0;?\x07\x1b]10;?\x1b\\\x1b]11;?\x07\x1b]12;?\x07",
+            color_snapshot(),
+        );
+
+        assert_eq!(
+            replies,
+            vec![
+                b"\x1b]4;0;rgb:01/02/03\x1b\\".to_vec(),
+                b"\x1b]10;rgb:04/05/06\x1b\\".to_vec(),
+                b"\x1b]11;rgb:07/08/09\x1b\\".to_vec(),
+                b"\x1b]12;rgb:0a/0b/0c\x1b\\".to_vec(),
+            ]
+        );
+    }
+
+    #[test]
+    fn osc_color_query_responder_handles_split_queries() {
+        let mut responder = OscColorQueryResponder::default();
+
+        assert!(responder.observe(b"\x1b]4;0", color_snapshot()).is_empty());
+        let replies = responder.observe(b";?\x07", color_snapshot());
+
+        assert_eq!(replies, vec![b"\x1b]4;0;rgb:01/02/03\x1b\\".to_vec()]);
+    }
+
+    #[test]
+    fn osc_color_query_responder_ignores_color_set_sequences() {
+        let mut responder = OscColorQueryResponder::default();
+
+        let replies = responder.observe(b"\x1b]4;0;rgb:aa/bb/cc\x07", color_snapshot());
+
+        assert!(replies.is_empty());
     }
 
     fn shell_job(shell_pid: u32) -> crate::platform::ForegroundJob {
@@ -672,6 +985,7 @@ mod tests {
                 g: 0x22,
                 b: 0x33,
             }),
+            ..Default::default()
         };
 
         pane.apply_host_terminal_theme(host_theme);

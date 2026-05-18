@@ -9,6 +9,8 @@ pub struct RgbColor {
 pub struct TerminalTheme {
     pub foreground: Option<RgbColor>,
     pub background: Option<RgbColor>,
+    pub cursor: Option<RgbColor>,
+    pub palette: [Option<RgbColor>; 16],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,7 +25,7 @@ pub enum DefaultColorKind {
     Background,
 }
 
-pub const HOST_COLOR_QUERY_SEQUENCE: &str = "\x1b]10;?\x1b\\\x1b]11;?\x1b\\";
+pub const HOST_COLOR_QUERY_SEQUENCE: &str = "\x1b]4;0;?\x1b\\\x1b]4;1;?\x1b\\\x1b]4;2;?\x1b\\\x1b]4;3;?\x1b\\\x1b]4;4;?\x1b\\\x1b]4;5;?\x1b\\\x1b]4;6;?\x1b\\\x1b]4;7;?\x1b\\\x1b]4;8;?\x1b\\\x1b]4;9;?\x1b\\\x1b]4;10;?\x1b\\\x1b]4;11;?\x1b\\\x1b]4;12;?\x1b\\\x1b]4;13;?\x1b\\\x1b]4;14;?\x1b\\\x1b]4;15;?\x1b\\\x1b]10;?\x1b\\\x1b]11;?\x1b\\\x1b]12;?\x1b\\";
 
 impl TerminalTheme {
     pub fn with_color(mut self, kind: DefaultColorKind, color: RgbColor) -> Self {
@@ -34,8 +36,23 @@ impl TerminalTheme {
         self
     }
 
+    pub fn with_cursor_color(mut self, color: RgbColor) -> Self {
+        self.cursor = Some(color);
+        self
+    }
+
+    pub fn with_palette_color(mut self, index: u8, color: RgbColor) -> Self {
+        if let Some(slot) = self.palette.get_mut(index as usize) {
+            *slot = Some(color);
+        }
+        self
+    }
+
     pub fn is_empty(self) -> bool {
-        self.foreground.is_none() && self.background.is_none()
+        self.foreground.is_none()
+            && self.background.is_none()
+            && self.cursor.is_none()
+            && self.palette.iter().all(Option::is_none)
     }
 
     pub fn appearance(self) -> Option<ThemeAppearance> {
@@ -51,10 +68,7 @@ impl TerminalTheme {
 }
 
 pub fn parse_default_color_response(sequence: &str) -> Option<(DefaultColorKind, RgbColor)> {
-    let body = sequence.strip_prefix("\x1b]")?;
-    let body = body
-        .strip_suffix("\x1b\\")
-        .or_else(|| body.strip_suffix('\u{7}'))?;
+    let body = osc_body(sequence)?;
     let (command, value) = body.split_once(';')?;
     let kind = match command {
         "10" => DefaultColorKind::Foreground,
@@ -62,6 +76,26 @@ pub fn parse_default_color_response(sequence: &str) -> Option<(DefaultColorKind,
         _ => return None,
     };
     Some((kind, parse_rgb_color(value)?))
+}
+
+pub fn parse_palette_color_response(sequence: &str) -> Option<(u8, RgbColor)> {
+    let body = osc_body(sequence)?;
+    let mut parts = body.split(';');
+    if parts.next()? != "4" {
+        return None;
+    }
+    let index = parts.next()?.parse::<u8>().ok()?;
+    if index >= 16 {
+        return None;
+    }
+    let color = parse_rgb_color(parts.next()?)?;
+    parts.next().is_none().then_some((index, color))
+}
+
+pub fn parse_cursor_color_response(sequence: &str) -> Option<RgbColor> {
+    let body = osc_body(sequence)?;
+    let (command, value) = body.split_once(';')?;
+    (command == "12").then(|| parse_rgb_color(value)).flatten()
 }
 
 pub fn osc_set_default_color_sequence(kind: DefaultColorKind, color: RgbColor) -> String {
@@ -73,6 +107,12 @@ pub fn osc_set_default_color_sequence(kind: DefaultColorKind, color: RgbColor) -
         "\x1b]{command};rgb:{:02x}/{:02x}/{:02x}\x1b\\",
         color.r, color.g, color.b
     )
+}
+
+fn osc_body(sequence: &str) -> Option<&str> {
+    let body = sequence.strip_prefix("\x1b]")?;
+    body.strip_suffix("\x1b\\")
+        .or_else(|| body.strip_suffix('\u{7}'))
 }
 
 fn parse_rgb_color(value: &str) -> Option<RgbColor> {
@@ -146,6 +186,35 @@ mod tests {
                     b: 0x56,
                 },
             ))
+        );
+    }
+
+    #[test]
+    fn parses_palette_color_response() {
+        let parsed = parse_palette_color_response("\x1b]4;3;rgb:aaaa/bbbb/cccc\x1b\\");
+        assert_eq!(
+            parsed,
+            Some((
+                3,
+                RgbColor {
+                    r: 0xaa,
+                    g: 0xbb,
+                    b: 0xcc,
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn parses_cursor_color_response() {
+        let parsed = parse_cursor_color_response("\x1b]12;#123456\u{7}");
+        assert_eq!(
+            parsed,
+            Some(RgbColor {
+                r: 0x12,
+                g: 0x34,
+                b: 0x56,
+            })
         );
     }
 

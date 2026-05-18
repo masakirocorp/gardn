@@ -112,6 +112,12 @@ impl App {
             crate::raw_input::RawInputEvent::HostDefaultColor { kind, color } => {
                 self.update_host_terminal_theme(kind, color)
             }
+            crate::raw_input::RawInputEvent::HostPaletteColor { index, color } => {
+                self.update_host_terminal_palette_color(index, color)
+            }
+            crate::raw_input::RawInputEvent::HostCursorColor { color } => {
+                self.update_host_terminal_cursor_color(color)
+            }
             crate::raw_input::RawInputEvent::Unsupported => false,
         }
     }

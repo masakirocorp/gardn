@@ -24,6 +24,26 @@ impl App {
         self.set_host_terminal_theme(next_theme)
     }
 
+    pub(super) fn update_host_terminal_palette_color(
+        &mut self,
+        index: u8,
+        color: crate::terminal_theme::RgbColor,
+    ) -> bool {
+        let next_theme = self
+            .state
+            .host_terminal_theme
+            .with_palette_color(index, color);
+        self.set_host_terminal_theme(next_theme)
+    }
+
+    pub(super) fn update_host_terminal_cursor_color(
+        &mut self,
+        color: crate::terminal_theme::RgbColor,
+    ) -> bool {
+        let next_theme = self.state.host_terminal_theme.with_cursor_color(color);
+        self.set_host_terminal_theme(next_theme)
+    }
+
     pub(crate) fn set_host_terminal_theme(
         &mut self,
         theme: crate::terminal_theme::TerminalTheme,
