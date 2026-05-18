@@ -207,14 +207,16 @@ fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<
             let Some(ws) = app.workspaces.get(ws_idx) else {
                 return Vec::new();
             };
+            let multi_tab = ws.tabs.len() > 1;
+            let workspace_label = ws.display_name_from(&app.terminals, &app.terminal_runtimes);
             ws.pane_details(&app.terminals)
                 .into_iter()
                 .map(|detail| AgentPanelEntry {
                     ws_idx,
                     tab_idx: detail.tab_idx,
                     pane_id: detail.pane_id,
-                    primary_label: detail.label,
-                    primary_tab_label: None,
+                    primary_label: workspace_label.clone(),
+                    primary_tab_label: multi_tab.then_some(detail.tab_label),
                     agent_label: Some(detail.agent_label),
                     state: detail.state,
                     seen: detail.seen,
@@ -435,16 +437,6 @@ fn format_agent_panel_primary_label(entry: &AgentPanelEntry, max_width: usize) -
 
 fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
     section_label == "triage"
-}
-
-fn agent_panel_agent_label_metadata(detail: &AgentPanelEntry) -> Option<&str> {
-    let agent_label = detail.agent_label.as_deref()?;
-    (!detail.primary_label.contains(agent_label)
-        && !detail
-            .primary_tab_label
-            .as_deref()
-            .is_some_and(|label| label.contains(agent_label)))
-    .then_some(agent_label)
 }
 
 fn agent_panel_section_header_style(section: &AgentPanelSection, p: &Palette) -> Style {
@@ -2651,14 +2643,14 @@ fn render_agent_entry(
     if show_status {
         status_spans.push(Span::styled(label, status_style));
     }
-    if let Some(agent_label) = agent_panel_agent_label_metadata(detail) {
+    if let Some(agent_label) = &detail.agent_label {
         if show_status {
             status_spans.push(Span::styled(" · ", agent_style));
         }
-        status_spans.push(Span::styled(agent_label.to_string(), agent_style));
+        status_spans.push(Span::styled(agent_label, agent_style));
     }
     if let Some(custom_status) = &detail.custom_status {
-        if show_status || agent_panel_agent_label_metadata(detail).is_some() {
+        if show_status || detail.agent_label.is_some() {
             status_spans.push(Span::styled(" · ", agent_style));
         }
         status_spans.push(Span::styled(custom_status.clone(), agent_style));
@@ -3113,7 +3105,7 @@ mod tests {
     }
 
     #[test]
-    fn current_space_idle_agent_secondary_line_omits_duplicate_agent_name() {
+    fn current_space_idle_agent_keeps_agent_name_on_secondary_line() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("agent");
         let pane = workspace.tabs[0].root_pane;
@@ -3136,7 +3128,8 @@ mod tests {
         let rows = text.lines().collect::<Vec<_>>();
         let idle_row = rows.iter().position(|row| row.contains("idle")).unwrap();
 
-        assert!(!rows[idle_row + 2].contains("opencode"));
+        assert!(!rows[idle_row + 1].contains("opencode"));
+        assert!(rows[idle_row + 2].contains("opencode"));
         assert!(!rows[idle_row + 2].contains("idle"));
     }
 
@@ -3261,7 +3254,7 @@ mod tests {
 
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].agent_label.as_deref(), Some("codex"));
-        assert_eq!(entries[0].primary_label, "codex");
+        assert_eq!(entries[0].primary_label, "one");
     }
 
     #[test]
