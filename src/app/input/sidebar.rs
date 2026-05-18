@@ -2549,10 +2549,15 @@ mod tests {
 
         let detail_area = app.state.agent_panel_rect();
         let body = crate::ui::agent_panel_body_rect(detail_area, false, false);
+        let second_agent_row = (body.y..body.y + body.height)
+            .find(|row| {
+                app.state.agent_detail_target_at(*row) == Some((0, second_tab, second_pane))
+            })
+            .expect("second agent row should be visible");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             body.x + 1,
-            body.y + 4,
+            second_agent_row,
         ));
 
         assert_eq!(app.state.workspaces[0].active_tab, second_tab);
