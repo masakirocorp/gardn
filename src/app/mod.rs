@@ -475,6 +475,8 @@ impl App {
             activity_agents_expanded: true,
             activity_commands_expanded: true,
             activity_ports_expanded: true,
+            collapsed_command_groups: Vec::new(),
+            collapsed_command_status_groups: Vec::new(),
             collapsed_workspace_groups: Vec::new(),
             agent_panel_scope,
             mouse_capture: config.ui.mouse_capture,

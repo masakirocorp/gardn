@@ -490,6 +490,18 @@ impl AppState {
                         return None;
                     }
 
+                    if let Some(target) = self.command_header_target_at(mouse.row) {
+                        match target {
+                            crate::ui::CommandPanelHeaderTarget::Project(key) => {
+                                self.toggle_command_group(key)
+                            }
+                            crate::ui::CommandPanelHeaderTarget::Status(key) => {
+                                self.toggle_command_status_group(key)
+                            }
+                        }
+                        return None;
+                    }
+
                     if let Some(command_id) = self.command_detail_target_at(mouse.column, mouse.row)
                     {
                         let action = if self.command_runs.get(&command_id).is_some_and(|run| {

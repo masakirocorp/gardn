@@ -1124,6 +1124,8 @@ pub struct AppState {
     pub activity_agents_expanded: bool,
     pub activity_commands_expanded: bool,
     pub activity_ports_expanded: bool,
+    pub collapsed_command_groups: Vec<String>,
+    pub collapsed_command_status_groups: Vec<String>,
     pub collapsed_workspace_groups: Vec<String>,
     pub agent_panel_scope: AgentPanelScope,
     /// Capture mouse input for Herdr's own mouse UI. When false, Herdr only
@@ -1260,6 +1262,26 @@ impl AppState {
         self.collapsed_workspace_groups
             .iter()
             .any(|id| id == group_id)
+    }
+
+    pub fn command_group_collapsed(&self, group_key: &str) -> bool {
+        self.collapsed_command_groups
+            .iter()
+            .any(|key| key == group_key)
+    }
+
+    pub fn command_status_group_collapsed(&self, group_key: &str) -> bool {
+        self.collapsed_command_status_groups
+            .iter()
+            .any(|key| key == group_key)
+    }
+
+    pub fn toggle_command_group(&mut self, group_key: String) {
+        toggle_string_key(&mut self.collapsed_command_groups, group_key);
+    }
+
+    pub fn toggle_command_status_group(&mut self, group_key: String) {
+        toggle_string_key(&mut self.collapsed_command_status_groups, group_key);
     }
 
     pub fn sidebar_visible_workspace_indices(&self) -> Vec<usize> {
@@ -1445,6 +1467,14 @@ impl AppState {
     }
 }
 
+fn toggle_string_key(keys: &mut Vec<String>, key: String) {
+    if let Some(idx) = keys.iter().position(|existing| existing == &key) {
+        keys.remove(idx);
+    } else {
+        keys.push(key);
+    }
+}
+
 pub fn key_matches(
     key: &crossterm::event::KeyEvent,
     expected_code: KeyCode,
@@ -1562,6 +1592,8 @@ impl AppState {
             activity_agents_expanded: true,
             activity_commands_expanded: true,
             activity_ports_expanded: true,
+            collapsed_command_groups: Vec::new(),
+            collapsed_command_status_groups: Vec::new(),
             collapsed_workspace_groups: Vec::new(),
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
             mouse_capture: true,

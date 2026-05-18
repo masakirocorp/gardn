@@ -958,6 +958,21 @@ impl AppState {
         crate::ui::right_sidebar_command_entry_at_row(self, self.view.right_sidebar_rect, col, row)
     }
 
+    pub(super) fn command_header_target_at(
+        &self,
+        row: u16,
+    ) -> Option<crate::ui::CommandPanelHeaderTarget> {
+        if self.right_sidebar_collapsed || self.view.right_sidebar_rect == Rect::default() {
+            return None;
+        }
+
+        crate::ui::right_sidebar_command_header_target_at_row(
+            self,
+            self.view.right_sidebar_rect,
+            row,
+        )
+    }
+
     pub(super) fn collapsed_right_sidebar_agent_target_at(
         &self,
         row: u16,
@@ -1780,20 +1795,20 @@ mod tests {
             &app.state,
             app.state.view.right_sidebar_rect,
         );
-        let row = header.y + 1;
+        let row = header.y + 3;
 
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            header.x + 4,
-            row + 1,
+            header.x + 5,
+            row,
         ));
 
         assert_eq!(app.state.request_command_action, None);
 
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            header.x + 2,
-            row + 1,
+            header.x + 3,
+            row,
         ));
 
         assert_eq!(
@@ -1814,8 +1829,8 @@ mod tests {
         );
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            header.x + 2,
-            row + 1,
+            header.x + 3,
+            row,
         ));
 
         assert_eq!(
@@ -1828,16 +1843,16 @@ mod tests {
         app.state.request_command_action = None;
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Right),
-            header.x + 4,
-            row + 1,
+            header.x + 5,
+            row,
         ));
 
         assert_eq!(app.state.request_command_action, None);
 
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Right),
-            header.x + 2,
-            row + 1,
+            header.x + 3,
+            row,
         ));
 
         assert_eq!(
@@ -1846,6 +1861,65 @@ mod tests {
                 "/tmp/web:package.json:dev".to_string()
             ))
         );
+    }
+
+    #[test]
+    fn clicking_command_group_headers_toggles_nested_rows() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.command_catalog = vec![crate::commands::ProjectCommand {
+            id: "/tmp/web:package.json:dev".to_string(),
+            root: "/tmp/web".into(),
+            source: crate::commands::CommandSource::PackageJson,
+            name: "dev".to_string(),
+            command: "npm run dev".to_string(),
+            confidence: crate::commands::CommandConfidence::Explicit,
+        }];
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+        let header = crate::ui::right_sidebar_commands_header_rect(
+            &app.state,
+            app.state.view.right_sidebar_rect,
+        );
+        let project_row = header.y + 1;
+        let status_row = header.y + 2;
+        let command_row = header.y + 3;
+
+        app.state.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            header.x + 1,
+            status_row,
+        ));
+
+        assert!(app
+            .state
+            .command_detail_target_at(header.x + 3, command_row)
+            .is_none());
+
+        app.state.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            header.x + 1,
+            status_row,
+        ));
+
+        assert_eq!(
+            app.state
+                .command_detail_target_at(header.x + 3, command_row),
+            Some("/tmp/web:package.json:dev".to_string())
+        );
+
+        app.state.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            header.x + 1,
+            project_row,
+        ));
+
+        assert!(app
+            .state
+            .command_detail_target_at(header.x + 3, command_row)
+            .is_none());
     }
 
     #[test]

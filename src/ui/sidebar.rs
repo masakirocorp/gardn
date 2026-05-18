@@ -62,8 +62,22 @@ struct CommandPanelEntry {
 
 #[derive(Clone)]
 struct CommandPanelGroup {
+    key: String,
     label: String,
     entries: Vec<CommandPanelEntry>,
+}
+
+#[derive(Clone)]
+struct CommandStatusSection {
+    key: String,
+    label: &'static str,
+    entries: Vec<CommandPanelEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CommandPanelHeaderTarget {
+    Project(String),
+    Status(String),
 }
 
 fn sidebar_section_heights(total_h: u16, split_ratio: f32) -> (u16, u16) {
@@ -1295,8 +1309,25 @@ fn command_panel_desired_height(app: &AppState, entries: &[CommandPanelEntry]) -
             1
         } else {
             let groups = command_panel_groups(entries);
-            groups.len() as u16 + (entries.len() as u16) * 2
+            command_panel_groups_height(app, &groups)
         }
+}
+
+fn command_panel_groups_height(app: &AppState, groups: &[CommandPanelGroup]) -> u16 {
+    let mut height = 0;
+    for group in groups {
+        height += 1;
+        if app.command_group_collapsed(&group.key) {
+            continue;
+        }
+        for section in command_status_sections(group) {
+            height += 1;
+            if !app.command_status_group_collapsed(&section.key) {
+                height += (section.entries.len() as u16) * 2;
+            }
+        }
+    }
+    height
 }
 
 pub(crate) fn right_sidebar_agents_header_rect(app: &AppState, area: Rect) -> Rect {
@@ -1331,6 +1362,15 @@ pub(crate) fn right_sidebar_command_entry_at_row(
 ) -> Option<String> {
     let (_, command_area, _) = right_sidebar_activity_panel_rects(app, area);
     command_panel_entry_at_button(app, command_area, col, row)
+}
+
+pub(crate) fn right_sidebar_command_header_target_at_row(
+    app: &AppState,
+    area: Rect,
+    row: u16,
+) -> Option<CommandPanelHeaderTarget> {
+    let (_, command_area, _) = right_sidebar_activity_panel_rects(app, area);
+    command_panel_header_target_at_row(app, command_area, row)
 }
 
 fn command_panel_entries(app: &AppState) -> Vec<CommandPanelEntry> {
@@ -1377,6 +1417,7 @@ fn command_panel_groups(entries: &[CommandPanelEntry]) -> Vec<CommandPanelGroup>
     base_labels
         .drain(..)
         .map(|(root, base_label)| {
+            let key = command_group_key(&root);
             let label = if duplicated_labels.get(&base_label).copied().unwrap_or(0) > 1 {
                 format!("{base_label} · {}", command_context_path_suffix(&root))
             } else {
@@ -1395,11 +1436,45 @@ fn command_panel_groups(entries: &[CommandPanelEntry]) -> Vec<CommandPanelGroup>
                 )
             });
             CommandPanelGroup {
+                key,
                 label,
                 entries: group_entries,
             }
         })
         .collect()
+}
+
+fn command_group_key(root: &std::path::Path) -> String {
+    root.display().to_string()
+}
+
+fn command_status_group_key(group_key: &str, label: &str) -> String {
+    format!("{group_key}::{label}")
+}
+
+fn command_status_sections(group: &CommandPanelGroup) -> Vec<CommandStatusSection> {
+    [
+        ("running", Some(CommandRunStatus::Running)),
+        ("failed", Some(CommandRunStatus::Failed)),
+        ("unknown", Some(CommandRunStatus::Unknown)),
+        ("stopped", Some(CommandRunStatus::Stopped)),
+        ("available", None),
+    ]
+    .into_iter()
+    .filter_map(|(label, status)| {
+        let entries = group
+            .entries
+            .iter()
+            .filter(|entry| entry.status == status)
+            .cloned()
+            .collect::<Vec<_>>();
+        (!entries.is_empty()).then(|| CommandStatusSection {
+            key: command_status_group_key(&group.key, label),
+            label,
+            entries,
+        })
+    })
+    .collect()
 }
 
 fn command_context_base_label(root: &std::path::Path) -> String {
@@ -1431,7 +1506,7 @@ fn command_status_rank(status: Option<CommandRunStatus>) -> usize {
 fn command_panel_entry_at_button(app: &AppState, area: Rect, col: u16, row: u16) -> Option<String> {
     if area == Rect::default()
         || area.height < 3
-        || col != area.x + 2
+        || col != area.x + 3
         || row < area.y + COMMAND_PANEL_HEADER_ROWS
         || row >= area.y + area.height
     {
@@ -1445,14 +1520,69 @@ fn command_panel_entry_at_button(app: &AppState, area: Rect, col: u16, row: u16)
             break;
         }
         row_y += 1;
-        for entry in group.entries {
-            if row_y + 1 >= area.y + area.height {
+        if app.command_group_collapsed(&group.key) {
+            continue;
+        }
+        for section in command_status_sections(&group) {
+            if row_y >= area.y + area.height {
+                break;
+            }
+            row_y += 1;
+            if app.command_status_group_collapsed(&section.key) {
+                continue;
+            }
+            for entry in section.entries {
+                if row_y + 1 >= area.y + area.height {
+                    break;
+                }
+                if row == row_y {
+                    return Some(entry.command.id);
+                }
+                row_y += 2;
+            }
+        }
+    }
+
+    None
+}
+
+fn command_panel_header_target_at_row(
+    app: &AppState,
+    area: Rect,
+    row: u16,
+) -> Option<CommandPanelHeaderTarget> {
+    if area == Rect::default()
+        || area.height < 3
+        || row < area.y + COMMAND_PANEL_HEADER_ROWS
+        || row >= area.y + area.height
+    {
+        return None;
+    }
+
+    let entries = command_panel_entries(app);
+    let mut row_y = area.y + COMMAND_PANEL_HEADER_ROWS;
+    for group in command_panel_groups(&entries) {
+        if row_y >= area.y + area.height {
+            break;
+        }
+        if row == row_y {
+            return Some(CommandPanelHeaderTarget::Project(group.key));
+        }
+        row_y += 1;
+        if app.command_group_collapsed(&group.key) {
+            continue;
+        }
+        for section in command_status_sections(&group) {
+            if row_y >= area.y + area.height {
                 break;
             }
             if row == row_y {
-                return Some(entry.command.id);
+                return Some(CommandPanelHeaderTarget::Status(section.key));
             }
-            row_y += 2;
+            row_y += 1;
+            if !app.command_status_group_collapsed(&section.key) {
+                row_y += (section.entries.len() as u16) * 2;
+            }
         }
     }
 
@@ -1691,12 +1821,25 @@ fn render_commands_section(
         }
         render_command_group_header(app, frame, &group, area, row_y);
         row_y += 1;
-        for entry in &group.entries {
-            if row_y + 1 >= bottom {
+        if app.command_group_collapsed(&group.key) {
+            continue;
+        }
+        for section in command_status_sections(&group) {
+            if row_y >= bottom {
                 break;
             }
-            render_command_entry(app, frame, entry, area, row_y);
-            row_y += 2;
+            render_command_status_header(app, frame, &section, area, row_y);
+            row_y += 1;
+            if app.command_status_group_collapsed(&section.key) {
+                continue;
+            }
+            for entry in &section.entries {
+                if row_y + 1 >= bottom {
+                    break;
+                }
+                render_command_entry(app, frame, entry, area, row_y);
+                row_y += 2;
+            }
         }
     }
 }
@@ -1708,14 +1851,43 @@ fn render_command_group_header(
     area: Rect,
     row_y: u16,
 ) {
-    let label = truncate_text(&group.label, area.width.saturating_sub(1) as usize);
+    let chevron = if app.command_group_collapsed(&group.key) {
+        "▸"
+    } else {
+        "▾"
+    };
+    let label = truncate_text(&group.label, area.width.saturating_sub(7) as usize);
     frame.render_widget(
-        Paragraph::new(Span::styled(
-            format!(" {label}"),
+        Paragraph::new(Line::from(vec![Span::styled(
+            format!(" {chevron} {label} ({})", group.entries.len()),
             Style::default()
                 .fg(app.palette.overlay1)
                 .add_modifier(Modifier::BOLD),
-        )),
+        )])),
+        Rect::new(area.x, row_y, area.width, 1),
+    );
+}
+
+fn render_command_status_header(
+    app: &AppState,
+    frame: &mut Frame,
+    section: &CommandStatusSection,
+    area: Rect,
+    row_y: u16,
+) {
+    let chevron = if app.command_status_group_collapsed(&section.key) {
+        "▸"
+    } else {
+        "▾"
+    };
+    let label = truncate_text(section.label, area.width.saturating_sub(8) as usize);
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![Span::styled(
+            format!("  {chevron} {label} ({})", section.entries.len()),
+            Style::default()
+                .fg(app.palette.overlay0)
+                .add_modifier(Modifier::BOLD),
+        )])),
         Rect::new(area.x, row_y, area.width, 1),
     );
 }
@@ -1737,7 +1909,7 @@ fn render_command_entry(
     let primary = truncate_text(&entry.command.name, area.width.saturating_sub(4) as usize);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled("  ", Style::default()),
+            Span::styled("   ", Style::default()),
             Span::styled(icon, icon_style),
             Span::styled(" ", Style::default()),
             Span::styled(primary, label_style),
@@ -1746,7 +1918,7 @@ fn render_command_entry(
     );
 
     let mut spans = vec![
-        Span::styled("    ", Style::default()),
+        Span::styled("     ", Style::default()),
         Span::styled(
             entry.command.source.label(),
             Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
