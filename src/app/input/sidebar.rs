@@ -2335,6 +2335,11 @@ mod tests {
             ("logs", Agent::Claude),
             ("review", Agent::Codex),
             ("ops", Agent::Gemini),
+            ("cursor", Agent::Cursor),
+            ("cline", Agent::Cline),
+            ("opencode", Agent::OpenCode),
+            ("copilot", Agent::GithubCopilot),
+            ("kimi", Agent::Kimi),
         ] {
             let tab_idx = ws.test_add_tab(Some(tab_name));
             let pane_id = ws.tabs[tab_idx].root_pane;
