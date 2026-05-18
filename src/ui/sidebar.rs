@@ -437,6 +437,16 @@ fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
     section_label == "triage"
 }
 
+fn agent_panel_agent_label_metadata(detail: &AgentPanelEntry) -> Option<&str> {
+    let agent_label = detail.agent_label.as_deref()?;
+    (!detail.primary_label.contains(agent_label)
+        && !detail
+            .primary_tab_label
+            .as_deref()
+            .is_some_and(|label| label.contains(agent_label)))
+    .then_some(agent_label)
+}
+
 fn agent_panel_section_header_style(section: &AgentPanelSection, p: &Palette) -> Style {
     let color = match section.label {
         "triage" => section
@@ -2641,14 +2651,14 @@ fn render_agent_entry(
     if show_status {
         status_spans.push(Span::styled(label, status_style));
     }
-    if let Some(agent_label) = &detail.agent_label {
+    if let Some(agent_label) = agent_panel_agent_label_metadata(detail) {
         if show_status {
             status_spans.push(Span::styled(" · ", agent_style));
         }
-        status_spans.push(Span::styled(agent_label, agent_style));
+        status_spans.push(Span::styled(agent_label.to_string(), agent_style));
     }
     if let Some(custom_status) = &detail.custom_status {
-        if show_status || detail.agent_label.is_some() {
+        if show_status || agent_panel_agent_label_metadata(detail).is_some() {
             status_spans.push(Span::styled(" · ", agent_style));
         }
         status_spans.push(Span::styled(custom_status.clone(), agent_style));
@@ -3103,7 +3113,7 @@ mod tests {
     }
 
     #[test]
-    fn current_space_idle_agent_secondary_line_shows_agent_name_not_status() {
+    fn current_space_idle_agent_secondary_line_omits_duplicate_agent_name() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("agent");
         let pane = workspace.tabs[0].root_pane;
@@ -3126,8 +3136,35 @@ mod tests {
         let rows = text.lines().collect::<Vec<_>>();
         let idle_row = rows.iter().position(|row| row.contains("idle")).unwrap();
 
-        assert!(rows[idle_row + 2].contains("opencode"));
+        assert!(!rows[idle_row + 2].contains("opencode"));
         assert!(!rows[idle_row + 2].contains("idle"));
+    }
+
+    #[test]
+    fn all_spaces_agent_secondary_line_shows_agent_name_when_not_in_primary() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("agent");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        pane_state.detected_agent = Some(Agent::OpenCode);
+        pane_state.state = AgentState::Idle;
+        pane_state.seen = true;
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        let backend = TestBackend::new(40, 8);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_agent_detail(&app, frame, Rect::new(0, 0, 40, 8), false))
+            .expect("render agent panel");
+
+        let text = buffer_text(terminal.backend().buffer(), 40, 8);
+        let rows = text.lines().collect::<Vec<_>>();
+        let idle_row = rows.iter().position(|row| row.contains("idle")).unwrap();
+
+        assert!(rows[idle_row + 2].contains("opencode"));
     }
 
     #[test]
