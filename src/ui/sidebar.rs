@@ -1326,6 +1326,7 @@ fn command_panel_groups_height(app: &AppState, groups: &[CommandPanelGroup]) -> 
                 height += (section.entries.len() as u16) * 2;
             }
         }
+        height += (command_direct_entries(group).len() as u16) * 2;
     }
     height
 }
@@ -1458,7 +1459,6 @@ fn command_status_sections(group: &CommandPanelGroup) -> Vec<CommandStatusSectio
         ("failed", Some(CommandRunStatus::Failed)),
         ("unknown", Some(CommandRunStatus::Unknown)),
         ("stopped", Some(CommandRunStatus::Stopped)),
-        ("available", None),
     ]
     .into_iter()
     .filter_map(|(label, status)| {
@@ -1475,6 +1475,15 @@ fn command_status_sections(group: &CommandPanelGroup) -> Vec<CommandStatusSectio
         })
     })
     .collect()
+}
+
+fn command_direct_entries(group: &CommandPanelGroup) -> Vec<CommandPanelEntry> {
+    group
+        .entries
+        .iter()
+        .filter(|entry| entry.status.is_none())
+        .cloned()
+        .collect()
 }
 
 fn command_context_base_label(root: &std::path::Path) -> String {
@@ -1541,6 +1550,15 @@ fn command_panel_entry_at_button(app: &AppState, area: Rect, col: u16, row: u16)
                 row_y += 2;
             }
         }
+        for entry in command_direct_entries(&group) {
+            if row_y + 1 >= area.y + area.height {
+                break;
+            }
+            if row == row_y {
+                return Some(entry.command.id);
+            }
+            row_y += 2;
+        }
     }
 
     None
@@ -1584,6 +1602,7 @@ fn command_panel_header_target_at_row(
                 row_y += (section.entries.len() as u16) * 2;
             }
         }
+        row_y += (command_direct_entries(&group).len() as u16) * 2;
     }
 
     None
@@ -1841,6 +1860,13 @@ fn render_commands_section(
                 row_y += 2;
             }
         }
+        for entry in command_direct_entries(&group) {
+            if row_y + 1 >= bottom {
+                break;
+            }
+            render_command_entry(app, frame, &entry, area, row_y);
+            row_y += 2;
+        }
     }
 }
 
@@ -1856,10 +1882,10 @@ fn render_command_group_header(
     } else {
         "▾"
     };
-    let label = truncate_text(&group.label, area.width.saturating_sub(7) as usize);
+    let label = truncate_text(&group.label, area.width.saturating_sub(8) as usize);
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
-            format!(" {chevron} {label} ({})", group.entries.len()),
+            format!("  {chevron} {label} ({})", group.entries.len()),
             Style::default()
                 .fg(app.palette.overlay1)
                 .add_modifier(Modifier::BOLD),
@@ -3476,6 +3502,7 @@ mod tests {
         assert!(text.contains("commands (1)"));
         assert!(text.contains("dev"));
         assert!(text.contains("package.json"));
+        assert!(!text.contains("available"));
         assert!(text.find("commands").unwrap() < text.find("ports").unwrap());
     }
 
