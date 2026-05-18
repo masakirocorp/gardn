@@ -905,6 +905,25 @@ impl AppState {
         self.activity_agents_expanded = !self.activity_agents_expanded;
     }
 
+    pub(super) fn agent_header_target_at(
+        &self,
+        row: u16,
+    ) -> Option<crate::ui::AgentPanelHeaderTarget> {
+        if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
+            return None;
+        }
+
+        let area = self.agent_panel_rect();
+        let leading_separator = self.agent_panel_has_leading_separator();
+        let metrics = crate::ui::agent_panel_scroll_metrics(self, area, leading_separator);
+        let body = crate::ui::agent_panel_body_rect(
+            area,
+            crate::ui::should_show_scrollbar(metrics),
+            leading_separator,
+        );
+        crate::ui::agent_panel_header_target_at_row(self, body, row)
+    }
+
     pub(super) fn toggle_activity_commands(&mut self) {
         self.activity_commands_expanded = !self.activity_commands_expanded;
     }
@@ -1675,10 +1694,13 @@ mod tests {
             app.state.sidebar_section_split,
         );
         let body = crate::ui::agent_panel_body_rect(detail_area, false, true);
+        let second_agent_row = (body.y..body.y + body.height)
+            .find(|row| app.state.agent_detail_target_at(*row) == Some((0, first_tab, second_pane)))
+            .expect("second agent row should be visible");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             body.x + 2,
-            body.y + 4,
+            second_agent_row,
         ));
 
         assert_eq!(app.state.workspaces[0].active_tab, 1);
@@ -1765,6 +1787,7 @@ mod tests {
             &app.state,
             app.state.view.right_sidebar_rect,
         );
+        assert!(!app.state.activity_ports_expanded);
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             ports.x,
@@ -1772,7 +1795,124 @@ mod tests {
         ));
 
         assert!(!app.state.activity_agents_expanded);
-        assert!(!app.state.activity_ports_expanded);
+        assert!(app.state.activity_ports_expanded);
+    }
+
+    #[test]
+    fn clicking_agent_status_header_toggles_section_rows() {
+        let mut app = app_for_mouse_test();
+        let mut workspace = Workspace::test_new("test");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        pane_state.detected_agent = Some(Agent::Claude);
+        pane_state.state = AgentState::Blocked;
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+
+        let detail_area = app.state.agent_panel_rect();
+        let triage_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| {
+                app.state
+                    .agent_header_target_at(*row)
+                    .is_some_and(|target| target.section == "triage")
+            })
+            .expect("triage header should be visible");
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            detail_area.x + 2,
+            triage_row,
+        ));
+
+        assert!(app.state.agent_section_collapsed("triage"));
+        assert!(crate::ui::agent_panel_entry_at_row(
+            &app.state,
+            crate::ui::agent_panel_body_rect(
+                app.state.agent_panel_rect(),
+                false,
+                app.state.agent_panel_has_leading_separator(),
+            ),
+            triage_row + 1,
+        )
+        .is_none());
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            app.state.view.right_sidebar_rect.x + 2,
+            triage_row,
+        ));
+
+        assert!(!app.state.agent_section_collapsed("triage"));
+    }
+
+    #[test]
+    fn clicking_embedded_agent_status_header_toggles_section_rows() {
+        let mut app = app_for_mouse_test();
+        let mut workspace = Workspace::test_new("test");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        pane_state.detected_agent = Some(Agent::Claude);
+        pane_state.state = AgentState::Blocked;
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+
+        assert_eq!(app.state.view.right_sidebar_rect, Rect::default());
+        let detail_area = app.state.agent_panel_rect();
+        let triage_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| {
+                app.state
+                    .agent_header_target_at(*row)
+                    .is_some_and(|target| target.section == "triage")
+            })
+            .expect("embedded triage header should be visible");
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            detail_area.x + 2,
+            triage_row,
+        ));
+
+        assert!(app.state.agent_section_collapsed("triage"));
+        assert_eq!(app.state.agent_detail_target_at(triage_row + 1), None);
+    }
+
+    #[test]
+    fn clicking_left_sidebar_row_does_not_toggle_right_agent_status_header() {
+        let mut app = app_for_mouse_test();
+        let mut workspace = Workspace::test_new("test");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        pane_state.detected_agent = Some(Agent::Claude);
+        pane_state.state = AgentState::Blocked;
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+
+        assert_ne!(app.state.view.right_sidebar_rect, Rect::default());
+        let detail_area = app.state.agent_panel_rect();
+        let triage_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| {
+                app.state
+                    .agent_header_target_at(*row)
+                    .is_some_and(|target| target.section == "triage")
+            })
+            .expect("right triage header should be visible");
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            app.state.view.sidebar_rect.x + 2,
+            triage_row,
+        ));
+
+        assert!(!app.state.agent_section_collapsed("triage"));
     }
 
     #[test]
@@ -1782,6 +1922,7 @@ mod tests {
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
+        app.state.activity_commands_expanded = true;
         app.state.command_catalog = vec![crate::commands::ProjectCommand {
             id: "/tmp/web:package.json:dev".to_string(),
             root: "/tmp/web".into(),
@@ -1871,6 +2012,7 @@ mod tests {
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
+        app.state.activity_commands_expanded = true;
         app.state.command_catalog = vec![crate::commands::ProjectCommand {
             id: "/tmp/web:package.json:dev".to_string(),
             root: "/tmp/web".into(),
@@ -1936,6 +2078,7 @@ mod tests {
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
+        app.state.activity_commands_expanded = true;
         let command_id = "/tmp/web:package.json:dev".to_string();
         app.state.command_catalog = vec![crate::commands::ProjectCommand {
             id: command_id.clone(),
@@ -2152,7 +2295,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             detail_area.x + 2,
-            detail_area.y + 6,
+            detail_area.y + 4,
         ));
 
         assert_eq!(app.state.active, Some(1));
@@ -2195,10 +2338,13 @@ mod tests {
 
         assert_eq!(app.state.visible_workspace_indices(), vec![0]);
         let detail_area = app.state.agent_panel_rect();
+        let second_agent_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| app.state.agent_detail_target_at(*row) == Some((1, 0, second_pane)))
+            .expect("second agent row should be visible");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             detail_area.x + 2,
-            detail_area.y + 6,
+            second_agent_row,
         ));
 
         assert_eq!(app.state.active, Some(1));
@@ -2332,6 +2478,11 @@ mod tests {
             ("logs", Agent::Claude),
             ("review", Agent::Codex),
             ("ops", Agent::Gemini),
+            ("cursor", Agent::Cursor),
+            ("cline", Agent::Cline),
+            ("opencode", Agent::OpenCode),
+            ("copilot", Agent::GithubCopilot),
+            ("kimi", Agent::Kimi),
         ] {
             let tab_idx = ws.test_add_tab(Some(tab_name));
             let pane_id = ws.tabs[tab_idx].root_pane;
@@ -2546,10 +2697,15 @@ mod tests {
 
         let detail_area = app.state.agent_panel_rect();
         let body = crate::ui::agent_panel_body_rect(detail_area, false, false);
+        let second_agent_row = (body.y..body.y + body.height)
+            .find(|row| {
+                app.state.agent_detail_target_at(*row) == Some((0, second_tab, second_pane))
+            })
+            .expect("second agent row should be visible");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             body.x + 1,
-            body.y + 4,
+            second_agent_row,
         ));
 
         assert_eq!(app.state.workspaces[0].active_tab, second_tab);
@@ -2573,6 +2729,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app.state.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+        app.state.activity_ports_expanded = true;
         app.state.port_registry.sync_observations(
             Instant::now(),
             [crate::ports::PortObservation {
@@ -2668,6 +2825,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app.state.right_sidebar_collapsed = true;
+        app.state.activity_ports_expanded = true;
         app.state.port_registry.sync_observations(
             Instant::now(),
             [crate::ports::PortObservation {
@@ -2765,6 +2923,7 @@ mod tests {
             &app.state,
             app.state.view.right_sidebar_rect,
         );
+        assert!(!app.state.activity_ports_expanded);
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             ports.x,
@@ -2772,7 +2931,35 @@ mod tests {
         ));
 
         assert!(!app.state.activity_agents_expanded);
-        assert!(!app.state.activity_ports_expanded);
+        assert!(app.state.activity_ports_expanded);
+    }
+
+    #[test]
+    fn clicking_collapsed_agents_header_does_not_toggle_status_group() {
+        let mut app = app_for_mouse_test();
+        let mut workspace = Workspace::test_new("test");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        pane_state.detected_agent = Some(Agent::Claude);
+        pane_state.state = AgentState::Blocked;
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        app.state.right_sidebar_collapsed = true;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+
+        let rows =
+            crate::ui::collapsed_right_sidebar_agent_rows_rect(app.state.view.right_sidebar_rect);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            rows.x,
+            rows.y,
+        ));
+
+        assert!(!app.state.activity_agents_expanded);
+        assert!(!app.state.agent_section_collapsed("triage"));
     }
 
     #[test]

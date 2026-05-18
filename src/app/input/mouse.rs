@@ -502,6 +502,19 @@ impl AppState {
                         return None;
                     }
 
+                    if let Some(target) = self.agent_header_target_at(mouse.row) {
+                        self.toggle_agent_section(target.section);
+                        self.agent_panel_scroll = self.agent_panel_scroll.min(
+                            crate::ui::agent_panel_scroll_metrics(
+                                self,
+                                self.agent_panel_rect(),
+                                self.agent_panel_has_leading_separator(),
+                            )
+                            .max_offset_from_bottom,
+                        );
+                        return None;
+                    }
+
                     if let Some(command_id) = self.command_detail_target_at(mouse.column, mouse.row)
                     {
                         let action = if self.command_runs.get(&command_id).is_some_and(|run| {
@@ -580,6 +593,21 @@ impl AppState {
                             .workspace_scroll
                             .min(crate::ui::workspace_list_entry_count(self).saturating_sub(1));
                         return None;
+                    }
+
+                    if self.view.right_sidebar_rect == Rect::default() {
+                        if let Some(target) = self.agent_header_target_at(mouse.row) {
+                            self.toggle_agent_section(target.section);
+                            self.agent_panel_scroll = self.agent_panel_scroll.min(
+                                crate::ui::agent_panel_scroll_metrics(
+                                    self,
+                                    self.agent_panel_rect(),
+                                    self.agent_panel_has_leading_separator(),
+                                )
+                                .max_offset_from_bottom,
+                            );
+                            return None;
+                        }
                     }
 
                     if let Some(idx) = self.workspace_at_row(mouse.row) {
