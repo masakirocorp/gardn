@@ -1678,7 +1678,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             body.x + 2,
-            body.y + 4,
+            body.y + 2,
         ));
 
         assert_eq!(app.state.workspaces[0].active_tab, 1);
@@ -2152,7 +2152,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             detail_area.x + 2,
-            detail_area.y + 6,
+            detail_area.y + 4,
         ));
 
         assert_eq!(app.state.active, Some(1));
@@ -2195,10 +2195,13 @@ mod tests {
 
         assert_eq!(app.state.visible_workspace_indices(), vec![0]);
         let detail_area = app.state.agent_panel_rect();
+        let second_agent_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| app.state.agent_detail_target_at(*row) == Some((1, 0, second_pane)))
+            .expect("second agent row should be visible");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             detail_area.x + 2,
-            detail_area.y + 6,
+            second_agent_row,
         ));
 
         assert_eq!(app.state.active, Some(1));
