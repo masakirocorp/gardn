@@ -1920,6 +1920,30 @@ mod tests {
             .state
             .command_detail_target_at(header.x + 3, command_row)
             .is_none());
+
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+        let collapsed_header = crate::ui::right_sidebar_commands_header_rect(
+            &app.state,
+            app.state.view.right_sidebar_rect,
+        );
+        let collapsed_project_row = collapsed_header.y + 1;
+
+        app.state.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            collapsed_header.x + 1,
+            collapsed_project_row,
+        ));
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+        let expanded_header = crate::ui::right_sidebar_commands_header_rect(
+            &app.state,
+            app.state.view.right_sidebar_rect,
+        );
+
+        assert_eq!(
+            app.state
+                .command_detail_target_at(expanded_header.x + 3, expanded_header.y + 3),
+            Some("/tmp/web:package.json:dev".to_string())
+        );
     }
 
     #[test]

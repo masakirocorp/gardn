@@ -1552,7 +1552,7 @@ fn command_panel_header_target_at_row(
     row: u16,
 ) -> Option<CommandPanelHeaderTarget> {
     if area == Rect::default()
-        || area.height < 3
+        || area.height < COMMAND_PANEL_HEADER_ROWS + 1
         || row < area.y + COMMAND_PANEL_HEADER_ROWS
         || row >= area.y + area.height
     {
