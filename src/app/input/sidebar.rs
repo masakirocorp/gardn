@@ -1784,16 +1784,16 @@ mod tests {
 
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            header.x + 3,
-            row,
+            header.x + 4,
+            row + 1,
         ));
 
         assert_eq!(app.state.request_command_action, None);
 
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            header.x + 1,
-            row,
+            header.x + 2,
+            row + 1,
         ));
 
         assert_eq!(
@@ -1814,8 +1814,8 @@ mod tests {
         );
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            header.x + 1,
-            row,
+            header.x + 2,
+            row + 1,
         ));
 
         assert_eq!(
@@ -1828,16 +1828,16 @@ mod tests {
         app.state.request_command_action = None;
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Right),
-            header.x + 3,
-            row,
+            header.x + 4,
+            row + 1,
         ));
 
         assert_eq!(app.state.request_command_action, None);
 
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Right),
-            header.x + 1,
-            row,
+            header.x + 2,
+            row + 1,
         ));
 
         assert_eq!(

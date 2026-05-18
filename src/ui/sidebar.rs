@@ -14,6 +14,7 @@ use crate::app::{AppState, Mode};
 use crate::commands::{CommandRunStatus, ProjectCommand};
 use crate::detect::AgentState;
 use crate::ports::{PortEndpoint, PortExposure, PortState};
+use crate::workspace::{derive_label_from_cwd, git_branch};
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const ACTIVITY_PANEL_HEADER_ROWS: u16 = 2;
@@ -57,6 +58,12 @@ struct PortPanelEntry {
 struct CommandPanelEntry {
     command: ProjectCommand,
     status: Option<CommandRunStatus>,
+}
+
+#[derive(Clone)]
+struct CommandPanelGroup {
+    label: String,
+    entries: Vec<CommandPanelEntry>,
 }
 
 fn sidebar_section_heights(total_h: u16, split_ratio: f32) -> (u16, u16) {
@@ -1287,7 +1294,8 @@ fn command_panel_desired_height(app: &AppState, entries: &[CommandPanelEntry]) -
         } else if entries.is_empty() {
             1
         } else {
-            (entries.len() as u16) * 2
+            let groups = command_panel_groups(entries);
+            groups.len() as u16 + (entries.len() as u16) * 2
         }
 }
 
@@ -1346,6 +1354,76 @@ fn command_panel_entries(app: &AppState) -> Vec<CommandPanelEntry> {
     entries
 }
 
+fn command_panel_groups(entries: &[CommandPanelEntry]) -> Vec<CommandPanelGroup> {
+    let mut roots = entries
+        .iter()
+        .map(|entry| entry.command.root.clone())
+        .collect::<Vec<_>>();
+    roots.sort();
+    roots.dedup();
+
+    let mut base_labels = roots
+        .iter()
+        .map(|root| (root.clone(), command_context_base_label(root)))
+        .collect::<Vec<_>>();
+    let duplicated_labels = base_labels.iter().map(|(_, label)| label.clone()).fold(
+        std::collections::BTreeMap::<String, usize>::new(),
+        |mut counts, label| {
+            *counts.entry(label).or_insert(0) += 1;
+            counts
+        },
+    );
+
+    base_labels
+        .drain(..)
+        .map(|(root, base_label)| {
+            let label = if duplicated_labels.get(&base_label).copied().unwrap_or(0) > 1 {
+                format!("{base_label} · {}", command_context_path_suffix(&root))
+            } else {
+                base_label
+            };
+            let mut group_entries = entries
+                .iter()
+                .filter(|entry| entry.command.root == root)
+                .cloned()
+                .collect::<Vec<_>>();
+            group_entries.sort_by_key(|entry| {
+                (
+                    command_status_rank(entry.status),
+                    entry.command.source,
+                    entry.command.name.clone(),
+                )
+            });
+            CommandPanelGroup {
+                label,
+                entries: group_entries,
+            }
+        })
+        .collect()
+}
+
+fn command_context_base_label(root: &std::path::Path) -> String {
+    let repo = derive_label_from_cwd(root);
+    match git_branch(root) {
+        Some(branch) => format!("{repo} · {branch}"),
+        None => repo,
+    }
+}
+
+fn command_context_path_suffix(root: &std::path::Path) -> String {
+    let Some(name) = root.file_name().and_then(|name| name.to_str()) else {
+        return root.display().to_string();
+    };
+    let Some(parent) = root
+        .parent()
+        .and_then(|parent| parent.file_name())
+        .and_then(|name| name.to_str())
+    else {
+        return name.to_string();
+    };
+    format!("{parent}/{name}")
+}
+
 fn command_status_rank(status: Option<CommandRunStatus>) -> usize {
     status.map_or(usize::MAX, CommandRunStatus::rank)
 }
@@ -1353,22 +1431,29 @@ fn command_status_rank(status: Option<CommandRunStatus>) -> usize {
 fn command_panel_entry_at_button(app: &AppState, area: Rect, col: u16, row: u16) -> Option<String> {
     if area == Rect::default()
         || area.height < 3
-        || col != area.x + 1
+        || col != area.x + 2
         || row < area.y + COMMAND_PANEL_HEADER_ROWS
         || row >= area.y + area.height
     {
         return None;
     }
 
+    let entries = command_panel_entries(app);
     let mut row_y = area.y + COMMAND_PANEL_HEADER_ROWS;
-    for entry in command_panel_entries(app) {
-        if row_y + 1 >= area.y + area.height {
+    for group in command_panel_groups(&entries) {
+        if row_y >= area.y + area.height {
             break;
         }
-        if row == row_y {
-            return Some(entry.command.id);
+        row_y += 1;
+        for entry in group.entries {
+            if row_y + 1 >= area.y + area.height {
+                break;
+            }
+            if row == row_y {
+                return Some(entry.command.id);
+            }
+            row_y += 2;
         }
-        row_y += 2;
     }
 
     None
@@ -1600,13 +1685,39 @@ fn render_commands_section(
 
     let mut row_y = area.y + COMMAND_PANEL_HEADER_ROWS;
     let bottom = area.y + area.height;
-    for entry in entries {
-        if row_y + 1 >= bottom {
+    for group in command_panel_groups(entries) {
+        if row_y >= bottom {
             break;
         }
-        render_command_entry(app, frame, entry, area, row_y);
-        row_y += 2;
+        render_command_group_header(app, frame, &group, area, row_y);
+        row_y += 1;
+        for entry in &group.entries {
+            if row_y + 1 >= bottom {
+                break;
+            }
+            render_command_entry(app, frame, entry, area, row_y);
+            row_y += 2;
+        }
     }
+}
+
+fn render_command_group_header(
+    app: &AppState,
+    frame: &mut Frame,
+    group: &CommandPanelGroup,
+    area: Rect,
+    row_y: u16,
+) {
+    let label = truncate_text(&group.label, area.width.saturating_sub(1) as usize);
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            format!(" {label}"),
+            Style::default()
+                .fg(app.palette.overlay1)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Rect::new(area.x, row_y, area.width, 1),
+    );
 }
 
 fn render_command_entry(
@@ -1623,10 +1734,10 @@ fn render_command_entry(
         Some(CommandRunStatus::Failed) => Style::default().fg(p.red).add_modifier(Modifier::BOLD),
         _ => Style::default().fg(p.subtext0).add_modifier(Modifier::BOLD),
     };
-    let primary = truncate_text(&entry.command.name, area.width.saturating_sub(3) as usize);
+    let primary = truncate_text(&entry.command.name, area.width.saturating_sub(4) as usize);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(" ", Style::default()),
+            Span::styled("  ", Style::default()),
             Span::styled(icon, icon_style),
             Span::styled(" ", Style::default()),
             Span::styled(primary, label_style),
@@ -1635,7 +1746,7 @@ fn render_command_entry(
     );
 
     let mut spans = vec![
-        Span::styled("   ", Style::default()),
+        Span::styled("    ", Style::default()),
         Span::styled(
             entry.command.source.label(),
             Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
@@ -3077,14 +3188,101 @@ mod tests {
     }
 
     fn test_command(name: &str) -> ProjectCommand {
+        test_command_at_root(std::path::PathBuf::from("/tmp/web"), name)
+    }
+
+    fn test_command_at_root(root: std::path::PathBuf, name: &str) -> ProjectCommand {
         ProjectCommand {
-            id: format!("/tmp:web:{name}"),
-            root: std::path::PathBuf::from("/tmp/web"),
+            id: format!("{}:package.json:{name}", root.display()),
+            root,
             source: crate::commands::CommandSource::PackageJson,
             name: name.into(),
             command: format!("npm run {name}"),
             confidence: crate::commands::CommandConfidence::Explicit,
         }
+    }
+
+    fn temp_git_project(
+        parent_name: &str,
+        repo_name: &str,
+        branch: Option<&str>,
+    ) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "herdr-sidebar-commands-{parent_name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let repo = root.join(repo_name);
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        if let Some(branch) = branch {
+            std::fs::write(
+                repo.join(".git/HEAD"),
+                format!("ref: refs/heads/{branch}\n"),
+            )
+            .unwrap();
+        }
+        repo
+    }
+
+    #[test]
+    fn command_panel_groups_show_repo_branch_context() {
+        let root = temp_git_project("main", "web", Some("feature/run"));
+        let entries = vec![CommandPanelEntry {
+            command: test_command_at_root(root, "dev"),
+            status: None,
+        }];
+
+        let groups = command_panel_groups(&entries);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].label, "web · feature/run");
+        assert_eq!(groups[0].entries.len(), 1);
+    }
+
+    #[test]
+    fn command_panel_groups_disambiguate_duplicate_repo_and_branch_labels() {
+        let first = temp_git_project("alpha", "web", Some("main"));
+        let second = temp_git_project("beta", "web", Some("main"));
+        let entries = vec![
+            CommandPanelEntry {
+                command: test_command_at_root(first, "dev"),
+                status: None,
+            },
+            CommandPanelEntry {
+                command: test_command_at_root(second, "dev"),
+                status: None,
+            },
+        ];
+
+        let groups = command_panel_groups(&entries);
+
+        assert_eq!(groups.len(), 2);
+        assert!(groups[0].label.starts_with("web · main · "));
+        assert!(groups[1].label.starts_with("web · main · "));
+        assert_ne!(groups[0].label, groups[1].label);
+    }
+
+    #[test]
+    fn command_panel_groups_keep_same_root_commands_together() {
+        let root = temp_git_project("same", "web", Some("main"));
+        let entries = vec![
+            CommandPanelEntry {
+                command: test_command_at_root(root.clone(), "dev"),
+                status: None,
+            },
+            CommandPanelEntry {
+                command: test_command_at_root(root, "build"),
+                status: None,
+            },
+        ];
+
+        let groups = command_panel_groups(&entries);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].entries.len(), 2);
     }
 
     #[test]
