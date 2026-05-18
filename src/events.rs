@@ -11,7 +11,11 @@ use crate::workspace::WorkspaceGitStatus;
 #[derive(Debug)]
 pub enum AppEvent {
     /// A pane's child process exited.
-    PaneDied { pane_id: PaneId },
+    PaneDied {
+        pane_id: PaneId,
+        child_pid: u32,
+        exit_success: bool,
+    },
     /// Fallback detector state changed in a pane.
     StateChanged {
         pane_id: PaneId,

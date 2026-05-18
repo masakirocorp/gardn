@@ -1011,20 +1011,35 @@ impl AppState {
         terminal_ids: impl IntoIterator<Item = crate::terminal::TerminalId>,
     ) {
         for terminal_id in terminal_ids {
-            let still_attached = self.workspaces.iter().any(|ws| {
-                ws.tabs.iter().any(|tab| {
-                    tab.panes
-                        .values()
-                        .any(|pane| pane.attached_terminal_id == terminal_id)
-                })
-            });
-            if !still_attached {
+            if !self.terminal_id_is_attached(&terminal_id) {
                 self.terminals.remove(&terminal_id);
                 if let Some(runtime) = self.terminal_runtimes.remove(&terminal_id) {
                     runtime.shutdown();
                 }
             }
         }
+    }
+
+    pub(crate) fn terminal_id_is_attached(
+        &self,
+        terminal_id: &crate::terminal::TerminalId,
+    ) -> bool {
+        self.workspaces.iter().any(|ws| {
+            ws.tabs.iter().any(|tab| {
+                tab.panes
+                    .values()
+                    .any(|pane| &pane.attached_terminal_id == terminal_id)
+            })
+        })
+    }
+
+    pub(crate) fn terminal_has_command_run(
+        &self,
+        terminal_id: &crate::terminal::TerminalId,
+    ) -> bool {
+        self.command_runs
+            .values()
+            .any(|run| &run.terminal_id == terminal_id)
     }
 
     pub fn close_selected_workspace(&mut self) {
@@ -1305,8 +1320,12 @@ impl AppState {
 
     pub fn handle_app_event(&mut self, event: AppEvent) -> Vec<PaneStateUpdate> {
         match event {
-            AppEvent::PaneDied { pane_id } => {
-                self.handle_pane_died(pane_id);
+            AppEvent::PaneDied {
+                pane_id,
+                child_pid,
+                exit_success,
+            } => {
+                self.handle_pane_died(pane_id, child_pid, exit_success);
                 Vec::new()
             }
             AppEvent::UpdateReady {
@@ -1488,7 +1507,7 @@ impl AppState {
         }
     }
 
-    fn handle_pane_died(&mut self, pane_id: PaneId) {
+    fn handle_pane_died(&mut self, pane_id: PaneId, child_pid: u32, exit_success: bool) {
         let ws_idx = self
             .workspaces
             .iter()
@@ -1500,6 +1519,12 @@ impl AppState {
         };
 
         let pane_terminal_id = self.terminal_id_for_pane(ws_idx, pane_id);
+        if let Some(terminal_id) = pane_terminal_id.as_ref() {
+            if self.handle_command_pane_died(terminal_id, child_pid, exit_success) {
+                return;
+            }
+        }
+
         let workspace_terminal_ids = self.terminal_ids_for_workspace(ws_idx);
         let should_close_workspace = {
             let ws = &mut self.workspaces[ws_idx];
@@ -1529,6 +1554,38 @@ impl AppState {
         } else {
             self.remove_unattached_terminal_ids(pane_terminal_id);
         }
+    }
+
+    fn handle_command_pane_died(
+        &mut self,
+        terminal_id: &crate::terminal::TerminalId,
+        child_pid: u32,
+        exit_success: bool,
+    ) -> bool {
+        let Some(command_id) = self.command_runs.iter().find_map(|(command_id, run)| {
+            (&run.terminal_id == terminal_id).then(|| command_id.clone())
+        }) else {
+            return false;
+        };
+
+        if let Some(runtime) = self.terminal_runtimes.get(terminal_id) {
+            let runtime_pid = runtime.child_pid();
+            if child_pid != 0 && runtime_pid != 0 && child_pid != runtime_pid {
+                return true;
+            }
+        }
+
+        if self.terminal_runtimes.remove(terminal_id).is_some() {
+            if let Some(run) = self.command_runs.get_mut(&command_id) {
+                run.status = if exit_success {
+                    crate::commands::CommandRunStatus::Stopped
+                } else {
+                    crate::commands::CommandRunStatus::Failed
+                };
+            }
+            self.mark_session_dirty();
+        }
+        true
     }
 }
 
@@ -1673,6 +1730,78 @@ mod tests {
         assert_eq!(state.workspaces[0].active_tab, 1);
         assert!(state.terminal_runtimes.contains_key(&command_terminal_id));
         wait_for_runtime_pid(&state, &command_terminal_id).await;
+        assert!(state.stop_project_command(&command_id));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn command_pane_exit_retains_tab_and_records_failure() {
+        let project = temp_project("exit-failure");
+        let mut state = app_with_workspaces(&["web"]);
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let root_terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&root_terminal_id).unwrap().cwd = project.clone();
+        let command = project_command(project, "check", "false");
+        let command_id = command.id.clone();
+        state.command_catalog = vec![command];
+
+        state.run_project_command(&command_id).unwrap();
+
+        let terminal_id = state
+            .command_runs
+            .get(&command_id)
+            .unwrap()
+            .terminal_id
+            .clone();
+        wait_for_runtime_pid(&state, &terminal_id).await;
+        let (_, _, pane_id) = state.command_terminal_target(&terminal_id).unwrap();
+        let child_pid = state.terminal_runtimes[&terminal_id].child_pid();
+
+        state.handle_pane_died(pane_id, child_pid, false);
+
+        assert_eq!(state.workspaces[0].tabs.len(), 2);
+        assert!(state.terminals.contains_key(&terminal_id));
+        assert!(!state.terminal_runtimes.contains_key(&terminal_id));
+        assert_eq!(
+            state.command_runs.get(&command_id).unwrap().status,
+            crate::commands::CommandRunStatus::Failed
+        );
+        assert!(state.command_terminal_target(&terminal_id).is_some());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stale_command_pane_exit_does_not_stop_restarted_command() {
+        let project = temp_project("stale-exit");
+        let mut state = app_with_workspaces(&["web"]);
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let root_terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&root_terminal_id).unwrap().cwd = project.clone();
+        let command = project_command(project, "dev", "sleep 30");
+        let command_id = command.id.clone();
+        state.command_catalog = vec![command];
+
+        state.run_project_command(&command_id).unwrap();
+        let terminal_id = state
+            .command_runs
+            .get(&command_id)
+            .unwrap()
+            .terminal_id
+            .clone();
+        wait_for_runtime_pid(&state, &terminal_id).await;
+        assert!(state.stop_project_command(&command_id));
+
+        state.run_project_command(&command_id).unwrap();
+        wait_for_runtime_pid(&state, &terminal_id).await;
+        let (_, _, pane_id) = state.command_terminal_target(&terminal_id).unwrap();
+        let current_pid = state.terminal_runtimes[&terminal_id].child_pid();
+
+        state.handle_pane_died(pane_id, current_pid.saturating_add(1), false);
+
+        assert_eq!(
+            state.command_runs.get(&command_id).unwrap().status,
+            crate::commands::CommandRunStatus::Running
+        );
+        assert!(state.terminal_runtimes.contains_key(&terminal_id));
+        assert!(state.command_terminal_target(&terminal_id).is_some());
         assert!(state.stop_project_command(&command_id));
     }
 
@@ -2208,7 +2337,7 @@ mod tests {
         let mut state = app_with_workspaces(&["a", "b"]);
         let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
 
-        state.handle_pane_died(pane_id);
+        state.handle_pane_died(pane_id, 0, true);
 
         assert_eq!(state.workspaces.len(), 1);
         assert_eq!(state.workspaces[0].custom_name.as_deref(), Some("b"));
@@ -2220,7 +2349,7 @@ mod tests {
         state.mode = Mode::Terminal;
         let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
 
-        state.handle_pane_died(pane_id);
+        state.handle_pane_died(pane_id, 0, true);
 
         assert!(state.workspaces.is_empty());
         assert_eq!(state.mode, Mode::Navigate);
@@ -2231,7 +2360,7 @@ mod tests {
         let mut state = app_with_workspaces(&["test"]);
         let second_id = state.workspaces[0].test_split(Direction::Horizontal);
 
-        state.handle_pane_died(second_id);
+        state.handle_pane_died(second_id, 0, true);
 
         assert_eq!(state.workspaces.len(), 1);
         assert_eq!(state.workspaces[0].panes.len(), 1);
@@ -2242,7 +2371,7 @@ mod tests {
         let mut state = app_with_workspaces(&["test"]);
         let fake_id = PaneId::from_raw(9999);
 
-        state.handle_pane_died(fake_id);
+        state.handle_pane_died(fake_id, 0, true);
 
         assert_eq!(state.workspaces.len(), 1);
     }
