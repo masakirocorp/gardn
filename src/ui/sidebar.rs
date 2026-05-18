@@ -1433,22 +1433,6 @@ pub(crate) fn right_sidebar_command_header_target_at_row(
     command_panel_header_target_at_row(app, command_area, row)
 }
 
-pub(crate) fn right_sidebar_agent_header_target_at_row(
-    app: &AppState,
-    area: Rect,
-    row: u16,
-) -> Option<AgentPanelHeaderTarget> {
-    let (agent_area, _) = right_sidebar_panel_rects(app, area);
-    let leading_separator = false;
-    let metrics = agent_panel_scroll_metrics(app, agent_area, leading_separator);
-    let body = agent_panel_body_rect(
-        agent_area,
-        should_show_scrollbar(metrics),
-        leading_separator,
-    );
-    agent_panel_header_target_at_row(app, body, row)
-}
-
 fn command_panel_entries(app: &AppState) -> Vec<CommandPanelEntry> {
     let mut entries = app
         .command_catalog
@@ -2786,7 +2770,7 @@ fn render_agent_section_header(
     );
 }
 
-fn agent_panel_header_target_at_row(
+pub(crate) fn agent_panel_header_target_at_row(
     app: &AppState,
     body: Rect,
     row: u16,

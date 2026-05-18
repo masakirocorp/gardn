@@ -528,6 +528,19 @@ impl AppState {
                         return None;
                     }
 
+                    if let Some(target) = self.agent_header_target_at(mouse.row) {
+                        self.toggle_agent_section(target.section);
+                        self.agent_panel_scroll = self.agent_panel_scroll.min(
+                            crate::ui::agent_panel_scroll_metrics(
+                                self,
+                                self.agent_panel_rect(),
+                                self.agent_panel_has_leading_separator(),
+                            )
+                            .max_offset_from_bottom,
+                        );
+                        return None;
+                    }
+
                     if let Some((ws_idx, tab_idx, pane_id)) = self.agent_detail_target_at(mouse.row)
                     {
                         self.switch_workspace(ws_idx);
@@ -592,6 +605,19 @@ impl AppState {
                         self.workspace_scroll = self
                             .workspace_scroll
                             .min(crate::ui::workspace_list_entry_count(self).saturating_sub(1));
+                        return None;
+                    }
+
+                    if let Some(target) = self.agent_header_target_at(mouse.row) {
+                        self.toggle_agent_section(target.section);
+                        self.agent_panel_scroll = self.agent_panel_scroll.min(
+                            crate::ui::agent_panel_scroll_metrics(
+                                self,
+                                self.agent_panel_rect(),
+                                self.agent_panel_has_leading_separator(),
+                            )
+                            .max_offset_from_bottom,
+                        );
                         return None;
                     }
 
