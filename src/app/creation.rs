@@ -46,6 +46,7 @@ impl App {
     pub(super) fn workspace_creation_source(&self) -> Option<usize> {
         if self.state.mode == Mode::Navigate
             && self.state.workspaces.get(self.state.selected).is_some()
+            && self.state.workspace_in_active_group(self.state.selected)
         {
             return Some(self.state.selected);
         }

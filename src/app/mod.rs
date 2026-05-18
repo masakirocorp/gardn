@@ -1840,6 +1840,29 @@ mod tests {
     }
 
     #[test]
+    fn workspace_creation_in_empty_group_uses_active_group() {
+        let mut app = test_app();
+        let group_two = app.state.create_group("two".to_string());
+        let group_three = app.state.create_group("three".to_string());
+        let mut first = Workspace::test_new("first");
+        first.group_id = app.state.groups[group_two].id.clone();
+        let mut second = Workspace::test_new("second");
+        second.group_id = app.state.groups[group_two].id.clone();
+        app.state.workspaces = vec![first, second];
+        app.state.active_group = group_three;
+        app.state.group_filter_enabled = true;
+        app.state.active = None;
+        app.state.selected = 0;
+        app.state.mode = Mode::Navigate;
+
+        let source = app.workspace_creation_source();
+        let group_id = app.workspace_creation_group_id(source);
+
+        assert_eq!(source, None);
+        assert_eq!(group_id, app.state.groups[group_three].id);
+    }
+
+    #[test]
     fn workspace_creation_names_duplicate_cwd_labels_with_suffix() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("herdr"), Workspace::test_new("herdr 2")];
