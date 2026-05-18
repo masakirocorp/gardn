@@ -434,28 +434,7 @@ fn format_agent_panel_primary_label(entry: &AgentPanelEntry, max_width: usize) -
 }
 
 fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
-    section_label == "triage"
-}
-
-fn agent_panel_entry_has_detail_line(show_status: bool, entry: &AgentPanelEntry) -> bool {
-    show_status || entry.agent_label.is_some() || entry.custom_status.is_some()
-}
-
-fn agent_panel_entry_height(show_status: bool, entry: &AgentPanelEntry) -> u16 {
-    if agent_panel_entry_has_detail_line(show_status, entry) {
-        2
-    } else {
-        1
-    }
-}
-
-fn agent_panel_section_height(section: &AgentPanelSection) -> u16 {
-    let show_status = agent_panel_section_shows_entry_status(section.label);
-    1 + section
-        .entries
-        .iter()
-        .map(|entry| agent_panel_entry_height(show_status, entry))
-        .sum::<u16>()
+    matches!(section_label, "triage" | "working" | "idle")
 }
 
 fn agent_panel_section_header_style(section: &AgentPanelSection, p: &Palette) -> Style {
@@ -609,18 +588,16 @@ fn agent_panel_visible_count(app: &AppState, area: Rect, leading_separator: bool
             skip -= section.entries.len();
             continue;
         }
-        if remaining_rows < 2 {
+        if remaining_rows < 3 {
             break;
         }
 
         remaining_rows = remaining_rows.saturating_sub(1);
-        let show_status = agent_panel_section_shows_entry_status(section.label);
-        for entry in section.entries.iter().skip(skip) {
-            let entry_height = agent_panel_entry_height(show_status, entry);
-            if remaining_rows < entry_height {
+        for _ in section.entries.iter().skip(skip) {
+            if remaining_rows < 2 {
                 break;
             }
-            remaining_rows = remaining_rows.saturating_sub(entry_height);
+            remaining_rows = remaining_rows.saturating_sub(2);
             visible += 1;
         }
         skip = 0;
@@ -1317,7 +1294,12 @@ fn agent_panel_body_desired_height(app: &AppState) -> u16 {
         return 1;
     }
 
-    sections.iter().map(agent_panel_section_height).sum()
+    let section_rows = sections.len() as u16;
+    let entry_rows = sections
+        .iter()
+        .map(|section| section.entries.len() as u16)
+        .sum::<u16>();
+    section_rows + entry_rows * 2
 }
 
 fn port_panel_desired_height(app: &AppState, entries: &[PortPanelEntry]) -> u16 {
@@ -2671,12 +2653,10 @@ fn render_agent_entry(
         }
         status_spans.push(Span::styled(custom_status.clone(), agent_style));
     }
-    if agent_panel_entry_has_detail_line(show_status, detail) {
-        frame.render_widget(
-            Paragraph::new(Line::from(status_spans)).style(row_style),
-            Rect::new(area.x, row_y + 1, area.width, 1),
-        );
-    }
+    frame.render_widget(
+        Paragraph::new(Line::from(status_spans)).style(row_style),
+        Rect::new(area.x, row_y + 1, area.width, 1),
+    );
 }
 
 pub(crate) fn agent_panel_entry_at_row(
@@ -2698,16 +2678,14 @@ pub(crate) fn agent_panel_entry_at_row(
         }
 
         row_y = row_y.saturating_add(1);
-        let show_status = agent_panel_section_shows_entry_status(section.label);
         for detail in section.entries.iter().skip(skip) {
-            let entry_height = agent_panel_entry_height(show_status, detail);
-            if row_y.saturating_add(entry_height.saturating_sub(1)) >= body_bottom {
+            if row_y.saturating_add(1) >= body_bottom {
                 break;
             }
-            if row >= row_y && row < row_y.saturating_add(entry_height) {
+            if row == row_y || row == row_y + 1 {
                 return Some(detail.clone());
             }
-            row_y = row_y.saturating_add(entry_height);
+            row_y = row_y.saturating_add(2);
         }
         skip = 0;
     }
@@ -2810,12 +2788,11 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
         let show_status = agent_panel_section_shows_entry_status(section.label);
 
         for detail in section.entries.iter().skip(skip) {
-            let entry_height = agent_panel_entry_height(show_status, detail);
-            if row_y.saturating_add(entry_height.saturating_sub(1)) >= body_bottom {
+            if row_y.saturating_add(1) >= body_bottom {
                 break;
             }
             render_agent_entry(app, frame, show_status, detail, body, row_y);
-            row_y = row_y.saturating_add(entry_height);
+            row_y = row_y.saturating_add(2);
         }
         skip = 0;
     }
@@ -3076,7 +3053,7 @@ mod tests {
     }
 
     #[test]
-    fn current_space_idle_agents_render_without_empty_detail_rows() {
+    fn current_space_idle_agents_use_fixed_two_row_entries_without_spacers() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("agents");
         let first_pane = workspace.tabs[0].root_pane;
@@ -3094,7 +3071,7 @@ mod tests {
 
         assert_eq!(
             agent_panel_desired_height(&app),
-            AGENT_PANEL_HEADER_ROWS + 3
+            AGENT_PANEL_HEADER_ROWS + 5
         );
 
         let body = agent_panel_body_rect(Rect::new(0, 0, 36, 8), false, false);
@@ -3108,9 +3085,21 @@ mod tests {
             agent_panel_entry_at_row(&app, body, body.y + 2)
                 .unwrap()
                 .pane_id,
+            first_pane
+        );
+        assert_eq!(
+            agent_panel_entry_at_row(&app, body, body.y + 3)
+                .unwrap()
+                .pane_id,
             second_pane
         );
-        assert!(agent_panel_entry_at_row(&app, body, body.y + 3).is_none());
+        assert_eq!(
+            agent_panel_entry_at_row(&app, body, body.y + 4)
+                .unwrap()
+                .pane_id,
+            second_pane
+        );
+        assert!(agent_panel_entry_at_row(&app, body, body.y + 5).is_none());
     }
 
     #[test]

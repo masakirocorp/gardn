@@ -1675,10 +1675,13 @@ mod tests {
             app.state.sidebar_section_split,
         );
         let body = crate::ui::agent_panel_body_rect(detail_area, false, true);
+        let second_agent_row = (body.y..body.y + body.height)
+            .find(|row| app.state.agent_detail_target_at(*row) == Some((0, first_tab, second_pane)))
+            .expect("second agent row should be visible");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             body.x + 2,
-            body.y + 2,
+            second_agent_row,
         ));
 
         assert_eq!(app.state.workspaces[0].active_tab, 1);
