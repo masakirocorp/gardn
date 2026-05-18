@@ -1124,6 +1124,7 @@ pub struct AppState {
     pub activity_agents_expanded: bool,
     pub activity_commands_expanded: bool,
     pub activity_ports_expanded: bool,
+    pub collapsed_agent_sections: Vec<String>,
     pub collapsed_command_groups: Vec<String>,
     pub collapsed_command_status_groups: Vec<String>,
     pub collapsed_workspace_groups: Vec<String>,
@@ -1276,12 +1277,22 @@ impl AppState {
             .any(|key| key == group_key)
     }
 
+    pub fn agent_section_collapsed(&self, section_key: &str) -> bool {
+        self.collapsed_agent_sections
+            .iter()
+            .any(|key| key == section_key)
+    }
+
     pub fn toggle_command_group(&mut self, group_key: String) {
         toggle_string_key(&mut self.collapsed_command_groups, group_key);
     }
 
     pub fn toggle_command_status_group(&mut self, group_key: String) {
         toggle_string_key(&mut self.collapsed_command_status_groups, group_key);
+    }
+
+    pub fn toggle_agent_section(&mut self, section_key: String) {
+        toggle_string_key(&mut self.collapsed_agent_sections, section_key);
     }
 
     pub fn sidebar_visible_workspace_indices(&self) -> Vec<usize> {
@@ -1592,6 +1603,7 @@ impl AppState {
             activity_agents_expanded: true,
             activity_commands_expanded: true,
             activity_ports_expanded: true,
+            collapsed_agent_sections: Vec::new(),
             collapsed_command_groups: Vec::new(),
             collapsed_command_status_groups: Vec::new(),
             collapsed_workspace_groups: Vec::new(),

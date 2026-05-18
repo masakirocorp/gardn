@@ -80,6 +80,11 @@ pub(crate) enum CommandPanelHeaderTarget {
     Status(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentPanelHeaderTarget {
+    pub section: String,
+}
+
 fn sidebar_section_heights(total_h: u16, split_ratio: f32) -> (u16, u16) {
     if total_h == 0 {
         return (0, 0);
@@ -457,6 +462,10 @@ fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
     section_label == "triage"
 }
 
+fn agent_panel_section_collapsed(app: &AppState, section_label: &str) -> bool {
+    app.agent_section_collapsed(section_label)
+}
+
 fn agent_panel_section_display_label(section_label: &str) -> &str {
     match section_label {
         "triage" => "triage · all spaces",
@@ -474,13 +483,7 @@ fn agent_panel_entry_status_label(entry: &AgentPanelEntry) -> &'static str {
 
 fn agent_panel_section_header_style(section: &AgentPanelSection, p: &Palette) -> Style {
     let color = match section.label {
-        "triage" => section
-            .entries
-            .iter()
-            .find(|entry| entry.state == AgentState::Blocked)
-            .or_else(|| section.entries.first())
-            .map(|entry| state_label_color(entry.state, entry.seen, p))
-            .unwrap_or(p.overlay0),
+        "triage" => p.peach,
         "working" => state_label_color(AgentState::Working, true, p),
         "idle" => state_label_color(AgentState::Idle, true, p),
         _ => p.overlay0,
@@ -619,6 +622,13 @@ fn agent_panel_visible_count(app: &AppState, area: Rect, leading_separator: bool
     let mut visible = 0usize;
     let mut skip = app.agent_panel_scroll;
     for section in agent_panel_sections(app) {
+        if agent_panel_section_collapsed(app, section.label) {
+            if remaining_rows < 1 {
+                break;
+            }
+            remaining_rows = remaining_rows.saturating_sub(1);
+            continue;
+        }
         if skip >= section.entries.len() {
             skip -= section.entries.len();
             continue;
@@ -648,6 +658,7 @@ pub(crate) fn agent_panel_scroll_metrics(
     let viewport_rows = agent_panel_visible_count(app, area, leading_separator);
     let total_rows = agent_panel_sections(app)
         .iter()
+        .filter(|section| !agent_panel_section_collapsed(app, section.label))
         .map(|section| section.entries.len())
         .sum::<usize>();
     let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
@@ -1332,6 +1343,7 @@ fn agent_panel_body_desired_height(app: &AppState) -> u16 {
     let section_rows = sections.len() as u16;
     let entry_rows = sections
         .iter()
+        .filter(|section| !agent_panel_section_collapsed(app, section.label))
         .map(|section| section.entries.len() as u16)
         .sum::<u16>();
     section_rows + entry_rows * 2
@@ -1419,6 +1431,22 @@ pub(crate) fn right_sidebar_command_header_target_at_row(
 ) -> Option<CommandPanelHeaderTarget> {
     let (_, command_area, _) = right_sidebar_activity_panel_rects(app, area);
     command_panel_header_target_at_row(app, command_area, row)
+}
+
+pub(crate) fn right_sidebar_agent_header_target_at_row(
+    app: &AppState,
+    area: Rect,
+    row: u16,
+) -> Option<AgentPanelHeaderTarget> {
+    let (agent_area, _) = right_sidebar_panel_rects(app, area);
+    let leading_separator = false;
+    let metrics = agent_panel_scroll_metrics(app, agent_area, leading_separator);
+    let body = agent_panel_body_rect(
+        agent_area,
+        should_show_scrollbar(metrics),
+        leading_separator,
+    );
+    agent_panel_header_target_at_row(app, body, row)
 }
 
 fn command_panel_entries(app: &AppState) -> Vec<CommandPanelEntry> {
@@ -2662,7 +2690,7 @@ fn render_agent_entry(
     let primary_label =
         format_agent_panel_primary_label(detail, area.width.saturating_sub(3) as usize);
     let name_line = Line::from(vec![
-        Span::styled(" ", Style::default()),
+        Span::styled("   ", Style::default()),
         Span::styled(icon, icon_style),
         Span::styled(" ", Style::default()),
         Span::styled(primary_label, name_style),
@@ -2672,7 +2700,7 @@ fn render_agent_entry(
         Rect::new(area.x, row_y, area.width, 1),
     );
 
-    let mut status_spans = vec![Span::styled("   ", Style::default())];
+    let mut status_spans = vec![Span::styled("     ", Style::default())];
     if let Some(agent_label) = &detail.agent_label {
         status_spans.push(Span::styled(agent_label, agent_style));
     }
@@ -2704,6 +2732,11 @@ pub(crate) fn agent_panel_entry_at_row(
     let mut skip = app.agent_panel_scroll;
 
     for section in agent_panel_sections(app) {
+        let collapsed = agent_panel_section_collapsed(app, section.label);
+        if collapsed {
+            row_y = row_y.saturating_add(1);
+            continue;
+        }
         if skip >= section.entries.len() {
             skip -= section.entries.len();
             continue;
@@ -2722,6 +2755,72 @@ pub(crate) fn agent_panel_entry_at_row(
             }
             row_y = row_y.saturating_add(2);
         }
+        skip = 0;
+    }
+
+    None
+}
+
+fn render_agent_section_header(
+    app: &AppState,
+    frame: &mut Frame,
+    section: &AgentPanelSection,
+    body: Rect,
+    row_y: u16,
+) {
+    let chevron = if agent_panel_section_collapsed(app, section.label) {
+        "▸"
+    } else {
+        "▾"
+    };
+    let label = truncate_text(
+        agent_panel_section_display_label(section.label),
+        body.width.saturating_sub(8) as usize,
+    );
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            format!("  {chevron} {label} ({})", section.entries.len()),
+            agent_panel_section_header_style(section, &app.palette),
+        )),
+        Rect::new(body.x, row_y, body.width, 1),
+    );
+}
+
+fn agent_panel_header_target_at_row(
+    app: &AppState,
+    body: Rect,
+    row: u16,
+) -> Option<AgentPanelHeaderTarget> {
+    if body == Rect::default() || row < body.y || row >= body.y + body.height {
+        return None;
+    }
+
+    let mut row_y = body.y;
+    let body_bottom = body.y + body.height;
+    let mut skip = app.agent_panel_scroll;
+
+    for section in agent_panel_sections(app) {
+        let collapsed = agent_panel_section_collapsed(app, section.label);
+        if !collapsed && skip >= section.entries.len() {
+            skip -= section.entries.len();
+            continue;
+        }
+        if row_y >= body_bottom {
+            break;
+        }
+
+        if row == row_y {
+            return Some(AgentPanelHeaderTarget {
+                section: section.label.to_string(),
+            });
+        }
+        row_y = row_y.saturating_add(1);
+
+        if collapsed {
+            continue;
+        }
+        row_y = row_y
+            .saturating_add((section.entries.len().saturating_sub(skip) as u16).saturating_mul(2));
         skip = 0;
     }
 
@@ -2804,6 +2903,15 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
     let body_bottom = body.y + body.height;
     let mut skip = app.agent_panel_scroll;
     for section in sections {
+        let collapsed = agent_panel_section_collapsed(app, section.label);
+        if collapsed {
+            if row_y >= body_bottom {
+                break;
+            }
+            render_agent_section_header(app, frame, &section, body, row_y);
+            row_y = row_y.saturating_add(1);
+            continue;
+        }
         if skip >= section.entries.len() {
             skip -= section.entries.len();
             continue;
@@ -2812,13 +2920,7 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
             break;
         }
 
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                format!(" {}", agent_panel_section_display_label(section.label)),
-                agent_panel_section_header_style(&section, p),
-            )),
-            Rect::new(body.x, row_y, body.width, 1),
-        );
+        render_agent_section_header(app, frame, &section, body, row_y);
         row_y = row_y.saturating_add(1);
         let show_status = agent_panel_section_shows_entry_status(section.label);
 
@@ -3519,7 +3621,7 @@ mod tests {
 
         assert_eq!(
             agent_panel_section_header_style(&triage, &p).fg,
-            Some(p.red)
+            Some(p.peach)
         );
         assert_eq!(
             agent_panel_section_header_style(
@@ -3548,8 +3650,33 @@ mod tests {
         triage.entries[0].seen = false;
         assert_eq!(
             agent_panel_section_header_style(&triage, &p).fg,
-            Some(p.teal)
+            Some(p.peach)
         );
+    }
+
+    #[test]
+    fn collapsed_agent_section_hides_entries_and_keeps_header() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("blocked");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        pane_state.detected_agent = Some(Agent::Claude);
+        pane_state.state = AgentState::Blocked;
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        app.collapsed_agent_sections = vec!["triage".into()];
+
+        let backend = TestBackend::new(40, 8);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_agent_detail(&app, frame, Rect::new(0, 0, 40, 8), false))
+            .expect("render agent panel");
+
+        let text = buffer_text(terminal.backend().buffer(), 40, 8);
+        assert!(text.contains("▸ triage · all spaces (1)"));
+        assert!(!text.contains("claude · blocked"));
     }
 
     #[test]
