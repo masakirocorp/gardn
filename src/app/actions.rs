@@ -101,6 +101,282 @@ pub struct PaneStateUpdate {
 // ---------------------------------------------------------------------------
 
 impl AppState {
+    fn command_target_for_root(&self, root: &std::path::Path) -> Option<(usize, usize, PaneId)> {
+        for (ws_idx, workspace) in self.workspaces.iter().enumerate() {
+            for (tab_idx, tab) in workspace.tabs.iter().enumerate() {
+                for pane_id in tab.layout.pane_ids() {
+                    let Some(cwd) =
+                        tab.cwd_for_pane(pane_id, &self.terminals, &self.terminal_runtimes)
+                    else {
+                        continue;
+                    };
+                    if crate::commands::project_root_from_cwd(&cwd) == root {
+                        return Some((ws_idx, tab_idx, pane_id));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn command_terminal_target(
+        &self,
+        terminal_id: &crate::terminal::TerminalId,
+    ) -> Option<(usize, usize, PaneId)> {
+        for (ws_idx, workspace) in self.workspaces.iter().enumerate() {
+            for (tab_idx, tab) in workspace.tabs.iter().enumerate() {
+                for (pane_id, pane) in &tab.panes {
+                    if &pane.attached_terminal_id == terminal_id {
+                        return Some((ws_idx, tab_idx, *pane_id));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub(crate) fn focus_command_run(&mut self, command_id: &str) -> bool {
+        let Some(terminal_id) = self
+            .command_runs
+            .get(command_id)
+            .map(|run| run.terminal_id.clone())
+        else {
+            return false;
+        };
+        let Some((ws_idx, tab_idx, pane_id)) = self.command_terminal_target(&terminal_id) else {
+            if let Some(run) = self.command_runs.get_mut(command_id) {
+                run.status = crate::commands::CommandRunStatus::Unknown;
+            }
+            return false;
+        };
+
+        self.switch_workspace(ws_idx);
+        self.switch_tab(tab_idx);
+        self.focus_pane(pane_id);
+        self.mode = Mode::Terminal;
+        true
+    }
+
+    pub(crate) fn run_project_command(&mut self, command_id: &str) -> Result<(), String> {
+        let command = self
+            .command_catalog
+            .iter()
+            .find(|command| command.id == command_id)
+            .cloned()
+            .ok_or_else(|| format!("command {command_id} not found"))?;
+
+        if let Some(run) = self.command_runs.get(command_id).cloned() {
+            if run.status == crate::commands::CommandRunStatus::Running
+                && self.focus_command_run(command_id)
+            {
+                return Ok(());
+            }
+            if let Some((ws_idx, tab_idx, pane_id)) = self.command_terminal_target(&run.terminal_id)
+            {
+                self.restart_command_in_tab(&command, &run.terminal_id, ws_idx, tab_idx, pane_id)?;
+                return Ok(());
+            }
+            if let Some(run) = self.command_runs.get_mut(command_id) {
+                run.status = crate::commands::CommandRunStatus::Unknown;
+            }
+        }
+
+        let (ws_idx, _, _) = self
+            .command_target_for_root(&command.root)
+            .ok_or_else(|| format!("no pane for {}", command.root.display()))?;
+
+        self.open_command_tab(command, ws_idx)
+    }
+
+    fn open_command_tab(
+        &mut self,
+        command: crate::commands::ProjectCommand,
+        ws_idx: usize,
+    ) -> Result<(), String> {
+        let (rows, cols) = self.estimate_pane_size();
+        let workspace = self
+            .workspaces
+            .get_mut(ws_idx)
+            .ok_or_else(|| "command workspace disappeared".to_string())?;
+        let (tab_idx, terminal, runtime) = workspace
+            .create_command_tab(
+                rows.max(4),
+                cols.max(10),
+                command.root.clone(),
+                &command.command,
+                &[],
+                self.pane_scrollback_limit_bytes,
+                self.host_terminal_theme,
+            )
+            .map_err(|err| err.to_string())?;
+        if let Some(tab) = workspace.tabs.get_mut(tab_idx) {
+            tab.set_custom_name(command.name.clone());
+        }
+        let terminal_id = terminal.id.clone();
+        self.terminal_runtimes.insert(terminal.id.clone(), runtime);
+        self.terminals.insert(terminal.id.clone(), terminal);
+
+        self.command_runs.insert(
+            command.id.clone(),
+            crate::commands::CommandRun {
+                command_id: command.id,
+                terminal_id,
+                status: crate::commands::CommandRunStatus::Running,
+            },
+        );
+
+        self.switch_workspace(ws_idx);
+        self.switch_tab(tab_idx);
+        self.mode = Mode::Terminal;
+        self.mark_session_dirty();
+        Ok(())
+    }
+
+    fn restart_command_in_tab(
+        &mut self,
+        command: &crate::commands::ProjectCommand,
+        terminal_id: &crate::terminal::TerminalId,
+        ws_idx: usize,
+        tab_idx: usize,
+        pane_id: PaneId,
+    ) -> Result<(), String> {
+        if let Some(runtime) = self.terminal_runtimes.remove(terminal_id) {
+            runtime.shutdown();
+        }
+
+        let (rows, cols) = self.estimate_pane_size();
+        let (events, render_notify, render_dirty) = {
+            let tab = self
+                .workspaces
+                .get(ws_idx)
+                .and_then(|workspace| workspace.tabs.get(tab_idx))
+                .ok_or_else(|| "command tab disappeared".to_string())?;
+            (
+                tab.events.clone(),
+                tab.render_notify.clone(),
+                tab.render_dirty.clone(),
+            )
+        };
+        let runtime = crate::terminal::TerminalRuntime::spawn_shell_command(
+            pane_id,
+            rows.max(4),
+            cols.max(10),
+            command.root.clone(),
+            &command.command,
+            &[],
+            self.pane_scrollback_limit_bytes,
+            self.host_terminal_theme,
+            events,
+            render_notify,
+            render_dirty,
+        )
+        .map_err(|err| err.to_string())?;
+        self.terminal_runtimes.insert(terminal_id.clone(), runtime);
+        if let Some(terminal) = self.terminals.get_mut(terminal_id) {
+            terminal.cwd = command.root.clone();
+        }
+        if let Some(run) = self.command_runs.get_mut(&command.id) {
+            run.status = crate::commands::CommandRunStatus::Running;
+        }
+
+        self.switch_workspace(ws_idx);
+        self.switch_tab(tab_idx);
+        self.focus_pane(pane_id);
+        self.mode = Mode::Terminal;
+        self.mark_session_dirty();
+        Ok(())
+    }
+
+    pub fn stop_project_command(&mut self, command_id: &str) -> bool {
+        let Some(run) = self.command_runs.get_mut(command_id) else {
+            return false;
+        };
+        if let Some(runtime) = self.terminal_runtimes.remove(&run.terminal_id) {
+            runtime.shutdown();
+            run.status = crate::commands::CommandRunStatus::Stopped;
+        } else {
+            run.status = crate::commands::CommandRunStatus::Unknown;
+        }
+        true
+    }
+
+    pub(crate) fn refresh_command_run_statuses(&mut self) -> bool {
+        let mut changed = false;
+        for run in self.command_runs.values_mut() {
+            if run.status != crate::commands::CommandRunStatus::Running {
+                continue;
+            }
+            let alive = self
+                .terminal_runtimes
+                .get(&run.terminal_id)
+                .map(|runtime| runtime.child_pid())
+                .is_some_and(|pid| pid != 0 && crate::platform::process_exists(pid));
+            if !alive {
+                run.status = crate::commands::CommandRunStatus::Stopped;
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    pub(crate) fn command_scope_workspace_indices(&self) -> Vec<usize> {
+        match self.agent_panel_scope {
+            super::state::AgentPanelScope::CurrentWorkspace => {
+                let idx = if matches!(self.mode, Mode::Navigate) {
+                    Some(self.selected)
+                } else {
+                    self.active
+                };
+                idx.filter(|idx| self.workspaces.get(*idx).is_some())
+                    .into_iter()
+                    .collect()
+            }
+            super::state::AgentPanelScope::CurrentGroup => self
+                .workspaces
+                .iter()
+                .enumerate()
+                .filter(|(_, ws)| ws.group_id == self.active_group_id())
+                .map(|(idx, _)| idx)
+                .collect(),
+            super::state::AgentPanelScope::AllWorkspaces => (0..self.workspaces.len()).collect(),
+        }
+    }
+
+    pub(crate) fn refresh_command_catalog(&mut self) -> bool {
+        let mut roots = self
+            .command_scope_workspace_indices()
+            .into_iter()
+            .filter_map(|ws_idx| self.workspaces.get(ws_idx))
+            .flat_map(|ws| {
+                ws.tabs.iter().flat_map(|tab| {
+                    tab.layout.pane_ids().into_iter().filter_map(|pane_id| {
+                        tab.cwd_for_pane(pane_id, &self.terminals, &self.terminal_runtimes)
+                    })
+                })
+            })
+            .map(|cwd| crate::commands::project_root_from_cwd(&cwd))
+            .collect::<Vec<_>>();
+        roots.sort();
+        roots.dedup();
+
+        let mut catalog = roots
+            .into_iter()
+            .flat_map(|root| crate::commands::discover_project_commands(&root))
+            .collect::<Vec<_>>();
+        catalog.sort_by_key(|command| {
+            (
+                command.root.clone(),
+                command.confidence,
+                command.source,
+                command.name.clone(),
+            )
+        });
+
+        let changed = self.command_catalog != catalog;
+        self.command_catalog = catalog;
+        changed
+    }
+
     fn group_index_for_id(&self, group_id: &str) -> Option<usize> {
         self.groups.iter().position(|group| group.id == group_id)
     }
@@ -735,20 +1011,35 @@ impl AppState {
         terminal_ids: impl IntoIterator<Item = crate::terminal::TerminalId>,
     ) {
         for terminal_id in terminal_ids {
-            let still_attached = self.workspaces.iter().any(|ws| {
-                ws.tabs.iter().any(|tab| {
-                    tab.panes
-                        .values()
-                        .any(|pane| pane.attached_terminal_id == terminal_id)
-                })
-            });
-            if !still_attached {
+            if !self.terminal_id_is_attached(&terminal_id) {
                 self.terminals.remove(&terminal_id);
                 if let Some(runtime) = self.terminal_runtimes.remove(&terminal_id) {
                     runtime.shutdown();
                 }
             }
         }
+    }
+
+    pub(crate) fn terminal_id_is_attached(
+        &self,
+        terminal_id: &crate::terminal::TerminalId,
+    ) -> bool {
+        self.workspaces.iter().any(|ws| {
+            ws.tabs.iter().any(|tab| {
+                tab.panes
+                    .values()
+                    .any(|pane| &pane.attached_terminal_id == terminal_id)
+            })
+        })
+    }
+
+    pub(crate) fn terminal_has_command_run(
+        &self,
+        terminal_id: &crate::terminal::TerminalId,
+    ) -> bool {
+        self.command_runs
+            .values()
+            .any(|run| &run.terminal_id == terminal_id)
     }
 
     pub fn close_selected_workspace(&mut self) {
@@ -1029,8 +1320,12 @@ impl AppState {
 
     pub fn handle_app_event(&mut self, event: AppEvent) -> Vec<PaneStateUpdate> {
         match event {
-            AppEvent::PaneDied { pane_id } => {
-                self.handle_pane_died(pane_id);
+            AppEvent::PaneDied {
+                pane_id,
+                child_pid,
+                exit_success,
+            } => {
+                self.handle_pane_died(pane_id, child_pid, exit_success);
                 Vec::new()
             }
             AppEvent::UpdateReady {
@@ -1212,7 +1507,7 @@ impl AppState {
         }
     }
 
-    fn handle_pane_died(&mut self, pane_id: PaneId) {
+    fn handle_pane_died(&mut self, pane_id: PaneId, child_pid: u32, exit_success: bool) {
         let ws_idx = self
             .workspaces
             .iter()
@@ -1224,6 +1519,12 @@ impl AppState {
         };
 
         let pane_terminal_id = self.terminal_id_for_pane(ws_idx, pane_id);
+        if let Some(terminal_id) = pane_terminal_id.as_ref() {
+            if self.handle_command_pane_died(terminal_id, child_pid, exit_success) {
+                return;
+            }
+        }
+
         let workspace_terminal_ids = self.terminal_ids_for_workspace(ws_idx);
         let should_close_workspace = {
             let ws = &mut self.workspaces[ws_idx];
@@ -1254,6 +1555,38 @@ impl AppState {
             self.remove_unattached_terminal_ids(pane_terminal_id);
         }
     }
+
+    fn handle_command_pane_died(
+        &mut self,
+        terminal_id: &crate::terminal::TerminalId,
+        child_pid: u32,
+        exit_success: bool,
+    ) -> bool {
+        let Some(command_id) = self.command_runs.iter().find_map(|(command_id, run)| {
+            (&run.terminal_id == terminal_id).then(|| command_id.clone())
+        }) else {
+            return false;
+        };
+
+        if let Some(runtime) = self.terminal_runtimes.get(terminal_id) {
+            let runtime_pid = runtime.child_pid();
+            if child_pid != 0 && runtime_pid != 0 && child_pid != runtime_pid {
+                return true;
+            }
+        }
+
+        if self.terminal_runtimes.remove(terminal_id).is_some() {
+            if let Some(run) = self.command_runs.get_mut(&command_id) {
+                run.status = if exit_success {
+                    crate::commands::CommandRunStatus::Stopped
+                } else {
+                    crate::commands::CommandRunStatus::Failed
+                };
+            }
+            self.mark_session_dirty();
+        }
+        true
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1282,6 +1615,215 @@ mod tests {
             state.mode = Mode::Terminal;
         }
         state
+    }
+
+    fn temp_project(name: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "herdr-app-commands-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn command_catalog_refresh_uses_pane_cwd_project_roots_in_scope() {
+        let project = temp_project("scope");
+        std::fs::write(
+            project.join("package.json"),
+            r#"{"scripts":{"dev":"vite"}}"#,
+        )
+        .unwrap();
+        let nested = project.join("apps/web");
+        std::fs::create_dir_all(&nested).unwrap();
+        let mut state = app_with_workspaces(&["web"]);
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = nested;
+
+        assert!(state.refresh_command_catalog());
+
+        assert_eq!(state.command_catalog.len(), 1);
+        assert_eq!(state.command_catalog[0].name, "dev");
+        assert_eq!(state.command_catalog[0].root, project);
+    }
+
+    fn project_command(
+        root: std::path::PathBuf,
+        name: &str,
+        command: &str,
+    ) -> crate::commands::ProjectCommand {
+        crate::commands::ProjectCommand {
+            id: format!("{}:package.json:{name}", root.display()),
+            root,
+            source: crate::commands::CommandSource::PackageJson,
+            name: name.to_string(),
+            command: command.to_string(),
+            confidence: crate::commands::CommandConfidence::Explicit,
+        }
+    }
+
+    async fn wait_for_runtime_pid(state: &AppState, terminal_id: &crate::terminal::TerminalId) {
+        for _ in 0..50 {
+            if state
+                .terminal_runtimes
+                .get(terminal_id)
+                .is_some_and(|runtime| runtime.child_pid() != 0)
+            {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn project_command_runs_in_managed_pane_and_can_stop() {
+        let project = temp_project("run");
+        std::fs::write(
+            project.join("package.json"),
+            r#"{"scripts":{"dev":"sleep 30"}}"#,
+        )
+        .unwrap();
+        let mut state = app_with_workspaces(&["web"]);
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let root_terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&root_terminal_id).unwrap().cwd = project.clone();
+        let command = project_command(project, "dev", "sleep 30");
+        let command_id = command.id.clone();
+        state.command_catalog = vec![command];
+
+        state.run_project_command(&command_id).unwrap();
+
+        let run = state.command_runs.get(&command_id).unwrap();
+        let command_terminal_id = run.terminal_id.clone();
+        assert_eq!(run.status, crate::commands::CommandRunStatus::Running);
+        assert!(state.terminal_runtimes.contains_key(&command_terminal_id));
+        assert_eq!(state.workspaces[0].tabs.len(), 2);
+        assert_eq!(state.workspaces[0].active_tab, 1);
+        assert_eq!(state.workspaces[0].tabs[1].display_name(), "dev");
+        wait_for_runtime_pid(&state, &command_terminal_id).await;
+        assert_ne!(
+            state
+                .terminal_runtimes
+                .get(&command_terminal_id)
+                .map(|runtime| runtime.child_pid()),
+            Some(0)
+        );
+        assert!(state.focus_command_run(&command_id));
+
+        assert!(state.stop_project_command(&command_id));
+
+        let run = state.command_runs.get(&command_id).unwrap();
+        assert_eq!(run.status, crate::commands::CommandRunStatus::Stopped);
+        assert!(!state.terminal_runtimes.contains_key(&command_terminal_id));
+
+        state.run_project_command(&command_id).unwrap();
+
+        let run = state.command_runs.get(&command_id).unwrap();
+        assert_eq!(run.status, crate::commands::CommandRunStatus::Running);
+        assert_eq!(&run.terminal_id, &command_terminal_id);
+        assert_eq!(state.workspaces[0].tabs.len(), 2);
+        assert_eq!(state.workspaces[0].active_tab, 1);
+        assert!(state.terminal_runtimes.contains_key(&command_terminal_id));
+        wait_for_runtime_pid(&state, &command_terminal_id).await;
+        assert!(state.stop_project_command(&command_id));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn command_pane_exit_retains_tab_and_records_failure() {
+        let project = temp_project("exit-failure");
+        let mut state = app_with_workspaces(&["web"]);
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let root_terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&root_terminal_id).unwrap().cwd = project.clone();
+        let command = project_command(project, "check", "false");
+        let command_id = command.id.clone();
+        state.command_catalog = vec![command];
+
+        state.run_project_command(&command_id).unwrap();
+
+        let terminal_id = state
+            .command_runs
+            .get(&command_id)
+            .unwrap()
+            .terminal_id
+            .clone();
+        wait_for_runtime_pid(&state, &terminal_id).await;
+        let (_, _, pane_id) = state.command_terminal_target(&terminal_id).unwrap();
+        let child_pid = state.terminal_runtimes[&terminal_id].child_pid();
+
+        state.handle_pane_died(pane_id, child_pid, false);
+
+        assert_eq!(state.workspaces[0].tabs.len(), 2);
+        assert!(state.terminals.contains_key(&terminal_id));
+        assert!(!state.terminal_runtimes.contains_key(&terminal_id));
+        assert_eq!(
+            state.command_runs.get(&command_id).unwrap().status,
+            crate::commands::CommandRunStatus::Failed
+        );
+        assert!(state.command_terminal_target(&terminal_id).is_some());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stale_command_pane_exit_does_not_stop_restarted_command() {
+        let project = temp_project("stale-exit");
+        let mut state = app_with_workspaces(&["web"]);
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let root_terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&root_terminal_id).unwrap().cwd = project.clone();
+        let command = project_command(project, "dev", "sleep 30");
+        let command_id = command.id.clone();
+        state.command_catalog = vec![command];
+
+        state.run_project_command(&command_id).unwrap();
+        let terminal_id = state
+            .command_runs
+            .get(&command_id)
+            .unwrap()
+            .terminal_id
+            .clone();
+        wait_for_runtime_pid(&state, &terminal_id).await;
+        assert!(state.stop_project_command(&command_id));
+
+        state.run_project_command(&command_id).unwrap();
+        wait_for_runtime_pid(&state, &terminal_id).await;
+        let (_, _, pane_id) = state.command_terminal_target(&terminal_id).unwrap();
+        let current_pid = state.terminal_runtimes[&terminal_id].child_pid();
+
+        state.handle_pane_died(pane_id, current_pid.saturating_add(1), false);
+
+        assert_eq!(
+            state.command_runs.get(&command_id).unwrap().status,
+            crate::commands::CommandRunStatus::Running
+        );
+        assert!(state.terminal_runtimes.contains_key(&terminal_id));
+        assert!(state.command_terminal_target(&terminal_id).is_some());
+        assert!(state.stop_project_command(&command_id));
+    }
+
+    #[test]
+    fn command_run_refresh_stops_missing_owned_runtime() {
+        let mut state = app_with_workspaces(&["web"]);
+        let command_id = "missing-runtime".to_string();
+        state.command_runs.insert(
+            command_id.clone(),
+            crate::commands::CommandRun {
+                command_id: command_id.clone(),
+                terminal_id: crate::terminal::TerminalId::alloc(),
+                status: crate::commands::CommandRunStatus::Running,
+            },
+        );
+
+        assert!(state.refresh_command_run_statuses());
+
+        assert_eq!(
+            state.command_runs.get(&command_id).unwrap().status,
+            crate::commands::CommandRunStatus::Stopped
+        );
     }
 
     #[test]
@@ -1795,7 +2337,7 @@ mod tests {
         let mut state = app_with_workspaces(&["a", "b"]);
         let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
 
-        state.handle_pane_died(pane_id);
+        state.handle_pane_died(pane_id, 0, true);
 
         assert_eq!(state.workspaces.len(), 1);
         assert_eq!(state.workspaces[0].custom_name.as_deref(), Some("b"));
@@ -1807,7 +2349,7 @@ mod tests {
         state.mode = Mode::Terminal;
         let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
 
-        state.handle_pane_died(pane_id);
+        state.handle_pane_died(pane_id, 0, true);
 
         assert!(state.workspaces.is_empty());
         assert_eq!(state.mode, Mode::Navigate);
@@ -1818,7 +2360,7 @@ mod tests {
         let mut state = app_with_workspaces(&["test"]);
         let second_id = state.workspaces[0].test_split(Direction::Horizontal);
 
-        state.handle_pane_died(second_id);
+        state.handle_pane_died(second_id, 0, true);
 
         assert_eq!(state.workspaces.len(), 1);
         assert_eq!(state.workspaces[0].panes.len(), 1);
@@ -1829,7 +2371,7 @@ mod tests {
         let mut state = app_with_workspaces(&["test"]);
         let fake_id = PaneId::from_raw(9999);
 
-        state.handle_pane_died(fake_id);
+        state.handle_pane_died(fake_id, 0, true);
 
         assert_eq!(state.workspaces.len(), 1);
     }

@@ -483,6 +483,25 @@ impl HeadlessServer {
                 needs_render = true;
             }
 
+            if let Some(action) = self.app.state.request_command_action.take() {
+                match action {
+                    app::state::CommandPanelAction::RunOrFocus(command_id) => {
+                        if let Err(err) = self.app.state.run_project_command(&command_id) {
+                            self.app.state.toast = Some(app::state::ToastNotification {
+                                kind: app::state::ToastKind::NeedsAttention,
+                                title: "command failed".to_string(),
+                                context: err,
+                                target: None,
+                            });
+                        }
+                    }
+                    app::state::CommandPanelAction::Stop(command_id) => {
+                        self.app.state.stop_project_command(&command_id);
+                    }
+                }
+                needs_render = true;
+            }
+
             self.drain_client_sound_config_reload_request();
             self.stream_host_mouse_capture_mode();
 
@@ -1075,22 +1094,25 @@ impl HeadlessServer {
 
                 true
             }
-            AppEvent::PaneDied { pane_id } => {
+            AppEvent::PaneDied { pane_id, .. } => {
                 let terminal_id = self.app.state.workspaces.iter().find_map(|ws| {
                     ws.tabs.iter().find_map(|tab| {
                         tab.panes
                             .get(pane_id)
-                            .map(|pane| pane.attached_terminal_id.to_string())
+                            .map(|pane| pane.attached_terminal_id.clone())
                     })
                 });
 
                 self.app.handle_internal_event(ev);
 
                 if let Some(terminal_id) = terminal_id {
-                    self.shutdown_terminal_attach_clients(
-                        &terminal_id,
-                        format!("terminal {terminal_id} exited"),
-                    );
+                    if !self.app.state.terminal_id_is_attached(&terminal_id) {
+                        let terminal_id = terminal_id.to_string();
+                        self.shutdown_terminal_attach_clients(
+                            &terminal_id,
+                            format!("terminal {terminal_id} exited"),
+                        );
+                    }
                 }
 
                 true
@@ -1995,6 +2017,12 @@ impl HeadlessServer {
             self.app.next_port_scan = now + app::PORT_SCAN_INTERVAL;
         }
 
+        if now >= self.app.next_command_scan {
+            changed |= self.app.state.refresh_command_catalog();
+            changed |= self.app.state.refresh_command_run_statuses();
+            self.app.next_command_scan = now + app::COMMAND_SCAN_INTERVAL;
+        }
+
         if self
             .app
             .config_diagnostic_deadline
@@ -2300,6 +2328,54 @@ mod tests {
         assert_eq!(server.app.next_port_scan, now + app::PORT_SCAN_INTERVAL);
     }
 
+    fn temp_project(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "herdr-headless-commands-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn headless_scheduled_tasks_refresh_commands() {
+        let mut server = test_headless_server();
+        let project = temp_project("scan");
+        fs::write(
+            project.join("package.json"),
+            r#"{"scripts":{"dev":"astro dev"}}"#,
+        )
+        .unwrap();
+        server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("web")];
+        server.app.state.ensure_test_terminals();
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        let root_pane = server.app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = server.app.state.terminal_id_for_pane(0, root_pane).unwrap();
+        server
+            .app
+            .state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .cwd = project;
+        let now = Instant::now();
+        server.app.next_command_scan = now;
+
+        assert!(server.handle_scheduled_tasks_headless(now));
+
+        assert_eq!(server.app.state.command_catalog.len(), 1);
+        assert_eq!(server.app.state.command_catalog[0].name, "dev");
+        assert_eq!(
+            server.app.next_command_scan,
+            now + app::COMMAND_SCAN_INTERVAL
+        );
+    }
+
     fn read_server_shutdown_reason(bytes: Vec<u8>) -> Option<String> {
         match read_server_message(bytes) {
             ServerMessage::ServerShutdown { reason } => reason,
@@ -2387,7 +2463,13 @@ mod tests {
         );
         assert_eq!(server.terminal_attach_owners.get(&terminal_id), Some(&7));
 
-        assert!(server.handle_internal_event_with_forwarding(AppEvent::PaneDied { pane_id }));
+        assert!(
+            server.handle_internal_event_with_forwarding(AppEvent::PaneDied {
+                pane_id,
+                child_pid: 0,
+                exit_success: true,
+            })
+        );
 
         assert!(!server.clients.contains_key(&7));
         assert!(!server.terminal_attach_owners.contains_key(&terminal_id));

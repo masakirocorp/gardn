@@ -455,6 +455,11 @@ impl AppState {
                         return None;
                     }
 
+                    if self.on_activity_commands_header(mouse.column, mouse.row) {
+                        self.toggle_activity_commands();
+                        return None;
+                    }
+
                     if self.on_activity_ports_header(mouse.column, mouse.row) {
                         self.toggle_activity_ports();
                         return None;
@@ -482,6 +487,31 @@ impl AppState {
                         self.switch_tab(tab_idx);
                         self.focus_pane(pane_id);
                         self.mode = Mode::Terminal;
+                        return None;
+                    }
+
+                    if let Some(target) = self.command_header_target_at(mouse.row) {
+                        match target {
+                            crate::ui::CommandPanelHeaderTarget::Project(key) => {
+                                self.toggle_command_group(key)
+                            }
+                            crate::ui::CommandPanelHeaderTarget::Status(key) => {
+                                self.toggle_command_status_group(key)
+                            }
+                        }
+                        return None;
+                    }
+
+                    if let Some(command_id) = self.command_detail_target_at(mouse.column, mouse.row)
+                    {
+                        let action = if self.command_runs.get(&command_id).is_some_and(|run| {
+                            run.status == crate::commands::CommandRunStatus::Running
+                        }) {
+                            crate::app::state::CommandPanelAction::Stop(command_id)
+                        } else {
+                            crate::app::state::CommandPanelAction::RunOrFocus(command_id)
+                        };
+                        self.request_command_action = Some(action);
                         return None;
                     }
 
@@ -999,6 +1029,16 @@ impl AppState {
             }
 
             MouseEventKind::Down(MouseButton::Right)
+                if in_right_sidebar && !self.right_sidebar_collapsed =>
+            {
+                if let Some(command_id) = self.command_detail_target_at(mouse.column, mouse.row) {
+                    self.request_command_action =
+                        Some(crate::app::state::CommandPanelAction::Stop(command_id));
+                    return None;
+                }
+            }
+
+            MouseEventKind::Down(MouseButton::Right)
                 if self.tab_at(mouse.column, mouse.row).is_some() =>
             {
                 if let (Some(ws_idx), Some(tab_idx)) =
@@ -1338,7 +1378,7 @@ impl AppState {
         })
     }
 
-    pub(super) fn focus_pane(&mut self, pane_id: crate::layout::PaneId) {
+    pub(crate) fn focus_pane(&mut self, pane_id: crate::layout::PaneId) {
         if let Some(ws) = self.active.and_then(|i| self.workspaces.get_mut(i)) {
             if ws.layout.focused() != pane_id {
                 ws.layout.focus_pane(pane_id);

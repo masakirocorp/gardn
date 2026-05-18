@@ -1,0 +1,647 @@
+use std::collections::{BTreeMap, HashSet};
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum CommandSource {
+    Vscode,
+    PackageJson,
+    Composer,
+    Just,
+    Make,
+    Cargo,
+    Go,
+    Maven,
+    Gradle,
+    Dotnet,
+    Python,
+    Php,
+    Ruby,
+}
+
+impl CommandSource {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            CommandSource::Vscode => "vscode",
+            CommandSource::PackageJson => "package.json",
+            CommandSource::Composer => "composer",
+            CommandSource::Just => "just",
+            CommandSource::Make => "make",
+            CommandSource::Cargo => "cargo",
+            CommandSource::Go => "go",
+            CommandSource::Maven => "maven",
+            CommandSource::Gradle => "gradle",
+            CommandSource::Dotnet => "dotnet",
+            CommandSource::Python => "python",
+            CommandSource::Php => "php",
+            CommandSource::Ruby => "ruby",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum CommandConfidence {
+    Explicit,
+    NativeDefault,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProjectCommand {
+    pub id: String,
+    pub root: PathBuf,
+    pub source: CommandSource,
+    pub name: String,
+    pub command: String,
+    pub confidence: CommandConfidence,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommandRunStatus {
+    Running,
+    Stopped,
+    Failed,
+    Unknown,
+}
+
+impl CommandRunStatus {
+    const SORT_ORDER: [Self; 4] = [Self::Running, Self::Failed, Self::Unknown, Self::Stopped];
+
+    pub(crate) fn rank(self) -> usize {
+        Self::SORT_ORDER
+            .iter()
+            .position(|status| *status == self)
+            .unwrap_or(Self::SORT_ORDER.len())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CommandRun {
+    pub command_id: String,
+    pub terminal_id: crate::terminal::TerminalId,
+    pub status: CommandRunStatus,
+}
+
+pub(crate) fn project_root_from_cwd(cwd: &Path) -> PathBuf {
+    let mut current = if cwd.is_dir() {
+        cwd.to_path_buf()
+    } else {
+        cwd.parent().unwrap_or(cwd).to_path_buf()
+    };
+
+    loop {
+        if has_project_marker(&current) {
+            return current;
+        }
+        if !current.pop() {
+            return cwd.to_path_buf();
+        }
+    }
+}
+
+pub(crate) fn discover_project_commands(root: &Path) -> Vec<ProjectCommand> {
+    let mut commands = Vec::new();
+    commands.extend(vscode_tasks(root));
+    commands.extend(package_json_scripts(root));
+    commands.extend(composer_scripts(root));
+    commands.extend(just_recipes(root));
+    commands.extend(make_targets(root));
+    commands.extend(native_defaults(root));
+    dedupe_commands(commands)
+}
+
+fn command(
+    root: &Path,
+    source: CommandSource,
+    name: impl Into<String>,
+    command: impl Into<String>,
+    confidence: CommandConfidence,
+) -> ProjectCommand {
+    let name = name.into();
+    let command = command.into();
+    let id = format!("{}:{}:{}:{}", root.display(), source.label(), name, command);
+    ProjectCommand {
+        id,
+        root: root.to_path_buf(),
+        source,
+        name,
+        command,
+        confidence,
+    }
+}
+
+fn has_project_marker(path: &Path) -> bool {
+    [
+        ".git",
+        ".mise.toml",
+        "mise.toml",
+        "justfile",
+        "Justfile",
+        "Taskfile.yml",
+        "Taskfile.yaml",
+        "package.json",
+        "composer.json",
+        "Makefile",
+        "Cargo.toml",
+        "go.mod",
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
+        "pyproject.toml",
+        "Gemfile",
+        "Rakefile",
+        "mix.exs",
+    ]
+    .iter()
+    .any(|marker| path.join(marker).exists())
+}
+
+fn read_to_string(path: impl AsRef<Path>) -> Option<String> {
+    std::fs::read_to_string(path).ok()
+}
+
+fn vscode_tasks(root: &Path) -> Vec<ProjectCommand> {
+    let Some(text) = read_to_string(root.join(".vscode/tasks.json")) else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    let Some(tasks) = json.get("tasks").and_then(serde_json::Value::as_array) else {
+        return Vec::new();
+    };
+
+    tasks
+        .iter()
+        .filter_map(|task| {
+            let label = task.get("label")?.as_str()?.trim();
+            let command_text = task.get("command")?.as_str()?.trim();
+            if label.is_empty() || command_text.is_empty() {
+                return None;
+            }
+            let args = task
+                .get("args")
+                .and_then(serde_json::Value::as_array)
+                .map(|args| {
+                    args.iter()
+                        .filter_map(serde_json::Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .filter(|args| !args.is_empty());
+            let run = args.map_or_else(
+                || command_text.to_string(),
+                |args| format!("{command_text} {args}"),
+            );
+            Some(command(
+                root,
+                CommandSource::Vscode,
+                label,
+                run,
+                CommandConfidence::Explicit,
+            ))
+        })
+        .collect()
+}
+
+fn package_json_scripts(root: &Path) -> Vec<ProjectCommand> {
+    let Some(text) = read_to_string(root.join("package.json")) else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    let Some(scripts) = json.get("scripts").and_then(serde_json::Value::as_object) else {
+        return Vec::new();
+    };
+
+    sorted_script_names(scripts)
+        .into_iter()
+        .filter(|name| script_is_user_facing(name))
+        .map(|name| {
+            command(
+                root,
+                CommandSource::PackageJson,
+                name,
+                format!("npm run {name}"),
+                CommandConfidence::Explicit,
+            )
+        })
+        .collect()
+}
+
+fn composer_scripts(root: &Path) -> Vec<ProjectCommand> {
+    let Some(text) = read_to_string(root.join("composer.json")) else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    let Some(scripts) = json.get("scripts").and_then(serde_json::Value::as_object) else {
+        return Vec::new();
+    };
+
+    sorted_script_names(scripts)
+        .into_iter()
+        .filter(|name| script_is_user_facing(name))
+        .map(|name| {
+            command(
+                root,
+                CommandSource::Composer,
+                name,
+                format!("composer {name}"),
+                CommandConfidence::Explicit,
+            )
+        })
+        .collect()
+}
+
+fn sorted_script_names(scripts: &serde_json::Map<String, serde_json::Value>) -> Vec<&str> {
+    let mut names = scripts.keys().map(String::as_str).collect::<Vec<_>>();
+    names.sort_unstable();
+    names
+}
+
+fn script_is_user_facing(name: &str) -> bool {
+    !name.starts_with('_') && !name.starts_with("pre") && !name.starts_with("post")
+}
+
+fn just_recipes(root: &Path) -> Vec<ProjectCommand> {
+    let path = ["justfile", "Justfile"]
+        .iter()
+        .map(|name| root.join(name))
+        .find(|path| path.exists());
+    let Some(path) = path else {
+        return Vec::new();
+    };
+    let Some(text) = read_to_string(path) else {
+        return Vec::new();
+    };
+
+    text.lines()
+        .filter_map(parse_just_recipe)
+        .map(|name| {
+            command(
+                root,
+                CommandSource::Just,
+                name,
+                format!("just {name}"),
+                CommandConfidence::Explicit,
+            )
+        })
+        .collect()
+}
+
+fn parse_just_recipe(line: &str) -> Option<&str> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with('#') || line.starts_with('@') || line.contains(":=") {
+        return None;
+    }
+    let (name, _) = line.split_once(':')?;
+    let name = name.split_whitespace().next()?.trim();
+    valid_task_name(name).then_some(name)
+}
+
+fn make_targets(root: &Path) -> Vec<ProjectCommand> {
+    let Some(text) = read_to_string(root.join("Makefile")) else {
+        return Vec::new();
+    };
+    let phony = parse_phony_targets(&text);
+    let common = [
+        "dev", "run", "serve", "test", "build", "lint", "format", "clean",
+    ];
+    let mut targets = text
+        .lines()
+        .filter_map(parse_make_target)
+        .filter(|name| phony.contains(*name) || common.contains(name))
+        .collect::<Vec<_>>();
+    targets.sort_unstable();
+    targets.dedup();
+
+    targets
+        .into_iter()
+        .map(|name| {
+            command(
+                root,
+                CommandSource::Make,
+                name,
+                format!("make {name}"),
+                CommandConfidence::Explicit,
+            )
+        })
+        .collect()
+}
+
+fn parse_phony_targets(text: &str) -> HashSet<&str> {
+    text.lines()
+        .filter_map(|line| line.trim().strip_prefix(".PHONY:"))
+        .flat_map(str::split_whitespace)
+        .collect()
+}
+
+fn parse_make_target(line: &str) -> Option<&str> {
+    let line = line.trim_end();
+    if line.starts_with('#') || line.starts_with('\t') || line.starts_with('.') {
+        return None;
+    }
+    let (name, rest) = line.split_once(':')?;
+    if rest.starts_with('=') || name.contains('$') || name.contains('%') {
+        return None;
+    }
+    let name = name.trim();
+    valid_task_name(name).then_some(name)
+}
+
+fn valid_task_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('_')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+}
+
+fn native_defaults(root: &Path) -> Vec<ProjectCommand> {
+    let mut commands = Vec::new();
+    if root.join("Cargo.toml").exists() {
+        commands.push(native(root, CommandSource::Cargo, "build", "cargo build"));
+        commands.push(native(root, CommandSource::Cargo, "test", "cargo test"));
+        if root.join("src/main.rs").exists() {
+            commands.push(native(root, CommandSource::Cargo, "run", "cargo run"));
+        }
+    }
+    if root.join("go.mod").exists() {
+        commands.push(native(root, CommandSource::Go, "test", "go test ./..."));
+        commands.push(native(root, CommandSource::Go, "build", "go build ./..."));
+        if root.join("main.go").exists() {
+            commands.push(native(root, CommandSource::Go, "run", "go run ."));
+        }
+    }
+    if root.join("pom.xml").exists() {
+        let mvn = if root.join("mvnw").exists() {
+            "./mvnw"
+        } else {
+            "mvn"
+        };
+        commands.push(native(
+            root,
+            CommandSource::Maven,
+            "test",
+            format!("{mvn} test"),
+        ));
+        commands.push(native(
+            root,
+            CommandSource::Maven,
+            "package",
+            format!("{mvn} package"),
+        ));
+        commands.push(native(
+            root,
+            CommandSource::Maven,
+            "verify",
+            format!("{mvn} verify"),
+        ));
+        if read_to_string(root.join("pom.xml")).is_some_and(|text| text.contains("spring-boot")) {
+            commands.push(native(
+                root,
+                CommandSource::Maven,
+                "spring-boot:run",
+                format!("{mvn} spring-boot:run"),
+            ));
+        }
+    }
+    if root.join("build.gradle").exists() || root.join("build.gradle.kts").exists() {
+        let gradle = if root.join("gradlew").exists() {
+            "./gradlew"
+        } else {
+            "gradle"
+        };
+        let gradle_text = read_to_string(root.join("build.gradle"))
+            .or_else(|| read_to_string(root.join("build.gradle.kts")))
+            .unwrap_or_default();
+        commands.push(native(
+            root,
+            CommandSource::Gradle,
+            "test",
+            format!("{gradle} test"),
+        ));
+        commands.push(native(
+            root,
+            CommandSource::Gradle,
+            "build",
+            format!("{gradle} build"),
+        ));
+        if gradle_text.contains("org.springframework.boot") {
+            commands.push(native(
+                root,
+                CommandSource::Gradle,
+                "bootRun",
+                format!("{gradle} bootRun"),
+            ));
+        }
+        if gradle_text.contains("application") {
+            commands.push(native(
+                root,
+                CommandSource::Gradle,
+                "run",
+                format!("{gradle} run"),
+            ));
+        }
+    }
+    if root.join("pyproject.toml").exists()
+        && (root.join("tests").exists()
+            || read_to_string(root.join("pyproject.toml"))
+                .is_some_and(|text| text.contains("pytest")))
+    {
+        commands.push(native(
+            root,
+            CommandSource::Python,
+            "test",
+            "python -m pytest",
+        ));
+    }
+    if has_dotnet_project(root) {
+        commands.push(native(root, CommandSource::Dotnet, "build", "dotnet build"));
+        commands.push(native(root, CommandSource::Dotnet, "test", "dotnet test"));
+    }
+    if root.join("artisan").exists() {
+        commands.push(native(
+            root,
+            CommandSource::Php,
+            "serve",
+            "php artisan serve",
+        ));
+    }
+    if root.join("Gemfile").exists() || root.join("Rakefile").exists() {
+        if root.join("spec").exists() {
+            commands.push(native(
+                root,
+                CommandSource::Ruby,
+                "spec",
+                "bundle exec rspec",
+            ));
+        }
+        if root.join("Rakefile").exists() {
+            commands.push(native(
+                root,
+                CommandSource::Ruby,
+                "rake",
+                "bundle exec rake",
+            ));
+        }
+    }
+    commands
+}
+
+fn has_dotnet_project(root: &Path) -> bool {
+    std::fs::read_dir(root).ok().is_some_and(|entries| {
+        entries.filter_map(Result::ok).any(|entry| {
+            entry.path().extension().is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("csproj") || ext.eq_ignore_ascii_case("sln")
+            })
+        })
+    })
+}
+
+fn native(
+    root: &Path,
+    source: CommandSource,
+    name: impl Into<String>,
+    run: impl Into<String>,
+) -> ProjectCommand {
+    command(root, source, name, run, CommandConfidence::NativeDefault)
+}
+
+fn dedupe_commands(commands: Vec<ProjectCommand>) -> Vec<ProjectCommand> {
+    let mut by_key = BTreeMap::new();
+    for command in commands {
+        by_key
+            .entry((
+                command.root.clone(),
+                command.source,
+                command.name.clone(),
+                command.command.clone(),
+            ))
+            .or_insert(command);
+    }
+    by_key.into_values().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_root(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "herdr-commands-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn write(root: &Path, path: &str, text: &str) {
+        let path = root.join(path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, text).unwrap();
+    }
+
+    fn names(commands: &[ProjectCommand]) -> Vec<String> {
+        commands
+            .iter()
+            .map(|command| command.name.clone())
+            .collect()
+    }
+
+    #[test]
+    fn package_json_discovers_user_scripts_without_lifecycle_noise() {
+        let root = temp_root("package-json");
+        write(
+            &root,
+            "package.json",
+            r#"{"scripts":{"dev":"vite","predev":"x","posttest":"x","_hidden":"x","test":"vitest"}}"#,
+        );
+
+        let commands = discover_project_commands(&root);
+
+        assert_eq!(names(&commands), vec!["dev", "test"]);
+        assert_eq!(commands[0].command, "npm run dev");
+    }
+
+    #[test]
+    fn vscode_tasks_are_explicit_commands() {
+        let root = temp_root("vscode");
+        write(
+            &root,
+            ".vscode/tasks.json",
+            r#"{"tasks":[{"label":"serve","type":"shell","command":"bin/server","args":["--port","3000"]}]}"#,
+        );
+
+        let commands = discover_project_commands(&root);
+
+        assert_eq!(commands[0].source, CommandSource::Vscode);
+        assert_eq!(commands[0].name, "serve");
+        assert_eq!(commands[0].command, "bin/server --port 3000");
+    }
+
+    #[test]
+    fn just_and_make_discovers_explicit_tasks() {
+        let root = temp_root("just-make");
+        write(
+            &root,
+            "justfile",
+            "dev:\n    npm run dev\n_private:\n    true\n",
+        );
+        write(
+            &root,
+            "Makefile",
+            ".PHONY: deploy\ndeploy:\n\ttrue\ninternal:\n\ttrue\n",
+        );
+
+        let commands = discover_project_commands(&root);
+
+        assert!(commands
+            .iter()
+            .any(|command| command.source == CommandSource::Just && command.name == "dev"));
+        assert!(commands
+            .iter()
+            .any(|command| command.source == CommandSource::Make && command.name == "deploy"));
+        assert!(!commands.iter().any(|command| command.name == "internal"));
+    }
+
+    #[test]
+    fn native_defaults_cover_non_js_repos_conservatively() {
+        let root = temp_root("native");
+        write(
+            &root,
+            "pom.xml",
+            "<project><artifactId>spring-boot-starter-web</artifactId></project>",
+        );
+        write(&root, "mvnw", "#!/bin/sh\n");
+        write(&root, "go.mod", "module example.com/api\n");
+        write(&root, "main.go", "package main\n");
+
+        let commands = discover_project_commands(&root);
+
+        assert!(commands
+            .iter()
+            .any(|command| command.name == "spring-boot:run"
+                && command.command == "./mvnw spring-boot:run"));
+        assert!(commands
+            .iter()
+            .any(|command| command.name == "run" && command.command == "go run ."));
+    }
+
+    #[test]
+    fn project_root_walks_up_to_marker() {
+        let root = temp_root("root");
+        write(&root, "Cargo.toml", "[package]\nname = \"x\"\n");
+        let nested = root.join("src/bin");
+        std::fs::create_dir_all(&nested).unwrap();
+
+        assert_eq!(project_root_from_cwd(&nested), root);
+    }
+}

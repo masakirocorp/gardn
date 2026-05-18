@@ -428,6 +428,7 @@ impl PaneRuntime {
             let events = events.clone();
             let rt = tokio::runtime::Handle::current();
             tokio::task::spawn_blocking(move || {
+                let mut exit_success = false;
                 match slave.spawn_command(cmd) {
                     Ok(mut child) => {
                         if let Some(pid) = child.process_id() {
@@ -436,6 +437,7 @@ impl PaneRuntime {
                         }
                         match child.wait() {
                             Ok(status) => {
+                                exit_success = status.success();
                                 let status_text = format!("{status:?}");
                                 crate::logging::pane_exited(pane_id.raw(), &status_text);
                             }
@@ -447,7 +449,11 @@ impl PaneRuntime {
                     Err(e) => error!(pane = pane_id.raw(), err = %e, "{spawn_error_message}"),
                 }
                 // Use blocking send — PaneDied is critical, must not be dropped
-                if let Err(e) = rt.block_on(events.send(AppEvent::PaneDied { pane_id })) {
+                if let Err(e) = rt.block_on(events.send(AppEvent::PaneDied {
+                    pane_id,
+                    child_pid: child_pid.load(Ordering::Acquire),
+                    exit_success,
+                })) {
                     error!(pane = pane_id.raw(), err = %e, "failed to send PaneDied event");
                 }
             });

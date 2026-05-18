@@ -27,13 +27,25 @@ impl App {
             return;
         }
 
-        let overlay_state = if let AppEvent::PaneDied { pane_id } = &ev {
+        let pane_died_command_terminal = if let AppEvent::PaneDied { pane_id, .. } = &ev {
+            self.find_pane(*pane_id)
+                .and_then(|(ws_idx, _)| self.state.terminal_id_for_pane(ws_idx, *pane_id))
+                .is_some_and(|terminal_id| self.state.terminal_has_command_run(&terminal_id))
+        } else {
+            false
+        };
+
+        let overlay_state = if let AppEvent::PaneDied { pane_id, .. } = &ev {
             self.overlay_panes.remove(pane_id)
         } else {
             None
         };
 
-        if let AppEvent::PaneDied { pane_id } = &ev {
+        if let AppEvent::PaneDied { pane_id, .. } = &ev {
+            if pane_died_command_terminal {
+                self.state.handle_app_event(ev);
+                return;
+            }
             if let Some((ws_idx, _)) = self.find_pane(*pane_id) {
                 if let Some(public_pane_id) = self.public_pane_id(ws_idx, *pane_id) {
                     self.emit_event(crate::api::schema::EventEnvelope {

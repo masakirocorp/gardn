@@ -888,8 +888,25 @@ impl AppState {
             && row < rect.y + rect.height
     }
 
+    pub(super) fn on_activity_commands_header(&self, col: u16, row: u16) -> bool {
+        if self.right_sidebar_collapsed || self.view.right_sidebar_rect == Rect::default() {
+            return false;
+        }
+        let rect =
+            crate::ui::right_sidebar_commands_header_rect(self, self.view.right_sidebar_rect);
+        rect.width > 0
+            && col >= rect.x
+            && col < rect.x + rect.width
+            && row >= rect.y
+            && row < rect.y + rect.height
+    }
+
     pub(super) fn toggle_activity_agents(&mut self) {
         self.activity_agents_expanded = !self.activity_agents_expanded;
+    }
+
+    pub(super) fn toggle_activity_commands(&mut self) {
+        self.activity_commands_expanded = !self.activity_commands_expanded;
     }
 
     pub(super) fn toggle_activity_ports(&mut self) {
@@ -931,6 +948,29 @@ impl AppState {
         let (_, port_area) =
             crate::ui::right_sidebar_panel_rects(self, self.view.right_sidebar_rect);
         crate::ui::port_panel_entry_at_row(self, port_area, row)
+    }
+
+    pub(super) fn command_detail_target_at(&self, col: u16, row: u16) -> Option<String> {
+        if self.right_sidebar_collapsed || self.view.right_sidebar_rect == Rect::default() {
+            return None;
+        }
+
+        crate::ui::right_sidebar_command_entry_at_row(self, self.view.right_sidebar_rect, col, row)
+    }
+
+    pub(super) fn command_header_target_at(
+        &self,
+        row: u16,
+    ) -> Option<crate::ui::CommandPanelHeaderTarget> {
+        if self.right_sidebar_collapsed || self.view.right_sidebar_rect == Rect::default() {
+            return None;
+        }
+
+        crate::ui::right_sidebar_command_header_target_at_row(
+            self,
+            self.view.right_sidebar_rect,
+            row,
+        )
     }
 
     pub(super) fn collapsed_right_sidebar_agent_target_at(
@@ -1009,7 +1049,9 @@ mod tests {
 
     use super::super::{app_for_mouse_test, capture_snapshot, mouse, unique_temp_path};
     use crate::{
-        app::state::{AgentPanelScope, ContextMenuKind, DragTarget, Group, Mode},
+        app::state::{
+            AgentPanelScope, CommandPanelAction, ContextMenuKind, DragTarget, Group, Mode,
+        },
         detect::{Agent, AgentState},
         workspace::Workspace,
     };
@@ -1731,6 +1773,153 @@ mod tests {
 
         assert!(!app.state.activity_agents_expanded);
         assert!(!app.state.activity_ports_expanded);
+    }
+
+    #[test]
+    fn clicking_command_text_does_not_request_action() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.command_catalog = vec![crate::commands::ProjectCommand {
+            id: "/tmp/web:package.json:dev".to_string(),
+            root: "/tmp/web".into(),
+            source: crate::commands::CommandSource::PackageJson,
+            name: "dev".to_string(),
+            command: "npm run dev".to_string(),
+            confidence: crate::commands::CommandConfidence::Explicit,
+        }];
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+        let header = crate::ui::right_sidebar_commands_header_rect(
+            &app.state,
+            app.state.view.right_sidebar_rect,
+        );
+        let row = header.y + 3;
+
+        app.state.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            header.x + 5,
+            row,
+        ));
+
+        assert_eq!(app.state.request_command_action, None);
+
+        app.state.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            header.x + 3,
+            row,
+        ));
+
+        assert_eq!(
+            app.state.request_command_action,
+            Some(CommandPanelAction::RunOrFocus(
+                "/tmp/web:package.json:dev".to_string()
+            ))
+        );
+
+        app.state.request_command_action = None;
+        app.state.command_runs.insert(
+            "/tmp/web:package.json:dev".to_string(),
+            crate::commands::CommandRun {
+                command_id: "/tmp/web:package.json:dev".to_string(),
+                terminal_id: crate::terminal::TerminalId::alloc(),
+                status: crate::commands::CommandRunStatus::Running,
+            },
+        );
+        app.state.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            header.x + 3,
+            row,
+        ));
+
+        assert_eq!(
+            app.state.request_command_action,
+            Some(CommandPanelAction::Stop(
+                "/tmp/web:package.json:dev".to_string()
+            ))
+        );
+
+        app.state.request_command_action = None;
+        app.state.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Right),
+            header.x + 5,
+            row,
+        ));
+
+        assert_eq!(app.state.request_command_action, None);
+
+        app.state.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Right),
+            header.x + 3,
+            row,
+        ));
+
+        assert_eq!(
+            app.state.request_command_action,
+            Some(CommandPanelAction::Stop(
+                "/tmp/web:package.json:dev".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn clicking_command_group_headers_toggles_nested_rows() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.command_catalog = vec![crate::commands::ProjectCommand {
+            id: "/tmp/web:package.json:dev".to_string(),
+            root: "/tmp/web".into(),
+            source: crate::commands::CommandSource::PackageJson,
+            name: "dev".to_string(),
+            command: "npm run dev".to_string(),
+            confidence: crate::commands::CommandConfidence::Explicit,
+        }];
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+        let header = crate::ui::right_sidebar_commands_header_rect(
+            &app.state,
+            app.state.view.right_sidebar_rect,
+        );
+        let project_row = header.y + 1;
+        let status_row = header.y + 2;
+        let command_row = header.y + 3;
+
+        app.state.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            header.x + 1,
+            status_row,
+        ));
+
+        assert!(app
+            .state
+            .command_detail_target_at(header.x + 3, command_row)
+            .is_none());
+
+        app.state.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            header.x + 1,
+            status_row,
+        ));
+
+        assert_eq!(
+            app.state
+                .command_detail_target_at(header.x + 3, command_row),
+            Some("/tmp/web:package.json:dev".to_string())
+        );
+
+        app.state.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            header.x + 1,
+            project_row,
+        ));
+
+        assert!(app
+            .state
+            .command_detail_target_at(header.x + 3, command_row)
+            .is_none());
     }
 
     #[test]

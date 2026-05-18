@@ -1025,6 +1025,12 @@ pub struct CommandPaletteState {
     pub scroll: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandPanelAction {
+    RunOrFocus(String),
+    Stop(String),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarWidthSource {
     ConfigDefault,
@@ -1063,6 +1069,7 @@ pub struct AppState {
     /// Set when UI interaction requested a clipboard write that must be
     /// handled by the outer App/event loop instead of directly from AppState.
     pub request_clipboard_write: Option<Vec<u8>>,
+    pub request_command_action: Option<CommandPanelAction>,
     pub creating_new_tab: bool,
     pub creating_new_group: bool,
     pub group_icon_input: String,
@@ -1077,6 +1084,8 @@ pub struct AppState {
     pub release_notes: Option<ReleaseNotesState>,
     pub keybind_help: KeybindHelpState,
     pub command_palette: CommandPaletteState,
+    pub command_catalog: Vec<crate::commands::ProjectCommand>,
+    pub command_runs: std::collections::HashMap<String, crate::commands::CommandRun>,
     pub port_registry: crate::ports::PortRegistry,
     pub workspace_scroll: usize,
     pub agent_panel_scroll: usize,
@@ -1113,7 +1122,10 @@ pub struct AppState {
     /// Ratio of sidebar height allocated to the workspaces section.
     pub sidebar_section_split: f32,
     pub activity_agents_expanded: bool,
+    pub activity_commands_expanded: bool,
     pub activity_ports_expanded: bool,
+    pub collapsed_command_groups: Vec<String>,
+    pub collapsed_command_status_groups: Vec<String>,
     pub collapsed_workspace_groups: Vec<String>,
     pub agent_panel_scope: AgentPanelScope,
     /// Capture mouse input for Herdr's own mouse UI. When false, Herdr only
@@ -1250,6 +1262,26 @@ impl AppState {
         self.collapsed_workspace_groups
             .iter()
             .any(|id| id == group_id)
+    }
+
+    pub fn command_group_collapsed(&self, group_key: &str) -> bool {
+        self.collapsed_command_groups
+            .iter()
+            .any(|key| key == group_key)
+    }
+
+    pub fn command_status_group_collapsed(&self, group_key: &str) -> bool {
+        self.collapsed_command_status_groups
+            .iter()
+            .any(|key| key == group_key)
+    }
+
+    pub fn toggle_command_group(&mut self, group_key: String) {
+        toggle_string_key(&mut self.collapsed_command_groups, group_key);
+    }
+
+    pub fn toggle_command_status_group(&mut self, group_key: String) {
+        toggle_string_key(&mut self.collapsed_command_status_groups, group_key);
     }
 
     pub fn sidebar_visible_workspace_indices(&self) -> Vec<usize> {
@@ -1435,6 +1467,14 @@ impl AppState {
     }
 }
 
+fn toggle_string_key(keys: &mut Vec<String>, key: String) {
+    if let Some(idx) = keys.iter().position(|existing| existing == &key) {
+        keys.remove(idx);
+    } else {
+        keys.push(key);
+    }
+}
+
 pub fn key_matches(
     key: &crossterm::event::KeyEvent,
     expected_code: KeyCode,
@@ -1481,6 +1521,7 @@ impl AppState {
             request_reload_config: false,
             request_client_sound_config_reload: false,
             request_clipboard_write: None,
+            request_command_action: None,
             creating_new_tab: false,
             creating_new_group: false,
             group_icon_input: DEFAULT_GROUP_ICON.to_string(),
@@ -1499,6 +1540,8 @@ impl AppState {
                 selected: 0,
                 scroll: 0,
             },
+            command_catalog: Vec::new(),
+            command_runs: std::collections::HashMap::new(),
             port_registry: crate::ports::PortRegistry::default(),
             workspace_scroll: 0,
             agent_panel_scroll: 0,
@@ -1547,7 +1590,10 @@ impl AppState {
             right_sidebar_collapsed: false,
             sidebar_section_split: 0.5,
             activity_agents_expanded: true,
+            activity_commands_expanded: true,
             activity_ports_expanded: true,
+            collapsed_command_groups: Vec::new(),
+            collapsed_command_status_groups: Vec::new(),
             collapsed_workspace_groups: Vec::new(),
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
             mouse_capture: true,

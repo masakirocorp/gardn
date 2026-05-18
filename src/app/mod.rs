@@ -32,6 +32,7 @@ pub(crate) const HEADLESS_ANIMATION_INTERVAL: Duration = Duration::from_millis(1
 pub(crate) const HEADLESS_ANIMATION_TICK_STEP: u32 = 8;
 const RESIZE_POLL_INTERVAL: Duration = Duration::from_millis(100);
 pub(crate) const PORT_SCAN_INTERVAL: Duration = Duration::from_secs(2);
+pub(crate) const COMMAND_SCAN_INTERVAL: Duration = Duration::from_secs(5);
 const PORT_STALE_TTL: Duration = Duration::from_secs(5);
 const GIT_REMOTE_STATUS_REFRESH_INTERVAL: Duration = Duration::from_millis(1500);
 const AUTO_UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
@@ -79,6 +80,7 @@ pub struct App {
     pub(crate) last_sidebar_divider_click: Option<Instant>,
     pub(crate) next_resize_poll: Instant,
     pub(crate) next_port_scan: Instant,
+    pub(crate) next_command_scan: Instant,
     pub(crate) next_animation_tick: Option<Instant>,
     pub(crate) next_auto_update_check: Option<Instant>,
     pub(crate) session_save_deadline: Option<Instant>,
@@ -397,6 +399,7 @@ impl App {
             request_reload_config: false,
             request_client_sound_config_reload: false,
             request_clipboard_write: None,
+            request_command_action: None,
             creating_new_tab: false,
             creating_new_group: false,
             group_icon_input: state::DEFAULT_GROUP_ICON.to_string(),
@@ -420,6 +423,8 @@ impl App {
                 selected: 0,
                 scroll: 0,
             },
+            command_catalog: Vec::new(),
+            command_runs: HashMap::new(),
             port_registry: crate::ports::PortRegistry::default(),
             workspace_scroll: 0,
             agent_panel_scroll: 0,
@@ -468,7 +473,10 @@ impl App {
             right_sidebar_collapsed,
             sidebar_section_split,
             activity_agents_expanded: true,
+            activity_commands_expanded: true,
             activity_ports_expanded: true,
+            collapsed_command_groups: Vec::new(),
+            collapsed_command_status_groups: Vec::new(),
             collapsed_workspace_groups: Vec::new(),
             agent_panel_scope,
             mouse_capture: config.ui.mouse_capture,
@@ -564,6 +572,7 @@ impl App {
             last_sidebar_divider_click: None,
             next_resize_poll: Instant::now() + RESIZE_POLL_INTERVAL,
             next_port_scan: Instant::now() + PORT_SCAN_INTERVAL,
+            next_command_scan: Instant::now(),
             next_animation_tick: None,
             next_auto_update_check: auto_updates_enabled(no_session)
                 .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL),
@@ -2258,6 +2267,7 @@ mod tests {
         let now = Instant::now();
         app.session_save_deadline = Some(now + Duration::from_secs(2));
         app.next_resize_poll = now + Duration::from_secs(5);
+        app.next_command_scan = now + Duration::from_secs(5);
         app.next_auto_update_check = Some(now + Duration::from_secs(6));
 
         assert_eq!(
@@ -2272,6 +2282,7 @@ mod tests {
         let now = Instant::now();
         app.next_resize_poll = now + Duration::from_millis(100);
         app.session_save_deadline = Some(now + Duration::from_secs(2));
+        app.next_command_scan = now + Duration::from_secs(5);
         app.next_auto_update_check = Some(now + Duration::from_secs(6));
 
         assert_eq!(
