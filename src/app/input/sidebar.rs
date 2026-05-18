@@ -1779,6 +1779,7 @@ mod tests {
             &app.state,
             app.state.view.right_sidebar_rect,
         );
+        assert!(!app.state.activity_ports_expanded);
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             ports.x,
@@ -1786,7 +1787,7 @@ mod tests {
         ));
 
         assert!(!app.state.activity_agents_expanded);
-        assert!(!app.state.activity_ports_expanded);
+        assert!(app.state.activity_ports_expanded);
     }
 
     #[test]
@@ -2655,6 +2656,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app.state.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+        app.state.activity_ports_expanded = true;
         app.state.port_registry.sync_observations(
             Instant::now(),
             [crate::ports::PortObservation {
@@ -2750,6 +2752,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app.state.right_sidebar_collapsed = true;
+        app.state.activity_ports_expanded = true;
         app.state.port_registry.sync_observations(
             Instant::now(),
             [crate::ports::PortObservation {
@@ -2847,6 +2850,7 @@ mod tests {
             &app.state,
             app.state.view.right_sidebar_rect,
         );
+        assert!(!app.state.activity_ports_expanded);
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             ports.x,
@@ -2854,7 +2858,7 @@ mod tests {
         ));
 
         assert!(!app.state.activity_agents_expanded);
-        assert!(!app.state.activity_ports_expanded);
+        assert!(app.state.activity_ports_expanded);
     }
 
     #[test]

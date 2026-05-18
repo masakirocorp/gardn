@@ -3830,6 +3830,7 @@ mod tests {
         app.active = Some(0);
         app.selected = 0;
         app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        app.activity_ports_expanded = true;
         app.port_registry.sync_observations(
             std::time::Instant::now(),
             [crate::ports::PortObservation {
@@ -3898,6 +3899,7 @@ mod tests {
         app.active = Some(0);
         app.selected = 0;
         app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+        app.activity_ports_expanded = true;
         app.port_registry.sync_observations(
             std::time::Instant::now(),
             [crate::ports::PortObservation {
@@ -3941,6 +3943,7 @@ mod tests {
         app.active = Some(0);
         app.selected = 0;
         app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+        app.activity_ports_expanded = true;
         app.port_registry.sync_observations(
             std::time::Instant::now(),
             [crate::ports::PortObservation {
@@ -3981,7 +3984,7 @@ mod tests {
     }
 
     #[test]
-    fn right_sidebar_renders_empty_ports_section() {
+    fn right_sidebar_initially_collapses_empty_ports_section() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = vec![Workspace::test_new("web")];
         app.active = Some(0);
@@ -3994,8 +3997,8 @@ mod tests {
             .expect("render right sidebar");
 
         let text = buffer_text(terminal.backend().buffer(), 32, 18);
-        assert!(text.contains("ports"));
-        assert!(text.contains("no active ports"));
+        assert!(text.contains("▸ ports (0)"));
+        assert!(!text.contains("no active ports"));
     }
 
     #[test]

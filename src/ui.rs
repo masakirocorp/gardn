@@ -720,6 +720,7 @@ mod tests {
         app.active = Some(0);
         app.selected = 0;
         app.mode = Mode::Terminal;
+        app.activity_ports_expanded = true;
         app.port_registry.sync_observations(
             std::time::Instant::now(),
             [crate::ports::PortObservation {
