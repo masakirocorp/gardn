@@ -1795,12 +1795,12 @@ mod tests {
             &app.state,
             app.state.view.right_sidebar_rect,
         );
-        let row = header.y + 3;
+        let available_row = header.y + 2;
 
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             header.x + 5,
-            row,
+            available_row,
         ));
 
         assert_eq!(app.state.request_command_action, None);
@@ -1808,7 +1808,7 @@ mod tests {
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             header.x + 3,
-            row,
+            available_row,
         ));
 
         assert_eq!(
@@ -1827,10 +1827,11 @@ mod tests {
                 status: crate::commands::CommandRunStatus::Running,
             },
         );
+        let running_row = header.y + 3;
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             header.x + 3,
-            row,
+            running_row,
         ));
 
         assert_eq!(
@@ -1844,7 +1845,7 @@ mod tests {
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Right),
             header.x + 5,
-            row,
+            running_row,
         ));
 
         assert_eq!(app.state.request_command_action, None);
@@ -1852,7 +1853,7 @@ mod tests {
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Right),
             header.x + 3,
-            row,
+            running_row,
         ));
 
         assert_eq!(
@@ -1884,25 +1885,7 @@ mod tests {
             app.state.view.right_sidebar_rect,
         );
         let project_row = header.y + 1;
-        let status_row = header.y + 2;
-        let command_row = header.y + 3;
-
-        app.state.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            header.x + 1,
-            status_row,
-        ));
-
-        assert!(app
-            .state
-            .command_detail_target_at(header.x + 3, command_row)
-            .is_none());
-
-        app.state.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            header.x + 1,
-            status_row,
-        ));
+        let command_row = header.y + 2;
 
         assert_eq!(
             app.state
@@ -1914,6 +1897,74 @@ mod tests {
             MouseEventKind::Down(MouseButton::Left),
             header.x + 1,
             project_row,
+        ));
+
+        assert!(app
+            .state
+            .command_detail_target_at(header.x + 3, command_row)
+            .is_none());
+
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+        let collapsed_header = crate::ui::right_sidebar_commands_header_rect(
+            &app.state,
+            app.state.view.right_sidebar_rect,
+        );
+        let collapsed_project_row = collapsed_header.y + 1;
+
+        app.state.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            collapsed_header.x + 1,
+            collapsed_project_row,
+        ));
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+        let expanded_header = crate::ui::right_sidebar_commands_header_rect(
+            &app.state,
+            app.state.view.right_sidebar_rect,
+        );
+
+        assert_eq!(
+            app.state
+                .command_detail_target_at(expanded_header.x + 3, expanded_header.y + 2),
+            Some("/tmp/web:package.json:dev".to_string())
+        );
+    }
+
+    #[test]
+    fn clicking_command_status_headers_toggles_status_rows() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        let command_id = "/tmp/web:package.json:dev".to_string();
+        app.state.command_catalog = vec![crate::commands::ProjectCommand {
+            id: command_id.clone(),
+            root: "/tmp/web".into(),
+            source: crate::commands::CommandSource::PackageJson,
+            name: "dev".to_string(),
+            command: "npm run dev".to_string(),
+            confidence: crate::commands::CommandConfidence::Explicit,
+        }];
+        app.state.command_runs.insert(
+            command_id.clone(),
+            crate::commands::CommandRun {
+                command_id: command_id.clone(),
+                terminal_id: crate::terminal::TerminalId::alloc(),
+                status: crate::commands::CommandRunStatus::Running,
+            },
+        );
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+        let header = crate::ui::right_sidebar_commands_header_rect(
+            &app.state,
+            app.state.view.right_sidebar_rect,
+        );
+        let status_row = header.y + 2;
+        let command_row = header.y + 3;
+
+        app.state.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            header.x + 1,
+            status_row,
         ));
 
         assert!(app

@@ -320,26 +320,14 @@ impl AppState {
     }
 
     pub(crate) fn command_scope_workspace_indices(&self) -> Vec<usize> {
-        match self.agent_panel_scope {
-            super::state::AgentPanelScope::CurrentWorkspace => {
-                let idx = if matches!(self.mode, Mode::Navigate) {
-                    Some(self.selected)
-                } else {
-                    self.active
-                };
-                idx.filter(|idx| self.workspaces.get(*idx).is_some())
-                    .into_iter()
-                    .collect()
-            }
-            super::state::AgentPanelScope::CurrentGroup => self
-                .workspaces
-                .iter()
-                .enumerate()
-                .filter(|(_, ws)| ws.group_id == self.active_group_id())
-                .map(|(idx, _)| idx)
-                .collect(),
-            super::state::AgentPanelScope::AllWorkspaces => (0..self.workspaces.len()).collect(),
-        }
+        let idx = if matches!(self.mode, Mode::Navigate) {
+            Some(self.selected)
+        } else {
+            self.active
+        };
+        idx.filter(|idx| self.workspaces.get(*idx).is_some())
+            .into_iter()
+            .collect()
     }
 
     pub(crate) fn refresh_command_catalog(&mut self) -> bool {
@@ -1650,6 +1638,36 @@ mod tests {
         assert_eq!(state.command_catalog.len(), 1);
         assert_eq!(state.command_catalog[0].name, "dev");
         assert_eq!(state.command_catalog[0].root, project);
+    }
+
+    #[test]
+    fn command_catalog_refresh_uses_current_workspace_when_activity_scope_is_all() {
+        let current = temp_project("current-scope");
+        let other = temp_project("other-scope");
+        std::fs::write(
+            current.join("package.json"),
+            r#"{"scripts":{"dev":"vite"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            other.join("package.json"),
+            r#"{"scripts":{"build":"vite build"}}"#,
+        )
+        .unwrap();
+        let mut state = app_with_workspaces(&["current", "other"]);
+        state.agent_panel_scope = crate::app::state::AgentPanelScope::AllWorkspaces;
+        let current_pane = state.workspaces[0].tabs[0].root_pane;
+        let other_pane = state.workspaces[1].tabs[0].root_pane;
+        let current_terminal_id = state.terminal_id_for_pane(0, current_pane).unwrap();
+        let other_terminal_id = state.terminal_id_for_pane(1, other_pane).unwrap();
+        state.terminals.get_mut(&current_terminal_id).unwrap().cwd = current.clone();
+        state.terminals.get_mut(&other_terminal_id).unwrap().cwd = other;
+
+        assert!(state.refresh_command_catalog());
+
+        assert_eq!(state.command_catalog.len(), 1);
+        assert_eq!(state.command_catalog[0].name, "dev");
+        assert_eq!(state.command_catalog[0].root, current);
     }
 
     fn project_command(

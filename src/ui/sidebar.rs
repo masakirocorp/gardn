@@ -148,8 +148,12 @@ fn agent_panel_toggle_label(scope: AgentPanelScope) -> &'static str {
     match scope {
         AgentPanelScope::CurrentWorkspace => "this space",
         AgentPanelScope::CurrentGroup => "this group",
-        AgentPanelScope::AllWorkspaces => "all",
+        AgentPanelScope::AllWorkspaces => "all spaces",
     }
+}
+
+fn commands_visible_in_activity_scope(app: &AppState) -> bool {
+    matches!(app.agent_panel_scope, AgentPanelScope::CurrentWorkspace)
 }
 
 fn agent_panel_group_label(app: &AppState, ws_idx: usize) -> String {
@@ -1163,11 +1167,11 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
         return;
     }
     let port_entries = port_panel_entries(app);
-    let command_entries = command_panel_entries(app);
     let (agent_area, command_area, port_area) = right_sidebar_activity_panel_rects(app, area);
     render_activity_header(app, frame, area);
     render_agent_detail(app, frame, agent_area, false);
     if command_area != Rect::default() {
+        let command_entries = command_panel_entries(app);
         render_commands_section(app, frame, command_area, &command_entries);
     }
     if port_area != Rect::default() {
@@ -1188,32 +1192,43 @@ fn right_sidebar_activity_panel_rects(app: &AppState, area: Rect) -> (Rect, Rect
     }
 
     let port_entries = port_panel_entries(app);
-    let command_entries = command_panel_entries(app);
     let port_height = port_panel_desired_height(app, &port_entries).min(content.height - 2);
-    let command_height = command_panel_desired_height(app, &command_entries).min(
-        content
-            .height
-            .saturating_sub(port_height + ACTIVITY_SECTION_GAP_ROWS + 2),
-    );
-    let agent_height = agent_panel_desired_height(app).min(
-        content
-            .height
-            .saturating_sub(port_height + command_height + ACTIVITY_SECTION_GAP_ROWS * 2),
-    );
+    let command_height = if commands_visible_in_activity_scope(app) {
+        let command_entries = command_panel_entries(app);
+        command_panel_desired_height(app, &command_entries).min(
+            content
+                .height
+                .saturating_sub(port_height + ACTIVITY_SECTION_GAP_ROWS + 2),
+        )
+    } else {
+        0
+    };
+    let gap_after_command = if command_height == 0 {
+        0
+    } else {
+        ACTIVITY_SECTION_GAP_ROWS
+    };
+    let agent_height = agent_panel_desired_height(app).min(content.height.saturating_sub(
+        port_height + command_height + ACTIVITY_SECTION_GAP_ROWS + gap_after_command,
+    ));
     let agent_area = Rect::new(content.x, content.y, content.width, agent_height);
-    let command_area = Rect::new(
-        content.x,
-        content.y + agent_height + ACTIVITY_SECTION_GAP_ROWS,
-        content.width,
-        command_height,
-    );
+    let command_area = if command_height == 0 {
+        Rect::default()
+    } else {
+        Rect::new(
+            content.x,
+            content.y + agent_height + ACTIVITY_SECTION_GAP_ROWS,
+            content.width,
+            command_height,
+        )
+    };
     let port_area = Rect::new(
         content.x,
-        content.y + agent_height + command_height + ACTIVITY_SECTION_GAP_ROWS * 2,
+        content.y + agent_height + command_height + ACTIVITY_SECTION_GAP_ROWS + gap_after_command,
         content.width,
-        content
-            .height
-            .saturating_sub(agent_height + command_height + ACTIVITY_SECTION_GAP_ROWS * 2),
+        content.height.saturating_sub(
+            agent_height + command_height + ACTIVITY_SECTION_GAP_ROWS + gap_after_command,
+        ),
     );
     (agent_area, command_area, port_area)
 }
@@ -1326,6 +1341,7 @@ fn command_panel_groups_height(app: &AppState, groups: &[CommandPanelGroup]) -> 
                 height += (section.entries.len() as u16) * 2;
             }
         }
+        height += (command_direct_entries(group).len() as u16) * 2;
     }
     height
 }
@@ -1458,7 +1474,6 @@ fn command_status_sections(group: &CommandPanelGroup) -> Vec<CommandStatusSectio
         ("failed", Some(CommandRunStatus::Failed)),
         ("unknown", Some(CommandRunStatus::Unknown)),
         ("stopped", Some(CommandRunStatus::Stopped)),
-        ("available", None),
     ]
     .into_iter()
     .filter_map(|(label, status)| {
@@ -1475,6 +1490,15 @@ fn command_status_sections(group: &CommandPanelGroup) -> Vec<CommandStatusSectio
         })
     })
     .collect()
+}
+
+fn command_direct_entries(group: &CommandPanelGroup) -> Vec<CommandPanelEntry> {
+    group
+        .entries
+        .iter()
+        .filter(|entry| entry.status.is_none())
+        .cloned()
+        .collect()
 }
 
 fn command_context_base_label(root: &std::path::Path) -> String {
@@ -1541,6 +1565,15 @@ fn command_panel_entry_at_button(app: &AppState, area: Rect, col: u16, row: u16)
                 row_y += 2;
             }
         }
+        for entry in command_direct_entries(&group) {
+            if row_y + 1 >= area.y + area.height {
+                break;
+            }
+            if row == row_y {
+                return Some(entry.command.id);
+            }
+            row_y += 2;
+        }
     }
 
     None
@@ -1552,7 +1585,7 @@ fn command_panel_header_target_at_row(
     row: u16,
 ) -> Option<CommandPanelHeaderTarget> {
     if area == Rect::default()
-        || area.height < 3
+        || area.height < COMMAND_PANEL_HEADER_ROWS + 1
         || row < area.y + COMMAND_PANEL_HEADER_ROWS
         || row >= area.y + area.height
     {
@@ -1584,6 +1617,7 @@ fn command_panel_header_target_at_row(
                 row_y += (section.entries.len() as u16) * 2;
             }
         }
+        row_y += (command_direct_entries(&group).len() as u16) * 2;
     }
 
     None
@@ -1841,6 +1875,13 @@ fn render_commands_section(
                 row_y += 2;
             }
         }
+        for entry in command_direct_entries(&group) {
+            if row_y + 1 >= bottom {
+                break;
+            }
+            render_command_entry(app, frame, &entry, area, row_y);
+            row_y += 2;
+        }
     }
 }
 
@@ -1856,10 +1897,10 @@ fn render_command_group_header(
     } else {
         "▾"
     };
-    let label = truncate_text(&group.label, area.width.saturating_sub(7) as usize);
+    let label = truncate_text(&group.label, area.width.saturating_sub(8) as usize);
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
-            format!(" {chevron} {label} ({})", group.entries.len()),
+            format!("  {chevron} {label} ({})", group.entries.len()),
             Style::default()
                 .fg(app.palette.overlay1)
                 .add_modifier(Modifier::BOLD),
@@ -2865,7 +2906,7 @@ mod tests {
         );
         assert_eq!(
             agent_panel_toggle_label(AgentPanelScope::AllWorkspaces),
-            "all"
+            "all spaces"
         );
     }
 
@@ -3476,7 +3517,53 @@ mod tests {
         assert!(text.contains("commands (1)"));
         assert!(text.contains("dev"));
         assert!(text.contains("package.json"));
+        assert!(!text.contains("available"));
         assert!(text.find("commands").unwrap() < text.find("ports").unwrap());
+    }
+
+    #[test]
+    fn right_sidebar_hides_commands_outside_current_space_scope() {
+        let mut app = crate::app::state::AppState::test_new();
+        let command = test_command("dev");
+        let workspace = Workspace::test_new("web");
+        let pane_id = workspace.tabs[0].root_pane;
+        let workspace_id = workspace.id.clone();
+        app.command_catalog = vec![command];
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        app.port_registry.sync_observations(
+            std::time::Instant::now(),
+            [crate::ports::PortObservation {
+                bind_addr: "127.0.0.1".parse().unwrap(),
+                port: 5173,
+                pid: 42,
+                command: Some("vite".to_string()),
+            }],
+            |_| {
+                Some(crate::ports::PortOwner {
+                    pid: 42,
+                    command: None,
+                    workspace_id: workspace_id.clone(),
+                    tab_idx: 0,
+                    pane_id,
+                    confidence: crate::ports::PortOwnerConfidence::ProcessTree,
+                })
+            },
+        );
+
+        let backend = TestBackend::new(36, 18);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_right_sidebar(&app, frame, Rect::new(0, 0, 36, 18)))
+            .expect("render right sidebar");
+
+        let text = buffer_text(terminal.backend().buffer(), 36, 18);
+        assert!(!text.contains("commands"));
+        assert!(!text.contains("package.json"));
+        assert!(text.contains("ports"));
+        assert!(text.contains(":5173"));
     }
 
     #[test]
