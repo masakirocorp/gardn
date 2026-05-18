@@ -215,7 +215,7 @@ fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<
                     pane_id: detail.pane_id,
                     primary_label: detail.label,
                     primary_tab_label: None,
-                    agent_label: None,
+                    agent_label: Some(detail.agent_label),
                     state: detail.state,
                     seen: detail.seen,
                     custom_status: detail.custom_status,
@@ -3103,6 +3103,34 @@ mod tests {
     }
 
     #[test]
+    fn current_space_idle_agent_secondary_line_shows_agent_name_not_status() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("agent");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        pane_state.detected_agent = Some(Agent::OpenCode);
+        pane_state.state = AgentState::Idle;
+        pane_state.seen = true;
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+
+        let backend = TestBackend::new(40, 8);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_agent_detail(&app, frame, Rect::new(0, 0, 40, 8), false))
+            .expect("render agent panel");
+
+        let text = buffer_text(terminal.backend().buffer(), 40, 8);
+        let rows = text.lines().collect::<Vec<_>>();
+        let idle_row = rows.iter().position(|row| row.contains("idle")).unwrap();
+
+        assert!(rows[idle_row + 2].contains("opencode"));
+        assert!(!rows[idle_row + 2].contains("idle"));
+    }
+
+    #[test]
     fn agent_secondary_status_only_repeats_in_triage_section() {
         let mut app = crate::app::state::AppState::test_new();
         let mut done = Workspace::test_new("done");
@@ -3195,7 +3223,7 @@ mod tests {
         let entries = agent_panel_entries(&app);
 
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].agent_label, None);
+        assert_eq!(entries[0].agent_label.as_deref(), Some("codex"));
         assert_eq!(entries[0].primary_label, "codex");
     }
 
