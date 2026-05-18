@@ -492,9 +492,14 @@ impl AppState {
 
                     if let Some(command_id) = self.command_detail_target_at(mouse.column, mouse.row)
                     {
-                        self.request_command_action = Some(
-                            crate::app::state::CommandPanelAction::RunOrFocus(command_id),
-                        );
+                        let action = if self.command_runs.get(&command_id).is_some_and(|run| {
+                            run.status == crate::commands::CommandRunStatus::Running
+                        }) {
+                            crate::app::state::CommandPanelAction::Stop(command_id)
+                        } else {
+                            crate::app::state::CommandPanelAction::RunOrFocus(command_id)
+                        };
+                        self.request_command_action = Some(action);
                         return None;
                     }
 

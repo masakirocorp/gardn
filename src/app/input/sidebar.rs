@@ -1804,6 +1804,28 @@ mod tests {
         );
 
         app.state.request_command_action = None;
+        app.state.command_runs.insert(
+            "/tmp/web:package.json:dev".to_string(),
+            crate::commands::CommandRun {
+                command_id: "/tmp/web:package.json:dev".to_string(),
+                terminal_id: crate::terminal::TerminalId::alloc(),
+                status: crate::commands::CommandRunStatus::Running,
+            },
+        );
+        app.state.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            header.x + 1,
+            row,
+        ));
+
+        assert_eq!(
+            app.state.request_command_action,
+            Some(CommandPanelAction::Stop(
+                "/tmp/web:package.json:dev".to_string()
+            ))
+        );
+
+        app.state.request_command_action = None;
         app.state.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Right),
             header.x + 3,
