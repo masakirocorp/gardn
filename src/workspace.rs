@@ -83,6 +83,13 @@ pub struct Workspace {
     pub(crate) test_runtimes: HashMap<PaneId, TerminalRuntime>,
 }
 
+enum NewWorkspaceTabCommand<'a> {
+    Shell {
+        command: &'a str,
+        extra_env: &'a [(String, String)],
+    },
+}
+
 impl Deref for Workspace {
     type Target = Tab;
 
@@ -253,6 +260,27 @@ impl Workspace {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_command_tab(
+        &mut self,
+        rows: u16,
+        cols: u16,
+        cwd: PathBuf,
+        command: &str,
+        extra_env: &[(String, String)],
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+    ) -> std::io::Result<(usize, TerminalState, TerminalRuntime)> {
+        self.create_tab_with_runtime(
+            rows,
+            cols,
+            cwd,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            Some(NewWorkspaceTabCommand::Shell { command, extra_env }),
+        )
+    }
+
     fn create_tab_with_runtime(
         &mut self,
         rows: u16,
@@ -260,7 +288,7 @@ impl Workspace {
         cwd: PathBuf,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
-        argv: Option<&[String]>,
+        command: Option<NewWorkspaceTabCommand<'_>>,
     ) -> std::io::Result<(usize, TerminalState, TerminalRuntime)> {
         let number = self.tabs.len() + 1;
         let events = self
@@ -276,21 +304,21 @@ impl Workspace {
             .map(|tab| tab.render_dirty.clone())
             .expect("workspace must always have at least one tab");
 
-        let (tab, terminal, runtime) = if let Some(argv) = argv {
-            Tab::new_argv_command(
+        let (tab, terminal, runtime) = match command {
+            Some(NewWorkspaceTabCommand::Shell { command, extra_env }) => Tab::new_shell_command(
                 number,
                 cwd,
                 rows,
                 cols,
-                argv,
+                command,
+                extra_env,
                 scrollback_limit_bytes,
                 host_terminal_theme,
                 events,
                 render_notify,
                 render_dirty,
-            )?
-        } else {
-            Tab::new(
+            )?,
+            None => Tab::new(
                 number,
                 cwd,
                 rows,
@@ -300,7 +328,7 @@ impl Workspace {
                 events,
                 render_notify,
                 render_dirty,
-            )?
+            )?,
         };
         self.register_new_pane(tab.root_pane);
         self.tabs.push(tab);

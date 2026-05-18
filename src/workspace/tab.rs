@@ -29,6 +29,16 @@ enum SplitCommand<'a> {
     },
 }
 
+enum NewTabCommand<'a> {
+    Shell {
+        command: &'a str,
+        extra_env: &'a [(String, String)],
+    },
+    Argv {
+        argv: &'a [String],
+    },
+}
+
 pub struct Tab {
     pub custom_name: Option<String>,
     pub number: usize,
@@ -93,7 +103,35 @@ impl Tab {
             events,
             render_notify,
             render_dirty,
-            Some(argv),
+            Some(NewTabCommand::Argv { argv }),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_shell_command(
+        number: usize,
+        initial_cwd: PathBuf,
+        rows: u16,
+        cols: u16,
+        command: &str,
+        extra_env: &[(String, String)],
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<AtomicBool>,
+    ) -> std::io::Result<(Self, TerminalState, TerminalRuntime)> {
+        Self::new_with_runtime(
+            number,
+            initial_cwd,
+            rows,
+            cols,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            events,
+            render_notify,
+            render_dirty,
+            Some(NewTabCommand::Shell { command, extra_env }),
         )
     }
 
@@ -108,11 +146,31 @@ impl Tab {
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
         render_dirty: Arc<AtomicBool>,
-        argv: Option<&[String]>,
+        command: Option<NewTabCommand<'_>>,
     ) -> std::io::Result<(Self, TerminalState, TerminalRuntime)> {
         let (layout, root_id) = TileLayout::new();
-        let runtime = if let Some(argv) = argv {
-            TerminalRuntime::spawn_argv_command(
+        let launch_argv = if let Some(NewTabCommand::Argv { argv }) = &command {
+            Some((*argv).to_vec())
+        } else {
+            None
+        };
+        let runtime = match command {
+            Some(NewTabCommand::Shell { command, extra_env }) => {
+                TerminalRuntime::spawn_shell_command(
+                    root_id,
+                    rows,
+                    cols,
+                    initial_cwd.clone(),
+                    command,
+                    extra_env,
+                    scrollback_limit_bytes,
+                    host_terminal_theme,
+                    events.clone(),
+                    render_notify.clone(),
+                    render_dirty.clone(),
+                )?
+            }
+            Some(NewTabCommand::Argv { argv }) => TerminalRuntime::spawn_argv_command(
                 root_id,
                 rows,
                 cols,
@@ -123,9 +181,8 @@ impl Tab {
                 events.clone(),
                 render_notify.clone(),
                 render_dirty.clone(),
-            )?
-        } else {
-            TerminalRuntime::spawn(
+            )?,
+            None => TerminalRuntime::spawn(
                 root_id,
                 rows,
                 cols,
@@ -135,13 +192,13 @@ impl Tab {
                 events.clone(),
                 render_notify.clone(),
                 render_dirty.clone(),
-            )?
+            )?,
         };
 
         let terminal_id = TerminalId::alloc();
-        let terminal = match argv {
+        let terminal = match launch_argv {
             Some(argv) => {
-                TerminalState::new(terminal_id.clone(), initial_cwd).with_launch_argv(argv.to_vec())
+                TerminalState::new(terminal_id.clone(), initial_cwd).with_launch_argv(argv)
             }
             None => TerminalState::new(terminal_id.clone(), initial_cwd),
         };

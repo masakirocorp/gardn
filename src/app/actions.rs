@@ -158,59 +158,64 @@ impl AppState {
     }
 
     pub(crate) fn run_project_command(&mut self, command_id: &str) -> Result<(), String> {
-        if self
-            .command_runs
-            .get(command_id)
-            .is_some_and(|run| run.status == crate::commands::CommandRunStatus::Running)
-            && self.focus_command_run(command_id)
-        {
-            return Ok(());
-        }
-
         let command = self
             .command_catalog
             .iter()
             .find(|command| command.id == command_id)
             .cloned()
             .ok_or_else(|| format!("command {command_id} not found"))?;
-        let (ws_idx, tab_idx, pane_id) = self
+
+        if let Some(run) = self.command_runs.get(command_id).cloned() {
+            if run.status == crate::commands::CommandRunStatus::Running
+                && self.focus_command_run(command_id)
+            {
+                return Ok(());
+            }
+            if let Some((ws_idx, tab_idx, pane_id)) = self.command_terminal_target(&run.terminal_id)
+            {
+                self.restart_command_in_tab(&command, &run.terminal_id, ws_idx, tab_idx, pane_id)?;
+                return Ok(());
+            }
+            if let Some(run) = self.command_runs.get_mut(command_id) {
+                run.status = crate::commands::CommandRunStatus::Unknown;
+            }
+        }
+
+        let (ws_idx, _, _) = self
             .command_target_for_root(&command.root)
             .ok_or_else(|| format!("no pane for {}", command.root.display()))?;
 
-        self.switch_workspace(ws_idx);
-        self.switch_tab(tab_idx);
-        self.focus_pane(pane_id);
+        self.open_command_tab(command, ws_idx)
+    }
 
+    fn open_command_tab(
+        &mut self,
+        command: crate::commands::ProjectCommand,
+        ws_idx: usize,
+    ) -> Result<(), String> {
         let (rows, cols) = self.estimate_pane_size();
-        let new_rows = rows.max(4);
-        let new_cols = cols.max(10);
         let workspace = self
             .workspaces
             .get_mut(ws_idx)
             .ok_or_else(|| "command workspace disappeared".to_string())?;
-        let new_pane = workspace
-            .split_focused_command(
-                ratatui::layout::Direction::Horizontal,
-                new_rows,
-                new_cols,
-                Some(command.root.clone()),
+        let (tab_idx, terminal, runtime) = workspace
+            .create_command_tab(
+                rows.max(4),
+                cols.max(10),
+                command.root.clone(),
                 &command.command,
                 &[],
                 self.pane_scrollback_limit_bytes,
                 self.host_terminal_theme,
             )
             .map_err(|err| err.to_string())?;
-        let new_pane_id = new_pane.pane_id;
-        let terminal_id = new_pane.terminal.id.clone();
-        self.terminal_runtimes
-            .insert(new_pane.terminal.id.clone(), new_pane.runtime);
-        self.terminals
-            .insert(new_pane.terminal.id.clone(), new_pane.terminal);
-        workspace
-            .active_tab_mut()
-            .expect("workspace must have active tab")
-            .layout
-            .focus_pane(new_pane_id);
+        if let Some(tab) = workspace.tabs.get_mut(tab_idx) {
+            tab.set_custom_name(command.name.clone());
+        }
+        let terminal_id = terminal.id.clone();
+        self.terminal_runtimes.insert(terminal.id.clone(), runtime);
+        self.terminals.insert(terminal.id.clone(), terminal);
+
         self.command_runs.insert(
             command.id.clone(),
             crate::commands::CommandRun {
@@ -219,6 +224,64 @@ impl AppState {
                 status: crate::commands::CommandRunStatus::Running,
             },
         );
+
+        self.switch_workspace(ws_idx);
+        self.switch_tab(tab_idx);
+        self.mode = Mode::Terminal;
+        self.mark_session_dirty();
+        Ok(())
+    }
+
+    fn restart_command_in_tab(
+        &mut self,
+        command: &crate::commands::ProjectCommand,
+        terminal_id: &crate::terminal::TerminalId,
+        ws_idx: usize,
+        tab_idx: usize,
+        pane_id: PaneId,
+    ) -> Result<(), String> {
+        if let Some(runtime) = self.terminal_runtimes.remove(terminal_id) {
+            runtime.shutdown();
+        }
+
+        let (rows, cols) = self.estimate_pane_size();
+        let (events, render_notify, render_dirty) = {
+            let tab = self
+                .workspaces
+                .get(ws_idx)
+                .and_then(|workspace| workspace.tabs.get(tab_idx))
+                .ok_or_else(|| "command tab disappeared".to_string())?;
+            (
+                tab.events.clone(),
+                tab.render_notify.clone(),
+                tab.render_dirty.clone(),
+            )
+        };
+        let runtime = crate::terminal::TerminalRuntime::spawn_shell_command(
+            pane_id,
+            rows.max(4),
+            cols.max(10),
+            command.root.clone(),
+            &command.command,
+            &[],
+            self.pane_scrollback_limit_bytes,
+            self.host_terminal_theme,
+            events,
+            render_notify,
+            render_dirty,
+        )
+        .map_err(|err| err.to_string())?;
+        self.terminal_runtimes.insert(terminal_id.clone(), runtime);
+        if let Some(terminal) = self.terminals.get_mut(terminal_id) {
+            terminal.cwd = command.root.clone();
+        }
+        if let Some(run) = self.command_runs.get_mut(&command.id) {
+            run.status = crate::commands::CommandRunStatus::Running;
+        }
+
+        self.switch_workspace(ws_idx);
+        self.switch_tab(tab_idx);
+        self.focus_pane(pane_id);
         self.mode = Mode::Terminal;
         self.mark_session_dirty();
         Ok(())
@@ -1547,6 +1610,19 @@ mod tests {
         }
     }
 
+    async fn wait_for_runtime_pid(state: &AppState, terminal_id: &crate::terminal::TerminalId) {
+        for _ in 0..50 {
+            if state
+                .terminal_runtimes
+                .get(terminal_id)
+                .is_some_and(|runtime| runtime.child_pid() != 0)
+            {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn project_command_runs_in_managed_pane_and_can_stop() {
         let project = temp_project("run");
@@ -1569,16 +1645,10 @@ mod tests {
         let command_terminal_id = run.terminal_id.clone();
         assert_eq!(run.status, crate::commands::CommandRunStatus::Running);
         assert!(state.terminal_runtimes.contains_key(&command_terminal_id));
-        for _ in 0..50 {
-            if state
-                .terminal_runtimes
-                .get(&command_terminal_id)
-                .is_some_and(|runtime| runtime.child_pid() != 0)
-            {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+        assert_eq!(state.workspaces[0].tabs.len(), 2);
+        assert_eq!(state.workspaces[0].active_tab, 1);
+        assert_eq!(state.workspaces[0].tabs[1].display_name(), "dev");
+        wait_for_runtime_pid(&state, &command_terminal_id).await;
         assert_ne!(
             state
                 .terminal_runtimes
@@ -1593,6 +1663,17 @@ mod tests {
         let run = state.command_runs.get(&command_id).unwrap();
         assert_eq!(run.status, crate::commands::CommandRunStatus::Stopped);
         assert!(!state.terminal_runtimes.contains_key(&command_terminal_id));
+
+        state.run_project_command(&command_id).unwrap();
+
+        let run = state.command_runs.get(&command_id).unwrap();
+        assert_eq!(run.status, crate::commands::CommandRunStatus::Running);
+        assert_eq!(&run.terminal_id, &command_terminal_id);
+        assert_eq!(state.workspaces[0].tabs.len(), 2);
+        assert_eq!(state.workspaces[0].active_tab, 1);
+        assert!(state.terminal_runtimes.contains_key(&command_terminal_id));
+        wait_for_runtime_pid(&state, &command_terminal_id).await;
+        assert!(state.stop_project_command(&command_id));
     }
 
     #[test]
