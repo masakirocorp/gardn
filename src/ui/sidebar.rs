@@ -3339,7 +3339,7 @@ mod tests {
         app.terminals
             .get_mut(&first_terminal_id)
             .unwrap()
-            .detected_agent = Some(Agent::Pi);
+            .detected_agent = Some(Agent::OhMyPi);
         let second_terminal_id = app.workspaces[1].tabs[second_tab].panes[&second_pane]
             .attached_terminal_id
             .clone();
@@ -3354,7 +3354,7 @@ mod tests {
         let entries = agent_panel_entries(&app);
         assert_eq!(entries[0].primary_label, "one");
         assert!(entries[0].primary_tab_label.is_none());
-        assert_eq!(entries[0].agent_label.as_deref(), Some("pi"));
+        assert_eq!(entries[0].agent_label.as_deref(), Some("omp"));
         assert_eq!(entries[1].primary_label, "two");
         assert_eq!(entries[1].primary_tab_label.as_deref(), Some("logs"));
         assert_eq!(entries[1].agent_label.as_deref(), Some("claude"));
