@@ -831,7 +831,9 @@ fn integration_commands_run_locally_when_server_is_missing() {
     let base = unique_test_dir();
     let home_dir = base.join("home");
     let extensions_dir = home_dir.join(".pi/agent/extensions");
+    let omp_extensions_dir = home_dir.join(".omp/agent/extensions");
     fs::create_dir_all(&extensions_dir).unwrap();
+    fs::create_dir_all(&omp_extensions_dir).unwrap();
 
     let runtime_dir = base.join("runtime");
     fs::create_dir_all(&runtime_dir).unwrap();
@@ -839,6 +841,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
     let missing_socket = runtime_dir.join("missing.sock");
 
     let expected_extension = extensions_dir.join("herdr-agent-state.ts");
+    let expected_omp_extension = omp_extensions_dir.join("herdr-agent-state.ts");
     assert!(
         !expected_extension.exists(),
         "test setup should start without extension file"
@@ -864,6 +867,20 @@ fn integration_commands_run_locally_when_server_is_missing() {
         "integration install should write local files without a server"
     );
 
+    let omp_integration_install = Command::new(env!("CARGO_BIN_EXE_herdr"))
+        .args(["integration", "install", "omp"])
+        .env("HERDR_SOCKET_PATH", &missing_socket)
+        .env("HOME", &home_dir)
+        .output()
+        .unwrap();
+    assert_eq!(omp_integration_install.status.code(), Some(0));
+    assert!(
+        expected_omp_extension.exists(),
+        "omp integration install should write local files without a server"
+    );
+    let omp_content = fs::read_to_string(&expected_omp_extension).unwrap();
+    assert!(omp_content.contains("agent: \"omp\","));
+
     let integration_status = Command::new(env!("CARGO_BIN_EXE_herdr"))
         .args(["integration", "status"])
         .env("HERDR_SOCKET_PATH", &missing_socket)
@@ -874,6 +891,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
     let status_stdout = String::from_utf8_lossy(&integration_status.stdout);
     assert!(status_stdout.contains("pi: current (v1)"));
     assert!(status_stdout.contains("claude: not installed"));
+    assert!(status_stdout.contains("omp: current (v1)"));
 
     let integration_uninstall = Command::new(env!("CARGO_BIN_EXE_herdr"))
         .args(["integration", "uninstall", "pi"])
@@ -885,6 +903,18 @@ fn integration_commands_run_locally_when_server_is_missing() {
     assert!(
         !expected_extension.exists(),
         "integration uninstall should remove local files without a server"
+    );
+
+    let omp_integration_uninstall = Command::new(env!("CARGO_BIN_EXE_herdr"))
+        .args(["integration", "uninstall", "omp"])
+        .env("HERDR_SOCKET_PATH", &missing_socket)
+        .env("HOME", &home_dir)
+        .output()
+        .unwrap();
+    assert_eq!(omp_integration_uninstall.status.code(), Some(0));
+    assert!(
+        !expected_omp_extension.exists(),
+        "omp integration uninstall should remove local files without a server"
     );
 
     cleanup_test_base(&base);

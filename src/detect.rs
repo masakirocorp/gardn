@@ -20,6 +20,7 @@ pub enum AgentState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Agent {
     Pi,
+    OhMyPi,
     Claude,
     Codex,
     Gemini,
@@ -39,6 +40,7 @@ pub enum Agent {
 pub fn agent_label(agent: Agent) -> &'static str {
     match agent {
         Agent::Pi => "pi",
+        Agent::OhMyPi => "omp",
         Agent::Claude => "claude",
         Agent::Codex => "codex",
         Agent::Gemini => "gemini",
@@ -60,6 +62,7 @@ pub fn parse_agent_label(agent: &str) -> Option<Agent> {
     let name = agent.trim().to_lowercase();
     match name.as_str() {
         "pi" => Some(Agent::Pi),
+        "omp" | "oh-my-pi" => Some(Agent::OhMyPi),
         "claude" | "claude-code" => Some(Agent::Claude),
         "codex" => Some(Agent::Codex),
         "gemini" => Some(Agent::Gemini),
@@ -85,6 +88,7 @@ pub fn identify_agent(process_name: &str) -> Option<Agent> {
     // Match against known binary names
     match name.as_str() {
         "pi" => Some(Agent::Pi),
+        "omp" | "oh-my-pi" => Some(Agent::OhMyPi),
         "claude" | "claude-code" => Some(Agent::Claude),
         "codex" => Some(Agent::Codex),
         "gemini" => Some(Agent::Gemini),
@@ -141,6 +145,7 @@ pub fn detect_state(agent: Option<Agent>, screen_content: &str) -> AgentState {
     };
     match agent {
         Agent::Pi => detect_pi(screen_content),
+        Agent::OhMyPi => detect_oh_my_pi(screen_content),
         Agent::Claude => detect_claude(screen_content),
         Agent::Codex => detect_codex(screen_content),
         Agent::Gemini => detect_gemini(screen_content),
@@ -168,6 +173,32 @@ fn detect_pi(content: &str) -> AgentState {
         return AgentState::Working;
     }
     AgentState::Idle
+}
+
+fn detect_oh_my_pi(content: &str) -> AgentState {
+    let lower = content.to_lowercase();
+    if has_oh_my_pi_blocked_prompt(&lower) {
+        return AgentState::Blocked;
+    }
+
+    let pi_state = detect_pi(content);
+    if pi_state != AgentState::Idle {
+        return pi_state;
+    }
+
+    if has_interrupt_pattern(&lower) {
+        return AgentState::Working;
+    }
+
+    AgentState::Idle
+}
+
+fn has_oh_my_pi_blocked_prompt(lower_content: &str) -> bool {
+    (lower_content.contains("up/down navigate")
+        && lower_content.contains("enter select")
+        && lower_content.contains("esc cancel"))
+        || (lower_content.contains("enter submit") && lower_content.contains("esc cancel"))
+        || (lower_content.contains("ctrl+enter submit") && lower_content.contains("esc cancel"))
 }
 
 /// Claude Code detection. The most complex — it has a structured prompt box UI.
@@ -902,6 +933,8 @@ mod tests {
     #[test]
     fn identify_known_agents() {
         assert_eq!(identify_agent("pi"), Some(Agent::Pi));
+        assert_eq!(identify_agent("omp"), Some(Agent::OhMyPi));
+        assert_eq!(identify_agent("oh-my-pi"), Some(Agent::OhMyPi));
         assert_eq!(identify_agent("claude"), Some(Agent::Claude));
         assert_eq!(identify_agent("claude-code"), Some(Agent::Claude));
         assert_eq!(identify_agent("codex"), Some(Agent::Codex));
@@ -926,6 +959,8 @@ mod tests {
     #[test]
     fn parse_known_agent_labels() {
         assert_eq!(parse_agent_label("pi"), Some(Agent::Pi));
+        assert_eq!(parse_agent_label("omp"), Some(Agent::OhMyPi));
+        assert_eq!(parse_agent_label("oh-my-pi"), Some(Agent::OhMyPi));
         assert_eq!(parse_agent_label("claude"), Some(Agent::Claude));
         assert_eq!(parse_agent_label("cursor-agent"), Some(Agent::Cursor));
         assert_eq!(parse_agent_label("agy"), Some(Agent::Antigravity));
@@ -944,6 +979,7 @@ mod tests {
     #[test]
     fn agent_labels_use_display_names() {
         assert_eq!(agent_label(Agent::Pi), "pi");
+        assert_eq!(agent_label(Agent::OhMyPi), "omp");
         assert_eq!(agent_label(Agent::GithubCopilot), "copilot");
         assert_eq!(agent_label(Agent::OpenCode), "opencode");
         assert_eq!(agent_label(Agent::Antigravity), "agy");
@@ -1100,6 +1136,24 @@ mod tests {
     }
 
     #[test]
+    fn identify_agent_in_job_detects_shell_wrapped_omp() {
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 123,
+            processes: vec![crate::platform::ForegroundProcess {
+                pid: 1,
+                name: "sh".to_string(),
+                argv0: None,
+                cmdline: Some("/bin/sh /tmp/test-bin/omp".to_string()),
+            }],
+        };
+
+        assert_eq!(
+            identify_agent_in_job(&job),
+            Some((Agent::OhMyPi, "omp".to_string()))
+        );
+    }
+
+    #[test]
     fn wrapped_agent_name_from_cmdline_ignores_plain_shell_flags() {
         assert_eq!(wrapped_agent_name_from_cmdline("bash -lc"), None);
     }
@@ -1146,6 +1200,46 @@ mod tests {
     #[test]
     fn pi_idle_no_working_text() {
         assert_eq!(detect_pi("some output\n\n> ready"), AgentState::Idle);
+    }
+
+    #[test]
+    fn oh_my_pi_working_default_loader() {
+        assert_eq!(
+            detect_state(
+                Some(Agent::OhMyPi),
+                "some output\nWorking… (esc to interrupt)"
+            ),
+            AgentState::Working
+        );
+    }
+
+    #[test]
+    fn oh_my_pi_working_tool_intent_message() {
+        assert_eq!(
+            detect_state(
+                Some(Agent::OhMyPi),
+                "editing src/detect.rs (esc to interrupt)"
+            ),
+            AgentState::Working
+        );
+    }
+
+    #[test]
+    fn oh_my_pi_blocked_on_selector_dialog() {
+        let screen = "Plan mode - next step\n❯ Approve and execute\n  Refine plan\nup/down navigate  enter select  esc cancel";
+        assert_eq!(
+            detect_state(Some(Agent::OhMyPi), screen),
+            AgentState::Blocked
+        );
+    }
+
+    #[test]
+    fn oh_my_pi_blocked_on_input_dialog() {
+        let screen = "Server name for deploy\n\nenter submit  esc cancel";
+        assert_eq!(
+            detect_state(Some(Agent::OhMyPi), screen),
+            AgentState::Blocked
+        );
     }
 
     // ---- Claude Code ----
