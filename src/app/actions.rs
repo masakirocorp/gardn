@@ -13,6 +13,31 @@ use crate::workspace::WorkspaceGitStatus;
 
 use super::state::{AppState, Group, Mode, ToastKind, ToastNotification, ToastTarget, ViewLayout};
 
+fn hunk_diff_project_command(root: std::path::PathBuf) -> crate::commands::ProjectCommand {
+    crate::commands::ProjectCommand {
+        id: format!("builtin:git-diff:{}", root.display()),
+        root,
+        source: crate::commands::CommandSource::BuiltIn,
+        name: "diff".to_string(),
+        command: r#"if command -v hunk >/dev/null 2>&1; then
+  exec hunk diff --watch --theme graphite
+fi
+
+printf '%s\n' \
+  'hunk is not installed.' \
+  '' \
+  'install with:' \
+  '  brew install modem-dev/tap/hunk' \
+  '  npm i -g hunkdiff' \
+  '' \
+  'press enter to close...'
+read _
+"#
+        .to_string(),
+        confidence: crate::commands::CommandConfidence::Explicit,
+    }
+}
+
 fn is_background_completion_transition(prev_state: AgentState, new_state: AgentState) -> bool {
     matches!(new_state, AgentState::Idle)
         && matches!(prev_state, AgentState::Working | AgentState::Blocked)
@@ -165,9 +190,29 @@ impl AppState {
             .cloned()
             .ok_or_else(|| format!("command {command_id} not found"))?;
 
-        if let Some(run) = self.command_runs.get(command_id).cloned() {
+        let (ws_idx, _, _) = self
+            .command_target_for_root(&command.root)
+            .ok_or_else(|| format!("no pane for {}", command.root.display()))?;
+
+        self.run_project_command_entry(command, ws_idx)
+    }
+
+    pub(crate) fn open_git_diff_panel(&mut self) -> Result<(), String> {
+        let (root, ws_idx) = self
+            .git_diff_target()
+            .ok_or_else(|| "no git repo for current space".to_string())?;
+        self.run_project_command_entry(hunk_diff_project_command(root), ws_idx)
+    }
+
+    fn run_project_command_entry(
+        &mut self,
+        command: crate::commands::ProjectCommand,
+        ws_idx: usize,
+    ) -> Result<(), String> {
+        let command_id = command.id.clone();
+        if let Some(run) = self.command_runs.get(&command_id).cloned() {
             if run.status == crate::commands::CommandRunStatus::Running
-                && self.focus_command_run(command_id)
+                && self.focus_command_run(&command.id)
             {
                 return Ok(());
             }
@@ -176,16 +221,25 @@ impl AppState {
                 self.restart_command_in_tab(&command, &run.terminal_id, ws_idx, tab_idx, pane_id)?;
                 return Ok(());
             }
-            if let Some(run) = self.command_runs.get_mut(command_id) {
+            if let Some(run) = self.command_runs.get_mut(&command_id) {
                 run.status = crate::commands::CommandRunStatus::Unknown;
             }
         }
 
-        let (ws_idx, _, _) = self
-            .command_target_for_root(&command.root)
-            .ok_or_else(|| format!("no pane for {}", command.root.display()))?;
-
         self.open_command_tab(command, ws_idx)
+    }
+
+    fn git_diff_target(&self) -> Option<(std::path::PathBuf, usize)> {
+        let ws_idx = if matches!(self.mode, Mode::Navigate) {
+            self.selected
+        } else {
+            self.active?
+        };
+        let workspace = self.workspaces.get(ws_idx)?;
+        let tab = workspace.active_tab()?;
+        let pane_id = workspace.focused_pane_id().unwrap_or(tab.root_pane);
+        let cwd = tab.cwd_for_pane(pane_id, &self.terminals, &self.terminal_runtimes)?;
+        crate::workspace::git_repo_root(&cwd).map(|root| (root, ws_idx))
     }
 
     fn open_command_tab(
@@ -1616,6 +1670,64 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    fn temp_git_repo(name: &str) -> std::path::PathBuf {
+        let root = temp_project(name);
+        let status = std::process::Command::new("git")
+            .arg("init")
+            .arg("-q")
+            .arg(&root)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        root
+    }
+
+    #[test]
+    fn git_diff_target_uses_focused_pane_git_root() {
+        let root = temp_git_repo("diff-root");
+        let nested = root.join("apps/web");
+        std::fs::create_dir_all(&nested).unwrap();
+        let mut state = app_with_workspaces(&["web"]);
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = nested;
+
+        assert_eq!(state.git_diff_target(), Some((root, 0)));
+    }
+
+    #[test]
+    fn git_diff_target_uses_selected_space_in_navigate_mode() {
+        let first = temp_git_repo("diff-first");
+        let second = temp_git_repo("diff-second");
+        let mut state = app_with_workspaces(&["first", "second"]);
+        state.mode = Mode::Navigate;
+        state.selected = 1;
+        let first_pane = state.workspaces[0].tabs[0].root_pane;
+        let second_pane = state.workspaces[1].tabs[0].root_pane;
+        let first_terminal_id = state.terminal_id_for_pane(0, first_pane).unwrap();
+        let second_terminal_id = state.terminal_id_for_pane(1, second_pane).unwrap();
+        state.terminals.get_mut(&first_terminal_id).unwrap().cwd = first;
+        state.terminals.get_mut(&second_terminal_id).unwrap().cwd = second.clone();
+
+        assert_eq!(state.git_diff_target(), Some((second, 1)));
+    }
+
+    #[test]
+    fn hunk_diff_command_uses_graphite_theme() {
+        let root = temp_git_repo("diff-graphite-theme");
+
+        let command = hunk_diff_project_command(root.clone());
+
+        assert_eq!(command.root, root);
+        assert_eq!(command.source, crate::commands::CommandSource::BuiltIn);
+        assert_eq!(command.name, "diff");
+        assert!(command
+            .command
+            .contains("exec hunk diff --watch --theme graphite"));
+        assert!(command.command.contains("brew install modem-dev/tap/hunk"));
+        assert!(command.command.contains("npm i -g hunkdiff"));
     }
 
     #[test]

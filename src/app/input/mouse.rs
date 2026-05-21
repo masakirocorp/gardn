@@ -44,7 +44,9 @@ impl AppState {
             MouseEventKind::Down(_) | MouseEventKind::Up(_) | MouseEventKind::Drag(_) => {
                 self.forward_pane_mouse_button(&info, mouse);
             }
-            MouseEventKind::Moved => {}
+            MouseEventKind::Moved => {
+                self.forward_pane_mouse_motion(&info, mouse);
+            }
         }
     }
 
@@ -1037,6 +1039,12 @@ impl AppState {
                 }
             }
 
+            MouseEventKind::Moved if !in_chrome => {
+                if let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() {
+                    let _ = self.forward_pane_mouse_motion(&info, mouse);
+                }
+            }
+
             MouseEventKind::Down(MouseButton::Right) if in_sidebar && !self.sidebar_collapsed => {
                 if self
                     .workspace_list_scrollbar_target_at(mouse.column, mouse.row)
@@ -1521,6 +1529,24 @@ impl AppState {
         rt.scroll_reset();
         if let Err(err) = rt.try_send_bytes(Bytes::from(bytes)) {
             warn!(pane = info.id.raw(), err = %err, kind = ?mouse.kind, "failed to forward mouse button event");
+        }
+        true
+    }
+
+    pub(super) fn forward_pane_mouse_motion(&self, info: &PaneInfo, mouse: MouseEvent) -> bool {
+        let Some(ws_idx) = self.active else {
+            return false;
+        };
+        let Some(rt) = self.runtime_for_pane_in_workspace(ws_idx, info.id) else {
+            return false;
+        };
+        let column = mouse.column.saturating_sub(info.inner_rect.x);
+        let row = mouse.row.saturating_sub(info.inner_rect.y);
+        let Some(bytes) = rt.encode_mouse_motion(mouse.kind, column, row, mouse.modifiers) else {
+            return false;
+        };
+        if let Err(err) = rt.try_send_bytes(Bytes::from(bytes)) {
+            warn!(pane = info.id.raw(), err = %err, kind = ?mouse.kind, "failed to forward mouse motion event");
         }
         true
     }
@@ -2387,6 +2413,63 @@ mod tests {
 
         let after = capture_snapshot(&app.state);
         assert_ne!(root_layout_ratio(&before), root_layout_ratio(&after));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn mouse_move_forwards_to_pane_that_requested_any_motion() {
+        let mut app = app_for_mouse_test();
+        let ws = Workspace::test_new("test");
+        let pane_id = ws.tabs[0].root_pane;
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+
+        let info = app.state.view.pane_infos[0].clone();
+        let (runtime, mut rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_screen_bytes(
+                info.inner_rect.width.max(1),
+                info.inner_rect.height.max(1),
+                b"\x1b[?1003h\x1b[?1006h",
+            );
+        app.state.workspaces[0].insert_test_runtime(pane_id, runtime);
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            info.inner_rect.x + 3,
+            info.inner_rect.y + 2,
+        ));
+
+        let bytes = rx.try_recv().expect("motion event forwarded to pane");
+        assert!(!bytes.is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn mouse_move_is_not_forwarded_for_button_motion_mode() {
+        let mut app = app_for_mouse_test();
+        let ws = Workspace::test_new("test");
+        let pane_id = ws.tabs[0].root_pane;
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+
+        let info = app.state.view.pane_infos[0].clone();
+        let (runtime, mut rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_screen_bytes(
+                info.inner_rect.width.max(1),
+                info.inner_rect.height.max(1),
+                b"\x1b[?1002h\x1b[?1006h",
+            );
+        app.state.workspaces[0].insert_test_runtime(pane_id, runtime);
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            info.inner_rect.x + 3,
+            info.inner_rect.y + 2,
+        ));
+
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]

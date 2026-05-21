@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum CommandSource {
+    BuiltIn,
     Vscode,
     PackageJson,
     Composer,
@@ -21,6 +22,7 @@ pub(crate) enum CommandSource {
 impl CommandSource {
     pub(crate) fn label(self) -> &'static str {
         match self {
+            CommandSource::BuiltIn => "herdr",
             CommandSource::Vscode => "vscode",
             CommandSource::PackageJson => "package.json",
             CommandSource::Composer => "composer",

@@ -121,6 +121,23 @@ pub(super) fn ghostty_mouse_event_from_button_kind(
     Some(event)
 }
 
+pub(super) fn ghostty_mouse_event_from_motion_kind(
+    kind: crossterm::event::MouseEventKind,
+    column: u16,
+    row: u16,
+    modifiers: crossterm::event::KeyModifiers,
+) -> Option<crate::ghostty::MouseEvent> {
+    if kind != crossterm::event::MouseEventKind::Moved {
+        return None;
+    }
+    let mut event = crate::ghostty::MouseEvent::new().ok()?;
+    event.set_action(crate::ghostty::MOUSE_ACTION_MOTION);
+    event.clear_button();
+    event.set_mods(ghostty_mods_from_key_modifiers(modifiers));
+    event.set_position(column as f32, row as f32);
+    Some(event)
+}
+
 pub(super) fn ghostty_mouse_event_from_wheel_kind(
     kind: crossterm::event::MouseEventKind,
     column: u16,

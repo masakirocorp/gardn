@@ -989,6 +989,20 @@ impl PaneRuntime {
             .encode_mouse_wheel(kind, column, row, modifiers)
     }
 
+    pub fn encode_mouse_motion(
+        &self,
+        kind: crossterm::event::MouseEventKind,
+        column: u16,
+        row: u16,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Option<Vec<u8>> {
+        if self.input_state()?.mouse_protocol_mode != crate::input::MouseProtocolMode::AnyMotion {
+            return None;
+        }
+        self.terminal
+            .encode_mouse_motion(kind, column, row, modifiers)
+    }
+
     pub fn encode_alternate_scroll(
         &self,
         kind: crossterm::event::MouseEventKind,
@@ -1019,6 +1033,14 @@ impl PaneRuntime {
 impl PaneRuntime {
     pub(crate) fn test_with_channel(cols: u16, rows: u16) -> (Self, mpsc::Receiver<Bytes>) {
         Self::test_with_channel_and_scrollback_bytes(cols, rows, 0, &[], 4)
+    }
+
+    pub(crate) fn test_with_channel_and_screen_bytes(
+        cols: u16,
+        rows: u16,
+        bytes: &[u8],
+    ) -> (Self, mpsc::Receiver<Bytes>) {
+        Self::test_with_channel_and_scrollback_bytes(cols, rows, 0, bytes, 4)
     }
 
     pub(crate) fn test_with_channel_capacity(

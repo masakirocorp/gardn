@@ -52,7 +52,7 @@ fn parse_git_head_branch(head: &str) -> Option<String> {
     (!branch.is_empty()).then(|| branch.to_string())
 }
 
-pub(super) fn git_repo_root(start: &Path) -> Option<PathBuf> {
+pub(crate) fn git_repo_root(start: &Path) -> Option<PathBuf> {
     let mut current = if start.is_dir() {
         start.to_path_buf()
     } else {
