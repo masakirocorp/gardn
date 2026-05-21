@@ -141,6 +141,7 @@ fn agent_panel_current_workspace_idx(app: &AppState) -> Option<usize> {
             | Mode::AgentMenu
             | Mode::KeybindHelp
             | Mode::CommandPalette
+            | Mode::ProductAnnouncement
     ) {
         Some(app.selected)
     } else {
@@ -2575,7 +2576,7 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
     }
 
     if let Some(track) = scrollbar_rect {
-        render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▐");
+        render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▕");
     }
 }
 
@@ -2957,7 +2958,7 @@ fn render_sidebar_toggle(
     if toggle_area == Rect::default() {
         return;
     }
-    let icon_style = if app.update_available.is_some() {
+    let icon_style = if app.global_menu_attention_badge_visible() {
         Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(p.overlay0)
@@ -3047,6 +3048,9 @@ mod tests {
     fn workspace_list_does_not_render_footer_actions() {
         let mut app = crate::app::state::AppState::test_new();
         app.mouse_capture = true;
+        app.workspaces = vec![Workspace::test_new("visible")];
+        app.active = Some(0);
+        app.selected = 0;
 
         let backend = TestBackend::new(28, 12);
         let mut terminal = Terminal::new(backend).expect("test backend");
@@ -3056,6 +3060,7 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), 28, 12);
         assert!(!text.contains("new space"));
+        assert!(!text.contains(" new"));
         assert!(!text.contains("menu"));
     }
 
@@ -3661,6 +3666,34 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), 40, 8);
         assert!(text.contains("▸ triage · all spaces (1)"));
         assert!(!text.contains("claude · blocked"));
+    }
+
+    #[test]
+    fn all_workspaces_agent_panel_entries_prefer_agent_names_for_agent_identity() {
+        let mut app = crate::app::state::AppState::test_new();
+        let workspace = Workspace::test_new("bridge");
+        let first_pane = workspace.tabs[0].root_pane;
+
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        let first_terminal_id = app.workspaces[0].tabs[0].panes[&first_pane]
+            .attached_terminal_id
+            .clone();
+        app.terminals
+            .get_mut(&first_terminal_id)
+            .unwrap()
+            .detected_agent = Some(Agent::Pi);
+        app.terminals
+            .get_mut(&first_terminal_id)
+            .unwrap()
+            .set_agent_name("planner".into());
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        let entries = agent_panel_entries(&app);
+        assert_eq!(entries[0].primary_label, "bridge");
+        assert_eq!(entries[0].agent_label.as_deref(), Some("planner"));
     }
 
     #[test]

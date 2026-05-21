@@ -114,6 +114,7 @@ impl Workspace {
         cols: u16,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        default_shell: &str,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
         render_dirty: Arc<AtomicBool>,
@@ -124,6 +125,7 @@ impl Workspace {
             cols,
             scrollback_limit_bytes,
             host_terminal_theme,
+            default_shell,
             events,
             render_notify,
             render_dirty,
@@ -148,6 +150,7 @@ impl Workspace {
             cols,
             scrollback_limit_bytes,
             host_terminal_theme,
+            "",
             events,
             render_notify,
             render_dirty,
@@ -162,6 +165,7 @@ impl Workspace {
         cols: u16,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        default_shell: &str,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
         render_dirty: Arc<AtomicBool>,
@@ -188,6 +192,7 @@ impl Workspace {
                 cols,
                 scrollback_limit_bytes,
                 host_terminal_theme,
+                default_shell,
                 events,
                 render_notify,
                 render_dirty,
@@ -250,6 +255,7 @@ impl Workspace {
         cwd: PathBuf,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        default_shell: &str,
     ) -> std::io::Result<(usize, TerminalState, TerminalRuntime)> {
         self.create_tab_with_runtime(
             rows,
@@ -257,6 +263,8 @@ impl Workspace {
             cwd,
             scrollback_limit_bytes,
             host_terminal_theme,
+            default_shell,
+            None,
             None,
         )
     }
@@ -278,7 +286,9 @@ impl Workspace {
             cwd,
             scrollback_limit_bytes,
             host_terminal_theme,
+            "",
             Some(NewWorkspaceTabCommand::Shell { command, extra_env }),
+            None,
         )
     }
 
@@ -289,7 +299,9 @@ impl Workspace {
         cwd: PathBuf,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        default_shell: &str,
         command: Option<NewWorkspaceTabCommand<'_>>,
+        argv: Option<&[String]>,
     ) -> std::io::Result<(usize, TerminalState, TerminalRuntime)> {
         let number = self.tabs.len() + 1;
         let events = self
@@ -305,32 +317,48 @@ impl Workspace {
             .map(|tab| tab.render_dirty.clone())
             .expect("workspace must always have at least one tab");
 
-        let (tab, terminal, runtime) = match command {
-            Some(NewWorkspaceTabCommand::Shell { command, extra_env }) => Tab::new_shell_command(
-                number,
-                cwd,
-                rows,
-                cols,
-                command,
-                extra_env,
-                scrollback_limit_bytes,
-                host_terminal_theme,
-                events,
-                render_notify,
-                render_dirty,
-            )?,
-            None => Tab::new(
-                number,
-                cwd,
-                rows,
-                cols,
-                scrollback_limit_bytes,
-                host_terminal_theme,
-                events,
-                render_notify,
-                render_dirty,
-            )?,
-        };
+        let (tab, terminal, runtime) =
+            if let Some(NewWorkspaceTabCommand::Shell { command, extra_env }) = command {
+                Tab::new_shell_command(
+                    number,
+                    cwd,
+                    rows,
+                    cols,
+                    command,
+                    extra_env,
+                    scrollback_limit_bytes,
+                    host_terminal_theme,
+                    events,
+                    render_notify,
+                    render_dirty,
+                )?
+            } else if let Some(argv) = argv {
+                Tab::new_argv_command(
+                    number,
+                    cwd,
+                    rows,
+                    cols,
+                    argv,
+                    scrollback_limit_bytes,
+                    host_terminal_theme,
+                    events,
+                    render_notify,
+                    render_dirty,
+                )?
+            } else {
+                Tab::new(
+                    number,
+                    cwd,
+                    rows,
+                    cols,
+                    scrollback_limit_bytes,
+                    host_terminal_theme,
+                    default_shell,
+                    events,
+                    render_notify,
+                    render_dirty,
+                )?
+            };
         self.register_new_pane(tab.root_pane);
         self.tabs.push(tab);
         Ok((self.tabs.len() - 1, terminal, runtime))
@@ -391,6 +419,7 @@ impl Workspace {
         cwd: Option<PathBuf>,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        default_shell: &str,
     ) -> std::io::Result<crate::workspace::tab::NewPane> {
         let new_pane = self
             .active_tab_mut()
@@ -402,6 +431,7 @@ impl Workspace {
                 cwd,
                 scrollback_limit_bytes,
                 host_terminal_theme,
+                default_shell,
             )?;
         self.register_new_pane(new_pane.pane_id);
         Ok(new_pane)
@@ -445,6 +475,7 @@ impl Workspace {
         cwd: Option<PathBuf>,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        default_shell: &str,
         focus_new_pane: bool,
     ) -> Option<std::io::Result<(usize, crate::workspace::tab::NewPane)>> {
         self.split_pane_with_runtime(
@@ -455,6 +486,7 @@ impl Workspace {
             cwd,
             scrollback_limit_bytes,
             host_terminal_theme,
+            default_shell,
             focus_new_pane,
             None,
         )
@@ -481,6 +513,7 @@ impl Workspace {
             cwd,
             scrollback_limit_bytes,
             host_terminal_theme,
+            "",
             focus_new_pane,
             Some(argv),
         )
@@ -496,6 +529,7 @@ impl Workspace {
         cwd: Option<PathBuf>,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        default_shell: &str,
         focus_new_pane: bool,
         argv: Option<&[String]>,
     ) -> Option<std::io::Result<(usize, crate::workspace::tab::NewPane)>> {
@@ -521,6 +555,7 @@ impl Workspace {
                 cwd,
                 scrollback_limit_bytes,
                 host_terminal_theme,
+                default_shell,
             )
         } {
             Ok(new_pane) => new_pane,

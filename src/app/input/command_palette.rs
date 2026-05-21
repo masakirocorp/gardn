@@ -504,12 +504,12 @@ fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
                 return;
             }
         }
-        CommandPaletteAction::DetachOrQuit => super::modal::request_quit_or_detach(&mut app.state),
+        CommandPaletteAction::DetachOrQuit => super::modal::request_detach(&mut app.state),
         CommandPaletteAction::CustomCommand(idx) => {
             let Some(binding) = app.state.keybinds.custom_commands.get(idx).cloned() else {
                 return;
             };
-            app.launch_custom_command(binding);
+            app.launch_custom_command(binding, super::navigate::ActionContext::Navigate);
             return;
         }
     }
@@ -527,7 +527,6 @@ mod tests {
         let mut app = App::new(
             &Config::default(),
             true,
-            None,
             None,
             api_rx,
             crate::api::EventHub::default(),
@@ -622,7 +621,7 @@ mod tests {
         assert!(commands.iter().any(|command| {
             command.title == "new space"
                 && command.key_label.as_deref()
-                    == Some(app.state.keybinds.new_workspace_label.as_str())
+                    == app.state.keybinds.new_workspace.label().as_deref()
         }));
     }
 

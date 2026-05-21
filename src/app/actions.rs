@@ -670,6 +670,8 @@ impl AppState {
             if let Some(group_idx) = self.group_index_for_id(&group_id) {
                 self.active_group = group_idx;
             }
+            self.selection = None;
+            self.selection_autoscroll = None;
             self.active = Some(idx);
             self.selected = idx;
             let workspace_id = self.workspaces[idx].id.clone();
@@ -782,6 +784,8 @@ impl AppState {
 
     pub fn switch_tab(&mut self, idx: usize) {
         if let Some(ws_idx) = self.active {
+            self.selection = None;
+            self.selection_autoscroll = None;
             let Some(ws) = self.workspaces.get_mut(ws_idx) else {
                 return;
             };
@@ -1088,6 +1092,8 @@ impl AppState {
         if self.workspaces.is_empty() {
             return;
         }
+        self.selection = None;
+        self.selection_autoscroll = None;
         self.mark_session_dirty();
         let closed_idx = self.selected;
         let terminal_ids = self.terminal_ids_for_workspace(self.selected);
@@ -1151,12 +1157,23 @@ impl AppState {
 
 impl AppState {
     pub fn navigate_pane(&mut self, direction: NavDirection) {
-        let panes = &self.view.pane_infos;
+        let Some(ws_idx) = self.active else {
+            return;
+        };
+        let Some(tab) = self.workspaces.get(ws_idx).and_then(|ws| ws.active_tab()) else {
+            return;
+        };
+        let panes = if tab.zoomed {
+            tab.layout.panes(self.view.terminal_area)
+        } else {
+            self.view.pane_infos.clone()
+        };
+
         if let Some(focused) = panes.iter().find(|p| p.is_focused) {
-            if let Some(target) = find_in_direction(focused, direction, panes) {
+            if let Some(target) = find_in_direction(focused, direction, &panes) {
                 if let Some(tab) = self
-                    .active
-                    .and_then(|i| self.workspaces.get_mut(i))
+                    .workspaces
+                    .get_mut(ws_idx)
                     .and_then(|ws| ws.active_tab_mut())
                 {
                     tab.layout.focus_pane(target);
@@ -1213,6 +1230,8 @@ impl AppState {
     }
 
     pub fn close_pane(&mut self) {
+        self.selection = None;
+        self.selection_autoscroll = None;
         self.mark_session_dirty();
         let active = self.active;
         let terminal_ids = active
@@ -1241,6 +1260,8 @@ impl AppState {
         let Some(ws_idx) = self.active else {
             return;
         };
+        self.selection = None;
+        self.selection_autoscroll = None;
         self.mark_session_dirty();
         let Some(ws) = self.workspaces.get(ws_idx) else {
             return;
@@ -1282,6 +1303,11 @@ impl AppState {
 impl AppState {
     pub fn clear_selection(&mut self) {
         self.selection = None;
+        self.selection_autoscroll = None;
+    }
+
+    pub(crate) fn stop_selection_autoscroll_state(&mut self) {
+        self.selection_autoscroll = None;
     }
 
     pub fn copy_selection(&mut self) {
@@ -1310,6 +1336,7 @@ impl AppState {
         }
 
         self.selection = None;
+        self.selection_autoscroll = None;
     }
 }
 
@@ -1559,6 +1586,15 @@ impl AppState {
             warn!(pane = pane_id.raw(), "PaneDied for unknown pane");
             return;
         };
+
+        if self
+            .selection
+            .as_ref()
+            .is_some_and(|s| s.pane_id == pane_id)
+        {
+            self.selection = None;
+            self.selection_autoscroll = None;
+        }
 
         let pane_terminal_id = self.terminal_id_for_pane(ws_idx, pane_id);
         if let Some(terminal_id) = pane_terminal_id.as_ref() {
@@ -2507,6 +2543,51 @@ mod tests {
     }
 
     #[test]
+    fn pane_died_unrelated_pane_preserves_selection() {
+        // Two workspaces; user is selecting text in workspace 0.
+        // A pane in workspace 1 dies — selection must be preserved.
+        let mut state = app_with_workspaces(&["active", "bg"]);
+        let active_pane = *state.workspaces[0].panes.keys().next().unwrap();
+        let bg_pane = *state.workspaces[1].panes.keys().next().unwrap();
+
+        state.selection = Some(crate::selection::Selection::anchor(active_pane, 0, 0, None));
+        state.selection_autoscroll = Some(crate::app::state::SelectionAutoscroll {
+            direction: crate::app::state::SelectionAutoscrollDirection::Down,
+            last_mouse_screen_col: 0,
+            last_mouse_screen_row: 23,
+            inner_rect: ratatui::layout::Rect::new(0, 0, 80, 24),
+        });
+
+        state.handle_pane_died(bg_pane, 0, true);
+
+        assert!(state.selection.is_some());
+        assert!(state.selection_autoscroll.is_some());
+    }
+
+    #[test]
+    fn pane_died_same_pane_clears_selection() {
+        let mut state = app_with_workspaces(&["test"]);
+        let first_id = state.workspaces[0].tabs[0].root_pane;
+        let second_id = state.workspaces[0].test_split(Direction::Horizontal);
+
+        state.selection = Some(crate::selection::Selection::anchor(second_id, 0, 0, None));
+        state.selection_autoscroll = Some(crate::app::state::SelectionAutoscroll {
+            direction: crate::app::state::SelectionAutoscrollDirection::Down,
+            last_mouse_screen_col: 0,
+            last_mouse_screen_row: 23,
+            inner_rect: ratatui::layout::Rect::new(0, 0, 80, 24),
+        });
+
+        state.handle_pane_died(second_id, 0, true);
+
+        // first_id still alive, workspace stays, but selection was on the dying pane
+        assert!(state.selection.is_none());
+        assert!(state.selection_autoscroll.is_none());
+        assert_eq!(state.workspaces[0].panes.len(), 1);
+        assert_eq!(state.workspaces[0].panes.keys().next().unwrap(), &first_id);
+    }
+
+    #[test]
     fn state_changed_updates_pane() {
         let mut state = app_with_workspaces(&["test"]);
         let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
@@ -2835,6 +2916,28 @@ mod tests {
         let mut state = app_with_workspaces(&["test"]);
         state.toggle_zoom();
         assert!(!state.workspaces[0].zoomed);
+    }
+
+    #[test]
+    fn navigate_pane_changes_focus_while_zoomed() {
+        let mut state = app_with_workspaces(&["test"]);
+        let root = state.workspaces[0].tabs[0].root_pane;
+        let right = state.workspaces[0].test_split(Direction::Horizontal);
+        state.workspaces[0].layout.focus_pane(root);
+        state.workspaces[0].zoomed = true;
+        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 100, 20));
+
+        assert_eq!(state.view.pane_infos.len(), 1);
+        assert_eq!(state.view.pane_infos[0].id, root);
+
+        state.navigate_pane(NavDirection::Right);
+        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 100, 20));
+
+        assert!(state.workspaces[0].zoomed);
+        assert_eq!(state.workspaces[0].focused_pane_id(), Some(right));
+        assert_eq!(state.view.pane_infos.len(), 1);
+        assert_eq!(state.view.pane_infos[0].id, right);
+        assert!(state.view.pane_infos[0].inner_rect.x > state.view.pane_infos[0].rect.x);
     }
 
     #[test]

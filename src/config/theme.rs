@@ -5,7 +5,7 @@ use tracing::warn;
 ///
 /// ```toml
 /// [theme]
-/// name = "tokyo-night"  # built-in: system, catppuccin, tokyo-night, dracula, etc.
+/// name = "tokyo-night"  # built-in: system, terminal, catppuccin, dracula, etc.
 ///
 /// [theme.custom]        # override individual tokens on top of the base
 /// accent = "#f5c2e7"

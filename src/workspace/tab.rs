@@ -63,6 +63,7 @@ impl Tab {
         cols: u16,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        default_shell: &str,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
         render_dirty: Arc<AtomicBool>,
@@ -74,6 +75,7 @@ impl Tab {
             cols,
             scrollback_limit_bytes,
             host_terminal_theme,
+            default_shell,
             events,
             render_notify,
             render_dirty,
@@ -100,6 +102,7 @@ impl Tab {
             cols,
             scrollback_limit_bytes,
             host_terminal_theme,
+            "",
             events,
             render_notify,
             render_dirty,
@@ -128,6 +131,7 @@ impl Tab {
             cols,
             scrollback_limit_bytes,
             host_terminal_theme,
+            "",
             events,
             render_notify,
             render_dirty,
@@ -143,6 +147,7 @@ impl Tab {
         cols: u16,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        default_shell: &str,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
         render_dirty: Arc<AtomicBool>,
@@ -189,6 +194,7 @@ impl Tab {
                 initial_cwd.clone(),
                 scrollback_limit_bytes,
                 host_terminal_theme,
+                default_shell,
                 events.clone(),
                 render_notify.clone(),
                 render_dirty.clone(),
@@ -246,6 +252,7 @@ impl Tab {
         cwd: Option<PathBuf>,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        default_shell: &str,
     ) -> std::io::Result<NewPane> {
         self.split_focused_with_runtime(
             direction,
@@ -254,6 +261,7 @@ impl Tab {
             cwd,
             scrollback_limit_bytes,
             host_terminal_theme,
+            default_shell,
             None,
         )
     }
@@ -276,6 +284,7 @@ impl Tab {
             cwd,
             scrollback_limit_bytes,
             host_terminal_theme,
+            "",
             Some(SplitCommand::Shell { command, extra_env }),
         )
     }
@@ -297,6 +306,7 @@ impl Tab {
             cwd,
             scrollback_limit_bytes,
             host_terminal_theme,
+            "",
             Some(SplitCommand::Argv { argv }),
         )
     }
@@ -309,6 +319,7 @@ impl Tab {
         cwd: Option<PathBuf>,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        default_shell: &str,
         command: Option<SplitCommand<'_>>,
     ) -> std::io::Result<NewPane> {
         let previous_focus = self.layout.focused();
@@ -355,6 +366,7 @@ impl Tab {
                 actual_cwd.clone(),
                 scrollback_limit_bytes,
                 host_terminal_theme,
+                default_shell,
                 self.events.clone(),
                 self.render_notify.clone(),
                 self.render_dirty.clone(),

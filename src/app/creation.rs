@@ -129,6 +129,7 @@ impl App {
             initial_cwd,
             self.state.pane_scrollback_limit_bytes,
             self.state.host_terminal_theme,
+            &self.state.default_shell,
         )?;
         self.state
             .terminal_runtimes
@@ -171,6 +172,7 @@ impl App {
             cols,
             self.state.pane_scrollback_limit_bytes,
             self.state.host_terminal_theme,
+            &self.state.default_shell,
             self.event_tx.clone(),
             self.render_notify.clone(),
             self.render_dirty.clone(),

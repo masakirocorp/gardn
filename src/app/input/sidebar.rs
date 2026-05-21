@@ -212,7 +212,7 @@ impl AppState {
         }
 
         let footer = self.sidebar_footer_rect();
-        let width = if self.update_available.is_some() {
+        let width = if self.global_menu_attention_badge_visible() {
             8
         } else {
             6
@@ -235,7 +235,7 @@ impl AppState {
         } else if self.latest_release_notes_available {
             labels.push("what's new");
         }
-        labels.push(if self.quit_detaches { "detach" } else { "quit" });
+        labels.push("detach");
         labels
     }
 
@@ -246,8 +246,12 @@ impl AppState {
         let content_width = labels
             .iter()
             .map(|label| {
-                let extra = if *label == "update ready" { 2 } else { 0 };
-                label.chars().count() as u16 + extra
+                let badge_width = if self.global_menu_item_has_badge(label) {
+                    2
+                } else {
+                    0
+                };
+                label.chars().count() as u16 + badge_width
             })
             .max()
             .unwrap_or(8)
@@ -557,8 +561,7 @@ impl AppState {
     pub(super) fn set_manual_sidebar_width(&mut self, divider_col: u16) {
         let sidebar = self.view.sidebar_rect;
         let width = divider_col.saturating_sub(sidebar.x).saturating_add(1);
-        self.sidebar_width =
-            width.clamp(crate::ui::MIN_SIDEBAR_WIDTH, crate::ui::MAX_SIDEBAR_WIDTH);
+        self.sidebar_width = width.clamp(self.sidebar_min_width, self.sidebar_max_width);
         self.sidebar_width_source = crate::app::state::SidebarWidthSource::Manual;
         self.mark_session_dirty();
     }
@@ -1190,14 +1193,32 @@ mod tests {
     fn clicking_old_footer_menu_area_does_not_open_global_menu() {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
         let rect = app.state.global_launcher_rect();
 
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            rect.x,
+            rect.x + 2,
             rect.y,
         ));
 
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn clicking_old_footer_new_area_does_not_request_workspace() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        let rect = app.state.sidebar_footer_rect();
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            rect.x + 2,
+            rect.y,
+        ));
+
+        assert!(!app.state.request_new_workspace);
         assert_eq!(app.state.mode, Mode::Terminal);
     }
 
@@ -1613,7 +1634,7 @@ mod tests {
                 "keybinds",
                 "reload config",
                 "update ready",
-                "quit"
+                "detach"
             ]
         );
         assert!(!app.state.should_quit);
@@ -1622,7 +1643,7 @@ mod tests {
     #[test]
     fn persistence_mode_menu_surfaces_detach_action() {
         let mut app = app_for_mouse_test();
-        app.state.quit_detaches = true;
+        app.state.detach_exits = false;
         app.state.mode = Mode::GlobalMenu;
 
         assert_eq!(
@@ -1654,7 +1675,7 @@ mod tests {
                 "keybinds",
                 "reload config",
                 "what's new",
-                "quit"
+                "detach"
             ]
         );
     }
@@ -3609,6 +3630,28 @@ mod tests {
         assert_eq!(app.state.sidebar_width, 31);
         let snapshot = capture_snapshot(&app.state);
         assert_eq!(snapshot.sidebar_width, Some(31));
+    }
+
+    #[test]
+    fn dragging_past_max_clamps_to_configured_max() {
+        let mut app = app_for_mouse_test();
+        app.state.sidebar_max_width = 30;
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 25, 5));
+        app.handle_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), 50, 5));
+
+        assert_eq!(app.state.sidebar_width, 30);
+    }
+
+    #[test]
+    fn dragging_below_min_clamps_to_configured_min() {
+        let mut app = app_for_mouse_test();
+        app.state.sidebar_min_width = 22;
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 25, 5));
+        app.handle_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), 5, 5));
+
+        assert_eq!(app.state.sidebar_width, 22);
     }
 
     #[test]

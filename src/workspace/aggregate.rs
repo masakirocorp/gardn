@@ -248,6 +248,28 @@ mod tests {
     }
 
     #[test]
+    fn pane_details_prefers_agent_name_over_detected_agent_label() {
+        let ws = Workspace::test_new("test");
+        let root_pane = ws.tabs[0].root_pane;
+        let mut terminals = HashMap::new();
+        let mut terminal = terminal_for_pane(&ws, root_pane);
+        terminal.set_detected_state(Some(Agent::Pi), AgentState::Working);
+        terminal.set_agent_name("planner".into());
+        terminals.insert(terminal.id.clone(), terminal);
+
+        let labels: Vec<_> = ws
+            .pane_details(&terminals)
+            .into_iter()
+            .map(|detail| (detail.label, detail.agent_label, detail.agent))
+            .collect();
+
+        assert_eq!(
+            labels,
+            vec![("planner".into(), "planner".into(), Some(Agent::Pi))]
+        );
+    }
+
+    #[test]
     fn pane_details_includes_tab_context_for_multi_tab_workspace() {
         let mut ws = Workspace::test_new("test");
         ws.tabs[0].custom_name = Some("main".into());

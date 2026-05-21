@@ -285,58 +285,56 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
 
 fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) -> Option<String> {
     let kb = &state.keybinds;
+    let label = |bindings: &crate::config::ActionKeybinds| bindings.label();
     match action {
-        CommandPaletteAction::NewWorkspace => Some(kb.new_workspace_label.clone()),
-        CommandPaletteAction::RenameWorkspace => Some(kb.rename_workspace_label.clone()),
-        CommandPaletteAction::CloseWorkspace => Some(kb.close_workspace_label.clone()),
-        CommandPaletteAction::PreviousWorkspace => kb.previous_workspace_label.clone(),
-        CommandPaletteAction::NextWorkspace => kb.next_workspace_label.clone(),
-        CommandPaletteAction::NewTab => Some(kb.new_tab_label.clone()),
-        CommandPaletteAction::RenameTab => kb.rename_tab_label.clone(),
-        CommandPaletteAction::PreviousTab => kb.previous_tab_label.clone(),
-        CommandPaletteAction::NextTab => kb.next_tab_label.clone(),
-        CommandPaletteAction::CloseTab => kb.close_tab_label.clone(),
-        CommandPaletteAction::SplitVertical => Some(kb.split_vertical_label.clone()),
-        CommandPaletteAction::SplitHorizontal => Some(kb.split_horizontal_label.clone()),
-        CommandPaletteAction::ClosePane => Some(kb.close_pane_label.clone()),
-        CommandPaletteAction::RenamePane => kb.rename_pane_label.clone(),
-        CommandPaletteAction::Fullscreen => Some(kb.zoom_label.clone()),
-        CommandPaletteAction::ResizeMode => Some(kb.resize_mode_label.clone()),
-        CommandPaletteAction::FocusPane(crate::layout::NavDirection::Left) => kb
-            .focus_pane_left_label
-            .clone()
-            .or_else(|| Some("h".into())),
-        CommandPaletteAction::FocusPane(crate::layout::NavDirection::Down) => kb
-            .focus_pane_down_label
-            .clone()
-            .or_else(|| Some("j".into())),
-        CommandPaletteAction::FocusPane(crate::layout::NavDirection::Up) => {
-            kb.focus_pane_up_label.clone().or_else(|| Some("k".into()))
+        CommandPaletteAction::NewWorkspace => label(&kb.new_workspace),
+        CommandPaletteAction::RenameWorkspace => label(&kb.rename_workspace),
+        CommandPaletteAction::CloseWorkspace => label(&kb.close_workspace),
+        CommandPaletteAction::PreviousWorkspace => label(&kb.previous_workspace),
+        CommandPaletteAction::NextWorkspace => label(&kb.next_workspace),
+        CommandPaletteAction::NewTab => label(&kb.new_tab),
+        CommandPaletteAction::RenameTab => label(&kb.rename_tab),
+        CommandPaletteAction::PreviousTab => label(&kb.previous_tab),
+        CommandPaletteAction::NextTab => label(&kb.next_tab),
+        CommandPaletteAction::CloseTab => label(&kb.close_tab),
+        CommandPaletteAction::SplitVertical => label(&kb.split_vertical),
+        CommandPaletteAction::SplitHorizontal => label(&kb.split_horizontal),
+        CommandPaletteAction::ClosePane => label(&kb.close_pane),
+        CommandPaletteAction::RenamePane => label(&kb.rename_pane),
+        CommandPaletteAction::Fullscreen => label(&kb.zoom),
+        CommandPaletteAction::ResizeMode => label(&kb.resize_mode),
+        CommandPaletteAction::FocusPane(crate::layout::NavDirection::Left) => {
+            label(&kb.focus_pane_left).or_else(|| Some("h".into()))
         }
-        CommandPaletteAction::FocusPane(crate::layout::NavDirection::Right) => kb
-            .focus_pane_right_label
-            .clone()
-            .or_else(|| Some("l".into())),
+        CommandPaletteAction::FocusPane(crate::layout::NavDirection::Down) => {
+            label(&kb.focus_pane_down).or_else(|| Some("j".into()))
+        }
+        CommandPaletteAction::FocusPane(crate::layout::NavDirection::Up) => {
+            label(&kb.focus_pane_up).or_else(|| Some("k".into()))
+        }
+        CommandPaletteAction::FocusPane(crate::layout::NavDirection::Right) => {
+            label(&kb.focus_pane_right).or_else(|| Some("l".into()))
+        }
         CommandPaletteAction::CyclePaneNext => Some("tab".into()),
         CommandPaletteAction::CyclePanePrevious => Some("shift+tab".into()),
-        CommandPaletteAction::OpenGroupMenu => kb.open_group_menu_label.clone(),
-        CommandPaletteAction::NewGroup => kb.new_group_label.clone(),
-        CommandPaletteAction::RenameGroup => kb.rename_group_label.clone(),
-        CommandPaletteAction::DeleteGroup => kb.delete_group_label.clone(),
-        CommandPaletteAction::ToggleGroupFilter => kb.toggle_group_filter_label.clone(),
-        CommandPaletteAction::PreviousGroup => kb.previous_group_label.clone(),
-        CommandPaletteAction::NextGroup => kb.next_group_label.clone(),
-        CommandPaletteAction::OpenAgentMenu => kb.open_agent_menu_label.clone(),
-        CommandPaletteAction::PreviousAgent => kb.previous_agent_label.clone(),
-        CommandPaletteAction::NextAgent => kb.next_agent_label.clone(),
+        CommandPaletteAction::OpenGroupMenu => label(&kb.open_group_menu),
+        CommandPaletteAction::NewGroup => label(&kb.new_group),
+        CommandPaletteAction::RenameGroup => label(&kb.rename_group),
+        CommandPaletteAction::DeleteGroup => label(&kb.delete_group),
+        CommandPaletteAction::ToggleGroupFilter => label(&kb.toggle_group_filter),
+        CommandPaletteAction::PreviousGroup => label(&kb.previous_group),
+        CommandPaletteAction::NextGroup => label(&kb.next_group),
+        CommandPaletteAction::OpenAgentMenu => label(&kb.open_agent_menu),
+        CommandPaletteAction::PreviousAgent => label(&kb.previous_agent),
+        CommandPaletteAction::NextAgent => label(&kb.next_agent),
         CommandPaletteAction::OpenGitDiff => None,
-        CommandPaletteAction::ToggleSidebar => Some(kb.toggle_sidebar_label.clone()),
-        CommandPaletteAction::ToggleRightSidebar => kb.toggle_right_sidebar_label.clone(),
-        CommandPaletteAction::OpenSettings => Some("s".into()),
-        CommandPaletteAction::OpenKeybinds => Some("?".into()),
-        CommandPaletteAction::ReloadConfig => kb.reload_config_label.clone(),
-        CommandPaletteAction::OpenNotificationTarget => kb.open_notification_target_label.clone(),
-        CommandPaletteAction::DetachOrQuit => kb.detach_label.clone(),
+        CommandPaletteAction::ToggleSidebar => label(&kb.toggle_sidebar),
+        CommandPaletteAction::ToggleRightSidebar => label(&kb.toggle_right_sidebar),
+        CommandPaletteAction::OpenSettings => label(&kb.settings),
+        CommandPaletteAction::OpenKeybinds => label(&kb.help),
+        CommandPaletteAction::ReloadConfig => label(&kb.reload_config),
+        CommandPaletteAction::OpenNotificationTarget => label(&kb.open_notification_target),
+        CommandPaletteAction::DetachOrQuit => label(&kb.detach),
         CommandPaletteAction::CustomCommand(idx) => kb
             .custom_commands
             .get(*idx)
