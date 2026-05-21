@@ -402,15 +402,7 @@ fn main() -> io::Result<()> {
         }
         println!();
         println!("advanced commands:");
-        for (command, description) in [
-            ("herdr server", "run as headless server"),
-            (
-                "herdr client",
-                "connect to a running server as a thin client",
-            ),
-        ] {
-            println!("  {command:<32} {description}");
-        }
+        println!("  {:<32} run as headless server", "herdr server");
         println!();
         println!("options:");
         println!("  --no-session        run monolithically (no server/client, escape hatch)");
