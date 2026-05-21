@@ -14,8 +14,8 @@ use crate::layout::PaneId;
 use super::{
     input::{
         ghostty_key_event_from_terminal_key, ghostty_mouse_encoder_for_terminal,
-        ghostty_mouse_event_from_button_kind, ghostty_mouse_event_from_wheel_kind,
-        ghostty_prefers_herdr_text_encoding,
+        ghostty_mouse_event_from_button_kind, ghostty_mouse_event_from_motion_kind,
+        ghostty_mouse_event_from_wheel_kind, ghostty_prefers_herdr_text_encoding,
     },
     osc::{
         contains_scrollback_clear_sequence, current_transient_default_color_owner,
@@ -257,6 +257,17 @@ impl PaneTerminal {
     ) -> Option<Vec<u8>> {
         self.ghostty
             .encode_mouse_wheel(kind, column, row, modifiers)
+    }
+
+    pub fn encode_mouse_motion(
+        &self,
+        kind: crossterm::event::MouseEventKind,
+        column: u16,
+        row: u16,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Option<Vec<u8>> {
+        self.ghostty
+            .encode_mouse_motion(kind, column, row, modifiers)
     }
 }
 
@@ -632,6 +643,21 @@ impl GhosttyPaneTerminal {
         };
         let mut encoder = ghostty_mouse_encoder_for_terminal(&core.terminal)?;
         let event = ghostty_mouse_event_from_wheel_kind(kind, column, row, modifiers)?;
+        encoder.encode(&event).ok()
+    }
+
+    pub fn encode_mouse_motion(
+        &self,
+        kind: crossterm::event::MouseEventKind,
+        column: u16,
+        row: u16,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Option<Vec<u8>> {
+        let Ok(core) = self.core.lock() else {
+            return None;
+        };
+        let mut encoder = ghostty_mouse_encoder_for_terminal(&core.terminal)?;
+        let event = ghostty_mouse_event_from_motion_kind(kind, column, row, modifiers)?;
         encoder.encode(&event).ok()
     }
 

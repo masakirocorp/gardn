@@ -462,6 +462,19 @@ fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
         }
         CommandPaletteAction::PreviousAgent => app.state.previous_agent(),
         CommandPaletteAction::NextAgent => app.state.next_agent(),
+        CommandPaletteAction::OpenGitDiff => {
+            let previous_toast = app.state.toast.clone();
+            if let Err(err) = app.state.open_git_diff_panel() {
+                app.state.toast = Some(crate::app::state::ToastNotification {
+                    kind: crate::app::state::ToastKind::NeedsAttention,
+                    title: "git diff failed".to_string(),
+                    context: err,
+                    target: None,
+                });
+                app.sync_toast_deadline(previous_toast);
+            }
+            return;
+        }
         CommandPaletteAction::ToggleSidebar => {
             app.state.sidebar_collapsed = !app.state.sidebar_collapsed;
             app.state.mark_session_dirty();
@@ -610,6 +623,19 @@ mod tests {
             command.title == "new space"
                 && command.key_label.as_deref()
                     == Some(app.state.keybinds.new_workspace_label.as_str())
+        }));
+    }
+
+    #[test]
+    fn command_palette_includes_git_diff_launcher() {
+        let app = app_with_space();
+
+        let commands = command_palette_visible_commands(&app.state);
+
+        assert!(commands.iter().any(|command| {
+            command.title == "open git diff"
+                && command.group == "git"
+                && command.action == CommandPaletteAction::OpenGitDiff
         }));
     }
 }

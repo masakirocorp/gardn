@@ -19,6 +19,7 @@ mod aggregate;
 mod git;
 mod tab;
 
+pub(crate) use self::git::git_repo_root;
 use self::git::{git_ahead_behind, git_work_summary};
 pub use self::{
     git::{derive_label_from_cwd, git_branch},
