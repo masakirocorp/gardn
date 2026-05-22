@@ -97,7 +97,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                 frame,
                 content_area,
                 "theme mode",
-                "choose how herdr resolves light and dark palettes",
+                "choose how hako resolves light and dark palettes",
                 &[
                     ("system", ThemeMode::System),
                     ("light", ThemeMode::Light),
@@ -130,7 +130,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                 "choose where background popup notifications should appear",
                 &[
                     ("off", ToastDelivery::Off),
-                    ("inside herdr", ToastDelivery::Herdr),
+                    ("inside hako", ToastDelivery::Hako),
                     ("via terminal", ToastDelivery::Terminal),
                     ("via system", ToastDelivery::System),
                 ],

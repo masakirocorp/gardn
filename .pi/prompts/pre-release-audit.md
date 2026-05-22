@@ -61,26 +61,26 @@ Process:
    - Preserve the existing changelog style and sections: `Added`, `Changed`, `Fixed`, `Removed`, and `Breaking Changes` when applicable.
 
 7. Audit next-release public docs.
-   - Treat root `README.md` and `website/src/content/docs/` as the latest released public docs.
-   - Treat `docs/next/README.md` as the next-release root README, and `docs/next/website/src/content/docs/` as the full next-release mirror of website docs.
+   - Treat root `README.md` as the latest released public README.
+   - Treat `docs/next/README.md` as the next-release root README.
    - Compare meaningful user-facing changes in the range against next-release docs first.
    - Flag missing release docs for new or changed features, commands, config keys, protocol behavior, integrations, defaults, and compatibility notes.
-   - Compare `docs/next/README.md` against root `README.md`, and compare the staged website-doc mirror against `website/src/content/docs/`. Flag each difference as intended to ship in this release, stale, or needing user decision.
+   - Compare `docs/next/README.md` against root `README.md`. Flag each difference as intended to ship in this release, stale, or needing user decision.
    - Also audit example config snippets for release readiness.
 
 8. Verify finalization state.
-   - Before `just release`, approved `docs/next/README.md` must be copied to root `README.md`, approved staged website docs must be copied from `docs/next/website/src/content/docs/` to `website/src/content/docs/`, and the deleted root doc files must stay deleted.
+   - Before `just release`, approved `docs/next/README.md` must be copied to root `README.md`, and the deleted root doc files must stay deleted.
    - Run or recommend:
      ```bash
      just release-docs-check
      ```
-   - This check must include root `README.md`, root `CHANGELOG.md`, the removed root doc files, and exact 1:1 sync between `docs/next/website/src/content/docs/` and `website/src/content/docs/`.
+   - This check must include root `README.md`, root `CHANGELOG.md`, and the removed root doc files.
    - Do not run `just release` unless the working tree is clean and the docs check passes.
 
 9. Apply changes only when asked.
    - Do not edit files during the audit unless the user explicitly asks you to apply fixes.
-   - When asked to apply audit fixes, update `docs/next/CHANGELOG.md`, `docs/next/README.md`, and any required staged website docs under `docs/next/website/src/content/docs/`.
-   - When asked to finalize release docs, copy approved next-release README and changelog into root, copy approved staged website docs into `website/src/content/docs/`, then run `just release-docs-check`.
+   - When asked to apply audit fixes, update `docs/next/CHANGELOG.md` and `docs/next/README.md`.
+   - When asked to finalize release docs, copy approved next-release README and changelog into root, then run `just release-docs-check`.
 
 Output format:
 

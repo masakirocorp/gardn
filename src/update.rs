@@ -1,7 +1,7 @@
 //! Self-update mechanism.
 //!
-//! Checks the hosted herdr.dev update manifest for newer versions.
-//! Manual `herdr update` downloads and installs the binary.
+//! Checks the hosted hako.masakiro.com update manifest for newer versions.
+//! Manual `hako update` downloads and installs the binary.
 //! Background checks only surface availability and release notes.
 //! Uses `curl` as a subprocess for HTTP — no additional Rust HTTP dependencies.
 //! JSON parsing uses serde_json (already in deps for persistence).
@@ -17,18 +17,18 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-const UPDATE_MANIFEST_URL: &str = "https://herdr.dev/latest.json";
-const HOMEBREW_FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula/herdr.json";
-const HERDR_UPDATE_COMMAND: &str = "herdr update";
-const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade herdr";
+const UPDATE_MANIFEST_URL: &str = "https://hako.masakiro.com/latest.json";
+const HOMEBREW_FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula/hako.json";
+const HAKO_UPDATE_COMMAND: &str = "hako update";
+const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade hako";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const FAKE_UPDATE_VERSION_ENV: &str = "HERDR_FAKE_UPDATE_VERSION";
-const FAKE_UPDATE_NOTES_VERSION_ENV: &str = "HERDR_FAKE_UPDATE_NOTES_VERSION";
+const FAKE_UPDATE_VERSION_ENV: &str = "HAKO_FAKE_UPDATE_VERSION";
+const FAKE_UPDATE_NOTES_VERSION_ENV: &str = "HAKO_FAKE_UPDATE_NOTES_VERSION";
 const DEFAULT_FAKE_UPDATE_NOTES_VERSION: &str = "0.3.0";
 const SERVER_STOP_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 const SERVER_SHUTDOWN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(5);
 const SERVER_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
-const STAR_PROMPT_REPO: &str = "ogulcancelik/herdr";
+const STAR_PROMPT_REPO: &str = "masakirocorp/hako";
 const STAR_PROMPT_STATE_FILE: &str = "github-star-prompt.json";
 const STAR_PROMPT_MAX_PROMPTS: u32 = 5;
 const STAR_PROMPT_INTERVAL_UPDATES: [u32; 4] = [2, 3, 5, 7];
@@ -327,7 +327,7 @@ fn download_update(release: &ReleaseInfo) -> Result<DownloadedUpdate, String> {
     let parent = current_exe.parent().ok_or("can't find binary directory")?;
 
     // Check write permissions early
-    let test_path = parent.join(".herdr-write-test");
+    let test_path = parent.join(".hako-write-test");
     if let Err(e) = fs::write(&test_path, b"") {
         let _ = fs::remove_file(&test_path);
         return Err(format!(
@@ -339,7 +339,7 @@ fn download_update(release: &ReleaseInfo) -> Result<DownloadedUpdate, String> {
     let _ = fs::remove_file(&test_path);
 
     // Unique temp file (avoids races with concurrent instances)
-    let tmp_path = parent.join(format!(".herdr-update-{}.tmp", std::process::id()));
+    let tmp_path = parent.join(format!(".hako-update-{}.tmp", std::process::id()));
 
     // Download the exact asset URL (pinned to the release we checked)
     let status = Command::new("curl")
@@ -391,12 +391,12 @@ fn install_downloaded_update(mut update: DownloadedUpdate) -> Result<(), String>
 // Upgrade flow helpers
 // ---------------------------------------------------------------------------
 
-fn running_inside_herdr_env(herdr_env: Option<&str>) -> bool {
-    herdr_env == Some(crate::HERDR_ENV_VALUE)
+fn running_inside_hako_env(hako_env: Option<&str>) -> bool {
+    hako_env == Some(crate::HAKO_ENV_VALUE)
 }
 
-fn running_inside_herdr() -> bool {
-    running_inside_herdr_env(env::var(crate::HERDR_ENV_VAR).ok().as_deref())
+fn running_inside_hako() -> bool {
+    running_inside_hako_env(env::var(crate::HAKO_ENV_VAR).ok().as_deref())
 }
 
 fn api_server_is_running_at(socket_path: &Path) -> bool {
@@ -462,18 +462,18 @@ fn prompt_to_stop_server_before_update(
     if !io::stdin().is_terminal() {
         if requires_stop {
             return Err(format!(
-                "a herdr server is running and updating to v{} requires stopping it; run `herdr server stop`, then run `herdr update` again",
+                "a hako server is running and updating to v{} requires stopping it; run `hako server stop`, then run `hako update` again",
                 release.version
             ));
         }
 
         eprintln!(
-            "a herdr server is running. updating the binary will not affect that server until it restarts."
+            "a hako server is running. updating the binary will not affect that server until it restarts."
         );
         return Ok(false);
     }
 
-    eprintln!("a herdr server is currently running:");
+    eprintln!("a hako server is currently running:");
     eprintln!(
         "  server: v{} protocol {}",
         version_label(server.version.as_deref()),
@@ -488,9 +488,9 @@ fn prompt_to_stop_server_before_update(
 
     if requires_stop {
         eprintln!(
-            "this update changes the herdr client/server protocol. the running server must be stopped before the new client can attach."
+            "this update changes the hako client/server protocol. the running server must be stopped before the new client can attach."
         );
-        eprintln!("stopping the server will end the current herdr session and its panes.");
+        eprintln!("stopping the server will end the current hako session and its panes.");
     } else {
         eprintln!("updating the binary will not affect the running server until it restarts.");
     }
@@ -534,7 +534,7 @@ fn plan_running_server_update(
     let Some(server) = read_running_server_info()? else {
         if client_protocol_server_is_running() {
             return Err(
-                "a herdr server is listening, but its status API is unavailable; try `herdr server stop`, or stop the old server process manually, then run `herdr update` again"
+                "a hako server is listening, but its status API is unavailable; try `hako server stop`, or stop the old server process manually, then run `hako update` again"
                     .to_string(),
             );
         }
@@ -561,7 +561,7 @@ fn stop_running_server_for_update(
     if !stop_server {
         if plan.requires_stop {
             return Err(
-                "update cancelled; stop the running herdr server with `herdr server stop`, then run `herdr update` again"
+                "update cancelled; stop the running hako server with `hako server stop`, then run `hako update` again"
                     .to_string(),
             );
         }
@@ -570,7 +570,7 @@ fn stop_running_server_for_update(
 
     stop_server_via_api()?;
     wait_for_server_shutdown(SERVER_SHUTDOWN_CONFIRM_TIMEOUT)?;
-    eprintln!("stopped the running herdr server.");
+    eprintln!("stopped the running hako server.");
     Ok(true)
 }
 
@@ -678,7 +678,7 @@ pub(crate) fn update_install_command() -> &'static str {
     if is_homebrew_managed_install() {
         HOMEBREW_UPDATE_COMMAND
     } else {
-        HERDR_UPDATE_COMMAND
+        HAKO_UPDATE_COMMAND
     }
 }
 
@@ -701,7 +701,7 @@ fn is_homebrew_managed_exe_path(path: &Path) -> bool {
 }
 
 fn homebrew_cellar_keg_root(path: &Path) -> Option<PathBuf> {
-    if path.file_name()? != "herdr" {
+    if path.file_name()? != "hako" {
         return None;
     }
     let bin_dir = path.parent()?;
@@ -710,7 +710,7 @@ fn homebrew_cellar_keg_root(path: &Path) -> Option<PathBuf> {
     }
     let version_dir = bin_dir.parent()?;
     let formula_dir = version_dir.parent()?;
-    if formula_dir.file_name()? != "herdr" {
+    if formula_dir.file_name()? != "hako" {
         return None;
     }
     let cellar_dir = formula_dir.parent()?;
@@ -894,7 +894,7 @@ fn parse_star_prompt_response(input: &str) -> Option<bool> {
 
 fn prompt_to_star_repository() -> io::Result<bool> {
     loop {
-        eprint!("If herdr has been useful, would you like to star it? [Y/n] ");
+        eprint!("If hako has been useful, would you like to star it? [Y/n] ");
         io::stderr().flush()?;
 
         let mut input = String::new();
@@ -982,7 +982,7 @@ fn maybe_offer_star_after_successful_update() {
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Manual self-update command (`herdr update`).
+/// Manual self-update command (`hako update`).
 pub fn self_update() -> Result<Version, String> {
     if is_homebrew_managed_install() {
         return Err(format!(
@@ -990,8 +990,8 @@ pub fn self_update() -> Result<Version, String> {
         ));
     }
 
-    if running_inside_herdr() {
-        return Err("run `herdr update` outside herdr after detaching from the session".into());
+    if running_inside_hako() {
+        return Err("run `hako update` outside hako after detaching from the session".into());
     }
 
     eprintln!("checking for updates...");
@@ -1022,11 +1022,11 @@ pub fn self_update() -> Result<Version, String> {
     print_outdated_integration_notice_with_updated_binary(&updated_exe);
 
     if stopped_server {
-        eprintln!("run herdr again to start the updated server.");
+        eprintln!("run hako again to start the updated server.");
     } else if api_server_is_running() {
-        eprintln!("the running herdr server will use the new version after it restarts.");
+        eprintln!("the running hako server will use the new version after it restarts.");
     } else {
-        eprintln!("run herdr again.");
+        eprintln!("run hako again.");
     }
 
     maybe_offer_star_after_successful_update();
@@ -1104,7 +1104,7 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
     // Notify the TUI — blocking_send is safe from a std::thread
     let _ = events.blocking_send(crate::events::AppEvent::UpdateReady {
         version: release.version.to_string(),
-        install_command: HERDR_UPDATE_COMMAND.to_string(),
+        install_command: HAKO_UPDATE_COMMAND.to_string(),
     });
 }
 
@@ -1250,32 +1250,32 @@ mod tests {
 
     #[test]
     fn homebrew_cellar_path_is_detected() {
-        let path = Path::new("/opt/homebrew/Cellar/herdr/0.5.9/bin/herdr");
+        let path = Path::new("/opt/homebrew/Cellar/hako/0.5.9/bin/hako");
 
         assert!(is_homebrew_managed_exe_path(path));
         assert_eq!(
             homebrew_cellar_keg_root(path).unwrap(),
-            PathBuf::from("/opt/homebrew/Cellar/herdr/0.5.9")
+            PathBuf::from("/opt/homebrew/Cellar/hako/0.5.9")
         );
     }
 
     #[test]
     fn homebrew_linux_cellar_path_is_detected() {
-        let path = Path::new("/home/linuxbrew/.linuxbrew/Cellar/herdr/0.5.9/bin/herdr");
+        let path = Path::new("/home/linuxbrew/.linuxbrew/Cellar/hako/0.5.9/bin/hako");
 
         assert!(is_homebrew_managed_exe_path(path));
     }
 
     #[test]
     fn homebrew_opt_path_requires_canonicalized_cellar_target() {
-        let path = Path::new("/opt/homebrew/opt/herdr/bin/herdr");
+        let path = Path::new("/opt/homebrew/opt/hako/bin/hako");
 
         assert!(!is_homebrew_managed_exe_path(path));
     }
 
     #[test]
     fn non_homebrew_path_is_not_detected() {
-        let path = Path::new("/usr/local/bin/herdr");
+        let path = Path::new("/usr/local/bin/hako");
 
         assert!(!is_homebrew_managed_exe_path(path));
     }
@@ -1312,10 +1312,10 @@ mod tests {
     }
 
     #[test]
-    fn running_inside_herdr_env_requires_marker() {
-        assert!(running_inside_herdr_env(Some(crate::HERDR_ENV_VALUE)));
-        assert!(!running_inside_herdr_env(None));
-        assert!(!running_inside_herdr_env(Some("0")));
+    fn running_inside_hako_env_requires_marker() {
+        assert!(running_inside_hako_env(Some(crate::HAKO_ENV_VALUE)));
+        assert!(!running_inside_hako_env(None));
+        assert!(!running_inside_hako_env(Some("0")));
     }
 
     #[test]
@@ -1338,7 +1338,7 @@ mod tests {
         let compatible_release = ReleaseInfo {
             version: Version::parse("0.5.6").unwrap(),
             target_protocol: Some(2),
-            download_url: "https://example.com/herdr".to_string(),
+            download_url: "https://example.com/hako".to_string(),
             notes_body: "### Changed\n- One".to_string(),
         };
         let incompatible_release = ReleaseInfo {
@@ -1543,7 +1543,7 @@ mod tests {
     #[test]
     fn star_prompt_state_round_trips() {
         let path = std::env::temp_dir().join(format!(
-            "herdr-star-prompt-{}-{}.json",
+            "hako-star-prompt-{}-{}.json",
             std::process::id(),
             "round-trip"
         ));
@@ -1578,8 +1578,8 @@ mod tests {
                 \"body\": \"### Heads up\\n- Defaults changed\"\n\
             },\n\
             \"assets\": {\n\
-                \"linux-x86_64\": \"https://example.com/herdr-linux-x86_64\",\n\
-                \"macos-aarch64\": \"https://example.com/herdr-macos-aarch64\"\n\
+                \"linux-x86_64\": \"https://example.com/hako-linux-x86_64\",\n\
+                \"macos-aarch64\": \"https://example.com/hako-macos-aarch64\"\n\
             }\n\
         }";
         let manifest: UpdateManifest = serde_json::from_str(json).unwrap();
@@ -1603,7 +1603,7 @@ mod tests {
         );
         assert_eq!(
             manifest.download_url_for("linux", "x86_64").as_deref(),
-            Some("https://example.com/herdr-linux-x86_64")
+            Some("https://example.com/hako-linux-x86_64")
         );
     }
 
@@ -1710,7 +1710,7 @@ mod tests {
         let json = r#"{
             "version": "0.2.0",
             "assets": {
-                "linux-x86_64": "https://example.com/herdr-linux-x86_64"
+                "linux-x86_64": "https://example.com/hako-linux-x86_64"
             }
         }"#;
 
@@ -1732,7 +1732,7 @@ mod tests {
                     "body": "### Heads up\n- Defaults changed"
                 }},
                 "assets": {{
-                    "{asset_key}": "https://example.com/herdr"
+                    "{asset_key}": "https://example.com/hako"
                 }}
             }}"####
         );
@@ -1744,43 +1744,6 @@ mod tests {
             .expect("release info");
 
         assert_eq!(release.version, Version::parse("99.99.99").unwrap());
-        assert_eq!(release.download_url, "https://example.com/herdr");
-    }
-
-    #[test]
-    fn checked_in_website_manifest_matches_update_schema() {
-        let manifest: UpdateManifest = serde_json::from_str(include_str!("../website/latest.json"))
-            .expect("website/latest.json should match updater schema");
-
-        assert!(!manifest
-            .metadata_for_version(&Version::parse(&manifest.version).unwrap())
-            .expect("metadata")
-            .notes_body()
-            .is_empty());
-        // website/latest.json describes the latest released binaries, not the
-        // current unreleased checkout. Its protocol is updated by the release
-        // flow together with the release assets.
-        assert!(manifest.protocol.is_some());
-        assert_eq!(manifest.assets.len(), 4);
-
-        for target in [
-            "linux-x86_64",
-            "linux-aarch64",
-            "macos-x86_64",
-            "macos-aarch64",
-        ] {
-            let url = manifest
-                .assets
-                .get(target)
-                .unwrap_or_else(|| panic!("missing asset URL for {target}"));
-            assert!(
-                url.contains(&format!("/releases/download/v{}/", manifest.version)),
-                "unexpected release URL for {target}: {url}"
-            );
-            assert!(
-                url.ends_with(&format!("herdr-{target}")),
-                "unexpected asset name for {target}: {url}"
-            );
-        }
+        assert_eq!(release.download_url, "https://example.com/hako");
     }
 }

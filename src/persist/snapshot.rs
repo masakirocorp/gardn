@@ -10,7 +10,7 @@ use crate::workspace::Workspace;
 /// Current snapshot format version.
 pub(super) const SNAPSHOT_VERSION: u32 = 3;
 
-/// Serializable snapshot of the entire herdr session.
+/// Serializable snapshot of the entire hako session.
 #[derive(Serialize, Deserialize)]
 pub struct SessionSnapshot {
     /// Format version — used to detect incompatible changes.
@@ -425,11 +425,11 @@ mod tests {
 
     fn session_fixture(name: &str) -> &'static str {
         match name {
-            "current-herdr" => {
-                include_str!("../../tests/fixtures/session/current-herdr-session.json")
+            "current-hako" => {
+                include_str!("../../tests/fixtures/session/current-hako-session.json")
             }
-            "current-herdr-dev" => {
-                include_str!("../../tests/fixtures/session/current-herdr-dev-session.json")
+            "current-hako-dev" => {
+                include_str!("../../tests/fixtures/session/current-hako-dev-session.json")
             }
             "legacy-pre-tabs-v2" => {
                 include_str!("../../tests/fixtures/session/legacy-pre-tabs-v2.json")
@@ -472,20 +472,20 @@ mod tests {
     fn capture_keeps_space_identity_separate_from_runtime_cwd() {
         let mut state = state_with_workspaces(&["space"]);
         state.workspaces[0].custom_name = None;
-        state.workspaces[0].identity_cwd = PathBuf::from("/herdr-test/space");
+        state.workspaces[0].identity_cwd = PathBuf::from("/hako-test/space");
         let root_pane = state.workspaces[0].tabs[0].root_pane;
         let terminal_id = state.workspaces[0].terminal_id(root_pane).unwrap().clone();
-        state.terminals.get_mut(&terminal_id).unwrap().cwd = PathBuf::from("/herdr-test/runtime");
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = PathBuf::from("/hako-test/runtime");
 
         let snap = capture_from_state(&state);
 
         assert_eq!(
             snap.workspaces[0].identity_cwd,
-            PathBuf::from("/herdr-test/space")
+            PathBuf::from("/hako-test/space")
         );
         assert_eq!(
             snap.workspaces[0].tabs[0].panes[&root_pane.raw()].cwd,
-            PathBuf::from("/herdr-test/runtime")
+            PathBuf::from("/hako-test/runtime")
         );
     }
 
@@ -575,7 +575,7 @@ mod tests {
         panes.insert(
             0,
             PaneSnapshot {
-                cwd: PathBuf::from("/home/can/Projects/herdr"),
+                cwd: PathBuf::from("/home/can/Projects/hako"),
                 label: None,
                 agent_name: None,
             },
@@ -596,7 +596,7 @@ mod tests {
                 id: Some("wproj".to_string()),
                 custom_name: Some("pi-mono".to_string()),
                 group_id: default_group_id(),
-                identity_cwd: PathBuf::from("/home/can/Projects/herdr"),
+                identity_cwd: PathBuf::from("/home/can/Projects/hako"),
                 tabs: vec![TabSnapshot {
                     custom_name: Some("api".to_string()),
                     layout: LayoutSnapshot::Split {
@@ -636,7 +636,7 @@ mod tests {
         assert_eq!(restored.workspaces[0].tabs[0].panes.len(), 2);
         assert_eq!(
             restored.workspaces[0].tabs[0].panes[&0].cwd,
-            PathBuf::from("/home/can/Projects/herdr")
+            PathBuf::from("/home/can/Projects/hako")
         );
         assert_eq!(
             restored.workspaces[0].tabs[0].panes[&1].label.as_deref(),
@@ -653,7 +653,7 @@ mod tests {
 
     #[test]
     fn current_session_fixture_parses() {
-        let snap = parse_snapshot(session_fixture("current-herdr")).unwrap();
+        let snap = parse_snapshot(session_fixture("current-hako")).unwrap();
 
         assert_eq!(snap.version, 3);
         assert_eq!(snap.workspaces.len(), 2);
@@ -674,7 +674,7 @@ mod tests {
 
     #[test]
     fn current_dev_session_fixture_parses_additive_fields() {
-        let snap = parse_snapshot(session_fixture("current-herdr-dev")).unwrap();
+        let snap = parse_snapshot(session_fixture("current-hako-dev")).unwrap();
 
         assert_eq!(snap.version, 3);
         assert_eq!(snap.workspaces.len(), 2);
@@ -721,7 +721,7 @@ mod tests {
         assert_eq!(ws.tabs[0].focused, Some(1));
         assert_eq!(ws.tabs[0].root_pane, Some(0));
         assert_eq!(ws.tabs[0].panes[&0].cwd, PathBuf::from("/tmp/pion"));
-        assert_eq!(ws.tabs[0].panes[&1].cwd, PathBuf::from("/tmp/herdr"));
+        assert_eq!(ws.tabs[0].panes[&1].cwd, PathBuf::from("/tmp/hako"));
     }
 
     #[test]
@@ -883,14 +883,14 @@ mod tests {
         let second_terminal_id = state.workspaces[0].tabs[0].panes[&second]
             .attached_terminal_id
             .clone();
-        state.terminals.get_mut(&second_terminal_id).unwrap().cwd = PathBuf::from("/tmp/herdr");
+        state.terminals.get_mut(&second_terminal_id).unwrap().cwd = PathBuf::from("/tmp/hako");
 
         let snapshot = capture_from_state(&state);
         let workspace = &snapshot.workspaces[0];
         let tab = &workspace.tabs[0];
         assert_eq!(workspace.identity_cwd, PathBuf::from("/tmp/pion"));
         assert_eq!(tab.panes[&root.raw()].cwd, PathBuf::from("/tmp/pion"));
-        assert_eq!(tab.panes[&second.raw()].cwd, PathBuf::from("/tmp/herdr"));
+        assert_eq!(tab.panes[&second.raw()].cwd, PathBuf::from("/tmp/hako"));
     }
 
     #[test]
@@ -919,7 +919,7 @@ mod tests {
         panes.insert(
             0,
             PaneSnapshot {
-                cwd: PathBuf::from("/tmp/this-directory-does-not-exist-for-herdr-test"),
+                cwd: PathBuf::from("/tmp/this-directory-does-not-exist-for-hako-test"),
                 label: None,
                 agent_name: None,
             },
@@ -974,7 +974,7 @@ mod tests {
         assert_eq!(restored.workspaces.len(), 1);
         assert_eq!(
             restored.workspaces[0].tabs[0].panes[&0].cwd,
-            PathBuf::from("/tmp/this-directory-does-not-exist-for-herdr-test")
+            PathBuf::from("/tmp/this-directory-does-not-exist-for-hako-test")
         );
     }
 }

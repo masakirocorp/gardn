@@ -21,9 +21,9 @@ const REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(5);
 const REMOTE_SERVER_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const CURRENT_PROTOCOL: u32 = crate::server::protocol::PROTOCOL_VERSION;
-const UPDATE_MANIFEST_URL: &str = "https://herdr.dev/latest.json";
-const REMOTE_BINARY_ENV_VAR: &str = "HERDR_REMOTE_BINARY";
-pub(crate) const REATTACH_COMMAND_ENV_VAR: &str = "HERDR_REATTACH_COMMAND";
+const UPDATE_MANIFEST_URL: &str = "https://hako.masakiro.com/latest.json";
+const REMOTE_BINARY_ENV_VAR: &str = "HAKO_REMOTE_BINARY";
+pub(crate) const REATTACH_COMMAND_ENV_VAR: &str = "HAKO_REATTACH_COMMAND";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RemoteLaunch {
@@ -89,18 +89,18 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
     let local_socket = local_forward_socket_path(&remote.target, &session_name);
     let program = std::env::args()
         .next()
-        .unwrap_or_else(|| "herdr".to_string());
+        .unwrap_or_else(|| "hako".to_string());
     let reattach_command = reattach_command(&program, &remote.target, &session_name);
-    let prepared_remote = prepare_remote_herdr(&remote.target)?;
+    let prepared_remote = prepare_remote_hako(&remote.target)?;
     ensure_remote_server_ready(
         &remote.target,
-        &prepared_remote.remote_herdr,
+        &prepared_remote.remote_hako,
         prepared_remote.installed_or_replaced,
     )?;
 
     let _bridge = SshStdioBridge::start(
         remote.target,
-        prepared_remote.remote_herdr,
+        prepared_remote.remote_hako,
         local_socket.clone(),
         session_name,
     )?;
@@ -116,7 +116,7 @@ pub(crate) fn run_remote_client_bridge() -> io::Result<()> {
         io::Error::new(
             err.kind(),
             format!(
-                "failed to connect to remote Herdr client socket {}: {err}",
+                "failed to connect to remote Hako client socket {}: {err}",
                 socket_path.display()
             ),
         )
@@ -147,7 +147,7 @@ fn ensure_remote_server_running() -> io::Result<()> {
             return Ok(());
         }
         return Err(io::Error::other(format!(
-            "remote herdr server is running with protocol {}, but this bridge needs protocol {CURRENT_PROTOCOL}; rerun `herdr --remote` from an interactive terminal to approve stopping it",
+            "remote hako server is running with protocol {}, but this bridge needs protocol {CURRENT_PROTOCOL}; rerun `hako --remote` from an interactive terminal to approve stopping it",
             protocol_label(status.protocol)
         )));
     }
@@ -203,15 +203,15 @@ impl RemotePlatform {
 }
 
 #[derive(Debug, Clone)]
-struct RemoteHerdr {
+struct RemoteHako {
     install_suffix: String,
     shell_path: String,
     platform: RemotePlatform,
 }
 
-impl RemoteHerdr {
+impl RemoteHako {
     fn for_platform(platform: RemotePlatform) -> Self {
-        let install_suffix = ".local/bin/herdr".to_string();
+        let install_suffix = ".local/bin/hako".to_string();
         let shell_path = format!("\"$HOME/{install_suffix}\"");
         Self {
             install_suffix,
@@ -237,8 +237,8 @@ struct InstallSource {
     temporary_dir: Option<PathBuf>,
 }
 
-struct PreparedRemoteHerdr {
-    remote_herdr: RemoteHerdr,
+struct PreparedRemoteHako {
+    remote_hako: RemoteHako,
     installed_or_replaced: bool,
 }
 
@@ -264,21 +264,21 @@ impl InstallSource {
     }
 }
 
-fn prepare_remote_herdr(target: &str) -> io::Result<PreparedRemoteHerdr> {
+fn prepare_remote_hako(target: &str) -> io::Result<PreparedRemoteHako> {
     let platform = detect_remote_platform(target)?;
-    let remote_herdr = RemoteHerdr::for_platform(platform);
+    let remote_hako = RemoteHako::for_platform(platform);
     let override_binary = remote_binary_override_path()?;
 
     if override_binary.is_none() {
-        if let Some(path_remote_herdr) = remote_binary_on_path(target, &remote_herdr)? {
-            return Ok(PreparedRemoteHerdr {
-                remote_herdr: path_remote_herdr,
+        if let Some(path_remote_hako) = remote_binary_on_path(target, &remote_hako)? {
+            return Ok(PreparedRemoteHako {
+                remote_hako: path_remote_hako,
                 installed_or_replaced: false,
             });
         }
-        if remote_binary_matches(target, &remote_herdr)? {
-            return Ok(PreparedRemoteHerdr {
-                remote_herdr,
+        if remote_binary_matches(target, &remote_hako)? {
+            return Ok(PreparedRemoteHako {
+                remote_hako,
                 installed_or_replaced: false,
             });
         }
@@ -286,25 +286,25 @@ fn prepare_remote_herdr(target: &str) -> io::Result<PreparedRemoteHerdr> {
 
     confirm_remote_install(
         target,
-        &remote_herdr,
-        &install_source_description(&remote_herdr.platform, override_binary.as_deref()),
+        &remote_hako,
+        &install_source_description(&remote_hako.platform, override_binary.as_deref()),
     )?;
-    let source = resolve_install_source(&remote_herdr.platform, override_binary)?;
-    let install_result = install_remote_herdr(target, &remote_herdr, &source.path);
+    let source = resolve_install_source(&remote_hako.platform, override_binary)?;
+    let install_result = install_remote_hako(target, &remote_hako, &source.path);
     source.cleanup();
     install_result?;
 
-    if !remote_binary_matches(target, &remote_herdr)? {
+    if !remote_binary_matches(target, &remote_hako)? {
         return Err(io::Error::other(format!(
-            "installed remote herdr at {}, but it did not report version {CURRENT_VERSION}",
-            remote_herdr.shell_path
+            "installed remote hako at {}, but it did not report version {CURRENT_VERSION}",
+            remote_hako.shell_path
         )));
     }
     warn_if_remote_bin_not_on_path(target)?;
-    maybe_copy_local_keybindings_to_remote(target, &remote_herdr)?;
+    maybe_copy_local_keybindings_to_remote(target, &remote_hako)?;
 
-    Ok(PreparedRemoteHerdr {
-        remote_herdr,
+    Ok(PreparedRemoteHako {
+        remote_hako,
         installed_or_replaced: true,
     })
 }
@@ -328,21 +328,18 @@ fn detect_remote_platform(target: &str) -> io::Result<RemotePlatform> {
     })
 }
 
-fn remote_binary_on_path(
-    target: &str,
-    remote_herdr: &RemoteHerdr,
-) -> io::Result<Option<RemoteHerdr>> {
+fn remote_binary_on_path(target: &str, remote_hako: &RemoteHako) -> io::Result<Option<RemoteHako>> {
     let output = ssh_output(target, remote_path_probe_command())?;
     if !output.status.success() {
         return Ok(None);
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(remote_herdr_from_path_probe(remote_herdr, &stdout))
+    Ok(remote_hako_from_path_probe(remote_hako, &stdout))
 }
 
 fn remote_path_probe_command() -> &'static str {
-    r#"path=$(command -v herdr) || exit 1
+    r#"path=$(command -v hako) || exit 1
 test -n "$path" || exit 1
 version=$("$path" --version) || exit 1
 status=$("$path" status client) || exit 1
@@ -350,26 +347,26 @@ printf '%s\n%s\n%s\n' "$path" "$version" "$status"
 "#
 }
 
-fn remote_herdr_from_path_probe(remote_herdr: &RemoteHerdr, stdout: &str) -> Option<RemoteHerdr> {
+fn remote_hako_from_path_probe(remote_hako: &RemoteHako, stdout: &str) -> Option<RemoteHako> {
     let mut lines = stdout.lines();
     let path = lines.next()?;
     let version = lines.next()?.trim();
     let status = lines.collect::<Vec<_>>().join("\n");
     let protocol = parse_status_protocol(&status)?;
     if !path.starts_with('/')
-        || version != format!("herdr {CURRENT_VERSION}")
+        || version != format!("hako {CURRENT_VERSION}")
         || protocol != CURRENT_PROTOCOL
     {
         return None;
     }
 
-    Some(remote_herdr.clone().with_shell_path(shell_quote(path)))
+    Some(remote_hako.clone().with_shell_path(shell_quote(path)))
 }
 
-fn remote_binary_matches(target: &str, remote_herdr: &RemoteHerdr) -> io::Result<bool> {
+fn remote_binary_matches(target: &str, remote_hako: &RemoteHako) -> io::Result<bool> {
     let command = format!(
         "test -x {0} && {0} --version && {0} status client",
-        remote_herdr.shell_path
+        remote_hako.shell_path
     );
     let output = ssh_output(target, &command)?;
     if !output.status.success() {
@@ -380,7 +377,7 @@ fn remote_binary_matches(target: &str, remote_herdr: &RemoteHerdr) -> io::Result
     let mut lines = stdout.lines();
     let version = lines.next().unwrap_or_default().trim();
     let status = lines.collect::<Vec<_>>().join("\n");
-    Ok(version == format!("herdr {CURRENT_VERSION}")
+    Ok(version == format!("hako {CURRENT_VERSION}")
         && parse_status_protocol(&status) == Some(CURRENT_PROTOCOL))
 }
 
@@ -424,7 +421,7 @@ fn install_source_description(platform: &RemotePlatform, override_binary: Option
     }
 
     if *platform == RemotePlatform::local() {
-        "the current local herdr binary".to_string()
+        "the current local hako binary".to_string()
     } else {
         format!(
             "the {CURRENT_VERSION} release asset for {}",
@@ -467,10 +464,10 @@ enum RemoteServerRestartReason {
 
 fn ensure_remote_server_ready(
     target: &str,
-    remote_herdr: &RemoteHerdr,
+    remote_hako: &RemoteHako,
     remote_binary_changed: bool,
 ) -> io::Result<()> {
-    let status = remote_server_status(target, remote_herdr)?;
+    let status = remote_server_status(target, remote_hako)?;
     let RemoteServerStatus::Running { version, protocol } = status else {
         return Ok(());
     };
@@ -482,7 +479,7 @@ fn ensure_remote_server_ready(
     };
 
     if confirm_remote_server_stop(target, version.as_deref(), protocol, reason)? {
-        stop_remote_server(target, remote_herdr)?;
+        stop_remote_server(target, remote_hako)?;
     }
     Ok(())
 }
@@ -504,11 +501,8 @@ fn remote_server_restart_reason(
     None
 }
 
-fn remote_server_status(
-    target: &str,
-    remote_herdr: &RemoteHerdr,
-) -> io::Result<RemoteServerStatus> {
-    let command = format!("{} status server", remote_herdr.shell_path);
+fn remote_server_status(target: &str, remote_hako: &RemoteHako) -> io::Result<RemoteServerStatus> {
+    let command = format!("{} status server", remote_hako.shell_path);
     let output = ssh_output(target, &command)?;
     if !output.status.success() {
         return Err(command_failed("remote server status failed", &output));
@@ -560,19 +554,19 @@ fn confirm_remote_server_stop(
     if !io::stdin().is_terminal() {
         if reason == RemoteServerRestartReason::ProtocolMismatch {
             return Err(io::Error::other(format!(
-                "remote herdr server on {target} is running with protocol {}, but this client needs protocol {CURRENT_PROTOCOL}; run from an interactive terminal to approve stopping it",
+                "remote hako server on {target} is running with protocol {}, but this client needs protocol {CURRENT_PROTOCOL}; run from an interactive terminal to approve stopping it",
                 protocol_label(protocol)
             )));
         }
 
         eprintln!(
-            "remote herdr server on {target} is still running v{}; it will use v{CURRENT_VERSION} after it restarts.",
+            "remote hako server on {target} is still running v{}; it will use v{CURRENT_VERSION} after it restarts.",
             version_label(version)
         );
         return Ok(false);
     }
 
-    eprintln!("remote herdr server on {target} is currently running:");
+    eprintln!("remote hako server on {target} is currently running:");
     eprintln!(
         "  server: v{} protocol {}",
         version_label(version),
@@ -589,12 +583,12 @@ fn confirm_remote_server_stop(
         }
         RemoteServerRestartReason::BinaryUpdated => {
             eprintln!(
-                "the remote herdr binary was installed or replaced. restart the remote server so it uses the prepared binary."
+                "the remote hako binary was installed or replaced. restart the remote server so it uses the prepared binary."
             );
         }
         RemoteServerRestartReason::VersionMismatch => {
             eprintln!(
-                "the remote server is still running a different herdr version. restart it so it uses the prepared binary."
+                "the remote server is still running a different hako version. restart it so it uses the prepared binary."
             );
         }
     }
@@ -614,7 +608,7 @@ fn confirm_remote_server_stop(
         if reason == RemoteServerRestartReason::ProtocolMismatch {
             return Err(io::Error::new(
                 io::ErrorKind::Interrupted,
-                "remote herdr server stop cancelled",
+                "remote hako server stop cancelled",
             ));
         }
         return Ok(false);
@@ -623,29 +617,29 @@ fn confirm_remote_server_stop(
     Ok(true)
 }
 
-fn stop_remote_server(target: &str, remote_herdr: &RemoteHerdr) -> io::Result<()> {
-    let command = format!("{} server stop", remote_herdr.shell_path);
+fn stop_remote_server(target: &str, remote_hako: &RemoteHako) -> io::Result<()> {
+    let command = format!("{} server stop", remote_hako.shell_path);
     let output = ssh_output(target, &command)?;
     if !output.status.success() {
         return Err(command_failed("remote server stop failed", &output));
     }
 
-    wait_for_remote_server_shutdown(target, remote_herdr)?;
-    eprintln!("stopped the remote herdr server on {target}; it will restart when the remote client bridge attaches.");
+    wait_for_remote_server_shutdown(target, remote_hako)?;
+    eprintln!("stopped the remote hako server on {target}; it will restart when the remote client bridge attaches.");
     Ok(())
 }
 
-fn wait_for_remote_server_shutdown(target: &str, remote_herdr: &RemoteHerdr) -> io::Result<()> {
+fn wait_for_remote_server_shutdown(target: &str, remote_hako: &RemoteHako) -> io::Result<()> {
     let deadline = Instant::now() + REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT;
     loop {
-        if remote_server_status(target, remote_herdr)? == RemoteServerStatus::NotRunning {
+        if remote_server_status(target, remote_hako)? == RemoteServerStatus::NotRunning {
             return Ok(());
         }
         if Instant::now() >= deadline {
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
                 format!(
-                    "shutdown was requested, but the old remote herdr server on {target} is still responding after {} seconds",
+                    "shutdown was requested, but the old remote hako server on {target} is still responding after {} seconds",
                     REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT.as_secs()
                 ),
             ));
@@ -671,7 +665,7 @@ fn warn_if_remote_bin_not_on_path(target: &str) -> io::Result<()> {
     )?;
     if !output.status.success() {
         eprintln!(
-            "herdr: installed remote binary to ~/.local/bin/herdr, but ~/.local/bin is not in the remote PATH"
+            "hako: installed remote binary to ~/.local/bin/hako, but ~/.local/bin is not in the remote PATH"
         );
     }
     Ok(())
@@ -702,7 +696,7 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
         .map_err(|err| io::Error::other(format!("failed to parse update manifest JSON: {err}")))?;
     if manifest.version.trim_start_matches('v') != CURRENT_VERSION {
         return Err(io::Error::other(format!(
-            "remote host is {}, but this local herdr is {CURRENT_VERSION} and the latest release manifest is {}; build herdr for the remote platform or install it there manually",
+            "remote host is {}, but this local hako is {CURRENT_VERSION} and the latest release manifest is {}; build hako for the remote platform or install it there manually",
             platform.asset_key(),
             manifest.version
         )));
@@ -711,12 +705,12 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
     let asset_key = platform.asset_key();
     let url = manifest.assets.get(&asset_key).ok_or_else(|| {
         io::Error::other(format!(
-            "no {asset_key} binary in the release manifest for herdr {CURRENT_VERSION}"
+            "no {asset_key} binary in the release manifest for hako {CURRENT_VERSION}"
         ))
     })?;
 
     let dir = private_download_dir(&asset_key)?;
-    let path = dir.join("herdr.tmp");
+    let path = dir.join("hako.tmp");
     let status = Command::new("curl")
         .args(["-sfL", "--max-time", "120", "-o"])
         .arg(&path)
@@ -735,7 +729,7 @@ fn private_download_dir(asset_key: &str) -> io::Result<PathBuf> {
     let base = std::env::temp_dir();
     for attempt in 0..100 {
         let dir = base.join(format!(
-            "herdr-remote-{}-{}-{attempt}",
+            "hako-remote-{}-{}-{attempt}",
             std::process::id(),
             asset_key
         ));
@@ -748,29 +742,29 @@ fn private_download_dir(asset_key: &str) -> io::Result<PathBuf> {
 
     Err(io::Error::new(
         io::ErrorKind::AlreadyExists,
-        "failed to create private herdr remote download directory",
+        "failed to create private hako remote download directory",
     ))
 }
 
 fn confirm_remote_install(
     target: &str,
-    remote_herdr: &RemoteHerdr,
+    remote_hako: &RemoteHako,
     source_description: &str,
 ) -> io::Result<()> {
     if !io::stdin().is_terminal() {
         return Err(io::Error::other(format!(
-            "matching remote herdr {CURRENT_VERSION} is not installed at {}; run from an interactive terminal to approve installation",
-            remote_herdr.shell_path
+            "matching remote hako {CURRENT_VERSION} is not installed at {}; run from an interactive terminal to approve installation",
+            remote_hako.shell_path
         )));
     }
 
     eprintln!(
-        "matching herdr {CURRENT_VERSION} is not installed on {target} for {}.",
-        remote_herdr.platform.asset_key()
+        "matching hako {CURRENT_VERSION} is not installed on {target} for {}.",
+        remote_hako.platform.asset_key()
     );
     eprint!(
         "Install {} to {}? [Y/n] ",
-        source_description, remote_herdr.shell_path
+        source_description, remote_hako.shell_path
     );
     io::stderr().flush()?;
 
@@ -780,7 +774,7 @@ fn confirm_remote_install(
     if answer == "n" || answer == "no" {
         return Err(io::Error::new(
             io::ErrorKind::Interrupted,
-            "remote herdr installation cancelled",
+            "remote hako installation cancelled",
         ));
     }
 
@@ -789,12 +783,12 @@ fn confirm_remote_install(
 
 fn maybe_copy_local_keybindings_to_remote(
     target: &str,
-    remote_herdr: &RemoteHerdr,
+    remote_hako: &RemoteHako,
 ) -> io::Result<()> {
     let Some(config_toml) = local_keybindings_config_toml()? else {
         return Ok(());
     };
-    let remote_config_path = remote_config_path(target, remote_herdr)?;
+    let remote_config_path = remote_config_path(target, remote_hako)?;
     if remote_path_exists(target, &remote_config_path)? {
         return Ok(());
     }
@@ -827,8 +821,8 @@ fn local_keybindings_config_toml_from_str(content: &str) -> Option<String> {
     toml::to_string_pretty(&toml::Value::Table(out)).ok()
 }
 
-fn remote_config_path(target: &str, remote_herdr: &RemoteHerdr) -> io::Result<String> {
-    let command = format!("{} --help", remote_herdr.shell_path);
+fn remote_config_path(target: &str, remote_hako: &RemoteHako) -> io::Result<String> {
+    let command = format!("{} --help", remote_hako.shell_path);
     let output = ssh_output(target, &command)?;
     if !output.status.success() {
         return Err(command_failed("remote config path probe failed", &output));
@@ -850,12 +844,12 @@ fn confirm_remote_keybindings_copy(target: &str) -> io::Result<bool> {
     if !io::stdin().is_terminal() {
         return Ok(false);
     }
-    eprintln!("remote Herdr config is not present on {target}.");
+    eprintln!("remote Hako config is not present on {target}.");
     eprintln!(
-        "Herdr can copy your local [keys] settings so the remote server uses the same keybindings."
+        "Hako can copy your local [keys] settings so the remote server uses the same keybindings."
     );
     eprintln!("Custom command keybindings are not copied because they run on the remote host.");
-    eprint!("Copy local Herdr keybindings to {target}? [Y/n] ");
+    eprint!("Copy local Hako keybindings to {target}? [Y/n] ");
     io::stderr().flush()?;
 
     let mut answer = String::new();
@@ -912,9 +906,9 @@ mv "$tmp" "$dest"
     }
 }
 
-fn install_remote_herdr(
+fn install_remote_hako(
     target: &str,
-    remote_herdr: &RemoteHerdr,
+    remote_hako: &RemoteHako,
     source_path: &Path,
 ) -> io::Result<()> {
     let script = format!(
@@ -926,7 +920,7 @@ cat > "$tmp"
 chmod 755 "$tmp"
 mv "$tmp" "$dest"
 "#,
-        install_suffix = remote_herdr.install_suffix
+        install_suffix = remote_hako.install_suffix
     );
 
     let mut child = Command::new("ssh")
@@ -968,8 +962,8 @@ fn ssh_output(target: &str, command: &str) -> io::Result<Output> {
         .output()
 }
 
-fn remote_bridge_command(remote_herdr: &RemoteHerdr, session_name: &str) -> String {
-    let mut command = format!("exec {}", remote_herdr.shell_path);
+fn remote_bridge_command(remote_hako: &RemoteHako, session_name: &str) -> String {
+    let mut command = format!("exec {}", remote_hako.shell_path);
     if session_name != crate::session::DEFAULT_SESSION_NAME {
         command.push_str(" --session ");
         command.push_str(&shell_quote(session_name));
@@ -979,7 +973,7 @@ fn remote_bridge_command(remote_herdr: &RemoteHerdr, session_name: &str) -> Stri
 }
 
 fn reattach_command(program: &str, target: &str, session_name: &str) -> String {
-    let program = if program.is_empty() { "herdr" } else { program };
+    let program = if program.is_empty() { "hako" } else { program };
     let mut command = format!("{} --remote {}", shell_quote(program), shell_quote(target));
     if session_name != crate::session::DEFAULT_SESSION_NAME {
         command.push_str(" --session ");
@@ -1023,7 +1017,7 @@ struct SshStdioBridge {
 impl SshStdioBridge {
     fn start(
         target: String,
-        remote_herdr: RemoteHerdr,
+        remote_hako: RemoteHako,
         local_socket: PathBuf,
         session_name: String,
     ) -> io::Result<Self> {
@@ -1039,22 +1033,20 @@ impl SshStdioBridge {
                 match listener.accept() {
                     Ok((stream, _addr)) => {
                         if let Err(err) = stream.set_nonblocking(false) {
-                            eprintln!(
-                                "herdr: remote bridge failed to prepare client socket: {err}"
-                            );
+                            eprintln!("hako: remote bridge failed to prepare client socket: {err}");
                             continue;
                         }
                         if let Err(err) =
-                            bridge_connection(stream, &target, &remote_herdr, &session_name)
+                            bridge_connection(stream, &target, &remote_hako, &session_name)
                         {
-                            eprintln!("herdr: remote bridge failed: {err}");
+                            eprintln!("hako: remote bridge failed: {err}");
                         }
                     }
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
                         thread::sleep(BRIDGE_ACCEPT_POLL);
                     }
                     Err(err) => {
-                        eprintln!("herdr: remote bridge listener failed: {err}");
+                        eprintln!("hako: remote bridge listener failed: {err}");
                         break;
                     }
                 }
@@ -1082,14 +1074,14 @@ impl Drop for SshStdioBridge {
 fn bridge_connection(
     stream: UnixStream,
     target: &str,
-    remote_herdr: &RemoteHerdr,
+    remote_hako: &RemoteHako,
     session_name: &str,
 ) -> io::Result<()> {
     let mut command = Command::new("ssh");
     command
         .arg("-T")
         .arg(target)
-        .arg(remote_bridge_command(remote_herdr, session_name));
+        .arg(remote_bridge_command(remote_hako, session_name));
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1157,7 +1149,7 @@ fn run_client_process(local_socket: &Path, reattach_command: &str) -> io::Result
             crate::server::headless::CLIENT_SOCKET_PATH_ENV_VAR,
             local_socket,
         )
-        .env("HERDR_RENDER_ENCODING", "terminal-ansi")
+        .env("HAKO_RENDER_ENCODING", "terminal-ansi")
         .env(REATTACH_COMMAND_ENV_VAR, reattach_command)
         .env_remove(crate::api::SOCKET_PATH_ENV_VAR)
         .stdin(Stdio::inherit())
@@ -1182,7 +1174,7 @@ fn local_forward_socket_path(target: &str, session_name: &str) -> PathBuf {
 
     let tmpdir = std::env::temp_dir();
     let readable = tmpdir.join(format!(
-        "herdr-remote-{pid}-{target_clean}-{session_clean}.sock"
+        "hako-remote-{pid}-{target_clean}-{session_clean}.sock"
     ));
     if fits_unix_socket_path(&readable) {
         return readable;
@@ -1196,7 +1188,7 @@ fn local_forward_socket_path(target: &str, session_name: &str) -> PathBuf {
     // the prefix is kept only for debuggability.
     let target_prefix: String = target_clean.chars().take(8).collect();
     let hash = short_socket_hash(target, session_name);
-    let short_name = format!("herdr-r-{pid}-{target_prefix}-{hash}.sock");
+    let short_name = format!("hako-r-{pid}-{target_prefix}-{hash}.sock");
     let short_in_tmp = tmpdir.join(&short_name);
     if fits_unix_socket_path(&short_in_tmp) {
         return short_in_tmp;
@@ -1246,16 +1238,16 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let socket = std::env::temp_dir().join(format!(
-            "herdr-bridge-permissions-test-{}.sock",
+            "hako-bridge-permissions-test-{}.sock",
             std::process::id()
         ));
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_hako = RemoteHako::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
         let bridge = SshStdioBridge::start(
             "example".to_string(),
-            remote_herdr,
+            remote_hako,
             socket.clone(),
             "default".to_string(),
         )
@@ -1271,52 +1263,48 @@ mod tests {
     #[test]
     fn extract_remote_args_removes_space_form() {
         let args = vec![
-            "herdr".into(),
+            "hako".into(),
             "--remote".into(),
             "dev".into(),
             "--help".into(),
         ];
         let (cleaned, remote) = extract_remote_args(&args).unwrap();
-        assert_eq!(cleaned, vec!["herdr", "--help"]);
+        assert_eq!(cleaned, vec!["hako", "--help"]);
         assert_eq!(remote.unwrap().target, "dev");
     }
 
     #[test]
     fn extract_remote_args_removes_equals_form() {
-        let args = vec!["herdr".into(), "--remote=user@host".into()];
+        let args = vec!["hako".into(), "--remote=user@host".into()];
         let (cleaned, remote) = extract_remote_args(&args).unwrap();
-        assert_eq!(cleaned, vec!["herdr"]);
+        assert_eq!(cleaned, vec!["hako"]);
         assert_eq!(remote.unwrap().target, "user@host");
     }
 
     #[test]
     fn extract_remote_args_requires_value() {
-        let args = vec!["herdr".into(), "--remote".into()];
+        let args = vec!["hako".into(), "--remote".into()];
         let err = extract_remote_args(&args).unwrap_err();
         assert_eq!(err, "missing value for --remote");
     }
 
     #[test]
     fn extract_remote_args_rejects_empty_value() {
-        let args = vec!["herdr".into(), "--remote=".into()];
+        let args = vec!["hako".into(), "--remote=".into()];
         let err = extract_remote_args(&args).unwrap_err();
         assert_eq!(err, "missing value for --remote");
     }
 
     #[test]
     fn extract_remote_args_rejects_duplicate_values() {
-        let args = vec![
-            "herdr".into(),
-            "--remote=dev".into(),
-            "--remote=prod".into(),
-        ];
+        let args = vec!["hako".into(), "--remote=dev".into(), "--remote=prod".into()];
         let err = extract_remote_args(&args).unwrap_err();
         assert_eq!(err, "--remote can only be specified once");
     }
 
     #[test]
     fn extract_remote_args_rejects_option_like_target() {
-        let args = vec!["herdr".into(), "--remote".into(), "-oProxyCommand=x".into()];
+        let args = vec!["hako".into(), "--remote".into(), "-oProxyCommand=x".into()];
         let err = extract_remote_args(&args).unwrap_err();
         assert_eq!(err, "--remote target must not start with '-'");
     }
@@ -1346,12 +1334,12 @@ mod tests {
     #[test]
     fn reattach_command_includes_remote_and_session() {
         assert_eq!(
-            reattach_command("target/release/herdr", "user@host", "work"),
-            "target/release/herdr --remote user@host --session work"
+            reattach_command("target/release/hako", "user@host", "work"),
+            "target/release/hako --remote user@host --session work"
         );
         assert_eq!(
-            reattach_command("herdr", "host name", crate::session::DEFAULT_SESSION_NAME),
-            "herdr --remote 'host name'"
+            reattach_command("hako", "host name", crate::session::DEFAULT_SESSION_NAME),
+            "hako --remote 'host name'"
         );
     }
 
@@ -1394,117 +1382,117 @@ command = "lazygit"
 
     #[test]
     fn remote_bridge_command_uses_installed_binary() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_hako = RemoteHako::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
         assert_eq!(
-            remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
-            "exec \"$HOME/.local/bin/herdr\" remote-client-bridge"
+            remote_bridge_command(&remote_hako, crate::session::DEFAULT_SESSION_NAME),
+            "exec \"$HOME/.local/bin/hako\" remote-client-bridge"
         );
     }
 
     #[test]
     fn remote_path_probe_uses_path_binary_when_version_matches() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_hako = RemoteHako::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let stdout = matching_path_probe_stdout("/usr/bin/herdr");
-        let remote_herdr =
-            remote_herdr_from_path_probe(&remote_herdr, &stdout).expect("matching path binary");
+        let stdout = matching_path_probe_stdout("/usr/bin/hako");
+        let remote_hako =
+            remote_hako_from_path_probe(&remote_hako, &stdout).expect("matching path binary");
 
         assert_eq!(
-            remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
-            "exec /usr/bin/herdr remote-client-bridge"
+            remote_bridge_command(&remote_hako, crate::session::DEFAULT_SESSION_NAME),
+            "exec /usr/bin/hako remote-client-bridge"
         );
     }
 
     #[test]
     fn remote_path_probe_quotes_discovered_binary() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_hako = RemoteHako::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let stdout = matching_path_probe_stdout("/opt/herdr bin/herdr");
-        let remote_herdr =
-            remote_herdr_from_path_probe(&remote_herdr, &stdout).expect("matching path binary");
+        let stdout = matching_path_probe_stdout("/opt/hako bin/hako");
+        let remote_hako =
+            remote_hako_from_path_probe(&remote_hako, &stdout).expect("matching path binary");
 
         assert_eq!(
-            remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
-            "exec '/opt/herdr bin/herdr' remote-client-bridge"
+            remote_bridge_command(&remote_hako, crate::session::DEFAULT_SESSION_NAME),
+            "exec '/opt/hako bin/hako' remote-client-bridge"
         );
     }
 
     #[test]
     fn remote_path_probe_uses_macos_path_binary_when_version_matches() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_hako = RemoteHako::for_platform(RemotePlatform {
             os: "macos",
             arch: "aarch64",
         });
-        let stdout = matching_path_probe_stdout("/opt/homebrew/bin/herdr");
-        let remote_herdr =
-            remote_herdr_from_path_probe(&remote_herdr, &stdout).expect("matching path binary");
+        let stdout = matching_path_probe_stdout("/opt/homebrew/bin/hako");
+        let remote_hako =
+            remote_hako_from_path_probe(&remote_hako, &stdout).expect("matching path binary");
 
         assert_eq!(
-            remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
-            "exec /opt/homebrew/bin/herdr remote-client-bridge"
+            remote_bridge_command(&remote_hako, crate::session::DEFAULT_SESSION_NAME),
+            "exec /opt/homebrew/bin/hako remote-client-bridge"
         );
-        assert_eq!(remote_herdr.platform.asset_key(), "macos-aarch64");
+        assert_eq!(remote_hako.platform.asset_key(), "macos-aarch64");
     }
 
     #[test]
     fn remote_path_probe_quotes_single_quotes_in_discovered_binary() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_hako = RemoteHako::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let stdout = matching_path_probe_stdout("/opt/herdr's/bin/herdr");
-        let remote_herdr =
-            remote_herdr_from_path_probe(&remote_herdr, &stdout).expect("matching path binary");
+        let stdout = matching_path_probe_stdout("/opt/hako's/bin/hako");
+        let remote_hako =
+            remote_hako_from_path_probe(&remote_hako, &stdout).expect("matching path binary");
 
         assert_eq!(
-            remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
-            "exec '/opt/herdr'\\''s/bin/herdr' remote-client-bridge"
+            remote_bridge_command(&remote_hako, crate::session::DEFAULT_SESSION_NAME),
+            "exec '/opt/hako'\\''s/bin/hako' remote-client-bridge"
         );
     }
 
     #[test]
     fn remote_path_probe_ignores_version_mismatch() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_hako = RemoteHako::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let remote_herdr = remote_herdr_from_path_probe(
-            &remote_herdr,
-            &format!("/usr/bin/herdr\nherdr 0.0.0\nprotocol: {CURRENT_PROTOCOL}\n"),
+        let remote_hako = remote_hako_from_path_probe(
+            &remote_hako,
+            &format!("/usr/bin/hako\nhako 0.0.0\nprotocol: {CURRENT_PROTOCOL}\n"),
         );
 
-        assert!(remote_herdr.is_none());
+        assert!(remote_hako.is_none());
     }
 
     #[test]
     fn remote_path_probe_ignores_relative_paths() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_hako = RemoteHako::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let stdout = matching_path_probe_stdout("bin/herdr");
-        let remote_herdr = remote_herdr_from_path_probe(&remote_herdr, &stdout);
+        let stdout = matching_path_probe_stdout("bin/hako");
+        let remote_hako = remote_hako_from_path_probe(&remote_hako, &stdout);
 
-        assert!(remote_herdr.is_none());
+        assert!(remote_hako.is_none());
     }
 
     #[test]
     fn remote_path_probe_ignores_protocol_mismatch() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_hako = RemoteHako::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let stdout = format!("/usr/bin/herdr\nherdr {CURRENT_VERSION}\nprotocol: 0\n");
-        let remote_herdr = remote_herdr_from_path_probe(&remote_herdr, &stdout);
+        let stdout = format!("/usr/bin/hako\nhako {CURRENT_VERSION}\nprotocol: 0\n");
+        let remote_hako = remote_hako_from_path_probe(&remote_hako, &stdout);
 
-        assert!(remote_herdr.is_none());
+        assert!(remote_hako.is_none());
     }
 
     #[test]
@@ -1572,8 +1560,8 @@ command = "lazygit"
             arch: "aarch64",
         };
         assert_eq!(
-            install_source_description(&platform, Some(Path::new("/tmp/herdr-aarch64"))),
-            "HERDR_REMOTE_BINARY (/tmp/herdr-aarch64)"
+            install_source_description(&platform, Some(Path::new("/tmp/hako-aarch64"))),
+            "HAKO_REMOTE_BINARY (/tmp/hako-aarch64)"
         );
     }
 
@@ -1583,14 +1571,14 @@ command = "lazygit"
             os: "linux",
             arch: "aarch64",
         };
-        let source = resolve_install_source(&platform, Some(PathBuf::from("/tmp/herdr-aarch64")))
+        let source = resolve_install_source(&platform, Some(PathBuf::from("/tmp/hako-aarch64")))
             .expect("override source");
-        assert_eq!(source.path, PathBuf::from("/tmp/herdr-aarch64"));
+        assert_eq!(source.path, PathBuf::from("/tmp/hako-aarch64"));
         assert!(source.temporary_dir.is_none());
     }
 
     fn matching_path_probe_stdout(path: &str) -> String {
-        format!("{path}\nherdr {CURRENT_VERSION}\nprotocol: {CURRENT_PROTOCOL}\n")
+        format!("{path}\nhako {CURRENT_VERSION}\nprotocol: {CURRENT_PROTOCOL}\n")
     }
 
     fn remote_env_lock() -> &'static std::sync::Mutex<()> {
@@ -1615,7 +1603,7 @@ command = "lazygit"
             .unwrap_or("")
             .to_string();
         assert!(
-            filename.starts_with("herdr-remote-"),
+            filename.starts_with("hako-remote-"),
             "expected readable name, got {filename}"
         );
         assert!(filename.contains("-dev-default."), "got {filename}");
@@ -1672,7 +1660,7 @@ command = "lazygit"
         assert!(fits, "fallback path still overflows: {}", path.display());
         assert_eq!(parent.as_deref(), Some(Path::new("/tmp")));
         assert!(
-            filename.starts_with("herdr-r-"),
+            filename.starts_with("hako-r-"),
             "expected hashed fallback, got {filename}"
         );
     }
@@ -1680,12 +1668,12 @@ command = "lazygit"
     #[test]
     fn install_source_cleanup_removes_temporary_directory() {
         let dir = std::env::temp_dir().join(format!(
-            "herdr-install-source-cleanup-test-{}",
+            "hako-install-source-cleanup-test-{}",
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir(&dir).expect("create temp dir");
-        let path = dir.join("herdr.tmp");
+        let path = dir.join("hako.tmp");
         fs::write(&path, b"test").expect("write temp file");
 
         InstallSource::temporary(path, dir.clone()).cleanup();

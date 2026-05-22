@@ -1,6 +1,6 @@
 //! Session persistence — save/restore workspaces, layouts, and working directories.
 //!
-//! Stored at `~/.config/herdr/session.json`.
+//! Stored at `~/.config/hako/session.json`.
 
 mod io;
 mod restore;

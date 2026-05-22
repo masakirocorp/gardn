@@ -20,22 +20,22 @@ jobs:
         include:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            name: herdr-linux-x86_64
+            name: hako-linux-x86_64
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
-            name: herdr-linux-aarch64
+            name: hako-linux-aarch64
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
           - target: x86_64-apple-darwin
             os: macos-latest
-            name: herdr-macos-x86_64
+            name: hako-macos-x86_64
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
           - target: aarch64-apple-darwin
             os: macos-latest
-            name: herdr-macos-aarch64
+            name: hako-macos-aarch64
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
 
@@ -101,7 +101,7 @@ jobs:
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Rename binary
-        run: cp target/${{ matrix.target }}/release/herdr ${{ matrix.name }}
+        run: cp target/${{ matrix.target }}/release/hako ${{ matrix.name }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -143,10 +143,10 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: |
-            herdr-linux-x86_64/herdr-linux-x86_64
-            herdr-linux-aarch64/herdr-linux-aarch64
-            herdr-macos-x86_64/herdr-macos-x86_64
-            herdr-macos-aarch64/herdr-macos-aarch64
+            hako-linux-x86_64/hako-linux-x86_64
+            hako-linux-aarch64/hako-linux-aarch64
+            hako-macos-x86_64/hako-macos-x86_64
+            hako-macos-aarch64/hako-macos-aarch64
           body_path: RELEASE_NOTES.md
 
   close-released-issues:
@@ -196,7 +196,7 @@ jobs:
           fi
 
           RELEASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/v${VERSION}"
-          RELEASE_COMMENT_MARKER="<!-- herdr:released:v${VERSION} -->"
+          RELEASE_COMMENT_MARKER="<!-- hako:released:v${VERSION} -->"
           RELEASE_COMMENT="${RELEASE_COMMENT_MARKER}"$'\n'"Released in [v${VERSION}](${RELEASE_URL})."
 
           issue_has_comment_marker() {
@@ -275,48 +275,3 @@ jobs:
               fi
             fi
           done
-
-  update-latest-json:
-    needs: release
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: master
-          fetch-depth: 0
-
-      - name: Update website latest manifest
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          ANNOUNCEMENT_PATH="$RUNNER_TEMP/product-announcement.json"
-          ANNOUNCEMENT_ORIGINAL_PATH="$RUNNER_TEMP/product-announcement-original.json"
-          git show "${GITHUB_REF_NAME}:docs/next/product-announcement.json" > "$ANNOUNCEMENT_PATH"
-          cp "$ANNOUNCEMENT_PATH" "$ANNOUNCEMENT_ORIGINAL_PATH"
-          python3 scripts/changelog.py validate-product-announcement --path "$ANNOUNCEMENT_PATH"
-          RELEASE_PROTOCOL=$(git show "${GITHUB_REF_NAME}:src/server/protocol.rs" | python3 -c 'import re, sys; match = re.search(r"pub const PROTOCOL_VERSION: u32 = (\d+);", sys.stdin.read()); sys.exit(1) if match is None else print(match.group(1))')
-
-          CURRENT_VERSION=$(python3 -c 'import json; print(json.load(open("website/latest.json")).get("version", ""))')
-          if [ "$CURRENT_VERSION" = "$VERSION" ]; then
-            echo "website/latest.json is already at v$VERSION"
-            exit 0
-          fi
-          python3 scripts/changelog.py sync-latest-json --version "$VERSION" --repo "$GITHUB_REPOSITORY" --output website/latest.json --announcement "$ANNOUNCEMENT_PATH" --protocol "$RELEASE_PROTOCOL"
-          if cmp -s "$ANNOUNCEMENT_ORIGINAL_PATH" docs/next/product-announcement.json; then
-            printf 'null\n' > docs/next/product-announcement.json
-          else
-            echo "::warning::docs/next/product-announcement.json changed after $GITHUB_REF_NAME; leaving it unchanged."
-          fi
-
-      - name: Commit website latest manifest
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add website/latest.json docs/next/product-announcement.json
-          git diff --cached --quiet || git commit -m "docs: update website manifest for v$VERSION"
-          git push origin master

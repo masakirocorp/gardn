@@ -22,7 +22,7 @@ pub(crate) enum CommandSource {
 impl CommandSource {
     pub(crate) fn label(self) -> &'static str {
         match self {
-            CommandSource::BuiltIn => "herdr",
+            CommandSource::BuiltIn => "hako",
             CommandSource::Vscode => "vscode",
             CommandSource::PackageJson => "package.json",
             CommandSource::Composer => "composer",
@@ -532,7 +532,7 @@ mod tests {
 
     fn temp_root(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "herdr-commands-{name}-{}-{}",
+            "hako-commands-{name}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

@@ -1,4 +1,4 @@
-# herdr task runner
+# hako task runner
 
 # Run tests
 test:
@@ -29,10 +29,6 @@ install-hooks:
 build:
     cargo build --release --locked
 
-# Build the website and documentation
-website-build:
-    cd website && bun install --frozen-lockfile && bun run build
-
 # Build the vendored libghostty-vt source dist
 build-libghostty-vt:
     scripts/build_vendored_libghostty_vt.sh
@@ -47,26 +43,7 @@ release-docs-check:
     done
     @for file in CONFIGURATION.md INTEGRATIONS.md SOCKET_API.md; do \
         if [ -e "$file" ]; then \
-            echo "error: $file was replaced by website docs; remove the root copy"; \
-            exit 1; \
-        fi; \
-    done
-    @test -d docs/next/website/src/content/docs
-    @for file in website/src/content/docs/*.mdx; do \
-        staged="docs/next/website/src/content/docs/$(basename "$file")"; \
-        if [ ! -f "$staged" ]; then \
-            echo "error: $staged is missing; docs/next/website/src/content/docs must mirror website/src/content/docs"; \
-            exit 1; \
-        fi; \
-        if ! diff -u "$file" "$staged"; then \
-            echo "error: $file differs from $staged; finalize website docs before releasing"; \
-            exit 1; \
-        fi; \
-    done
-    @for file in docs/next/website/src/content/docs/*.mdx; do \
-        released="website/src/content/docs/$(basename "$file")"; \
-        if [ ! -f "$released" ]; then \
-            echo "error: $file has no matching released website doc"; \
+            echo "error: $file was removed from the root docs; update README.md/docs/next/README.md instead"; \
             exit 1; \
         fi; \
     done
@@ -85,13 +62,13 @@ release version:
     python3 scripts/changelog.py prepare --version {{version}}
     cp CHANGELOG.md docs/next/CHANGELOG.md
     sed -i.bak 's/^version = ".*"/version = "{{version}}"/' Cargo.toml && rm -f Cargo.toml.bak
-    cargo update -p herdr --offline
+    cargo update -p hako --offline
     just check
     git add CHANGELOG.md docs/next/CHANGELOG.md Cargo.toml Cargo.lock
     git diff --cached --quiet || git commit -m "release: v{{version}}"
     git tag -a v{{version}} -m "v{{version}}"
     git push --follow-tags
-    @echo "v{{version}} released — GitHub Actions building binaries and updating website/latest.json"
+    @echo "v{{version}} released — GitHub Actions building binaries"
 
 # Print default config
 default-config:

@@ -15,7 +15,7 @@ use super::{
     input::{
         ghostty_key_event_from_terminal_key, ghostty_mouse_encoder_for_terminal,
         ghostty_mouse_event_from_button_kind, ghostty_mouse_event_from_motion_kind,
-        ghostty_mouse_event_from_wheel_kind, ghostty_prefers_herdr_text_encoding,
+        ghostty_mouse_event_from_wheel_kind, ghostty_prefers_hako_text_encoding,
     },
     osc::{
         contains_scrollback_clear_sequence, current_transient_default_color_owner,
@@ -585,7 +585,7 @@ impl GhosttyPaneTerminal {
         key: crate::input::TerminalKey,
         protocol: crate::input::KeyboardProtocol,
     ) -> Vec<u8> {
-        if ghostty_prefers_herdr_text_encoding(key) {
+        if ghostty_prefers_hako_text_encoding(key) {
             return crate::input::encode_terminal_key(key, protocol);
         }
 
@@ -1471,7 +1471,7 @@ mod tests {
     }
 
     #[test]
-    fn ghostty_char_keys_still_use_herdr_encoding() {
+    fn ghostty_char_keys_still_use_hako_encoding() {
         let (tx, _rx) = mpsc::channel(4);
         let mut terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
         terminal.write(b"\x1b[>1u");

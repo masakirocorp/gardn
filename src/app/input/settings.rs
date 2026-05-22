@@ -71,7 +71,7 @@ fn current_theme_index(theme_name: &str) -> usize {
 fn toast_delivery_index(delivery: ToastDelivery) -> usize {
     match delivery {
         ToastDelivery::Off => 0,
-        ToastDelivery::Herdr => 1,
+        ToastDelivery::Hako => 1,
         ToastDelivery::Terminal => 2,
         ToastDelivery::System => 3,
     }
@@ -80,7 +80,7 @@ fn toast_delivery_index(delivery: ToastDelivery) -> usize {
 fn toast_delivery_for_index(idx: usize) -> ToastDelivery {
     match idx {
         0 => ToastDelivery::Off,
-        1 => ToastDelivery::Herdr,
+        1 => ToastDelivery::Hako,
         2 => ToastDelivery::Terminal,
         _ => ToastDelivery::System,
     }
@@ -1120,7 +1120,7 @@ mod tests {
             label: "claude",
             command: "claude",
             available,
-            path: std::path::PathBuf::from("/tmp/herdr-test-integration"),
+            path: std::path::PathBuf::from("/tmp/hako-test-integration"),
             state,
         }
     }

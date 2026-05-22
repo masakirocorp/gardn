@@ -938,13 +938,13 @@ mod tests {
     fn workspace_identity_ignores_runtime_cwd_changes() {
         let mut ws = Workspace::test_new("ignored");
         ws.custom_name = None;
-        ws.identity_cwd = PathBuf::from("/herdr-test/original");
+        ws.identity_cwd = PathBuf::from("/hako-test/original");
         let root_pane = ws.tabs[0].root_pane;
         let terminal_id = ws.tabs[0].terminal_id(root_pane).unwrap().clone();
         let mut terminals = HashMap::new();
         terminals.insert(
             terminal_id.clone(),
-            TerminalState::new(terminal_id, PathBuf::from("/herdr-test/pion")),
+            TerminalState::new(terminal_id, PathBuf::from("/hako-test/pion")),
         );
         let terminal_runtimes = HashMap::new();
 
@@ -954,7 +954,7 @@ mod tests {
         );
         assert_eq!(
             ws.resolved_identity_cwd_from(&terminals, &terminal_runtimes),
-            Some(PathBuf::from("/herdr-test/original"))
+            Some(PathBuf::from("/hako-test/original"))
         );
     }
 
