@@ -3,7 +3,7 @@
 # Run tests
 test:
     cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
-    python3 -m unittest scripts.test_changelog scripts.test_vendor_libghostty_vt
+    python3 -m unittest scripts.test_vendor_libghostty_vt
 
 # Run fast local lint checks
 lint:
@@ -16,14 +16,9 @@ ci: lint
 
 # Check formatting + run unit tests + maintenance script tests
 check: ci
-    python3 -m unittest scripts.test_changelog scripts.test_vendor_libghostty_vt
-    @echo "docs reminder: if this changes user-facing behavior, make sure the relevant release docs are updated or called out before release."
+    python3 -m unittest scripts.test_vendor_libghostty_vt
+    @echo "docs reminder: if this changes user-facing behavior, update README.md or call it out before release."
 
-# Install repo-local git hooks
-install-hooks:
-    git config core.hooksPath .githooks
-    chmod +x .githooks/pre-commit
-    @echo "installed git hooks from .githooks"
 
 # Build release binary
 build:
@@ -33,22 +28,8 @@ build:
 build-libghostty-vt:
     scripts/build_vendored_libghostty_vt.sh
 
-# Check that release docs and changelog have been finalized from docs/next before release
-release-docs-check:
-    @for file in README.md CHANGELOG.md; do \
-        if ! diff -u "$file" "docs/next/$file"; then \
-            echo "error: $file differs from docs/next/$file; finalize release docs before releasing"; \
-            exit 1; \
-        fi; \
-    done
-    @for file in CONFIGURATION.md INTEGRATIONS.md SOCKET_API.md; do \
-        if [ -e "$file" ]; then \
-            echo "error: $file was removed from the root docs; update README.md/docs/next/README.md instead"; \
-            exit 1; \
-        fi; \
-    done
 
-# Finalize changelog, bump version, commit, tag, push, and trigger the GitHub Release workflow (usage: just release 0.1.1)
+# Bump version, commit, tag, push, and trigger the GitHub Release workflow (usage: just release 0.1.1)
 release version:
     @if [ -n "$(git status --porcelain)" ]; then \
         echo "error: commit your changes first"; \
@@ -58,13 +39,10 @@ release version:
         echo "error: tag v{{version}} already exists"; \
         exit 1; \
     fi
-    just release-docs-check
-    python3 scripts/changelog.py prepare --version {{version}}
-    cp CHANGELOG.md docs/next/CHANGELOG.md
     sed -i.bak 's/^version = ".*"/version = "{{version}}"/' Cargo.toml && rm -f Cargo.toml.bak
     cargo update -p hako --offline
     just check
-    git add CHANGELOG.md docs/next/CHANGELOG.md Cargo.toml Cargo.lock
+    git add Cargo.toml Cargo.lock
     git diff --cached --quiet || git commit -m "release: v{{version}}"
     git tag -a v{{version}} -m "v{{version}}"
     git push --follow-tags

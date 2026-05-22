@@ -67,8 +67,6 @@ Unit tests live next to the code (`#[cfg(test)] mod tests`). If you add behavior
 ## Conventions
 
 - Conventional commits, lowercase, no emojis.
-- Do not edit root `README.md` or `CHANGELOG.md` during normal feature or fix work unless explicitly asked. Maintainers prepare `docs/next/README.md` and `docs/next/CHANGELOG.md` during release review.
-- Treat `docs/next/README.md` and `docs/next/CHANGELOG.md` as next-release staging for the root README and changelog.
 - The marketing website is hosted outside this repository. Do not add website assets, screenshots, or generated site output here unless explicitly requested.
 - Put local PRDs, planning notes, and exploratory specs under `.prd/`; that directory is ignored and locally controlled.
 - When a normal feature or fix commit relates to a GitHub issue, add a commit body line `refs #<issue-number>` after the subject. Use this shape:
@@ -77,14 +75,14 @@ Unit tests live next to the code (`#[cfg(test)] mod tests`). If you add behavior
 
   refs #82
   ```
-  Do not use GitHub closing keywords like `fixes #<issue-number>`, `closes #<issue-number>`, or `resolves #<issue-number>` in normal commits, because `master` contains unreleased work and those keywords close issues before release. Release CI scans `refs #<issue-number>` body lines between release tags and closes the referenced issues after the GitHub Release is created.
+  Do not use GitHub closing keywords like `fixes #<issue-number>`, `closes #<issue-number>`, or `resolves #<issue-number>` in normal commits unless you intentionally want GitHub to close the issue when the commit lands on the default branch.
 - Rust: no `unwrap()` in production code. `tracing` for logging. `#[allow]` only with a comment explaining why.
 - Don't bypass checks. If tests fail, fix them before committing.
 - Don't add dependencies without a reason. Check if the existing deps cover it first.
 
 ## Releases
 
-Before cutting a release, run `/pre-release-audit` to compare commits since the last tag against `docs/next/CHANGELOG.md` and `docs/next/`, then copy approved next-release docs into `README.md` and `CHANGELOG.md`. The release script promotes the root changelog's `## Unreleased` section into the versioned entry and copies the prepared changelog back to `docs/next/CHANGELOG.md` so the next cycle starts clean.
+Before cutting the first public Hako release, define the release notes flow. The current release recipe only bumps the version, runs checks, commits, tags, and lets GitHub Actions build release artifacts.
 
 Default release flow:
 
@@ -93,7 +91,7 @@ just check
 just release 0.x.y
 ```
 
-`just release 0.x.y` prepares the changelog entry, bumps `Cargo.toml`, runs tests, commits, tags, and pushes. GitHub Actions builds the binaries after the tag is pushed, creates the GitHub release, and uploads all four binary assets.
+`just release 0.x.y` bumps `Cargo.toml`, runs tests, commits, tags, and pushes. GitHub Actions builds the binaries after the tag is pushed, creates the GitHub release, and uploads all four binary assets.
 
 The release workflow must publish these four assets:
 
@@ -105,6 +103,3 @@ The release workflow must publish these four assets:
 
 When changing the server/client wire protocol, compare `src/server/protocol.rs::PROTOCOL_VERSION` against the latest released tag. Bump it only if the current source protocol is not already greater than the latest released protocol. Multiple unreleased wire changes in the same release cycle must share the same single protocol bump; Hako supports tagged releases, not arbitrary `master` client/server compatibility. When a bump is required, update all hardcoded protocol expectations and manual protocol fixtures in tests. Keep protocol test expectations intentionally explicit so compatibility changes are reviewed instead of silently following the constant.
 
-## External contributor guardrail
-
-This is Masakiro's public Hako fork. Follow this repository's `CONTRIBUTING.md`, issue templates, and labels. Do not route Hako contributors through upstream Herdr's contribution process unless they are explicitly trying to contribute to `ogulcancelik/herdr`.

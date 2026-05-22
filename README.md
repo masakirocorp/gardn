@@ -279,7 +279,7 @@ full logging and environment variable details: [configuration docs](https://hako
 
 ## agent instructions
 
-If you are an AI agent helping with this repository, read [`AGENTS.md`](./AGENTS.md) before making changes and read [`CONTRIBUTING.md`](./CONTRIBUTING.md) before opening issues or PRs.
+If you are an AI agent helping with this repository, read [`AGENTS.md`](./AGENTS.md) before making changes.
 
 ## building from source
 

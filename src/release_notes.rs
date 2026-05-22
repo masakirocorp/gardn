@@ -126,41 +126,6 @@ fn clear_pending_at(path: &Path) -> std::io::Result<()> {
     }
 }
 
-pub fn load_preview_from_local_changelog(version: &str) -> Option<ReleaseNotes> {
-    let path = Path::new("CHANGELOG.md");
-    let content = fs::read_to_string(path).ok()?;
-    let body = extract_version_section(&content, version)?;
-    Some(ReleaseNotes {
-        version: version.to_string(),
-        body: normalize_body(&body),
-        preview: true,
-    })
-}
-
-fn extract_version_section(content: &str, version: &str) -> Option<String> {
-    let header = format!("## [{version}]");
-    let mut collecting = false;
-    let mut lines = Vec::new();
-
-    for line in content.lines() {
-        if !collecting {
-            if line.starts_with(&header) {
-                collecting = true;
-            }
-            continue;
-        }
-
-        if line.starts_with("## [") {
-            break;
-        }
-
-        lines.push(line);
-    }
-
-    let body = lines.join("\n").trim().to_string();
-    (!body.is_empty()).then_some(body)
-}
-
 pub fn normalize_body(body: &str) -> String {
     body.lines()
         .map(str::trim_end)
@@ -173,15 +138,6 @@ pub fn normalize_body(body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn extracts_version_section() {
-        let changelog = "# Changelog\n\n## [0.2.3] - 2026-03-31\n\n### Changed\n- One\n\n## [0.2.2] - 2026-03-30\n\n### Fixed\n- Two\n";
-        assert_eq!(
-            extract_version_section(changelog, "0.2.3").as_deref(),
-            Some("### Changed\n- One")
-        );
-    }
 
     #[test]
     fn preserves_headings() {

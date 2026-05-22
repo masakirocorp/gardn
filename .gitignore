@@ -7,11 +7,5 @@ __pycache__/
 *~
 .DS_Store
 
-/docs/*
-!/docs/next/
-!/docs/next/**
 /.prd/
 
-/.pi/todos
-/.pi/issues
-/.pi/cache
