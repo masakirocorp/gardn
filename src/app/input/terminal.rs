@@ -602,23 +602,11 @@ mod tests {
             api_rx,
             crate::api::EventHub::default(),
         );
-        let (workspace, terminal, runtime) = Workspace::new(
-            std::env::current_dir().unwrap_or_else(|_| "/".into()),
-            24,
-            80,
-            app.state.pane_scrollback_limit_bytes,
-            app.state.host_terminal_theme,
-            &app.state.default_shell,
-            app.event_tx.clone(),
-            app.render_notify.clone(),
-            app.render_dirty.clone(),
-        )
-        .expect("workspace should spawn");
+        let mut workspace = Workspace::test_new("test");
+        let pane_id = workspace.tabs[0].root_pane;
+        let (runtime, _rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        workspace.insert_test_runtime(pane_id, runtime);
         app.state.workspaces = vec![workspace];
-        app.state
-            .terminal_runtimes
-            .insert(terminal.id.clone(), runtime);
-        app.state.terminals.insert(terminal.id.clone(), terminal);
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;

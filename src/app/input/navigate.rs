@@ -301,6 +301,30 @@ impl App {
                 &self.state.terminal_runtimes,
             )
         });
+        #[cfg(test)]
+        if ws.test_runtimes.contains_key(&previous_focus) {
+            let new_pane_id = ws.test_split(Direction::Horizontal);
+            ws.active_tab_mut()
+                .expect("workspace must have an active tab")
+                .layout
+                .focus_pane(new_pane_id);
+            ws.active_tab_mut()
+                .expect("workspace must have an active tab")
+                .zoomed = true;
+            self.overlay_panes.insert(
+                new_pane_id,
+                super::super::OverlayPaneState {
+                    ws_idx,
+                    tab_idx,
+                    previous_focus,
+                    previous_zoomed,
+                    temp_files,
+                },
+            );
+            self.state.mode = Mode::Terminal;
+            return Ok(());
+        }
+
         let new_pane = ws.split_focused_command(
             Direction::Horizontal,
             new_rows,
