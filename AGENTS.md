@@ -50,6 +50,15 @@ This repo is a long-lived Masakiro product fork of `ogulcancelik/herdr`, branded
 - Open upstream-sync PRs into `masakirocorp/hako:master`.
 - Always verify the PR base is `masakirocorp/hako`, not upstream.
 - Run `just check` before merging sync PRs.
+- Daily upstream syncs should use the checked-in automation instead of hand-rolled commands:
+  ```bash
+  just sync-upstream
+  ```
+- `just sync-upstream` creates a `sync/upstream-YYYY-MM-DD` branch, fetches `origin` and `upstream`, merges `upstream/master` with a merge commit, runs the upstream-sync guard, writes a PR body, pushes the branch, and opens the PR.
+- Review `sync-report.md` in every upstream-sync PR. It calls out Hako-owned files, sensitive plumbing, and forbidden upstream identity/plumbing that must not be resurrected silently.
+- Hako-owned files are intentionally protected in `.gitattributes` with `merge=keep-hako`: `README.md`, `AGENTS.md`, `SKILL.md`, `assets/logo.svg`, `docs/**`, and `website/**`. Do not ignore these paths during upstream syncs; review upstream changes against Hako's custom product/docs/site direction.
+- If an upstream sync conflicts, resolve toward Hako product identity first, rerun `python3 scripts/guard_upstream_sync.py --base origin/master --upstream upstream/master --head HEAD`, then run `just check`.
+- Upstream-sync PRs must pass PR CI before merge. After merge, watch the `master` CI run too; push a follow-up fix if trunk CI exposes a platform-only failure.
 
 ## Testing
 
@@ -60,6 +69,8 @@ just test               # cargo nextest + maintenance script tests
 just check              # formatting check + cargo nextest + maintenance script tests
 ```
 
+CI intentionally splits formatting, clippy, Rust tests, and maintenance tests into separate steps. Keep that shape; it makes platform hangs diagnosable. Rust tests use the `ci` nextest profile, which reports slow tests and times out hung tests.
+
 Default flow: run `just check` before committing. Do not commit until `just check` passes locally unless Can explicitly accepts a narrower validation for that commit.
 
 Unit tests live next to the code (`#[cfg(test)] mod tests`). If you add behavior to `AppState` or `Workspace`, it should be testable with `AppState::test_new()` and `Workspace::test_new()` — no PTYs.
@@ -67,7 +78,7 @@ Unit tests live next to the code (`#[cfg(test)] mod tests`). If you add behavior
 ## Conventions
 
 - Conventional commits, lowercase, no emojis.
-- The marketing website is hosted outside this repository. Do not add website assets, screenshots, or generated site output here unless explicitly requested.
+- `docs/` and `website/` are Hako-owned. Do not reintroduce upstream Herdr docs/site content or generated website output unless explicitly requested.
 - Put local PRDs, planning notes, and exploratory specs under `.prd/`; that directory is ignored and locally controlled.
 - When a normal feature or fix commit relates to a GitHub issue, add a commit body line `refs #<issue-number>` after the subject. Use this shape:
   ```text
