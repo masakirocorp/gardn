@@ -29,6 +29,10 @@ build-libghostty-vt:
     scripts/build_vendored_libghostty_vt.sh
 
 
+# Create a merge-commit PR for upstream Herdr changes
+sync-upstream:
+    python3 scripts/sync_upstream.py
+
 # Bump version, commit, tag, push, and trigger the GitHub Release workflow (usage: just release 0.1.1)
 release version:
     @if [ -n "$(git status --porcelain)" ]; then \
