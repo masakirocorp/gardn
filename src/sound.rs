@@ -9,7 +9,7 @@ use std::process::{Command, Output};
 
 use tracing::warn;
 
-const DISABLE_SOUND_ENV: &str = "HERDR_DISABLE_SOUND";
+const DISABLE_SOUND_ENV: &str = "HAKO_DISABLE_SOUND";
 
 static SOUND_DONE: &[u8] = include_bytes!("../assets/sounds/done.mp3");
 static SOUND_REQUEST: &[u8] = include_bytes!("../assets/sounds/request.mp3");
@@ -66,7 +66,7 @@ fn play_file(path: &Path) -> Result<(), String> {
 
 fn play_bytes(data: &[u8]) -> Result<(), String> {
     // Write to a temp file (audio players need a file path)
-    let tmp = std::env::temp_dir().join(format!("herdr-sound-{}.mp3", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("hako-sound-{}.mp3", std::process::id()));
     let mut file = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
     file.write_all(data).map_err(|e| e.to_string())?;
     drop(file);

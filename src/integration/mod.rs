@@ -9,31 +9,31 @@ use serde_json::{json, Map, Value};
 
 use crate::layout::PaneId;
 
-pub(crate) const HERDR_PANE_ID_ENV_VAR: &str = "HERDR_PANE_ID";
-const PI_EXTENSION_INSTALL_NAME: &str = "herdr-agent-state.ts";
-const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/herdr-agent-state.ts");
+pub(crate) const HAKO_PANE_ID_ENV_VAR: &str = "HAKO_PANE_ID";
+const PI_EXTENSION_INSTALL_NAME: &str = "hako-agent-state.ts";
+const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/hako-agent-state.ts");
 const PI_INTEGRATION_VERSION: u32 = 1;
 const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
 const OMP_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
 const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
-const CLAUDE_HOOK_INSTALL_NAME: &str = "herdr-agent-state.sh";
-const CLAUDE_HOOK_ASSET: &str = include_str!("assets/claude/herdr-agent-state.sh");
+const CLAUDE_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
+const CLAUDE_HOOK_ASSET: &str = include_str!("assets/claude/hako-agent-state.sh");
 const CLAUDE_INTEGRATION_VERSION: u32 = 3;
 const CLAUDE_CONFIG_DIR_ENV_VAR: &str = "CLAUDE_CONFIG_DIR";
-const CODEX_HOOK_INSTALL_NAME: &str = "herdr-agent-state.sh";
-const CODEX_HOOK_ASSET: &str = include_str!("assets/codex/herdr-agent-state.sh");
+const CODEX_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
+const CODEX_HOOK_ASSET: &str = include_str!("assets/codex/hako-agent-state.sh");
 const CODEX_INTEGRATION_VERSION: u32 = 3;
 const CODEX_HOME_ENV_VAR: &str = "CODEX_HOME";
-const OPENCODE_PLUGIN_INSTALL_NAME: &str = "herdr-agent-state.js";
-const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/herdr-agent-state.js");
+const OPENCODE_PLUGIN_INSTALL_NAME: &str = "hako-agent-state.js";
+const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/hako-agent-state.js");
 const OPENCODE_INTEGRATION_VERSION: u32 = 1;
-const HERMES_PLUGIN_INSTALL_NAME: &str = "herdr-agent-state";
+const HERMES_PLUGIN_INSTALL_NAME: &str = "hako-agent-state";
 const HERMES_PLUGIN_MANIFEST_INSTALL_NAME: &str = "plugin.yaml";
 const HERMES_PLUGIN_INIT_INSTALL_NAME: &str = "__init__.py";
 const HERMES_PLUGIN_MANIFEST_ASSET: &str = include_str!("assets/hermes/plugin.yaml");
 const HERMES_PLUGIN_INIT_ASSET: &str = include_str!("assets/hermes/__init__.py");
 const HERMES_INTEGRATION_VERSION: u32 = 1;
-const INTEGRATION_VERSION_MARKER: &str = "HERDR_INTEGRATION_VERSION=";
+const INTEGRATION_VERSION_MARKER: &str = "HAKO_INTEGRATION_VERSION=";
 
 #[derive(Debug)]
 pub(crate) struct ClaudeInstallPaths {
@@ -140,7 +140,7 @@ pub(crate) struct HermesUninstallResult {
 
 pub(crate) fn apply_pane_env(cmd: &mut CommandBuilder, pane_id: PaneId) {
     cmd.env(crate::api::SOCKET_PATH_ENV_VAR, crate::api::socket_path());
-    cmd.env(HERDR_PANE_ID_ENV_VAR, format!("p_{}", pane_id.raw()));
+    cmd.env(HAKO_PANE_ID_ENV_VAR, format!("p_{}", pane_id.raw()));
 }
 
 pub(crate) fn install_target(
@@ -256,12 +256,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_settings {
                 messages.push(format!(
-                    "removed herdr claude hook entries from {}",
+                    "removed hako claude hook entries from {}",
                     result.settings_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no herdr claude hook entries found in {}",
+                    "no hako claude hook entries found in {}",
                     result.settings_path.display()
                 ));
             }
@@ -283,12 +283,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_hooks {
                 messages.push(format!(
-                    "removed herdr codex hook entries from {}",
+                    "removed hako codex hook entries from {}",
                     result.hooks_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no herdr codex hook entries found in {}",
+                    "no hako codex hook entries found in {}",
                     result.hooks_path.display()
                 ));
             }
@@ -481,7 +481,7 @@ pub(crate) fn integration_update_instructions(
         .iter()
         .map(|target| {
             format!(
-                "`herdr integration install {}`",
+                "`hako integration install {}`",
                 integration_target_label(*target)
             )
         })
@@ -505,7 +505,7 @@ pub(crate) fn print_outdated_update_notice() -> bool {
         .map(|integration| integration.target)
         .collect::<Vec<_>>();
     eprintln!(
-        "installed herdr integrations need updating; {}.",
+        "installed hako integrations need updating; {}.",
         integration_update_instructions(&targets).replace('`', "")
     );
     true
@@ -589,13 +589,13 @@ pub(crate) fn install_omp() -> io::Result<PathBuf> {
 
 fn omp_extension_asset() -> String {
     PI_EXTENSION_ASSET
-        .replace("HERDR_INTEGRATION_ID=pi", "HERDR_INTEGRATION_ID=omp")
+        .replace("HAKO_INTEGRATION_ID=pi", "HAKO_INTEGRATION_ID=omp")
         .replace(
-            "const source = \"herdr:pi\";",
-            "const source = \"herdr:omp\";",
+            "const source = \"hako:pi\";",
+            "const source = \"hako:omp\";",
         )
-        .replace("HERDR_PI_IDLE_DEBOUNCE_MS", "HERDR_OMP_IDLE_DEBOUNCE_MS")
-        .replace("HERDR_PI_RETRY_GRACE_MS", "HERDR_OMP_RETRY_GRACE_MS")
+        .replace("HAKO_PI_IDLE_DEBOUNCE_MS", "HAKO_OMP_IDLE_DEBOUNCE_MS")
+        .replace("HAKO_PI_RETRY_GRACE_MS", "HAKO_OMP_RETRY_GRACE_MS")
         .replace("agent: \"pi\",", "agent: \"omp\",")
 }
 
@@ -1200,7 +1200,7 @@ fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> String {
         if !result.is_empty() {
             result.push('\n');
         }
-        result.push_str("plugins:\n  enabled:\n    - herdr-agent-state\n");
+        result.push_str("plugins:\n  enabled:\n    - hako-agent-state\n");
         return result;
     };
 
@@ -1213,10 +1213,10 @@ fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> String {
 
     if let Some(enabled_index) = enabled_index {
         let line = lines[enabled_index].trim();
-        if line == "enabled: []" || line == "enabled: [] # herdr" {
+        if line == "enabled: []" || line == "enabled: [] # hako" {
             if enabled {
                 lines[enabled_index] = "  enabled:".to_string();
-                lines.insert(enabled_index + 1, "    - herdr-agent-state".to_string());
+                lines.insert(enabled_index + 1, "    - hako-agent-state".to_string());
             }
             return join_yaml_lines(lines, trailing_newline);
         }
@@ -1236,7 +1236,7 @@ fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> String {
 
         match (enabled, existing_item_index) {
             (true, Some(_)) | (false, None) => return content.to_string(),
-            (true, None) => lines.insert(list_start, "    - herdr-agent-state".to_string()),
+            (true, None) => lines.insert(list_start, "    - hako-agent-state".to_string()),
             (false, Some(index)) => {
                 lines.remove(index);
             }
@@ -1246,7 +1246,7 @@ fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> String {
 
     if enabled {
         lines.insert(plugins_index + 1, "  enabled:".to_string());
-        lines.insert(plugins_index + 2, "    - herdr-agent-state".to_string());
+        lines.insert(plugins_index + 2, "    - hako-agent-state".to_string());
         return join_yaml_lines(lines, trailing_newline);
     }
 
@@ -1527,7 +1527,7 @@ mod tests {
     fn unique_base() -> PathBuf {
         clear_integration_path_env();
         std::env::temp_dir().join(format!(
-            "herdr-integration-install-test-{}-{}",
+            "hako-integration-install-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1571,7 +1571,7 @@ mod tests {
             label: "claude",
             command: "claude",
             available: false,
-            path: PathBuf::from("/tmp/herdr-agent-state.sh"),
+            path: PathBuf::from("/tmp/hako-agent-state.sh"),
             state: IntegrationStatusKind::NotInstalled,
         };
         assert!(!recommendation.needs_install());
@@ -1679,11 +1679,11 @@ mod tests {
         let content = fs::read_to_string(&path).unwrap();
 
         assert_eq!(path, ext_dir.join(PI_EXTENSION_INSTALL_NAME));
-        assert!(content.contains("HERDR_INTEGRATION_ID=omp"));
-        assert!(content.contains("const source = \"herdr:omp\";"));
+        assert!(content.contains("HAKO_INTEGRATION_ID=omp"));
+        assert!(content.contains("const source = \"hako:omp\";"));
         assert!(content.contains("agent: \"omp\","));
-        assert!(content.contains("HERDR_OMP_IDLE_DEBOUNCE_MS"));
-        assert!(content.contains("HERDR_OMP_RETRY_GRACE_MS"));
+        assert!(content.contains("HAKO_OMP_IDLE_DEBOUNCE_MS"));
+        assert!(content.contains("HAKO_OMP_RETRY_GRACE_MS"));
         assert!(!content.contains("agent: \"pi\","));
 
         std::env::remove_var("HOME");
@@ -1761,7 +1761,7 @@ mod tests {
         let ext_dir = home.join(".pi/agent/extensions");
         fs::create_dir_all(&ext_dir).unwrap();
         let extension_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
-        fs::write(&extension_path, "// installed by herdr\n").unwrap();
+        fs::write(&extension_path, "// installed by hako\n").unwrap();
         std::env::set_var("HOME", &home);
 
         let outdated = outdated_installed_integrations();
@@ -1991,7 +1991,7 @@ mod tests {
         let hook_path = claude_hooks_dir.join(CLAUDE_HOOK_INSTALL_NAME);
         fs::write(
             &hook_path,
-            "#!/bin/sh\n# HERDR_INTEGRATION_ID=claude\n# HERDR_INTEGRATION_VERSION=1\n",
+            "#!/bin/sh\n# HAKO_INTEGRATION_ID=claude\n# HAKO_INTEGRATION_VERSION=1\n",
         )
         .unwrap();
         std::env::set_var("HOME", &home);
@@ -2021,7 +2021,7 @@ mod tests {
         let hook_path = claude_hooks_dir.join(CLAUDE_HOOK_INSTALL_NAME);
         fs::write(
             &hook_path,
-            "#!/bin/sh\n# HERDR_INTEGRATION_ID=claude\n# HERDR_INTEGRATION_VERSION=2\n",
+            "#!/bin/sh\n# HAKO_INTEGRATION_ID=claude\n# HAKO_INTEGRATION_VERSION=2\n",
         )
         .unwrap();
         std::env::set_var("HOME", &home);
@@ -2042,7 +2042,7 @@ mod tests {
     }
 
     #[test]
-    fn uninstall_claude_removes_herdr_hooks_and_preserves_others() {
+    fn uninstall_claude_removes_hako_hooks_and_preserves_others() {
         let _lock = integration_env_lock();
         let base = unique_base();
         let home = base.join("home");
@@ -2123,7 +2123,7 @@ mod tests {
         let hook_path = codex_dir.join(CODEX_HOOK_INSTALL_NAME);
         fs::write(
             &hook_path,
-            "#!/bin/sh\n# HERDR_INTEGRATION_ID=codex\n# HERDR_INTEGRATION_VERSION=2\n",
+            "#!/bin/sh\n# HAKO_INTEGRATION_ID=codex\n# HAKO_INTEGRATION_VERSION=2\n",
         )
         .unwrap();
         std::env::set_var("HOME", &home);
@@ -2283,7 +2283,7 @@ mod tests {
     }
 
     #[test]
-    fn uninstall_codex_removes_herdr_hooks_and_leaves_config_alone() {
+    fn uninstall_codex_removes_hako_hooks_and_leaves_config_alone() {
         let _lock = integration_env_lock();
         let base = unique_base();
         let home = base.join("home");
@@ -2447,7 +2447,7 @@ mod tests {
         );
         assert_eq!(manifest, HERMES_PLUGIN_MANIFEST_ASSET);
         assert_eq!(init, HERMES_PLUGIN_INIT_ASSET);
-        assert!(config.contains("plugins:\n  enabled:\n    - herdr-agent-state"));
+        assert!(config.contains("plugins:\n  enabled:\n    - hako-agent-state"));
 
         std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
@@ -2462,7 +2462,7 @@ mod tests {
         fs::create_dir_all(&hermes_dir).unwrap();
         fs::write(
             hermes_dir.join("config.yaml"),
-            "plugins:\n  enabled:\n    - herdr-agent-state\n",
+            "plugins:\n  enabled:\n    - hako-agent-state\n",
         )
         .unwrap();
         std::env::set_var("HOME", &home);
@@ -2471,7 +2471,7 @@ mod tests {
         install_hermes().unwrap();
 
         let config = fs::read_to_string(hermes_dir.join("config.yaml")).unwrap();
-        assert_eq!(config.matches("herdr-agent-state").count(), 1);
+        assert_eq!(config.matches("hako-agent-state").count(), 1);
 
         std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
@@ -2492,7 +2492,7 @@ mod tests {
         .unwrap();
         fs::write(
             hermes_dir.join("config.yaml"),
-            "plugins:\n  enabled:\n    - other-plugin\n    - herdr-agent-state\n",
+            "plugins:\n  enabled:\n    - other-plugin\n    - hako-agent-state\n",
         )
         .unwrap();
         std::env::set_var("HOME", &home);
@@ -2504,7 +2504,7 @@ mod tests {
         assert!(result.updated_config);
         assert!(!plugin_dir.exists());
         assert!(config.contains("    - other-plugin"));
-        assert!(!config.contains("herdr-agent-state"));
+        assert!(!config.contains("hako-agent-state"));
 
         std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);

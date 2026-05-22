@@ -1,9 +1,9 @@
-//! Headless server mode — runs the herdr event loop without a real terminal.
+//! Headless server mode — runs the hako event loop without a real terminal.
 //!
 //! The server:
 //! - Does not enter raw mode or read stdin
-//! - Creates and listens on both `herdr.sock` (existing JSON API) and
-//!   `herdr-client.sock` (new binary protocol)
+//! - Creates and listens on both `hako.sock` (existing JSON API) and
+//!   `hako-client.sock` (new binary protocol)
 //! - Initializes AppState and all PTYs from session restore or fresh state
 //! - Runs the main event loop (drain events, drain API requests, scheduled tasks)
 //! - Renders to a virtual ratatui Buffer in memory
@@ -78,10 +78,10 @@ fn paste_payload_for_runtime(runtime: &crate::terminal::TerminalRuntime, text: &
 
 /// Legacy environment variable for overriding the client socket path.
 ///
-/// Contractual override behavior for auto-detect uses `HERDR_SOCKET_PATH`.
+/// Contractual override behavior for auto-detect uses `HAKO_SOCKET_PATH`.
 /// This variable is kept as a fallback for callers that explicitly need a
-/// client-only override when `HERDR_SOCKET_PATH` is not set.
-pub const CLIENT_SOCKET_PATH_ENV_VAR: &str = "HERDR_CLIENT_SOCKET_PATH";
+/// client-only override when `HAKO_SOCKET_PATH` is not set.
+pub const CLIENT_SOCKET_PATH_ENV_VAR: &str = "HAKO_CLIENT_SOCKET_PATH";
 
 /// Socket permission mode (owner read/write only).
 const SOCKET_PERMISSION_MODE: u32 = 0o600;
@@ -107,7 +107,7 @@ fn toast_notify_kind(delivery: config::ToastDelivery) -> Option<protocol::Notify
     match delivery {
         config::ToastDelivery::Terminal => Some(protocol::NotifyKind::Toast),
         config::ToastDelivery::System => Some(protocol::NotifyKind::SystemToast),
-        config::ToastDelivery::Off | config::ToastDelivery::Herdr => None,
+        config::ToastDelivery::Off | config::ToastDelivery::Hako => None,
     }
 }
 
@@ -161,10 +161,10 @@ fn toast_message_from_state_change(
 ///
 /// Contract-aligned override behavior:
 /// 1. If CLI `--session <name>` is active, use that session's client socket.
-/// 2. If `HERDR_SOCKET_PATH` is set, derive the client socket path from it by
-///    inserting `-client` before `.sock` (e.g. `herdr.sock` -> `herdr-client.sock`).
+/// 2. If `HAKO_SOCKET_PATH` is set, derive the client socket path from it by
+///    inserting `-client` before `.sock` (e.g. `hako.sock` -> `hako-client.sock`).
 ///    This keeps JSON API and client socket overrides consistent.
-/// 3. Otherwise, honor `HERDR_CLIENT_SOCKET_PATH` (legacy/testing fallback).
+/// 3. Otherwise, honor `HAKO_CLIENT_SOCKET_PATH` (legacy/testing fallback).
 /// 4. Otherwise, use the active session data directory.
 pub fn client_socket_path() -> PathBuf {
     if crate::session::explicit_session_requested() {
@@ -195,7 +195,7 @@ fn derive_client_socket_from_api_socket(api_socket_path: &Path) -> PathBuf {
     let stem = api_socket_path
         .file_stem()
         .and_then(|s| s.to_str())
-        .unwrap_or("herdr");
+        .unwrap_or("hako");
     let parent = api_socket_path.parent().unwrap_or_else(|| Path::new(""));
 
     if api_socket_path
@@ -327,7 +327,7 @@ impl ClientConnection {
 fn prepare_socket_path(path: &Path) -> io::Result<()> {
     crate::ipc::prepare_socket_path(path, |path| {
         format!(
-            "herdr server is already running (socket busy at {})",
+            "hako server is already running (socket busy at {})",
             path.display()
         )
     })
@@ -342,7 +342,7 @@ fn restrict_socket_permissions(path: &Path) -> io::Result<()> {
 // Headless server
 // ---------------------------------------------------------------------------
 
-/// The headless server — runs the herdr event loop without a real terminal.
+/// The headless server — runs the hako event loop without a real terminal.
 pub struct HeadlessServer {
     app: app::App,
     client_listener: UnixListener,
@@ -1710,7 +1710,7 @@ impl HeadlessServer {
         let _ = msg.respond_to.send(response);
 
         // Forward new toast state only when a client-local delivery mode is selected.
-        // Herdr delivery renders the toast in-frame and must not ask clients to
+        // Hako delivery renders the toast in-frame and must not ask clients to
         // show a terminal or system notification.
         let toast_after = self.app.state.toast.clone();
         let forwarded_toast_from_state =
@@ -2308,7 +2308,7 @@ pub fn run_server() -> io::Result<()> {
     let _api_server = match api::start_server(api_tx, event_hub.clone()) {
         Ok(server) => server,
         Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
-            eprintln!("error: herdr server is already running");
+            eprintln!("error: hako server is already running");
             eprintln!("api socket: {}", api::socket_path().display());
             std::process::exit(1);
         }
@@ -2342,7 +2342,7 @@ pub fn run_server() -> io::Result<()> {
         let mut server = match HeadlessServer::new(app) {
             Ok(server) => server,
             Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
-                eprintln!("error: herdr server is already running");
+                eprintln!("error: hako server is already running");
                 eprintln!("client socket: {}", client_socket_path().display());
                 std::process::exit(1);
             }
@@ -2352,7 +2352,7 @@ pub fn run_server() -> io::Result<()> {
         info!(
             api_socket = %api::socket_path().display(),
             client_socket = %client_socket_path().display(),
-            "herdr server started"
+            "hako server started"
         );
         print_ready_message(&api::socket_path(), &client_socket_path());
 
@@ -2365,21 +2365,19 @@ pub fn run_server() -> io::Result<()> {
 }
 
 fn print_ready_message(api_socket: &Path, client_socket: &Path) {
-    eprintln!("herdr server running; you can use any herdr CLI command in another terminal.");
+    eprintln!("hako server running; you can use any hako CLI command in another terminal.");
     eprintln!("api socket: {}", api_socket.display());
     eprintln!("client socket: {}", client_socket.display());
     eprintln!(
         "logs: {}",
-        crate::session::data_dir()
-            .join("herdr-server.log")
-            .display()
+        crate::session::data_dir().join("hako-server.log").display()
     );
-    eprintln!("did you mean to open the Herdr TUI? run `herdr`; you do not need `herdr server`.");
+    eprintln!("did you mean to open the Hako TUI? run `hako`; you do not need `hako server`.");
 }
 
 /// Initialize logging for the server process.
 fn init_logging() {
-    crate::logging::init_file_logging("herdr-server.log");
+    crate::logging::init_file_logging("hako-server.log");
 }
 
 // ---------------------------------------------------------------------------
@@ -2458,7 +2456,7 @@ mod tests {
 
     fn temp_project(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "herdr-headless-commands-{name}-{}-{}",
+            "hako-headless-commands-{name}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -2607,23 +2605,23 @@ mod tests {
 
     #[test]
     fn client_socket_path_derived_from_api_socket_override() {
-        let path = client_socket_path_from_overrides(Some("/tmp/test-herdr.sock"), None);
-        assert_eq!(path, PathBuf::from("/tmp/test-herdr-client.sock"));
+        let path = client_socket_path_from_overrides(Some("/tmp/test-hako.sock"), None);
+        assert_eq!(path, PathBuf::from("/tmp/test-hako-client.sock"));
     }
 
     #[test]
     fn client_socket_path_api_override_takes_precedence_over_legacy_client_override() {
         let path = client_socket_path_from_overrides(
-            Some("/tmp/test-herdr.sock"),
+            Some("/tmp/test-hako.sock"),
             Some("/tmp/legacy-client.sock"),
         );
-        assert_eq!(path, PathBuf::from("/tmp/test-herdr-client.sock"));
+        assert_eq!(path, PathBuf::from("/tmp/test-hako-client.sock"));
     }
 
     #[test]
     fn client_socket_path_respects_legacy_client_override_without_api_override() {
-        let path = client_socket_path_from_overrides(None, Some("/tmp/test-herdr-client.sock"));
-        assert_eq!(path, PathBuf::from("/tmp/test-herdr-client.sock"));
+        let path = client_socket_path_from_overrides(None, Some("/tmp/test-hako-client.sock"));
+        assert_eq!(path, PathBuf::from("/tmp/test-hako-client.sock"));
     }
 
     #[test]
@@ -2631,7 +2629,7 @@ mod tests {
         std::env::remove_var(crate::session::SESSION_ENV_VAR);
         crate::session::clear_explicit_session_for_test();
         let path = client_socket_path_from_overrides(None, None);
-        assert_eq!(path, config::config_dir().join("herdr-client.sock"));
+        assert_eq!(path, config::config_dir().join("hako-client.sock"));
     }
 
     #[test]
@@ -3732,7 +3730,7 @@ mod tests {
     }
 
     #[test]
-    fn herdr_toast_delivery_keeps_toast_in_frame_without_client_notify() {
+    fn hako_toast_delivery_keeps_toast_in_frame_without_client_notify() {
         let mut server = test_headless_server();
         let (client_tx, client_control_rx, _client_rx) = test_client_writer();
 
@@ -3749,11 +3747,11 @@ mod tests {
             ),
         );
         server.foreground_client_id = Some(1);
-        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Herdr;
+        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Hako;
 
         let changed = server.handle_internal_event_with_forwarding(AppEvent::UpdateReady {
             version: "9.9.9".to_string(),
-            install_command: "herdr update".into(),
+            install_command: "hako update".into(),
         });
 
         assert!(changed);
@@ -3762,7 +3760,7 @@ mod tests {
             client_control_rx
                 .recv_timeout(Duration::from_millis(50))
                 .is_err(),
-            "herdr delivery should render in-frame instead of forwarding a client-local notification"
+            "hako delivery should render in-frame instead of forwarding a client-local notification"
         );
     }
 
@@ -3788,7 +3786,7 @@ mod tests {
 
         let changed = server.handle_internal_event_with_forwarding(AppEvent::UpdateReady {
             version: "9.9.9".to_string(),
-            install_command: "herdr update".into(),
+            install_command: "hako update".into(),
         });
 
         assert!(changed);
@@ -3799,7 +3797,7 @@ mod tests {
         ) {
             ServerMessage::Notify { kind, message } => {
                 assert_eq!(kind, protocol::NotifyKind::SystemToast);
-                assert_eq!(message, "v9.9.9 available: detach, then run `herdr update`");
+                assert_eq!(message, "v9.9.9 available: detach, then run `hako update`");
             }
             other => panic!("expected system toast notify, got {other:?}"),
         }
@@ -3826,7 +3824,7 @@ mod tests {
             .get_mut(&terminal_id)
             .unwrap()
             .set_hook_authority(
-                "herdr:pi".into(),
+                "hako:pi".into(),
                 "pi".into(),
                 crate::detect::AgentState::Working,
                 None,
@@ -3858,7 +3856,7 @@ mod tests {
                 id: "stale".into(),
                 method: api::schema::Method::PaneReportAgent(api::schema::PaneReportAgentParams {
                     pane_id: public_pane_id,
-                    source: "herdr:pi".into(),
+                    source: "hako:pi".into(),
                     agent: "pi".into(),
                     state: api::schema::PaneAgentState::Idle,
                     message: None,

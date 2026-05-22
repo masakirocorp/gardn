@@ -199,7 +199,7 @@ mod tests {
 
     fn temp_test_dir(name: &str) -> PathBuf {
         let unique = format!(
-            "herdr-workspace-tests-{}-{}-{}",
+            "hako-workspace-tests-{}-{}-{}",
             name,
             std::process::id(),
             SystemTime::now()

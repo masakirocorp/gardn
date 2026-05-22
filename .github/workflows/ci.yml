@@ -3,8 +3,6 @@ name: CI
 on:
   push:
     branches: [master]
-    paths-ignore:
-      - "website/**"
   workflow_dispatch:
 
 permissions:

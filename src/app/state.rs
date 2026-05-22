@@ -1175,7 +1175,7 @@ pub struct AppState {
     pub update_dismissed: bool,
     pub config_diagnostic: Option<String>,
     pub toast: Option<ToastNotification>,
-    /// Last reported focus state for the outer terminal hosting herdr.
+    /// Last reported focus state for the outer terminal hosting hako.
     /// None means unsupported or not yet reported, which preserves active-pane suppression.
     pub outer_terminal_focus: Option<bool>,
     // Config
@@ -1200,7 +1200,7 @@ pub struct AppState {
     pub collapsed_command_status_groups: Vec<String>,
     pub collapsed_workspace_groups: Vec<String>,
     pub agent_panel_scope: AgentPanelScope,
-    /// Capture mouse input for Herdr's own mouse UI. When false, Herdr only
+    /// Capture mouse input for Hako's own mouse UI. When false, Hako only
     /// captures mouse while the focused pane app requests mouse reporting.
     pub mouse_capture: bool,
     pub confirm_close: bool,
@@ -1683,7 +1683,7 @@ impl AppState {
             selection_autoscroll: None,
             context_menu: None,
             update_available: None,
-            update_install_command: "herdr update".into(),
+            update_install_command: "hako update".into(),
             latest_release_notes_available: false,
             update_dismissed: false,
             config_diagnostic: None,

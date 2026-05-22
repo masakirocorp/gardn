@@ -1827,7 +1827,7 @@ mod tests {
 
     #[test]
     fn amp_idle() {
-        let screen = "  Response complete.\n\n╭─100% of 272k · $1.20─────────────────────────╮\n│                                               │\n╰───────────────────────~/Projects/herdr (master)╯";
+        let screen = "  Response complete.\n\n╭─100% of 272k · $1.20─────────────────────────╮\n│                                               │\n╰───────────────────────~/Projects/hako (master)╯";
         assert_eq!(detect_state(Some(Agent::Amp), screen), AgentState::Idle);
     }
 
@@ -1842,7 +1842,7 @@ mod tests {
     #[test]
     fn grok_blocked_on_permission_prompt() {
         let screen = "Show recent commit history for analysis\n\
-                      git -C /home/can/Projects/herdr log --oneline --decorate -n 12\n\
+                      git -C /home/can/Projects/hako log --oneline --decorate -n 12\n\
                       Use ← → to choose permission whitelist scope\n\n\
                       1 (○) Always allow: git -C\n\
                       2 (●) Yes, proceed\n\
@@ -1865,7 +1865,7 @@ mod tests {
 
     #[test]
     fn grok_working_on_tool_spinner() {
-        let screen = "⠼ Run git -C /home/can/Projects/herdr log --oneline 1.0s";
+        let screen = "⠼ Run git -C /home/can/Projects/hako log --oneline 1.0s";
         assert_eq!(detect_state(Some(Agent::Grok), screen), AgentState::Working);
     }
 
@@ -1900,7 +1900,7 @@ mod tests {
 
     #[test]
     fn hermes_blocked_on_dangerous_command_prompt() {
-        let screen = "╭────────────────────────────────────────────────────────────╮\n│ ⚠️  Dangerous Command                                      │\n│ mkdir -p /tmp/herdr-hermes-block-test/subdir && touch      │\n│ ❯ 1. Allow once                                            │\n│   2. Allow for this session                                │\n│   3. Add to permanent allowlist                            │\n│   4. Deny                                                  │\n│   5. Show full command                                     │\n╰────────────────────────────────────────────────────────────╯\n  ↑/↓ to select, Enter to confirm\n⚠ ❯";
+        let screen = "╭────────────────────────────────────────────────────────────╮\n│ ⚠️  Dangerous Command                                      │\n│ mkdir -p /tmp/hako-hermes-block-test/subdir && touch      │\n│ ❯ 1. Allow once                                            │\n│   2. Allow for this session                                │\n│   3. Add to permanent allowlist                            │\n│   4. Deny                                                  │\n│   5. Show full command                                     │\n╰────────────────────────────────────────────────────────────╯\n  ↑/↓ to select, Enter to confirm\n⚠ ❯";
         assert_eq!(
             detect_state(Some(Agent::Hermes), screen),
             AgentState::Blocked

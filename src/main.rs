@@ -7,14 +7,14 @@ use crossterm::event::{
 };
 use crossterm::execute;
 
-pub(crate) const HERDR_ENV_VAR: &str = "HERDR_ENV";
-pub(crate) const HERDR_ENV_VALUE: &str = "1";
-const NESTED_HERDR_MESSAGES: [&str; 6] = [
+pub(crate) const HAKO_ENV_VAR: &str = "HAKO_ENV";
+pub(crate) const HAKO_ENV_VALUE: &str = "1";
+const NESTED_HAKO_MESSAGES: [&str; 6] = [
     "inception detected. we need to go deeper... said no one ever.",
     "recursion is a pathway to many abilities some consider to be... unnatural.",
     "you were so preoccupied with whether you could, you didn't stop to think if you should. — dr. malcolm",
-    "recursive herdring is disabled. somewhere, a call stack breathes a sigh of relief.",
-    "recursive descent denied. there is, in fact, such a thing as too much herdr.",
+    "recursive hakoing is disabled. somewhere, a call stack breathes a sigh of relief.",
+    "recursive descent denied. there is, in fact, such a thing as too much hako.",
     "recursion detected. base case not found. aborting.",
 ];
 
@@ -53,11 +53,11 @@ mod update;
 mod workspace;
 
 fn init_logging() {
-    crate::logging::init_file_logging("herdr.log");
+    crate::logging::init_file_logging("hako.log");
 }
 
-const DEFAULT_CONFIG: &str = r##"# herdr configuration
-# place this file at ~/.config/herdr/config.toml
+const DEFAULT_CONFIG: &str = r##"# hako configuration
+# place this file at ~/.config/hako/config.toml
 
 # show first-run notification setup on startup.
 # missing also shows onboarding; set false after you've chosen.
@@ -166,7 +166,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Maximum sidebar width when expanded (columns)
 # sidebar_max_width = 36
 
-# Capture mouse input for Herdr's mouse UI.
+# Capture mouse input for Hako's mouse UI.
 # Set false to let the terminal handle normal clicks, such as Cmd-clicking URLs.
 # Pane apps like lazygit and btop can still receive mouse when they request it.
 # mouse_capture = true
@@ -192,7 +192,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # background notification popup delivery
 [ui.toast]
 # off = disable pop-up notifications
-# herdr = show top-right in-app toasts
+# hako = show top-right in-app toasts
 # terminal = ask the outer terminal to show a desktop notification
 # system = ask the OS notification service directly
 # delivery = "off"
@@ -211,7 +211,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # droid = "off"
 
 [experimental]
-# Allow launching herdr from inside a herdr-managed pane.
+# Allow launching hako from inside a hako-managed pane.
 # allow_nested = false
 # Experimental local Kitty graphics rendering for attached clients.
 # Requires a Kitty graphics-compatible outer terminal.
@@ -238,11 +238,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 "##;
 
 fn should_block_nested(config: &config::Config) -> bool {
-    should_block_nested_for_env(config, std::env::var(HERDR_ENV_VAR).ok().as_deref())
+    should_block_nested_for_env(config, std::env::var(HAKO_ENV_VAR).ok().as_deref())
 }
 
-fn should_block_nested_for_env(config: &config::Config, herdr_env: Option<&str>) -> bool {
-    !config.experimental.allow_nested && herdr_env == Some(HERDR_ENV_VALUE)
+fn should_block_nested_for_env(config: &config::Config, hako_env: Option<&str>) -> bool {
+    !config.experimental.allow_nested && hako_env == Some(HAKO_ENV_VALUE)
 }
 
 fn random_nested_message() -> &'static str {
@@ -252,13 +252,13 @@ fn random_nested_message() -> &'static str {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.subsec_nanos() as usize)
         .unwrap_or(0);
-    let index = (nanos ^ (std::process::id() as usize)) % NESTED_HERDR_MESSAGES.len();
-    NESTED_HERDR_MESSAGES[index]
+    let index = (nanos ^ (std::process::id() as usize)) % NESTED_HAKO_MESSAGES.len();
+    NESTED_HAKO_MESSAGES[index]
 }
 
 fn exit_if_nested_disabled(config: &config::Config) {
     if should_block_nested(config) {
-        eprintln!("\x1b[1merror:\x1b[0m nested herdr is disabled by default.");
+        eprintln!("\x1b[1merror:\x1b[0m nested hako is disabled by default.");
         eprintln!("see configuration if you want to enable it.");
         eprintln!();
         eprintln!("\x1b[2m\"{}\"\x1b[0m", random_nested_message());
@@ -272,7 +272,7 @@ fn main() -> io::Result<()> {
         Ok(args) => args,
         Err(err) => {
             eprintln!("error: {err}");
-            eprintln!("run 'herdr --help' for usage");
+            eprintln!("run 'hako --help' for usage");
             std::process::exit(2);
         }
     };
@@ -280,7 +280,7 @@ fn main() -> io::Result<()> {
         Ok(parsed) => parsed,
         Err(err) => {
             eprintln!("error: {err}");
-            eprintln!("run 'herdr --help' for usage");
+            eprintln!("run 'hako --help' for usage");
             std::process::exit(2);
         }
     };
@@ -295,7 +295,7 @@ fn main() -> io::Result<()> {
         })
     {
         eprintln!("error: --remote can only be used with the default launch command");
-        eprintln!("run 'herdr --help' for usage");
+        eprintln!("run 'hako --help' for usage");
         std::process::exit(2);
     }
 
@@ -334,67 +334,67 @@ fn main() -> io::Result<()> {
     }
 
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("herdr — terminal workspace manager for ai coding agents");
+        println!("hako — terminal workspace manager for ai coding agents");
         println!();
-        println!("usage: herdr [options]");
-        println!("       herdr --session <name> [options]");
-        println!("       herdr --remote <ssh-target> [--session <name>]");
-        println!("       herdr session attach <name>");
-        println!("       herdr update");
-        println!("       herdr server stop");
-        println!("       herdr server reload-config");
-        println!("       herdr config <subcommand> ...");
-        println!("       herdr workspace <subcommand> ...");
-        println!("       herdr tab <subcommand> ...");
-        println!("       herdr agent <subcommand> ...");
-        println!("       herdr pane <subcommand> ...");
-        println!("       herdr wait <subcommand> ...");
-        println!("       herdr session <subcommand> ...");
-        println!("       herdr integration <subcommand> ...");
+        println!("usage: hako [options]");
+        println!("       hako --session <name> [options]");
+        println!("       hako --remote <ssh-target> [--session <name>]");
+        println!("       hako session attach <name>");
+        println!("       hako update");
+        println!("       hako server stop");
+        println!("       hako server reload-config");
+        println!("       hako config <subcommand> ...");
+        println!("       hako workspace <subcommand> ...");
+        println!("       hako tab <subcommand> ...");
+        println!("       hako agent <subcommand> ...");
+        println!("       hako pane <subcommand> ...");
+        println!("       hako wait <subcommand> ...");
+        println!("       hako session <subcommand> ...");
+        println!("       hako integration <subcommand> ...");
         println!();
         println!("common commands:");
         for (command, description) in [
-            ("herdr", "launch or attach to the persistent session"),
+            ("hako", "launch or attach to the persistent session"),
             (
-                "herdr status [server|client]",
+                "hako status [server|client]",
                 "show local client and running server status",
             ),
-            ("herdr update", "download and install the latest version"),
+            ("hako update", "download and install the latest version"),
             (
-                "herdr server stop",
+                "hako server stop",
                 "stop the running server via the api socket",
             ),
             (
-                "herdr server reload-config",
+                "hako server reload-config",
                 "reload config.toml in the running server",
             ),
             (
-                "herdr config reset-keys",
+                "hako config reset-keys",
                 "Back up config.toml and remove custom keybindings",
             ),
             (
-                "herdr workspace <subcommand>",
+                "hako workspace <subcommand>",
                 "workspace helpers over the socket api",
             ),
-            ("herdr tab <subcommand>", "tab helpers over the socket api"),
+            ("hako tab <subcommand>", "tab helpers over the socket api"),
             (
-                "herdr agent <subcommand>",
+                "hako agent <subcommand>",
                 "Agent/terminal helpers over the socket API",
             ),
             (
-                "herdr pane <subcommand>",
+                "hako pane <subcommand>",
                 "pane control helpers over the socket api",
             ),
             (
-                "herdr wait <subcommand>",
+                "hako wait <subcommand>",
                 "blocking wait helpers over the socket api",
             ),
             (
-                "herdr session <subcommand>",
+                "hako session <subcommand>",
                 "manage named persistent sessions",
             ),
             (
-                "herdr integration <subcommand>",
+                "hako integration <subcommand>",
                 "manage built-in agent integrations",
             ),
         ] {
@@ -402,25 +402,25 @@ fn main() -> io::Result<()> {
         }
         println!();
         println!("advanced commands:");
-        println!("  {:<32} run as headless server", "herdr server");
+        println!("  {:<32} run as headless server", "hako server");
         println!();
         println!("options:");
         println!("  --no-session        run monolithically (no server/client, escape hatch)");
         println!("  --session <name>    use or create a named persistent session");
-        println!("  --remote <target>   attach through ssh to a remote herdr server");
+        println!("  --remote <target>   attach through ssh to a remote hako server");
         println!("  --default-config    print default configuration and exit");
         println!("  --version, -V       print version and exit");
         println!("  --help, -h          show this help");
         println!();
         println!("config: {}", config::config_path().display());
         println!("logs:   {}", logging::help_log_paths_summary());
-        println!("env:    HERDR_CONFIG_PATH overrides config file path");
-        println!("home:   https://herdr.dev");
+        println!("env:    HAKO_CONFIG_PATH overrides config file path");
+        println!("home:   https://hako.masakiro.com");
         return Ok(());
     }
 
     if args.iter().any(|a| a == "--version" || a == "-V") {
-        println!("herdr {}", env!("CARGO_PKG_VERSION"));
+        println!("hako {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
 
@@ -443,7 +443,7 @@ fn main() -> io::Result<()> {
     for arg in &args[1..] {
         if arg.starts_with('-') && !known_flags.contains(&arg.as_str()) {
             eprintln!("unknown option: {arg}");
-            eprintln!("run 'herdr --help' for usage");
+            eprintln!("run 'hako --help' for usage");
             std::process::exit(1);
         }
         if !arg.starts_with('-')
@@ -463,7 +463,7 @@ fn main() -> io::Result<()> {
             .contains(&arg.as_str())
         {
             eprintln!("unknown command: {arg}");
-            eprintln!("run 'herdr --help' for usage");
+            eprintln!("run 'hako --help' for usage");
             std::process::exit(1);
         }
     }
@@ -481,7 +481,7 @@ fn main() -> io::Result<()> {
     // Check if a server is running, spawn one if needed, then attach as client.
     if !no_session {
         if let Err(err) = server::autodetect::auto_detect_launch() {
-            eprintln!("herdr: {err}");
+            eprintln!("hako: {err}");
             std::process::exit(1);
         }
         return Ok(());
@@ -497,7 +497,7 @@ fn main() -> io::Result<()> {
     let _api_server = match api::start_server(api_tx, event_hub.clone()) {
         Ok(server) => server,
         Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
-            eprintln!("error: herdr is already running");
+            eprintln!("error: hako is already running");
             eprintln!("socket: {}", api::socket_path().display());
             std::process::exit(1);
         }
@@ -613,20 +613,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nested_herdr_blocks_when_env_is_set() {
+    fn nested_hako_blocks_when_env_is_set() {
         let config = config::Config::default();
-        assert!(should_block_nested_for_env(&config, Some(HERDR_ENV_VALUE)));
+        assert!(should_block_nested_for_env(&config, Some(HAKO_ENV_VALUE)));
     }
 
     #[test]
-    fn nested_herdr_does_not_block_when_allowed() {
+    fn nested_hako_does_not_block_when_allowed() {
         let config: config::Config =
             toml::from_str("[experimental]\nallow_nested = true\n").unwrap();
-        assert!(!should_block_nested_for_env(&config, Some(HERDR_ENV_VALUE)));
+        assert!(!should_block_nested_for_env(&config, Some(HAKO_ENV_VALUE)));
     }
 
     #[test]
-    fn nested_herdr_does_not_block_without_env() {
+    fn nested_hako_does_not_block_without_env() {
         let config = config::Config::default();
         assert!(!should_block_nested_for_env(&config, None));
     }
@@ -634,13 +634,13 @@ mod tests {
     #[test]
     fn random_nested_message_comes_from_known_set() {
         let message = random_nested_message();
-        assert!(NESTED_HERDR_MESSAGES.contains(&message));
+        assert!(NESTED_HAKO_MESSAGES.contains(&message));
     }
 
     #[test]
-    fn nested_message_strings_no_longer_repeat_herdr_prefix() {
-        assert!(NESTED_HERDR_MESSAGES
+    fn nested_message_strings_no_longer_repeat_hako_prefix() {
+        assert!(NESTED_HAKO_MESSAGES
             .iter()
-            .all(|message| !message.starts_with("herdr:")));
+            .all(|message| !message.starts_with("hako:")));
     }
 }

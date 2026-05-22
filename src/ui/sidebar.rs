@@ -3736,7 +3736,7 @@ mod tests {
         branch: Option<&str>,
     ) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "herdr-sidebar-commands-{parent_name}-{}-{}",
+            "hako-sidebar-commands-{parent_name}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

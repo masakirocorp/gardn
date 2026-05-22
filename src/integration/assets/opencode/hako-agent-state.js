@@ -1,11 +1,11 @@
-// installed by herdr
-// safe to edit. this plugin only activates inside herdr-managed panes.
-// HERDR_INTEGRATION_ID=opencode
-// HERDR_INTEGRATION_VERSION=1
+// installed by hako
+// safe to edit. this plugin only activates inside hako-managed panes.
+// HAKO_INTEGRATION_ID=opencode
+// HAKO_INTEGRATION_VERSION=1
 
 import net from "node:net";
 
-const SOURCE = "herdr:opencode";
+const SOURCE = "hako:opencode";
 let reportSeq = Date.now() * 1000;
 
 function nextReportSeq() {
@@ -14,8 +14,8 @@ function nextReportSeq() {
 }
 
 function reportState(action) {
-  const paneId = process.env.HERDR_PANE_ID;
-  const socketPath = process.env.HERDR_SOCKET_PATH;
+  const paneId = process.env.HAKO_PANE_ID;
+  const socketPath = process.env.HAKO_SOCKET_PATH;
 
   if (!paneId || !socketPath) {
     return Promise.resolve();
@@ -62,11 +62,11 @@ function reportState(action) {
   });
 }
 
-export const HerdrAgentStatePlugin = async () => {
+export const HakoAgentStatePlugin = async () => {
   if (
-    process.env.HERDR_ENV !== "1" ||
-    !process.env.HERDR_SOCKET_PATH ||
-    !process.env.HERDR_PANE_ID
+    process.env.HAKO_ENV !== "1" ||
+    !process.env.HAKO_SOCKET_PATH ||
+    !process.env.HAKO_PANE_ID
   ) {
     return {};
   }

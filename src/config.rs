@@ -27,7 +27,7 @@ pub use self::{
 
 pub(crate) use self::io::upsert_top_level_bool;
 
-pub const CONFIG_PATH_ENV_VAR: &str = "HERDR_CONFIG_PATH";
+pub const CONFIG_PATH_ENV_VAR: &str = "HAKO_CONFIG_PATH";
 pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 10_000_000;
 
 #[cfg(test)]
@@ -44,7 +44,7 @@ impl Config {
         self.validated_keybinds().1
     }
 
-    /// Parsed keybinds for Herdr actions.
+    /// Parsed keybinds for Hako actions.
     pub fn keybinds(&self) -> Keybinds {
         self.validated_keybinds().3
     }

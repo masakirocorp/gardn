@@ -1,8 +1,8 @@
 #!/bin/sh
-# installed by herdr
-# safe to edit. this hook only activates inside herdr-managed panes.
-# HERDR_INTEGRATION_ID=codex
-# HERDR_INTEGRATION_VERSION=3
+# installed by hako
+# safe to edit. this hook only activates inside hako-managed panes.
+# HAKO_INTEGRATION_ID=codex
+# HAKO_INTEGRATION_VERSION=3
 
 set -eu
 
@@ -14,22 +14,22 @@ case "$action" in
   *) exit 0 ;;
 esac
 
-[ "${HERDR_ENV:-}" = "1" ] || exit 0
-[ -n "${HERDR_SOCKET_PATH:-}" ] || exit 0
-[ -n "${HERDR_PANE_ID:-}" ] || exit 0
+[ "${HAKO_ENV:-}" = "1" ] || exit 0
+[ -n "${HAKO_SOCKET_PATH:-}" ] || exit 0
+[ -n "${HAKO_PANE_ID:-}" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
-HERDR_ACTION="$action" python3 - <<'PY'
+HAKO_ACTION="$action" python3 - <<'PY'
 import json
 import os
 import random
 import socket
 import time
 
-source = "herdr:codex"
-action = os.environ.get("HERDR_ACTION", "")
-pane_id = os.environ.get("HERDR_PANE_ID")
-socket_path = os.environ.get("HERDR_SOCKET_PATH")
+source = "hako:codex"
+action = os.environ.get("HAKO_ACTION", "")
+pane_id = os.environ.get("HAKO_PANE_ID")
+socket_path = os.environ.get("HAKO_SOCKET_PATH")
 
 if not pane_id or not socket_path:
     raise SystemExit(0)

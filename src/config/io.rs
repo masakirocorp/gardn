@@ -6,9 +6,9 @@ use super::{model::LoadedConfig, Config, CONFIG_PATH_ENV_VAR};
 
 pub fn app_dir_name() -> &'static str {
     if cfg!(debug_assertions) {
-        "herdr-dev"
+        "hako-dev"
     } else {
-        "herdr"
+        "hako"
     }
 }
 
@@ -413,6 +413,10 @@ fn upsert_section_raw(content: &str, section: &str, key: &str, value: &str) -> S
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn app_dir_uses_hako_namespace() {
+        assert_eq!(app_dir_name(), "hako-dev");
+    }
 
     #[test]
     fn upsert_top_level_bool_replaces_existing_value() {
@@ -432,10 +436,10 @@ mod tests {
     #[test]
     fn remove_section_key_removes_matching_key_from_section() {
         let content =
-            "[ui.toast]\nenabled = true\ndelivery = \"herdr\"\n[ui.sound]\nenabled = true\n";
+            "[ui.toast]\nenabled = true\ndelivery = \"hako\"\n[ui.sound]\nenabled = true\n";
         let updated = remove_section_key(content, "ui.toast", "enabled");
         assert!(!updated.contains("[ui.toast]\nenabled = true"));
-        assert!(updated.contains("delivery = \"herdr\""));
+        assert!(updated.contains("delivery = \"hako\""));
         assert!(updated.contains("[ui.sound]\nenabled = true"));
     }
 

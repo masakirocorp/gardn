@@ -1,7 +1,7 @@
 //! Stdin input reading for the thin client.
 //!
 //! Reads raw bytes from stdin and forwards them to the main event loop.
-//! Unlike the monolithic herdr, the thin client does NOT parse the input
+//! Unlike the monolithic hako, the thin client does NOT parse the input
 //! into key/mouse/paste events — it just sends the raw bytes to the server
 //! as `ClientMessage::Input`. The server handles parsing.
 //!

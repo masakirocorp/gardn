@@ -240,7 +240,7 @@ pub struct CustomCommandKeybind {
     pub action: CustomCommandAction,
 }
 
-/// Parsed keybinds for Herdr actions.
+/// Parsed keybinds for Hako actions.
 #[derive(Debug, Clone)]
 pub struct Keybinds {
     pub help: ActionKeybinds,

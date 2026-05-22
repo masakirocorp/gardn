@@ -1,18 +1,18 @@
-// installed by herdr
-// safe to edit. this integration only activates inside herdr-managed panes.
-// HERDR_INTEGRATION_ID=pi
-// HERDR_INTEGRATION_VERSION=1
+// installed by hako
+// safe to edit. this integration only activates inside hako-managed panes.
+// HAKO_INTEGRATION_ID=pi
+// HAKO_INTEGRATION_VERSION=1
 // @ts-nocheck
 
 import { createConnection } from "node:net";
 
-const HERDR_ENV = process.env.HERDR_ENV;
-const socketPath = process.env.HERDR_SOCKET_PATH;
-const paneId = process.env.HERDR_PANE_ID;
-const source = "herdr:pi";
+const HAKO_ENV = process.env.HAKO_ENV;
+const socketPath = process.env.HAKO_SOCKET_PATH;
+const paneId = process.env.HAKO_PANE_ID;
+const source = "hako:pi";
 
 function enabled() {
-  return HERDR_ENV === "1" && !!socketPath && !!paneId;
+  return HAKO_ENV === "1" && !!socketPath && !!paneId;
 }
 
 function sendRequest(request: unknown): Promise<void> {
@@ -47,8 +47,8 @@ type QueuedState = {
   seq: number;
 };
 
-const idleDebounceMs = parseDurationEnv("HERDR_PI_IDLE_DEBOUNCE_MS", 250);
-const retryGraceMs = parseDurationEnv("HERDR_PI_RETRY_GRACE_MS", 2500);
+const idleDebounceMs = parseDurationEnv("HAKO_PI_IDLE_DEBOUNCE_MS", 250);
+const retryGraceMs = parseDurationEnv("HAKO_PI_RETRY_GRACE_MS", 2500);
 const retryableErrorPattern =
   /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i;
 let reportSeq = Date.now() * 1000;
@@ -236,7 +236,7 @@ export default function (pi) {
     retryTimer.unref?.();
   }
 
-  pi.events.on("herdr:blocked", (data) => {
+  pi.events.on("hako:blocked", (data) => {
     if (!data?.active) {
       blockedCount = Math.max(0, blockedCount - 1);
       if (blockedCount === 0) {

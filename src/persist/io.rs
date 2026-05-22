@@ -95,7 +95,7 @@ pub fn load() -> Option<SessionSnapshot> {
                     warn!(
                         file_version = version,
                         supported = SNAPSHOT_VERSION,
-                        "session file is from a newer herdr version, ignoring"
+                        "session file is from a newer hako version, ignoring"
                     );
                     return None;
                 }
@@ -113,7 +113,7 @@ mod tests {
 
     fn temp_session_path(name: &str) -> PathBuf {
         let unique = format!(
-            "herdr-session-tests-{}-{}-{}",
+            "hako-session-tests-{}-{}-{}",
             name,
             std::process::id(),
             std::time::SystemTime::now()

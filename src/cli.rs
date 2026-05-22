@@ -74,14 +74,14 @@ fn run_status_command(args: &[String]) -> std::io::Result<i32> {
         None => print_full_status(),
         Some("server") => {
             if args.len() > 1 {
-                eprintln!("usage: herdr status server");
+                eprintln!("usage: hako status server");
                 return Ok(2);
             }
             print_server_status()
         }
         Some("client") => {
             if args.len() > 1 {
-                eprintln!("usage: herdr status client");
+                eprintln!("usage: hako status client");
                 return Ok(2);
             }
             print_client_status();
@@ -119,7 +119,7 @@ fn run_config_command(args: &[String]) -> std::io::Result<i32> {
 
 fn config_reset_keys(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: herdr config reset-keys");
+        eprintln!("usage: hako config reset-keys");
         return Ok(2);
     }
 
@@ -184,8 +184,8 @@ fn config_reset_keys(args: &[String]) -> std::io::Result<i32> {
         "Removed [keys], [keys.indexed], and [[keys.command]] from {}.",
         path.display()
     );
-    println!("Built-in v2 keybindings will apply after Herdr restarts or reloads config.");
-    println!("If a Herdr server is running, run `herdr server reload-config` to apply this now.");
+    println!("Built-in v2 keybindings will apply after Hako restarts or reloads config.");
+    println!("If a Hako server is running, run `hako server reload-config` to apply this now.");
     println!(
         "To restore: cp {} {}",
         backup_path.display(),
@@ -542,7 +542,7 @@ fn run_session_command(args: &[String]) -> std::io::Result<i32> {
 
 fn server_stop(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: herdr server stop");
+        eprintln!("usage: hako server stop");
         return Ok(2);
     }
 
@@ -551,7 +551,7 @@ fn server_stop(args: &[String]) -> std::io::Result<i32> {
 
 fn server_reload_config(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: herdr server reload-config");
+        eprintln!("usage: hako server reload-config");
         return Ok(2);
     }
 
@@ -566,15 +566,15 @@ fn session_attach_help(args: &[String]) -> std::io::Result<i32> {
         args.first().map(String::as_str),
         Some("help" | "--help" | "-h")
     ) {
-        eprintln!("usage: herdr session attach <name>");
+        eprintln!("usage: hako session attach <name>");
         return Ok(0);
     }
-    eprintln!("usage: herdr session attach <name>");
+    eprintln!("usage: hako session attach <name>");
     Ok(2)
 }
 
 fn session_list(args: &[String]) -> std::io::Result<i32> {
-    let json = match parse_session_json_only(args, "usage: herdr session list [--json]") {
+    let json = match parse_session_json_only(args, "usage: hako session list [--json]") {
         Ok(json) => json,
         Err(code) => return Ok(code),
     };
@@ -592,7 +592,7 @@ fn session_list(args: &[String]) -> std::io::Result<i32> {
 
 fn session_stop(args: &[String]) -> std::io::Result<i32> {
     let (name, json) =
-        match parse_session_name_and_json(args, "usage: herdr session stop <name> [--json]") {
+        match parse_session_name_and_json(args, "usage: hako session stop <name> [--json]") {
             Ok(parsed) => parsed,
             Err(code) => return Ok(code),
         };
@@ -625,7 +625,7 @@ fn session_stop(args: &[String]) -> std::io::Result<i32> {
 
 fn session_delete(args: &[String]) -> std::io::Result<i32> {
     let (name, json) =
-        match parse_session_name_and_json(args, "usage: herdr session delete <name> [--json]") {
+        match parse_session_name_and_json(args, "usage: hako session delete <name> [--json]") {
             Ok(parsed) => parsed,
             Err(code) => return Ok(code),
         };
@@ -651,7 +651,7 @@ fn session_delete(args: &[String]) -> std::io::Result<i32> {
 
 fn workspace_list(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: herdr workspace list");
+        eprintln!("usage: hako workspace list");
         return Ok(2);
     }
 
@@ -663,7 +663,7 @@ fn workspace_list(args: &[String]) -> std::io::Result<i32> {
 
 fn group_list(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: herdr group list");
+        eprintln!("usage: hako group list");
         return Ok(2);
     }
 
@@ -675,7 +675,7 @@ fn group_list(args: &[String]) -> std::io::Result<i32> {
 
 fn group_create(args: &[String]) -> std::io::Result<i32> {
     if args.is_empty() {
-        eprintln!("usage: herdr group create <name>");
+        eprintln!("usage: hako group create <name>");
         return Ok(2);
     }
 
@@ -689,11 +689,11 @@ fn group_create(args: &[String]) -> std::io::Result<i32> {
 
 fn group_focus(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_group_id) = args.first() else {
-        eprintln!("usage: herdr group focus <group_id>");
+        eprintln!("usage: hako group focus <group_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr group focus <group_id>");
+        eprintln!("usage: hako group focus <group_id>");
         return Ok(2);
     }
 
@@ -707,7 +707,7 @@ fn group_focus(args: &[String]) -> std::io::Result<i32> {
 
 fn group_rename(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
-        eprintln!("usage: herdr group rename <group_id> <name>");
+        eprintln!("usage: hako group rename <group_id> <name>");
         return Ok(2);
     }
 
@@ -722,11 +722,11 @@ fn group_rename(args: &[String]) -> std::io::Result<i32> {
 
 fn group_delete(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_group_id) = args.first() else {
-        eprintln!("usage: herdr group delete <group_id>");
+        eprintln!("usage: hako group delete <group_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr group delete <group_id>");
+        eprintln!("usage: hako group delete <group_id>");
         return Ok(2);
     }
 
@@ -785,11 +785,11 @@ fn workspace_create(args: &[String]) -> std::io::Result<i32> {
 
 fn workspace_get(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_workspace_id) = args.first() else {
-        eprintln!("usage: herdr workspace get <workspace_id>");
+        eprintln!("usage: hako workspace get <workspace_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr workspace get <workspace_id>");
+        eprintln!("usage: hako workspace get <workspace_id>");
         return Ok(2);
     }
 
@@ -803,11 +803,11 @@ fn workspace_get(args: &[String]) -> std::io::Result<i32> {
 
 fn workspace_focus(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_workspace_id) = args.first() else {
-        eprintln!("usage: herdr workspace focus <workspace_id>");
+        eprintln!("usage: hako workspace focus <workspace_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr workspace focus <workspace_id>");
+        eprintln!("usage: hako workspace focus <workspace_id>");
         return Ok(2);
     }
 
@@ -821,7 +821,7 @@ fn workspace_focus(args: &[String]) -> std::io::Result<i32> {
 
 fn workspace_rename(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
-        eprintln!("usage: herdr workspace rename <workspace_id> <label>");
+        eprintln!("usage: hako workspace rename <workspace_id> <label>");
         return Ok(2);
     }
 
@@ -836,7 +836,7 @@ fn workspace_rename(args: &[String]) -> std::io::Result<i32> {
 
 fn workspace_move_to_group(args: &[String]) -> std::io::Result<i32> {
     if args.len() != 2 {
-        eprintln!("usage: herdr workspace move-to-group <workspace_id> <group_id>");
+        eprintln!("usage: hako workspace move-to-group <workspace_id> <group_id>");
         return Ok(2);
     }
 
@@ -851,11 +851,11 @@ fn workspace_move_to_group(args: &[String]) -> std::io::Result<i32> {
 
 fn workspace_close(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_workspace_id) = args.first() else {
-        eprintln!("usage: herdr workspace close <workspace_id>");
+        eprintln!("usage: hako workspace close <workspace_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr workspace close <workspace_id>");
+        eprintln!("usage: hako workspace close <workspace_id>");
         return Ok(2);
     }
 
@@ -955,11 +955,11 @@ fn tab_create(args: &[String]) -> std::io::Result<i32> {
 
 fn tab_get(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_tab_id) = args.first() else {
-        eprintln!("usage: herdr tab get <tab_id>");
+        eprintln!("usage: hako tab get <tab_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr tab get <tab_id>");
+        eprintln!("usage: hako tab get <tab_id>");
         return Ok(2);
     }
 
@@ -973,11 +973,11 @@ fn tab_get(args: &[String]) -> std::io::Result<i32> {
 
 fn tab_focus(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_tab_id) = args.first() else {
-        eprintln!("usage: herdr tab focus <tab_id>");
+        eprintln!("usage: hako tab focus <tab_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr tab focus <tab_id>");
+        eprintln!("usage: hako tab focus <tab_id>");
         return Ok(2);
     }
 
@@ -991,7 +991,7 @@ fn tab_focus(args: &[String]) -> std::io::Result<i32> {
 
 fn tab_rename(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
-        eprintln!("usage: herdr tab rename <tab_id> <label>");
+        eprintln!("usage: hako tab rename <tab_id> <label>");
         return Ok(2);
     }
 
@@ -1006,11 +1006,11 @@ fn tab_rename(args: &[String]) -> std::io::Result<i32> {
 
 fn tab_close(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_tab_id) = args.first() else {
-        eprintln!("usage: herdr tab close <tab_id>");
+        eprintln!("usage: hako tab close <tab_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr tab close <tab_id>");
+        eprintln!("usage: hako tab close <tab_id>");
         return Ok(2);
     }
 
@@ -1024,12 +1024,12 @@ fn tab_close(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_start(args: &[String]) -> std::io::Result<i32> {
     let Some(name) = args.first() else {
-        eprintln!("usage: herdr agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
+        eprintln!("usage: hako agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
         return Ok(2);
     };
 
     let Some(separator) = args.iter().position(|arg| arg == "--") else {
-        eprintln!("usage: herdr agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
+        eprintln!("usage: hako agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
         return Ok(2);
     };
     if separator == args.len() - 1 {
@@ -1109,7 +1109,7 @@ fn agent_start(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_list(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: herdr agent list");
+        eprintln!("usage: hako agent list");
         return Ok(2);
     }
 
@@ -1121,11 +1121,11 @@ fn agent_list(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_get(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: herdr agent get <target>");
+        eprintln!("usage: hako agent get <target>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr agent get <target>");
+        eprintln!("usage: hako agent get <target>");
         return Ok(2);
     }
 
@@ -1139,11 +1139,11 @@ fn agent_get(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_focus(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: herdr agent focus <target>");
+        eprintln!("usage: hako agent focus <target>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr agent focus <target>");
+        eprintln!("usage: hako agent focus <target>");
         return Ok(2);
     }
 
@@ -1157,7 +1157,7 @@ fn agent_focus(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_attach(args: &[String]) -> std::io::Result<i32> {
     let (target, takeover) =
-        match parse_attach_target(args, "usage: herdr agent attach <target> [--takeover]") {
+        match parse_attach_target(args, "usage: hako agent attach <target> [--takeover]") {
             Ok(parsed) => parsed,
             Err(code) => return Ok(code),
         };
@@ -1177,7 +1177,7 @@ fn agent_attach(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_wait(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: herdr agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
+        eprintln!("usage: hako agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
         return Ok(2);
     };
 
@@ -1204,7 +1204,7 @@ fn agent_wait(args: &[String]) -> std::io::Result<i32> {
                 index += 2;
             }
             "help" | "--help" | "-h" => {
-                eprintln!("usage: herdr agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
+                eprintln!("usage: hako agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
                 return Ok(0);
             }
             other => {
@@ -1279,7 +1279,7 @@ fn resolve_agent_target(target: &str, request_id: &str) -> std::io::Result<serde
 fn terminal_attach(args: &[String]) -> std::io::Result<i32> {
     let (terminal_id, takeover) = match parse_attach_target(
         args,
-        "usage: herdr terminal attach <terminal_id> [--takeover]",
+        "usage: hako terminal attach <terminal_id> [--takeover]",
     ) {
         Ok(parsed) => parsed,
         Err(code) => return Ok(code),
@@ -1312,11 +1312,11 @@ fn parse_attach_target(args: &[String], usage: &str) -> Result<(String, bool), i
 
 fn agent_rename(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: herdr agent rename <target> <name>|--clear");
+        eprintln!("usage: hako agent rename <target> <name>|--clear");
         return Ok(2);
     };
     if args.len() < 2 {
-        eprintln!("usage: herdr agent rename <target> <name>|--clear");
+        eprintln!("usage: hako agent rename <target> <name>|--clear");
         return Ok(2);
     }
     let name = if args.len() == 2 && args[1] == "--clear" {
@@ -1336,7 +1336,7 @@ fn agent_rename(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_send(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
-        eprintln!("usage: herdr agent send <target> <text>");
+        eprintln!("usage: hako agent send <target> <text>");
         return Ok(2);
     }
 
@@ -1351,7 +1351,7 @@ fn agent_send(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_read(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: herdr agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
+        eprintln!("usage: hako agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
         return Ok(2);
     };
 
@@ -1441,11 +1441,11 @@ fn pane_list(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_get(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: herdr pane get <pane_id>");
+        eprintln!("usage: hako pane get <pane_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr pane get <pane_id>");
+        eprintln!("usage: hako pane get <pane_id>");
         return Ok(2);
     }
 
@@ -1459,11 +1459,11 @@ fn pane_get(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_rename(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: herdr pane rename <pane_id> <label>|--clear");
+        eprintln!("usage: hako pane rename <pane_id> <label>|--clear");
         return Ok(2);
     };
     if args.len() < 2 {
-        eprintln!("usage: herdr pane rename <pane_id> <label>|--clear");
+        eprintln!("usage: hako pane rename <pane_id> <label>|--clear");
         return Ok(2);
     }
     let label = if args.len() == 2 && args[1] == "--clear" {
@@ -1483,7 +1483,7 @@ fn pane_rename(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_read(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: herdr pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
+        eprintln!("usage: hako pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
         return Ok(2);
     };
 
@@ -1561,7 +1561,7 @@ fn pane_read(args: &[String]) -> std::io::Result<i32> {
 fn pane_split(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
         eprintln!(
-            "usage: herdr pane split <pane_id> --direction right|down [--cwd PATH] [--focus] [--no-focus]"
+            "usage: hako pane split <pane_id> --direction right|down [--cwd PATH] [--focus] [--no-focus]"
         );
         return Ok(2);
     };
@@ -1624,11 +1624,11 @@ fn pane_split(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_close(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: herdr pane close <pane_id>");
+        eprintln!("usage: hako pane close <pane_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr pane close <pane_id>");
+        eprintln!("usage: hako pane close <pane_id>");
         return Ok(2);
     }
 
@@ -1642,7 +1642,7 @@ fn pane_close(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_send_text(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
-        eprintln!("usage: herdr pane send-text <pane_id> <text>");
+        eprintln!("usage: hako pane send-text <pane_id> <text>");
         return Ok(2);
     }
 
@@ -1653,7 +1653,7 @@ fn pane_send_text(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_send_keys(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
-        eprintln!("usage: herdr pane send-keys <pane_id> <key> [key ...]");
+        eprintln!("usage: hako pane send-keys <pane_id> <key> [key ...]");
         return Ok(2);
     }
 
@@ -1664,7 +1664,7 @@ fn pane_send_keys(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_run(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
-        eprintln!("usage: herdr pane run <pane_id> <command>");
+        eprintln!("usage: hako pane run <pane_id> <command>");
         return Ok(2);
     }
 
@@ -1679,7 +1679,7 @@ fn pane_run(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: herdr pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N]");
+        eprintln!("usage: hako pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N]");
         return Ok(2);
     };
 
@@ -1778,7 +1778,7 @@ fn integration_status(args: &[String]) -> std::io::Result<i32> {
         [] => false,
         [flag] if flag == "--outdated-only" => true,
         _ => {
-            eprintln!("usage: herdr integration status [--outdated-only]");
+            eprintln!("usage: hako integration status [--outdated-only]");
             return Ok(2);
         }
     };
@@ -1854,11 +1854,11 @@ fn parse_integration_target(
     action: &str,
 ) -> std::io::Result<Option<IntegrationTarget>> {
     let Some(target) = args.first().map(|arg| arg.as_str()) else {
-        eprintln!("usage: herdr integration {action} <pi|omp|claude|codex|opencode|hermes>");
+        eprintln!("usage: hako integration {action} <pi|omp|claude|codex|opencode|hermes>");
         return Ok(None);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr integration {action} <pi|omp|claude|codex|opencode|hermes>");
+        eprintln!("usage: hako integration {action} <pi|omp|claude|codex|opencode|hermes>");
         return Ok(None);
     }
 
@@ -1881,7 +1881,7 @@ fn parse_integration_target(
 
 fn wait_output(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: herdr wait output <pane_id> --match <text> [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--regex]");
+        eprintln!("usage: hako wait output <pane_id> --match <text> [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--regex]");
         return Ok(2);
     };
 
@@ -1977,7 +1977,7 @@ fn wait_output(args: &[String]) -> std::io::Result<i32> {
 
 fn wait_agent_status(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: herdr wait agent-status <pane_id> --status <idle|working|blocked|done|unknown> [--timeout MS]");
+        eprintln!("usage: hako wait agent-status <pane_id> --status <idle|working|blocked|done|unknown> [--timeout MS]");
         return Ok(2);
     };
 
@@ -2290,68 +2290,68 @@ fn print_session_error(code: &str, message: &str) {
 }
 
 fn print_server_help() {
-    eprintln!("herdr server commands:");
-    eprintln!("  herdr server                run as headless server");
-    eprintln!("  herdr server stop           stop the running server via the API socket");
-    eprintln!("  herdr server reload-config  reload config.toml in the running server");
+    eprintln!("hako server commands:");
+    eprintln!("  hako server                run as headless server");
+    eprintln!("  hako server stop           stop the running server via the API socket");
+    eprintln!("  hako server reload-config  reload config.toml in the running server");
 }
 
 fn print_status_help() {
-    eprintln!("herdr status commands:");
-    eprintln!("  herdr status         show local client and running server status");
-    eprintln!("  herdr status server  show running server status");
-    eprintln!("  herdr status client  show local client binary status");
+    eprintln!("hako status commands:");
+    eprintln!("  hako status         show local client and running server status");
+    eprintln!("  hako status server  show running server status");
+    eprintln!("  hako status client  show local client binary status");
 }
 
 fn print_config_help() {
-    eprintln!("herdr config commands:");
-    eprintln!("  herdr config reset-keys  back up config.toml and remove custom keybindings");
+    eprintln!("hako config commands:");
+    eprintln!("  hako config reset-keys  back up config.toml and remove custom keybindings");
 }
 
 fn print_workspace_help() {
-    eprintln!("herdr workspace commands:");
-    eprintln!("  herdr workspace list");
-    eprintln!("  herdr workspace create [--cwd PATH] [--label TEXT] [--focus] [--no-focus]");
-    eprintln!("  herdr workspace get <workspace_id>");
-    eprintln!("  herdr workspace focus <workspace_id>");
-    eprintln!("  herdr workspace rename <workspace_id> <label>");
-    eprintln!("  herdr workspace move-to-group <workspace_id> <group_id>");
-    eprintln!("  herdr workspace close <workspace_id>");
+    eprintln!("hako workspace commands:");
+    eprintln!("  hako workspace list");
+    eprintln!("  hako workspace create [--cwd PATH] [--label TEXT] [--focus] [--no-focus]");
+    eprintln!("  hako workspace get <workspace_id>");
+    eprintln!("  hako workspace focus <workspace_id>");
+    eprintln!("  hako workspace rename <workspace_id> <label>");
+    eprintln!("  hako workspace move-to-group <workspace_id> <group_id>");
+    eprintln!("  hako workspace close <workspace_id>");
 }
 
 fn print_group_help() {
-    eprintln!("herdr group commands:");
-    eprintln!("  herdr group list");
-    eprintln!("  herdr group create <name>");
-    eprintln!("  herdr group focus <group_id>");
-    eprintln!("  herdr group switch <group_id>");
-    eprintln!("  herdr group rename <group_id> <name>");
-    eprintln!("  herdr group delete <group_id>");
+    eprintln!("hako group commands:");
+    eprintln!("  hako group list");
+    eprintln!("  hako group create <name>");
+    eprintln!("  hako group focus <group_id>");
+    eprintln!("  hako group switch <group_id>");
+    eprintln!("  hako group rename <group_id> <name>");
+    eprintln!("  hako group delete <group_id>");
 }
 
 fn print_tab_help() {
-    eprintln!("herdr tab commands:");
-    eprintln!("  herdr tab list [--workspace <workspace_id>]");
+    eprintln!("hako tab commands:");
+    eprintln!("  hako tab list [--workspace <workspace_id>]");
     eprintln!(
-        "  herdr tab create [--workspace <workspace_id>] [--cwd PATH] [--label TEXT] [--focus] [--no-focus]"
+        "  hako tab create [--workspace <workspace_id>] [--cwd PATH] [--label TEXT] [--focus] [--no-focus]"
     );
-    eprintln!("  herdr tab get <tab_id>");
-    eprintln!("  herdr tab focus <tab_id>");
-    eprintln!("  herdr tab rename <tab_id> <label>");
-    eprintln!("  herdr tab close <tab_id>");
+    eprintln!("  hako tab get <tab_id>");
+    eprintln!("  hako tab focus <tab_id>");
+    eprintln!("  hako tab rename <tab_id> <label>");
+    eprintln!("  hako tab close <tab_id>");
 }
 
 fn print_agent_help() {
-    eprintln!("herdr agent commands:");
-    eprintln!("  herdr agent list");
-    eprintln!("  herdr agent get <target>");
-    eprintln!("  herdr agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
-    eprintln!("  herdr agent send <target> <text>");
-    eprintln!("  herdr agent rename <target> <name>|--clear");
-    eprintln!("  herdr agent focus <target>");
-    eprintln!("  herdr agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
-    eprintln!("  herdr agent attach <target> [--takeover]");
-    eprintln!("  herdr agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
+    eprintln!("hako agent commands:");
+    eprintln!("  hako agent list");
+    eprintln!("  hako agent get <target>");
+    eprintln!("  hako agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
+    eprintln!("  hako agent send <target> <text>");
+    eprintln!("  hako agent rename <target> <name>|--clear");
+    eprintln!("  hako agent focus <target>");
+    eprintln!("  hako agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
+    eprintln!("  hako agent attach <target> [--takeover]");
+    eprintln!("  hako agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
     eprintln!("  targets accept terminal ids, unique agent names, detected/reported agent labels, and legacy pane ids");
     eprintln!(
         "  agent send writes literal text; use pane run when you want command text plus Enter"
@@ -2359,58 +2359,58 @@ fn print_agent_help() {
 }
 
 fn print_terminal_help() {
-    eprintln!("herdr terminal commands:");
-    eprintln!("  herdr terminal attach <terminal_id> [--takeover]");
+    eprintln!("hako terminal commands:");
+    eprintln!("  hako terminal attach <terminal_id> [--takeover]");
     eprintln!("  detach from direct attach with ctrl+b q; send literal ctrl+b with ctrl+b ctrl+b");
 }
 
 fn print_pane_help() {
-    eprintln!("herdr pane commands:");
-    eprintln!("  herdr pane list [--workspace <workspace_id>]");
-    eprintln!("  herdr pane get <pane_id>");
-    eprintln!("  herdr pane rename <pane_id> <label>|--clear");
-    eprintln!("  herdr pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
+    eprintln!("hako pane commands:");
+    eprintln!("  hako pane list [--workspace <workspace_id>]");
+    eprintln!("  hako pane get <pane_id>");
+    eprintln!("  hako pane rename <pane_id> <label>|--clear");
+    eprintln!("  hako pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
     eprintln!(
-        "  herdr pane split <pane_id> --direction right|down [--cwd PATH] [--focus] [--no-focus]"
+        "  hako pane split <pane_id> --direction right|down [--cwd PATH] [--focus] [--no-focus]"
     );
-    eprintln!("  herdr pane close <pane_id>");
-    eprintln!("  herdr pane send-text <pane_id> <text>");
-    eprintln!("  herdr pane send-keys <pane_id> <key> [key ...]");
-    eprintln!("  herdr pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N]");
-    eprintln!("  herdr pane run <pane_id> <command>");
+    eprintln!("  hako pane close <pane_id>");
+    eprintln!("  hako pane send-text <pane_id> <text>");
+    eprintln!("  hako pane send-keys <pane_id> <key> [key ...]");
+    eprintln!("  hako pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N]");
+    eprintln!("  hako pane run <pane_id> <command>");
 }
 
 fn print_wait_help() {
-    eprintln!("herdr wait commands:");
-    eprintln!("  herdr wait output <pane_id> --match <text> [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--regex] [--raw]");
+    eprintln!("hako wait commands:");
+    eprintln!("  hako wait output <pane_id> --match <text> [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--regex] [--raw]");
     eprintln!(
-        "  herdr wait agent-status <pane_id> --status <idle|working|blocked|done|unknown> [--timeout MS]"
+        "  hako wait agent-status <pane_id> --status <idle|working|blocked|done|unknown> [--timeout MS]"
     );
 }
 
 fn print_integration_help() {
-    eprintln!("herdr integration commands:");
-    eprintln!("  herdr integration install pi");
-    eprintln!("  herdr integration install omp");
-    eprintln!("  herdr integration install claude");
-    eprintln!("  herdr integration install codex");
-    eprintln!("  herdr integration install opencode");
-    eprintln!("  herdr integration install hermes");
-    eprintln!("  herdr integration uninstall pi");
-    eprintln!("  herdr integration uninstall omp");
-    eprintln!("  herdr integration uninstall claude");
-    eprintln!("  herdr integration uninstall codex");
-    eprintln!("  herdr integration uninstall opencode");
-    eprintln!("  herdr integration uninstall hermes");
-    eprintln!("  herdr integration status [--outdated-only]");
+    eprintln!("hako integration commands:");
+    eprintln!("  hako integration install pi");
+    eprintln!("  hako integration install omp");
+    eprintln!("  hako integration install claude");
+    eprintln!("  hako integration install codex");
+    eprintln!("  hako integration install opencode");
+    eprintln!("  hako integration install hermes");
+    eprintln!("  hako integration uninstall pi");
+    eprintln!("  hako integration uninstall omp");
+    eprintln!("  hako integration uninstall claude");
+    eprintln!("  hako integration uninstall codex");
+    eprintln!("  hako integration uninstall opencode");
+    eprintln!("  hako integration uninstall hermes");
+    eprintln!("  hako integration status [--outdated-only]");
 }
 
 fn print_session_help() {
-    eprintln!("herdr session commands:");
-    eprintln!("  herdr session list [--json]");
-    eprintln!("  herdr session attach <name>");
-    eprintln!("  herdr session stop <name> [--json]");
-    eprintln!("  herdr session delete <name> [--json]");
+    eprintln!("hako session commands:");
+    eprintln!("  hako session list [--json]");
+    eprintln!("  hako session attach <name>");
+    eprintln!("  hako session stop <name> [--json]");
+    eprintln!("  hako session delete <name> [--json]");
     eprintln!("  use 'default' as <name> to target the default session for stop");
 }
 

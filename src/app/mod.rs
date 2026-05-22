@@ -1120,7 +1120,7 @@ impl App {
     ///
     /// The input bytes are parsed into `RawInputEvent`s and then processed.
     /// In terminal mode, keys are routed through the same semantic
-    /// key-handling path as monolithic herdr so they are re-encoded for the
+    /// key-handling path as monolithic hako so they are re-encoded for the
     /// focused pane's negotiated keyboard protocol instead of passing host
     /// terminal escape sequences through unchanged.
     #[cfg(test)]
@@ -1336,7 +1336,7 @@ mod tests {
 
     fn temp_config_path(name: &str) -> std::path::PathBuf {
         let unique = format!(
-            "herdr-{name}-{}-{}",
+            "hako-{name}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1529,7 +1529,7 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
-            "[terminal]\ndefault_shell = \"nu\"\n[keys]\nnew_workspace = \"prefix+g\"\nprefix = \"ctrl+a\"\n[ui]\nagent_panel_scope = \"current\"\n[ui.toast]\ndelivery = \"herdr\"\n",
+            "[terminal]\ndefault_shell = \"nu\"\n[keys]\nnew_workspace = \"prefix+g\"\nprefix = \"ctrl+a\"\n[ui]\nagent_panel_scope = \"current\"\n[ui.toast]\ndelivery = \"hako\"\n",
         )
         .unwrap();
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
@@ -1547,7 +1547,7 @@ mod tests {
             .matches_prefix(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::empty())));
         assert_eq!(
             app.state.toast_config.delivery,
-            crate::config::ToastDelivery::Herdr
+            crate::config::ToastDelivery::Hako
         );
         assert_eq!(
             app.state.agent_panel_scope,
@@ -1761,7 +1761,7 @@ mod tests {
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
-        app.state.toast_config.delivery = crate::config::ToastDelivery::Herdr;
+        app.state.toast_config.delivery = crate::config::ToastDelivery::Hako;
         let report = app.reload_config();
 
         assert_eq!(report.status, crate::config::ConfigReloadStatus::Partial);
@@ -1772,7 +1772,7 @@ mod tests {
             .matches_prefix(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::empty())));
         assert_eq!(
             app.state.toast_config.delivery,
-            crate::config::ToastDelivery::Herdr
+            crate::config::ToastDelivery::Hako
         );
         assert!(app
             .state
@@ -2151,8 +2151,8 @@ mod tests {
     #[test]
     fn workspace_creation_in_navigate_mode_uses_selected_workspace_seed_cwd() {
         let mut app = test_app();
-        let mut first = Workspace::test_new("herdr");
-        first.identity_cwd = std::path::PathBuf::from("/tmp/herdr");
+        let mut first = Workspace::test_new("hako");
+        first.identity_cwd = std::path::PathBuf::from("/tmp/hako");
         let mut second = Workspace::test_new("pion");
         second.identity_cwd = std::path::PathBuf::from("/tmp/pion");
 
@@ -2227,27 +2227,27 @@ mod tests {
     #[test]
     fn workspace_creation_names_duplicate_cwd_labels_with_suffix() {
         let mut app = test_app();
-        app.state.workspaces = vec![Workspace::test_new("herdr"), Workspace::test_new("herdr 2")];
+        app.state.workspaces = vec![Workspace::test_new("hako"), Workspace::test_new("hako 2")];
 
         let name = app.collision_free_workspace_name(
-            std::path::Path::new("/tmp/herdr"),
+            std::path::Path::new("/tmp/hako"),
             app.state.active_group_id(),
         );
 
-        assert_eq!(name.as_deref(), Some("herdr 3"));
+        assert_eq!(name.as_deref(), Some("hako 3"));
     }
 
     #[test]
     fn workspace_creation_suffixes_only_within_active_group() {
         let mut app = test_app();
         let work_group = app.state.create_group("Work".to_string());
-        let mut existing = Workspace::test_new("herdr");
+        let mut existing = Workspace::test_new("hako");
         existing.group_id = app.state.groups[work_group].id.clone();
         app.state.workspaces = vec![existing];
         app.state.active_group = 0;
 
         let name = app.collision_free_workspace_name(
-            std::path::Path::new("/tmp/herdr"),
+            std::path::Path::new("/tmp/hako"),
             app.state.active_group_id(),
         );
 
@@ -2778,7 +2778,7 @@ mod tests {
             app.event_tx
                 .try_send(AppEvent::UpdateReady {
                     version: format!("9.9.{i}"),
-                    install_command: "herdr update".into(),
+                    install_command: "hako update".into(),
                 })
                 .unwrap();
         }
