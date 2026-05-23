@@ -13,9 +13,10 @@ pub(crate) const HAKO_PANE_ID_ENV_VAR: &str = "HAKO_PANE_ID";
 const PI_EXTENSION_INSTALL_NAME: &str = "hako-agent-state.ts";
 const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/hako-agent-state.ts");
 const PI_INTEGRATION_VERSION: u32 = 1;
+const OMP_EXTENSION_INSTALL_NAME: &str = "hako-omp-agent-state.ts";
+const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/hako-agent-state.ts");
+const OMP_INTEGRATION_VERSION: u32 = 1;
 const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
-const OMP_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
-const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
 const CLAUDE_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const CLAUDE_HOOK_ASSET: &str = include_str!("assets/claude/hako-agent-state.sh");
 const CLAUDE_INTEGRATION_VERSION: u32 = 3;
@@ -106,6 +107,17 @@ pub(crate) struct PiUninstallResult {
     pub extension_path: PathBuf,
     pub removed_extension: bool,
 }
+#[derive(Debug)]
+pub(crate) struct OmpInstallPaths {
+    pub extension_path: PathBuf,
+    pub removed_legacy_pi_extension: bool,
+}
+
+#[derive(Debug)]
+pub(crate) struct OmpUninstallResult {
+    pub extension_path: PathBuf,
+    pub removed_extension: bool,
+}
 
 #[derive(Debug)]
 pub(crate) struct ClaudeUninstallResult {
@@ -152,8 +164,22 @@ pub(crate) fn install_target(
             vec![format!("installed pi integration to {}", path.display())]
         }
         crate::api::schema::IntegrationTarget::Omp => {
-            let path = install_omp()?;
-            vec![format!("installed omp integration to {}", path.display())]
+            let installed = install_omp()?;
+            let mut messages = Vec::new();
+            if installed.removed_legacy_pi_extension {
+                messages.push(format!(
+                    "removed legacy pi integration from omp extension directory at {}",
+                    installed
+                        .extension_path
+                        .with_file_name(PI_EXTENSION_INSTALL_NAME)
+                        .display()
+                ));
+            }
+            messages.push(format!(
+                "installed omp integration to {}",
+                installed.extension_path.display()
+            ));
+            messages
         }
         crate::api::schema::IntegrationTarget::Claude => {
             let installed = install_claude()?;
@@ -448,8 +474,8 @@ fn integration_specs() -> [(
         ),
         (
             crate::api::schema::IntegrationTarget::Omp,
-            omp_extension_dir().map(|dir| dir.join(PI_EXTENSION_INSTALL_NAME)),
-            PI_INTEGRATION_VERSION,
+            omp_extension_dir().map(|dir| dir.join(OMP_EXTENSION_INSTALL_NAME)),
+            OMP_INTEGRATION_VERSION,
         ),
         (
             crate::api::schema::IntegrationTarget::Claude,
@@ -573,7 +599,7 @@ pub(crate) fn install_pi() -> io::Result<PathBuf> {
     Ok(path)
 }
 
-pub(crate) fn install_omp() -> io::Result<PathBuf> {
+pub(crate) fn install_omp() -> io::Result<OmpInstallPaths> {
     let dir = omp_extension_dir()?;
     if !dir.is_dir() {
         return Err(io::Error::other(format!(
@@ -582,21 +608,28 @@ pub(crate) fn install_omp() -> io::Result<PathBuf> {
         )));
     }
 
-    let path = dir.join(PI_EXTENSION_INSTALL_NAME);
-    fs::write(&path, omp_extension_asset())?;
-    Ok(path)
+    let removed_legacy_pi_extension = remove_legacy_pi_extension_from_omp_dir(&dir)?;
+    let extension_path = dir.join(OMP_EXTENSION_INSTALL_NAME);
+    fs::write(&extension_path, OMP_EXTENSION_ASSET)?;
+    Ok(OmpInstallPaths {
+        extension_path,
+        removed_legacy_pi_extension,
+    })
 }
 
-fn omp_extension_asset() -> String {
-    PI_EXTENSION_ASSET
-        .replace("HAKO_INTEGRATION_ID=pi", "HAKO_INTEGRATION_ID=omp")
-        .replace(
-            "const source = \"hako:pi\";",
-            "const source = \"hako:omp\";",
-        )
-        .replace("HAKO_PI_IDLE_DEBOUNCE_MS", "HAKO_OMP_IDLE_DEBOUNCE_MS")
-        .replace("HAKO_PI_RETRY_GRACE_MS", "HAKO_OMP_RETRY_GRACE_MS")
-        .replace("agent: \"pi\",", "agent: \"omp\",")
+fn remove_legacy_pi_extension_from_omp_dir(dir: &Path) -> io::Result<bool> {
+    let legacy_path = dir.join(PI_EXTENSION_INSTALL_NAME);
+    if !legacy_path.is_file() {
+        return Ok(false);
+    }
+
+    let content = fs::read_to_string(&legacy_path)?;
+    if content.contains("HAKO_INTEGRATION_ID=pi") {
+        fs::remove_file(legacy_path)?;
+        return Ok(true);
+    }
+
+    Ok(false)
 }
 
 pub(crate) fn install_claude() -> io::Result<ClaudeInstallPaths> {
@@ -843,11 +876,11 @@ pub(crate) fn uninstall_pi() -> io::Result<PiUninstallResult> {
     })
 }
 
-pub(crate) fn uninstall_omp() -> io::Result<PiUninstallResult> {
-    let extension_path = omp_extension_dir()?.join(PI_EXTENSION_INSTALL_NAME);
+pub(crate) fn uninstall_omp() -> io::Result<OmpUninstallResult> {
+    let extension_path = omp_extension_dir()?.join(OMP_EXTENSION_INSTALL_NAME);
     let removed_extension = remove_file_if_exists(&extension_path)?;
 
-    Ok(PiUninstallResult {
+    Ok(OmpUninstallResult {
         extension_path,
         removed_extension,
     })
@@ -1419,29 +1452,10 @@ fn pi_extension_dir() -> io::Result<PathBuf> {
 }
 
 fn omp_extension_dir() -> io::Result<PathBuf> {
-    let agent_dir = if let Some(value) =
-        std::env::var_os(OMP_CODING_AGENT_DIR_ENV_VAR).filter(|value| !value.is_empty())
-    {
-        expand_tilde_path(PathBuf::from(value))?
-    } else {
-        omp_config_dir()?.join("agent")
-    };
-
-    Ok(agent_dir.join("extensions"))
-}
-
-fn omp_config_dir() -> io::Result<PathBuf> {
-    let Some(value) = std::env::var_os(OMP_CONFIG_DIR_ENV_VAR).filter(|value| !value.is_empty())
-    else {
-        return Ok(home_dir()?.join(".omp"));
-    };
-
-    let path = expand_tilde_path(PathBuf::from(value))?;
-    if path.is_relative() {
-        Ok(home_dir()?.join(path))
-    } else {
-        Ok(path)
-    }
+    Ok(
+        config_dir_from_env_or_home(PI_CODING_AGENT_DIR_ENV_VAR, &[".omp", "agent"])?
+            .join("extensions"),
+    )
 }
 
 fn claude_dir() -> io::Result<PathBuf> {
@@ -1519,7 +1533,6 @@ mod tests {
 
     fn clear_integration_path_env() {
         std::env::remove_var(PI_CODING_AGENT_DIR_ENV_VAR);
-        std::env::remove_var(OMP_CONFIG_DIR_ENV_VAR);
         std::env::remove_var(CLAUDE_CONFIG_DIR_ENV_VAR);
         std::env::remove_var(CODEX_HOME_ENV_VAR);
     }
@@ -1675,16 +1688,66 @@ mod tests {
         fs::create_dir_all(&ext_dir).unwrap();
         std::env::set_var("HOME", &home);
 
-        let path = install_omp().unwrap();
-        let content = fs::read_to_string(&path).unwrap();
+        let installed = install_omp().unwrap();
+        let content = fs::read_to_string(&installed.extension_path).unwrap();
 
-        assert_eq!(path, ext_dir.join(PI_EXTENSION_INSTALL_NAME));
-        assert!(content.contains("HAKO_INTEGRATION_ID=omp"));
-        assert!(content.contains("const source = \"hako:omp\";"));
-        assert!(content.contains("agent: \"omp\","));
-        assert!(content.contains("HAKO_OMP_IDLE_DEBOUNCE_MS"));
-        assert!(content.contains("HAKO_OMP_RETRY_GRACE_MS"));
-        assert!(!content.contains("agent: \"pi\","));
+        assert_eq!(
+            installed.extension_path,
+            ext_dir.join(OMP_EXTENSION_INSTALL_NAME)
+        );
+        assert!(!installed.removed_legacy_pi_extension);
+        assert_eq!(content, OMP_EXTENSION_ASSET);
+
+        std::env::remove_var("HOME");
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn install_omp_removes_legacy_pi_integration_from_omp_extensions_dir() {
+        let _lock = integration_env_lock();
+        let base = unique_base();
+        let home = base.join("home");
+        let ext_dir = home.join(".omp/agent/extensions");
+        fs::create_dir_all(&ext_dir).unwrap();
+        let legacy_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
+        fs::write(&legacy_path, PI_EXTENSION_ASSET).unwrap();
+        std::env::set_var("HOME", &home);
+
+        let installed = install_omp().unwrap();
+
+        assert_eq!(
+            installed.extension_path,
+            ext_dir.join(OMP_EXTENSION_INSTALL_NAME)
+        );
+        assert!(installed.removed_legacy_pi_extension);
+        assert!(!legacy_path.exists());
+
+        std::env::remove_var("HOME");
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn install_omp_preserves_non_hako_file_with_pi_install_name() {
+        let _lock = integration_env_lock();
+        let base = unique_base();
+        let home = base.join("home");
+        let ext_dir = home.join(".omp/agent/extensions");
+        fs::create_dir_all(&ext_dir).unwrap();
+        let user_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
+        fs::write(&user_path, "// user extension\n").unwrap();
+        std::env::set_var("HOME", &home);
+
+        let installed = install_omp().unwrap();
+
+        assert_eq!(
+            installed.extension_path,
+            ext_dir.join(OMP_EXTENSION_INSTALL_NAME)
+        );
+        assert!(!installed.removed_legacy_pi_extension);
+        assert_eq!(
+            fs::read_to_string(user_path).unwrap(),
+            "// user extension\n"
+        );
 
         std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
@@ -1697,31 +1760,16 @@ mod tests {
         let agent_dir = base.join("custom-omp-agent");
         let ext_dir = agent_dir.join("extensions");
         fs::create_dir_all(&ext_dir).unwrap();
-        std::env::set_var(OMP_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
+        std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
 
-        let path = install_omp().unwrap();
+        let installed = install_omp().unwrap();
 
-        assert_eq!(path, ext_dir.join(PI_EXTENSION_INSTALL_NAME));
+        assert_eq!(
+            installed.extension_path,
+            ext_dir.join(OMP_EXTENSION_INSTALL_NAME)
+        );
+        assert!(!installed.removed_legacy_pi_extension);
 
-        clear_integration_path_env();
-        let _ = fs::remove_dir_all(base);
-    }
-
-    #[test]
-    fn install_omp_uses_pi_config_dir_env_for_default_agent_dir() {
-        let _lock = integration_env_lock();
-        let base = unique_base();
-        let home = base.join("home");
-        let ext_dir = home.join("custom-omp/agent/extensions");
-        fs::create_dir_all(&ext_dir).unwrap();
-        std::env::set_var("HOME", &home);
-        std::env::set_var(OMP_CONFIG_DIR_ENV_VAR, "custom-omp");
-
-        let path = install_omp().unwrap();
-
-        assert_eq!(path, ext_dir.join(PI_EXTENSION_INSTALL_NAME));
-
-        std::env::remove_var("HOME");
         clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
@@ -1734,8 +1782,8 @@ mod tests {
         let ext_dir = home.join(".omp/agent/extensions");
         fs::create_dir_all(&ext_dir).unwrap();
         fs::write(
-            ext_dir.join(PI_EXTENSION_INSTALL_NAME),
-            omp_extension_asset(),
+            ext_dir.join(OMP_EXTENSION_INSTALL_NAME),
+            OMP_EXTENSION_ASSET,
         )
         .unwrap();
         std::env::set_var("HOME", &home);
@@ -1744,7 +1792,7 @@ mod tests {
 
         assert_eq!(
             result.extension_path,
-            ext_dir.join(PI_EXTENSION_INSTALL_NAME)
+            ext_dir.join(OMP_EXTENSION_INSTALL_NAME)
         );
         assert!(result.removed_extension);
         assert!(!result.extension_path.exists());
