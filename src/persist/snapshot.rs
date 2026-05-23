@@ -5,6 +5,7 @@ use ratatui::layout::Direction;
 use serde::{Deserialize, Serialize};
 
 use crate::layout::Node;
+use crate::terminal::TerminalRuntimeRegistry;
 use crate::workspace::Workspace;
 
 /// Current snapshot format version.
@@ -263,10 +264,7 @@ pub fn capture(
         crate::terminal::TerminalId,
         crate::terminal::TerminalState,
     >,
-    terminal_runtimes: &std::collections::HashMap<
-        crate::terminal::TerminalId,
-        crate::terminal::TerminalRuntime,
-    >,
+    terminal_runtimes: &TerminalRuntimeRegistry,
     active: Option<usize>,
     selected: usize,
     agent_panel_scope: crate::app::state::AgentPanelScope,
@@ -310,10 +308,7 @@ fn capture_workspace(
         crate::terminal::TerminalId,
         crate::terminal::TerminalState,
     >,
-    terminal_runtimes: &std::collections::HashMap<
-        crate::terminal::TerminalId,
-        crate::terminal::TerminalRuntime,
-    >,
+    terminal_runtimes: &TerminalRuntimeRegistry,
 ) -> WorkspaceSnapshot {
     WorkspaceSnapshot {
         id: Some(ws.id.clone()),
@@ -335,10 +330,7 @@ fn capture_tab(
         crate::terminal::TerminalId,
         crate::terminal::TerminalState,
     >,
-    terminal_runtimes: &std::collections::HashMap<
-        crate::terminal::TerminalId,
-        crate::terminal::TerminalRuntime,
-    >,
+    terminal_runtimes: &TerminalRuntimeRegistry,
 ) -> TabSnapshot {
     let mut panes = HashMap::new();
     for id in tab.panes.keys() {
@@ -451,12 +443,13 @@ mod tests {
     }
 
     fn capture_from_state(state: &AppState) -> SessionSnapshot {
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
         capture(
             &state.groups,
             state.active_group,
             &state.workspaces,
             &state.terminals,
-            &state.terminal_runtimes,
+            &terminal_runtimes,
             state.active,
             state.selected,
             state.agent_panel_scope,

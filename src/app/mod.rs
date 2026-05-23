@@ -66,6 +66,7 @@ pub(crate) struct OverlayPaneState {
 
 pub struct App {
     pub state: AppState,
+    pub(crate) terminal_runtimes: crate::terminal::TerminalRuntimeRegistry,
     pub event_tx: mpsc::Sender<AppEvent>,
     pub(crate) event_rx: mpsc::Receiver<AppEvent>,
     pub(crate) api_rx: tokio::sync::mpsc::UnboundedReceiver<crate::api::ApiRequestMessage>,
@@ -262,7 +263,7 @@ impl App {
 
         // Try to restore previous session
         let mut restored_terminals = std::collections::HashMap::new();
-        let mut restored_terminal_runtimes = std::collections::HashMap::new();
+        let mut restored_terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let (
             groups,
             active_group,
@@ -303,7 +304,7 @@ impl App {
                 render_dirty.clone(),
             );
             restored_terminals = terminals;
-            restored_terminal_runtimes = terminal_runtimes;
+            restored_terminal_runtimes = terminal_runtimes.into();
             if ws.is_empty() {
                 crate::logging::session_restored(0, "empty");
                 (
@@ -421,7 +422,6 @@ impl App {
             active_group,
             group_filter_enabled: true,
             terminals: std::collections::HashMap::new(),
-            terminal_runtimes: std::collections::HashMap::new(),
             direct_attach_resize_locks: std::collections::HashSet::new(),
             workspaces,
             active,
@@ -573,14 +573,14 @@ impl App {
             agent_menu: state::MenuListState::new(0),
             host_terminal_theme,
             session_dirty: false,
+            terminal_runtime_shutdowns: Vec::new(),
         };
 
         state.terminals = restored_terminals;
-        state.terminal_runtimes = restored_terminal_runtimes;
 
         for ws_idx in 0..state.workspaces.len() {
             let cwd = state.workspaces[ws_idx]
-                .resolved_identity_cwd_from(&state.terminals, &state.terminal_runtimes);
+                .resolved_identity_cwd_from(&state.terminals, &restored_terminal_runtimes);
             state.workspaces[ws_idx].cached_git_branch =
                 cwd.as_deref().and_then(crate::workspace::git_branch);
         }
@@ -616,6 +616,7 @@ impl App {
             config_diagnostic_deadline: None,
             toast_deadline: None,
             state,
+            terminal_runtimes: restored_terminal_runtimes,
             event_tx,
             event_rx,
             last_git_remote_status_refresh: Instant::now() - GIT_REMOTE_STATUS_REFRESH_INTERVAL,
@@ -724,14 +725,31 @@ impl App {
                     let area = frame.area();
                     if kitty_graphics_enabled {
                         cell_size = crate::kitty_graphics::HostCellSize::from_terminal(area);
-                        crate::ui::compute_view_with_cell_size(&mut self.state, area, cell_size);
+                        crate::ui::compute_view_with_cell_size(
+                            &mut self.state,
+                            &self.terminal_runtimes,
+                            area,
+                            cell_size,
+                        );
                     } else {
-                        crate::ui::compute_view(&mut self.state, area);
+                        crate::ui::compute_view_with_runtime_registry(
+                            &mut self.state,
+                            &self.terminal_runtimes,
+                            area,
+                        );
                     }
-                    crate::ui::render(&self.state, frame);
+                    crate::ui::render_with_runtime_registry(
+                        &self.state,
+                        &self.terminal_runtimes,
+                        frame,
+                    );
                 })?;
                 if kitty_graphics_enabled {
-                    crate::kitty_graphics::paint_local_pane_graphics(&self.state, cell_size)?;
+                    crate::kitty_graphics::paint_local_pane_graphics(
+                        &self.state,
+                        &self.terminal_runtimes,
+                        cell_size,
+                    )?;
                 }
                 self.last_render_at = Some(now);
                 needs_render = false;
@@ -795,7 +813,9 @@ impl App {
     }
 
     fn sync_host_mouse_capture(&self, active: &mut bool) -> io::Result<()> {
-        let desired = self.state.should_capture_host_mouse();
+        let desired = self
+            .state
+            .should_capture_host_mouse_from(&self.terminal_runtimes);
         if desired == *active {
             return Ok(());
         }
@@ -1181,7 +1201,8 @@ impl App {
                     if self.state.mouse_capture {
                         self.handle_mouse_event_headless(mouse);
                     } else {
-                        self.state.handle_pane_mouse_only(mouse);
+                        self.state
+                            .handle_pane_mouse_only(&self.terminal_runtimes, mouse);
                     }
                 }
                 crate::raw_input::RawInputEvent::Paste(text) => {
@@ -1189,9 +1210,11 @@ impl App {
                         if let Some(ws_idx) = self.state.active {
                             if let Some(ws) = self.state.workspaces.get(ws_idx) {
                                 if let Some(focused) = ws.focused_pane_id() {
-                                    if let Some(runtime) =
-                                        self.state.runtime_for_pane_in_workspace(ws_idx, focused)
-                                    {
+                                    if let Some(runtime) = self.state.runtime_for_pane_in_workspace(
+                                        &self.terminal_runtimes,
+                                        ws_idx,
+                                        focused,
+                                    ) {
                                         let _ = runtime.try_send_bytes(bytes::Bytes::from(
                                             if runtime
                                                 .input_state()
@@ -1257,7 +1280,11 @@ impl App {
                 input::handle_confirm_delete_group_key(&mut self.state, key_event);
             }
             Mode::ContextMenu => {
-                input::handle_context_menu_key(&mut self.state, key_event);
+                input::handle_context_menu_key(
+                    &mut self.state,
+                    &mut self.terminal_runtimes,
+                    key_event,
+                );
             }
             Mode::KeybindHelp => {
                 input::handle_keybind_help_key(&mut self.state, key_event);
@@ -2562,7 +2589,7 @@ mod tests {
             3
         );
 
-        let runtimes: Vec<_> = app.state.terminal_runtimes.drain().collect();
+        let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
         for (_terminal_id, runtime) in runtimes {
             runtime.shutdown();
         }
@@ -2609,7 +2636,7 @@ mod tests {
         assert_eq!(app.state.active, Some(0));
         assert_eq!(app.state.workspaces[0].active_tab, background_tab);
 
-        let runtimes: Vec<_> = app.state.terminal_runtimes.drain().collect();
+        let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
         for (_terminal_id, runtime) in runtimes {
             runtime.shutdown();
         }

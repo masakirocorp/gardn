@@ -38,6 +38,7 @@ mod persist;
 mod platform;
 mod ports;
 mod product_announcements;
+mod protocol;
 mod raw_input;
 mod release_notes;
 mod remote;

@@ -729,7 +729,12 @@ pub(crate) fn handle_confirm_delete_group_key(state: &mut AppState, key: KeyEven
     }
 }
 
-pub(super) fn apply_context_menu_action(state: &mut AppState, menu: ContextMenuState, idx: usize) {
+pub(super) fn apply_context_menu_action(
+    state: &mut AppState,
+    terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
+    menu: ContextMenuState,
+    idx: usize,
+) {
     let item = menu.items().get(idx).copied();
     match (menu.kind, item) {
         (ContextMenuKind::Workspace { ws_idx }, Some("rename")) => {
@@ -802,11 +807,11 @@ pub(super) fn apply_context_menu_action(state: &mut AppState, menu: ContextMenuS
             state.mode = Mode::Terminal;
         }
         (ContextMenuKind::Pane { .. }, Some("split vertical")) => {
-            state.split_pane(Direction::Horizontal);
+            state.split_pane(terminal_runtimes, Direction::Horizontal);
             state.mode = Mode::Terminal;
         }
         (ContextMenuKind::Pane { .. }, Some("split horizontal")) => {
-            state.split_pane(Direction::Vertical);
+            state.split_pane(terminal_runtimes, Direction::Vertical);
             state.mode = Mode::Terminal;
         }
         (ContextMenuKind::Pane { .. }, Some("zoom")) => {
@@ -825,7 +830,11 @@ pub(super) fn apply_context_menu_action(state: &mut AppState, menu: ContextMenuS
     }
 }
 
-pub(crate) fn handle_context_menu_key(state: &mut AppState, key: KeyEvent) {
+pub(crate) fn handle_context_menu_key(
+    state: &mut AppState,
+    terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
+    key: KeyEvent,
+) {
     match key.code {
         KeyCode::Esc => {
             state.context_menu = None;
@@ -844,7 +853,7 @@ pub(crate) fn handle_context_menu_key(state: &mut AppState, key: KeyEvent) {
         KeyCode::Enter => {
             if let Some(menu) = state.context_menu.take() {
                 let idx = menu.list.highlighted;
-                apply_context_menu_action(state, menu, idx);
+                apply_context_menu_action(state, terminal_runtimes, menu, idx);
             }
         }
         _ => {}
@@ -1341,6 +1350,7 @@ mod tests {
     #[test]
     fn closing_last_tab_from_context_menu_prompts_to_close_workspace() {
         let mut state = state_with_workspaces(&["test"]);
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let menu = ContextMenuState {
             kind: ContextMenuKind::Tab {
                 ws_idx: 0,
@@ -1351,7 +1361,7 @@ mod tests {
             list: MenuListState::new(2),
         };
 
-        apply_context_menu_action(&mut state, menu, 2);
+        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 2);
 
         assert_eq!(state.mode, Mode::ConfirmClose);
         assert_eq!(state.workspaces.len(), 1);

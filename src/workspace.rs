@@ -13,7 +13,7 @@ use crate::layout::PaneId;
 #[cfg(test)]
 use crate::layout::TileLayout;
 use crate::pane::PaneState;
-use crate::terminal::{TerminalId, TerminalRuntime, TerminalState};
+use crate::terminal::{TerminalId, TerminalRuntime, TerminalRuntimeRegistry, TerminalState};
 
 mod aggregate;
 mod git;
@@ -631,10 +631,12 @@ impl Workspace {
 
     pub fn resolved_identity_cwd_from(
         &self,
-        _terminals: &HashMap<TerminalId, TerminalState>,
-        _terminal_runtimes: &HashMap<TerminalId, TerminalRuntime>,
+        terminals: &HashMap<TerminalId, TerminalState>,
+        terminal_runtimes: &TerminalRuntimeRegistry,
     ) -> Option<PathBuf> {
-        Some(self.identity_cwd.clone())
+        self.active_tab()
+            .and_then(|tab| tab.cwd_for_pane(tab.layout.focused(), terminals, terminal_runtimes))
+            .or_else(|| Some(self.identity_cwd.clone()))
     }
 
     pub fn display_name(&self) -> String {
@@ -650,7 +652,7 @@ impl Workspace {
     pub fn display_name_from(
         &self,
         _terminals: &HashMap<TerminalId, TerminalState>,
-        _terminal_runtimes: &HashMap<TerminalId, TerminalRuntime>,
+        _terminal_runtimes: &TerminalRuntimeRegistry,
     ) -> String {
         if let Some(name) = &self.custom_name {
             return name.clone();
@@ -738,7 +740,7 @@ impl Workspace {
     pub fn git_status_cwds_from(
         &self,
         terminals: &HashMap<TerminalId, TerminalState>,
-        terminal_runtimes: &HashMap<TerminalId, TerminalRuntime>,
+        terminal_runtimes: &TerminalRuntimeRegistry,
     ) -> Vec<PathBuf> {
         let mut cwds = self
             .tabs
@@ -935,7 +937,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn workspace_identity_ignores_runtime_cwd_changes() {
+    fn workspace_display_name_uses_identity_while_resolved_cwd_tracks_runtime() {
         let mut ws = Workspace::test_new("ignored");
         ws.custom_name = None;
         ws.identity_cwd = PathBuf::from("/hako-test/original");
@@ -946,7 +948,7 @@ mod tests {
             terminal_id.clone(),
             TerminalState::new(terminal_id, PathBuf::from("/hako-test/pion")),
         );
-        let terminal_runtimes = HashMap::new();
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
 
         assert_eq!(
             ws.display_name_from(&terminals, &terminal_runtimes),
@@ -954,7 +956,7 @@ mod tests {
         );
         assert_eq!(
             ws.resolved_identity_cwd_from(&terminals, &terminal_runtimes),
-            Some(PathBuf::from("/hako-test/original"))
+            Some(PathBuf::from("/hako-test/pion"))
         );
     }
 

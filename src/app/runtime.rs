@@ -12,6 +12,13 @@ use crate::events::AppEvent;
 use crate::workspace::{Workspace, WorkspaceGitStatus};
 
 impl App {
+    pub(crate) fn shutdown_detached_terminal_runtimes(&mut self) {
+        for terminal_id in self.state.terminal_runtime_shutdowns.drain(..) {
+            if let Some(runtime) = self.terminal_runtimes.remove(&terminal_id) {
+                runtime.shutdown();
+            }
+        }
+    }
     pub(crate) fn drain_api_requests(&mut self) -> bool {
         let mut changed = false;
         while let Ok(msg) = self.api_rx.try_recv() {
@@ -95,7 +102,8 @@ impl App {
                 if self.state.mouse_capture {
                     self.handle_mouse(mouse);
                 } else {
-                    self.state.handle_pane_mouse_only(mouse);
+                    self.state
+                        .handle_pane_mouse_only(&self.terminal_runtimes, mouse);
                 }
                 true
             }
@@ -141,7 +149,7 @@ impl App {
                     let Some(terminal_id) = tab.terminal_id(pane_id) else {
                         continue;
                     };
-                    let Some(runtime) = self.state.terminal_runtimes.get(terminal_id) else {
+                    let Some(runtime) = self.terminal_runtimes.get(terminal_id) else {
                         continue;
                     };
                     let child_pid = runtime.child_pid();
@@ -196,8 +204,10 @@ impl App {
         }
 
         if now >= self.next_command_scan {
-            changed |= self.state.refresh_command_catalog();
-            changed |= self.state.refresh_command_run_statuses();
+            changed |= self.state.refresh_command_catalog(&self.terminal_runtimes);
+            changed |= self
+                .state
+                .refresh_command_run_statuses(&self.terminal_runtimes);
             self.next_command_scan = now + COMMAND_SCAN_INTERVAL;
         }
 
@@ -330,7 +340,10 @@ impl App {
         }
 
         // Scrollback boundary detection via ScrollMetrics — fail-closed if unavailable
-        let Some(metrics) = self.state.pane_scroll_metrics(pane_id) else {
+        let Some(metrics) = self
+            .state
+            .pane_scroll_metrics(&self.terminal_runtimes, pane_id)
+        else {
             self.stop_selection_autoscroll();
             return;
         };
@@ -341,7 +354,8 @@ impl App {
                     self.stop_selection_autoscroll();
                     return;
                 }
-                self.state.scroll_pane_up(pane_id, 1);
+                self.state
+                    .scroll_pane_up(&self.terminal_runtimes, pane_id, 1);
             }
             crate::app::state::SelectionAutoscrollDirection::Down => {
                 let at_bottom = metrics.offset_from_bottom == 0;
@@ -349,12 +363,14 @@ impl App {
                     self.stop_selection_autoscroll();
                     return;
                 }
-                self.state.scroll_pane_down(pane_id, 1);
+                self.state
+                    .scroll_pane_down(&self.terminal_runtimes, pane_id, 1);
             }
         }
 
         // Extend selection cursor to last known mouse position
         self.state.update_selection_cursor(
+            &self.terminal_runtimes,
             pane_id,
             autoscroll.last_mouse_screen_col,
             autoscroll.last_mouse_screen_row,
@@ -410,15 +426,12 @@ impl App {
             .workspaces
             .iter()
             .filter_map(|ws| {
-                ws.resolved_identity_cwd_from(&self.state.terminals, &self.state.terminal_runtimes)
+                ws.resolved_identity_cwd_from(&self.state.terminals, &self.terminal_runtimes)
                     .map(|cwd| {
                         (
                             ws.id.clone(),
                             cwd,
-                            ws.git_status_cwds_from(
-                                &self.state.terminals,
-                                &self.state.terminal_runtimes,
-                            ),
+                            ws.git_status_cwds_from(&self.state.terminals, &self.terminal_runtimes),
                         )
                     })
             })

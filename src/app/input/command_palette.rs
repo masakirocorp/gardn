@@ -407,8 +407,12 @@ fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
                 return;
             }
         }
-        CommandPaletteAction::SplitVertical => app.state.split_pane(Direction::Horizontal),
-        CommandPaletteAction::SplitHorizontal => app.state.split_pane(Direction::Vertical),
+        CommandPaletteAction::SplitVertical => app
+            .state
+            .split_pane(&mut app.terminal_runtimes, Direction::Horizontal),
+        CommandPaletteAction::SplitHorizontal => app
+            .state
+            .split_pane(&mut app.terminal_runtimes, Direction::Vertical),
         CommandPaletteAction::ClosePane => app.state.close_pane(),
         CommandPaletteAction::RenamePane => {
             if let Some(pane_id) = app
@@ -464,7 +468,7 @@ fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
         CommandPaletteAction::NextAgent => app.state.next_agent(),
         CommandPaletteAction::OpenGitDiff => {
             let previous_toast = app.state.toast.clone();
-            if let Err(err) = app.state.open_git_diff_panel() {
+            if let Err(err) = app.state.open_git_diff_panel(&mut app.terminal_runtimes) {
                 app.state.toast = Some(crate::app::state::ToastNotification {
                     kind: crate::app::state::ToastKind::NeedsAttention,
                     title: "git diff failed".to_string(),

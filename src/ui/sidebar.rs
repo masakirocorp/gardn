@@ -177,7 +177,7 @@ fn agent_panel_workspace_context_label(app: &AppState, ws_idx: usize) -> String 
     let Some(ws) = app.workspaces.get(ws_idx) else {
         return String::new();
     };
-    let workspace_label = ws.display_name_from(&app.terminals, &app.terminal_runtimes);
+    let workspace_label = ws.display_name();
     if agent_panel_has_multiple_groups(app) {
         format!(
             "{} / {}",
@@ -232,7 +232,7 @@ fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<
                 return Vec::new();
             };
             let multi_tab = ws.tabs.len() > 1;
-            let workspace_label = ws.display_name_from(&app.terminals, &app.terminal_runtimes);
+            let workspace_label = ws.display_name();
             ws.pane_details(&app.terminals)
                 .into_iter()
                 .map(|detail| AgentPanelEntry {
@@ -260,8 +260,7 @@ fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<
                 .filter(|(_, ws)| ws.group_id == group_id)
                 .flat_map(|(ws_idx, ws)| {
                     let multi_tab = ws.tabs.len() > 1;
-                    let workspace_label =
-                        ws.display_name_from(&app.terminals, &app.terminal_runtimes);
+                    let workspace_label = ws.display_name();
                     ws.pane_details(&app.terminals)
                         .into_iter()
                         .map(move |detail| AgentPanelEntry {
@@ -2542,10 +2541,7 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
             Span::styled(" ", Style::default()),
             Span::styled(icon, icon_style),
             Span::styled(" ", Style::default()),
-            Span::styled(
-                ws.display_name_from(&app.terminals, &app.terminal_runtimes),
-                name_style,
-            ),
+            Span::styled(ws.display_name(), name_style),
         ];
 
         frame.render_widget(
