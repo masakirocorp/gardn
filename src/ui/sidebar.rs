@@ -15,6 +15,7 @@ use crate::commands::{CommandRunStatus, ProjectCommand};
 use crate::detect::AgentState;
 use crate::ports::{PortEndpoint, PortExposure, PortState};
 use crate::workspace::{derive_label_from_cwd, git_branch};
+use crate::terminal::TerminalRuntimeRegistry;
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const ACTIVITY_PANEL_HEADER_ROWS: u16 = 2;
@@ -173,11 +174,16 @@ fn agent_panel_group_label(app: &AppState, ws_idx: usize) -> String {
         .unwrap_or_else(|| "group 1".to_string())
 }
 
-fn agent_panel_workspace_context_label(app: &AppState, ws_idx: usize) -> String {
+
+fn agent_panel_workspace_context_label_from(
+    app: &AppState,
+    ws_idx: usize,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+) -> String {
     let Some(ws) = app.workspaces.get(ws_idx) else {
         return String::new();
     };
-    let workspace_label = ws.display_name();
+    let workspace_label = ws.display_name_from(&app.terminals, terminal_runtimes);
     if agent_panel_has_multiple_groups(app) {
         format!(
             "{} / {}",
@@ -222,7 +228,31 @@ pub(crate) fn agent_panel_toggle_rect(
     )
 }
 
-fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<AgentPanelEntry> {
+pub(crate) fn agent_panel_entries(app: &AppState) -> Vec<AgentPanelEntry> {
+    agent_panel_entries_with_runtimes(app, None, app.agent_panel_scope)
+}
+
+pub(crate) fn agent_panel_entries_from(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+) -> Vec<AgentPanelEntry> {
+    agent_panel_entries_with_runtimes(app, Some(terminal_runtimes), app.agent_panel_scope)
+}
+
+fn agent_panel_entries_with_runtimes(
+    app: &AppState,
+    terminal_runtimes: Option<&TerminalRuntimeRegistry>,
+    scope: AgentPanelScope,
+) -> Vec<AgentPanelEntry> {
+    let empty_runtimes;
+    let terminal_runtimes = match terminal_runtimes {
+        Some(terminal_runtimes) => terminal_runtimes,
+        None => {
+            empty_runtimes = TerminalRuntimeRegistry::new();
+            &empty_runtimes
+        }
+    };
+
     match scope {
         AgentPanelScope::CurrentWorkspace => {
             let Some(ws_idx) = agent_panel_current_workspace_idx(app) else {
@@ -232,7 +262,7 @@ fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<
                 return Vec::new();
             };
             let multi_tab = ws.tabs.len() > 1;
-            let workspace_label = ws.display_name();
+            let workspace_label = ws.display_name_from(&app.terminals, terminal_runtimes);
             ws.pane_details(&app.terminals)
                 .into_iter()
                 .map(|detail| AgentPanelEntry {
@@ -260,7 +290,7 @@ fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<
                 .filter(|(_, ws)| ws.group_id == group_id)
                 .flat_map(|(ws_idx, ws)| {
                     let multi_tab = ws.tabs.len() > 1;
-                    let workspace_label = ws.display_name();
+                    let workspace_label = ws.display_name_from(&app.terminals, terminal_runtimes);
                     ws.pane_details(&app.terminals)
                         .into_iter()
                         .map(move |detail| AgentPanelEntry {
@@ -283,7 +313,8 @@ fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<
             .enumerate()
             .flat_map(|(ws_idx, ws)| {
                 let multi_tab = ws.tabs.len() > 1;
-                let workspace_label = agent_panel_workspace_context_label(app, ws_idx);
+                let workspace_label =
+                    agent_panel_workspace_context_label_from(app, ws_idx, terminal_runtimes);
                 ws.pane_details(&app.terminals)
                     .into_iter()
                     .map(move |detail| AgentPanelEntry {
@@ -302,21 +333,28 @@ fn agent_panel_entries_for_scope(app: &AppState, scope: AgentPanelScope) -> Vec<
     }
 }
 
-pub(crate) fn agent_panel_entries(app: &AppState) -> Vec<AgentPanelEntry> {
-    agent_panel_entries_for_scope(app, app.agent_panel_scope)
-}
 
 fn agent_panel_entry_needs_triage(entry: &AgentPanelEntry) -> bool {
     entry.state == AgentState::Blocked || (entry.state == AgentState::Idle && !entry.seen)
 }
 
+#[cfg(test)]
 pub(crate) fn agent_panel_triage_entries(app: &AppState) -> Vec<AgentPanelEntry> {
+    let empty_runtimes = TerminalRuntimeRegistry::new();
+    agent_panel_triage_entries_from(app, &empty_runtimes)
+}
+
+fn agent_panel_triage_entries_from(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+) -> Vec<AgentPanelEntry> {
     app.workspaces
         .iter()
         .enumerate()
         .flat_map(|(ws_idx, ws)| {
             let multi_tab = ws.tabs.len() > 1;
-            let context_label = agent_panel_workspace_context_label(app, ws_idx);
+            let context_label =
+                agent_panel_workspace_context_label_from(app, ws_idx, terminal_runtimes);
             ws.pane_details(&app.terminals)
                 .into_iter()
                 .map(move |detail| AgentPanelEntry {
@@ -336,10 +374,18 @@ pub(crate) fn agent_panel_triage_entries(app: &AppState) -> Vec<AgentPanelEntry>
 }
 
 pub(crate) fn agent_panel_sections(app: &AppState) -> Vec<AgentPanelSection> {
-    let scoped_entries = agent_panel_entries(app);
+    let empty_runtimes = TerminalRuntimeRegistry::new();
+    agent_panel_sections_from(app, &empty_runtimes)
+}
+
+fn agent_panel_sections_from(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+) -> Vec<AgentPanelSection> {
+    let scoped_entries = agent_panel_entries_from(app, terminal_runtimes);
     let mut sections = Vec::new();
 
-    let triage = agent_panel_triage_entries(app);
+    let triage = agent_panel_triage_entries_from(app, terminal_runtimes);
     if !triage.is_empty() {
         sections.push(AgentPanelSection {
             label: "triage",
@@ -1159,7 +1205,12 @@ pub(crate) fn workspace_drop_indicator_row(
         })
 }
 
-pub(super) fn render_sidebar(app: &AppState, frame: &mut Frame, area: Rect) {
+pub(super) fn render_sidebar(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+) {
     let p = &app.palette;
     fill_rect(frame, area, Style::default().bg(p.panel_bg));
     let is_navigating = matches!(app.mode, Mode::Navigate);
@@ -1178,12 +1229,12 @@ pub(super) fn render_sidebar(app: &AppState, frame: &mut Frame, area: Rect) {
 
     let ws_area = if app.view.right_sidebar_rect == Rect::default() {
         let (ws_area, detail_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
-        render_agent_detail(app, frame, detail_area, true);
+        render_agent_detail_from(app, terminal_runtimes, frame, detail_area, true);
         ws_area
     } else {
         left_sidebar_workspace_rect(area)
     };
-    render_workspace_list(app, frame, ws_area, is_navigating);
+    render_workspace_list_from(app, terminal_runtimes, frame, ws_area, is_navigating);
     render_sidebar_toggle(app, frame, area, false, p);
 }
 
@@ -2378,7 +2429,19 @@ fn render_right_sidebar_collapsed_agents(app: &AppState, frame: &mut Frame, area
     }
 }
 
+#[cfg(test)]
 fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navigating: bool) {
+    let empty_runtimes = TerminalRuntimeRegistry::new();
+    render_workspace_list_from(app, &empty_runtimes, frame, area, is_navigating);
+}
+
+fn render_workspace_list_from(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+    is_navigating: bool,
+) {
     let p = &app.palette;
     let dragged_ws_idx = match app.drag.as_ref().map(|drag| &drag.target) {
         Some(crate::app::state::DragTarget::WorkspaceReorder { source_ws_idx, .. }) => {
@@ -2541,7 +2604,7 @@ fn render_workspace_list(app: &AppState, frame: &mut Frame, area: Rect, is_navig
             Span::styled(" ", Style::default()),
             Span::styled(icon, icon_style),
             Span::styled(" ", Style::default()),
-            Span::styled(ws.display_name(), name_style),
+            Span::styled(ws.display_name_from(&app.terminals, terminal_runtimes), name_style),
         ];
 
         frame.render_widget(
@@ -2683,7 +2746,7 @@ fn render_agent_entry(
 
     let mut status_spans = vec![Span::styled("     ", Style::default())];
     if let Some(agent_label) = &detail.agent_label {
-        status_spans.push(Span::styled(agent_label, agent_style));
+        status_spans.push(Span::styled(agent_label.clone(), agent_style));
     }
     if show_status {
         if detail.agent_label.is_some() {
@@ -2809,6 +2872,17 @@ pub(crate) fn agent_panel_header_target_at_row(
 }
 
 fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_separator: bool) {
+    let empty_runtimes = TerminalRuntimeRegistry::new();
+    render_agent_detail_from(app, &empty_runtimes, frame, area, leading_separator);
+}
+
+fn render_agent_detail_from(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+    leading_separator: bool,
+) {
     let p = &app.palette;
 
     if area.height <= u16::from(leading_separator) {
@@ -2865,7 +2939,7 @@ fn render_agent_detail(app: &AppState, frame: &mut Frame, area: Rect, leading_se
         return;
     }
 
-    let sections = agent_panel_sections(app);
+    let sections = agent_panel_sections_from(app, terminal_runtimes);
     if sections.is_empty() && body.height > 0 {
         frame.render_widget(
             Paragraph::new(Span::styled(
@@ -3354,6 +3428,73 @@ mod tests {
         assert_eq!(entries[1].primary_label, "two");
         assert_eq!(entries[1].primary_tab_label.as_deref(), Some("logs"));
         assert_eq!(entries[1].agent_label.as_deref(), Some("claude"));
+    }
+
+    #[tokio::test]
+    async fn all_workspaces_agent_panel_entries_use_live_root_runtime_cwd_for_workspace_label() {
+        let unique = format!(
+            "herdr-agent-panel-runtime-cwd-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let root = std::env::temp_dir().join(unique);
+        let stale_cwd = root.join("issue-264-nix-support");
+        let live_cwd = root.join("herdr");
+        std::fs::create_dir_all(stale_cwd.join(".git")).unwrap();
+        std::fs::create_dir_all(live_cwd.join(".git")).unwrap();
+
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("stale-name");
+        workspace.custom_name = None;
+        workspace.identity_cwd = stale_cwd.clone();
+        let pane = workspace.tabs[0].root_pane;
+
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        let terminal_id = app.workspaces[0].tabs[0].panes[&pane]
+            .attached_terminal_id
+            .clone();
+        let terminal = app.terminals.get_mut(&terminal_id).unwrap();
+        terminal.cwd = stale_cwd;
+        terminal.detected_agent = Some(Agent::Pi);
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        let (events, _) = tokio::sync::mpsc::channel(4);
+        let runtime = crate::terminal::TerminalRuntime::spawn(
+            pane,
+            24,
+            80,
+            live_cwd.clone(),
+            0,
+            crate::terminal_theme::TerminalTheme::default(),
+            "/bin/sh",
+            events,
+            std::sync::Arc::new(tokio::sync::Notify::new()),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while runtime.cwd() != Some(live_cwd.clone()) && std::time::Instant::now() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        let mut runtime_registry = TerminalRuntimeRegistry::new();
+        runtime_registry.insert(terminal_id, runtime);
+        let entries = agent_panel_entries_from(&app, &runtime_registry);
+        let primary_label = entries[0].primary_label.clone();
+
+        for (_, runtime) in runtime_registry.drain() {
+            runtime.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(root);
+
+        assert_eq!(primary_label, "herdr");
     }
 
     #[test]

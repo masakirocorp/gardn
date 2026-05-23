@@ -6,13 +6,14 @@ use ratatui::{
     Frame,
 };
 
-use super::sidebar::{agent_panel_entries, AgentPanelEntry};
+use super::sidebar::{agent_panel_entries, agent_panel_entries_from, AgentPanelEntry};
 use super::status::{agent_icon, state_dot, toast_kind_color};
 use super::widgets::fill_rect;
 use crate::app::state::{Palette, ToastKind, ToastNotification};
 use crate::app::AppState;
 use crate::detect::AgentState;
 use crate::layout::PaneId;
+use crate::terminal::TerminalRuntimeRegistry;
 
 pub(crate) const MOBILE_WIDTH_THRESHOLD: u16 = 64;
 const SWITCH_BUTTON_WIDTH: u16 = 10;
@@ -161,7 +162,12 @@ pub(crate) fn mobile_switcher_target_at(
     (menu_idx < app.global_menu_labels().len()).then_some(MobileSwitcherTarget::Menu(menu_idx))
 }
 
-pub(crate) fn render_mobile_header(app: &AppState, frame: &mut Frame, area: Rect) {
+pub(crate) fn render_mobile_header(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+) {
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -173,7 +179,7 @@ pub(crate) fn render_mobile_header(app: &AppState, frame: &mut Frame, area: Rect
     let status_w = switch.x.saturating_sub(area.x).saturating_sub(1);
     let status = Rect::new(area.x, area.y, status_w, area.height);
 
-    render_header_status(app, frame, status);
+    render_header_status(app, terminal_runtimes, frame, status);
     render_switch_button(app, frame, switch);
 }
 
@@ -225,7 +231,12 @@ pub(crate) fn render_mobile_toast_banner(
     );
 }
 
-pub(crate) fn render_mobile_panel(app: &AppState, frame: &mut Frame, area: Rect) {
+pub(crate) fn render_mobile_panel(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+) {
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -254,10 +265,15 @@ pub(crate) fn render_mobile_panel(app: &AppState, frame: &mut Frame, area: Rect)
         );
     }
 
-    render_mobile_switcher_content(app, frame, areas.viewport);
+    render_mobile_switcher_content(app, terminal_runtimes, frame, areas.viewport);
 }
 
-fn render_header_status(app: &AppState, frame: &mut Frame, area: Rect) {
+fn render_header_status(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+) {
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -287,7 +303,10 @@ fn render_header_status(app: &AppState, frame: &mut Frame, area: Rect) {
             Span::styled(dot, dot_style.bg(p.panel_bg)),
             Span::raw(" "),
             Span::styled(
-                truncate(&ws.display_name(), name_w.saturating_sub(4) as usize),
+                truncate(
+                    &ws.display_name_from(&app.terminals, terminal_runtimes),
+                    name_w.saturating_sub(4) as usize,
+                ),
                 Style::default()
                     .fg(p.text)
                     .bg(p.panel_bg)
@@ -386,7 +405,12 @@ fn mobile_switcher_content_height(app: &AppState) -> usize {
     spaces_h + tabs_h + agents_h + menu_h
 }
 
-fn render_mobile_switcher_content(app: &AppState, frame: &mut Frame, viewport: Rect) {
+fn render_mobile_switcher_content(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    viewport: Rect,
+) {
     if viewport.width == 0 || viewport.height == 0 {
         return;
     }
@@ -441,7 +465,10 @@ fn render_mobile_switcher_content(app: &AppState, frame: &mut Frame, viewport: R
             Span::styled(dot, dot_style.bg(bg)),
             Span::styled(" ", Style::default().bg(bg)),
             Span::styled(
-                truncate(&ws.display_name(), content.width.saturating_sub(5) as usize),
+                truncate(
+                    &ws.display_name_from(&app.terminals, terminal_runtimes),
+                    content.width.saturating_sub(5) as usize,
+                ),
                 Style::default()
                     .fg(p.text)
                     .bg(bg)
@@ -530,7 +557,7 @@ fn render_mobile_switcher_content(app: &AppState, frame: &mut Frame, viewport: R
         ws.focused_pane_id()
             .map(|pane_id| (ws_idx, ws.active_tab, pane_id))
     });
-    let entries = agent_panel_entries(app);
+    let entries = agent_panel_entries_from(app, terminal_runtimes);
     render_section_title_at(
         frame,
         viewport,
