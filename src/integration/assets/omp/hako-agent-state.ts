@@ -252,6 +252,10 @@ export default function (pi) {
     publishState();
   });
 
+  pi.on("session_start", () => {
+    publishState();
+  });
+
   pi.on("agent_start", () => {
     clearPendingTimers();
     clearFailureState();
