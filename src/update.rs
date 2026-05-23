@@ -21,6 +21,7 @@ const UPDATE_MANIFEST_URL: &str = "https://hako.masakiro.com/latest.json";
 const HOMEBREW_FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula/hako.json";
 const HAKO_UPDATE_COMMAND: &str = "hako update";
 const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade hako";
+const NIX_UPDATE_COMMAND: &str = "update through Nix";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const FAKE_UPDATE_VERSION_ENV: &str = "HAKO_FAKE_UPDATE_VERSION";
 const SERVER_STOP_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -666,6 +667,8 @@ fn wait_for_server_shutdown(timeout: Duration) -> Result<(), String> {
 pub(crate) fn update_install_command() -> &'static str {
     if is_homebrew_managed_install() {
         HOMEBREW_UPDATE_COMMAND
+    } else if is_nix_managed_install() {
+        NIX_UPDATE_COMMAND
     } else {
         HAKO_UPDATE_COMMAND
     }
@@ -683,6 +686,24 @@ fn is_homebrew_managed_install() -> bool {
     current_exe
         .canonicalize()
         .is_ok_and(|path| is_homebrew_managed_exe_path(&path))
+}
+
+fn is_nix_managed_install() -> bool {
+    let Ok(current_exe) = env::current_exe() else {
+        return false;
+    };
+
+    if is_nix_store_exe_path(&current_exe) {
+        return true;
+    }
+
+    current_exe
+        .canonicalize()
+        .is_ok_and(|path| is_nix_store_exe_path(&path))
+}
+
+fn is_nix_store_exe_path(path: &Path) -> bool {
+    path.starts_with("/nix/store")
 }
 
 fn is_homebrew_managed_exe_path(path: &Path) -> bool {
@@ -979,6 +1000,12 @@ pub fn self_update() -> Result<Version, String> {
         ));
     }
 
+    if is_nix_managed_install() {
+        return Err(
+            "self-update is disabled for Nix installs; update with `nix profile upgrade` or update the flake input that provides Hako".into(),
+        );
+    }
+
     if running_inside_hako() {
         return Err("run `hako update` outside hako after detaching from the session".into());
     }
@@ -1063,6 +1090,8 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
         return;
     }
 
+    let nix_managed_install = is_nix_managed_install();
+
     let release = match check_latest() {
         Ok(Some(r)) => r,
         Ok(None) => return,
@@ -1091,9 +1120,15 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
     );
 
     // Notify the TUI — blocking_send is safe from a std::thread
+    let install_command = if nix_managed_install {
+        NIX_UPDATE_COMMAND
+    } else {
+        HAKO_UPDATE_COMMAND
+    };
+
     let _ = events.blocking_send(crate::events::AppEvent::UpdateReady {
         version: release.version.to_string(),
-        install_command: HAKO_UPDATE_COMMAND.to_string(),
+        install_command: install_command.to_string(),
     });
 }
 
@@ -1273,6 +1308,20 @@ mod tests {
         let path = Path::new("/usr/local/bin/hako");
 
         assert!(!is_homebrew_managed_exe_path(path));
+    }
+
+    #[test]
+    fn nix_store_path_is_detected() {
+        let path = Path::new("/nix/store/abc123-hako-0.6.1/bin/hako");
+
+        assert!(is_nix_store_exe_path(path));
+    }
+
+    #[test]
+    fn non_nix_store_path_is_not_detected() {
+        let path = Path::new("/usr/local/bin/hako");
+
+        assert!(!is_nix_store_exe_path(path));
     }
 
     #[test]
