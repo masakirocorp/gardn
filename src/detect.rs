@@ -1197,6 +1197,20 @@ fn is_generic_runtime_or_shell(name: &str) -> bool {
 mod tests {
     use super::*;
 
+    fn foreground_process(
+        pid: u32,
+        name: &str,
+        argv: &[&str],
+    ) -> crate::platform::ForegroundProcess {
+        crate::platform::ForegroundProcess {
+            pid,
+            name: name.to_string(),
+            argv0: None,
+            argv: Some(argv.iter().map(|arg| (*arg).to_string()).collect()),
+            cmdline: Some(argv.join(" ")),
+        }
+    }
+
     // ---- Agent identification ----
 
     #[test]
@@ -1277,20 +1291,8 @@ mod tests {
         let job = crate::platform::ForegroundJob {
             process_group_id: 123,
             processes: vec![
-                crate::platform::ForegroundProcess {
-                    pid: 1,
-                    name: "node".to_string(),
-                    argv0: None,
-                    cmdline: Some("node /path/to/bin/codex".to_string()),
-                    argv: Some(vec!["node".to_string(), "/path/to/bin/codex".to_string()]),
-                },
-                crate::platform::ForegroundProcess {
-                    pid: 2,
-                    name: "bash".to_string(),
-                    argv0: None,
-                    cmdline: Some("bash".to_string()),
-                    argv: None,
-                },
+                foreground_process(1, "node", &["node", "/path/to/bin/codex"]),
+                foreground_process(2, "bash", &["bash"]),
             ],
         };
 
@@ -1305,20 +1307,8 @@ mod tests {
         let job = crate::platform::ForegroundJob {
             process_group_id: 42,
             processes: vec![
-                crate::platform::ForegroundProcess {
-                    pid: 42,
-                    name: "claude".to_string(),
-                    argv0: None,
-                    cmdline: Some("claude".to_string()),
-                    argv: None,
-                },
-                crate::platform::ForegroundProcess {
-                    pid: 43,
-                    name: "node".to_string(),
-                    argv0: None,
-                    cmdline: Some("node /tmp/mcp/bin/codex".to_string()),
-                    argv: Some(vec!["node".to_string(), "/tmp/mcp/bin/codex".to_string()]),
-                },
+                foreground_process(42, "claude", &["claude"]),
+                foreground_process(43, "node", &["node", "/tmp/mcp/bin/codex"]),
             ],
         };
 
@@ -1333,20 +1323,8 @@ mod tests {
         let job = crate::platform::ForegroundJob {
             process_group_id: 42,
             processes: vec![
-                crate::platform::ForegroundProcess {
-                    pid: 42,
-                    name: "bash".to_string(),
-                    argv0: None,
-                    cmdline: Some("bash".to_string()),
-                    argv: None,
-                },
-                crate::platform::ForegroundProcess {
-                    pid: 43,
-                    name: "node".to_string(),
-                    argv0: None,
-                    cmdline: Some("node /tmp/mcp/bin/codex".to_string()),
-                    argv: Some(vec!["node".to_string(), "/tmp/mcp/bin/codex".to_string()]),
-                },
+                foreground_process(42, "bash", &["bash"]),
+                foreground_process(43, "node", &["node", "/tmp/mcp/bin/codex"]),
             ],
         };
 
@@ -1360,13 +1338,11 @@ mod tests {
     fn identify_agent_in_job_detects_nix_wrapped_codex_from_cmdline_argv0() {
         let job = crate::platform::ForegroundJob {
             process_group_id: 123,
-            processes: vec![crate::platform::ForegroundProcess {
-                pid: 1,
-                name: ".codex-wrapped".to_string(),
-                argv0: None,
-                cmdline: Some("/etc/profiles/per-user/user/bin/codex --model gpt-5".to_string()),
-                argv: None,
-            }],
+            processes: vec![foreground_process(
+                1,
+                ".codex-wrapped",
+                &["/etc/profiles/per-user/user/bin/codex", "--model", "gpt-5"],
+            )],
         };
 
         assert_eq!(
@@ -1379,13 +1355,11 @@ mod tests {
     fn identify_agent_in_job_canonicalizes_nix_wrapped_aliases_from_cmdline_argv0() {
         let job = crate::platform::ForegroundJob {
             process_group_id: 123,
-            processes: vec![crate::platform::ForegroundProcess {
-                pid: 1,
-                name: ".claude-code-wrapped".to_string(),
-                argv0: None,
-                cmdline: Some("/nix/store/example/bin/claude-code".to_string()),
-                argv: None,
-            }],
+            processes: vec![foreground_process(
+                1,
+                ".claude-code-wrapped",
+                &["/nix/store/example/bin/claude-code"],
+            )],
         };
 
         assert_eq!(
@@ -1398,13 +1372,11 @@ mod tests {
     fn identify_agent_in_job_detects_shell_wrapped_pi() {
         let job = crate::platform::ForegroundJob {
             process_group_id: 123,
-            processes: vec![crate::platform::ForegroundProcess {
-                pid: 1,
-                name: "sh".to_string(),
-                argv0: None,
-                cmdline: Some("/bin/sh /tmp/test-bin/pi".to_string()),
-                argv: Some(vec!["/bin/sh".to_string(), "/tmp/test-bin/pi".to_string()]),
-            }],
+            processes: vec![foreground_process(
+                1,
+                "sh",
+                &["/bin/sh", "/tmp/test-bin/pi"],
+            )],
         };
 
         assert_eq!(
@@ -1417,13 +1389,11 @@ mod tests {
     fn identify_agent_in_job_detects_shell_wrapped_omp() {
         let job = crate::platform::ForegroundJob {
             process_group_id: 123,
-            processes: vec![crate::platform::ForegroundProcess {
-                pid: 1,
-                name: "sh".to_string(),
-                argv0: None,
-                cmdline: Some("/bin/sh /tmp/test-bin/omp".to_string()),
-                argv: Some(vec!["/bin/sh".to_string(), "/tmp/test-bin/omp".to_string()]),
-            }],
+            processes: vec![foreground_process(
+                1,
+                "sh",
+                &["/bin/sh", "/tmp/test-bin/omp"],
+            )],
         };
 
         assert_eq!(
@@ -1433,10 +1403,81 @@ mod tests {
     }
 
     #[test]
+    fn wrapped_agent_name_from_runtime_argv_ignores_plain_shell_flags() {
+        assert_eq!(
+            wrapped_agent_name_from_runtime_argv("bash", Some(&["bash".into(), "-lc".into()])),
+            None
+        );
+    }
+        );
+    }
+
+    #[test]
     fn wrapped_agent_name_from_cmdline_ignores_plain_shell_flags() {
         assert_eq!(
             script_arg_agent_name(&["bash".to_string(), "-lc".to_string()], &["-c"], &[]),
             None
+        );
+    }
+
+    #[test]
+    fn identify_agent_in_job_ignores_python_c_argument_named_codex() {
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 123,
+            processes: vec![foreground_process(
+                1,
+                "python3",
+                &["python3", "-c", "import time; time.sleep(60)", "/tmp/codex"],
+            )],
+        };
+
+        assert_eq!(identify_agent_in_job(&job), None);
+    }
+
+    #[test]
+    fn identify_agent_in_job_ignores_node_eval_argument_named_codex() {
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 123,
+            processes: vec![foreground_process(
+                1,
+                "node",
+                &["node", "-e", "setTimeout(() => {}, 60000)", "/tmp/codex"],
+            )],
+        };
+
+        assert_eq!(identify_agent_in_job(&job), None);
+    }
+
+    #[test]
+    fn identify_agent_in_job_ignores_shell_c_argument_named_codex() {
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 123,
+            processes: vec![foreground_process(
+                1,
+                "bash",
+                &["bash", "-c", "sleep 60", "/tmp/codex"],
+            )],
+        };
+
+        assert_eq!(identify_agent_in_job(&job), None);
+    }
+
+    #[test]
+    fn identify_agent_in_job_detects_python_script_named_codex() {
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 123,
+            processes: vec![foreground_process(
+                1,
+                "python3",
+                &["python3", "/tmp/codex", "--model", "gpt-5"],
+            )],
+        };
+
+        assert_eq!(
+            identify_agent_in_job(&job),
+            Some((Agent::Codex, "codex".to_string()))
+        );
+    }
         );
     }
 
