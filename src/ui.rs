@@ -414,6 +414,9 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         render_right_sidebar(app, frame, right_sidebar_area);
     }
 
+    // Ambient notifications sit above panes, but below interactive overlays.
+    render_notifications(app, frame, terminal_area);
+
     match app.mode {
         Mode::Onboarding => render_onboarding_overlay(app, frame, frame.area()),
         Mode::ReleaseNotes => render_release_notes_overlay(app, frame, frame.area()),
@@ -443,8 +446,9 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         Mode::CommandPalette => render_command_palette_overlay(app, frame),
         Mode::Terminal => {}
     }
+}
 
-    // Notifications (rendered on top of everything)
+fn render_notifications(app: &AppState, frame: &mut Frame, terminal_area: Rect) {
     let has_config_diagnostic = app.config_diagnostic.is_some();
     if let Some(message) = &app.config_diagnostic {
         render_config_diagnostic(frame, terminal_area, message, &app.palette);
@@ -820,6 +824,47 @@ mod tests {
             buffer[(divider_x, 1)].style().fg,
             Some(app.palette.overlay0)
         );
+    }
+
+    #[test]
+    fn product_announcement_renders_above_config_diagnostic() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("one")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::ProductAnnouncement;
+        app.product_announcement = Some(crate::app::state::ProductAnnouncementState {
+            version: "0.6.0".into(),
+            id: "keybinding-v2".into(),
+            title: "Keybinding syntax changed".into(),
+            body: "### Update\n- Body".into(),
+            scroll: 0,
+            preview: false,
+        });
+        app.config_diagnostic = Some(
+            "unsafe direct keybinding: keys.new_workspace = \"n\"\nunsafe direct keybinding: keys.new_tab = \"c\""
+                .into(),
+        );
+
+        let area = Rect::new(0, 0, 44, 20);
+        compute_view(&mut app, area);
+
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+
+        let popup = centered_popup_rect(
+            area,
+            PRODUCT_ANNOUNCEMENT_MODAL_SIZE.0,
+            PRODUCT_ANNOUNCEMENT_MODAL_SIZE.1,
+        )
+        .expect("announcement popup");
+        let title_row = popup.y + 1;
+        let row = buffer_row_text(buffer, Rect::new(0, title_row, area.width, 1), title_row);
+
+        assert!(row.contains("Keybinding syntax changed"));
+        assert!(!row.contains("config warning"));
     }
 
     #[test]
