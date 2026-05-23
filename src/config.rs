@@ -19,7 +19,7 @@ pub use self::{
     },
     model::{
         validated_sidebar_bounds, AgentPanelScopeConfig, Config, ConfigReloadReport,
-        ConfigReloadStatus, ToastConfig, ToastDelivery,
+        ConfigReloadStatus, NewTerminalCwdConfig, ToastConfig, ToastDelivery,
     },
     sound::SoundConfig,
     theme::{parse_color, CustomThemeColors, ThemeConfig, ThemeMode},
@@ -29,6 +29,7 @@ pub(crate) use self::io::upsert_top_level_bool;
 
 pub const CONFIG_PATH_ENV_VAR: &str = "HAKO_CONFIG_PATH";
 pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 10_000_000;
+pub const DEFAULT_MOUSE_SCROLL_LINES: usize = 3;
 
 #[cfg(test)]
 pub(crate) fn app_dir_name() -> &'static str {

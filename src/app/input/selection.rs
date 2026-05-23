@@ -124,7 +124,7 @@ impl AppState {
     }
 
     pub(super) fn scroll_selection_with_wheel(&mut self, mouse: MouseEvent) -> bool {
-        const LINES_PER_NOTCH: usize = 3;
+        let lines_per_notch = self.mouse_scroll_lines;
 
         let Some(selection) = self.selection.as_ref() else {
             return false;
@@ -135,8 +135,8 @@ impl AppState {
         let pane_id = selection.pane_id;
         self.focus_pane(pane_id);
         match mouse.kind {
-            MouseEventKind::ScrollUp => self.scroll_pane_up(pane_id, LINES_PER_NOTCH),
-            MouseEventKind::ScrollDown => self.scroll_pane_down(pane_id, LINES_PER_NOTCH),
+            MouseEventKind::ScrollUp => self.scroll_pane_up(pane_id, lines_per_notch),
+            MouseEventKind::ScrollDown => self.scroll_pane_down(pane_id, lines_per_notch),
             _ => return false,
         }
         self.update_selection_cursor(pane_id, mouse.column, mouse.row);

@@ -83,6 +83,11 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # Empty means $SHELL, then /bin/sh.
 # default_shell = ""
 
+# CWD policy for new panes, tabs, and workspaces when no explicit --cwd is provided.
+# Use "follow" to inherit the source pane/workspace, "home" for $HOME,
+# "current" for Herdr's process directory, or a fixed path such as "~/Projects".
+# new_cwd = "follow"
+
 [keys]
 # Prefix key to enter prefix mode (default: "ctrl+b")
 # Examples: "ctrl+b", "f12", "esc", "-"
@@ -170,6 +175,9 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # Set false to let the terminal handle normal clicks, such as Cmd-clicking URLs.
 # Pane apps like lazygit and btop can still receive mouse when they request it.
 # mouse_capture = true
+
+# Pane scrollback lines to scroll per mouse wheel notch.
+# mouse_scroll_lines = 3
 
 # ask for confirmation before closing a workspace
 # confirm_close = true
