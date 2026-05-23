@@ -1229,6 +1229,7 @@ mod tests {
         assert_eq!(identify_agent("cline"), Some(Agent::Cline));
         assert_eq!(identify_agent("opencode"), Some(Agent::OpenCode));
         assert_eq!(identify_agent("kimi"), Some(Agent::Kimi));
+        assert_eq!(identify_agent("Kimi Code"), Some(Agent::Kimi));
         assert_eq!(identify_agent("kiro"), Some(Agent::Kiro));
         assert_eq!(identify_agent("kiro-cli"), Some(Agent::Kiro));
         assert_eq!(identify_agent("copilot"), Some(Agent::GithubCopilot));
@@ -1249,6 +1250,7 @@ mod tests {
         assert_eq!(parse_agent_label("agy"), Some(Agent::Antigravity));
         assert_eq!(parse_agent_label("antigravity"), Some(Agent::Antigravity));
         assert_eq!(parse_agent_label("copilot"), Some(Agent::GithubCopilot));
+        assert_eq!(parse_agent_label("kimi-code"), Some(Agent::Kimi));
         assert_eq!(
             parse_agent_label("github-copilot"),
             Some(Agent::GithubCopilot)
@@ -2126,7 +2128,7 @@ mod tests {
 
     #[test]
     fn kimi_blocked_approval_prompt_wins_over_spinner() {
-        let screen = "⠋ Using Shell (git log --oneline -10)\nShell is requesting approval to run command:\ngit log --oneline -10\n[1] Approve once\n[2] Approve for this session\n[3] Reject\n[4] Reject, tell the model what to do instead\n1/2/3/4 choose  ↵ confirm";
+        let screen = "⠋ Using Shell (git log --oneline -10)\n╭─ approval ─╮\nShell is requesting approval to run command:\ngit log --oneline -10\n→ [1] Approve once\n[2] Approve for this session\n[3] Reject\n[4] Reject, tell the model what to do instead\n▲/▼ select  1/2/3/4 choose  ↵ confirm";
         assert_eq!(detect_kimi(screen), AgentState::Blocked);
     }
 
@@ -2156,18 +2158,30 @@ mod tests {
     fn kimi_working_moon_spinner() {
         assert_eq!(detect_kimi("🌕"), AgentState::Working);
         assert_eq!(detect_kimi("🌗"), AgentState::Working);
+        assert_eq!(detect_kimi("🌘"), AgentState::Working);
+    }
+
+    #[test]
+    fn kimi_working_moon_spinner_above_input_box() {
+        let screen = "✨ yo\n\n🌗\n\n── input ─────────────────────────";
+        assert_eq!(detect_kimi(screen), AgentState::Working);
     }
 
     #[test]
     fn kimi_old_transcript_words_stay_idle() {
         assert_eq!(detect_kimi("thinking"), AgentState::Idle);
         assert_eq!(detect_kimi("generating code"), AgentState::Idle);
+        assert_eq!(
+            detect_kimi("Used Shell (git log --oneline -10)"),
+            AgentState::Idle
+        );
         assert_eq!(detect_kimi("some 🌕 in prose"), AgentState::Idle);
     }
 
     #[test]
     fn kimi_idle() {
-        assert_eq!(detect_kimi("> "), AgentState::Idle);
+        let screen = "Welcome to Kimi Code CLI!\n── input ─\n────────────────\nagent (Kimi-k2.6 ●)  ~/Projects/herdr";
+        assert_eq!(detect_kimi(screen), AgentState::Idle);
     }
 
     // ---- Kiro ----
