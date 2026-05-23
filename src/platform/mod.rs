@@ -11,6 +11,7 @@ pub struct ForegroundProcess {
     pub name: String,
     pub argv0: Option<String>,
     pub cmdline: Option<String>,
+    pub argv: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

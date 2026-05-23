@@ -71,7 +71,7 @@ pub fn parse_agent_label(agent: &str) -> Option<Agent> {
         "cline" => Some(Agent::Cline),
         "opencode" | "open-code" => Some(Agent::OpenCode),
         "copilot" | "github-copilot" | "ghcs" => Some(Agent::GithubCopilot),
-        "kimi" => Some(Agent::Kimi),
+        "kimi" | "kimi-code" | "kimi code" => Some(Agent::Kimi),
         "kiro" | "kiro-cli" => Some(Agent::Kiro),
         "droid" => Some(Agent::Droid),
         "amp" | "amp-local" => Some(Agent::Amp),
@@ -97,7 +97,7 @@ pub fn identify_agent(process_name: &str) -> Option<Agent> {
         "cline" => Some(Agent::Cline),
         "opencode" | "open-code" => Some(Agent::OpenCode),
         "copilot" | "github-copilot" | "ghcs" => Some(Agent::GithubCopilot),
-        "kimi" => Some(Agent::Kimi),
+        "kimi" | "kimi-code" | "kimi code" => Some(Agent::Kimi),
         "kiro" | "kiro-cli" => Some(Agent::Kiro),
         "droid" => Some(Agent::Droid),
         "amp" | "amp-local" => Some(Agent::Amp),
@@ -371,16 +371,18 @@ fn detect_opencode(content: &str) -> AgentState {
 fn detect_github_copilot(content: &str) -> AgentState {
     let lower = content.to_lowercase();
 
-    // Blocked
-    if lower.contains("│ do you want") {
-        return AgentState::Blocked;
-    }
-    if lower.contains("confirm with") && lower.contains("enter") {
+    if lower.contains("esc to cancel")
+        && (lower.contains("enter to select")
+            || lower.contains("enter to confirm")
+            || lower.contains("enter to submit"))
+    {
         return AgentState::Blocked;
     }
 
-    // Working
-    if lower.contains("esc to cancel") {
+    if lower.contains("esc to cancel")
+        || lower.contains("esc cancel")
+        || lower.contains("esc again to cancel")
+    {
         return AgentState::Working;
     }
 
@@ -388,40 +390,67 @@ fn detect_github_copilot(content: &str) -> AgentState {
 }
 
 fn detect_kimi(content: &str) -> AgentState {
-    let lower = content.to_lowercase();
-
-    // Blocked
-    if lower.contains("allow?")
-        || lower.contains("confirm?")
-        || lower.contains("approve?")
-        || lower.contains("proceed?")
-        || lower.contains("[y/n]")
-        || lower.contains("(y/n)")
-    {
+    if has_kimi_blocked_prompt(content) {
         return AgentState::Blocked;
     }
 
-    // Working
-    if lower.contains("thinking")
-        || lower.contains("processing")
-        || lower.contains("generating")
-        || lower.contains("waiting for response")
-        || lower.contains("ctrl+c to cancel")
-        || lower.contains("ctrl-c to cancel")
-    {
+    if has_kimi_working_status(content) {
         return AgentState::Working;
     }
 
     AgentState::Idle
 }
 
+fn has_kimi_blocked_prompt(content: &str) -> bool {
+    let lower = content.to_lowercase();
+    lower.contains("requesting approval")
+        && (lower.contains("approve once") || lower.contains("approve for this session"))
+        && lower.contains("reject")
+        && (lower.contains("1/2/3/4 choose") || lower.contains("↵ confirm"))
+}
+
+fn has_kimi_working_status(content: &str) -> bool {
+    content.lines().any(|line| {
+        let trimmed = line.trim();
+        if matches!(
+            trimmed,
+            "🌕" | "🌖" | "🌗" | "🌘" | "🌑" | "🌒" | "🌓" | "🌔"
+        ) {
+            return true;
+        }
+
+        let mut chars = trimmed.chars();
+        let Some(first) = chars.next() else {
+            return false;
+        };
+        if !('\u{2800}'..='\u{28FF}').contains(&first) {
+            return false;
+        }
+
+        let rest = chars
+            .as_str()
+            .trim_start_matches(|c| ('\u{2800}'..='\u{28FF}').contains(&c))
+            .trim_start()
+            .to_lowercase();
+        rest.starts_with("thinking...") || rest.starts_with("using ")
+    })
+}
+
 /// Kiro CLI detection.
 ///
-/// Kiro exposes reliable working and idle terminal markers. Confirmation
-/// prompts currently render as normal inline conversation followed by the input
-/// prompt, so they are intentionally treated as idle instead of guessing.
+/// Kiro exposes reliable working and idle terminal markers. Tool approval
+/// prompts render with a stable "requires approval" line and an action menu.
 fn detect_kiro(content: &str) -> AgentState {
     let lower = content.to_lowercase();
+
+    let has_approval_request = lower.contains("requires approval");
+    let has_approval_actions = lower.contains("yes, single permission")
+        || lower.contains("trust, always allow")
+        || lower.contains("no (tab to edit)")
+        || lower.contains("esc to close");
+    if has_approval_request && has_approval_actions {
+        return AgentState::Blocked;
+    }
 
     if lower.contains("kiro is working")
         || (lower.contains("esc to cancel") && has_kiro_tool_spinner(content))
@@ -855,7 +884,7 @@ fn normalized_process_name(process: &crate::platform::ForegroundProcess) -> Stri
 
     if is_generic_runtime_or_shell(&lower_effective) {
         if let Some(wrapped_agent) =
-            wrapped_agent_name_from_cmdline(process.cmdline.as_deref().unwrap_or_default())
+            wrapped_agent_name_from_runtime_argv(&lower_effective, process.argv.as_deref())
         {
             return wrapped_agent;
         }
@@ -865,8 +894,8 @@ fn normalized_process_name(process: &crate::platform::ForegroundProcess) -> Stri
         return effective.to_string();
     }
 
-    if let Some(wrapped_agent) =
-        cmdline_argv0_agent_name(process.cmdline.as_deref().unwrap_or_default())
+    if let Some(wrapped_agent) = argv0_agent_name(process.argv.as_deref())
+        .or_else(|| cmdline_argv0_agent_name(process.cmdline.as_deref().unwrap_or_default()))
     {
         return wrapped_agent;
     }
@@ -874,14 +903,87 @@ fn normalized_process_name(process: &crate::platform::ForegroundProcess) -> Stri
     effective.to_string()
 }
 
-fn wrapped_agent_name_from_cmdline(cmdline: &str) -> Option<String> {
-    for token in cmdline.split_whitespace() {
-        if let Some(agent_name) = agent_name_from_path_token(token) {
-            return Some(agent_name);
+fn wrapped_agent_name_from_runtime_argv(runtime: &str, argv: Option<&[String]>) -> Option<String> {
+    let argv = argv?;
+    let runtime = path_basename(runtime).to_lowercase();
+
+    match runtime.as_str() {
+        "node" | "bun" => script_arg_agent_name(argv, &["-e", "--eval", "-p", "--print"], &[]),
+        "python" | "python3" => script_arg_agent_name(argv, &["-c"], &["-m"]),
+        "sh" | "bash" | "zsh" | "fish" => script_arg_agent_name(argv, &["-c"], &[]),
+        "tmux" => None,
+        _ => None,
+    }
+}
+
+fn script_arg_agent_name(
+    argv: &[String],
+    eval_flags: &[&str],
+    module_flags: &[&str],
+) -> Option<String> {
+    let mut args = argv.iter().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--" {
+            return args
+                .next()
+                .and_then(|token| agent_name_from_path_token(token));
         }
+
+        if flag_matches(arg, eval_flags) || flag_matches(arg, module_flags) {
+            return None;
+        }
+
+        if arg.starts_with('-') {
+            if option_takes_value(arg) {
+                let _ = args.next();
+            }
+            continue;
+        }
+
+        return agent_name_from_path_token(arg);
     }
 
     None
+}
+
+fn flag_matches(arg: &str, flags: &[&str]) -> bool {
+    flags
+        .iter()
+        .any(|flag| arg == *flag || short_flag_payload(arg, flag) || long_flag_value(arg, flag))
+}
+
+fn short_flag_payload(arg: &str, flag: &str) -> bool {
+    flag.starts_with('-')
+        && !flag.starts_with("--")
+        && arg.starts_with(flag)
+        && arg.len() > flag.len()
+}
+
+fn long_flag_value(arg: &str, flag: &str) -> bool {
+    flag.starts_with("--")
+        && arg
+            .strip_prefix(flag)
+            .is_some_and(|rest| rest.starts_with('='))
+}
+
+fn option_takes_value(arg: &str) -> bool {
+    matches!(
+        arg,
+        "-r" | "--require"
+            | "--loader"
+            | "--import"
+            | "--experimental-loader"
+            | "--inspect-port"
+            | "-W"
+            | "-X"
+            | "-S"
+            | "-L"
+            | "-o"
+    )
+}
+
+fn argv0_agent_name(argv: Option<&[String]>) -> Option<String> {
+    agent_name_from_path_token(argv?.first()?)
 }
 
 fn cmdline_argv0_agent_name(cmdline: &str) -> Option<String> {
@@ -894,12 +996,31 @@ fn agent_name_from_path_token(token: &str) -> Option<String> {
         return None;
     }
 
-    let basename = std::path::Path::new(trimmed)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(trimmed);
+    agent_name_from_basename(path_basename(trimmed))
+        .or_else(|| resolved_agent_name_from_path_token(trimmed))
+}
+
+fn resolved_agent_name_from_path_token(token: &str) -> Option<String> {
+    let path = std::path::Path::new(token);
+    if path.components().count() < 2 {
+        return None;
+    }
+
+    let resolved = std::fs::canonicalize(path).ok()?;
+    let basename = resolved.file_name()?.to_str()?;
+    agent_name_from_basename(basename)
+}
+
+fn agent_name_from_basename(basename: &str) -> Option<String> {
     let agent = parse_agent_label(basename)?;
     Some(agent_label(agent).to_string())
+}
+
+fn path_basename(path: &str) -> &str {
+    std::path::Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(path)
 }
 
 fn process_priority(process: &crate::platform::ForegroundProcess, normalized_name: &str) -> u8 {
@@ -1013,12 +1134,14 @@ mod tests {
                     name: "node".to_string(),
                     argv0: None,
                     cmdline: Some("node /path/to/bin/codex".to_string()),
+                    argv: Some(vec!["node".to_string(), "/path/to/bin/codex".to_string()]),
                 },
                 crate::platform::ForegroundProcess {
                     pid: 2,
                     name: "bash".to_string(),
                     argv0: None,
                     cmdline: Some("bash".to_string()),
+                    argv: None,
                 },
             ],
         };
@@ -1039,12 +1162,14 @@ mod tests {
                     name: "claude".to_string(),
                     argv0: None,
                     cmdline: Some("claude".to_string()),
+                    argv: None,
                 },
                 crate::platform::ForegroundProcess {
                     pid: 43,
                     name: "node".to_string(),
                     argv0: None,
                     cmdline: Some("node /tmp/mcp/bin/codex".to_string()),
+                    argv: Some(vec!["node".to_string(), "/tmp/mcp/bin/codex".to_string()]),
                 },
             ],
         };
@@ -1065,12 +1190,14 @@ mod tests {
                     name: "bash".to_string(),
                     argv0: None,
                     cmdline: Some("bash".to_string()),
+                    argv: None,
                 },
                 crate::platform::ForegroundProcess {
                     pid: 43,
                     name: "node".to_string(),
                     argv0: None,
                     cmdline: Some("node /tmp/mcp/bin/codex".to_string()),
+                    argv: Some(vec!["node".to_string(), "/tmp/mcp/bin/codex".to_string()]),
                 },
             ],
         };
@@ -1090,6 +1217,7 @@ mod tests {
                 name: ".codex-wrapped".to_string(),
                 argv0: None,
                 cmdline: Some("/etc/profiles/per-user/user/bin/codex --model gpt-5".to_string()),
+                argv: None,
             }],
         };
 
@@ -1108,6 +1236,7 @@ mod tests {
                 name: ".claude-code-wrapped".to_string(),
                 argv0: None,
                 cmdline: Some("/nix/store/example/bin/claude-code".to_string()),
+                argv: None,
             }],
         };
 
@@ -1126,6 +1255,7 @@ mod tests {
                 name: "sh".to_string(),
                 argv0: None,
                 cmdline: Some("/bin/sh /tmp/test-bin/pi".to_string()),
+                argv: Some(vec!["/bin/sh".to_string(), "/tmp/test-bin/pi".to_string()]),
             }],
         };
 
@@ -1144,6 +1274,7 @@ mod tests {
                 name: "sh".to_string(),
                 argv0: None,
                 cmdline: Some("/bin/sh /tmp/test-bin/omp".to_string()),
+                argv: Some(vec!["/bin/sh".to_string(), "/tmp/test-bin/omp".to_string()]),
             }],
         };
 
@@ -1155,7 +1286,10 @@ mod tests {
 
     #[test]
     fn wrapped_agent_name_from_cmdline_ignores_plain_shell_flags() {
-        assert_eq!(wrapped_agent_name_from_cmdline("bash -lc"), None);
+        assert_eq!(
+            script_arg_agent_name(&["bash".to_string(), "-lc".to_string()], &["-c"], &[]),
+            None
+        );
     }
 
     #[test]
@@ -1630,23 +1764,29 @@ mod tests {
     // ---- GitHub Copilot ----
 
     #[test]
-    fn copilot_waiting_confirm() {
-        assert_eq!(
-            detect_github_copilot("confirm with enter"),
-            AgentState::Blocked
-        );
+    fn copilot_waiting_fetch_approval() {
+        let content = "Do you want to allow this access?\n❯ 1. Yes\n  2. No\n↑/↓ to navigate · enter to select · esc to cancel";
+        assert_eq!(detect_github_copilot(content), AgentState::Blocked);
     }
 
     #[test]
-    fn copilot_waiting_do_you_want() {
-        assert_eq!(
-            detect_github_copilot("│ do you want to apply?"),
-            AgentState::Blocked
-        );
+    fn copilot_waiting_directory_permission() {
+        let content = "Requesting permission to access directory 'src/'. Allow?\n❯ 1. Yes (Allow)\n  2. No (Deny)\n↑/↓ to select · enter to confirm · esc to cancel";
+        assert_eq!(detect_github_copilot(content), AgentState::Blocked);
     }
 
     #[test]
-    fn copilot_working() {
+    fn copilot_waiting_freeform_input() {
+        let content = "Enter the name for the new branch:\n❯ Type your answer...\nenter to submit · esc to cancel";
+        assert_eq!(detect_github_copilot(content), AgentState::Blocked);
+    }
+
+    #[test]
+    fn copilot_working_thinking_spinner() {
+        assert_eq!(
+            detect_github_copilot("○ Thinking esc cancel"),
+            AgentState::Working
+        );
         assert_eq!(
             detect_github_copilot("generating\nesc to cancel"),
             AgentState::Working
@@ -1661,23 +1801,44 @@ mod tests {
     // ---- Kimi ----
 
     #[test]
-    fn kimi_waiting_approve() {
-        assert_eq!(detect_kimi("approve?"), AgentState::Blocked);
+    fn kimi_blocked_approval_prompt_wins_over_spinner() {
+        let screen = "⠋ Using Shell (git log --oneline -10)\nShell is requesting approval to run command:\ngit log --oneline -10\n[1] Approve once\n[2] Approve for this session\n[3] Reject\n[4] Reject, tell the model what to do instead\n1/2/3/4 choose  ↵ confirm";
+        assert_eq!(detect_kimi(screen), AgentState::Blocked);
     }
 
     #[test]
-    fn kimi_waiting_yn() {
-        assert_eq!(detect_kimi("continue? [y/n]"), AgentState::Blocked);
+    fn kimi_approval_words_without_prompt_stay_idle() {
+        assert_eq!(detect_kimi("approve?"), AgentState::Idle);
+        assert_eq!(detect_kimi("continue? [y/n]"), AgentState::Idle);
     }
 
     #[test]
-    fn kimi_working_thinking() {
-        assert_eq!(detect_kimi("thinking"), AgentState::Working);
+    fn kimi_working_braille_thinking() {
+        assert_eq!(
+            detect_kimi("⠦ Thinking... <1s · 19 tokens"),
+            AgentState::Working
+        );
     }
 
     #[test]
-    fn kimi_working_generating() {
-        assert_eq!(detect_kimi("generating code"), AgentState::Working);
+    fn kimi_working_braille_using_tool() {
+        assert_eq!(
+            detect_kimi("⠹ Using Shell (git log -20 --name-status)"),
+            AgentState::Working
+        );
+    }
+
+    #[test]
+    fn kimi_working_moon_spinner() {
+        assert_eq!(detect_kimi("🌕"), AgentState::Working);
+        assert_eq!(detect_kimi("🌗"), AgentState::Working);
+    }
+
+    #[test]
+    fn kimi_old_transcript_words_stay_idle() {
+        assert_eq!(detect_kimi("thinking"), AgentState::Idle);
+        assert_eq!(detect_kimi("generating code"), AgentState::Idle);
+        assert_eq!(detect_kimi("some 🌕 in prose"), AgentState::Idle);
     }
 
     #[test]
@@ -1703,6 +1864,12 @@ mod tests {
     fn kiro_idle_at_prompt() {
         let screen = "● 1 MCP failure — see /mcp\n──────────────────────────────────────────────────────────────────────────────────────\nKiro · auto · ◔ 6%                                                                   ~\n\n ask a question or describe a task ↵\n                                                                   /copy to clipboard";
         assert_eq!(detect_state(Some(Agent::Kiro), screen), AgentState::Idle);
+    }
+
+    #[test]
+    fn kiro_blocked_on_tool_approval_prompt() {
+        let screen = "shell requires approval\n ❯ Yes, single permission\n   Trust, always allow in this session\n   No (Tab to edit)\n ESC to close | Tab to edit";
+        assert_eq!(detect_state(Some(Agent::Kiro), screen), AgentState::Blocked);
     }
 
     #[test]
