@@ -2247,7 +2247,7 @@ mod tests {
 
     #[test]
     fn kiro_blocked_on_tool_approval_prompt() {
-        let screen = "shell requires approval\n ❯ Yes, single permission\n   Trust, always allow in this session\n   No (Tab to edit)\n ESC to close | Tab to edit";
+        let screen = "↓ Shell mkdir -p /tmp/test-kiro-{a,b,c} && ls /tmp/test-kiro-*\n\n─────────────────────────────────────────────────────────────────────────────────────────\n shell requires approval\n ❯ Yes, single permission\n   Trust, always allow in this session\n   No (Tab to edit)\n─────────────────────────────────────────────────────────────────────────────────────────\n ESC to close | Tab to edit";
         assert_eq!(detect_state(Some(Agent::Kiro), screen), AgentState::Blocked);
     }
 
