@@ -993,7 +993,7 @@ fn status_commands_report_client_and_server_versions() {
         "stdout: {full_stdout}"
     );
     assert!(
-        full_stdout.contains("  protocol: 8"),
+        full_stdout.contains("  protocol: 9"),
         "stdout: {full_stdout}"
     );
     assert!(full_stdout.contains("server:\n"), "stdout: {full_stdout}");
@@ -1026,7 +1026,7 @@ fn status_commands_report_client_and_server_versions() {
         "stdout: {server_stdout}"
     );
     assert!(
-        server_stdout.contains("protocol: 8"),
+        server_stdout.contains("protocol: 9"),
         "stdout: {server_stdout}"
     );
 
@@ -1038,7 +1038,7 @@ fn status_commands_report_client_and_server_versions() {
         "stdout: {client_stdout}"
     );
     assert!(
-        client_stdout.contains("protocol: 8"),
+        client_stdout.contains("protocol: 9"),
         "stdout: {client_stdout}"
     );
     assert!(

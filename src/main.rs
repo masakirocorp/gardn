@@ -85,7 +85,7 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 
 # CWD policy for new panes, tabs, and workspaces when no explicit --cwd is provided.
 # Use "follow" to inherit the source pane/workspace, "home" for $HOME,
-# "current" for Herdr's process directory, or a fixed path such as "~/Projects".
+# "current" for Hako's process directory, or a fixed path such as "~/Projects".
 # new_cwd = "follow"
 
 [keys]
@@ -416,6 +416,8 @@ fn main() -> io::Result<()> {
         println!("  --no-session        run monolithically (no server/client, escape hatch)");
         println!("  --session <name>    use or create a named persistent session");
         println!("  --remote <target>   attach through ssh to a remote hako server");
+        println!("  --remote-keybindings <local|server>");
+        println!("                      keybindings for --remote app attach (default: local)");
         println!("  --default-config    print default configuration and exit");
         println!("  --version, -V       print version and exit");
         println!("  --help, -h          show this help");
@@ -442,6 +444,7 @@ fn main() -> io::Result<()> {
         "--no-session",
         "--session",
         "--remote",
+        "--remote-keybindings",
         "--version",
         "-V",
         "--default-config",
@@ -449,7 +452,8 @@ fn main() -> io::Result<()> {
         "-h",
     ];
     for arg in &args[1..] {
-        if arg.starts_with('-') && !known_flags.contains(&arg.as_str()) {
+        let arg_name = arg.split_once('=').map(|(name, _)| name).unwrap_or(arg);
+        if arg.starts_with('-') && !known_flags.contains(&arg_name) {
             eprintln!("unknown option: {arg}");
             eprintln!("run 'hako --help' for usage");
             std::process::exit(1);
