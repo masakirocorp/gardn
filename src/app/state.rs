@@ -6,6 +6,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Direction, Rect};
 use ratatui::style::Color;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::layout::{PaneId, PaneInfo, SplitBorder};
@@ -1219,6 +1220,7 @@ pub struct AppState {
     pub default_shell: String,
     pub new_terminal_cwd: NewTerminalCwdConfig,
     pub pane_scrollback_limit_bytes: usize,
+    pub worktree_directory: PathBuf,
     #[allow(dead_code)] // kept for backward compat; palette.accent is the source of truth
     pub accent: Color,
     pub sound: SoundConfig,
@@ -1734,6 +1736,7 @@ impl AppState {
             default_shell: String::new(),
             new_terminal_cwd: NewTerminalCwdConfig::Follow,
             pane_scrollback_limit_bytes: crate::config::DEFAULT_SCROLLBACK_LIMIT_BYTES,
+            worktree_directory: PathBuf::from("/tmp/hako-worktrees"),
             accent: Color::Cyan,
             sound: SoundConfig {
                 enabled: false,

@@ -40,6 +40,14 @@ pub enum Method {
     WorkspaceClose(WorkspaceTarget),
     #[serde(rename = "workspace.move_to_group")]
     WorkspaceMoveToGroup(WorkspaceMoveToGroupParams),
+    #[serde(rename = "worktree.list")]
+    WorktreeList(WorktreeListParams),
+    #[serde(rename = "worktree.create")]
+    WorktreeCreate(WorktreeCreateParams),
+    #[serde(rename = "worktree.open")]
+    WorktreeOpen(WorktreeOpenParams),
+    #[serde(rename = "worktree.remove")]
+    WorktreeRemove(WorktreeRemoveParams),
     #[serde(rename = "tab.create")]
     TabCreate(TabCreateParams),
     #[serde(rename = "tab.list")]
@@ -159,6 +167,55 @@ pub struct WorkspaceMoveToGroupParams {
 pub struct WorkspaceRenameParams {
     pub workspace_id: String,
     pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct WorktreeListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct WorktreeCreateParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub focus: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct WorktreeOpenParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub focus: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorktreeRemoveParams {
+    pub workspace_id: String,
+    #[serde(default)]
+    pub force: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -354,6 +411,10 @@ pub struct EventsSubscribeParams {
 pub enum Subscription {
     #[serde(rename = "workspace.created")]
     WorkspaceCreated {},
+    #[serde(rename = "workspace.updated")]
+    WorkspaceUpdated {},
+    #[serde(rename = "workspace.renamed")]
+    WorkspaceRenamed {},
     #[serde(rename = "workspace.closed")]
     WorkspaceClosed {},
     #[serde(rename = "workspace.focused")]
@@ -449,6 +510,9 @@ pub enum EventMatch {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         workspace_id: Option<String>,
     },
+    WorkspaceUpdated {
+        workspace_id: String,
+    },
     WorkspaceClosed {
         workspace_id: String,
     },
@@ -512,6 +576,7 @@ pub enum EventMatch {
 #[serde(rename_all = "snake_case")]
 pub enum EventKind {
     WorkspaceCreated,
+    WorkspaceUpdated,
     WorkspaceClosed,
     WorkspaceRenamed,
     WorkspaceFocused,
@@ -563,6 +628,28 @@ pub enum ResponseResult {
     },
     WorkspaceList {
         workspaces: Vec<WorkspaceInfo>,
+    },
+    WorktreeList {
+        source: WorktreeSourceInfo,
+        worktrees: Vec<WorktreeInfo>,
+    },
+    WorktreeCreated {
+        workspace: WorkspaceInfo,
+        tab: TabInfo,
+        root_pane: PaneInfo,
+        worktree: WorktreeInfo,
+    },
+    WorktreeOpened {
+        workspace: WorkspaceInfo,
+        tab: TabInfo,
+        root_pane: PaneInfo,
+        worktree: WorktreeInfo,
+        already_open: bool,
+    },
+    WorktreeRemoved {
+        workspace_id: String,
+        path: String,
+        forced: bool,
     },
     GroupInfo {
         group: GroupInfo,
@@ -635,6 +722,41 @@ pub struct WorkspaceInfo {
     pub tab_count: usize,
     pub active_tab_id: String,
     pub agent_status: AgentStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<WorkspaceWorktreeInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceWorktreeInfo {
+    pub repo_key: String,
+    pub repo_name: String,
+    pub repo_root: String,
+    pub checkout_path: String,
+    pub is_linked_worktree: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorktreeSourceInfo {
+    pub repo_key: String,
+    pub repo_name: String,
+    pub repo_root: String,
+    pub source_checkout_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_workspace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorktreeInfo {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    pub is_bare: bool,
+    pub is_detached: bool,
+    pub is_prunable: bool,
+    pub is_linked_worktree: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_workspace_id: Option<String>,
+    pub label: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -765,6 +887,9 @@ pub struct PaneAgentStatusChangedEvent {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EventData {
     WorkspaceCreated {
+        workspace: WorkspaceInfo,
+    },
+    WorkspaceUpdated {
         workspace: WorkspaceInfo,
     },
     WorkspaceClosed {

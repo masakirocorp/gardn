@@ -15,6 +15,7 @@ use crate::api::schema::{
     WorkspaceTarget,
 };
 
+mod worktree;
 pub enum CommandOutcome {
     Handled(i32),
     NotCli,
@@ -36,6 +37,7 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
         "group" => run_group_command(&args[2..])?,
         "config" => run_config_command(&args[2..])?,
         "workspace" => run_workspace_command(&args[2..])?,
+        "worktree" => worktree::run_worktree_command(&args[2..])?,
         "tab" => run_tab_command(&args[2..])?,
         "agent" => run_agent_command(&args[2..])?,
         "terminal" => run_terminal_command(&args[2..])?,

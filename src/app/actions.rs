@@ -1425,6 +1425,10 @@ impl AppState {
                 ws.cached_git_work_summary = result.work_summary;
                 changed = true;
             }
+            if ws.cached_git_space != result.space {
+                ws.cached_git_space = result.space;
+                changed = true;
+            }
         }
         changed
     }
@@ -2225,6 +2229,7 @@ mod tests {
                     modified: 2,
                     ..GitWorkSummary::default()
                 }),
+                space: None,
             }],
         );
 
@@ -2257,6 +2262,7 @@ mod tests {
                     added: 1,
                     ..GitWorkSummary::default()
                 }),
+                space: None,
             }],
         );
 
@@ -2289,6 +2295,7 @@ mod tests {
                 branch: None,
                 ahead_behind: None,
                 work_summary: None,
+                space: None,
             }],
         );
 

@@ -1215,7 +1215,7 @@ mod tests {
 
     fn temp_detection_path(name: &str) -> std::path::PathBuf {
         let unique = format!(
-            "herdr-detect-tests-{}-{}-{}",
+            "hako-detect-tests-{}-{}-{}",
             name,
             std::process::id(),
             std::time::SystemTime::now()
@@ -1426,8 +1426,6 @@ mod tests {
             None
         );
     }
-        );
-    }
 
     #[test]
     fn wrapped_agent_name_from_cmdline_ignores_plain_shell_flags() {
@@ -1493,8 +1491,6 @@ mod tests {
         assert_eq!(
             identify_agent_in_job(&job),
             Some((Agent::Codex, "codex".to_string()))
-        );
-    }
         );
     }
 
@@ -2372,7 +2368,7 @@ mod tests {
 
     #[test]
     fn kimi_idle() {
-        let screen = "Welcome to Kimi Code CLI!\n── input ─\n────────────────\nagent (Kimi-k2.6 ●)  ~/Projects/herdr";
+        let screen = "Welcome to Kimi Code CLI!\n── input ─\n────────────────\nagent (Kimi-k2.6 ●)  ~/Projects/hako";
         assert_eq!(detect_kimi(screen), AgentState::Idle);
     }
 

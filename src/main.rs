@@ -52,6 +52,7 @@ mod terminal_theme;
 mod ui;
 mod update;
 mod workspace;
+mod worktree;
 
 fn init_logging() {
     crate::logging::init_file_logging("hako.log");
@@ -354,6 +355,7 @@ fn main() -> io::Result<()> {
         println!("       hako server reload-config");
         println!("       hako config <subcommand> ...");
         println!("       hako workspace <subcommand> ...");
+        println!("       hako worktree <subcommand> ...");
         println!("       hako tab <subcommand> ...");
         println!("       hako agent <subcommand> ...");
         println!("       hako pane <subcommand> ...");
@@ -384,6 +386,10 @@ fn main() -> io::Result<()> {
             (
                 "hako workspace <subcommand>",
                 "workspace helpers over the socket api",
+            ),
+            (
+                "hako worktree <subcommand>",
+                "git worktree helpers over the socket api",
             ),
             ("hako tab <subcommand>", "tab helpers over the socket api"),
             (
@@ -468,6 +474,7 @@ fn main() -> io::Result<()> {
                 "status",
                 "config",
                 "workspace",
+                "worktree",
                 "pane",
                 "wait",
                 "session",

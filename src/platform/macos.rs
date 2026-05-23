@@ -37,6 +37,7 @@ pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
             name,
             argv0: process_argv0_name(pid),
             cmdline: process_cmdline(pid),
+            argv: None,
         });
     }
 
@@ -231,7 +232,7 @@ pub fn read_clipboard_image() -> Option<ClipboardImage> {
     }
 
     let bytes = match std::fs::File::open(&path).ok().and_then(|file| {
-        read_limited_reader(file, crate::server::protocol::MAX_CLIPBOARD_IMAGE_PAYLOAD).ok()
+        read_limited_reader(file, crate::protocol::MAX_CLIPBOARD_IMAGE_PAYLOAD).ok()
     }) {
         Some(LimitedRead::Complete(bytes)) => bytes,
         Some(LimitedRead::Empty | LimitedRead::Oversized) | None => {

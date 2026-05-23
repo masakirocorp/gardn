@@ -863,7 +863,6 @@ mod tests {
                 argv0: Some("zsh".to_string()),
                 argv: Some(vec!["zsh".to_string()]),
                 cmdline: Some("zsh".to_string()),
-                argv: None,
             }],
         }
     }
@@ -1104,7 +1103,6 @@ mod tests {
                     "--resume".to_string(),
                 ]),
                 cmdline: Some("/opt/factory/droid --resume".to_string()),
-                argv: None,
             }],
         };
         assert!(foreground_job_uses_droid_scrollback_compat(&name_only));
@@ -1121,7 +1119,6 @@ mod tests {
                     "--resume".to_string(),
                 ]),
                 cmdline: Some("/home/can/.local/bin/droid --resume".to_string()),
-                argv: None,
             }],
         };
         assert!(foreground_job_uses_droid_scrollback_compat(&cmdline_only));
@@ -1146,7 +1143,6 @@ mod tests {
                 argv0: Some("droid".to_string()),
                 argv: Some(vec!["droid".to_string()]),
                 cmdline: Some("droid".to_string()),
-                argv: None,
             }],
         };
 
@@ -1190,7 +1186,6 @@ mod tests {
                     argv0: Some("droid".to_string()),
                     argv: Some(vec!["droid".to_string()]),
                     cmdline: Some("droid".to_string()),
-                    argv: None,
                 }],
             }),
         ));
