@@ -400,6 +400,7 @@ fn detect_opencode(content: &str) -> AgentState {
 fn detect_github_copilot(content: &str) -> AgentState {
     let lower = content.to_lowercase();
 
+    // Blocked
     if lower.contains("esc to cancel")
         && (lower.contains("enter to select")
             || lower.contains("enter to confirm")
@@ -408,6 +409,7 @@ fn detect_github_copilot(content: &str) -> AgentState {
         return AgentState::Blocked;
     }
 
+    // Working
     if lower.contains("esc to cancel")
         || lower.contains("esc cancel")
         || lower.contains("esc again to cancel")
@@ -2132,19 +2134,165 @@ mod tests {
 
     #[test]
     fn copilot_waiting_fetch_approval() {
-        let content = "Do you want to allow this access?\n❯ 1. Yes\n  2. No\n↑/↓ to navigate · enter to select · esc to cancel";
+        let content = "\
+╭───────────────────────────────────────────────────────────────────╮
+│ Fetch web content                                                 │
+│ ───────────────────────────────────────────────────────────────── │
+│ Copilot is attempting to access the following URL:                │
+│                                                                   │
+│ ╭───────────────────────────────────────────────────────────────╮ │
+│ │ https://www.google.com/                                       │ │
+│ ╰───────────────────────────────────────────────────────────────╯ │
+│                                                                   │
+│ Do you want to allow this access?                                 │
+│                                                                   │
+│ ❯ 1. Yes                                                          │
+│   2. No                                                           │
+│                                                                   │
+│ ↑/↓ to navigate · enter to select · esc to cancel                 │
+╰───────────────────────────────────────────────────────────────────╯";
+        assert_eq!(detect_github_copilot(content), AgentState::Blocked);
+    }
+
+    #[test]
+    fn copilot_waiting_allow_directory_access() {
+        let content = "\
+╭──────────────────────────────────────────────────────────────────╮
+│ Allow directory access                                           │
+│ ──────────────────────────────────────────────────────────────── │
+│ This action may read or write the following path outside your    │
+│ allowed directory list.                                          │
+│                                                                   │
+│ ╭──────────────────────────────────────────────────────────────╮ │
+│ │ /Users/user/Dev/workspace                                │ │
+│ ╰──────────────────────────────────────────────────────────────╯ │
+│                                                                   │
+│ Do you want to allow this?                                       │
+│                                                                   │
+│   1. Yes                                                         │
+│ ❯ 2. Yes, and add these directories to the allowed list          │
+│   3. No (Esc)                                                    │
+│                                                                   │
+│ ↑/↓ to navigate · enter to select · esc to cancel                │
+╰──────────────────────────────────────────────────────────────────╯";
         assert_eq!(detect_github_copilot(content), AgentState::Blocked);
     }
 
     #[test]
     fn copilot_waiting_directory_permission() {
-        let content = "Requesting permission to access directory 'src/'. Allow?\n❯ 1. Yes (Allow)\n  2. No (Deny)\n↑/↓ to select · enter to confirm · esc to cancel";
+        let content = "\
+○ Asking user Requesting permission to access directory 'src/' for r…
+
+╭───────────────────────────────────────────────────────────────────╮
+│ Question                                                          │
+│ ───────────────────────────────────────────────────────────────── │
+│ Requesting permission to access directory 'src/' for reading      │
+│ files. Allow?                                                     │
+│                                                                   │
+│ ❯ 1. Yes (Allow)                                                  │
+│   2. No (Deny)                                                    │
+│                                                                   │
+│ ↑/↓ to select · enter to confirm · esc to cancel                  │
+╰───────────────────────────────────────────────────────────────────╯";
+        assert_eq!(detect_github_copilot(content), AgentState::Blocked);
+    }
+
+    #[test]
+    fn copilot_waiting_action_confirmation() {
+        let content = "\
+○ Asking user Confirm action: 'Reset local changes in working tree' …
+
+╭───────────────────────────────────────────────────────────────────╮
+│ Question                                                          │
+│ ───────────────────────────────────────────────────────────────── │
+│ Confirm action: 'Reset local changes in working tree' — proceed?  │
+│                                                                   │
+│ ❯ 1. Yes, reset changes                                           │
+│   2. No, cancel                                                   │
+│                                                                   │
+│ ↑/↓ to select · enter to confirm · esc to cancel                  │
+╰───────────────────────────────────────────────────────────────────╯";
+        assert_eq!(detect_github_copilot(content), AgentState::Blocked);
+    }
+
+    #[test]
+    fn copilot_waiting_db_choice() {
+        let content = "\
+○ Asking user Choose a database for the project:
+
+╭───────────────────────────────────────────────────────────────────╮
+│ Question                                                          │
+│ ───────────────────────────────────────────────────────────────── │
+│ Choose a database for the project:                                │
+│                                                                   │
+│ ❯ 1. PostgreSQL (Recommended)                                     │
+│   2. SQLite                                                       │
+│   3. MySQL                                                        │
+│   4. MongoDB                                                      │
+│                                                                   │
+│ ↑/↓ to select · enter to confirm · esc to cancel                  │
+╰───────────────────────────────────────────────────────────────────╯";
         assert_eq!(detect_github_copilot(content), AgentState::Blocked);
     }
 
     #[test]
     fn copilot_waiting_freeform_input() {
-        let content = "Enter the name for the new branch:\n❯ Type your answer...\nenter to submit · esc to cancel";
+        let content = "\
+○ Asking user Enter the name for the new branch:
+
+╭───────────────────────────────────────────────────────────────────╮
+│ Question                                                          │
+│ ───────────────────────────────────────────────────────────────── │
+│ Enter the name for the new branch:                                │
+│                                                                   │
+│ ❯ Type your answer...                                             │
+│                                                                   │
+│ enter to submit · esc to cancel                                   │
+╰───────────────────────────────────────────────────────────────────╯";
+        assert_eq!(detect_github_copilot(content), AgentState::Blocked);
+    }
+
+    #[test]
+    fn copilot_waiting_plan_review() {
+        let content = "\
+○ Plan ready for review - Create a 200-word inspirational poem. - Fi…
+
+╭───────────────────────────────────────────────────────────────────╮
+│ Plan Ready for Review                                             │
+│ ───────────────────────────────────────────────────────────────── │
+│  - Create a 200-word inspirational poem.                          │
+│  - Files/changes: none (deliver poem in chat).                    │
+│  - Steps: draft poem, verify ~200 words, offer up to 2 revisions. │
+│  - Decision: Inspirational tone, exact length target ~200 words.  │
+│                                                                   │
+│ ❯ 1. Accept plan and build on default permissions (recommended)   │
+│   2. Exit plan mode and I will prompt myself                      │
+│   3. Suggest changes                                              │
+│                                                                   │
+│ ↑/↓ to navigate · enter to select · ctrl+e to show full plan ·    │
+│ esc to cancel                                                     │
+╰───────────────────────────────────────────────────────────────────╯";
+        assert_eq!(detect_github_copilot(content), AgentState::Blocked);
+    }
+
+    #[test]
+    fn copilot_waiting_enable_autopilot() {
+        let content = "\
+╭───────────────────────────────────────────────────────────────────╮
+│ Enable autopilot mode                                             │
+│ ───────────────────────────────────────────────────────────────── │
+│ Autopilot mode works best with all permissions enabled. Without   │
+│ them, permission requests will be auto-denied and the agent may   │
+│ not complete tasks requiring file edits or shell commands.        │
+│                                                                   │
+│ You can also enable permissions later with /allow-all             │
+│                                                                   │
+│ ❯ 1. Enable all permissions (recommended)                         │
+│   2. Continue with limited permissions                            │
+│   3. Cancel (Esc)                                                 │
+│                                                                   │
+│ ↑/↓ to navigate · enter to select · esc to cancel                 │
+╰───────────────────────────────────────────────────────────────────╯";
         assert_eq!(detect_github_copilot(content), AgentState::Blocked);
     }
 
@@ -2155,14 +2303,17 @@ mod tests {
             AgentState::Working
         );
         assert_eq!(
-            detect_github_copilot("generating\nesc to cancel"),
+            detect_github_copilot("○ Thinking esc cancel"),
             AgentState::Working
         );
-    }
-
-    #[test]
-    fn copilot_idle() {
-        assert_eq!(detect_github_copilot("> "), AgentState::Idle);
+        assert_eq!(
+            detect_github_copilot("◎ Thinking esc cancel"),
+            AgentState::Working
+        );
+        assert_eq!(
+            detect_github_copilot("◉ Thinking esc cancel"),
+            AgentState::Working
+        );
     }
 
     // ---- Kimi ----

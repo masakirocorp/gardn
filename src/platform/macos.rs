@@ -32,13 +32,11 @@ pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
         let Some(name) = comm_from_bsdinfo(&info) else {
             continue;
         };
-        let argv = process_argv(pid);
         processes.push(ForegroundProcess {
             pid,
             name,
             argv0: process_argv0_name(pid),
-            cmdline: argv.as_ref().map(|parts| parts.join(" ")),
-            argv,
+            cmdline: process_cmdline(pid),
         });
     }
 
@@ -233,7 +231,7 @@ pub fn read_clipboard_image() -> Option<ClipboardImage> {
     }
 
     let bytes = match std::fs::File::open(&path).ok().and_then(|file| {
-        read_limited_reader(file, crate::protocol::MAX_CLIPBOARD_IMAGE_PAYLOAD).ok()
+        read_limited_reader(file, crate::server::protocol::MAX_CLIPBOARD_IMAGE_PAYLOAD).ok()
     }) {
         Some(LimitedRead::Complete(bytes)) => bytes,
         Some(LimitedRead::Empty | LimitedRead::Oversized) | None => {
@@ -464,9 +462,10 @@ fn comm_from_bsdinfo(info: &libc::proc_bsdinfo) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
-fn process_argv(pid: u32) -> Option<Vec<String>> {
+fn process_cmdline(pid: u32) -> Option<String> {
     let buf = kern_procargs2(pid)?;
-    procargs2_argv(&buf)
+    let argv = procargs2_argv(&buf)?;
+    Some(argv.join(" "))
 }
 
 fn procargs2_argv(buf: &[u8]) -> Option<Vec<String>> {
