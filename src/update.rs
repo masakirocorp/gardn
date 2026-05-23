@@ -450,8 +450,9 @@ fn prompt_to_stop_server_before_update(
     if !io::stdin().is_terminal() {
         if requires_stop {
             return Err(format!(
-                "a hako server is running and updating to v{} requires stopping it; run `hako server stop`, then run `hako update` again",
-                release.version
+                "a hako server is running and updating to v{} requires stopping it; run `{}`, then run `hako update` again",
+                release.version,
+                crate::session::local_stop_command()
             ));
         }
 
@@ -521,10 +522,10 @@ fn plan_running_server_update(
 ) -> Result<Option<RunningServerUpdatePlan>, String> {
     let Some(server) = read_running_server_info()? else {
         if client_protocol_server_is_running() {
-            return Err(
-                "a hako server is listening, but its status API is unavailable; try `hako server stop`, or stop the old server process manually, then run `hako update` again"
-                    .to_string(),
-            );
+            return Err(format!(
+                "a hako server is listening, but its status API is unavailable; try `{}`, or stop the old server process manually, then run `hako update` again",
+                crate::session::local_stop_command()
+            ));
         }
         return Ok(None);
     };
@@ -548,10 +549,10 @@ fn stop_running_server_for_update(
         prompt_to_stop_server_before_update(&plan.server, release, plan.requires_stop)?;
     if !stop_server {
         if plan.requires_stop {
-            return Err(
-                "update cancelled; stop the running hako server with `hako server stop`, then run `hako update` again"
-                    .to_string(),
-            );
+            return Err(format!(
+                "update cancelled; stop the running hako server with `{}`, then run `hako update` again",
+                crate::session::local_stop_command()
+            ));
         }
         return Ok(false);
     }
@@ -1173,7 +1174,13 @@ mod tests {
         atomic::{AtomicBool, Ordering},
         Arc,
     };
+    use std::sync::{Mutex, OnceLock};
     use std::thread;
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     fn unique_test_socket_path(name: &str) -> std::path::PathBuf {
         let nanos = std::time::SystemTime::now()
@@ -1328,6 +1335,40 @@ mod tests {
         assert!(!update_requires_server_stop(&server, &compatible_release));
         assert!(update_requires_server_stop(&server, &incompatible_release));
         assert!(update_requires_server_stop(&server, &unknown_release));
+    }
+
+    #[test]
+    fn noninteractive_update_requires_stop_names_session_stop_command() {
+        let _guard = env_lock().lock().unwrap();
+        assert!(
+            !io::stdin().is_terminal(),
+            "this test relies on noninteractive test stdin"
+        );
+        std::env::set_var(crate::session::SESSION_ENV_VAR, "work");
+        crate::session::clear_explicit_session_for_test();
+        let server = crate::api::RuntimeStatus {
+            version: Some("0.5.5".to_string()),
+            protocol: Some(2),
+        };
+        let release = ReleaseInfo {
+            version: Version::parse("0.5.6").unwrap(),
+            target_protocol: Some(3),
+            download_url: "https://example.com/hako".to_string(),
+            notes_body: "### Changed\n- One".to_string(),
+        };
+
+        let err = prompt_to_stop_server_before_update(&server, &release, true).unwrap_err();
+
+        assert!(
+            err.contains("run `hako session stop work`"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            err.contains("then run `hako update` again"),
+            "unexpected error: {err}"
+        );
+        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        crate::session::clear_explicit_session_for_test();
     }
 
     #[test]
