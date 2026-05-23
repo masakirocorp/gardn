@@ -90,7 +90,7 @@ ssh you@yourserver
 hako
 ```
 
-or attach from your local terminal through ssh without opening a shell first. your local hako acts as a thin client, connects over ssh, starts or attaches to the remote hako server, and streams the ui back to your terminal.
+or attach from your local terminal through ssh without opening a shell first. your local hako acts as a thin client, connects over ssh, starts or attaches to the remote hako server, and streams the ui back to your terminal. remote attach uses your local keybindings by default; pass `--remote-keybindings server` to use the remote server config instead.
 
 ```bash
 hako --remote workbox
@@ -180,18 +180,23 @@ automatic detection works out of the box. process name matching plus terminal ou
 | [opencode](https://github.com/anomalyco/opencode) | ✓ | ✓ | ✓ |
 | [grok cli](https://x.ai/grok) | ✓ | ✓ | ✓ |
 | [hermes agent](https://github.com/NousResearch/hermes-agent) | ✓ | ✓ | ✓ |
+| cursor agent | ✓ | ✓ | ✓ |
+| antigravity cli | ✓ | ✓ | ✓ |
+| kimi code cli | ✓ | ✓ | ✓ |
+| [github copilot cli](https://github.com/features/copilot) | ✓ | ✓ | ✓ |
 | [kiro cli](https://kiro.dev/docs/cli/) | ✓ | ✓ | — |
 
-detected but not fully tested: gemini cli, cursor agent, cline, kimi, github copilot cli.
+detected but not fully tested: gemini cli, cline.
 
 for agents outside the built-in list, hako still works as a terminal multiplexer with workspaces, panes, and tiling. custom integrations can report agent labels over the socket api. see the [socket api docs](https://hako.masakiro.com/docs/socket-api/).
 
 ### direct integrations
 
-the built-in pi, claude code, codex, opencode, and hermes integrations forward semantic state to hako over the socket api. install with:
+the built-in pi, omp, claude code, codex, opencode, and hermes integrations forward semantic state to hako over the socket api. install with:
 
 ```bash
 hako integration install pi
+hako integration install omp
 hako integration install claude
 hako integration install codex
 hako integration install opencode
@@ -211,6 +216,7 @@ press `ctrl+b` to enter prefix mode. default actions are prefix-first and tmux-l
 | `prefix+1..9` | switch tab |
 | `prefix+w` | workspace navigation |
 | `prefix+shift+n` | new workspace |
+| `prefix+shift+g` | new worktree |
 | `prefix+shift+w` | rename workspace |
 | `prefix+shift+d` | close workspace |
 | `prefix+h/j/k/l` | focus pane |
@@ -273,7 +279,7 @@ full logging and environment variable details: [configuration docs](https://hako
 ## docs
 
 - [configuration](https://hako.masakiro.com/docs/configuration/) — keybindings, themes, notifications, environment variables
-- [integrations](https://hako.masakiro.com/docs/integrations/) — pi, claude code, codex, opencode, hermes integrations
+- [integrations](https://hako.masakiro.com/docs/integrations/) — pi, omp, claude code, codex, opencode, hermes integrations
 - [`SKILL.md`](./SKILL.md) — reusable agent skill
 - [socket api](https://hako.masakiro.com/docs/socket-api/) — socket protocol and cli reference
 
@@ -289,6 +295,22 @@ cd hako
 cargo build --release
 ./target/release/hako
 ```
+
+## nix
+
+Hako provides optional Nix flake outputs for users who already use Nix. The flake builds Hako from source.
+
+```bash
+nix run github:masakirocorp/hako/v0.x.y
+nix build github:masakirocorp/hako/v0.x.y
+nix develop github:masakirocorp/hako/v0.x.y
+```
+
+Replace `v0.x.y` with the latest release tag. You can omit the tag to track `master`, but release tags are recommended for normal installs.
+
+The flake exposes `packages.<system>.default`, `apps.<system>.default`, `devShells.<system>.default`, and `overlays.default`.
+
+Update through the same Nix workflow you used to install Hako. For profile installs, run `nix profile list` and then `nix profile upgrade <index-or-name>`. For flake inputs, run `nix flake update hako` in your own flake and rebuild.
 
 ## testing
 

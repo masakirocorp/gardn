@@ -135,3 +135,4 @@ jobs:
             hako-macos-x86_64/hako-macos-x86_64
             hako-macos-aarch64/hako-macos-aarch64
           body_path: RELEASE_NOTES.md
+
