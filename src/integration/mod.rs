@@ -1818,7 +1818,6 @@ mod tests {
         let _ = fs::remove_dir_all(base);
     }
 
-
     #[test]
     fn outdated_integrations_treat_missing_version_marker_as_legacy() {
         let _lock = integration_env_lock();

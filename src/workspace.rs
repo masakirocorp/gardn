@@ -667,14 +667,16 @@ impl Workspace {
 
     pub fn display_name_from(
         &self,
-        _terminals: &HashMap<TerminalId, TerminalState>,
-        _terminal_runtimes: &TerminalRuntimeRegistry,
+        terminals: &HashMap<TerminalId, TerminalState>,
+        terminal_runtimes: &TerminalRuntimeRegistry,
     ) -> String {
         if let Some(name) = &self.custom_name {
             return name.clone();
         }
 
-        self.display_name()
+        self.resolved_identity_cwd_from(terminals, terminal_runtimes)
+            .map(|cwd| derive_label_from_cwd(&cwd))
+            .unwrap_or_else(|| "workspace".into())
     }
 
     #[cfg(test)]
@@ -965,7 +967,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn workspace_display_name_uses_identity_while_resolved_cwd_tracks_runtime() {
+    fn workspace_display_name_from_uses_live_runtime_cwd() {
         let mut ws = Workspace::test_new("ignored");
         ws.custom_name = None;
         ws.identity_cwd = PathBuf::from("/hako-test/original");
@@ -978,10 +980,9 @@ mod tests {
         );
         let terminal_runtimes = TerminalRuntimeRegistry::new();
 
-        assert_eq!(
-            ws.display_name_from(&terminals, &terminal_runtimes),
-            "original"
-        );
+        assert_eq!(ws.display_name(), "original");
+
+        assert_eq!(ws.display_name_from(&terminals, &terminal_runtimes), "pion");
         assert_eq!(
             ws.resolved_identity_cwd_from(&terminals, &terminal_runtimes),
             Some(PathBuf::from("/hako-test/pion"))

@@ -2794,6 +2794,9 @@ mod tests {
         app.selection_autoscroll_deadline = Some(now + Duration::from_millis(5));
         app.next_animation_tick = Some(now + Duration::from_millis(100));
         app.session_save_deadline = Some(now + Duration::from_millis(200));
+        app.next_resize_poll = now + Duration::from_secs(5);
+        app.next_command_scan = now + Duration::from_secs(5);
+        app.next_auto_update_check = Some(now + Duration::from_secs(6));
         assert_eq!(
             app.next_loop_deadline(now, false),
             app.selection_autoscroll_deadline

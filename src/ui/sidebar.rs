@@ -14,8 +14,8 @@ use crate::app::{AppState, Mode};
 use crate::commands::{CommandRunStatus, ProjectCommand};
 use crate::detect::AgentState;
 use crate::ports::{PortEndpoint, PortExposure, PortState};
-use crate::workspace::{derive_label_from_cwd, git_branch};
 use crate::terminal::TerminalRuntimeRegistry;
+use crate::workspace::{derive_label_from_cwd, git_branch};
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const ACTIVITY_PANEL_HEADER_ROWS: u16 = 2;
@@ -174,7 +174,6 @@ fn agent_panel_group_label(app: &AppState, ws_idx: usize) -> String {
         .unwrap_or_else(|| "group 1".to_string())
 }
 
-
 fn agent_panel_workspace_context_label_from(
     app: &AppState,
     ws_idx: usize,
@@ -332,7 +331,6 @@ fn agent_panel_entries_with_runtimes(
             .collect(),
     }
 }
-
 
 fn agent_panel_entry_needs_triage(entry: &AgentPanelEntry) -> bool {
     entry.state == AgentState::Blocked || (entry.state == AgentState::Idle && !entry.seen)
@@ -2604,7 +2602,10 @@ fn render_workspace_list_from(
             Span::styled(" ", Style::default()),
             Span::styled(icon, icon_style),
             Span::styled(" ", Style::default()),
-            Span::styled(ws.display_name_from(&app.terminals, terminal_runtimes), name_style),
+            Span::styled(
+                ws.display_name_from(&app.terminals, terminal_runtimes),
+                name_style,
+            ),
         ];
 
         frame.render_widget(
@@ -3433,7 +3434,7 @@ mod tests {
     #[tokio::test]
     async fn all_workspaces_agent_panel_entries_use_live_root_runtime_cwd_for_workspace_label() {
         let unique = format!(
-            "herdr-agent-panel-runtime-cwd-{}-{}",
+            "hako-agent-panel-runtime-cwd-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -3442,7 +3443,7 @@ mod tests {
         );
         let root = std::env::temp_dir().join(unique);
         let stale_cwd = root.join("issue-264-nix-support");
-        let live_cwd = root.join("herdr");
+        let live_cwd = root.join("hako");
         std::fs::create_dir_all(stale_cwd.join(".git")).unwrap();
         std::fs::create_dir_all(live_cwd.join(".git")).unwrap();
 
@@ -3494,7 +3495,7 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(root);
 
-        assert_eq!(primary_label, "herdr");
+        assert_eq!(primary_label, "hako");
     }
 
     #[test]

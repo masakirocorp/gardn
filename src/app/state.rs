@@ -5,8 +5,8 @@ use crate::config::{
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Direction, Rect};
 use ratatui::style::Color;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::layout::{PaneId, PaneInfo, SplitBorder};

@@ -14,7 +14,8 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use serde::Deserialize;
 use serde_json::{json, Value};
 use support::{
-    cleanup_test_base, register_runtime_dir, register_spawned_hako_pid, unregister_spawned_hako_pid,
+    cleanup_test_base, fake_agent_script, register_runtime_dir, register_spawned_hako_pid,
+    unregister_spawned_hako_pid,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -752,7 +753,11 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
     let bin_dir = base.join("bin");
     fs::create_dir_all(&bin_dir).unwrap();
     let fake_pi = bin_dir.join("pi");
-    fs::write(&fake_pi, "#!/bin/sh\nprintf 'Working...\\n'\nsleep 8\n").unwrap();
+    fs::write(
+        &fake_pi,
+        fake_agent_script("pi", "printf 'Working...\\n'\nexec -a pi /bin/sleep 15\n"),
+    )
+    .unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -786,9 +791,11 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
     // Ensure detected agent surface is populated by running fake `pi`.
     pane_send_text(&api_socket, &pane_id, "pi");
     pane_send_input(&api_socket, &pane_id, "");
-    let detected_before_hook = {
-        let deadline = Instant::now() + Duration::from_secs(5);
+    let (detected_before_hook, last_agent, last_status) = {
+        let deadline = Instant::now() + Duration::from_secs(10);
         let mut detected = false;
+        let mut last_agent = None;
+        let mut last_status = None;
         while Instant::now() < deadline {
             let response = send_json_request(
                 &api_socket,
@@ -796,17 +803,24 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
                 "pane.get",
                 json!({ "pane_id": &pane_id }),
             );
-            if response["result"]["pane"]["agent"].as_str() == Some("pi") {
+            last_agent = response["result"]["pane"]["agent"]
+                .as_str()
+                .map(|agent| agent.to_string());
+            last_status = response["result"]["pane"]["agent_status"]
+                .as_str()
+                .map(|status| status.to_string());
+            if last_agent.as_deref() == Some("pi") {
                 detected = true;
                 break;
             }
             thread::sleep(Duration::from_millis(60));
         }
-        detected
+        (detected, last_agent, last_status)
     };
     assert!(
         detected_before_hook,
-        "expected fake pi process to be detected before hook status assertions"
+        "expected fake pi process to be detected before hook status assertions; last_agent={last_agent:?}, last_status={last_status:?}, recent={}",
+        pane_read_recent(&api_socket, &pane_id)
     );
 
     // Use agent status surfaces directly instead of a generic sleep command.
