@@ -94,6 +94,7 @@ pub struct App {
     pub(crate) full_redraw_pending: bool,
     pub(crate) overlay_panes: HashMap<crate::layout::PaneId, OverlayPaneState>,
     pub(crate) local_terminal_notifications: bool,
+    pub(crate) config_reloaded_from_disk: bool,
 }
 
 pub(crate) enum LoopEvent {
@@ -641,6 +642,7 @@ impl App {
             full_redraw_pending: false,
             overlay_panes: HashMap::new(),
             local_terminal_notifications: true,
+            config_reloaded_from_disk: false,
         }
     }
 
@@ -926,10 +928,17 @@ impl App {
         self.apply_config_from_disk(true)
     }
 
+    pub(crate) fn take_config_reloaded_from_disk(&mut self) -> bool {
+        let reloaded = self.config_reloaded_from_disk;
+        self.config_reloaded_from_disk = false;
+        reloaded
+    }
+
     pub(crate) fn apply_config_from_disk(
         &mut self,
         notify_success: bool,
     ) -> crate::config::ConfigReloadReport {
+        self.config_reloaded_from_disk = true;
         let previous_toast = self.state.toast.clone();
         let report = match crate::config::load_live_config() {
             Ok(loaded) => self.apply_live_config(
@@ -1301,7 +1310,7 @@ mod tests {
     use crate::terminal::TerminalRuntime;
     use crate::workspace::Workspace;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::Mutex;
 
     fn raw_key(
         code: KeyCode,
@@ -1334,8 +1343,7 @@ mod tests {
     }
 
     fn config_env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+        crate::config::test_config_env_lock()
     }
 
     fn temp_config_path(name: &str) -> std::path::PathBuf {
@@ -2266,20 +2274,20 @@ mod tests {
     fn new_terminal_cwd_follow_uses_source_cwd() {
         let cwd = creation::resolve_new_terminal_cwd(
             &crate::config::NewTerminalCwdConfig::Follow,
-            Some(std::path::PathBuf::from("/tmp/herdr-source")),
+            Some(std::path::PathBuf::from("/tmp/hako-source")),
         );
 
-        assert_eq!(cwd, std::path::PathBuf::from("/tmp/herdr-source"));
+        assert_eq!(cwd, std::path::PathBuf::from("/tmp/hako-source"));
     }
 
     #[test]
     fn new_terminal_cwd_path_uses_configured_path() {
         let cwd = creation::resolve_new_terminal_cwd(
-            &crate::config::NewTerminalCwdConfig::Path("/tmp/herdr-fixed".into()),
-            Some(std::path::PathBuf::from("/tmp/herdr-source")),
+            &crate::config::NewTerminalCwdConfig::Path("/tmp/hako-fixed".into()),
+            Some(std::path::PathBuf::from("/tmp/hako-source")),
         );
 
-        assert_eq!(cwd, std::path::PathBuf::from("/tmp/herdr-fixed"));
+        assert_eq!(cwd, std::path::PathBuf::from("/tmp/hako-fixed"));
     }
 
     #[test]
