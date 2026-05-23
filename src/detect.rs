@@ -1211,6 +1211,19 @@ mod tests {
         }
     }
 
+    fn temp_detection_path(name: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "herdr-detect-tests-{}-{}-{}",
+            name,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be after unix epoch")
+                .as_nanos()
+        );
+        std::env::temp_dir().join(unique)
+    }
+
     // ---- Agent identification ----
 
     #[test]
@@ -1494,6 +1507,34 @@ mod tests {
     #[test]
     fn cmdline_argv0_agent_name_requires_exact_agent_basename() {
         assert_eq!(cmdline_argv0_agent_name("/tmp/my-codex-helper"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn identify_agent_in_job_resolves_cursor_agent_symlink_argv0() {
+        let dir = temp_detection_path("cursor-agent-symlink");
+        std::fs::create_dir_all(&dir).expect("test directory should be created");
+        let target = dir.join("cursor-agent");
+        let link = dir.join("agent");
+        std::fs::write(&target, b"#!/bin/sh\n").expect("target should be written");
+        std::os::unix::fs::symlink(&target, &link).expect("symlink should be created");
+
+        let argv0 = link.to_string_lossy().into_owned();
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 42,
+            processes: vec![foreground_process(
+                42,
+                "MainThread",
+                &[&argv0, "--use-system-ca", "/tmp/index.js"],
+            )],
+        };
+
+        assert_eq!(
+            identify_agent_in_job(&job),
+            Some((Agent::Cursor, "cursor".to_string()))
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     // ---- Workspace state rollup ----
