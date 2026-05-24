@@ -1,7 +1,10 @@
+use std::num::NonZeroUsize;
+
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::{
-    BindingConfig, CommandKeybindConfig, SoundConfig, ThemeConfig, DEFAULT_SCROLLBACK_LIMIT_BYTES,
+    BindingConfig, CommandKeybindConfig, SoundConfig, ThemeConfig, DEFAULT_MOUSE_SCROLL_LINES,
+    DEFAULT_SCROLLBACK_LIMIT_BYTES,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
@@ -38,11 +41,44 @@ pub struct ToastConfig {
     pub delivery: ToastDelivery,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum NewTerminalCwdConfig {
+    #[default]
+    Follow,
+    Home,
+    Current,
+    Path(String),
+}
+
+impl<'de> Deserialize<'de> for NewTerminalCwdConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        match value.trim() {
+            "" | "follow" => Ok(Self::Follow),
+            "home" => Ok(Self::Home),
+            "current" => Ok(Self::Current),
+            _ => Ok(Self::Path(value)),
+        }
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct TerminalConfig {
     /// Executable used for new interactive panes. Empty means SHELL, then /bin/sh.
     pub default_shell: String,
+    /// CWD policy for new interactive panes, tabs, and workspaces.
+    pub new_cwd: NewTerminalCwdConfig,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct WorktreesConfig {
+    /// Root directory under which Hako creates <repo>/<branch-slug> checkouts.
+    pub directory: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -81,6 +117,7 @@ pub struct Config {
     pub keys: KeysConfig,
     pub ui: UiConfig,
     pub advanced: AdvancedConfig,
+    pub worktrees: WorktreesConfig,
     pub experimental: ExperimentalConfig,
 }
 
@@ -91,7 +128,7 @@ pub struct LoadedConfig {
     pub invalid_sections: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct KeysConfig {
     /// Prefix key to enter prefix mode (e.g. "ctrl+b", "f12", "esc").
@@ -190,10 +227,11 @@ pub struct KeysConfig {
     /// Optional indexed shortcuts expanded over number keys 1-9.
     pub indexed: IndexedKeysConfig,
     /// Prefix-mode custom command bindings.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub command: Vec<CommandKeybindConfig>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct IndexedKeysConfig {
     /// Modifier combo for tab shortcuts 1-9. Unset by default.
@@ -214,6 +252,8 @@ pub struct UiConfig {
     pub sidebar_max_width: u16,
     /// Capture mouse input for Hako's mouse UI. Default: true.
     pub mouse_capture: bool,
+    /// Lines to scroll per mouse wheel notch. Default: 3.
+    pub mouse_scroll_lines: Option<NonZeroUsize>,
     /// Ask for confirmation before closing a workspace. Default: true.
     pub confirm_close: bool,
     /// Ask for a tab name before creating a new tab. Default: true.
@@ -352,6 +392,14 @@ impl Default for KeysConfig {
     }
 }
 
+impl Default for WorktreesConfig {
+    fn default() -> Self {
+        Self {
+            directory: "~/.hako/worktrees".into(),
+        }
+    }
+}
+
 impl Default for UiConfig {
     fn default() -> Self {
         Self {
@@ -359,6 +407,7 @@ impl Default for UiConfig {
             sidebar_min_width: 18,
             sidebar_max_width: 36,
             mouse_capture: true,
+            mouse_scroll_lines: None,
             confirm_close: true,
             prompt_new_tab_name: true,
             show_agent_labels_on_pane_borders: false,
@@ -367,6 +416,14 @@ impl Default for UiConfig {
             toast: ToastConfig::default(),
             sound: SoundConfig::default(),
         }
+    }
+}
+
+impl UiConfig {
+    pub fn mouse_scroll_lines(&self) -> usize {
+        self.mouse_scroll_lines
+            .map(NonZeroUsize::get)
+            .unwrap_or(DEFAULT_MOUSE_SCROLL_LINES)
     }
 }
 
@@ -426,6 +483,36 @@ default_shell = "nu"
     }
 
     #[test]
+    fn terminal_new_cwd_defaults_follow_and_parses() {
+        let default_config = Config::default();
+        assert_eq!(
+            default_config.terminal.new_cwd,
+            NewTerminalCwdConfig::Follow
+        );
+
+        let config: Config = toml::from_str(
+            r#"
+[terminal]
+new_cwd = "home"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.terminal.new_cwd, NewTerminalCwdConfig::Home);
+
+        let config: Config = toml::from_str(
+            r#"
+[terminal]
+new_cwd = "~/Projects"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.terminal.new_cwd,
+            NewTerminalCwdConfig::Path("~/Projects".into())
+        );
+    }
+
+    #[test]
     fn agent_panel_scope_config_parses() {
         let toml = r#"
 [ui]
@@ -459,6 +546,19 @@ prompt_new_tab_name = false
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(!config.ui.prompt_new_tab_name);
+    }
+
+    #[test]
+    fn worktrees_directory_defaults_and_parses() {
+        let default_config = Config::default();
+        assert_eq!(default_config.worktrees.directory, "~/.hako/worktrees");
+
+        let toml = r#"
+[worktrees]
+directory = "~/Projects/hako-worktrees"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.worktrees.directory, "~/Projects/hako-worktrees");
     }
 
     #[test]
@@ -545,6 +645,31 @@ mouse_capture = false
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(!config.ui.mouse_capture);
+    }
+
+    #[test]
+    fn mouse_scroll_lines_defaults_to_three_and_parses() {
+        let default_config = Config::default();
+        assert_eq!(
+            default_config.ui.mouse_scroll_lines(),
+            DEFAULT_MOUSE_SCROLL_LINES
+        );
+
+        let toml = r#"
+[ui]
+mouse_scroll_lines = 1
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.ui.mouse_scroll_lines(), 1);
+    }
+
+    #[test]
+    fn mouse_scroll_lines_rejects_zero() {
+        let toml = r#"
+[ui]
+mouse_scroll_lines = 0
+"#;
+        assert!(toml::from_str::<Config>(toml).is_err());
     }
 
     #[test]

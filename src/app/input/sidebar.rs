@@ -1959,19 +1959,25 @@ mod tests {
         );
         let available_row = header.y + 2;
 
-        app.state.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            header.x + 5,
-            available_row,
-        ));
+        app.state.handle_mouse(
+            &mut app.terminal_runtimes,
+            mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                header.x + 5,
+                available_row,
+            ),
+        );
 
         assert_eq!(app.state.request_command_action, None);
 
-        app.state.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            header.x + 3,
-            available_row,
-        ));
+        app.state.handle_mouse(
+            &mut app.terminal_runtimes,
+            mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                header.x + 3,
+                available_row,
+            ),
+        );
 
         assert_eq!(
             app.state.request_command_action,
@@ -1990,11 +1996,14 @@ mod tests {
             },
         );
         let running_row = header.y + 3;
-        app.state.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            header.x + 3,
-            running_row,
-        ));
+        app.state.handle_mouse(
+            &mut app.terminal_runtimes,
+            mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                header.x + 3,
+                running_row,
+            ),
+        );
 
         assert_eq!(
             app.state.request_command_action,
@@ -2004,19 +2013,25 @@ mod tests {
         );
 
         app.state.request_command_action = None;
-        app.state.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Right),
-            header.x + 5,
-            running_row,
-        ));
+        app.state.handle_mouse(
+            &mut app.terminal_runtimes,
+            mouse(
+                MouseEventKind::Down(MouseButton::Right),
+                header.x + 5,
+                running_row,
+            ),
+        );
 
         assert_eq!(app.state.request_command_action, None);
 
-        app.state.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Right),
-            header.x + 3,
-            running_row,
-        ));
+        app.state.handle_mouse(
+            &mut app.terminal_runtimes,
+            mouse(
+                MouseEventKind::Down(MouseButton::Right),
+                header.x + 3,
+                running_row,
+            ),
+        );
 
         assert_eq!(
             app.state.request_command_action,
@@ -2056,11 +2071,14 @@ mod tests {
             Some("/tmp/web:package.json:dev".to_string())
         );
 
-        app.state.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            header.x + 1,
-            project_row,
-        ));
+        app.state.handle_mouse(
+            &mut app.terminal_runtimes,
+            mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                header.x + 1,
+                project_row,
+            ),
+        );
 
         assert!(app
             .state
@@ -2074,11 +2092,14 @@ mod tests {
         );
         let collapsed_project_row = collapsed_header.y + 1;
 
-        app.state.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            collapsed_header.x + 1,
-            collapsed_project_row,
-        ));
+        app.state.handle_mouse(
+            &mut app.terminal_runtimes,
+            mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                collapsed_header.x + 1,
+                collapsed_project_row,
+            ),
+        );
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
         let expanded_header = crate::ui::right_sidebar_commands_header_rect(
             &app.state,
@@ -2125,11 +2146,14 @@ mod tests {
         let status_row = header.y + 2;
         let command_row = header.y + 3;
 
-        app.state.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            header.x + 1,
-            status_row,
-        ));
+        app.state.handle_mouse(
+            &mut app.terminal_runtimes,
+            mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                header.x + 1,
+                status_row,
+            ),
+        );
 
         assert!(app
             .state

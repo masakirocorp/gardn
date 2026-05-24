@@ -66,6 +66,7 @@ pub(crate) struct OverlayPaneState {
 
 pub struct App {
     pub state: AppState,
+    pub(crate) terminal_runtimes: crate::terminal::TerminalRuntimeRegistry,
     pub event_tx: mpsc::Sender<AppEvent>,
     pub(crate) event_rx: mpsc::Receiver<AppEvent>,
     pub(crate) api_rx: tokio::sync::mpsc::UnboundedReceiver<crate::api::ApiRequestMessage>,
@@ -94,6 +95,7 @@ pub struct App {
     pub(crate) full_redraw_pending: bool,
     pub(crate) overlay_panes: HashMap<crate::layout::PaneId, OverlayPaneState>,
     pub(crate) local_terminal_notifications: bool,
+    pub(crate) config_reloaded_from_disk: bool,
 }
 
 pub(crate) enum LoopEvent {
@@ -261,7 +263,7 @@ impl App {
 
         // Try to restore previous session
         let mut restored_terminals = std::collections::HashMap::new();
-        let mut restored_terminal_runtimes = std::collections::HashMap::new();
+        let mut restored_terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let (
             groups,
             active_group,
@@ -302,7 +304,7 @@ impl App {
                 render_dirty.clone(),
             );
             restored_terminals = terminals;
-            restored_terminal_runtimes = terminal_runtimes;
+            restored_terminal_runtimes = terminal_runtimes.into();
             if ws.is_empty() {
                 crate::logging::session_restored(0, "empty");
                 (
@@ -390,6 +392,8 @@ impl App {
             (18, 36)
         });
 
+        let worktree_directory =
+            crate::worktree::expand_tilde_absolute_path(&config.worktrees.directory);
         info!(
             pane_scrollback_limit_bytes = config.advanced.scrollback_limit_bytes,
             "using pane scrollback configuration"
@@ -420,7 +424,6 @@ impl App {
             active_group,
             group_filter_enabled: true,
             terminals: std::collections::HashMap::new(),
-            terminal_runtimes: std::collections::HashMap::new(),
             direct_attach_resize_locks: std::collections::HashSet::new(),
             workspaces,
             active,
@@ -524,6 +527,7 @@ impl App {
             collapsed_workspace_groups: Vec::new(),
             agent_panel_scope,
             mouse_capture: config.ui.mouse_capture,
+            mouse_scroll_lines: config.ui.mouse_scroll_lines(),
             confirm_close: config.ui.confirm_close,
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             show_agent_labels_on_pane_borders: config.ui.show_agent_labels_on_pane_borders,
@@ -533,7 +537,9 @@ impl App {
             cjk_ime_cursor_shape: config.experimental.cjk_ime_cursor_shape.to_decscusr(),
             kitty_graphics_enabled: config.experimental.kitty_graphics,
             default_shell: config.terminal.default_shell.clone(),
+            new_terminal_cwd: config.terminal.new_cwd.clone(),
             pane_scrollback_limit_bytes: config.advanced.scrollback_limit_bytes,
+            worktree_directory,
             accent: crate::config::parse_color(&config.ui.accent),
             sound: config.ui.sound.clone(),
             local_sound_playback: true,
@@ -570,14 +576,14 @@ impl App {
             agent_menu: state::MenuListState::new(0),
             host_terminal_theme,
             session_dirty: false,
+            terminal_runtime_shutdowns: Vec::new(),
         };
 
         state.terminals = restored_terminals;
-        state.terminal_runtimes = restored_terminal_runtimes;
 
         for ws_idx in 0..state.workspaces.len() {
             let cwd = state.workspaces[ws_idx]
-                .resolved_identity_cwd_from(&state.terminals, &state.terminal_runtimes);
+                .resolved_identity_cwd_from(&state.terminals, &restored_terminal_runtimes);
             state.workspaces[ws_idx].cached_git_branch =
                 cwd.as_deref().and_then(crate::workspace::git_branch);
         }
@@ -613,6 +619,7 @@ impl App {
             config_diagnostic_deadline: None,
             toast_deadline: None,
             state,
+            terminal_runtimes: restored_terminal_runtimes,
             event_tx,
             event_rx,
             last_git_remote_status_refresh: Instant::now() - GIT_REMOTE_STATUS_REFRESH_INTERVAL,
@@ -639,6 +646,7 @@ impl App {
             full_redraw_pending: false,
             overlay_panes: HashMap::new(),
             local_terminal_notifications: true,
+            config_reloaded_from_disk: false,
         }
     }
 
@@ -720,14 +728,31 @@ impl App {
                     let area = frame.area();
                     if kitty_graphics_enabled {
                         cell_size = crate::kitty_graphics::HostCellSize::from_terminal(area);
-                        crate::ui::compute_view_with_cell_size(&mut self.state, area, cell_size);
+                        crate::ui::compute_view_with_cell_size(
+                            &mut self.state,
+                            &self.terminal_runtimes,
+                            area,
+                            cell_size,
+                        );
                     } else {
-                        crate::ui::compute_view(&mut self.state, area);
+                        crate::ui::compute_view_with_runtime_registry(
+                            &mut self.state,
+                            &self.terminal_runtimes,
+                            area,
+                        );
                     }
-                    crate::ui::render(&self.state, frame);
+                    crate::ui::render_with_runtime_registry(
+                        &self.state,
+                        &self.terminal_runtimes,
+                        frame,
+                    );
                 })?;
                 if kitty_graphics_enabled {
-                    crate::kitty_graphics::paint_local_pane_graphics(&self.state, cell_size)?;
+                    crate::kitty_graphics::paint_local_pane_graphics(
+                        &self.state,
+                        &self.terminal_runtimes,
+                        cell_size,
+                    )?;
                 }
                 self.last_render_at = Some(now);
                 needs_render = false;
@@ -791,7 +816,9 @@ impl App {
     }
 
     fn sync_host_mouse_capture(&self, active: &mut bool) -> io::Result<()> {
-        let desired = self.state.should_capture_host_mouse();
+        let desired = self
+            .state
+            .should_capture_host_mouse_from(&self.terminal_runtimes);
         if desired == *active {
             return Ok(());
         }
@@ -920,14 +947,52 @@ impl App {
         self.state.mark_session_dirty();
     }
 
+    pub(crate) fn install_integration(&mut self, target: crate::api::schema::IntegrationTarget) {
+        let label = crate::integration::integration_target_label(target);
+        self.state.integration_install_messages.clear();
+        match crate::integration::install_target(target) {
+            Ok(_) => self
+                .state
+                .integration_install_messages
+                .push(format!("installed {label}")),
+            Err(err) => self
+                .state
+                .integration_install_messages
+                .push(format!("{label}: {err}")),
+        }
+        self.state.integration_recommendations = crate::integration::integration_recommendations();
+        self.state.mark_session_dirty();
+    }
+
+    pub(crate) fn uninstall_integration(&mut self, target: crate::api::schema::IntegrationTarget) {
+        let label = crate::integration::integration_target_label(target);
+        self.state.integration_install_messages.clear();
+        match crate::integration::uninstall_target(target) {
+            Ok(messages) => self.state.integration_install_messages.extend(messages),
+            Err(err) => self
+                .state
+                .integration_install_messages
+                .push(format!("{label}: {err}")),
+        }
+        self.state.integration_recommendations = crate::integration::integration_recommendations();
+        self.state.mark_session_dirty();
+    }
+
     pub(crate) fn reload_config(&mut self) -> crate::config::ConfigReloadReport {
         self.apply_config_from_disk(true)
+    }
+
+    pub(crate) fn take_config_reloaded_from_disk(&mut self) -> bool {
+        let reloaded = self.config_reloaded_from_disk;
+        self.config_reloaded_from_disk = false;
+        reloaded
     }
 
     pub(crate) fn apply_config_from_disk(
         &mut self,
         notify_success: bool,
     ) -> crate::config::ConfigReloadReport {
+        self.config_reloaded_from_disk = true;
         let previous_toast = self.state.toast.clone();
         let report = match crate::config::load_live_config() {
             Ok(loaded) => self.apply_live_config(
@@ -1010,6 +1075,7 @@ impl App {
                     .sidebar_width
                     .clamp(self.state.sidebar_min_width, self.state.sidebar_max_width);
                 self.state.mouse_capture = config.ui.mouse_capture;
+                self.state.mouse_scroll_lines = config.ui.mouse_scroll_lines();
                 self.state.confirm_close = config.ui.confirm_close;
                 self.state.prompt_new_tab_name = config.ui.prompt_new_tab_name;
                 self.state.show_agent_labels_on_pane_borders =
@@ -1048,8 +1114,13 @@ impl App {
 
         if !invalid_section("terminal") {
             self.state.default_shell = config.terminal.default_shell.clone();
+            self.state.new_terminal_cwd = config.terminal.new_cwd.clone();
         }
 
+        if !invalid_section("worktrees") {
+            self.state.worktree_directory =
+                crate::worktree::expand_tilde_absolute_path(&config.worktrees.directory);
+        }
         if !invalid_section("theme") {
             self.state.global_theme_name = config
                 .theme
@@ -1168,7 +1239,8 @@ impl App {
                     if self.state.mouse_capture {
                         self.handle_mouse_event_headless(mouse);
                     } else {
-                        self.state.handle_pane_mouse_only(mouse);
+                        self.state
+                            .handle_pane_mouse_only(&self.terminal_runtimes, mouse);
                     }
                 }
                 crate::raw_input::RawInputEvent::Paste(text) => {
@@ -1176,9 +1248,11 @@ impl App {
                         if let Some(ws_idx) = self.state.active {
                             if let Some(ws) = self.state.workspaces.get(ws_idx) {
                                 if let Some(focused) = ws.focused_pane_id() {
-                                    if let Some(runtime) =
-                                        self.state.runtime_for_pane_in_workspace(ws_idx, focused)
-                                    {
+                                    if let Some(runtime) = self.state.runtime_for_pane_in_workspace(
+                                        &self.terminal_runtimes,
+                                        ws_idx,
+                                        focused,
+                                    ) {
                                         let _ = runtime.try_send_bytes(bytes::Bytes::from(
                                             if runtime
                                                 .input_state()
@@ -1244,7 +1318,11 @@ impl App {
                 input::handle_confirm_delete_group_key(&mut self.state, key_event);
             }
             Mode::ContextMenu => {
-                input::handle_context_menu_key(&mut self.state, key_event);
+                input::handle_context_menu_key(
+                    &mut self.state,
+                    &mut self.terminal_runtimes,
+                    key_event,
+                );
             }
             Mode::KeybindHelp => {
                 input::handle_keybind_help_key(&mut self.state, key_event);
@@ -1297,7 +1375,7 @@ mod tests {
     use crate::terminal::TerminalRuntime;
     use crate::workspace::Workspace;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::Mutex;
 
     fn raw_key(
         code: KeyCode,
@@ -1330,8 +1408,7 @@ mod tests {
     }
 
     fn config_env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+        crate::config::test_config_env_lock()
     }
 
     fn temp_config_path(name: &str) -> std::path::PathBuf {
@@ -1399,6 +1476,7 @@ mod tests {
                     modified: 1,
                     ..crate::workspace::GitWorkSummary::default()
                 }),
+                space: None,
             }],
         });
 
@@ -1529,7 +1607,7 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
-            "[terminal]\ndefault_shell = \"nu\"\n[keys]\nnew_workspace = \"prefix+g\"\nprefix = \"ctrl+a\"\n[ui]\nagent_panel_scope = \"current\"\n[ui.toast]\ndelivery = \"hako\"\n",
+            "[terminal]\ndefault_shell = \"nu\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+g\"\nprefix = \"ctrl+a\"\n[ui]\nagent_panel_scope = \"current\"\n[ui.toast]\ndelivery = \"hako\"\n",
         )
         .unwrap();
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
@@ -1554,6 +1632,10 @@ mod tests {
             state::AgentPanelScope::CurrentWorkspace
         );
         assert_eq!(app.state.default_shell, "nu");
+        assert_eq!(
+            app.state.new_terminal_cwd,
+            crate::config::NewTerminalCwdConfig::Home
+        );
         assert!(app.state.config_diagnostic.is_none());
         let toast = app.state.toast.as_ref().unwrap();
         assert_eq!(toast.kind, crate::app::state::ToastKind::UpdateInstalled);
@@ -2096,10 +2178,24 @@ mod tests {
                 label: Some("logs".into()),
             }),
         };
+        let worktree_list = crate::api::schema::Request {
+            id: "req_4".into(),
+            method: crate::api::schema::Method::WorktreeList(
+                crate::api::schema::WorktreeListParams::default(),
+            ),
+        };
+        let worktree_create = crate::api::schema::Request {
+            id: "req_5".into(),
+            method: crate::api::schema::Method::WorktreeCreate(
+                crate::api::schema::WorktreeCreateParams::default(),
+            ),
+        };
 
         assert!(!crate::api::request_changes_ui(&read_only));
+        assert!(!crate::api::request_changes_ui(&worktree_list));
         assert!(crate::api::request_changes_ui(&mutating));
         assert!(crate::api::request_changes_ui(&pane_rename));
+        assert!(crate::api::request_changes_ui(&worktree_create));
     }
 
     #[test]
@@ -2252,6 +2348,26 @@ mod tests {
         );
 
         assert_eq!(name, None);
+    }
+
+    #[test]
+    fn new_terminal_cwd_follow_uses_source_cwd() {
+        let cwd = creation::resolve_new_terminal_cwd(
+            &crate::config::NewTerminalCwdConfig::Follow,
+            Some(std::path::PathBuf::from("/tmp/hako-source")),
+        );
+
+        assert_eq!(cwd, std::path::PathBuf::from("/tmp/hako-source"));
+    }
+
+    #[test]
+    fn new_terminal_cwd_path_uses_configured_path() {
+        let cwd = creation::resolve_new_terminal_cwd(
+            &crate::config::NewTerminalCwdConfig::Path("/tmp/hako-fixed".into()),
+            Some(std::path::PathBuf::from("/tmp/hako-source")),
+        );
+
+        assert_eq!(cwd, std::path::PathBuf::from("/tmp/hako-fixed"));
     }
 
     #[test]
@@ -2526,7 +2642,7 @@ mod tests {
             3
         );
 
-        let runtimes: Vec<_> = app.state.terminal_runtimes.drain().collect();
+        let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
         for (_terminal_id, runtime) in runtimes {
             runtime.shutdown();
         }
@@ -2573,7 +2689,7 @@ mod tests {
         assert_eq!(app.state.active, Some(0));
         assert_eq!(app.state.workspaces[0].active_tab, background_tab);
 
-        let runtimes: Vec<_> = app.state.terminal_runtimes.drain().collect();
+        let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
         for (_terminal_id, runtime) in runtimes {
             runtime.shutdown();
         }
@@ -2709,6 +2825,9 @@ mod tests {
         app.selection_autoscroll_deadline = Some(now + Duration::from_millis(5));
         app.next_animation_tick = Some(now + Duration::from_millis(100));
         app.session_save_deadline = Some(now + Duration::from_millis(200));
+        app.next_resize_poll = now + Duration::from_secs(5);
+        app.next_command_scan = now + Duration::from_secs(5);
+        app.next_auto_update_check = Some(now + Duration::from_secs(6));
         assert_eq!(
             app.next_loop_deadline(now, false),
             app.selection_autoscroll_deadline
@@ -2768,6 +2887,11 @@ mod tests {
             pane_id,
             agent: Some(Agent::Pi),
             state: AgentState::Working,
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: false,
+            process_exited: false,
+            observed_at: std::time::Instant::now(),
         });
         assert_eq!(
             app.state.terminals.get(&terminal_id).unwrap().state,
@@ -2788,6 +2912,11 @@ mod tests {
             pane_id,
             agent: Some(Agent::Pi),
             state: AgentState::Idle,
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: false,
+            process_exited: false,
+            observed_at: std::time::Instant::now(),
         });
         tokio::pin!(send);
 

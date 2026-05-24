@@ -38,6 +38,7 @@ mod persist;
 mod platform;
 mod ports;
 mod product_announcements;
+mod protocol;
 mod raw_input;
 mod release_notes;
 mod remote;
@@ -51,6 +52,7 @@ mod terminal_theme;
 mod ui;
 mod update;
 mod workspace;
+mod worktree;
 
 fn init_logging() {
     crate::logging::init_file_logging("hako.log");
@@ -82,6 +84,11 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # Executable used for new interactive panes.
 # Empty means $SHELL, then /bin/sh.
 # default_shell = ""
+
+# CWD policy for new panes, tabs, and workspaces when no explicit --cwd is provided.
+# Use "follow" to inherit the source pane/workspace, "home" for $HOME,
+# "current" for Hako's process directory, or a fixed path such as "~/Projects".
+# new_cwd = "follow"
 
 [keys]
 # Prefix key to enter prefix mode (default: "ctrl+b")
@@ -170,6 +177,9 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # Set false to let the terminal handle normal clicks, such as Cmd-clicking URLs.
 # Pane apps like lazygit and btop can still receive mouse when they request it.
 # mouse_capture = true
+
+# Pane scrollback lines to scroll per mouse wheel notch.
+# mouse_scroll_lines = 3
 
 # ask for confirmation before closing a workspace
 # confirm_close = true
@@ -345,6 +355,7 @@ fn main() -> io::Result<()> {
         println!("       hako server reload-config");
         println!("       hako config <subcommand> ...");
         println!("       hako workspace <subcommand> ...");
+        println!("       hako worktree <subcommand> ...");
         println!("       hako tab <subcommand> ...");
         println!("       hako agent <subcommand> ...");
         println!("       hako pane <subcommand> ...");
@@ -375,6 +386,10 @@ fn main() -> io::Result<()> {
             (
                 "hako workspace <subcommand>",
                 "workspace helpers over the socket api",
+            ),
+            (
+                "hako worktree <subcommand>",
+                "git worktree helpers over the socket api",
             ),
             ("hako tab <subcommand>", "tab helpers over the socket api"),
             (
@@ -408,6 +423,8 @@ fn main() -> io::Result<()> {
         println!("  --no-session        run monolithically (no server/client, escape hatch)");
         println!("  --session <name>    use or create a named persistent session");
         println!("  --remote <target>   attach through ssh to a remote hako server");
+        println!("  --remote-keybindings <local|server>");
+        println!("                      keybindings for --remote app attach (default: local)");
         println!("  --default-config    print default configuration and exit");
         println!("  --version, -V       print version and exit");
         println!("  --help, -h          show this help");
@@ -434,6 +451,7 @@ fn main() -> io::Result<()> {
         "--no-session",
         "--session",
         "--remote",
+        "--remote-keybindings",
         "--version",
         "-V",
         "--default-config",
@@ -441,7 +459,8 @@ fn main() -> io::Result<()> {
         "-h",
     ];
     for arg in &args[1..] {
-        if arg.starts_with('-') && !known_flags.contains(&arg.as_str()) {
+        let arg_name = arg.split_once('=').map(|(name, _)| name).unwrap_or(arg);
+        if arg.starts_with('-') && !known_flags.contains(&arg_name) {
             eprintln!("unknown option: {arg}");
             eprintln!("run 'hako --help' for usage");
             std::process::exit(1);
@@ -455,6 +474,7 @@ fn main() -> io::Result<()> {
                 "status",
                 "config",
                 "workspace",
+                "worktree",
                 "pane",
                 "wait",
                 "session",

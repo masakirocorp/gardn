@@ -79,7 +79,13 @@ impl App {
                     Mode::ConfirmDeleteGroup => {
                         handle_confirm_delete_group_key(&mut self.state, key_event)
                     }
-                    Mode::ContextMenu => handle_context_menu_key(&mut self.state, key_event),
+                    Mode::ContextMenu => {
+                        handle_context_menu_key(
+                            &mut self.state,
+                            &mut self.terminal_runtimes,
+                            key_event,
+                        );
+                    }
                     Mode::Settings => self.handle_settings_key(key_event),
                     Mode::GlobalMenu => handle_global_menu_key(&mut self.state, key_event),
                     Mode::GroupMenu => handle_group_menu_key(&mut self.state, key_event),
@@ -100,7 +106,10 @@ impl App {
             return;
         }
         if let Some(ws_idx) = self.state.active {
-            if let Some(rt) = self.state.focused_runtime_in_workspace(ws_idx) {
+            if let Some(rt) = self
+                .state
+                .focused_runtime_in_workspace(&self.terminal_runtimes, ws_idx)
+            {
                 let _ = rt.send_paste(text).await;
             }
         }
@@ -304,7 +313,7 @@ impl App {
 
         let previous_agent_panel_scope = self.state.agent_panel_scope;
         let previous_settings_section = self.state.settings.section;
-        if let Some(action) = self.state.handle_mouse(mouse) {
+        if let Some(action) = self.state.handle_mouse(&mut self.terminal_runtimes, mouse) {
             match action {
                 SettingsAction::SaveTheme { name, mode } => self.save_theme(&name, mode),
                 SettingsAction::SaveGroupTheme { group_idx, name } => {
@@ -318,6 +327,8 @@ impl App {
                 SettingsAction::InstallRecommendedIntegrations => {
                     self.install_recommended_integrations()
                 }
+                SettingsAction::InstallIntegration(target) => self.install_integration(target),
+                SettingsAction::UninstallIntegration(target) => self.uninstall_integration(target),
             }
         }
         if previous_settings_section != crate::app::state::SettingsSection::Integrations
@@ -342,7 +353,10 @@ impl App {
         if let Some(action) = self.state.request_command_action.take() {
             match action {
                 crate::app::state::CommandPanelAction::RunOrFocus(command_id) => {
-                    if let Err(err) = self.state.run_project_command(&command_id) {
+                    if let Err(err) = self
+                        .state
+                        .run_project_command(&mut self.terminal_runtimes, &command_id)
+                    {
                         self.state.toast = Some(crate::app::state::ToastNotification {
                             kind: crate::app::state::ToastKind::NeedsAttention,
                             title: "command failed".to_string(),
@@ -352,7 +366,8 @@ impl App {
                     }
                 }
                 crate::app::state::CommandPanelAction::Stop(command_id) => {
-                    self.state.stop_project_command(&command_id);
+                    self.state
+                        .stop_project_command(&mut self.terminal_runtimes, &command_id);
                 }
             }
         }
@@ -374,7 +389,11 @@ impl App {
 
 // Note: split_pane needs runtime (event_tx for PTY spawn), so it lives on App
 impl AppState {
-    pub(crate) fn split_pane(&mut self, direction: Direction) {
+    pub(crate) fn split_pane(
+        &mut self,
+        terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
+        direction: Direction,
+    ) {
         // Actual PTY spawning happens in Workspace::split_focused
         // which needs events channel — this is called from navigate_key
         // where we don't have async context, so the workspace handles it
@@ -382,17 +401,17 @@ impl AppState {
         let new_rows = (rows / 2).max(4);
         let new_cols = (cols / 2).max(10);
 
-        let cwd = self
+        let follow_cwd = self
             .active
             .and_then(|i| self.workspaces.get(i))
             .and_then(|ws| {
                 let tab = ws.active_tab()?;
-                tab.cwd_for_pane(
-                    tab.layout.focused(),
-                    &self.terminals,
-                    &self.terminal_runtimes,
-                )
+                tab.cwd_for_pane(tab.layout.focused(), &self.terminals, terminal_runtimes)
             });
+        let cwd = Some(super::creation::resolve_new_terminal_cwd(
+            &self.new_terminal_cwd,
+            follow_cwd,
+        ));
 
         if let Some(ws) = self.active.and_then(|i| self.workspaces.get_mut(i)) {
             if let Ok(new_pane) = ws.split_focused(
@@ -405,8 +424,7 @@ impl AppState {
                 &self.default_shell,
             ) {
                 let new_id = new_pane.pane_id;
-                self.terminal_runtimes
-                    .insert(new_pane.terminal.id.clone(), new_pane.runtime);
+                terminal_runtimes.insert(new_pane.terminal.id.clone(), new_pane.runtime);
                 self.terminals
                     .insert(new_pane.terminal.id.clone(), new_pane.terminal);
                 ws.layout.focus_pane(new_id);
@@ -474,12 +492,13 @@ fn numbered_lines_bytes(count: usize) -> Vec<u8> {
 
 #[cfg(test)]
 fn capture_snapshot(state: &AppState) -> crate::persist::SessionSnapshot {
+    let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
     crate::persist::capture(
         &state.groups,
         state.active_group,
         &state.workspaces,
         &state.terminals,
-        &state.terminal_runtimes,
+        &terminal_runtimes,
         state.active,
         state.selected,
         state.agent_panel_scope,

@@ -25,23 +25,35 @@ use std::time::{Duration, Instant};
 
 use ratatui::layout::Rect;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use base64::Engine;
 use bytes::Bytes;
 
 use crate::api;
 use crate::app;
-use crate::app::state::AppState;
 use crate::config;
-use crate::detect::AgentState;
 use crate::events::AppEvent;
-use crate::layout::PaneId;
-use crate::server::client_transport::{self, ClientWriter, ServerEvent};
-use crate::server::protocol::{
-    self, FrameData, RenderEncoding, ServerMessage, MAX_FRAME_SIZE, MAX_GRAPHICS_FRAME_SIZE,
+use crate::protocol::{self, FrameData, ServerMessage, MAX_FRAME_SIZE, MAX_GRAPHICS_FRAME_SIZE};
+use crate::server::client_accept::accept_pending_client_connections;
+use crate::server::client_transport::ServerEvent;
+use crate::server::clients::{
+    events_include_interaction, latest_app_client, render_targets, terminal_attach_client_ids,
+    ClientConnection, ClientConnectionMode,
 };
-use crate::server::render_stream::ClientRenderState;
+use crate::server::keybindings::{app_keybindings, apply_keybindings};
+use crate::server::notifications::{
+    should_forward_toast_to_clients, toast_message_from_state_change, toast_notify_kind,
+};
+use crate::server::socket_paths::{
+    client_socket_path, prepare_socket_path, restrict_socket_permissions,
+};
+use crate::server::terminal_attach::paste_payload_for_runtime;
+
+#[cfg(test)]
+use crate::protocol::RenderEncoding;
+#[cfg(test)]
+use crate::server::client_transport::ClientWriter;
 
 // ---------------------------------------------------------------------------
 // Loop event enum for the headless server event loop
@@ -64,28 +76,6 @@ enum LoopEvent {
 const MIN_COLS: u16 = 80;
 const MIN_ROWS: u16 = 24;
 
-fn paste_payload_for_runtime(runtime: &crate::terminal::TerminalRuntime, text: &str) -> String {
-    if runtime
-        .input_state()
-        .map(|state| state.bracketed_paste)
-        .unwrap_or(false)
-    {
-        format!("\x1b[200~{text}\x1b[201~")
-    } else {
-        text.to_owned()
-    }
-}
-
-/// Legacy environment variable for overriding the client socket path.
-///
-/// Contractual override behavior for auto-detect uses `HAKO_SOCKET_PATH`.
-/// This variable is kept as a fallback for callers that explicitly need a
-/// client-only override when `HAKO_SOCKET_PATH` is not set.
-pub const CLIENT_SOCKET_PATH_ENV_VAR: &str = "HAKO_CLIENT_SOCKET_PATH";
-
-/// Socket permission mode (owner read/write only).
-const SOCKET_PERMISSION_MODE: u32 = 0o600;
-
 /// Timeout for in-flight API requests during shutdown.
 #[allow(dead_code)]
 const SHUTDOWN_API_TIMEOUT: Duration = Duration::from_secs(5);
@@ -99,245 +89,6 @@ const SHUTDOWN_API_TIMEOUT: Duration = Duration::from_secs(5);
 /// avoid reintroducing the idle CPU spin.
 const CLIENT_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-fn should_forward_toast_to_clients(delivery: config::ToastDelivery) -> bool {
-    toast_notify_kind(delivery).is_some()
-}
-
-fn toast_notify_kind(delivery: config::ToastDelivery) -> Option<protocol::NotifyKind> {
-    match delivery {
-        config::ToastDelivery::Terminal => Some(protocol::NotifyKind::Toast),
-        config::ToastDelivery::System => Some(protocol::NotifyKind::SystemToast),
-        config::ToastDelivery::Off | config::ToastDelivery::Hako => None,
-    }
-}
-
-fn toast_event_text(kind: app::state::ToastKind) -> &'static str {
-    match kind {
-        app::state::ToastKind::NeedsAttention => "needs attention",
-        app::state::ToastKind::Finished => "finished",
-        app::state::ToastKind::UpdateInstalled => "updated",
-    }
-}
-
-fn toast_message_from_state_change(
-    state: &AppState,
-    pane_id: PaneId,
-    suppress_active_tab_notifications: bool,
-    prev_state: AgentState,
-    new_state: AgentState,
-) -> Option<String> {
-    let kind = app::actions::notification_toast_for_state_change(
-        suppress_active_tab_notifications,
-        prev_state,
-        new_state,
-    )?;
-
-    state
-        .workspaces
-        .iter()
-        .enumerate()
-        .find_map(|(ws_idx, ws)| {
-            ws.tabs.iter().find_map(|tab| {
-                let pane = tab.panes.get(&pane_id)?;
-                let agent_label = state
-                    .terminals
-                    .get(&pane.attached_terminal_id)
-                    .and_then(|terminal| terminal.effective_agent_label())?;
-                Some(format!(
-                    "{} {}: {}",
-                    agent_label,
-                    toast_event_text(kind),
-                    app::actions::notification_context(ws, ws_idx, pane_id)
-                ))
-            })
-        })
-}
-
-// ---------------------------------------------------------------------------
-// Socket path helpers
-// ---------------------------------------------------------------------------
-
-/// Returns the path for the client protocol socket.
-///
-/// Contract-aligned override behavior:
-/// 1. If CLI `--session <name>` is active, use that session's client socket.
-/// 2. If `HAKO_SOCKET_PATH` is set, derive the client socket path from it by
-///    inserting `-client` before `.sock` (e.g. `hako.sock` -> `hako-client.sock`).
-///    This keeps JSON API and client socket overrides consistent.
-/// 3. Otherwise, honor `HAKO_CLIENT_SOCKET_PATH` (legacy/testing fallback).
-/// 4. Otherwise, use the active session data directory.
-pub fn client_socket_path() -> PathBuf {
-    if crate::session::explicit_session_requested() {
-        return crate::session::client_socket_path_for(crate::session::active_name().as_deref());
-    }
-    client_socket_path_from_overrides(
-        std::env::var(api::SOCKET_PATH_ENV_VAR).ok().as_deref(),
-        std::env::var(CLIENT_SOCKET_PATH_ENV_VAR).ok().as_deref(),
-    )
-}
-
-fn client_socket_path_from_overrides(
-    api_socket_override: Option<&str>,
-    client_socket_override: Option<&str>,
-) -> PathBuf {
-    if let Some(api_socket_override) = api_socket_override {
-        return derive_client_socket_from_api_socket(Path::new(api_socket_override));
-    }
-
-    if let Some(client_socket_override) = client_socket_override {
-        return PathBuf::from(client_socket_override);
-    }
-
-    crate::session::client_socket_path_for(crate::session::active_name().as_deref())
-}
-
-fn derive_client_socket_from_api_socket(api_socket_path: &Path) -> PathBuf {
-    let stem = api_socket_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("hako");
-    let parent = api_socket_path.parent().unwrap_or_else(|| Path::new(""));
-
-    if api_socket_path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext == "sock")
-    {
-        return parent.join(format!("{stem}-client.sock"));
-    }
-
-    parent.join(format!("{stem}-client.sock"))
-}
-
-// ---------------------------------------------------------------------------
-// Connected client state
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ClientConnectionMode {
-    App,
-    TerminalAttach { terminal_id: String },
-}
-
-type RenderTarget = (
-    u64,
-    (u16, u16),
-    crate::kitty_graphics::HostCellSize,
-    bool,
-    ClientConnectionMode,
-);
-
-/// A connected client tracked by the server.
-struct ClientConnection {
-    /// Whether this connection is the full app client or a direct terminal attach.
-    mode: ClientConnectionMode,
-    /// The client's terminal size (after clamping).
-    terminal_size: (u16, u16),
-    /// Pixel size of one client terminal cell.
-    cell_size: crate::kitty_graphics::HostCellSize,
-    /// Last known host terminal default colors for this client.
-    host_terminal_theme: crate::terminal_theme::TerminalTheme,
-    /// Last reported focus state for this client's outer terminal.
-    outer_terminal_focus: Option<bool>,
-    /// Monotonic activity stamp used to choose the fallback foreground client.
-    last_activity: u64,
-    /// Render baseline for the negotiated client encoding.
-    render_state: ClientRenderState,
-    /// Client-local host Kitty graphics cache.
-    graphics_cache: crate::kitty_graphics::HostGraphicsCache,
-    /// Whether the next graphics frame must clear and rebuild host-side Kitty state.
-    graphics_surface_reset_pending: bool,
-    /// Whether a render was skipped because the render channel was full.
-    render_pending: bool,
-    /// Last host mouse capture mode sent to this client.
-    host_mouse_capture_active: Option<bool>,
-    /// Temporary files staged from this client's local clipboard image pastes.
-    staged_clipboard_files: Vec<PathBuf>,
-    /// Channels for sending framed ServerMessage data to the client writer thread.
-    writer: Option<ClientWriter>,
-}
-
-impl ClientConnection {
-    #[cfg(test)]
-    fn new(
-        terminal_size: (u16, u16),
-        cell_size: crate::kitty_graphics::HostCellSize,
-        host_terminal_theme: crate::terminal_theme::TerminalTheme,
-        outer_terminal_focus: Option<bool>,
-        last_activity: u64,
-        render_encoding: RenderEncoding,
-        writer: Option<ClientWriter>,
-    ) -> Self {
-        Self::new_with_mode(
-            ClientConnectionMode::App,
-            terminal_size,
-            cell_size,
-            host_terminal_theme,
-            outer_terminal_focus,
-            last_activity,
-            render_encoding,
-            writer,
-        )
-    }
-
-    fn new_with_mode(
-        mode: ClientConnectionMode,
-        terminal_size: (u16, u16),
-        cell_size: crate::kitty_graphics::HostCellSize,
-        host_terminal_theme: crate::terminal_theme::TerminalTheme,
-        outer_terminal_focus: Option<bool>,
-        last_activity: u64,
-        render_encoding: RenderEncoding,
-        writer: Option<ClientWriter>,
-    ) -> Self {
-        Self {
-            mode,
-            terminal_size,
-            cell_size,
-            host_terminal_theme,
-            outer_terminal_focus,
-            last_activity,
-            render_state: ClientRenderState::new(render_encoding),
-            graphics_cache: crate::kitty_graphics::HostGraphicsCache::default(),
-            graphics_surface_reset_pending: false,
-            render_pending: false,
-            host_mouse_capture_active: None,
-            staged_clipboard_files: Vec::new(),
-            writer,
-        }
-    }
-
-    fn request_full_redraw(&mut self) {
-        self.render_state.reset_baseline();
-        self.graphics_surface_reset_pending = true;
-    }
-
-    fn request_semantic_redraw_after_input(&mut self) {
-        self.render_state.reset_semantic_input_baseline();
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Stale socket cleanup
-// ---------------------------------------------------------------------------
-
-/// Prepares a socket path for binding: creates parent directories,
-/// removes stale socket files (where no server is listening), and
-/// returns an error if a live server is already bound.
-fn prepare_socket_path(path: &Path) -> io::Result<()> {
-    crate::ipc::prepare_socket_path(path, |path| {
-        format!(
-            "hako server is already running (socket busy at {})",
-            path.display()
-        )
-    })
-}
-
-/// Restricts socket file permissions to owner-only (0o600).
-fn restrict_socket_permissions(path: &Path) -> io::Result<()> {
-    crate::ipc::restrict_socket_permissions(path, SOCKET_PERMISSION_MODE)
-}
-
 // ---------------------------------------------------------------------------
 // Headless server
 // ---------------------------------------------------------------------------
@@ -349,8 +100,14 @@ pub struct HeadlessServer {
     client_socket_path: PathBuf,
     clients: HashMap<u64, ClientConnection>,
     next_client_id: u64,
-    /// The client currently driving the shared pane runtime size and theme.
+    /// The client currently driving the shared pane runtime size, theme, and input keybindings.
     foreground_client_id: Option<u64>,
+    /// Server-owned keybindings, restored when foreground clients use server mode.
+    server_keybindings: crate::config::LiveKeybindConfig,
+    /// Full server config warning shown to clients that use server keybindings.
+    server_config_diagnostic: Option<String>,
+    /// Server config warning with keybinding diagnostics removed for local-keybinding clients.
+    server_config_diagnostic_without_keybindings: Option<String>,
     /// Writable direct attach owner per terminal id string.
     terminal_attach_owners: HashMap<String, u64>,
     /// Monotonic activity counter used to pick the most recently active client.
@@ -375,7 +132,7 @@ impl HeadlessServer {
     /// 1. Prepares the client socket path (cleans up stale sockets)
     /// 2. Binds the client socket listener
     /// 3. Returns the server ready to run
-    pub fn new(app: app::App) -> io::Result<Self> {
+    pub fn new(app: app::App, config_diagnostics: &[String]) -> io::Result<Self> {
         let client_path = client_socket_path();
         prepare_socket_path(&client_path)?;
 
@@ -390,6 +147,9 @@ impl HeadlessServer {
 
         // Channel for server events from client threads.
         let (server_event_tx, server_event_rx) = mpsc::channel(64);
+        let server_keybindings = app_keybindings(&app);
+        let (server_config_diagnostic, server_config_diagnostic_without_keybindings) =
+            server_config_diagnostic_summaries(config_diagnostics);
 
         Ok(Self {
             app,
@@ -398,6 +158,9 @@ impl HeadlessServer {
             clients: HashMap::new(),
             next_client_id: 1,
             foreground_client_id: None,
+            server_keybindings,
+            server_config_diagnostic,
+            server_config_diagnostic_without_keybindings,
             terminal_attach_owners: HashMap::new(),
             next_activity_stamp: 1,
             effective_size: (MIN_COLS, MIN_ROWS),
@@ -498,14 +261,18 @@ impl HeadlessServer {
 
             if self.app.state.request_reload_config {
                 self.app.state.request_reload_config = false;
-                self.app.reload_config();
+                self.reload_server_config(true);
                 needs_render = true;
             }
 
             if let Some(action) = self.app.state.request_command_action.take() {
                 match action {
                     app::state::CommandPanelAction::RunOrFocus(command_id) => {
-                        if let Err(err) = self.app.state.run_project_command(&command_id) {
+                        if let Err(err) = self
+                            .app
+                            .state
+                            .run_project_command(&mut self.app.terminal_runtimes, &command_id)
+                        {
                             self.app.state.toast = Some(app::state::ToastNotification {
                                 kind: app::state::ToastKind::NeedsAttention,
                                 title: "command failed".to_string(),
@@ -515,7 +282,9 @@ impl HeadlessServer {
                         }
                     }
                     app::state::CommandPanelAction::Stop(command_id) => {
-                        self.app.state.stop_project_command(&command_id);
+                        self.app
+                            .state
+                            .stop_project_command(&mut self.app.terminal_runtimes, &command_id);
                     }
                 }
                 needs_render = true;
@@ -613,9 +382,18 @@ impl HeadlessServer {
         let (cols, rows) = self.effective_size;
         let area = Rect::new(0, 0, cols, rows);
         if self.app.state.kitty_graphics_enabled && client.cell_size.is_known() {
-            crate::ui::compute_view_with_cell_size(&mut self.app.state, area, client.cell_size);
+            crate::ui::compute_view_with_cell_size(
+                &mut self.app.state,
+                &self.app.terminal_runtimes,
+                area,
+                client.cell_size,
+            );
         } else {
-            crate::ui::compute_view(&mut self.app.state, area);
+            crate::ui::compute_view_with_runtime_registry(
+                &mut self.app.state,
+                &self.app.terminal_runtimes,
+                area,
+            );
         }
 
         // Shared runtime size changes affect pane wrapping and foreground-driven
@@ -630,23 +408,69 @@ impl HeadlessServer {
         let Some(client_id) = self.foreground_client_id else {
             self.effective_size = (MIN_COLS, MIN_ROWS);
             self.app.state.outer_terminal_focus = None;
+            let server_keybindings = self.server_keybindings.clone();
+            apply_keybindings(&mut self.app, &server_keybindings);
+            self.sync_visible_server_config_diagnostic(false);
             return;
         };
         let Some(client) = self.clients.get(&client_id) else {
             self.foreground_client_id = None;
             self.effective_size = (MIN_COLS, MIN_ROWS);
             self.app.state.outer_terminal_focus = None;
+            let server_keybindings = self.server_keybindings.clone();
+            apply_keybindings(&mut self.app, &server_keybindings);
+            self.sync_visible_server_config_diagnostic(false);
             return;
         };
 
-        self.effective_size = client.terminal_size;
-        self.app.state.outer_terminal_focus = client.outer_terminal_focus;
-        if client.outer_terminal_focus == Some(true) {
+        let terminal_size = client.terminal_size;
+        let outer_terminal_focus = client.outer_terminal_focus;
+        let host_terminal_theme = client.host_terminal_theme;
+        let uses_local_keybindings = client.keybindings.is_some();
+        let keybindings = client
+            .keybindings
+            .as_deref()
+            .unwrap_or(&self.server_keybindings)
+            .clone();
+
+        self.effective_size = terminal_size;
+        self.app.state.outer_terminal_focus = outer_terminal_focus;
+        apply_keybindings(&mut self.app, &keybindings);
+        self.sync_visible_server_config_diagnostic(uses_local_keybindings);
+        if outer_terminal_focus == Some(true) {
             self.app.state.mark_active_tab_seen();
         }
-        if !client.host_terminal_theme.is_empty() {
-            self.app.set_host_terminal_theme(client.host_terminal_theme);
+        if !host_terminal_theme.is_empty() {
+            self.app.set_host_terminal_theme(host_terminal_theme);
         }
+    }
+
+    fn sync_visible_server_config_diagnostic(&mut self, uses_local_keybindings: bool) {
+        let visible = if uses_local_keybindings {
+            &self.server_config_diagnostic_without_keybindings
+        } else {
+            &self.server_config_diagnostic
+        };
+        if self.app.state.config_diagnostic == self.server_config_diagnostic
+            || self.app.state.config_diagnostic == self.server_config_diagnostic_without_keybindings
+        {
+            self.app.state.config_diagnostic = visible.clone();
+        }
+    }
+
+    fn reload_server_config(&mut self, notify_success: bool) -> crate::config::ConfigReloadReport {
+        let server_keybindings = self.server_keybindings.clone();
+        apply_keybindings(&mut self.app, &server_keybindings);
+        let report = self.app.apply_config_from_disk(notify_success);
+        self.app.take_config_reloaded_from_disk();
+        self.server_keybindings = app_keybindings(&self.app);
+        let (server_config_diagnostic, server_config_diagnostic_without_keybindings) =
+            server_config_diagnostic_summaries(&report.diagnostics);
+        self.server_config_diagnostic = server_config_diagnostic;
+        self.server_config_diagnostic_without_keybindings =
+            server_config_diagnostic_without_keybindings;
+        self.sync_foreground_client_state();
+        report
     }
 
     fn foreground_client_outer_focus(&self) -> Option<bool> {
@@ -675,12 +499,7 @@ impl HeadlessServer {
     }
 
     fn promote_latest_remaining_client(&mut self) -> bool {
-        let next_foreground = self
-            .clients
-            .iter()
-            .filter(|(_, client)| matches!(client.mode, ClientConnectionMode::App))
-            .max_by_key(|(_, client)| client.last_activity)
-            .map(|(&client_id, _)| client_id);
+        let next_foreground = latest_app_client(&self.clients);
         let changed = next_foreground != self.foreground_client_id;
         self.foreground_client_id = next_foreground;
         self.sync_foreground_client_state();
@@ -746,29 +565,12 @@ impl HeadlessServer {
             return false;
         };
 
-        let mut next_theme = client.host_terminal_theme;
-        for event in events {
-            match event {
-                crate::raw_input::RawInputEvent::HostDefaultColor { kind, color } => {
-                    next_theme = next_theme.with_color(*kind, *color);
-                }
-                crate::raw_input::RawInputEvent::HostPaletteColor { index, color } => {
-                    next_theme = next_theme.with_palette_color(*index, *color);
-                }
-                crate::raw_input::RawInputEvent::HostCursorColor { color } => {
-                    next_theme = next_theme.with_cursor_color(*color);
-                }
-                _ => {}
-            }
-        }
-
-        if next_theme == client.host_terminal_theme {
+        if !client.update_host_theme_from_events(events) {
             return false;
         }
 
-        client.host_terminal_theme = next_theme;
         if self.foreground_client_id == Some(client_id) {
-            self.app.set_host_terminal_theme(next_theme)
+            self.app.set_host_terminal_theme(client.host_terminal_theme)
         } else {
             false
         }
@@ -779,77 +581,25 @@ impl HeadlessServer {
         client_id: u64,
         events: &[crate::raw_input::RawInputEvent],
     ) {
-        let next_focus = events
-            .iter()
-            .filter_map(|event| match event {
-                crate::raw_input::RawInputEvent::OuterFocusGained => Some(true),
-                crate::raw_input::RawInputEvent::OuterFocusLost => Some(false),
-                _ => None,
-            })
-            .next_back();
-
-        let Some(next_focus) = next_focus else {
-            return;
-        };
         let Some(client) = self.clients.get_mut(&client_id) else {
             return;
         };
-        client.outer_terminal_focus = Some(next_focus);
+        let Some(next_focus) = client.update_outer_focus_from_events(events) else {
+            return;
+        };
         if self.foreground_client_id == Some(client_id) {
             self.app.state.outer_terminal_focus = Some(next_focus);
         }
     }
 
-    fn events_include_interaction(events: &[crate::raw_input::RawInputEvent]) -> bool {
-        events.iter().any(|event| {
-            matches!(
-                event,
-                crate::raw_input::RawInputEvent::Key(_)
-                    | crate::raw_input::RawInputEvent::Mouse(_)
-                    | crate::raw_input::RawInputEvent::Paste(_)
-                    | crate::raw_input::RawInputEvent::OuterFocusGained
-            )
-        })
-    }
-
     /// Accepts pending client connections from the non-blocking listener.
     fn accept_client_connections(&mut self) -> io::Result<()> {
-        loop {
-            match self.client_listener.accept() {
-                Ok((stream, _addr)) => {
-                    let client_id = self.next_client_id;
-                    self.next_client_id += 1;
-
-                    if let Err(err) = stream.set_nonblocking(true) {
-                        warn!(err = %err, "failed to set client stream nonblocking");
-                        continue;
-                    }
-
-                    // Spawn a thread for the handshake and read loop.
-                    let should_quit = self.should_quit.clone();
-                    let server_event_tx = self.server_event_tx.clone();
-                    std::thread::spawn(move || {
-                        if let Err(err) = client_transport::handle_client_handshake(
-                            stream,
-                            client_id,
-                            &server_event_tx,
-                            &should_quit,
-                        ) {
-                            debug!(client_id, err = %err, "client handshake failed");
-                        }
-                    });
-                }
-                Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
-                    // No more pending connections.
-                    break;
-                }
-                Err(err) => {
-                    error!(err = %err, "client listener accept failed");
-                    break;
-                }
-            }
-        }
-        Ok(())
+        accept_pending_client_connections(
+            &self.client_listener,
+            &mut self.next_client_id,
+            &self.should_quit,
+            &self.server_event_tx,
+        )
     }
 
     /// Drains server events from the dedicated channel.
@@ -877,7 +627,7 @@ impl HeadlessServer {
         terminal_id: &str,
     ) -> Option<&crate::terminal::TerminalRuntime> {
         let terminal_id = self.terminal_id_by_string(terminal_id)?;
-        self.app.state.terminal_runtimes.get(&terminal_id)
+        self.app.terminal_runtimes.get(&terminal_id)
     }
 
     fn write_client_clipboard_image(
@@ -1318,16 +1068,7 @@ impl HeadlessServer {
     }
 
     fn shutdown_terminal_attach_clients(&mut self, terminal_id: &str, reason: String) {
-        let client_ids: Vec<u64> = self
-            .clients
-            .iter()
-            .filter_map(|(&client_id, client)| match &client.mode {
-                ClientConnectionMode::TerminalAttach {
-                    terminal_id: attached,
-                } if attached == terminal_id => Some(client_id),
-                _ => None,
-            })
-            .collect();
+        let client_ids = terminal_attach_client_ids(&self.clients, terminal_id);
 
         for client_id in client_ids {
             self.send_to_client(
@@ -1409,7 +1150,7 @@ impl HeadlessServer {
             .state
             .direct_attach_resize_locks
             .insert(real_terminal_id.clone());
-        if let Some(runtime) = self.app.state.terminal_runtimes.get(&real_terminal_id) {
+        if let Some(runtime) = self.app.terminal_runtimes.get(&real_terminal_id) {
             runtime.resize(rows, cols, cell_size.width_px, cell_size.height_px);
         }
         true
@@ -1424,6 +1165,7 @@ impl HeadlessServer {
                 rows,
                 cell_width_px,
                 cell_height_px,
+                keybindings,
                 writer,
                 render_encoding,
             } => {
@@ -1441,6 +1183,7 @@ impl HeadlessServer {
                     client_id,
                     ClientConnection::new_with_mode(
                         ClientConnectionMode::App,
+                        keybindings,
                         (cols, rows),
                         crate::kitty_graphics::HostCellSize {
                             width_px: cell_width_px,
@@ -1492,7 +1235,7 @@ impl HeadlessServer {
                     }
                 }
                 self.update_client_outer_focus_from_events(client_id, &events);
-                let interaction = Self::events_include_interaction(&events);
+                let interaction = events_include_interaction(&events);
                 let foreground_changed = if interaction {
                     self.promote_client_to_foreground(client_id)
                 } else {
@@ -1504,6 +1247,11 @@ impl HeadlessServer {
                 let theme_changed = self.update_client_host_theme_from_events(client_id, &events);
                 self.app
                     .route_client_events(events, self.foreground_client_id == Some(client_id));
+                if self.app.take_config_reloaded_from_disk() {
+                    self.reload_server_config(false);
+                } else {
+                    self.sync_foreground_client_state();
+                }
 
                 // Check if the detach keybind was triggered during input processing.
                 if self.app.state.detach_requested {
@@ -1706,7 +1454,31 @@ impl HeadlessServer {
         };
 
         self.sync_foreground_client_state();
-        let response = self.app.handle_api_request(msg.request);
+        let response = if matches!(
+            &msg.request.method,
+            api::schema::Method::ServerReloadConfig(_)
+        ) {
+            let report = self.reload_server_config(true);
+            serde_json::to_string(&api::schema::SuccessResponse {
+                id: msg.request.id.clone(),
+                result: api::schema::ResponseResult::ConfigReload {
+                    status: report.status,
+                    diagnostics: report.diagnostics,
+                },
+            })
+            .unwrap_or_else(|err| {
+                serde_json::to_string(&api::schema::ErrorResponse {
+                    id: String::new(),
+                    error: api::schema::ErrorBody {
+                        code: "serialization_error".into(),
+                        message: err.to_string(),
+                    },
+                })
+                .unwrap_or_else(|_| "{}".to_string())
+            })
+        } else {
+            self.app.handle_api_request(msg.request)
+        };
         let _ = msg.respond_to.send(response);
 
         // Forward new toast state only when a client-local delivery mode is selected.
@@ -1842,7 +1614,10 @@ impl HeadlessServer {
     }
 
     fn stream_host_mouse_capture_mode(&mut self) {
-        let enabled = self.app.state.should_capture_host_mouse();
+        let enabled = self
+            .app
+            .state
+            .should_capture_host_mouse_from(&self.app.terminal_runtimes);
         let serialized = match Self::frame_server_message(&ServerMessage::MouseCapture { enabled })
         {
             Ok(framed) => framed,
@@ -1885,33 +1660,18 @@ impl HeadlessServer {
     /// Renders the current state to client-sized virtual buffers and streams
     /// frames to all connected clients.
     fn render_and_stream(&mut self) {
-        let foreground_client_id = self.foreground_client_id;
-        let mut render_targets: Vec<RenderTarget> = self
-            .clients
-            .iter()
-            .filter(|(_, client)| client.writer.is_some())
-            .map(|(&client_id, client)| {
-                (
-                    client_id,
-                    client.terminal_size,
-                    client.cell_size,
-                    foreground_client_id == Some(client_id),
-                    client.mode.clone(),
-                )
-            })
-            .collect();
-
-        render_targets
-            .sort_by_key(|(client_id, _, _, is_foreground, _)| (*is_foreground, *client_id));
+        let render_targets = render_targets(&self.clients, self.foreground_client_id);
 
         if render_targets.is_empty() {
             let (cols, rows) = self.effective_size;
             let area = Rect::new(0, 0, cols, rows);
             let resize_panes = self.app.state.view.pane_infos.is_empty();
-            let _ = crate::server::render_stream::render_virtual(
+            let _ = crate::server::render_stream::render_virtual_with_runtime_registry(
                 &mut self.app.state,
+                &self.app.terminal_runtimes,
                 area,
                 resize_panes,
+                crate::kitty_graphics::HostCellSize::default(),
             );
             debug!(
                 cols,
@@ -1928,21 +1688,26 @@ impl HeadlessServer {
                 ClientConnectionMode::App => {
                     let (buffer, cursor) =
                         if self.app.state.kitty_graphics_enabled && cell_size.is_known() {
-                            crate::server::render_stream::render_virtual_with_cell_size(
+                            crate::server::render_stream::render_virtual_with_runtime_registry(
                                 &mut self.app.state,
+                                &self.app.terminal_runtimes,
                                 area,
                                 is_foreground,
                                 cell_size,
                             )
                         } else {
-                            crate::server::render_stream::render_virtual(
+                            crate::server::render_stream::render_virtual_with_runtime_registry(
                                 &mut self.app.state,
+                                &self.app.terminal_runtimes,
                                 area,
                                 is_foreground,
+                                crate::kitty_graphics::HostCellSize::default(),
                             )
                         };
-                    let hyperlinks =
-                        crate::server::render_stream::visible_hyperlinks(&self.app.state);
+                    let hyperlinks = crate::server::render_stream::visible_hyperlinks(
+                        &self.app.state,
+                        &self.app.terminal_runtimes,
+                    );
                     FrameData::from_ratatui_buffer_with_hyperlinks(&buffer, cursor, &hyperlinks)
                 }
                 ClientConnectionMode::TerminalAttach { terminal_id } => {
@@ -1978,6 +1743,7 @@ impl HeadlessServer {
                     .graphics
                     .extend(crate::kitty_graphics::encode_local_pane_graphics(
                         &self.app.state,
+                        &self.app.terminal_runtimes,
                         cell_size,
                         &mut next_graphics_cache,
                     ));
@@ -2114,8 +1880,14 @@ impl HeadlessServer {
         }
 
         if now >= self.app.next_command_scan {
-            changed |= self.app.state.refresh_command_catalog();
-            changed |= self.app.state.refresh_command_run_statuses();
+            changed |= self
+                .app
+                .state
+                .refresh_command_catalog(&self.app.terminal_runtimes);
+            changed |= self
+                .app
+                .state
+                .refresh_command_run_statuses(&self.app.terminal_runtimes);
             self.app.next_command_scan = now + app::COMMAND_SCAN_INTERVAL;
         }
 
@@ -2292,6 +2064,22 @@ async fn sleep_until_or_pending(deadline: Option<Instant>) {
     }
 }
 
+fn server_config_diagnostic_summaries(diagnostics: &[String]) -> (Option<String>, Option<String>) {
+    let without_keybindings = diagnostics
+        .iter()
+        .filter(|diagnostic| !is_keybinding_config_diagnostic(diagnostic))
+        .cloned()
+        .collect::<Vec<_>>();
+    (
+        config::config_diagnostic_summary(diagnostics),
+        config::config_diagnostic_summary(&without_keybindings),
+    )
+}
+
+fn is_keybinding_config_diagnostic(diagnostic: &str) -> bool {
+    diagnostic.contains("keybinding") || diagnostic.contains("keys.")
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -2339,7 +2127,7 @@ pub fn run_server() -> io::Result<()> {
         app.local_terminal_notifications = false;
 
         // Create the headless server.
-        let mut server = match HeadlessServer::new(app) {
+        let mut server = match HeadlessServer::new(app, &loaded_config.diagnostics) {
             Ok(server) => server,
             Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
                 eprintln!("error: hako server is already running");
@@ -2388,7 +2176,8 @@ fn init_logging() {
 mod tests {
     use super::*;
 
-    use crate::server::protocol::CursorState;
+    use crate::app::AppState;
+    use crate::protocol::CursorState;
 
     fn test_headless_server() -> HeadlessServer {
         let config = crate::config::Config::default();
@@ -2413,6 +2202,7 @@ mod tests {
             .set_nonblocking(true)
             .expect("set listener nonblocking");
         let (server_event_tx, server_event_rx) = mpsc::channel(64);
+        let server_keybindings = app_keybindings(&app);
 
         HeadlessServer {
             app,
@@ -2421,6 +2211,9 @@ mod tests {
             clients: HashMap::new(),
             next_client_id: 1,
             foreground_client_id: None,
+            server_keybindings,
+            server_config_diagnostic: None,
+            server_config_diagnostic_without_keybindings: None,
             terminal_attach_owners: HashMap::new(),
             next_activity_stamp: 1,
             effective_size: (MIN_COLS, MIN_ROWS),
@@ -2527,6 +2320,256 @@ mod tests {
     }
 
     #[test]
+    fn foreground_client_applies_client_keybindings() {
+        let mut server = test_headless_server();
+        let local_config: crate::config::Config = toml::from_str(
+            r#"
+[keys]
+prefix = "ctrl+a"
+new_tab = "prefix+t"
+"#,
+        )
+        .unwrap();
+        let local_keybindings = local_config.live_keybinds().unwrap();
+        let (writer_a, _control_a, _render_a) = test_client_writer();
+        let (writer_b, _control_b, _render_b) = test_client_writer();
+
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 1,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: Some(Box::new(local_keybindings)),
+            writer: writer_a,
+        }));
+        assert_eq!(
+            server.app.state.prefix_code,
+            crossterm::event::KeyCode::Char('a')
+        );
+        assert!(server
+            .app
+            .state
+            .keybinds
+            .new_tab
+            .bindings
+            .iter()
+            .any(|binding| binding.label == "prefix+t"));
+
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 2,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: None,
+            writer: writer_b,
+        }));
+        assert_eq!(
+            server.app.state.prefix_code,
+            crossterm::event::KeyCode::Char('b')
+        );
+        assert!(server
+            .app
+            .state
+            .keybinds
+            .new_tab
+            .bindings
+            .iter()
+            .any(|binding| binding.label == "prefix+c"));
+    }
+
+    #[test]
+    fn local_keybinding_client_hides_server_keybinding_warnings() {
+        let mut server = test_headless_server();
+        let diagnostics = vec![
+            "unsafe direct keybinding: keys.close_pane = \"x\" would intercept typing".to_owned(),
+            "theme warning".to_owned(),
+        ];
+        let (full, without_keybindings) = server_config_diagnostic_summaries(&diagnostics);
+        server.server_config_diagnostic = full.clone();
+        server.server_config_diagnostic_without_keybindings = without_keybindings.clone();
+        server.app.state.config_diagnostic = full;
+        let local_keybindings = crate::config::Config::default().live_keybinds().unwrap();
+        let (writer_a, _control_a, _render_a) = test_client_writer();
+        let (writer_b, _control_b, _render_b) = test_client_writer();
+
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 1,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: Some(Box::new(local_keybindings)),
+            writer: writer_a,
+        }));
+        assert_eq!(server.app.state.config_diagnostic, without_keybindings);
+
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 2,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: None,
+            writer: writer_b,
+        }));
+        assert_eq!(
+            server.app.state.config_diagnostic,
+            server.server_config_diagnostic
+        );
+    }
+
+    #[test]
+    fn local_keybinding_client_keeps_local_keybindings_after_settings_save() {
+        let path = std::env::temp_dir().join(format!(
+            "hako-headless-settings-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::write(&path, "onboarding = false\n").unwrap();
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut server = test_headless_server();
+        let local_config: crate::config::Config = toml::from_str(
+            r#"
+[keys]
+prefix = "ctrl+a"
+new_workspace = "prefix+n"
+next_tab = ""
+"#,
+        )
+        .unwrap();
+        let local_keybindings = local_config.live_keybinds().unwrap();
+        let (writer, _control, _render) = test_client_writer();
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 1,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: Some(Box::new(local_keybindings)),
+            writer,
+        }));
+        server.app.state.mode = crate::app::Mode::Settings;
+        server.app.state.settings.section = crate::app::state::SettingsSection::Toast;
+        server.app.state.settings.list.selected = 1;
+
+        assert!(server.handle_server_event(ServerEvent::ClientInput {
+            client_id: 1,
+            data: b"\r".to_vec(),
+        }));
+
+        assert_eq!(
+            server.app.state.prefix_code,
+            crossterm::event::KeyCode::Char('a')
+        );
+        assert!(server
+            .app
+            .state
+            .keybinds
+            .new_workspace
+            .bindings
+            .iter()
+            .any(|binding| binding.label == "prefix+n"));
+        assert!(server.app.state.toast.is_none());
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("delivery = \"hako\""));
+
+        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn invalid_server_keybindings_do_not_cache_local_keybindings_after_settings_save() {
+        let path = std::env::temp_dir().join(format!(
+            "hako-headless-invalid-settings-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::write(
+            &path,
+            "onboarding = false\n[keys]\nnew_workspace = \"x\"\n[ui.toast]\ndelivery = \"off\"\n",
+        )
+        .unwrap();
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut server = test_headless_server();
+        let previous_server_config: crate::config::Config =
+            toml::from_str("[keys]\nprefix = \"ctrl+c\"\nnew_workspace = \"prefix+m\"\n").unwrap();
+        server.server_keybindings = previous_server_config.live_keybinds().unwrap();
+        let local_config: crate::config::Config = toml::from_str(
+            r#"
+[keys]
+prefix = "ctrl+a"
+new_workspace = "prefix+n"
+next_tab = ""
+"#,
+        )
+        .unwrap();
+        let (writer_a, _control_a, _render_a) = test_client_writer();
+        let (writer_b, _control_b, _render_b) = test_client_writer();
+
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 1,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: Some(Box::new(local_config.live_keybinds().unwrap())),
+            writer: writer_a,
+        }));
+        server.app.state.mode = crate::app::Mode::Settings;
+        server.app.state.settings.section = crate::app::state::SettingsSection::Toast;
+        server.app.state.settings.list.selected = 1;
+
+        assert!(server.handle_server_event(ServerEvent::ClientInput {
+            client_id: 1,
+            data: b"\r".to_vec(),
+        }));
+
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 2,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: None,
+            writer: writer_b,
+        }));
+        assert_eq!(
+            server.app.state.prefix_code,
+            crossterm::event::KeyCode::Char('c')
+        );
+        assert!(server
+            .app
+            .state
+            .keybinds
+            .new_workspace
+            .bindings
+            .iter()
+            .any(|binding| binding.label == "prefix+m"));
+
+        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn terminal_attach_rejects_missing_terminal_and_removes_client() {
         let mut server = test_headless_server();
         let (writer, control_rx, _render_rx) = test_client_writer();
@@ -2538,6 +2581,7 @@ mod tests {
             cell_width_px: 0,
             cell_height_px: 0,
             render_encoding: RenderEncoding::TerminalAnsi,
+            keybindings: None,
             writer,
         }));
         assert!(server.clients.contains_key(&7));
@@ -2578,6 +2622,7 @@ mod tests {
             cell_width_px: 0,
             cell_height_px: 0,
             render_encoding: RenderEncoding::TerminalAnsi,
+            keybindings: None,
             writer,
         }));
         assert!(
@@ -2604,100 +2649,7 @@ mod tests {
     }
 
     #[test]
-    fn client_socket_path_derived_from_api_socket_override() {
-        let path = client_socket_path_from_overrides(Some("/tmp/test-hako.sock"), None);
-        assert_eq!(path, PathBuf::from("/tmp/test-hako-client.sock"));
-    }
 
-    #[test]
-    fn client_socket_path_api_override_takes_precedence_over_legacy_client_override() {
-        let path = client_socket_path_from_overrides(
-            Some("/tmp/test-hako.sock"),
-            Some("/tmp/legacy-client.sock"),
-        );
-        assert_eq!(path, PathBuf::from("/tmp/test-hako-client.sock"));
-    }
-
-    #[test]
-    fn client_socket_path_respects_legacy_client_override_without_api_override() {
-        let path = client_socket_path_from_overrides(None, Some("/tmp/test-hako-client.sock"));
-        assert_eq!(path, PathBuf::from("/tmp/test-hako-client.sock"));
-    }
-
-    #[test]
-    fn client_socket_path_defaults_to_config_dir() {
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
-        crate::session::clear_explicit_session_for_test();
-        let path = client_socket_path_from_overrides(None, None);
-        assert_eq!(path, config::config_dir().join("hako-client.sock"));
-    }
-
-    #[test]
-    fn derive_client_socket_from_api_socket_without_sock_extension() {
-        let derived = derive_client_socket_from_api_socket(Path::new("/tmp/custom-api"));
-        assert_eq!(derived, PathBuf::from("/tmp/custom-api-client.sock"));
-    }
-
-    #[test]
-    fn prepare_socket_path_removes_stale_socket() {
-        let dir = PathBuf::from(format!(
-            "/tmp/hs-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-        let _ = fs::create_dir_all(&dir);
-        let socket_path = dir.join("stale.sock");
-
-        // Create a socket file that nobody is listening on.
-        {
-            let _listener = UnixListener::bind(&socket_path).expect("bind stale socket");
-        }
-        // The listener scope ended, so the socket is now stale.
-        let deadline = std::time::Instant::now() + Duration::from_secs(1);
-        while std::time::Instant::now() < deadline {
-            if std::os::unix::net::UnixStream::connect(&socket_path).is_err() {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-
-        // prepare_socket_path should remove it without error.
-        let result = prepare_socket_path(&socket_path);
-        assert!(result.is_ok(), "should remove stale socket: {result:?}");
-
-        // Socket file should be gone.
-        assert!(!socket_path.exists());
-
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn prepare_socket_path_rejects_live_socket() {
-        let dir = PathBuf::from(format!(
-            "/tmp/hl-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-        let _ = fs::create_dir_all(&dir);
-        let socket_path = dir.join("live.sock");
-
-        // Bind a live listener.
-        let _listener = UnixListener::bind(&socket_path).expect("bind");
-
-        let result = prepare_socket_path(&socket_path);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::AddrInUse);
-
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
     fn virtual_render_produces_nonempty_buffer() {
         let mut state = AppState::test_new();
         let area = Rect::new(0, 0, 80, 24);
@@ -2848,8 +2800,9 @@ mod tests {
 
         let area = Rect::new(0, 0, 80, 24);
         let _ = crate::server::render_stream::render_virtual(&mut state, area, true);
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let runtime = state
-            .runtime_for_pane(pane_id)
+            .runtime_for_pane(&terminal_runtimes, pane_id)
             .expect("pane runtime after initial render");
         runtime.scroll_up(6);
         assert!(crate::ui::pane_is_scrolled_back(runtime));
@@ -3003,8 +2956,9 @@ mod tests {
 
         let area = Rect::new(0, 0, 80, 24);
         let _ = crate::server::render_stream::render_virtual(&mut state, area, true);
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let runtime = state
-            .runtime_for_pane(pane_id)
+            .runtime_for_pane(&terminal_runtimes, pane_id)
             .expect("pane runtime after initial render");
         runtime.scroll_up(6);
         assert!(crate::ui::pane_is_scrolled_back(runtime));
@@ -3299,7 +3253,7 @@ mod tests {
             server
                 .app
                 .state
-                .runtime_for_pane(active_pane)
+                .runtime_for_pane(&server.app.terminal_runtimes, active_pane)
                 .unwrap()
                 .current_size(),
             expected
@@ -3308,7 +3262,7 @@ mod tests {
             server
                 .app
                 .state
-                .runtime_for_pane(background_pane)
+                .runtime_for_pane(&server.app.terminal_runtimes, background_pane)
                 .unwrap()
                 .current_size(),
             expected

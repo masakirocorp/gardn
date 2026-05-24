@@ -21,6 +21,7 @@ const UPDATE_MANIFEST_URL: &str = "https://hako.masakiro.com/latest.json";
 const HOMEBREW_FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula/hako.json";
 const HAKO_UPDATE_COMMAND: &str = "hako update";
 const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade hako";
+const NIX_UPDATE_COMMAND: &str = "update through Nix";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const FAKE_UPDATE_VERSION_ENV: &str = "HAKO_FAKE_UPDATE_VERSION";
 const SERVER_STOP_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -408,7 +409,7 @@ fn client_protocol_server_is_running_at(socket_path: &Path) -> bool {
 }
 
 fn client_protocol_server_is_running() -> bool {
-    client_protocol_server_is_running_at(&crate::server::headless::client_socket_path())
+    client_protocol_server_is_running_at(&crate::server::socket_paths::client_socket_path())
 }
 
 fn read_running_server_info() -> Result<Option<crate::api::RuntimeStatus>, String> {
@@ -450,8 +451,9 @@ fn prompt_to_stop_server_before_update(
     if !io::stdin().is_terminal() {
         if requires_stop {
             return Err(format!(
-                "a hako server is running and updating to v{} requires stopping it; run `hako server stop`, then run `hako update` again",
-                release.version
+                "a hako server is running and updating to v{} requires stopping it; run `{}`, then run `hako update` again",
+                release.version,
+                crate::session::local_stop_command()
             ));
         }
 
@@ -521,10 +523,10 @@ fn plan_running_server_update(
 ) -> Result<Option<RunningServerUpdatePlan>, String> {
     let Some(server) = read_running_server_info()? else {
         if client_protocol_server_is_running() {
-            return Err(
-                "a hako server is listening, but its status API is unavailable; try `hako server stop`, or stop the old server process manually, then run `hako update` again"
-                    .to_string(),
-            );
+            return Err(format!(
+                "a hako server is listening, but its status API is unavailable; try `{}`, or stop the old server process manually, then run `hako update` again",
+                crate::session::local_stop_command()
+            ));
         }
         return Ok(None);
     };
@@ -548,10 +550,10 @@ fn stop_running_server_for_update(
         prompt_to_stop_server_before_update(&plan.server, release, plan.requires_stop)?;
     if !stop_server {
         if plan.requires_stop {
-            return Err(
-                "update cancelled; stop the running hako server with `hako server stop`, then run `hako update` again"
-                    .to_string(),
-            );
+            return Err(format!(
+                "update cancelled; stop the running hako server with `{}`, then run `hako update` again",
+                crate::session::local_stop_command()
+            ));
         }
         return Ok(false);
     }
@@ -665,6 +667,8 @@ fn wait_for_server_shutdown(timeout: Duration) -> Result<(), String> {
 pub(crate) fn update_install_command() -> &'static str {
     if is_homebrew_managed_install() {
         HOMEBREW_UPDATE_COMMAND
+    } else if is_nix_managed_install() {
+        NIX_UPDATE_COMMAND
     } else {
         HAKO_UPDATE_COMMAND
     }
@@ -682,6 +686,24 @@ fn is_homebrew_managed_install() -> bool {
     current_exe
         .canonicalize()
         .is_ok_and(|path| is_homebrew_managed_exe_path(&path))
+}
+
+fn is_nix_managed_install() -> bool {
+    let Ok(current_exe) = env::current_exe() else {
+        return false;
+    };
+
+    if is_nix_store_exe_path(&current_exe) {
+        return true;
+    }
+
+    current_exe
+        .canonicalize()
+        .is_ok_and(|path| is_nix_store_exe_path(&path))
+}
+
+fn is_nix_store_exe_path(path: &Path) -> bool {
+    path.starts_with("/nix/store")
 }
 
 fn is_homebrew_managed_exe_path(path: &Path) -> bool {
@@ -978,6 +1000,12 @@ pub fn self_update() -> Result<Version, String> {
         ));
     }
 
+    if is_nix_managed_install() {
+        return Err(
+            "self-update is disabled for Nix installs; update with `nix profile upgrade` or update the flake input that provides Hako".into(),
+        );
+    }
+
     if running_inside_hako() {
         return Err("run `hako update` outside hako after detaching from the session".into());
     }
@@ -1062,6 +1090,8 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
         return;
     }
 
+    let nix_managed_install = is_nix_managed_install();
+
     let release = match check_latest() {
         Ok(Some(r)) => r,
         Ok(None) => return,
@@ -1090,9 +1120,15 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
     );
 
     // Notify the TUI — blocking_send is safe from a std::thread
+    let install_command = if nix_managed_install {
+        NIX_UPDATE_COMMAND
+    } else {
+        HAKO_UPDATE_COMMAND
+    };
+
     let _ = events.blocking_send(crate::events::AppEvent::UpdateReady {
         version: release.version.to_string(),
-        install_command: HAKO_UPDATE_COMMAND.to_string(),
+        install_command: install_command.to_string(),
     });
 }
 
@@ -1173,7 +1209,13 @@ mod tests {
         atomic::{AtomicBool, Ordering},
         Arc,
     };
+    use std::sync::{Mutex, OnceLock};
     use std::thread;
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     fn unique_test_socket_path(name: &str) -> std::path::PathBuf {
         let nanos = std::time::SystemTime::now()
@@ -1269,6 +1311,20 @@ mod tests {
     }
 
     #[test]
+    fn nix_store_path_is_detected() {
+        let path = Path::new("/nix/store/abc123-hako-0.6.1/bin/hako");
+
+        assert!(is_nix_store_exe_path(path));
+    }
+
+    #[test]
+    fn non_nix_store_path_is_not_detected() {
+        let path = Path::new("/usr/local/bin/hako");
+
+        assert!(!is_nix_store_exe_path(path));
+    }
+
+    #[test]
     fn parse_homebrew_formula_stable_version_reads_versions_stable() {
         let version = parse_homebrew_formula_stable_version(
             br#"{"versions":{"stable":"0.5.10","head":"HEAD","bottle":true}}"#,
@@ -1328,6 +1384,40 @@ mod tests {
         assert!(!update_requires_server_stop(&server, &compatible_release));
         assert!(update_requires_server_stop(&server, &incompatible_release));
         assert!(update_requires_server_stop(&server, &unknown_release));
+    }
+
+    #[test]
+    fn noninteractive_update_requires_stop_names_session_stop_command() {
+        let _guard = env_lock().lock().unwrap();
+        assert!(
+            !io::stdin().is_terminal(),
+            "this test relies on noninteractive test stdin"
+        );
+        std::env::set_var(crate::session::SESSION_ENV_VAR, "work");
+        crate::session::clear_explicit_session_for_test();
+        let server = crate::api::RuntimeStatus {
+            version: Some("0.5.5".to_string()),
+            protocol: Some(2),
+        };
+        let release = ReleaseInfo {
+            version: Version::parse("0.5.6").unwrap(),
+            target_protocol: Some(3),
+            download_url: "https://example.com/hako".to_string(),
+            notes_body: "### Changed\n- One".to_string(),
+        };
+
+        let err = prompt_to_stop_server_before_update(&server, &release, true).unwrap_err();
+
+        assert!(
+            err.contains("run `hako session stop work`"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            err.contains("then run `hako update` again"),
+            "unexpected error: {err}"
+        );
+        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        crate::session::clear_explicit_session_for_test();
     }
 
     #[test]

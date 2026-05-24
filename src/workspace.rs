@@ -13,7 +13,7 @@ use crate::layout::PaneId;
 #[cfg(test)]
 use crate::layout::TileLayout;
 use crate::pane::PaneState;
-use crate::terminal::{TerminalId, TerminalRuntime, TerminalState};
+use crate::terminal::{TerminalId, TerminalRuntime, TerminalRuntimeRegistry, TerminalState};
 
 mod aggregate;
 mod git;
@@ -22,11 +22,20 @@ mod tab;
 pub(crate) use self::git::git_repo_root;
 use self::git::{git_ahead_behind, git_work_summary};
 pub use self::{
-    git::{derive_label_from_cwd, git_branch},
+    git::{derive_label_from_cwd, git_branch, git_space_metadata, GitSpaceMetadata},
     tab::Tab,
 };
 
 pub const DEFAULT_GROUP_ID: &str = "default";
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WorktreeSpaceMembership {
+    pub key: String,
+    pub label: String,
+    pub repo_root: PathBuf,
+    pub checkout_path: PathBuf,
+    pub is_linked_worktree: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceGitStatus {
@@ -36,6 +45,7 @@ pub struct WorkspaceGitStatus {
     pub branch: Option<String>,
     pub ahead_behind: Option<(usize, usize)>,
     pub work_summary: Option<GitWorkSummary>,
+    pub space: Option<GitSpaceMetadata>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -74,6 +84,10 @@ pub struct Workspace {
     pub(crate) cached_git_ahead_behind: Option<(usize, usize)>,
     /// Cached aggregate git working-tree state across this space's pane cwd set.
     pub(crate) cached_git_work_summary: Option<GitWorkSummary>,
+    /// Cached derived Git repo metadata for worktree actions and status display.
+    pub(crate) cached_git_space: Option<GitSpaceMetadata>,
+    /// Explicit Hako-managed worktree grouping provenance.
+    pub worktree_space: Option<WorktreeSpaceMembership>,
     /// Stable-ish public pane numbers within this workspace.
     /// New panes append at the end; closing a pane compacts higher numbers down.
     pub public_pane_numbers: HashMap<PaneId, usize>,
@@ -209,6 +223,8 @@ impl Workspace {
                 cached_git_branch: git_branch(&initial_cwd),
                 cached_git_ahead_behind: None,
                 cached_git_work_summary: None,
+                cached_git_space: None,
+                worktree_space: None,
                 public_pane_numbers,
                 next_public_pane_number: 2,
                 tabs: vec![tab],
@@ -631,10 +647,12 @@ impl Workspace {
 
     pub fn resolved_identity_cwd_from(
         &self,
-        _terminals: &HashMap<TerminalId, TerminalState>,
-        _terminal_runtimes: &HashMap<TerminalId, TerminalRuntime>,
+        terminals: &HashMap<TerminalId, TerminalState>,
+        terminal_runtimes: &TerminalRuntimeRegistry,
     ) -> Option<PathBuf> {
-        Some(self.identity_cwd.clone())
+        self.active_tab()
+            .and_then(|tab| tab.cwd_for_pane(tab.layout.focused(), terminals, terminal_runtimes))
+            .or_else(|| Some(self.identity_cwd.clone()))
     }
 
     pub fn display_name(&self) -> String {
@@ -649,14 +667,16 @@ impl Workspace {
 
     pub fn display_name_from(
         &self,
-        _terminals: &HashMap<TerminalId, TerminalState>,
-        _terminal_runtimes: &HashMap<TerminalId, TerminalRuntime>,
+        terminals: &HashMap<TerminalId, TerminalState>,
+        terminal_runtimes: &TerminalRuntimeRegistry,
     ) -> String {
         if let Some(name) = &self.custom_name {
             return name.clone();
         }
 
-        self.display_name()
+        self.resolved_identity_cwd_from(terminals, terminal_runtimes)
+            .map(|cwd| derive_label_from_cwd(&cwd))
+            .unwrap_or_else(|| "workspace".into())
     }
 
     #[cfg(test)]
@@ -667,6 +687,14 @@ impl Workspace {
     #[cfg(test)]
     pub fn git_ahead_behind(&self) -> Option<(usize, usize)> {
         self.cached_git_ahead_behind
+    }
+
+    pub fn git_space(&self) -> Option<&GitSpaceMetadata> {
+        self.cached_git_space.as_ref()
+    }
+
+    pub fn worktree_space(&self) -> Option<&WorktreeSpaceMembership> {
+        self.worktree_space.as_ref()
     }
 
     pub fn git_work_summary_label(&self) -> String {
@@ -711,6 +739,7 @@ impl Workspace {
         self.cached_git_branch = cwd.as_deref().and_then(git_branch);
         self.cached_git_ahead_behind = cwd.as_deref().and_then(git_ahead_behind);
         self.cached_git_work_summary = git_work_summary(&self.git_status_cwds());
+        self.cached_git_space = cwd.as_deref().and_then(git_space_metadata);
     }
 
     #[cfg(test)]
@@ -738,7 +767,7 @@ impl Workspace {
     pub fn git_status_cwds_from(
         &self,
         terminals: &HashMap<TerminalId, TerminalState>,
-        terminal_runtimes: &HashMap<TerminalId, TerminalRuntime>,
+        terminal_runtimes: &TerminalRuntimeRegistry,
     ) -> Vec<PathBuf> {
         let mut cwds = self
             .tabs
@@ -766,9 +795,10 @@ impl Workspace {
         WorkspaceGitStatus {
             branch: git_branch(&resolved_identity_cwd),
             ahead_behind: git_ahead_behind(&resolved_identity_cwd),
+            work_summary: git_work_summary(&cwd_fingerprint),
+            space: git_space_metadata(&resolved_identity_cwd),
             workspace_id,
             resolved_identity_cwd,
-            work_summary: git_work_summary(&cwd_fingerprint),
             cwd_fingerprint,
         }
     }
@@ -884,6 +914,8 @@ impl Workspace {
             cached_git_branch: git_branch(&identity_cwd),
             cached_git_ahead_behind: None,
             cached_git_work_summary: None,
+            cached_git_space: None,
+            worktree_space: None,
             public_pane_numbers,
             next_public_pane_number: 2,
             tabs: vec![tab],
@@ -935,7 +967,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn workspace_identity_ignores_runtime_cwd_changes() {
+    fn workspace_display_name_from_uses_live_runtime_cwd() {
         let mut ws = Workspace::test_new("ignored");
         ws.custom_name = None;
         ws.identity_cwd = PathBuf::from("/hako-test/original");
@@ -946,15 +978,37 @@ mod tests {
             terminal_id.clone(),
             TerminalState::new(terminal_id, PathBuf::from("/hako-test/pion")),
         );
-        let terminal_runtimes = HashMap::new();
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+
+        assert_eq!(ws.display_name(), "original");
+
+        assert_eq!(ws.display_name_from(&terminals, &terminal_runtimes), "pion");
+        assert_eq!(
+            ws.resolved_identity_cwd_from(&terminals, &terminal_runtimes),
+            Some(PathBuf::from("/hako-test/pion"))
+        );
+    }
+
+    #[test]
+    fn workspace_manual_name_overrides_live_runtime_cwd() {
+        let mut ws = Workspace::test_new("manual");
+        ws.identity_cwd = PathBuf::from("/hako-test/original");
+        let root_pane = ws.tabs[0].root_pane;
+        let terminal_id = ws.tabs[0].terminal_id(root_pane).unwrap().clone();
+        let mut terminals = HashMap::new();
+        terminals.insert(
+            terminal_id.clone(),
+            TerminalState::new(terminal_id, PathBuf::from("/hako-test/live")),
+        );
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
 
         assert_eq!(
             ws.display_name_from(&terminals, &terminal_runtimes),
-            "original"
+            "manual"
         );
         assert_eq!(
             ws.resolved_identity_cwd_from(&terminals, &terminal_runtimes),
-            Some(PathBuf::from("/hako-test/original"))
+            Some(PathBuf::from("/hako-test/live"))
         );
     }
 

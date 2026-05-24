@@ -1,7 +1,7 @@
 #[cfg(test)]
 use crossterm::event::KeyEvent;
 use crossterm::event::{KeyCode, KeyModifiers};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use super::Config;
@@ -9,13 +9,13 @@ use crate::input::TerminalKey;
 
 pub type KeyCombo = (KeyCode, KeyModifiers);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LiveKeybindConfig {
     pub prefix: KeyCombo,
     pub keybinds: Keybinds,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum BindingConfig {
     One(String),
@@ -45,7 +45,7 @@ impl BindingConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandKeybindType {
     #[default]
@@ -53,7 +53,7 @@ pub enum CommandKeybindType {
     Pane,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct CommandKeybindConfig {
     /// Key that runs a command. Use `prefix+g` for prefix mode or a modified chord for direct mode.
@@ -840,6 +840,7 @@ pub(super) fn parse_key_combo(s: &str) -> Option<KeyCombo> {
     }
 
     let key_str = key_str?;
+    let single_char = single_key_char(key_str);
     let lower = key_str.to_lowercase();
     let code = match lower.as_str() {
         "space" | " " => KeyCode::Char(' '),
@@ -868,8 +869,8 @@ pub(super) fn parse_key_combo(s: &str) -> Option<KeyCombo> {
         "ampersand" => KeyCode::Char('&'),
         "backtick" => KeyCode::Char('`'),
         "plus" => KeyCode::Char('+'),
-        s if s.len() == 1 => {
-            let ch = key_str.chars().next().unwrap();
+        _ if single_char.is_some() => {
+            let ch = single_char?;
             if ch.is_ascii_uppercase() {
                 modifiers |= KeyModifiers::SHIFT;
                 KeyCode::Char(ch.to_ascii_lowercase())
@@ -882,6 +883,16 @@ pub(super) fn parse_key_combo(s: &str) -> Option<KeyCombo> {
     };
 
     Some(normalize_key_combo((code, modifiers)))
+}
+
+fn single_key_char(s: &str) -> Option<char> {
+    let mut chars = s.chars();
+    let ch = chars.next()?;
+    if chars.next().is_none() {
+        Some(ch)
+    } else {
+        None
+    }
 }
 
 fn parse_key_combo_with_diagnostic(
@@ -1022,6 +1033,34 @@ mod tests {
             parse_key_combo("v"),
             Some((KeyCode::Char('v'), KeyModifiers::empty()))
         );
+    }
+
+    #[test]
+    fn parse_unicode_char_combo() {
+        assert_eq!(
+            parse_key_combo("ö"),
+            Some((KeyCode::Char('ö'), KeyModifiers::empty()))
+        );
+        assert_eq!(
+            parse_key_combo("alt+é"),
+            Some((KeyCode::Char('é'), KeyModifiers::ALT))
+        );
+    }
+
+    #[test]
+    fn unicode_prefix_config_is_valid() {
+        let config: Config = toml::from_str(
+            r#"
+[keys]
+prefix = "ö"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.prefix_key(),
+            (KeyCode::Char('ö'), KeyModifiers::empty())
+        );
+        assert!(config.collect_diagnostics().is_empty());
     }
 
     #[test]

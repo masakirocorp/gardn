@@ -1,10 +1,9 @@
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
 use crate::api;
+use crate::api::client::{ApiClient, ApiClientError};
 use crate::api::schema::{
     AgentReadParams, AgentRenameParams, AgentSendParams, AgentStartParams, AgentStatus,
     AgentTarget, EmptyParams, GroupCreateParams, GroupRenameParams, GroupTarget, IntegrationTarget,
@@ -16,6 +15,7 @@ use crate::api::schema::{
     WorkspaceTarget,
 };
 
+mod worktree;
 pub enum CommandOutcome {
     Handled(i32),
     NotCli,
@@ -37,6 +37,7 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
         "group" => run_group_command(&args[2..])?,
         "config" => run_config_command(&args[2..])?,
         "workspace" => run_workspace_command(&args[2..])?,
+        "worktree" => worktree::run_worktree_command(&args[2..])?,
         "tab" => run_tab_command(&args[2..])?,
         "agent" => run_agent_command(&args[2..])?,
         "terminal" => run_terminal_command(&args[2..])?,
@@ -71,20 +72,21 @@ fn run_server_command(args: &[String]) -> std::io::Result<Option<i32>> {
 
 fn run_status_command(args: &[String]) -> std::io::Result<i32> {
     match args.first().map(|arg| arg.as_str()) {
-        None => print_full_status(),
+        None => print_full_status(StatusFormat::Text),
+        Some("--json") if args.len() == 1 => print_full_status(StatusFormat::Json),
         Some("server") => {
-            if args.len() > 1 {
-                eprintln!("usage: hako status server");
+            let Ok(format) = parse_status_format(&args[1..], "usage: hako status server [--json]")
+            else {
                 return Ok(2);
-            }
-            print_server_status()
+            };
+            print_server_status(format)
         }
         Some("client") => {
-            if args.len() > 1 {
-                eprintln!("usage: hako status client");
+            let Ok(format) = parse_status_format(&args[1..], "usage: hako status client [--json]")
+            else {
                 return Ok(2);
-            }
-            print_client_status();
+            };
+            print_client_status(format);
             Ok(0)
         }
         Some("help" | "--help" | "-h") => {
@@ -97,7 +99,6 @@ fn run_status_command(args: &[String]) -> std::io::Result<i32> {
         }
     }
 }
-
 fn run_config_command(args: &[String]) -> std::io::Result<i32> {
     let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
         print_config_help();
@@ -215,32 +216,73 @@ enum ServerRuntimeStatus {
     NotRunning,
 }
 
-fn print_full_status() -> std::io::Result<i32> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatusFormat {
+    Text,
+    Json,
+}
+
+fn parse_status_format(args: &[String], usage: &str) -> Result<StatusFormat, i32> {
+    match args {
+        [] => Ok(StatusFormat::Text),
+        [flag] if flag == "--json" => Ok(StatusFormat::Json),
+        _ => {
+            eprintln!("{usage}");
+            Err(2)
+        }
+    }
+}
+
+fn print_full_status(format: StatusFormat) -> std::io::Result<i32> {
     let server = read_server_runtime_status()?;
 
-    println!("client:");
-    println!("  version: {}", env!("CARGO_PKG_VERSION"));
-    println!("  protocol: {}", crate::server::protocol::PROTOCOL_VERSION);
-    println!();
-    println!("server:");
-    print_server_status_body(&server, "  ");
-    println!();
-    println!("update:");
-    println!("  restart_needed: {}", restart_needed_label(&server));
+    match format {
+        StatusFormat::Text => {
+            println!("client:");
+            println!("  version: {}", env!("CARGO_PKG_VERSION"));
+            println!("  protocol: {}", crate::protocol::PROTOCOL_VERSION);
+            println!();
+            println!("server:");
+            print_server_status_body(&server, "  ");
+            println!();
+            println!("update:");
+            println!("  restart_needed: {}", restart_needed_label(&server));
+        }
+        StatusFormat::Json => {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "client": client_status_json(),
+                    "server": server_status_json(&server),
+                    "update": {
+                        "restart_needed": restart_needed(&server),
+                    },
+                })
+            );
+        }
+    }
 
     Ok(0)
 }
 
-fn print_server_status() -> std::io::Result<i32> {
+fn print_server_status(format: StatusFormat) -> std::io::Result<i32> {
     let server = read_server_runtime_status()?;
-    print_server_status_body(&server, "");
+    match format {
+        StatusFormat::Text => print_server_status_body(&server, ""),
+        StatusFormat::Json => println!("{}", server_status_json(&server)),
+    }
     Ok(0)
 }
 
-fn print_client_status() {
-    println!("version: {}", env!("CARGO_PKG_VERSION"));
-    println!("protocol: {}", crate::server::protocol::PROTOCOL_VERSION);
-    println!("binary: {}", current_exe_label());
+fn print_client_status(format: StatusFormat) {
+    match format {
+        StatusFormat::Text => {
+            println!("version: {}", env!("CARGO_PKG_VERSION"));
+            println!("protocol: {}", crate::protocol::PROTOCOL_VERSION);
+            println!("binary: {}", current_exe_label());
+        }
+        StatusFormat::Json => println!("{}", client_status_json()),
+    }
 }
 
 fn print_server_status_body(server: &ServerRuntimeStatus, indent: &str) {
@@ -257,6 +299,38 @@ fn print_server_status_body(server: &ServerRuntimeStatus, indent: &str) {
             println!("{indent}socket: {}", api::socket_path().display());
         }
     }
+}
+
+fn server_status_json(server: &ServerRuntimeStatus) -> serde_json::Value {
+    match server {
+        ServerRuntimeStatus::Running { version, protocol } => {
+            serde_json::json!({
+                "status": "running",
+                "running": true,
+                "version": version,
+                "protocol": protocol,
+                "compatible": compatible_protocol(*protocol),
+                "restart_needed": restart_needed(server),
+                "socket": api::socket_path().display().to_string(),
+            })
+        }
+        ServerRuntimeStatus::NotRunning => {
+            serde_json::json!({
+                "status": "not_running",
+                "running": false,
+                "restart_needed": false,
+                "socket": api::socket_path().display().to_string(),
+            })
+        }
+    }
+}
+
+fn client_status_json() -> serde_json::Value {
+    serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "protocol": crate::protocol::PROTOCOL_VERSION,
+        "binary": current_exe_label(),
+    })
 }
 
 fn read_server_runtime_status() -> std::io::Result<ServerRuntimeStatus> {
@@ -308,9 +382,22 @@ fn protocol_label(protocol: Option<u32>) -> String {
 
 fn compatibility_label(protocol: Option<u32>) -> &'static str {
     match protocol {
-        Some(protocol) if protocol == crate::server::protocol::PROTOCOL_VERSION => "yes",
+        Some(protocol) if protocol == crate::protocol::PROTOCOL_VERSION => "yes",
         Some(_) => "no",
         None => "unknown",
+    }
+}
+
+fn compatible_protocol(protocol: Option<u32>) -> bool {
+    protocol == Some(crate::protocol::PROTOCOL_VERSION)
+}
+
+fn restart_needed(server: &ServerRuntimeStatus) -> bool {
+    match server {
+        ServerRuntimeStatus::Running { version, .. } => {
+            version.as_deref() != Some(env!("CARGO_PKG_VERSION"))
+        }
+        ServerRuntimeStatus::NotRunning => false,
     }
 }
 
@@ -429,7 +516,6 @@ fn run_agent_command(args: &[String]) -> std::io::Result<i32> {
         }
     }
 }
-
 fn run_terminal_command(args: &[String]) -> std::io::Result<i32> {
     let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
         print_terminal_help();
@@ -444,34 +530,6 @@ fn run_terminal_command(args: &[String]) -> std::io::Result<i32> {
         }
         _ => {
             print_terminal_help();
-            Ok(2)
-        }
-    }
-}
-
-fn run_pane_command(args: &[String]) -> std::io::Result<i32> {
-    let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
-        print_pane_help();
-        return Ok(2);
-    };
-
-    match subcommand {
-        "list" => pane_list(&args[1..]),
-        "get" => pane_get(&args[1..]),
-        "read" => pane_read(&args[1..]),
-        "rename" => pane_rename(&args[1..]),
-        "split" => pane_split(&args[1..]),
-        "close" => pane_close(&args[1..]),
-        "send-text" => pane_send_text(&args[1..]),
-        "send-keys" => pane_send_keys(&args[1..]),
-        "report-agent" => pane_report_agent(&args[1..]),
-        "run" => pane_run(&args[1..]),
-        "help" | "--help" | "-h" => {
-            print_pane_help();
-            Ok(0)
-        }
-        _ => {
-            print_pane_help();
             Ok(2)
         }
     }
@@ -492,27 +550,6 @@ fn run_wait_command(args: &[String]) -> std::io::Result<i32> {
         }
         _ => {
             print_wait_help();
-            Ok(2)
-        }
-    }
-}
-
-fn run_integration_command(args: &[String]) -> std::io::Result<i32> {
-    let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
-        print_integration_help();
-        return Ok(2);
-    };
-
-    match subcommand {
-        "install" => integration_install(&args[1..]),
-        "uninstall" => integration_uninstall(&args[1..]),
-        "status" => integration_status(&args[1..]),
-        "help" | "--help" | "-h" => {
-            print_integration_help();
-            Ok(0)
-        }
-        _ => {
-            print_integration_help();
             Ok(2)
         }
     }
@@ -560,7 +597,6 @@ fn server_reload_config(args: &[String]) -> std::io::Result<i32> {
         method: Method::ServerReloadConfig(EmptyParams::default()),
     })?)
 }
-
 fn session_attach_help(args: &[String]) -> std::io::Result<i32> {
     if matches!(
         args.first().map(String::as_str),
@@ -1275,7 +1311,6 @@ fn resolve_agent_target(target: &str, request_id: &str) -> std::io::Result<serde
         }),
     })
 }
-
 fn terminal_attach(args: &[String]) -> std::io::Result<i32> {
     let (terminal_id, takeover) = match parse_attach_target(
         args,
@@ -1288,7 +1323,7 @@ fn terminal_attach(args: &[String]) -> std::io::Result<i32> {
     Ok(0)
 }
 
-fn parse_attach_target(args: &[String], usage: &str) -> Result<(String, bool), i32> {
+pub(super) fn parse_attach_target(args: &[String], usage: &str) -> Result<(String, bool), i32> {
     let Some(target) = args.first() else {
         eprintln!("{usage}");
         return Err(2);
@@ -1410,6 +1445,29 @@ fn agent_read(args: &[String]) -> std::io::Result<i32> {
             strip_ansi,
         }),
     })?)
+}
+
+fn run_pane_command(args: &[String]) -> std::io::Result<i32> {
+    match args.first().map(|arg| arg.as_str()) {
+        Some("list") => pane_list(&args[1..]),
+        Some("get") => pane_get(&args[1..]),
+        Some("rename") => pane_rename(&args[1..]),
+        Some("read") => pane_read(&args[1..]),
+        Some("split") => pane_split(&args[1..]),
+        Some("close") => pane_close(&args[1..]),
+        Some("send-text") => pane_send_text(&args[1..]),
+        Some("send-keys") => pane_send_keys(&args[1..]),
+        Some("run") => pane_run(&args[1..]),
+        Some("report-agent") => pane_report_agent(&args[1..]),
+        Some("help" | "--help" | "-h") => {
+            print_pane_help();
+            Ok(0)
+        }
+        _ => {
+            print_pane_help();
+            Ok(2)
+        }
+    }
 }
 
 fn pane_list(args: &[String]) -> std::io::Result<i32> {
@@ -1773,6 +1831,21 @@ fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
     }))
 }
 
+fn run_integration_command(args: &[String]) -> std::io::Result<i32> {
+    match args.first().map(|arg| arg.as_str()) {
+        Some("status") => integration_status(&args[1..]),
+        Some("install") => integration_install(&args[1..]),
+        Some("uninstall") => integration_uninstall(&args[1..]),
+        Some("help" | "--help" | "-h") => {
+            print_integration_help();
+            Ok(0)
+        }
+        _ => {
+            print_integration_help();
+            Ok(2)
+        }
+    }
+}
 fn integration_status(args: &[String]) -> std::io::Result<i32> {
     let outdated_only = match args {
         [] => false,
@@ -1878,7 +1951,6 @@ fn parse_integration_target(
 
     Ok(Some(parsed))
 }
-
 fn wait_output(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
         eprintln!("usage: hako wait output <pane_id> --match <text> [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--regex]");
@@ -2031,58 +2103,41 @@ fn wait_agent_status(args: &[String]) -> std::io::Result<i32> {
     )
 }
 
-fn wait_for_agent_change(
+pub(super) fn wait_for_agent_change(
     request: Request,
     timeout_ms: Option<u64>,
     timeout_message: &str,
 ) -> std::io::Result<i32> {
-    let mut stream = UnixStream::connect(api::socket_path())?;
-    stream.write_all(serde_json::to_string(&request)?.as_bytes())?;
-    stream.write_all(b"\n")?;
-    stream.flush()?;
-
-    if let Some(timeout_ms) = timeout_ms {
-        stream.set_read_timeout(Some(Duration::from_millis(timeout_ms)))?;
+    let read_timeout = timeout_ms.map(Duration::from_millis);
+    let (ack, mut stream) = ApiClient::local()
+        .subscribe_value(&request, read_timeout)
+        .map_err(api_client_error_to_io)?;
+    if let Err(err) = crate::api::client::parse_response_value(ack) {
+        if let ApiClientError::ErrorResponse(response) = err {
+            eprintln!("{}", serde_json::to_string(&response).unwrap());
+            return Ok(1);
+        }
+        return Err(api_client_error_to_io(err));
     }
 
-    let mut reader = BufReader::new(stream);
-    let mut ack = String::new();
-    reader.read_line(&mut ack)?;
-    if ack.trim().is_empty() {
-        eprintln!("empty subscription ack");
-        return Ok(1);
-    }
-    let ack_value: serde_json::Value = serde_json::from_str(&ack)?;
-    if ack_value.get("error").is_some() {
-        eprintln!("{}", serde_json::to_string(&ack_value).unwrap());
-        return Ok(1);
-    }
-
-    let mut event = String::new();
-    match reader.read_line(&mut event) {
-        Ok(0) => {
+    match stream.next_event() {
+        Ok(None) => {
             eprintln!("subscription closed before event arrived");
             Ok(1)
         }
-        Ok(_) => {
-            let event_value: serde_json::Value = serde_json::from_str(&event)?;
+        Ok(Some(event_value)) => {
             println!("{}", serde_json::to_string(&event_value).unwrap());
             Ok(0)
         }
-        Err(err)
-            if matches!(
-                err.kind(),
-                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
-            ) =>
-        {
+        Err(ApiClientError::Io(err)) if api_timeout_error(&err) => {
             eprintln!("{timeout_message}");
             Ok(1)
         }
-        Err(err) => Err(err),
+        Err(err) => Err(api_client_error_to_io(err)),
     }
 }
 
-fn print_response(response: &serde_json::Value) -> std::io::Result<i32> {
+pub(super) fn print_response(response: &serde_json::Value) -> std::io::Result<i32> {
     if response.get("error").is_some() {
         eprintln!("{}", serde_json::to_string(response).unwrap());
         return Ok(1);
@@ -2092,7 +2147,7 @@ fn print_response(response: &serde_json::Value) -> std::io::Result<i32> {
     Ok(0)
 }
 
-fn send_ok_request(method: Method) -> std::io::Result<i32> {
+pub(super) fn send_ok_request(method: Method) -> std::io::Result<i32> {
     let response = send_request(&Request {
         id: "cli:request".into(),
         method,
@@ -2106,19 +2161,27 @@ fn send_ok_request(method: Method) -> std::io::Result<i32> {
     Ok(0)
 }
 
-fn send_request(request: &Request) -> std::io::Result<serde_json::Value> {
-    let mut stream = UnixStream::connect(api::socket_path())?;
-    stream.write_all(serde_json::to_string(request)?.as_bytes())?;
-    stream.write_all(b"\n")?;
-    stream.flush()?;
-
-    let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    reader.read_line(&mut line)?;
-    serde_json::from_str(&line).map_err(std::io::Error::other)
+pub(super) fn send_request(request: &Request) -> std::io::Result<serde_json::Value> {
+    ApiClient::local()
+        .request_value(request)
+        .map_err(api_client_error_to_io)
 }
 
-fn normalize_workspace_id(value: &str) -> String {
+fn api_timeout_error(err: &std::io::Error) -> bool {
+    matches!(
+        err.kind(),
+        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+    )
+}
+
+fn api_client_error_to_io(err: ApiClientError) -> std::io::Error {
+    match err {
+        ApiClientError::Io(err) => err,
+        err => std::io::Error::other(err),
+    }
+}
+
+pub(super) fn normalize_workspace_id(value: &str) -> String {
     value.to_string()
 }
 
@@ -2130,11 +2193,11 @@ fn normalize_tab_id(value: &str) -> String {
     value.to_string()
 }
 
-fn normalize_pane_id(value: &str) -> String {
+pub(super) fn normalize_pane_id(value: &str) -> String {
     value.to_string()
 }
 
-fn parse_split_direction(value: &str) -> std::io::Result<SplitDirection> {
+pub(super) fn parse_split_direction(value: &str) -> std::io::Result<SplitDirection> {
     match value {
         "right" => Ok(SplitDirection::Right),
         "down" => Ok(SplitDirection::Down),
@@ -2144,7 +2207,7 @@ fn parse_split_direction(value: &str) -> std::io::Result<SplitDirection> {
     }
 }
 
-fn parse_read_source(value: &str) -> std::io::Result<ReadSource> {
+pub(super) fn parse_read_source(value: &str) -> std::io::Result<ReadSource> {
     match value {
         "visible" => Ok(ReadSource::Visible),
         "recent" => Ok(ReadSource::Recent),
@@ -2155,12 +2218,25 @@ fn parse_read_source(value: &str) -> std::io::Result<ReadSource> {
     }
 }
 
-fn parse_read_format(value: &str) -> std::io::Result<ReadFormat> {
+pub(super) fn parse_read_format(value: &str) -> std::io::Result<ReadFormat> {
     match value {
         "text" => Ok(ReadFormat::Text),
         "ansi" => Ok(ReadFormat::Ansi),
         _ => Err(std::io::Error::other(format!(
             "invalid read format: {value}"
+        ))),
+    }
+}
+
+fn parse_agent_status(value: &str) -> std::io::Result<AgentStatus> {
+    match value {
+        "idle" => Ok(AgentStatus::Idle),
+        "working" => Ok(AgentStatus::Working),
+        "blocked" => Ok(AgentStatus::Blocked),
+        "done" => Ok(AgentStatus::Done),
+        "unknown" => Ok(AgentStatus::Unknown),
+        _ => Err(std::io::Error::other(format!(
+            "invalid agent status: {value} (expected idle, working, blocked, done, or unknown)"
         ))),
     }
 }
@@ -2190,20 +2266,7 @@ fn parse_agent_wait_status(value: &str) -> std::io::Result<AgentStatus> {
     }
 }
 
-fn parse_agent_status(value: &str) -> std::io::Result<AgentStatus> {
-    match value {
-        "idle" => Ok(AgentStatus::Idle),
-        "working" => Ok(AgentStatus::Working),
-        "blocked" => Ok(AgentStatus::Blocked),
-        "done" => Ok(AgentStatus::Done),
-        "unknown" => Ok(AgentStatus::Unknown),
-        _ => Err(std::io::Error::other(format!(
-            "invalid agent status: {value} (expected idle, working, blocked, done, or unknown)"
-        ))),
-    }
-}
-
-fn parse_pane_agent_state(value: &str) -> std::io::Result<PaneAgentState> {
+pub(super) fn parse_pane_agent_state(value: &str) -> std::io::Result<PaneAgentState> {
     match value {
         "idle" => Ok(PaneAgentState::Idle),
         "working" => Ok(PaneAgentState::Working),
@@ -2215,13 +2278,13 @@ fn parse_pane_agent_state(value: &str) -> std::io::Result<PaneAgentState> {
     }
 }
 
-fn parse_u32_flag(flag: &str, value: &str) -> std::io::Result<u32> {
+pub(super) fn parse_u32_flag(flag: &str, value: &str) -> std::io::Result<u32> {
     value
         .parse::<u32>()
         .map_err(|_| std::io::Error::other(format!("invalid value for {flag}: {value}")))
 }
 
-fn parse_u64_flag(flag: &str, value: &str) -> std::io::Result<u64> {
+pub(super) fn parse_u64_flag(flag: &str, value: &str) -> std::io::Result<u64> {
     value
         .parse::<u64>()
         .map_err(|_| std::io::Error::other(format!("invalid value for {flag}: {value}")))
@@ -2298,11 +2361,10 @@ fn print_server_help() {
 
 fn print_status_help() {
     eprintln!("hako status commands:");
-    eprintln!("  hako status         show local client and running server status");
-    eprintln!("  hako status server  show running server status");
-    eprintln!("  hako status client  show local client binary status");
+    eprintln!("  hako status [--json]                 show local client and running server status");
+    eprintln!("  hako status server [--json]          show running server status");
+    eprintln!("  hako status client [--json]          show local client binary status");
 }
-
 fn print_config_help() {
     eprintln!("hako config commands:");
     eprintln!("  hako config reset-keys  back up config.toml and remove custom keybindings");
@@ -2357,7 +2419,6 @@ fn print_agent_help() {
         "  agent send writes literal text; use pane run when you want command text plus Enter"
     );
 }
-
 fn print_terminal_help() {
     eprintln!("hako terminal commands:");
     eprintln!("  hako terminal attach <terminal_id> [--takeover]");
@@ -2379,7 +2440,6 @@ fn print_pane_help() {
     eprintln!("  hako pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N]");
     eprintln!("  hako pane run <pane_id> <command>");
 }
-
 fn print_wait_help() {
     eprintln!("hako wait commands:");
     eprintln!("  hako wait output <pane_id> --match <text> [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--regex] [--raw]");
@@ -2404,7 +2464,6 @@ fn print_integration_help() {
     eprintln!("  hako integration uninstall hermes");
     eprintln!("  hako integration status [--outdated-only]");
 }
-
 fn print_session_help() {
     eprintln!("hako session commands:");
     eprintln!("  hako session list [--json]");

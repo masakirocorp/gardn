@@ -27,6 +27,8 @@ pub(super) enum SettingsAction {
     SaveToastDelivery(ToastDelivery),
     SaveAgentBorderLabels(bool),
     InstallRecommendedIntegrations,
+    InstallIntegration(crate::api::schema::IntegrationTarget),
+    UninstallIntegration(crate::api::schema::IntegrationTarget),
 }
 
 impl App {
@@ -46,6 +48,8 @@ impl App {
                 SettingsAction::InstallRecommendedIntegrations => {
                     self.install_recommended_integrations()
                 }
+                SettingsAction::InstallIntegration(target) => self.install_integration(target),
+                SettingsAction::UninstallIntegration(target) => self.uninstall_integration(target),
             }
         }
         if previous_section != SettingsSection::Integrations
@@ -224,6 +228,25 @@ fn integrations_need_install(state: &AppState) -> bool {
         .any(crate::integration::IntegrationRecommendation::needs_install)
 }
 
+fn selected_integration_action(state: &AppState) -> Option<SettingsAction> {
+    let recommendation = state
+        .integration_recommendations
+        .get(state.settings.list.selected)?;
+
+    match recommendation.state {
+        crate::integration::IntegrationStatusKind::Current => {
+            Some(SettingsAction::UninstallIntegration(recommendation.target))
+        }
+        crate::integration::IntegrationStatusKind::Outdated => {
+            Some(SettingsAction::InstallIntegration(recommendation.target))
+        }
+        crate::integration::IntegrationStatusKind::NotInstalled if recommendation.available => {
+            Some(SettingsAction::InstallIntegration(recommendation.target))
+        }
+        crate::integration::IntegrationStatusKind::NotInstalled => None,
+    }
+}
+
 fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
     match state.settings.section {
         SettingsSection::ThemeMode => {
@@ -364,8 +387,8 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 ensure_settings_selection_visible(state);
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
-                state.settings.section = SettingsSection::PaneLabels;
-                state.settings.list.selected = usize::from(!state.agent_border_labels_enabled());
+                state.settings.section = SettingsSection::Integrations;
+                state.settings.list.selected = 0;
             }
             _ => match super::modal::modal_action_from_key(&key, super::modal::SETTINGS_ACTIONS) {
                 Some(super::modal::ModalAction::Apply) => return apply_settings(state),
@@ -446,16 +469,21 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
         },
         SettingsSection::Integrations => match key.code {
-            KeyCode::Enter | KeyCode::Char(' ') if integrations_need_install(state) => {
-                return Some(SettingsAction::InstallRecommendedIntegrations);
+            KeyCode::Up | KeyCode::Char('k') => state.settings.list.move_prev(),
+            KeyCode::Down | KeyCode::Char('j') => {
+                state
+                    .settings
+                    .list
+                    .move_next(state.integration_recommendations.len());
             }
+            KeyCode::Enter | KeyCode::Char(' ') => return selected_integration_action(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::PaneLabels;
                 state.settings.list.selected = usize::from(!state.agent_border_labels_enabled());
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
-                state.settings.section = SettingsSection::Theme;
-                state.settings.list.selected = current_theme_index(&state.theme_name);
+                state.settings.section = SettingsSection::ThemeMode;
+                state.settings.list.selected = current_theme_mode_index(pending_theme_mode(state));
             }
             _ => match super::modal::modal_action_from_key(&key, super::modal::SETTINGS_ACTIONS) {
                 Some(super::modal::ModalAction::Apply) => return apply_settings(state),
@@ -613,7 +641,14 @@ impl AppState {
                     None
                 }
             }
-            SettingsSection::Integrations => None,
+            SettingsSection::Integrations => {
+                let list_y = area.y + 4;
+                if row >= list_y && row < list_y + self.integration_recommendations.len() as u16 {
+                    Some((row - list_y) as usize)
+                } else {
+                    None
+                }
+            }
         }
     }
 
@@ -797,7 +832,7 @@ impl AppState {
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEventKind};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
 
     use super::super::{app_for_mouse_test, mouse, state_with_workspaces};
     use super::*;
@@ -1028,6 +1063,127 @@ mod tests {
     }
 
     #[test]
+    fn integrations_arrows_select_rows() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.integration_recommendations = vec![
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Pi,
+                crate::integration::IntegrationStatusKind::Current,
+                true,
+            ),
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Omp,
+                crate::integration::IntegrationStatusKind::NotInstalled,
+                true,
+            ),
+        ];
+        open_settings_at(&mut state, SettingsSection::Integrations);
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.list.selected, 1);
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.list.selected, 0);
+    }
+
+    #[test]
+    fn integrations_participates_in_left_and_right_tab_cycle() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::ThemeMode);
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Left, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.section, SettingsSection::Integrations);
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Right, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.section, SettingsSection::ThemeMode);
+    }
+
+    #[test]
+    fn integrations_enter_installs_selected_available_row() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.integration_recommendations = vec![integration_recommendation_for(
+            crate::api::schema::IntegrationTarget::Omp,
+            crate::integration::IntegrationStatusKind::NotInstalled,
+            true,
+        )];
+        open_settings_at(&mut state, SettingsSection::Integrations);
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::InstallIntegration(
+                crate::api::schema::IntegrationTarget::Omp
+            ))
+        );
+    }
+
+    #[test]
+    fn integrations_enter_uninstalls_selected_current_row() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.integration_recommendations = vec![integration_recommendation_for(
+            crate::api::schema::IntegrationTarget::Omp,
+            crate::integration::IntegrationStatusKind::Current,
+            true,
+        )];
+        open_settings_at(&mut state, SettingsSection::Integrations);
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::UninstallIntegration(
+                crate::api::schema::IntegrationTarget::Omp
+            ))
+        );
+    }
+
+    #[test]
+    fn integrations_mouse_click_selects_row() {
+        let mut app = app_for_mouse_test();
+        app.state.integration_recommendations = vec![
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Pi,
+                crate::integration::IntegrationStatusKind::Current,
+                true,
+            ),
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Omp,
+                crate::integration::IntegrationStatusKind::NotInstalled,
+                true,
+            ),
+        ];
+        open_settings_at(&mut app.state, SettingsSection::Integrations);
+        let area = app.state.settings_content_rect();
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            area.x + 2,
+            area.y + 5,
+        ));
+
+        assert_eq!(app.state.settings.list.selected, 1);
+    }
+
+    #[test]
     fn settings_hover_does_not_change_selection() {
         let mut app = app_for_mouse_test();
         open_settings(&mut app.state);
@@ -1111,17 +1267,28 @@ mod tests {
         );
     }
 
-    fn integration_recommendation(
+    fn integration_recommendation_for(
+        target: crate::api::schema::IntegrationTarget,
         state: crate::integration::IntegrationStatusKind,
         available: bool,
     ) -> crate::integration::IntegrationRecommendation {
         crate::integration::IntegrationRecommendation {
-            target: crate::api::schema::IntegrationTarget::Claude,
-            label: "claude",
-            command: "claude",
+            target,
+            label: crate::integration::integration_target_label(target),
+            command: crate::integration::integration_target_command(target),
             available,
             path: std::path::PathBuf::from("/tmp/hako-test-integration"),
             state,
         }
+    }
+    fn integration_recommendation(
+        state: crate::integration::IntegrationStatusKind,
+        available: bool,
+    ) -> crate::integration::IntegrationRecommendation {
+        integration_recommendation_for(
+            crate::api::schema::IntegrationTarget::Claude,
+            state,
+            available,
+        )
     }
 }

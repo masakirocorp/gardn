@@ -14,7 +14,8 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use serde::Deserialize;
 use serde_json::{json, Value};
 use support::{
-    cleanup_test_base, register_runtime_dir, register_spawned_hako_pid, unregister_spawned_hako_pid,
+    cleanup_test_base, fake_agent_script, register_runtime_dir, register_spawned_hako_pid,
+    unregister_spawned_hako_pid,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -422,6 +423,7 @@ fn client_handshake(stream: &mut UnixStream, version: u32, cols: u16, rows: u16)
     payload.extend_from_slice(&encode_varint_u32(8)); // cell_width_px
     payload.extend_from_slice(&encode_varint_u32(16)); // cell_height_px
     payload.extend_from_slice(&encode_varint_u32(0)); // RenderEncoding::SemanticFrame
+    payload.extend_from_slice(&encode_varint_u32(0)); // ClientKeybindings::Server
 
     stream
         .write_all(&frame_message(&payload))
@@ -680,7 +682,7 @@ fn cross_area_detach_and_reattach_preserves_state() {
 
     // Local attach (client A).
     let mut client_a = UnixStream::connect(&client_socket).expect("client A should connect");
-    client_handshake(&mut client_a, 8, 100, 30);
+    client_handshake(&mut client_a, 10, 100, 30);
     assert!(wait_for_frame(&mut client_a, Duration::from_secs(2)));
 
     // Use hako: create a workspace and write output into its pane.
@@ -717,7 +719,7 @@ fn cross_area_detach_and_reattach_preserves_state() {
 
     // Reattach from another terminal/session (client B).
     let mut client_b = UnixStream::connect(&client_socket).expect("client B should connect");
-    client_handshake(&mut client_b, 8, 80, 24);
+    client_handshake(&mut client_b, 10, 80, 24);
     assert!(
         wait_for_frame(&mut client_b, Duration::from_secs(5)),
         "reattached client should receive frame"
@@ -751,7 +753,11 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
     let bin_dir = base.join("bin");
     fs::create_dir_all(&bin_dir).unwrap();
     let fake_pi = bin_dir.join("pi");
-    fs::write(&fake_pi, "#!/bin/sh\nprintf 'Working...\\n'\nsleep 8\n").unwrap();
+    fs::write(
+        &fake_pi,
+        fake_agent_script("pi", "printf 'Working...\\n'\nexec -a pi /bin/sleep 15\n"),
+    )
+    .unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -773,7 +779,7 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
     let mut client_a = UnixStream::connect(&client_socket).expect("client A should connect");
-    client_handshake(&mut client_a, 8, 100, 30);
+    client_handshake(&mut client_a, 10, 100, 30);
     assert!(wait_for_frame(&mut client_a, Duration::from_secs(2)));
 
     let created = workspace_create(&api_socket, "agent-persist");
@@ -785,9 +791,11 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
     // Ensure detected agent surface is populated by running fake `pi`.
     pane_send_text(&api_socket, &pane_id, "pi");
     pane_send_input(&api_socket, &pane_id, "");
-    let detected_before_hook = {
-        let deadline = Instant::now() + Duration::from_secs(5);
+    let (detected_before_hook, last_agent, last_status) = {
+        let deadline = Instant::now() + Duration::from_secs(10);
         let mut detected = false;
+        let mut last_agent = None;
+        let mut last_status = None;
         while Instant::now() < deadline {
             let response = send_json_request(
                 &api_socket,
@@ -795,17 +803,24 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
                 "pane.get",
                 json!({ "pane_id": &pane_id }),
             );
-            if response["result"]["pane"]["agent"].as_str() == Some("pi") {
+            last_agent = response["result"]["pane"]["agent"]
+                .as_str()
+                .map(|agent| agent.to_string());
+            last_status = response["result"]["pane"]["agent_status"]
+                .as_str()
+                .map(|status| status.to_string());
+            if last_agent.as_deref() == Some("pi") {
                 detected = true;
                 break;
             }
             thread::sleep(Duration::from_millis(60));
         }
-        detected
+        (detected, last_agent, last_status)
     };
     assert!(
         detected_before_hook,
-        "expected fake pi process to be detected before hook status assertions"
+        "expected fake pi process to be detected before hook status assertions; last_agent={last_agent:?}, last_status={last_status:?}, recent={}",
+        pane_read_recent(&api_socket, &pane_id)
     );
 
     // Use agent status surfaces directly instead of a generic sleep command.
@@ -826,7 +841,7 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
 
     // Reattach and ensure client-side state reflects the persisted working status.
     let mut client_b = UnixStream::connect(&client_socket).expect("client B should connect");
-    client_handshake(&mut client_b, 8, 80, 24);
+    client_handshake(&mut client_b, 10, 80, 24);
     let saw_working_on_client =
         wait_for_frame_matching(&mut client_b, Duration::from_secs(5), |frame| {
             frame_contains_text(frame, "working")
@@ -871,7 +886,7 @@ fn cross_area_client_and_api_workspace_views_are_consistent() {
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
     let mut client = UnixStream::connect(&client_socket).expect("client should connect");
-    client_handshake(&mut client, 8, 100, 30);
+    client_handshake(&mut client, 10, 100, 30);
     assert!(wait_for_frame(&mut client, Duration::from_secs(2)));
     drain_server_messages(&mut client, Duration::from_millis(300));
 
@@ -934,9 +949,9 @@ fn cross_area_two_clients_shared_view_and_single_detach_stability() {
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
     let mut client_a = UnixStream::connect(&client_socket).expect("client A should connect");
-    client_handshake(&mut client_a, 8, 110, 30);
+    client_handshake(&mut client_a, 10, 110, 30);
     let mut client_b = UnixStream::connect(&client_socket).expect("client B should connect");
-    client_handshake(&mut client_b, 8, 100, 30);
+    client_handshake(&mut client_b, 10, 100, 30);
 
     assert!(wait_for_frame(&mut client_a, Duration::from_secs(2)));
     assert!(wait_for_frame(&mut client_b, Duration::from_secs(2)));
@@ -1105,7 +1120,7 @@ fn cross_area_server_kill_then_restart_and_reconnect() {
 
     let mut reconnect_client =
         UnixStream::connect(&client_socket).expect("new client should connect after restart");
-    client_handshake(&mut reconnect_client, 8, 80, 24);
+    client_handshake(&mut reconnect_client, 10, 80, 24);
     assert!(
         wait_for_frame(&mut reconnect_client, Duration::from_secs(5)),
         "new client should receive frame after restart"

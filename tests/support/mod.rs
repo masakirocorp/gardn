@@ -16,6 +16,21 @@ static CLEANUP_GUARD: OnceLock<CleanupGuard> = OnceLock::new();
 const WATCHDOG_SCAN_INTERVAL: Duration = Duration::from_secs(1);
 const RUNTIME_OWNER_MARKER: &str = ".hako-test-owner-pid";
 
+pub fn fake_agent_script(agent: &str, body: &str) -> String {
+    let mut quoted = String::with_capacity(body.len() + 2);
+    quoted.push('\'');
+    for ch in body.chars() {
+        if ch == '\'' {
+            quoted.push_str("'\\''");
+        } else {
+            quoted.push(ch);
+        }
+    }
+    quoted.push('\'');
+
+    format!("#!/bin/bash\nexec -a {agent} /bin/bash -c {quoted}\n")
+}
+
 pub fn register_spawned_hako_pid(pid: Option<u32>) {
     let Some(pid) = pid else {
         return;
@@ -223,6 +238,7 @@ pub fn client_handshake(
             &encode_varint_u32(8),  // cell_width_px
             &encode_varint_u32(16), // cell_height_px
             &encode_varint_u32(0),  // RenderEncoding::SemanticFrame
+            &encode_varint_u32(0),  // ClientKeybindings::Server
         ],
     );
     let framed = frame_message(&hello_payload);

@@ -10,7 +10,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use support::{
-    cleanup_test_base, register_runtime_dir, register_spawned_hako_pid, unregister_spawned_hako_pid,
+    cleanup_test_base, fake_agent_script, register_runtime_dir, register_spawned_hako_pid,
+    unregister_spawned_hako_pid,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -222,7 +223,7 @@ fn ping_over_socket_returns_version() {
     assert_eq!(value["result"]["version"], env!("CARGO_PKG_VERSION"));
     // Intentionally hardcoded so wire protocol bumps require updating this test.
     // Changing this value means old clients/servers are no longer compatible.
-    assert_eq!(value["result"]["protocol"], 8);
+    assert_eq!(value["result"]["protocol"], 10);
 
     cleanup_spawned_hako(child, base);
 }
@@ -836,7 +837,10 @@ fn events_subscribe_streams_workspace_tab_and_agent_events() {
     let fake_pi = bin_dir.join("pi");
     fs::write(
         &fake_pi,
-        "#!/bin/sh\nprintf 'Working...\\n'\nsleep 1\nprintf '\\033[2J\\033[Hdone\\n'\n",
+        fake_agent_script(
+            "pi",
+            "printf 'Working...\\n'\nsleep 1\nprintf '\\033[2J\\033[Hdone\\n'\n",
+        ),
     )
     .unwrap();
     #[cfg(unix)]
@@ -1068,7 +1072,7 @@ fn events_subscribe_streams_tab_and_workspace_close_events() {
 
     let mut reader = open_subscription(
         &socket_path,
-        r#"{"id":"sub_life_c","method":"events.subscribe","params":{"subscriptions":[{"type":"tab.closed"},{"type":"workspace.closed"}]}}"#,
+        r#"{"id":"sub_life_c","method":"events.subscribe","params":{"subscriptions":[{"type":"workspace.renamed"},{"type":"tab.closed"},{"type":"workspace.closed"}]}}"#,
     );
 
     let ack = reader.read_json_line(Duration::from_secs(2));
@@ -1087,10 +1091,24 @@ fn events_subscribe_streams_tab_and_workspace_close_events() {
     let tab_closed = wait_for_event(&mut reader, "tab_closed", Duration::from_secs(2));
     assert_eq!(tab_closed["data"]["tab_id"], second_tab_id);
 
+    let renamed_ws = send_request(
+        &socket_path,
+        &format!(
+            r#"{{"id":"req_tc_4","method":"workspace.rename","params":{{"workspace_id":"{}","label":"renamed"}}}}"#,
+            workspace_id
+        ),
+    );
+    assert_eq!(renamed_ws["result"]["workspace"]["label"], "renamed");
+
+    let workspace_renamed =
+        wait_for_event(&mut reader, "workspace_renamed", Duration::from_secs(2));
+    assert_eq!(workspace_renamed["data"]["workspace_id"], workspace_id);
+    assert_eq!(workspace_renamed["data"]["label"], "renamed");
+
     let closed_ws = send_request(
         &socket_path,
         &format!(
-            r#"{{"id":"req_tc_4","method":"workspace.close","params":{{"workspace_id":"{}"}}}}"#,
+            r#"{{"id":"req_tc_5","method":"workspace.close","params":{{"workspace_id":"{}"}}}}"#,
             workspace_id
         ),
     );
@@ -1115,7 +1133,11 @@ fn pane_report_agent_updates_effective_state() {
 
     fs::create_dir_all(&bin_dir).unwrap();
     let fake_pi = bin_dir.join("pi");
-    fs::write(&fake_pi, "#!/bin/sh\nprintf 'Working...\\n'\nsleep 3\n").unwrap();
+    fs::write(
+        &fake_pi,
+        fake_agent_script("pi", "printf 'Working...\\n'\nexec -a pi /bin/sleep 15\n"),
+    )
+    .unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -1264,9 +1286,12 @@ fn pane_release_agent_suppresses_reacquire_during_graceful_exit() {
     let stop_file = base.join("pi-stop");
     fs::write(
         &fake_pi,
-        format!(
-            "#!/bin/sh\nprintf 'Working...\\n'\nwhile [ ! -f '{}' ]; do sleep 0.05; done\n",
-            stop_file.display()
+        fake_agent_script(
+            "pi",
+            &format!(
+                "printf 'Working...\\n'\nwhile [ ! -f '{}' ]; do sleep 0.05; done\n",
+                stop_file.display()
+            ),
         ),
     )
     .unwrap();
@@ -1409,7 +1434,11 @@ fn pane_clear_agent_authority_restores_fallback_state() {
 
     fs::create_dir_all(&bin_dir).unwrap();
     let fake_pi = bin_dir.join("pi");
-    fs::write(&fake_pi, "#!/bin/sh\nprintf 'Working...\\n'\nsleep 3\n").unwrap();
+    fs::write(
+        &fake_pi,
+        fake_agent_script("pi", "printf 'Working...\\n'\nexec -a pi /bin/sleep 15\n"),
+    )
+    .unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -1532,7 +1561,10 @@ fn events_subscribe_streams_output_and_agent_status_events() {
     let fake_pi = bin_dir.join("pi");
     fs::write(
         &fake_pi,
-        "#!/bin/sh\nprintf 'Working...\\n'\nsleep 1\nprintf '\\033[2J\\033[Hdone\\n'\n",
+        fake_agent_script(
+            "pi",
+            "printf 'Working...\\n'\nsleep 1\nprintf '\\033[2J\\033[Hdone\\n'\n",
+        ),
     )
     .unwrap();
     #[cfg(unix)]
@@ -1652,9 +1684,12 @@ fn pane_info_and_subscriptions_expose_done_agent_status() {
     let stop_file = base.join("pi-stop");
     fs::write(
         &fake_pi,
-        format!(
-            "#!/bin/sh\nprintf 'Working...\\n'\nsleep 1\nprintf '\\033[2J\\033[Hdone\\n'\nwhile [ ! -f '{}' ]; do sleep 0.05; done\n",
-            stop_file.display()
+        fake_agent_script(
+            "pi",
+            &format!(
+                "printf 'Working...\\n'\nsleep 1\nprintf '\\033[2J\\033[Hdone\\n'\nwhile [ ! -f '{}' ]; do sleep 0.05; done\n",
+                stop_file.display()
+            ),
         ),
     )
     .unwrap();

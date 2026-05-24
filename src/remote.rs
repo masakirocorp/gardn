@@ -20,14 +20,40 @@ const BRIDGE_SOCKET_PERMISSION_MODE: u32 = 0o600;
 const REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(5);
 const REMOTE_SERVER_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const CURRENT_PROTOCOL: u32 = crate::server::protocol::PROTOCOL_VERSION;
+const CURRENT_PROTOCOL: u32 = crate::protocol::PROTOCOL_VERSION;
 const UPDATE_MANIFEST_URL: &str = "https://hako.masakiro.com/latest.json";
 const REMOTE_BINARY_ENV_VAR: &str = "HAKO_REMOTE_BINARY";
 pub(crate) const REATTACH_COMMAND_ENV_VAR: &str = "HAKO_REATTACH_COMMAND";
 
+pub(crate) const REMOTE_KEYBINDINGS_ENV_VAR: &str = "HAKO_REMOTE_KEYBINDINGS";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RemoteKeybindings {
+    Local,
+    Server,
+}
+
+impl RemoteKeybindings {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "local" => Ok(Self::Local),
+            "server" => Ok(Self::Server),
+            _ => Err("--remote-keybindings must be 'local' or 'server'".to_string()),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Server => "server",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RemoteLaunch {
     pub(crate) target: String,
+    pub(crate) keybindings: RemoteKeybindings,
 }
 
 pub(crate) fn extract_remote_args(
@@ -38,36 +64,63 @@ pub(crate) fn extract_remote_args(
         cleaned.push(program.clone());
     }
 
-    let mut remote = None;
+    let mut remote_target = None;
+    let mut keybindings = RemoteKeybindings::Local;
+    let mut keybindings_seen = false;
     let mut index = 1;
     while index < args.len() {
         let arg = &args[index];
         if arg == "--remote" {
-            if remote.is_some() {
+            if remote_target.is_some() {
                 return Err("--remote can only be specified once".to_string());
             }
             let Some(value) = args.get(index + 1) else {
                 return Err("missing value for --remote".to_string());
             };
-            remote = Some(RemoteLaunch {
-                target: validate_remote_target(value)?.to_owned(),
-            });
+            remote_target = Some(validate_remote_target(value)?.to_owned());
             index += 2;
             continue;
         }
         if let Some(value) = arg.strip_prefix("--remote=") {
-            if remote.is_some() {
+            if remote_target.is_some() {
                 return Err("--remote can only be specified once".to_string());
             }
-            remote = Some(RemoteLaunch {
-                target: validate_remote_target(value)?.to_owned(),
-            });
+            remote_target = Some(validate_remote_target(value)?.to_owned());
+            index += 1;
+            continue;
+        }
+        if arg == "--remote-keybindings" {
+            if keybindings_seen {
+                return Err("--remote-keybindings can only be specified once".to_string());
+            }
+            let Some(value) = args.get(index + 1) else {
+                return Err("missing value for --remote-keybindings".to_string());
+            };
+            keybindings = RemoteKeybindings::parse(value)?;
+            keybindings_seen = true;
+            index += 2;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--remote-keybindings=") {
+            if keybindings_seen {
+                return Err("--remote-keybindings can only be specified once".to_string());
+            }
+            keybindings = RemoteKeybindings::parse(value)?;
+            keybindings_seen = true;
             index += 1;
             continue;
         }
 
         cleaned.push(arg.clone());
         index += 1;
+    }
+
+    let remote = remote_target.map(|target| RemoteLaunch {
+        target,
+        keybindings,
+    });
+    if remote.is_none() && keybindings_seen {
+        return Err("--remote-keybindings requires --remote".to_string());
     }
 
     Ok((cleaned, remote))
@@ -90,7 +143,8 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
     let program = std::env::args()
         .next()
         .unwrap_or_else(|| "hako".to_string());
-    let reattach_command = reattach_command(&program, &remote.target, &session_name);
+    let reattach_command =
+        reattach_command(&program, &remote.target, &session_name, remote.keybindings);
     let prepared_remote = prepare_remote_hako(&remote.target)?;
     ensure_remote_server_ready(
         &remote.target,
@@ -105,13 +159,13 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
         session_name,
     )?;
 
-    run_client_process(&local_socket, &reattach_command)
+    run_client_process(&local_socket, &reattach_command, remote.keybindings)
 }
 
 pub(crate) fn run_remote_client_bridge() -> io::Result<()> {
     ensure_remote_server_running()?;
 
-    let socket_path = crate::server::headless::client_socket_path();
+    let socket_path = crate::server::socket_paths::client_socket_path();
     let stream = UnixStream::connect(&socket_path).map_err(|err| {
         io::Error::new(
             err.kind(),
@@ -136,7 +190,7 @@ pub(crate) fn run_remote_client_bridge() -> io::Result<()> {
 }
 
 fn ensure_remote_server_running() -> io::Result<()> {
-    let socket_path = crate::server::headless::client_socket_path();
+    let socket_path = crate::server::socket_paths::client_socket_path();
     if crate::server::autodetect::is_server_listening() {
         let status = crate::api::read_runtime_status_at(
             &crate::api::socket_path(),
@@ -301,7 +355,6 @@ fn prepare_remote_hako(target: &str) -> io::Result<PreparedRemoteHako> {
         )));
     }
     warn_if_remote_bin_not_on_path(target)?;
-    maybe_copy_local_keybindings_to_remote(target, &remote_hako)?;
 
     Ok(PreparedRemoteHako {
         remote_hako,
@@ -342,7 +395,7 @@ fn remote_path_probe_command() -> &'static str {
     r#"path=$(command -v hako) || exit 1
 test -n "$path" || exit 1
 version=$("$path" --version) || exit 1
-status=$("$path" status client) || exit 1
+status=$("$path" status client --json) || exit 1
 printf '%s\n%s\n%s\n' "$path" "$version" "$status"
 "#
 }
@@ -351,8 +404,8 @@ fn remote_hako_from_path_probe(remote_hako: &RemoteHako, stdout: &str) -> Option
     let mut lines = stdout.lines();
     let path = lines.next()?;
     let version = lines.next()?.trim();
-    let status = lines.collect::<Vec<_>>().join("\n");
-    let protocol = parse_status_protocol(&status)?;
+    let status = lines.next()?;
+    let protocol = parse_client_status_json(status)?.protocol;
     if !path.starts_with('/')
         || version != format!("hako {CURRENT_VERSION}")
         || protocol != CURRENT_PROTOCOL
@@ -365,7 +418,7 @@ fn remote_hako_from_path_probe(remote_hako: &RemoteHako, stdout: &str) -> Option
 
 fn remote_binary_matches(target: &str, remote_hako: &RemoteHako) -> io::Result<bool> {
     let command = format!(
-        "test -x {0} && {0} --version && {0} status client",
+        "test -x {0} && {0} --version && {0} status client --json",
         remote_hako.shell_path
     );
     let output = ssh_output(target, &command)?;
@@ -376,9 +429,11 @@ fn remote_binary_matches(target: &str, remote_hako: &RemoteHako) -> io::Result<b
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut lines = stdout.lines();
     let version = lines.next().unwrap_or_default().trim();
-    let status = lines.collect::<Vec<_>>().join("\n");
+    let status = lines.next().unwrap_or_default();
     Ok(version == format!("hako {CURRENT_VERSION}")
-        && parse_status_protocol(&status) == Some(CURRENT_PROTOCOL))
+        && parse_client_status_json(status)
+            .map(|status| status.protocol == CURRENT_PROTOCOL)
+            .unwrap_or(false))
 }
 
 fn remote_binary_override_path() -> io::Result<Option<PathBuf>> {
@@ -502,47 +557,46 @@ fn remote_server_restart_reason(
 }
 
 fn remote_server_status(target: &str, remote_hako: &RemoteHako) -> io::Result<RemoteServerStatus> {
-    let command = format!("{} status server", remote_hako.shell_path);
+    let command = format!("{} status server --json", remote_hako.shell_path);
     let output = ssh_output(target, &command)?;
     if !output.status.success() {
         return Err(command_failed("remote server status failed", &output));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    if stdout
-        .lines()
-        .any(|line| line.trim() == "status: not running")
-    {
+    parse_remote_server_status_json(stdout.trim())
+}
+
+#[derive(Debug, Deserialize)]
+struct RemoteClientStatusJson {
+    protocol: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct RemoteServerStatusJson {
+    running: bool,
+    version: Option<String>,
+    protocol: Option<u32>,
+}
+
+fn parse_client_status_json(status: &str) -> Option<RemoteClientStatusJson> {
+    serde_json::from_str(status).ok()
+}
+
+fn parse_remote_server_status_json(status: &str) -> io::Result<RemoteServerStatus> {
+    let parsed: RemoteServerStatusJson = serde_json::from_str(status).map_err(|err| {
+        io::Error::other(format!(
+            "could not parse remote server status JSON from `{status}`: {err}"
+        ))
+    })?;
+    if !parsed.running {
         return Ok(RemoteServerStatus::NotRunning);
     }
 
-    if stdout.lines().any(|line| line.trim() == "status: running") {
-        return Ok(RemoteServerStatus::Running {
-            version: parse_status_version(&stdout).map(str::to_owned),
-            protocol: parse_status_protocol(&stdout),
-        });
-    }
-
-    Err(io::Error::other(format!(
-        "could not parse remote server status from `{}`",
-        stdout.trim()
-    )))
-}
-
-fn parse_status_value<'a>(status: &'a str, key: &str) -> Option<&'a str> {
-    status.lines().find_map(|line| {
-        let line = line.trim();
-        let (found_key, value) = line.split_once(':')?;
-        (found_key == key).then_some(value.trim())
+    Ok(RemoteServerStatus::Running {
+        version: parsed.version,
+        protocol: parsed.protocol,
     })
-}
-
-fn parse_status_version(status: &str) -> Option<&str> {
-    parse_status_value(status, "version")
-}
-
-fn parse_status_protocol(status: &str) -> Option<u32> {
-    parse_status_value(status, "protocol")?.parse().ok()
 }
 
 fn confirm_remote_server_stop(
@@ -781,131 +835,6 @@ fn confirm_remote_install(
     Ok(())
 }
 
-fn maybe_copy_local_keybindings_to_remote(
-    target: &str,
-    remote_hako: &RemoteHako,
-) -> io::Result<()> {
-    let Some(config_toml) = local_keybindings_config_toml()? else {
-        return Ok(());
-    };
-    let remote_config_path = remote_config_path(target, remote_hako)?;
-    if remote_path_exists(target, &remote_config_path)? {
-        return Ok(());
-    }
-    if !confirm_remote_keybindings_copy(target)? {
-        return Ok(());
-    }
-    upload_remote_config(target, &remote_config_path, config_toml.as_bytes())
-}
-
-fn local_keybindings_config_toml() -> io::Result<Option<String>> {
-    let path = crate::config::config_path();
-    if !path.exists() {
-        return Ok(None);
-    }
-    let content = fs::read_to_string(&path)?;
-    Ok(local_keybindings_config_toml_from_str(&content))
-}
-
-fn local_keybindings_config_toml_from_str(content: &str) -> Option<String> {
-    let mut value = content.parse::<toml::Value>().ok()?;
-    let root = value.as_table_mut()?;
-    let mut keys = root.remove("keys")?.as_table()?.clone();
-    keys.remove("command");
-    if keys.is_empty() {
-        return None;
-    }
-
-    let mut out = toml::map::Map::new();
-    out.insert("keys".to_string(), toml::Value::Table(keys));
-    toml::to_string_pretty(&toml::Value::Table(out)).ok()
-}
-
-fn remote_config_path(target: &str, remote_hako: &RemoteHako) -> io::Result<String> {
-    let command = format!("{} --help", remote_hako.shell_path);
-    let output = ssh_output(target, &command)?;
-    if !output.status.success() {
-        return Err(command_failed("remote config path probe failed", &output));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    stdout
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("Config: ").map(str::to_string))
-        .ok_or_else(|| io::Error::other("remote config path probe did not print a Config line"))
-}
-
-fn remote_path_exists(target: &str, path: &str) -> io::Result<bool> {
-    let command = format!("test -e {}", shell_quote(path));
-    let output = ssh_output(target, &command)?;
-    Ok(output.status.success())
-}
-
-fn confirm_remote_keybindings_copy(target: &str) -> io::Result<bool> {
-    if !io::stdin().is_terminal() {
-        return Ok(false);
-    }
-    eprintln!("remote Hako config is not present on {target}.");
-    eprintln!(
-        "Hako can copy your local [keys] settings so the remote server uses the same keybindings."
-    );
-    eprintln!("Custom command keybindings are not copied because they run on the remote host.");
-    eprint!("Copy local Hako keybindings to {target}? [Y/n] ");
-    io::stderr().flush()?;
-
-    let mut answer = String::new();
-    io::stdin().read_line(&mut answer)?;
-    let answer = answer.trim().to_ascii_lowercase();
-    Ok(!(answer == "n" || answer == "no"))
-}
-
-fn upload_remote_config(target: &str, path: &str, content: &[u8]) -> io::Result<()> {
-    let script = format!(
-        r#"dest={}
-dir="${{dest%/*}}"
-mkdir -p "$dir"
-umask 077
-tmp="${{dest}}.tmp.$$"
-cat > "$tmp"
-mv "$tmp" "$dest"
-"#,
-        shell_quote(path)
-    );
-
-    let mut child = Command::new("ssh")
-        .arg("-T")
-        .arg(target)
-        .arg(format!("sh -eu -c {}", shell_quote(&script)))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|err| {
-            io::Error::new(
-                err.kind(),
-                format!("failed to start ssh config upload: {err}"),
-            )
-        })?;
-
-    let copy_result = if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(content)
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::BrokenPipe,
-            "ssh config upload stdin missing",
-        ))
-    };
-    let status = child.wait()?;
-    copy_result?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err(io::Error::other(format!(
-            "remote config upload exited with {status}"
-        )))
-    }
-}
-
 fn install_remote_hako(
     target: &str,
     remote_hako: &RemoteHako,
@@ -972,9 +901,18 @@ fn remote_bridge_command(remote_hako: &RemoteHako, session_name: &str) -> String
     command
 }
 
-fn reattach_command(program: &str, target: &str, session_name: &str) -> String {
+fn reattach_command(
+    program: &str,
+    target: &str,
+    session_name: &str,
+    keybindings: RemoteKeybindings,
+) -> String {
     let program = if program.is_empty() { "hako" } else { program };
     let mut command = format!("{} --remote {}", shell_quote(program), shell_quote(target));
+    if keybindings != RemoteKeybindings::Local {
+        command.push_str(" --remote-keybindings ");
+        command.push_str(keybindings.as_str());
+    }
     if session_name != crate::session::DEFAULT_SESSION_NAME {
         command.push_str(" --session ");
         command.push_str(&shell_quote(session_name));
@@ -1141,16 +1079,21 @@ fn copy_flush<R: io::Read, W: io::Write>(reader: &mut R, writer: &mut W) -> io::
     }
 }
 
-fn run_client_process(local_socket: &Path, reattach_command: &str) -> io::Result<()> {
+fn run_client_process(
+    local_socket: &Path,
+    reattach_command: &str,
+    keybindings: RemoteKeybindings,
+) -> io::Result<()> {
     let exe = std::env::current_exe()?;
     let status = Command::new(exe)
         .arg("client")
         .env(
-            crate::server::headless::CLIENT_SOCKET_PATH_ENV_VAR,
+            crate::server::socket_paths::CLIENT_SOCKET_PATH_ENV_VAR,
             local_socket,
         )
         .env("HAKO_RENDER_ENCODING", "terminal-ansi")
         .env(REATTACH_COMMAND_ENV_VAR, reattach_command)
+        .env(REMOTE_KEYBINDINGS_ENV_VAR, keybindings.as_str())
         .env_remove(crate::api::SOCKET_PATH_ENV_VAR)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
@@ -1270,7 +1213,9 @@ mod tests {
         ];
         let (cleaned, remote) = extract_remote_args(&args).unwrap();
         assert_eq!(cleaned, vec!["hako", "--help"]);
-        assert_eq!(remote.unwrap().target, "dev");
+        let remote = remote.unwrap();
+        assert_eq!(remote.target, "dev");
+        assert_eq!(remote.keybindings, RemoteKeybindings::Local);
     }
 
     #[test]
@@ -1278,7 +1223,56 @@ mod tests {
         let args = vec!["hako".into(), "--remote=user@host".into()];
         let (cleaned, remote) = extract_remote_args(&args).unwrap();
         assert_eq!(cleaned, vec!["hako"]);
-        assert_eq!(remote.unwrap().target, "user@host");
+        let remote = remote.unwrap();
+        assert_eq!(remote.target, "user@host");
+        assert_eq!(remote.keybindings, RemoteKeybindings::Local);
+    }
+
+    #[test]
+    fn extract_remote_args_accepts_remote_keybindings_server() {
+        let args = vec![
+            "hako".into(),
+            "--remote".into(),
+            "dev".into(),
+            "--remote-keybindings=server".into(),
+        ];
+        let (cleaned, remote) = extract_remote_args(&args).unwrap();
+        assert_eq!(cleaned, vec!["hako"]);
+        let remote = remote.unwrap();
+        assert_eq!(remote.target, "dev");
+        assert_eq!(remote.keybindings, RemoteKeybindings::Server);
+    }
+
+    #[test]
+    fn extract_remote_args_accepts_remote_keybindings_space_form() {
+        let args = vec![
+            "hako".into(),
+            "--remote=dev".into(),
+            "--remote-keybindings".into(),
+            "server".into(),
+        ];
+        let (cleaned, remote) = extract_remote_args(&args).unwrap();
+        assert_eq!(cleaned, vec!["hako"]);
+        assert_eq!(remote.unwrap().keybindings, RemoteKeybindings::Server);
+    }
+
+    #[test]
+    fn extract_remote_args_rejects_remote_keybindings_without_remote() {
+        let args = vec!["hako".into(), "--remote-keybindings=server".into()];
+        let err = extract_remote_args(&args).unwrap_err();
+        assert_eq!(err, "--remote-keybindings requires --remote");
+    }
+
+    #[test]
+    fn extract_remote_args_rejects_duplicate_remote_keybindings() {
+        let args = vec![
+            "hako".into(),
+            "--remote=dev".into(),
+            "--remote-keybindings=local".into(),
+            "--remote-keybindings=server".into(),
+        ];
+        let err = extract_remote_args(&args).unwrap_err();
+        assert_eq!(err, "--remote-keybindings can only be specified once");
     }
 
     #[test]
@@ -1334,50 +1328,32 @@ mod tests {
     #[test]
     fn reattach_command_includes_remote_and_session() {
         assert_eq!(
-            reattach_command("target/release/hako", "user@host", "work"),
+            reattach_command(
+                "target/release/hako",
+                "user@host",
+                "work",
+                RemoteKeybindings::Local,
+            ),
             "target/release/hako --remote user@host --session work"
         );
         assert_eq!(
-            reattach_command("hako", "host name", crate::session::DEFAULT_SESSION_NAME),
+            reattach_command(
+                "hako",
+                "host name",
+                crate::session::DEFAULT_SESSION_NAME,
+                RemoteKeybindings::Local,
+            ),
             "hako --remote 'host name'"
         );
-    }
-
-    #[test]
-    fn local_keybindings_config_extracts_only_keys_without_commands() {
-        let toml = r#"
-[theme]
-name = "one-dark"
-
-[keys]
-prefix = "ctrl+a"
-new_tab = ["prefix+c", "ctrl+alt+n"]
-next_tab = "prefix+n"
-
-[keys.indexed]
-tabs = "ctrl"
-
-[[keys.command]]
-key = "prefix+g"
-type = "pane"
-command = "lazygit"
-"#;
-
-        let copied = local_keybindings_config_toml_from_str(toml).expect("copied key config");
-        assert!(copied.contains("[keys]"));
-        assert!(copied.contains("prefix = \"ctrl+a\""));
-        assert!(copied.contains("prefix+c"));
-        assert!(copied.contains("ctrl+alt+n"));
-        assert!(copied.contains("[keys.indexed]"));
-        assert!(copied.contains("tabs = \"ctrl\""));
-        assert!(!copied.contains("one-dark"));
-        assert!(!copied.contains("lazygit"));
-        assert!(!copied.contains("[[keys.command]]"));
-    }
-
-    #[test]
-    fn local_keybindings_config_returns_none_without_keys() {
-        assert!(local_keybindings_config_toml_from_str("[theme]\nname = \"one-dark\"\n").is_none());
+        assert_eq!(
+            reattach_command(
+                "hako",
+                "host",
+                crate::session::DEFAULT_SESSION_NAME,
+                RemoteKeybindings::Server,
+            ),
+            "hako --remote host --remote-keybindings server"
+        );
     }
 
     #[test]
@@ -1465,7 +1441,7 @@ command = "lazygit"
         });
         let remote_hako = remote_hako_from_path_probe(
             &remote_hako,
-            &format!("/usr/bin/hako\nhako 0.0.0\nprotocol: {CURRENT_PROTOCOL}\n"),
+            &format!("/usr/bin/hako\nhako 0.0.0\n{{\"protocol\":{CURRENT_PROTOCOL}}}\n"),
         );
 
         assert!(remote_hako.is_none());
@@ -1489,32 +1465,45 @@ command = "lazygit"
             os: "linux",
             arch: "x86_64",
         });
-        let stdout = format!("/usr/bin/hako\nhako {CURRENT_VERSION}\nprotocol: 0\n");
+        let stdout = format!("/usr/bin/hako\nhako {CURRENT_VERSION}\n{{\"protocol\":0}}\n");
         let remote_hako = remote_hako_from_path_probe(&remote_hako, &stdout);
 
         assert!(remote_hako.is_none());
     }
 
     #[test]
-    fn parse_status_protocol_reads_protocol_line() {
+    fn parse_client_status_json_reads_protocol() {
         assert_eq!(
-            parse_status_protocol("version: x\nprotocol: 8\nbinary: y"),
+            parse_client_status_json(r#"{"version":"x","protocol":8,"binary":"/bin/hako"}"#)
+                .map(|status| status.protocol),
             Some(8)
         );
-        assert_eq!(
-            parse_status_protocol("status: running\nprotocol: unknown"),
-            None
-        );
-        assert_eq!(parse_status_protocol("status: not running"), None);
+        assert!(parse_client_status_json(r#"{"protocol":"unknown"}"#).is_none());
     }
 
     #[test]
-    fn parse_status_version_reads_version_line() {
+    fn parse_remote_server_status_json_reads_running_server() {
         assert_eq!(
-            parse_status_version("status: running\nversion: 0.6.0\nprotocol: 8"),
-            Some("0.6.0")
+            parse_remote_server_status_json(
+                r#"{"status":"running","running":true,"version":"0.6.0","protocol":8}"#
+            )
+            .unwrap(),
+            RemoteServerStatus::Running {
+                version: Some("0.6.0".into()),
+                protocol: Some(8)
+            }
         );
-        assert_eq!(parse_status_version("status: not running"), None);
+    }
+
+    #[test]
+    fn parse_remote_server_status_json_reads_stopped_server() {
+        assert_eq!(
+            parse_remote_server_status_json(
+                r#"{"status":"not_running","running":false,"version":null,"protocol":null}"#
+            )
+            .unwrap(),
+            RemoteServerStatus::NotRunning
+        );
     }
 
     #[test]
@@ -1578,7 +1567,7 @@ command = "lazygit"
     }
 
     fn matching_path_probe_stdout(path: &str) -> String {
-        format!("{path}\nhako {CURRENT_VERSION}\nprotocol: {CURRENT_PROTOCOL}\n")
+        format!("{path}\nhako {CURRENT_VERSION}\n{{\"protocol\":{CURRENT_PROTOCOL}}}\n")
     }
 
     fn remote_env_lock() -> &'static std::sync::Mutex<()> {
