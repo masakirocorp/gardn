@@ -1135,7 +1135,7 @@ fn pane_report_agent_updates_effective_state() {
     let fake_pi = bin_dir.join("pi");
     fs::write(
         &fake_pi,
-        fake_agent_script("pi", "printf 'Working...\\n'\nsleep 3\n"),
+        fake_agent_script("pi", "printf 'Working...\\n'\nexec -a pi /bin/sleep 15\n"),
     )
     .unwrap();
     #[cfg(unix)]
@@ -1436,7 +1436,7 @@ fn pane_clear_agent_authority_restores_fallback_state() {
     let fake_pi = bin_dir.join("pi");
     fs::write(
         &fake_pi,
-        fake_agent_script("pi", "printf 'Working...\\n'\nsleep 3\n"),
+        fake_agent_script("pi", "printf 'Working...\\n'\nexec -a pi /bin/sleep 15\n"),
     )
     .unwrap();
     #[cfg(unix)]
