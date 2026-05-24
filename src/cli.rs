@@ -72,20 +72,21 @@ fn run_server_command(args: &[String]) -> std::io::Result<Option<i32>> {
 
 fn run_status_command(args: &[String]) -> std::io::Result<i32> {
     match args.first().map(|arg| arg.as_str()) {
-        None => print_full_status(),
+        None => print_full_status(StatusFormat::Text),
+        Some("--json") if args.len() == 1 => print_full_status(StatusFormat::Json),
         Some("server") => {
-            if args.len() > 1 {
-                eprintln!("usage: hako status server");
+            let Ok(format) = parse_status_format(&args[1..], "usage: hako status server [--json]")
+            else {
                 return Ok(2);
-            }
-            print_server_status()
+            };
+            print_server_status(format)
         }
         Some("client") => {
-            if args.len() > 1 {
-                eprintln!("usage: hako status client");
+            let Ok(format) = parse_status_format(&args[1..], "usage: hako status client [--json]")
+            else {
                 return Ok(2);
-            }
-            print_client_status();
+            };
+            print_client_status(format);
             Ok(0)
         }
         Some("help" | "--help" | "-h") => {
@@ -215,32 +216,73 @@ enum ServerRuntimeStatus {
     NotRunning,
 }
 
-fn print_full_status() -> std::io::Result<i32> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatusFormat {
+    Text,
+    Json,
+}
+
+fn parse_status_format(args: &[String], usage: &str) -> Result<StatusFormat, i32> {
+    match args {
+        [] => Ok(StatusFormat::Text),
+        [flag] if flag == "--json" => Ok(StatusFormat::Json),
+        _ => {
+            eprintln!("{usage}");
+            Err(2)
+        }
+    }
+}
+
+fn print_full_status(format: StatusFormat) -> std::io::Result<i32> {
     let server = read_server_runtime_status()?;
 
-    println!("client:");
-    println!("  version: {}", env!("CARGO_PKG_VERSION"));
-    println!("  protocol: {}", crate::protocol::PROTOCOL_VERSION);
-    println!();
-    println!("server:");
-    print_server_status_body(&server, "  ");
-    println!();
-    println!("update:");
-    println!("  restart_needed: {}", restart_needed_label(&server));
+    match format {
+        StatusFormat::Text => {
+            println!("client:");
+            println!("  version: {}", env!("CARGO_PKG_VERSION"));
+            println!("  protocol: {}", crate::protocol::PROTOCOL_VERSION);
+            println!();
+            println!("server:");
+            print_server_status_body(&server, "  ");
+            println!();
+            println!("update:");
+            println!("  restart_needed: {}", restart_needed_label(&server));
+        }
+        StatusFormat::Json => {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "client": client_status_json(),
+                    "server": server_status_json(&server),
+                    "update": {
+                        "restart_needed": restart_needed(&server),
+                    },
+                })
+            );
+        }
+    }
 
     Ok(0)
 }
 
-fn print_server_status() -> std::io::Result<i32> {
+fn print_server_status(format: StatusFormat) -> std::io::Result<i32> {
     let server = read_server_runtime_status()?;
-    print_server_status_body(&server, "");
+    match format {
+        StatusFormat::Text => print_server_status_body(&server, ""),
+        StatusFormat::Json => println!("{}", server_status_json(&server)),
+    }
     Ok(0)
 }
 
-fn print_client_status() {
-    println!("version: {}", env!("CARGO_PKG_VERSION"));
-    println!("protocol: {}", crate::protocol::PROTOCOL_VERSION);
-    println!("binary: {}", current_exe_label());
+fn print_client_status(format: StatusFormat) {
+    match format {
+        StatusFormat::Text => {
+            println!("version: {}", env!("CARGO_PKG_VERSION"));
+            println!("protocol: {}", crate::protocol::PROTOCOL_VERSION);
+            println!("binary: {}", current_exe_label());
+        }
+        StatusFormat::Json => println!("{}", client_status_json()),
+    }
 }
 
 fn print_server_status_body(server: &ServerRuntimeStatus, indent: &str) {
@@ -257,6 +299,38 @@ fn print_server_status_body(server: &ServerRuntimeStatus, indent: &str) {
             println!("{indent}socket: {}", api::socket_path().display());
         }
     }
+}
+
+fn server_status_json(server: &ServerRuntimeStatus) -> serde_json::Value {
+    match server {
+        ServerRuntimeStatus::Running { version, protocol } => {
+            serde_json::json!({
+                "status": "running",
+                "running": true,
+                "version": version,
+                "protocol": protocol,
+                "compatible": compatible_protocol(*protocol),
+                "restart_needed": restart_needed(server),
+                "socket": api::socket_path().display().to_string(),
+            })
+        }
+        ServerRuntimeStatus::NotRunning => {
+            serde_json::json!({
+                "status": "not_running",
+                "running": false,
+                "restart_needed": false,
+                "socket": api::socket_path().display().to_string(),
+            })
+        }
+    }
+}
+
+fn client_status_json() -> serde_json::Value {
+    serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "protocol": crate::protocol::PROTOCOL_VERSION,
+        "binary": current_exe_label(),
+    })
 }
 
 fn read_server_runtime_status() -> std::io::Result<ServerRuntimeStatus> {
@@ -311,6 +385,19 @@ fn compatibility_label(protocol: Option<u32>) -> &'static str {
         Some(protocol) if protocol == crate::protocol::PROTOCOL_VERSION => "yes",
         Some(_) => "no",
         None => "unknown",
+    }
+}
+
+fn compatible_protocol(protocol: Option<u32>) -> bool {
+    protocol == Some(crate::protocol::PROTOCOL_VERSION)
+}
+
+fn restart_needed(server: &ServerRuntimeStatus) -> bool {
+    match server {
+        ServerRuntimeStatus::Running { version, .. } => {
+            version.as_deref() != Some(env!("CARGO_PKG_VERSION"))
+        }
+        ServerRuntimeStatus::NotRunning => false,
     }
 }
 
@@ -2274,9 +2361,9 @@ fn print_server_help() {
 
 fn print_status_help() {
     eprintln!("hako status commands:");
-    eprintln!("  hako status         show local client and running server status");
-    eprintln!("  hako status server  show running server status");
-    eprintln!("  hako status client  show local client binary status");
+    eprintln!("  hako status [--json]                 show local client and running server status");
+    eprintln!("  hako status server [--json]          show running server status");
+    eprintln!("  hako status client [--json]          show local client binary status");
 }
 fn print_config_help() {
     eprintln!("hako config commands:");

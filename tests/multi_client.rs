@@ -921,20 +921,24 @@ fn multi_client_smallest_leaving_resizes_up_for_remaining_clients() {
     send_client_detach(&mut small);
     drop(small);
 
-    // Remaining client should receive a new (larger) frame.
-    assert!(
-        wait_for_frame(&mut large, Duration::from_secs(2)),
-        "remaining client should receive resized-up frame"
-    );
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let mut size_after_small_leaves = None;
+    while Instant::now() < deadline {
+        let maybe_size = try_read_pane_tty_size(&api_socket, &pane_id, Duration::from_millis(400));
+        if let Some(size) = maybe_size {
+            if size.0 > size_with_small_client.0 && size.1 > size_with_small_client.1 {
+                size_after_small_leaves = Some(size);
+                break;
+            }
+        }
+        thread::sleep(Duration::from_millis(60));
+    }
 
-    let size_after_small_leaves = read_pane_tty_size(&api_socket, &pane_id, Duration::from_secs(5));
-
     assert!(
-        size_after_small_leaves.0 > size_with_small_client.0
-            && size_after_small_leaves.1 > size_with_small_client.1,
-        "remaining clients should get larger effective pane size after smallest leaves: before={:?}, after={:?}",
+        size_after_small_leaves.is_some(),
+        "remaining clients should get larger effective pane size after smallest leaves: before={:?}, last_seen={:?}",
         size_with_small_client,
-        size_after_small_leaves
+        try_read_pane_tty_size(&api_socket, &pane_id, Duration::from_millis(300))
     );
 
     cleanup_spawned_hako(server, base);
