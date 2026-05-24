@@ -879,7 +879,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
     let missing_socket = runtime_dir.join("missing.sock");
 
     let expected_extension = extensions_dir.join("hako-agent-state.ts");
-    let expected_omp_extension = omp_extensions_dir.join("hako-omp-agent-state.ts");
+    let expected_omp_extension = omp_extensions_dir.join("hako-agent-state.ts");
     assert!(
         !expected_extension.exists(),
         "test setup should start without extension file"

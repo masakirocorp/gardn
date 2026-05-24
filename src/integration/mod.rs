@@ -13,10 +13,11 @@ pub(crate) const HAKO_PANE_ID_ENV_VAR: &str = "HAKO_PANE_ID";
 const PI_EXTENSION_INSTALL_NAME: &str = "hako-agent-state.ts";
 const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/hako-agent-state.ts");
 const PI_INTEGRATION_VERSION: u32 = 1;
-const OMP_EXTENSION_INSTALL_NAME: &str = "hako-omp-agent-state.ts";
+const OMP_EXTENSION_INSTALL_NAME: &str = PI_EXTENSION_INSTALL_NAME;
 const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/hako-agent-state.ts");
 const OMP_INTEGRATION_VERSION: u32 = 1;
 const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
+const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
 const CLAUDE_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const CLAUDE_HOOK_ASSET: &str = include_str!("assets/claude/hako-agent-state.sh");
 const CLAUDE_INTEGRATION_VERSION: u32 = 3;
@@ -1453,10 +1454,29 @@ fn pi_extension_dir() -> io::Result<PathBuf> {
 }
 
 fn omp_extension_dir() -> io::Result<PathBuf> {
-    Ok(
-        config_dir_from_env_or_home(PI_CODING_AGENT_DIR_ENV_VAR, &[".omp", "agent"])?
-            .join("extensions"),
-    )
+    let agent_dir = if let Some(value) =
+        std::env::var_os(PI_CODING_AGENT_DIR_ENV_VAR).filter(|value| !value.is_empty())
+    {
+        expand_tilde_path(PathBuf::from(value))?
+    } else {
+        omp_config_dir()?.join("agent")
+    };
+
+    Ok(agent_dir.join("extensions"))
+}
+
+fn omp_config_dir() -> io::Result<PathBuf> {
+    let Some(value) = std::env::var_os(OMP_CONFIG_DIR_ENV_VAR).filter(|value| !value.is_empty())
+    else {
+        return Ok(home_dir()?.join(".omp"));
+    };
+
+    let path = expand_tilde_path(PathBuf::from(value))?;
+    if path.is_relative() {
+        Ok(home_dir()?.join(path))
+    } else {
+        Ok(path)
+    }
 }
 
 fn claude_dir() -> io::Result<PathBuf> {
@@ -1534,6 +1554,7 @@ mod tests {
 
     fn clear_integration_path_env() {
         std::env::remove_var(PI_CODING_AGENT_DIR_ENV_VAR);
+        std::env::remove_var(OMP_CONFIG_DIR_ENV_VAR);
         std::env::remove_var(CLAUDE_CONFIG_DIR_ENV_VAR);
         std::env::remove_var(CODEX_HOME_ENV_VAR);
     }
@@ -1673,6 +1694,10 @@ mod tests {
             installed.extension_path,
             ext_dir.join(OMP_EXTENSION_INSTALL_NAME)
         );
+        assert_eq!(
+            installed.extension_path,
+            ext_dir.join(PI_EXTENSION_INSTALL_NAME)
+        );
         assert!(!installed.removed_legacy_pi_extension);
         assert_eq!(content, OMP_EXTENSION_ASSET);
 
@@ -1698,22 +1723,25 @@ mod tests {
             ext_dir.join(OMP_EXTENSION_INSTALL_NAME)
         );
         assert!(installed.removed_legacy_pi_extension);
-        assert!(!legacy_path.exists());
+        assert!(installed.extension_path.exists());
+        assert_eq!(
+            fs::read_to_string(&installed.extension_path).unwrap(),
+            OMP_EXTENSION_ASSET
+        );
 
         std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
-    fn install_omp_preserves_non_hako_file_with_pi_install_name() {
+    fn install_omp_uses_pi_config_dir_env_for_default_agent_dir() {
         let _lock = integration_env_lock();
         let base = unique_base();
         let home = base.join("home");
-        let ext_dir = home.join(".omp/agent/extensions");
+        let ext_dir = home.join("custom-omp/agent/extensions");
         fs::create_dir_all(&ext_dir).unwrap();
-        let user_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
-        fs::write(&user_path, "// user extension\n").unwrap();
         std::env::set_var("HOME", &home);
+        std::env::set_var(OMP_CONFIG_DIR_ENV_VAR, "custom-omp");
 
         let installed = install_omp().unwrap();
 
@@ -1722,12 +1750,9 @@ mod tests {
             ext_dir.join(OMP_EXTENSION_INSTALL_NAME)
         );
         assert!(!installed.removed_legacy_pi_extension);
-        assert_eq!(
-            fs::read_to_string(user_path).unwrap(),
-            "// user extension\n"
-        );
 
         std::env::remove_var("HOME");
+        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
 

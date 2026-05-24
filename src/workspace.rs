@@ -990,6 +990,29 @@ mod tests {
     }
 
     #[test]
+    fn workspace_manual_name_overrides_live_runtime_cwd() {
+        let mut ws = Workspace::test_new("manual");
+        ws.identity_cwd = PathBuf::from("/hako-test/original");
+        let root_pane = ws.tabs[0].root_pane;
+        let terminal_id = ws.tabs[0].terminal_id(root_pane).unwrap().clone();
+        let mut terminals = HashMap::new();
+        terminals.insert(
+            terminal_id.clone(),
+            TerminalState::new(terminal_id, PathBuf::from("/hako-test/live")),
+        );
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+
+        assert_eq!(
+            ws.display_name_from(&terminals, &terminal_runtimes),
+            "manual"
+        );
+        assert_eq!(
+            ws.resolved_identity_cwd_from(&terminals, &terminal_runtimes),
+            Some(PathBuf::from("/hako-test/live"))
+        );
+    }
+
+    #[test]
     fn git_work_summary_label_describes_shell_clean_and_dirty_spaces_without_clean_noise() {
         let mut ws = Workspace::test_new("test");
         assert_eq!(ws.git_work_summary_label(), "shell");
