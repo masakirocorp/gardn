@@ -332,31 +332,54 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
     );
 
     let mut lines = Vec::new();
-    for item in &app.integration_recommendations {
+    for (idx, item) in app.integration_recommendations.iter().enumerate() {
+        let selected = app.settings.list.selected == idx;
+        let selected_style = modal_option_style(p, selected);
         let marker = match item.state {
             crate::integration::IntegrationStatusKind::Current => "✓",
             crate::integration::IntegrationStatusKind::Outdated => "↻",
             crate::integration::IntegrationStatusKind::NotInstalled if item.available => "+",
             crate::integration::IntegrationStatusKind::NotInstalled => "–",
         };
-        let marker_style = match item.state {
-            crate::integration::IntegrationStatusKind::Current => Style::default().fg(p.green),
-            crate::integration::IntegrationStatusKind::Outdated => Style::default().fg(p.yellow),
-            crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
-                Style::default().fg(p.accent)
-            }
-            crate::integration::IntegrationStatusKind::NotInstalled => {
-                Style::default().fg(p.overlay0)
+        let marker_style = if selected {
+            selected_style
+        } else {
+            match item.state {
+                crate::integration::IntegrationStatusKind::Current => Style::default().fg(p.green),
+                crate::integration::IntegrationStatusKind::Outdated => {
+                    Style::default().fg(p.yellow)
+                }
+                crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
+                    Style::default().fg(p.accent)
+                }
+                crate::integration::IntegrationStatusKind::NotInstalled => {
+                    Style::default().fg(p.overlay0)
+                }
             }
         };
-        lines.push(Line::from(vec![
-            Span::styled(format!(" {marker} "), marker_style),
-            Span::styled(
-                format!("{:<9}", item.label),
-                Style::default().fg(p.subtext0),
-            ),
-            Span::styled(item.status_label(), Style::default().fg(p.overlay1)),
-        ]));
+        let label_style = if selected {
+            selected_style
+        } else {
+            Style::default().fg(p.subtext0)
+        };
+        let status_style = if selected {
+            selected_style
+        } else {
+            Style::default().fg(p.overlay1)
+        };
+        if selected {
+            let text = format!(" {marker} {:<9}{}", item.label, item.status_label());
+            lines.push(Line::from(Span::styled(
+                format!("{text:<width$}", width = rows[3].width as usize),
+                selected_style,
+            )));
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled(format!(" {marker} "), marker_style),
+                Span::styled(format!("{:<9}", item.label), label_style),
+                Span::styled(item.status_label(), status_style),
+            ]));
+        }
     }
 
     if lines.is_empty() {
@@ -379,7 +402,25 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
         let found_any = app.integration_recommendations.iter().any(|item| {
             item.available || item.state != crate::integration::IntegrationStatusKind::NotInstalled
         });
-        let hint = if app
+        let hint = if let Some(item) = app
+            .integration_recommendations
+            .get(app.settings.list.selected)
+        {
+            match item.state {
+                crate::integration::IntegrationStatusKind::Current => {
+                    " press enter to uninstall selected integration"
+                }
+                crate::integration::IntegrationStatusKind::Outdated => {
+                    " press enter to update selected integration"
+                }
+                crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
+                    " press enter to install selected integration"
+                }
+                crate::integration::IntegrationStatusKind::NotInstalled => {
+                    " selected integration is unavailable"
+                }
+            }
+        } else if app
             .integration_recommendations
             .iter()
             .any(crate::integration::IntegrationRecommendation::needs_install)
@@ -534,6 +575,52 @@ mod tests {
         assert!(!text.contains("sound"));
         assert!(!text.contains("toasts"));
         assert!(!text.contains("pane labels"));
+    }
+
+    #[test]
+    fn integrations_selected_row_highlight_extends_to_row_end() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Integrations;
+        app.settings.list.selected = 0;
+        app.integration_recommendations = vec![crate::integration::IntegrationRecommendation {
+            target: crate::api::schema::IntegrationTarget::Omp,
+            label: "omp",
+            command: "omp",
+            available: true,
+            path: std::path::PathBuf::from("/tmp/hako-test-omp"),
+            state: crate::integration::IntegrationStatusKind::NotInstalled,
+        }];
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let popup = centered_popup_rect(area, 76, 22).expect("popup");
+        let inner = Rect::new(
+            popup.x + 1,
+            popup.y + 1,
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
+        );
+        let content = modal_stack_areas(inner, 3, 2, 0, 1).content;
+        let rows = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(2),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .areas::<4>(content);
+        let selected_row_end = rows[3].x + rows[3].width.saturating_sub(1);
+
+        assert_eq!(
+            terminal.backend().buffer()[(selected_row_end, rows[3].y)]
+                .style()
+                .bg,
+            Some(app.palette.accent)
+        );
     }
 
     fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {

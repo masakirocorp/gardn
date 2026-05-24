@@ -947,6 +947,37 @@ impl App {
         self.state.mark_session_dirty();
     }
 
+    pub(crate) fn install_integration(&mut self, target: crate::api::schema::IntegrationTarget) {
+        let label = crate::integration::integration_target_label(target);
+        self.state.integration_install_messages.clear();
+        match crate::integration::install_target(target) {
+            Ok(_) => self
+                .state
+                .integration_install_messages
+                .push(format!("installed {label}")),
+            Err(err) => self
+                .state
+                .integration_install_messages
+                .push(format!("{label}: {err}")),
+        }
+        self.state.integration_recommendations = crate::integration::integration_recommendations();
+        self.state.mark_session_dirty();
+    }
+
+    pub(crate) fn uninstall_integration(&mut self, target: crate::api::schema::IntegrationTarget) {
+        let label = crate::integration::integration_target_label(target);
+        self.state.integration_install_messages.clear();
+        match crate::integration::uninstall_target(target) {
+            Ok(messages) => self.state.integration_install_messages.extend(messages),
+            Err(err) => self
+                .state
+                .integration_install_messages
+                .push(format!("{label}: {err}")),
+        }
+        self.state.integration_recommendations = crate::integration::integration_recommendations();
+        self.state.mark_session_dirty();
+    }
+
     pub(crate) fn reload_config(&mut self) -> crate::config::ConfigReloadReport {
         self.apply_config_from_disk(true)
     }

@@ -57,8 +57,8 @@ pub(crate) struct OpenCodeInstallPaths {
 
 #[derive(Debug)]
 pub(crate) struct OmpInstallPaths {
-    pub extension_path: PathBuf,
-    pub removed_legacy_pi_extension: bool,
+    pub extension_paths: Vec<PathBuf>,
+    pub removed_legacy_pi_extensions: Vec<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -117,8 +117,8 @@ pub(crate) struct PiUninstallResult {
 
 #[derive(Debug)]
 pub(crate) struct OmpUninstallResult {
-    pub extension_path: PathBuf,
-    pub removed_extension: bool,
+    pub extension_paths: Vec<PathBuf>,
+    pub removed_extension_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -167,20 +167,22 @@ pub(crate) fn install_target(
         }
         crate::api::schema::IntegrationTarget::Omp => {
             let installed = install_omp()?;
-            let mut messages = Vec::new();
-            if installed.removed_legacy_pi_extension {
-                messages.push(format!(
-                    "removed legacy pi integration from omp extension directory at {}",
-                    installed
-                        .extension_path
-                        .with_file_name(PI_EXTENSION_INSTALL_NAME)
-                        .display()
-                ));
-            }
-            messages.push(format!(
-                "installed omp integration to {}",
-                installed.extension_path.display()
-            ));
+            let mut messages = installed
+                .removed_legacy_pi_extensions
+                .into_iter()
+                .map(|path| {
+                    format!(
+                        "removed legacy pi integration from omp extension directory at {}",
+                        path.display()
+                    )
+                })
+                .collect::<Vec<_>>();
+            messages.extend(
+                installed
+                    .extension_paths
+                    .into_iter()
+                    .map(|path| format!("installed omp integration to {}", path.display())),
+            );
             messages
         }
         crate::api::schema::IntegrationTarget::Claude => {
@@ -256,16 +258,18 @@ pub(crate) fn uninstall_target(
         }
         crate::api::schema::IntegrationTarget::Omp => {
             let result = uninstall_omp()?;
-            if result.removed_extension {
-                vec![format!(
-                    "removed omp integration extension at {}",
-                    result.extension_path.display()
-                )]
+            if result.removed_extension_paths.is_empty() {
+                result
+                    .extension_paths
+                    .into_iter()
+                    .map(|path| format!("no omp integration extension found at {}", path.display()))
+                    .collect()
             } else {
-                vec![format!(
-                    "no omp integration extension found at {}",
-                    result.extension_path.display()
-                )]
+                result
+                    .removed_extension_paths
+                    .into_iter()
+                    .map(|path| format!("removed omp integration extension at {}", path.display()))
+                    .collect()
             }
         }
         crate::api::schema::IntegrationTarget::Claude => {
@@ -386,7 +390,9 @@ pub(crate) fn integration_target_label(
     }
 }
 
-fn integration_target_command(target: crate::api::schema::IntegrationTarget) -> &'static str {
+pub(crate) fn integration_target_command(
+    target: crate::api::schema::IntegrationTarget,
+) -> &'static str {
     match target {
         crate::api::schema::IntegrationTarget::Pi => "pi",
         crate::api::schema::IntegrationTarget::Omp => "omp",
@@ -602,20 +608,36 @@ pub(crate) fn install_pi() -> io::Result<PathBuf> {
 }
 
 pub(crate) fn install_omp() -> io::Result<OmpInstallPaths> {
-    let dir = omp_extension_dir()?;
-    if !dir.is_dir() {
-        return Err(io::Error::other(format!(
-            "omp extension directory not found at {}. install omp and create the extensions directory first",
-            dir.display()
-        )));
+    let dirs = omp_install_extension_dirs()?;
+    let mut extension_paths = Vec::with_capacity(dirs.len());
+    let mut removed_legacy_pi_extensions = Vec::new();
+
+    for dir in dirs {
+        let Some(agent_dir) = dir.parent() else {
+            return Err(io::Error::other(format!(
+                "omp extension directory has no parent at {}",
+                dir.display()
+            )));
+        };
+        if !agent_dir.is_dir() {
+            return Err(io::Error::other(format!(
+                "omp agent directory not found at {}. install omp first",
+                agent_dir.display()
+            )));
+        }
+
+        fs::create_dir_all(&dir)?;
+        if remove_legacy_pi_extension_from_omp_dir(&dir)? {
+            removed_legacy_pi_extensions.push(dir.join(PI_EXTENSION_INSTALL_NAME));
+        }
+        let extension_path = dir.join(OMP_EXTENSION_INSTALL_NAME);
+        fs::write(&extension_path, OMP_EXTENSION_ASSET)?;
+        extension_paths.push(extension_path);
     }
 
-    let removed_legacy_pi_extension = remove_legacy_pi_extension_from_omp_dir(&dir)?;
-    let extension_path = dir.join(OMP_EXTENSION_INSTALL_NAME);
-    fs::write(&extension_path, OMP_EXTENSION_ASSET)?;
     Ok(OmpInstallPaths {
-        extension_path,
-        removed_legacy_pi_extension,
+        extension_paths,
+        removed_legacy_pi_extensions,
     })
 }
 
@@ -879,12 +901,20 @@ pub(crate) fn uninstall_pi() -> io::Result<PiUninstallResult> {
 }
 
 pub(crate) fn uninstall_omp() -> io::Result<OmpUninstallResult> {
-    let extension_path = omp_extension_dir()?.join(OMP_EXTENSION_INSTALL_NAME);
-    let removed_extension = remove_file_if_exists(&extension_path)?;
+    let mut extension_paths = Vec::new();
+    let mut removed_extension_paths = Vec::new();
+
+    for dir in omp_install_extension_dirs()? {
+        let extension_path = dir.join(OMP_EXTENSION_INSTALL_NAME);
+        if remove_file_if_exists(&extension_path)? {
+            removed_extension_paths.push(extension_path.clone());
+        }
+        extension_paths.push(extension_path);
+    }
 
     Ok(OmpUninstallResult {
-        extension_path,
-        removed_extension,
+        extension_paths,
+        removed_extension_paths,
     })
 }
 
@@ -1465,6 +1495,52 @@ fn omp_extension_dir() -> io::Result<PathBuf> {
     Ok(agent_dir.join("extensions"))
 }
 
+fn omp_install_extension_dirs() -> io::Result<Vec<PathBuf>> {
+    if std::env::var_os(PI_CODING_AGENT_DIR_ENV_VAR).is_some_and(|value| !value.is_empty()) {
+        return Ok(vec![omp_extension_dir()?]);
+    }
+
+    let home = home_dir()?;
+    let mut config_dirs = Vec::new();
+    if std::env::var_os(OMP_CONFIG_DIR_ENV_VAR).is_some_and(|value| !value.is_empty()) {
+        config_dirs.push(omp_config_dir()?);
+    }
+    config_dirs.push(home.join(".omp"));
+
+    if let Ok(entries) = fs::read_dir(&home) {
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if name == ".omp" || name.starts_with(".omp-") {
+                config_dirs.push(path);
+            }
+        }
+    }
+
+    config_dirs.sort();
+    config_dirs.dedup();
+
+    let extension_dirs = config_dirs
+        .into_iter()
+        .filter_map(|config_dir| {
+            let agent_dir = config_dir.join("agent");
+            agent_dir.is_dir().then(|| agent_dir.join("extensions"))
+        })
+        .collect::<Vec<_>>();
+
+    if extension_dirs.is_empty() {
+        Ok(vec![omp_extension_dir()?])
+    } else {
+        Ok(extension_dirs)
+    }
+}
+
 fn omp_config_dir() -> io::Result<PathBuf> {
     let Some(value) = std::env::var_os(OMP_CONFIG_DIR_ENV_VAR).filter(|value| !value.is_empty())
     else {
@@ -1688,17 +1764,11 @@ mod tests {
         std::env::set_var("HOME", &home);
 
         let installed = install_omp().unwrap();
-        let content = fs::read_to_string(&installed.extension_path).unwrap();
+        let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
+        let content = fs::read_to_string(&extension_path).unwrap();
 
-        assert_eq!(
-            installed.extension_path,
-            ext_dir.join(OMP_EXTENSION_INSTALL_NAME)
-        );
-        assert_eq!(
-            installed.extension_path,
-            ext_dir.join(PI_EXTENSION_INSTALL_NAME)
-        );
-        assert!(!installed.removed_legacy_pi_extension);
+        assert_eq!(installed.extension_paths, vec![extension_path]);
+        assert!(installed.removed_legacy_pi_extensions.is_empty());
         assert_eq!(content, OMP_EXTENSION_ASSET);
 
         std::env::remove_var("HOME");
@@ -1717,15 +1787,13 @@ mod tests {
         std::env::set_var("HOME", &home);
 
         let installed = install_omp().unwrap();
+        let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
 
+        assert_eq!(installed.extension_paths, vec![extension_path.clone()]);
+        assert_eq!(installed.removed_legacy_pi_extensions, vec![legacy_path]);
+        assert!(extension_path.exists());
         assert_eq!(
-            installed.extension_path,
-            ext_dir.join(OMP_EXTENSION_INSTALL_NAME)
-        );
-        assert!(installed.removed_legacy_pi_extension);
-        assert!(installed.extension_path.exists());
-        assert_eq!(
-            fs::read_to_string(&installed.extension_path).unwrap(),
+            fs::read_to_string(&extension_path).unwrap(),
             OMP_EXTENSION_ASSET
         );
 
@@ -1744,12 +1812,48 @@ mod tests {
         std::env::set_var(OMP_CONFIG_DIR_ENV_VAR, "custom-omp");
 
         let installed = install_omp().unwrap();
+        let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
 
-        assert_eq!(
-            installed.extension_path,
-            ext_dir.join(OMP_EXTENSION_INSTALL_NAME)
-        );
-        assert!(!installed.removed_legacy_pi_extension);
+        assert_eq!(installed.extension_paths, vec![extension_path]);
+        assert!(installed.removed_legacy_pi_extensions.is_empty());
+
+        std::env::remove_var("HOME");
+        clear_integration_path_env();
+        let _ = fs::remove_dir_all(base);
+    }
+    #[test]
+    fn install_omp_writes_to_all_existing_omp_profiles() {
+        let _lock = integration_env_lock();
+        let base = unique_base();
+        let home = base.join("home");
+        let default_agent = home.join(".omp/agent");
+        let mk_agent = home.join(".omp-mk/agent");
+        let frs_agent = home.join(".omp-frs/agent");
+        fs::create_dir_all(&default_agent).unwrap();
+        fs::create_dir_all(&mk_agent).unwrap();
+        fs::create_dir_all(&frs_agent).unwrap();
+        std::env::set_var("HOME", &home);
+        std::env::set_var(OMP_CONFIG_DIR_ENV_VAR, ".omp-mk");
+
+        let installed = install_omp().unwrap();
+
+        let mut expected = vec![
+            default_agent
+                .join("extensions")
+                .join(OMP_EXTENSION_INSTALL_NAME),
+            frs_agent
+                .join("extensions")
+                .join(OMP_EXTENSION_INSTALL_NAME),
+            mk_agent.join("extensions").join(OMP_EXTENSION_INSTALL_NAME),
+        ];
+        expected.sort();
+        let mut actual = installed.extension_paths;
+        actual.sort();
+
+        assert_eq!(actual, expected);
+        for path in actual {
+            assert_eq!(fs::read_to_string(path).unwrap(), OMP_EXTENSION_ASSET);
+        }
 
         std::env::remove_var("HOME");
         clear_integration_path_env();
@@ -1766,12 +1870,10 @@ mod tests {
         std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
 
         let installed = install_omp().unwrap();
+        let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
 
-        assert_eq!(
-            installed.extension_path,
-            ext_dir.join(OMP_EXTENSION_INSTALL_NAME)
-        );
-        assert!(!installed.removed_legacy_pi_extension);
+        assert_eq!(installed.extension_paths, vec![extension_path]);
+        assert!(installed.removed_legacy_pi_extensions.is_empty());
 
         clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
@@ -1792,13 +1894,11 @@ mod tests {
         std::env::set_var("HOME", &home);
 
         let result = uninstall_omp().unwrap();
+        let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
 
-        assert_eq!(
-            result.extension_path,
-            ext_dir.join(OMP_EXTENSION_INSTALL_NAME)
-        );
-        assert!(result.removed_extension);
-        assert!(!result.extension_path.exists());
+        assert_eq!(result.extension_paths, vec![extension_path.clone()]);
+        assert_eq!(result.removed_extension_paths, vec![extension_path.clone()]);
+        assert!(!extension_path.exists());
 
         std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
@@ -1814,7 +1914,7 @@ mod tests {
 
         let err = install_omp().unwrap_err().to_string();
 
-        assert!(err.contains("omp extension directory not found"));
+        assert!(err.contains("omp agent directory not found"));
 
         std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);

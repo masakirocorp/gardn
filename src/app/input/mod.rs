@@ -327,6 +327,8 @@ impl App {
                 SettingsAction::InstallRecommendedIntegrations => {
                     self.install_recommended_integrations()
                 }
+                SettingsAction::InstallIntegration(target) => self.install_integration(target),
+                SettingsAction::UninstallIntegration(target) => self.uninstall_integration(target),
             }
         }
         if previous_settings_section != crate::app::state::SettingsSection::Integrations
