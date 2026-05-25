@@ -501,8 +501,17 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
     };
 
     if app.settings.group_theme_target.is_some() {
+        let active_group_theme_name = app
+            .settings
+            .group_theme_target
+            .and_then(|idx| app.groups.get(idx))
+            .and_then(|group| group.theme_name.as_deref());
         let selected = app.settings.list.selected == 0;
-        let marker = if selected { " ✓" } else { "" };
+        let marker = if active_group_theme_name.is_none() {
+            " ✓"
+        } else {
+            ""
+        };
         items.push(option_item(
             &format!("default ({})", theme_display_name(&app.global_theme_name)),
             marker,
@@ -510,33 +519,18 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
             " ",
         ));
 
-        let selected_theme = app
-            .settings
-            .pending_theme_name
-            .as_deref()
-            .unwrap_or(&app.global_theme_name);
         items.extend(THEME_NAMES.iter().enumerate().map(|(idx, name)| {
             let selected = app.settings.list.selected == idx + 1;
-            let marker = if selected {
+            let marker = if active_group_theme_name == Some(*name) {
                 " ✓"
-            } else if selected_theme == *name {
-                " ·"
             } else {
                 ""
             };
             option_item(theme_display_name(name), marker, selected, " ")
         }));
     } else {
-        let light_theme = app
-            .settings
-            .pending_light_theme_name
-            .as_deref()
-            .unwrap_or(&app.global_light_theme_name);
-        let dark_theme = app
-            .settings
-            .pending_dark_theme_name
-            .as_deref()
-            .unwrap_or(&app.global_dark_theme_name);
+        let active_light_theme = app.global_light_theme_name.as_str();
+        let active_dark_theme = app.global_dark_theme_name.as_str();
 
         selected_row = if app.settings.list.selected < ThemeMode::ALL.len() {
             app.settings.list.selected + 1
@@ -561,10 +555,8 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
         ))));
         for candidate in ThemeMode::ALL {
             let selected = selected_row == items.len();
-            let marker = if selected {
+            let marker = if app.global_theme_mode == *candidate {
                 " ✓"
-            } else if mode == *candidate {
-                " ·"
             } else {
                 ""
             };
@@ -581,10 +573,8 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
                 ))));
                 for name in light_names {
                     let selected = selected_row == items.len();
-                    let marker = if selected {
+                    let marker = if active_light_theme == *name {
                         " ✓"
-                    } else if light_theme == *name {
-                        " ·"
                     } else {
                         ""
                     };
@@ -603,10 +593,8 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
                 ))));
                 for name in theme_names_for_appearance(ThemeAppearance::Dark) {
                     let selected = selected_row == items.len();
-                    let marker = if selected {
+                    let marker = if active_dark_theme == *name {
                         " ✓"
-                    } else if dark_theme == *name {
-                        " ·"
                     } else {
                         ""
                     };
@@ -625,10 +613,8 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
                 ))));
                 for name in theme_names_for_appearance(ThemeAppearance::Light) {
                     let selected = selected_row == items.len();
-                    let marker = if selected {
+                    let marker = if active_light_theme == *name {
                         " ✓"
-                    } else if light_theme == *name {
-                        " ·"
                     } else {
                         ""
                     };
@@ -647,10 +633,8 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
                 ))));
                 for name in theme_names_for_appearance(ThemeAppearance::Dark) {
                     let selected = selected_row == items.len();
-                    let marker = if selected {
+                    let marker = if active_dark_theme == *name {
                         " ✓"
-                    } else if dark_theme == *name {
-                        " ·"
                     } else {
                         ""
                     };
@@ -673,7 +657,6 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
                 .bg(p.accent)
                 .add_modifier(Modifier::BOLD),
         )
-        .highlight_symbol(" ")
         .style(Style::default().fg(p.subtext0));
 
     let viewport_rows = list_area.height as usize;
@@ -860,6 +843,73 @@ mod tests {
         assert!(text.contains("rose pine"));
     }
 
+    #[test]
+    fn theme_settings_marks_saved_values_not_hovered_pending_values() {
+        let mut app = AppState::test_new();
+        app.global_theme_mode = ThemeMode::System;
+        app.global_light_theme_name = "catppuccin-latte".to_string();
+        app.settings.section = SettingsSection::Theme;
+        app.settings.pending_theme_mode = Some(ThemeMode::Light);
+        app.settings.pending_light_theme_name = Some("solarized-light".to_string());
+        app.settings.list.selected = 1;
+
+        let backend = TestBackend::new(100, 50);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_theme(&app, frame, Rect::new(0, 0, 100, 50)))
+            .expect("render theme settings");
+
+        let text = buffer_text(terminal.backend().buffer(), 100, 50);
+        assert!(text.contains("system ✓"));
+        assert!(!text.contains("light ✓"));
+        assert!(text.contains("catppuccin latte ✓"));
+        assert!(!text.contains("solarized ✓"));
+    }
+
+    #[test]
+    fn theme_settings_selected_row_highlight_extends_to_row_end() {
+        let mut app = AppState::test_new();
+        app.global_theme_mode = ThemeMode::System;
+        app.settings.section = SettingsSection::Theme;
+        app.settings.pending_theme_mode = Some(ThemeMode::Light);
+        app.settings.list.selected = 1;
+
+        let area = Rect::new(0, 0, 100, 50);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_theme(&app, frame, area))
+            .expect("render theme settings");
+
+        let selected_row_y = 5;
+        let selected_row_end = area.x + area.width.saturating_sub(1);
+        assert_eq!(
+            terminal.backend().buffer()[(selected_row_end, selected_row_y)]
+                .style()
+                .bg,
+            Some(app.palette.accent)
+        );
+    }
+    #[test]
+    fn theme_settings_selected_row_does_not_shift_text() {
+        let mut app = AppState::test_new();
+        app.global_theme_mode = ThemeMode::System;
+        app.settings.section = SettingsSection::Theme;
+        app.settings.pending_theme_mode = Some(ThemeMode::Light);
+        app.settings.list.selected = 1;
+
+        let area = Rect::new(0, 0, 100, 50);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_theme(&app, frame, area))
+            .expect("render theme settings");
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(0, 5)].symbol(), " ");
+        assert_eq!(buffer[(1, 5)].symbol(), " ");
+        assert_eq!(buffer[(2, 5)].symbol(), "l");
+    }
     #[test]
     fn integrations_selected_row_highlight_extends_to_row_end() {
         let mut app = AppState::test_new();

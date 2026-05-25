@@ -1017,6 +1017,15 @@ impl AppState {
                 }
                 None
             }
+            MouseEventKind::Moved => {
+                if let Some(idx) = self.settings_list_index_at(mouse.column, mouse.row) {
+                    self.settings.list.select(idx);
+                    if self.settings.section == SettingsSection::Theme {
+                        ensure_settings_selection_visible(self);
+                    }
+                }
+                None
+            }
             MouseEventKind::ScrollUp if self.settings.section == SettingsSection::Theme => {
                 self.settings.scroll = self
                     .settings
@@ -1401,15 +1410,24 @@ mod tests {
     }
 
     #[test]
-    fn settings_hover_does_not_change_selection() {
+    fn settings_hover_moves_cursor_without_selecting_pending_value() {
         let mut app = app_for_mouse_test();
         open_settings(&mut app.state);
         app.state.settings.list.select(0);
+        app.state.settings.pending_theme_mode = Some(ThemeMode::System);
 
-        let area = app.state.settings_content_rect();
-        app.handle_mouse(mouse(MouseEventKind::Moved, area.x + 2, area.y + 2));
+        let list_area = settings_theme_list_rect(app.state.settings_content_rect());
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            list_area.x + 2,
+            list_area.y + 2,
+        ));
 
-        assert_eq!(app.state.settings.list.selected, 0);
+        assert_eq!(app.state.settings.list.selected, 1);
+        assert_eq!(
+            app.state.settings.pending_theme_mode,
+            Some(ThemeMode::System)
+        );
     }
 
     #[test]
