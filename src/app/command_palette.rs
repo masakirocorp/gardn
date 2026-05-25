@@ -20,6 +20,7 @@ pub(crate) enum CommandPaletteAction {
     ClosePane,
     RenamePane,
     Fullscreen,
+    EditScrollback,
     ResizeMode,
     FocusPane(NavDirection),
     CyclePaneNext,
@@ -130,6 +131,11 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
         CommandPaletteCommand::new("close pane", "panes", CommandPaletteAction::ClosePane),
         CommandPaletteCommand::new("rename pane", "panes", CommandPaletteAction::RenamePane),
         CommandPaletteCommand::new("zoom pane", "panes", CommandPaletteAction::Fullscreen),
+        CommandPaletteCommand::new(
+            "edit scrollback",
+            "panes",
+            CommandPaletteAction::EditScrollback,
+        ),
         CommandPaletteCommand::new("resize panes", "panes", CommandPaletteAction::ResizeMode),
         CommandPaletteCommand::new(
             "focus pane left",
@@ -302,6 +308,7 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
         CommandPaletteAction::ClosePane => label(&kb.close_pane),
         CommandPaletteAction::RenamePane => label(&kb.rename_pane),
         CommandPaletteAction::Fullscreen => label(&kb.zoom),
+        CommandPaletteAction::EditScrollback => label(&kb.edit_scrollback),
         CommandPaletteAction::ResizeMode => label(&kb.resize_mode),
         CommandPaletteAction::FocusPane(crate::layout::NavDirection::Left) => {
             label(&kb.focus_pane_left).or_else(|| Some("h".into()))
@@ -315,8 +322,8 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
         CommandPaletteAction::FocusPane(crate::layout::NavDirection::Right) => {
             label(&kb.focus_pane_right).or_else(|| Some("l".into()))
         }
-        CommandPaletteAction::CyclePaneNext => Some("tab".into()),
-        CommandPaletteAction::CyclePanePrevious => Some("shift+tab".into()),
+        CommandPaletteAction::CyclePaneNext => label(&kb.cycle_pane_next),
+        CommandPaletteAction::CyclePanePrevious => label(&kb.cycle_pane_previous),
         CommandPaletteAction::OpenGroupMenu => label(&kb.open_group_menu),
         CommandPaletteAction::NewGroup => label(&kb.new_group),
         CommandPaletteAction::RenameGroup => label(&kb.rename_group),

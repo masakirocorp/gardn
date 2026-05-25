@@ -146,26 +146,13 @@ pub(super) fn scroll_command_palette_rows(state: &mut AppState, delta: i16) {
 }
 
 pub(super) fn hover_command_palette_selection(state: &mut AppState, col: u16, row: u16) {
-    let Some((list_area, rows, start)) = command_palette_visible_rows(state) else {
+    let Some((list_area, rows, viewport)) = command_palette_viewport(state) else {
         return;
     };
-    if col < list_area.x
-        || col >= list_area.x + list_area.width
-        || row < list_area.y
-        || row >= list_area.y + list_area.height
-    {
+    let Some(row_idx) = viewport.hit_visual_row(list_area, col, row) else {
         return;
-    }
-    if command_palette_scrollbar_track(state).is_some_and(|track| {
-        col >= track.x
-            && col < track.x + track.width
-            && row >= track.y
-            && row < track.y + track.height
-    }) {
-        return;
-    }
+    };
 
-    let row_idx = start + row.saturating_sub(list_area.y) as usize;
     if let Some(Some(command_idx)) = rows.get(row_idx) {
         state.command_palette.selected = *command_idx;
     }
@@ -222,82 +209,59 @@ pub(super) fn set_command_palette_offset_from_bottom(
     state: &mut AppState,
     offset_from_bottom: usize,
 ) {
-    let Some((list_area, rows)) = command_palette_rows_for_input(state) else {
+    let Some((_, _, viewport)) = command_palette_viewport(state) else {
         state.command_palette.scroll = 0;
         return;
     };
-    state.command_palette.scroll = crate::ui::modal_scroll_from_offset_from_bottom(
-        rows.len(),
-        list_area.height as usize,
-        offset_from_bottom,
-    );
-}
-
-fn command_palette_visible_rows(state: &AppState) -> Option<(Rect, Vec<Option<usize>>, usize)> {
-    let (list_area, rows) = command_palette_rows_for_input(state)?;
-    let visible_rows = list_area.height as usize;
-    let max_start = rows.len().saturating_sub(visible_rows);
-    let start = state.command_palette.scroll.min(max_start);
-    Some((list_area, rows, start))
+    state.command_palette.scroll = viewport.scroll_from_offset_from_bottom(offset_from_bottom);
 }
 
 fn command_palette_scroll_metrics(state: &AppState) -> Option<crate::pane::ScrollMetrics> {
-    let (list_area, rows) = command_palette_rows_for_input(state)?;
-    Some(crate::ui::modal_scroll_metrics(
-        rows.len(),
-        list_area.height as usize,
-        state.command_palette.scroll,
-    ))
+    let (_, _, viewport) = command_palette_viewport(state)?;
+    Some(viewport.metrics())
 }
 
 fn command_palette_max_scroll(state: &AppState) -> usize {
-    let Some((list_area, rows)) = command_palette_rows_for_input(state) else {
-        return 0;
-    };
-    rows.len().saturating_sub(list_area.height as usize)
+    command_palette_viewport(state)
+        .map(|(_, _, viewport)| viewport.max_scroll())
+        .unwrap_or(0)
 }
 
 fn command_palette_scrollbar_track(state: &AppState) -> Option<Rect> {
-    let metrics = command_palette_scroll_metrics(state)?;
-    if !crate::ui::should_show_scrollbar(metrics) {
-        return None;
-    }
-    let list_area = command_palette_list_area(state)?;
-    crate::ui::modal_scrollbar_rect(list_area, metrics)
+    let (list_area, _, viewport) = command_palette_viewport(state)?;
+    viewport.scroll_area(list_area).track
 }
 
 fn ensure_command_palette_selection_visible(state: &mut AppState) {
-    let Some((list_area, rows)) = command_palette_rows_for_input(state) else {
+    let Some((_, rows, viewport)) = command_palette_viewport(state) else {
         state.command_palette.scroll = 0;
         return;
     };
-    let visible_rows = list_area.height as usize;
-    if visible_rows == 0 {
-        state.command_palette.scroll = 0;
-        return;
-    }
 
-    let max_start = rows.len().saturating_sub(visible_rows);
     let Some(selected_row) = rows
         .iter()
         .position(|row| *row == Some(state.command_palette.selected))
     else {
-        state.command_palette.scroll = state.command_palette.scroll.min(max_start);
+        state.command_palette.scroll = viewport.scroll();
         return;
     };
 
-    let start = state.command_palette.scroll.min(max_start);
     let first_section_row = selected_row
         .checked_sub(1)
-        .filter(|idx| rows.get(*idx).is_some_and(Option::is_none))
-        .unwrap_or(selected_row);
-    state.command_palette.scroll = if first_section_row < start {
-        first_section_row
-    } else if selected_row >= start + visible_rows {
-        selected_row + 1 - visible_rows
-    } else {
-        start
-    };
+        .filter(|idx| rows.get(*idx).is_some_and(Option::is_none));
+    state.command_palette.scroll = viewport.ensure_visible(selected_row, first_section_row);
+}
+
+fn command_palette_viewport(
+    state: &AppState,
+) -> Option<(Rect, Vec<Option<usize>>, crate::ui::ModalListViewport)> {
+    let (list_area, rows) = command_palette_rows_for_input(state)?;
+    let viewport = crate::ui::ModalListViewport::new(
+        rows.len(),
+        list_area.height as usize,
+        state.command_palette.scroll,
+    );
+    Some((list_area, rows, viewport))
 }
 
 fn command_palette_rows_for_input(state: &AppState) -> Option<(Rect, Vec<Option<usize>>)> {
@@ -336,7 +300,7 @@ fn command_palette_list_area(state: &AppState) -> Option<Rect> {
         inner.x,
         inner.y + 3,
         inner.width,
-        inner.height.saturating_sub(5),
+        inner.height.saturating_sub(6),
     ))
 }
 
@@ -426,6 +390,10 @@ fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
             }
         }
         CommandPaletteAction::Fullscreen => app.state.toggle_zoom(),
+        CommandPaletteAction::EditScrollback => {
+            app.launch_focused_scrollback_editor();
+            return;
+        }
         CommandPaletteAction::ResizeMode => {
             app.state.mode = Mode::Resize;
             return;
@@ -580,6 +548,19 @@ mod tests {
     }
 
     #[test]
+    fn command_palette_scrolls_when_selection_moves_past_rendered_rows() {
+        let mut app = app_with_space();
+        app.state.view.sidebar_rect = ratatui::layout::Rect::new(0, 0, 26, 20);
+        app.state.view.terminal_area = ratatui::layout::Rect::new(26, 0, 80, 20);
+        app.state.command_palette.selected = 6;
+        app.state.command_palette.scroll = 0;
+
+        assert!(move_command_palette_selection(&mut app.state, true));
+        assert_eq!(app.state.command_palette.selected, 7);
+        assert_eq!(app.state.command_palette.scroll, 1);
+    }
+
+    #[test]
     fn command_palette_page_keys_scroll_rows_without_changing_selection() {
         let mut app = app_with_space();
         app.state.view.sidebar_rect = ratatui::layout::Rect::new(0, 0, 26, 20);
@@ -617,6 +598,18 @@ mod tests {
     }
 
     #[test]
+    fn command_palette_hover_ignores_scrollbar_column() {
+        let mut app = app_with_space();
+        app.state.view.sidebar_rect = ratatui::layout::Rect::new(0, 0, 26, 20);
+        app.state.view.terminal_area = ratatui::layout::Rect::new(26, 0, 80, 20);
+        let track = command_palette_scrollbar_track(&app.state).expect("scrollbar track");
+
+        hover_command_palette_selection(&mut app.state, track.x, track.y + 1);
+
+        assert_eq!(app.state.command_palette.selected, 0);
+    }
+
+    #[test]
     fn command_palette_commands_include_keybind_labels() {
         let app = app_with_space();
 
@@ -626,6 +619,29 @@ mod tests {
             command.title == "new space"
                 && command.key_label.as_deref()
                     == app.state.keybinds.new_workspace.label().as_deref()
+        }));
+    }
+
+    #[test]
+    fn command_palette_exposes_scrollback_and_configured_cycle_hints() {
+        let app = app_with_space();
+
+        let commands = command_palette_visible_commands(&app.state);
+        assert!(commands.iter().any(|command| {
+            command.title == "edit scrollback"
+                && command.group == "panes"
+                && command.key_label.as_deref()
+                    == app.state.keybinds.edit_scrollback.label().as_deref()
+        }));
+        assert!(commands.iter().any(|command| {
+            command.title == "cycle pane next"
+                && command.key_label.as_deref()
+                    == app.state.keybinds.cycle_pane_next.label().as_deref()
+        }));
+        assert!(commands.iter().any(|command| {
+            command.title == "cycle pane previous"
+                && command.key_label.as_deref()
+                    == app.state.keybinds.cycle_pane_previous.label().as_deref()
         }));
     }
 

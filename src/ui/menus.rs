@@ -21,6 +21,30 @@ fn prefix_rhs_label(bindings: &crate::config::ActionKeybinds) -> String {
         .unwrap_or_else(|| "unset".to_string())
 }
 
+fn append_prefix_hint(
+    spans: &mut Vec<Span<'static>>,
+    used_width: &mut usize,
+    max_width: usize,
+    key_style: Style,
+    dim_style: Style,
+    key_label: String,
+    label: &'static str,
+    optional: bool,
+) {
+    if key_label == "unset" {
+        return;
+    }
+    let label = format!(" {label} ");
+    let width = key_label.chars().count() + label.chars().count();
+    if optional && used_width.saturating_add(width) > max_width {
+        return;
+    }
+
+    *used_width = used_width.saturating_add(width);
+    spans.push(Span::styled(key_label, key_style));
+    spans.push(Span::styled(label, dim_style));
+}
+
 fn render_bottom_bar(frame: &mut Frame, area: Rect, line: Line<'_>, bg: ratatui::style::Color) {
     frame.render_widget(Clear, area);
     let buf = frame.buffer_mut();
@@ -40,22 +64,82 @@ pub(super) fn render_prefix_overlay(app: &AppState, frame: &mut Frame, area: Rec
         .bg(app.palette.accent)
         .add_modifier(Modifier::BOLD);
 
-    let workspace_picker = prefix_rhs_label(&app.keybinds.workspace_picker);
-    let help = prefix_rhs_label(&app.keybinds.help);
+    let mut spans = vec![Span::styled(" PREFIX ", mode_style), Span::raw(" ")];
+    let mut used_width = " PREFIX  ".chars().count();
+    let max_width = area.width as usize;
     let prefix = crate::config::format_key_combo((app.prefix_code, app.prefix_mods));
 
-    let line = Line::from(vec![
-        Span::styled(" PREFIX ", mode_style),
-        Span::raw(" "),
-        Span::styled("esc", key),
-        Span::styled(" cancel  ", dim),
-        Span::styled(prefix, key),
-        Span::styled(" send prefix  ", dim),
-        Span::styled(workspace_picker, key),
-        Span::styled(" workspace nav  ", dim),
-        Span::styled(help, key),
-        Span::styled(" keybinds", dim),
-    ]);
+    append_prefix_hint(
+        &mut spans,
+        &mut used_width,
+        max_width,
+        key,
+        dim,
+        "esc".to_string(),
+        "cancel",
+        false,
+    );
+    append_prefix_hint(
+        &mut spans,
+        &mut used_width,
+        max_width,
+        key,
+        dim,
+        prefix,
+        "send",
+        false,
+    );
+    append_prefix_hint(
+        &mut spans,
+        &mut used_width,
+        max_width,
+        key,
+        dim,
+        prefix_rhs_label(&app.keybinds.command_palette),
+        "cmds",
+        false,
+    );
+    append_prefix_hint(
+        &mut spans,
+        &mut used_width,
+        max_width,
+        key,
+        dim,
+        prefix_rhs_label(&app.keybinds.workspace_picker),
+        "spaces",
+        false,
+    );
+    append_prefix_hint(
+        &mut spans,
+        &mut used_width,
+        max_width,
+        key,
+        dim,
+        prefix_rhs_label(&app.keybinds.help),
+        "keys",
+        false,
+    );
+
+    for (key_label, label) in [
+        (prefix_rhs_label(&app.keybinds.new_tab), "tab"),
+        (prefix_rhs_label(&app.keybinds.split_vertical), "split│"),
+        (prefix_rhs_label(&app.keybinds.split_horizontal), "split─"),
+        (prefix_rhs_label(&app.keybinds.close_pane), "close"),
+        (prefix_rhs_label(&app.keybinds.detach), "detach"),
+    ] {
+        append_prefix_hint(
+            &mut spans,
+            &mut used_width,
+            max_width,
+            key,
+            dim,
+            key_label,
+            label,
+            true,
+        );
+    }
+
+    let line = Line::from(spans);
 
     let overlay_y = area.y + area.height.saturating_sub(1);
     let overlay_area = Rect::new(area.x, overlay_y, area.width, 1);

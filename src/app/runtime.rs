@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use crossterm::terminal;
 
 use super::{
-    auto_updates_enabled, command_palette_accepts_repeat_key, repeat_key_identity, App, Mode,
+    auto_updates_enabled, mode_accepts_repeat_key, repeat_key_identity, App, Mode,
     ANIMATION_INTERVAL, AUTO_UPDATE_CHECK_INTERVAL, COMMAND_SCAN_INTERVAL,
     GIT_REMOTE_STATUS_REFRESH_INTERVAL, MIN_RENDER_INTERVAL, PORT_SCAN_INTERVAL, PORT_STALE_TTL,
     RESIZE_POLL_INTERVAL, SELECTION_AUTOSCROLL_INTERVAL,
@@ -77,8 +77,7 @@ impl App {
                     crossterm::event::KeyEventKind::Repeat => {
                         let accepts_repeat = match self.state.mode {
                             Mode::Terminal => !self.suppressed_repeat_keys.contains(&key_id),
-                            Mode::CommandPalette => command_palette_accepts_repeat_key(&key),
-                            _ => false,
+                            mode => mode_accepts_repeat_key(mode, &key),
                         };
 
                         if accepts_repeat {
