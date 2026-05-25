@@ -86,6 +86,8 @@ struct ThemeChoice {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ThemeSettingsChoice {
+    SourceSystem,
+    SourceCustom,
     Mode(ThemeMode),
     Theme(ThemeChoice),
 }
@@ -96,6 +98,12 @@ fn current_theme_index(theme_name: &str) -> usize {
         .iter()
         .position(|name| normalize_theme_name(name) == normalized)
         .unwrap_or(0)
+}
+
+fn pending_uses_system_theme_source(state: &AppState) -> bool {
+    pending_theme_mode(state) == ThemeMode::System
+        && normalize_theme_name(&pending_light_theme_name(state)) == "system"
+        && normalize_theme_name(&pending_dark_theme_name(state)) == "system"
 }
 
 fn toast_delivery_index(delivery: ToastDelivery) -> usize {
@@ -163,15 +171,19 @@ fn global_theme_choices(mode: ThemeMode) -> Vec<ThemeChoice> {
 }
 
 fn theme_settings_choices(state: &AppState) -> Vec<ThemeSettingsChoice> {
-    let theme_choices = global_theme_choices(pending_theme_mode(state));
-    let mut choices = Vec::with_capacity(ThemeMode::ALL.len() + theme_choices.len());
-    choices.extend(
-        ThemeMode::ALL
-            .iter()
-            .copied()
-            .map(ThemeSettingsChoice::Mode),
-    );
-    choices.extend(theme_choices.into_iter().map(ThemeSettingsChoice::Theme));
+    let mut choices = Vec::with_capacity(2 + ThemeMode::ALL.len() + THEME_NAMES.len());
+    choices.push(ThemeSettingsChoice::SourceSystem);
+    choices.push(ThemeSettingsChoice::SourceCustom);
+    if !pending_uses_system_theme_source(state) {
+        let theme_choices = global_theme_choices(pending_theme_mode(state));
+        choices.extend(
+            ThemeMode::ALL
+                .iter()
+                .copied()
+                .map(ThemeSettingsChoice::Mode),
+        );
+        choices.extend(theme_choices.into_iter().map(ThemeSettingsChoice::Theme));
+    }
     choices
 }
 
@@ -183,8 +195,12 @@ fn theme_choice_len(state: &AppState) -> usize {
     }
 }
 
-fn theme_visual_len(mode: ThemeMode) -> usize {
-    let theme_rows = match mode {
+fn theme_visual_len(state: &AppState) -> usize {
+    if pending_uses_system_theme_source(state) {
+        return 3;
+    }
+
+    let theme_rows = match pending_theme_mode(state) {
         ThemeMode::System => {
             theme_names_for_appearance(ThemeAppearance::Light).len()
                 + theme_names_for_appearance(ThemeAppearance::Dark).len()
@@ -193,28 +209,37 @@ fn theme_visual_len(mode: ThemeMode) -> usize {
         ThemeMode::Light => theme_names_for_appearance(ThemeAppearance::Light).len() + 1,
         ThemeMode::Dark => theme_names_for_appearance(ThemeAppearance::Dark).len() + 1,
     };
-    5 + theme_rows
+    9 + theme_rows
 }
 
 fn theme_visual_row_for_selection(state: &AppState, selected: usize) -> usize {
     if state.settings.group_theme_target.is_some() {
         return selected;
     }
-    if selected < ThemeMode::ALL.len() {
+    if selected < 2 {
         return selected + 1;
     }
 
-    let theme_idx = selected - ThemeMode::ALL.len();
+    if pending_uses_system_theme_source(state) {
+        return 1;
+    }
+
+    let mode_base = 2;
+    if selected < mode_base + ThemeMode::ALL.len() {
+        return selected - mode_base + 5;
+    }
+
+    let theme_idx = selected - mode_base - ThemeMode::ALL.len();
     match pending_theme_mode(state) {
         ThemeMode::System => {
             let light_len = theme_names_for_appearance(ThemeAppearance::Light).len();
             if theme_idx < light_len {
-                theme_idx + 6
+                theme_idx + 10
             } else {
-                theme_idx + 8
+                theme_idx + 12
             }
         }
-        ThemeMode::Light | ThemeMode::Dark => theme_idx + 6,
+        ThemeMode::Light | ThemeMode::Dark => theme_idx + 10,
     }
 }
 
@@ -223,19 +248,30 @@ fn theme_selection_for_visual_row(state: &AppState, row: usize) -> Option<usize>
         return (row < theme_choice_len(state)).then_some(row);
     }
 
-    if row > 0 && row <= ThemeMode::ALL.len() {
-        return Some(row - 1);
+    if row == 1 {
+        return Some(0);
+    }
+    if row == 2 {
+        return Some(1);
+    }
+    if pending_uses_system_theme_source(state) {
+        return None;
     }
 
-    let theme_base = ThemeMode::ALL.len();
+    let mode_base = 2;
+    if row >= 5 && row < 5 + ThemeMode::ALL.len() {
+        return Some(mode_base + row - 5);
+    }
+
+    let theme_base = mode_base + ThemeMode::ALL.len();
     match pending_theme_mode(state) {
         ThemeMode::System => {
             let light_len = theme_names_for_appearance(ThemeAppearance::Light).len();
             let dark_len = theme_names_for_appearance(ThemeAppearance::Dark).len();
-            if row >= 6 && row < 6 + light_len {
-                return Some(theme_base + row - 6);
+            if row >= 10 && row < 10 + light_len {
+                return Some(theme_base + row - 10);
             }
-            let dark_start = light_len + 8;
+            let dark_start = light_len + 12;
             if row >= dark_start && row < dark_start + dark_len {
                 return Some(theme_base + light_len + row - dark_start);
             }
@@ -243,11 +279,11 @@ fn theme_selection_for_visual_row(state: &AppState, row: usize) -> Option<usize>
         }
         ThemeMode::Light => {
             let len = theme_names_for_appearance(ThemeAppearance::Light).len();
-            (row >= 6 && row < 6 + len).then_some(theme_base + row - 6)
+            (row >= 10 && row < 10 + len).then_some(theme_base + row - 10)
         }
         ThemeMode::Dark => {
             let len = theme_names_for_appearance(ThemeAppearance::Dark).len();
-            (row >= 6 && row < 6 + len).then_some(theme_base + row - 6)
+            (row >= 10 && row < 10 + len).then_some(theme_base + row - 10)
         }
     }
 }
@@ -266,7 +302,7 @@ fn theme_scroll_len(state: &AppState) -> usize {
     if state.settings.group_theme_target.is_some() {
         theme_choice_len(state)
     } else {
-        theme_visual_len(pending_theme_mode(state))
+        theme_visual_len(state)
     }
 }
 
@@ -381,7 +417,11 @@ fn target_theme_index(state: &AppState) -> usize {
             .unwrap_or(0);
     }
 
-    current_theme_mode_index(pending_theme_mode(state))
+    if pending_uses_system_theme_source(state) {
+        0
+    } else {
+        2 + current_theme_mode_index(pending_theme_mode(state))
+    }
 }
 
 fn current_theme_mode_index(mode: ThemeMode) -> usize {
@@ -403,9 +443,32 @@ fn preview_selected_theme(state: &mut AppState) {
         return;
     };
     match choice {
+        ThemeSettingsChoice::SourceSystem => {
+            state.settings.pending_theme_mode = Some(ThemeMode::System);
+            state.settings.pending_light_theme_name = Some("system".to_string());
+            state.settings.pending_dark_theme_name = Some("system".to_string());
+            state.settings.list.selected = 0;
+            ensure_settings_selection_visible(state);
+            state.preview_theme_with_mode("system", ThemeMode::System);
+        }
+        ThemeSettingsChoice::SourceCustom => {
+            if normalize_theme_name(&pending_light_theme_name(state)) == "system" {
+                state.settings.pending_light_theme_name =
+                    Some(crate::app::state::DEFAULT_LIGHT_THEME_NAME.to_string());
+            }
+            if normalize_theme_name(&pending_dark_theme_name(state)) == "system" {
+                state.settings.pending_dark_theme_name =
+                    Some(crate::app::state::DEFAULT_DARK_THEME_NAME.to_string());
+            }
+            state.settings.list.selected = 1;
+            ensure_settings_selection_visible(state);
+            let mode = pending_theme_mode(state);
+            let name = selected_global_theme_name_for_mode(state);
+            state.preview_theme_with_mode(&name, mode);
+        }
         ThemeSettingsChoice::Mode(mode) => {
             state.settings.pending_theme_mode = Some(mode);
-            let next_selected = current_theme_mode_index(mode);
+            let next_selected = 2 + current_theme_mode_index(mode);
             state.settings.list.selected = next_selected;
             ensure_settings_selection_visible(state);
             let name = selected_global_theme_name_for_mode(state);
@@ -1238,7 +1301,7 @@ mod tests {
         let mut state = state_with_workspaces(&["test"]);
 
         open_settings(&mut state);
-        state.settings.list.selected = ThemeMode::ALL.len() + 2;
+        state.settings.list.selected = 2 + ThemeMode::ALL.len() + 1;
         let action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
@@ -1247,11 +1310,53 @@ mod tests {
         assert_eq!(action, None);
         assert_eq!(
             state.settings.pending_light_theme_name.as_deref(),
-            Some("terminal")
+            Some("tokyo-night-day")
         );
         assert_eq!(state.mode, Mode::Settings);
     }
 
+    #[test]
+    fn space_switches_between_system_source_and_custom_themes() {
+        let mut state = state_with_workspaces(&["test"]);
+
+        open_settings(&mut state);
+        state.settings.pending_theme_mode = Some(ThemeMode::System);
+        state.settings.pending_light_theme_name = Some("system".to_string());
+        state.settings.pending_dark_theme_name = Some("system".to_string());
+        state.settings.list.selected = 1;
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+
+        assert_eq!(action, None);
+        assert_eq!(state.settings.pending_theme_mode, Some(ThemeMode::System));
+        assert_eq!(
+            state.settings.pending_light_theme_name.as_deref(),
+            Some(crate::app::state::DEFAULT_LIGHT_THEME_NAME)
+        );
+        assert_eq!(
+            state.settings.pending_dark_theme_name.as_deref(),
+            Some(crate::app::state::DEFAULT_DARK_THEME_NAME)
+        );
+
+        state.settings.list.selected = 0;
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.settings.pending_theme_mode, Some(ThemeMode::System));
+        assert_eq!(
+            state.settings.pending_light_theme_name.as_deref(),
+            Some("system")
+        );
+        assert_eq!(
+            state.settings.pending_dark_theme_name.as_deref(),
+            Some("system")
+        );
+    }
     #[test]
     fn settings_sound_space_updates_pending_value_without_closing() {
         let mut state = state_with_workspaces(&["test"]);
