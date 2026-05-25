@@ -89,10 +89,7 @@ pub(crate) use self::{
     panes::pane_is_scrolled_back,
     sidebar::port_panel_entry_at_row,
     tabs::compute_tab_bar_view,
-    widgets::{
-        centered_popup_rect, modal_scroll_from_offset_from_bottom, modal_scroll_metrics,
-        modal_scrollbar_rect, modal_stack_areas,
-    },
+    widgets::{centered_popup_rect, modal_scroll_metrics, modal_stack_areas, ModalListViewport},
 };
 use crate::app::state::{ContextMenuKind, ViewLayout};
 use crate::app::{AppState, Mode};
@@ -1294,7 +1291,35 @@ mod tests {
         assert_eq!(metrics.viewport_rows, 5);
         assert_eq!(metrics.max_offset_from_bottom, 15);
         assert_eq!(metrics.offset_from_bottom, 12);
-        assert_eq!(modal_scroll_from_offset_from_bottom(20, 5, 12), 3);
+        assert_eq!(widgets::modal_scroll_from_offset_from_bottom(20, 5, 12), 3);
+    }
+
+    #[test]
+    fn modal_list_viewport_clamps_scroll_and_visible_range() {
+        let viewport = ModalListViewport::new(20, 5, 99);
+
+        assert_eq!(viewport.scroll(), 15);
+        assert_eq!(viewport.max_scroll(), 15);
+        assert_eq!(viewport.visible_range(), 15..20);
+    }
+
+    #[test]
+    fn modal_list_viewport_keeps_selected_row_visible_with_context() {
+        let viewport = ModalListViewport::new(20, 5, 6);
+
+        assert_eq!(viewport.ensure_visible(6, Some(5)), 5);
+        assert_eq!(viewport.ensure_visible(11, None), 7);
+    }
+
+    #[test]
+    fn modal_list_viewport_hit_testing_rejects_scrollbar_column() {
+        let viewport = ModalListViewport::new(20, 5, 3);
+        let area = Rect::new(10, 4, 10, 5);
+
+        assert_eq!(viewport.hit_visual_row(area, 11, 4), Some(3));
+        assert_eq!(viewport.hit_visual_row(area, 11, 8), Some(7));
+        assert_eq!(viewport.hit_visual_row(area, 19, 4), None);
+        assert_eq!(viewport.hit_visual_row(area, 11, 9), None);
     }
 
     #[test]
@@ -1447,6 +1472,14 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect::<String>();
         assert!(rendered.contains("PREFIX"));
+        assert!(rendered.contains("esc"));
+        assert!(rendered.contains("space"));
+        assert!(rendered.contains("cmds"));
+        assert!(rendered.contains("w"));
+        assert!(rendered.contains("spaces"));
+        assert!(rendered.contains("?"));
+        assert!(rendered.contains("keys"));
+        assert!(!rendered.contains("detach"));
     }
 
     #[test]

@@ -155,6 +155,24 @@ fn command_palette_accepts_repeat_key(key: &crate::input::TerminalKey) -> bool {
     )
 }
 
+fn settings_accepts_repeat_key(key: &crate::input::TerminalKey) -> bool {
+    matches!(
+        key.code,
+        crossterm::event::KeyCode::Up
+            | crossterm::event::KeyCode::Down
+            | crossterm::event::KeyCode::Char('j')
+            | crossterm::event::KeyCode::Char('k')
+    )
+}
+
+fn mode_accepts_repeat_key(mode: Mode, key: &crate::input::TerminalKey) -> bool {
+    match mode {
+        Mode::CommandPalette => command_palette_accepts_repeat_key(key),
+        Mode::Settings => settings_accepts_repeat_key(key),
+        _ => false,
+    }
+}
+
 fn auto_updates_enabled(no_session: bool) -> bool {
     !no_session && !cfg!(debug_assertions)
 }
@@ -1239,9 +1257,7 @@ impl App {
                                 && !self.suppressed_repeat_keys.contains(&key_id)
                             {
                                 self.handle_terminal_key_headless(key);
-                            } else if self.state.mode == Mode::CommandPalette
-                                && command_palette_accepts_repeat_key(&key)
-                            {
+                            } else if mode_accepts_repeat_key(self.state.mode, &key) {
                                 self.handle_non_terminal_key(key);
                             }
                         }
@@ -2133,6 +2149,57 @@ mod tests {
         assert!(press_handled);
         assert!(repeat_handled);
         assert_eq!(app.state.command_palette.selected, 2);
+    }
+
+    #[tokio::test]
+    async fn settings_handles_repeated_navigation_keys() {
+        let mut app = test_app();
+        app.state.mode = Mode::Settings;
+        app.state.settings.section = state::SettingsSection::Theme;
+
+        let press_handled = app
+            .handle_raw_input_event(raw_key(
+                KeyCode::Down,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            ))
+            .await;
+        let repeat_handled = app
+            .handle_raw_input_event(raw_key(
+                KeyCode::Down,
+                KeyModifiers::empty(),
+                KeyEventKind::Repeat,
+            ))
+            .await;
+
+        assert!(press_handled);
+        assert!(repeat_handled);
+        assert_eq!(app.state.settings.list.selected, 2);
+    }
+
+    #[tokio::test]
+    async fn settings_ignores_repeated_confirm_keys() {
+        let mut app = test_app();
+        app.state.mode = Mode::Settings;
+        app.state.settings.section = state::SettingsSection::Sound;
+
+        let press_handled = app
+            .handle_raw_input_event(raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            ))
+            .await;
+        let repeat_handled = app
+            .handle_raw_input_event(raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Repeat,
+            ))
+            .await;
+
+        assert!(press_handled);
+        assert!(!repeat_handled);
     }
 
     #[tokio::test]

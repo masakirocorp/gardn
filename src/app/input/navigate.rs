@@ -220,7 +220,7 @@ impl App {
         Ok(())
     }
 
-    pub(super) fn launch_focused_scrollback_editor(&mut self) {
+    pub(crate) fn launch_focused_scrollback_editor(&mut self) {
         let previous_toast = self.state.toast.clone();
         match self.open_focused_scrollback_in_editor() {
             Ok(()) => self.sync_toast_deadline(previous_toast),

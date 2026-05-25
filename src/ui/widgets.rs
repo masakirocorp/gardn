@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -203,6 +205,104 @@ pub(super) fn danger_action_style(p: &Palette) -> Style {
 pub(crate) struct ModalScrollArea {
     pub body: Rect,
     pub track: Option<Rect>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ModalListViewport {
+    total_rows: usize,
+    viewport_rows: usize,
+    scroll: usize,
+}
+
+impl ModalListViewport {
+    pub(crate) fn new(total_rows: usize, viewport_rows: usize, scroll: usize) -> Self {
+        Self {
+            total_rows,
+            viewport_rows,
+            scroll: scroll.min(total_rows.saturating_sub(viewport_rows)),
+        }
+    }
+
+    pub(crate) fn scroll(self) -> usize {
+        self.scroll
+    }
+
+    pub(crate) fn max_scroll(self) -> usize {
+        self.total_rows.saturating_sub(self.viewport_rows)
+    }
+
+    pub(crate) fn visible_range(self) -> Range<usize> {
+        if self.viewport_rows == 0 {
+            return self.scroll..self.scroll;
+        }
+
+        let end = self
+            .scroll
+            .saturating_add(self.viewport_rows)
+            .min(self.total_rows);
+        self.scroll..end
+    }
+
+    pub(crate) fn ensure_visible(self, selected_row: usize, context_row: Option<usize>) -> usize {
+        if self.viewport_rows == 0 || self.total_rows == 0 {
+            return 0;
+        }
+
+        let selected_row = selected_row.min(self.total_rows - 1);
+        let context_row = context_row
+            .unwrap_or(selected_row)
+            .min(selected_row)
+            .min(self.total_rows - 1);
+        let max_scroll = self.max_scroll();
+        let scroll = if context_row < self.scroll {
+            context_row
+        } else if selected_row >= self.scroll.saturating_add(self.viewport_rows) {
+            selected_row + 1 - self.viewport_rows
+        } else {
+            self.scroll
+        };
+        scroll.min(max_scroll)
+    }
+
+    pub(crate) fn metrics(self) -> crate::pane::ScrollMetrics {
+        modal_scroll_metrics(self.total_rows, self.viewport_rows, self.scroll)
+    }
+
+    pub(crate) fn scroll_from_offset_from_bottom(self, offset_from_bottom: usize) -> usize {
+        modal_scroll_from_offset_from_bottom(
+            self.total_rows,
+            self.viewport_rows,
+            offset_from_bottom,
+        )
+    }
+
+    pub(crate) fn scroll_area(self, area: Rect) -> ModalScrollArea {
+        modal_scroll_area(area, self.metrics())
+    }
+
+    pub(crate) fn hit_visual_row(self, area: Rect, col: u16, row: u16) -> Option<usize> {
+        if area.height == 0
+            || area.width == 0
+            || row < area.y
+            || row >= area.y + area.height
+            || col < area.x
+            || col >= area.x + area.width
+        {
+            return None;
+        }
+
+        if modal_scrollbar_rect(area, self.metrics()).is_some_and(|track| {
+            col >= track.x
+                && col < track.x + track.width
+                && row >= track.y
+                && row < track.y + track.height
+        }) {
+            return None;
+        }
+
+        let visual_row = self.scroll + row.saturating_sub(area.y) as usize;
+        (visual_row < self.total_rows).then_some(visual_row)
+    }
 }
 
 pub(crate) fn modal_scroll_area(

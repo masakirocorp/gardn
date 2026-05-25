@@ -1013,16 +1013,6 @@ impl SelectionListState {
         Self { selected }
     }
 
-    pub fn move_prev(&mut self) {
-        self.selected = self.selected.saturating_sub(1);
-    }
-
-    pub fn move_next(&mut self, item_count: usize) {
-        if item_count > 0 {
-            self.selected = (self.selected + 1).min(item_count - 1);
-        }
-    }
-
     pub fn select(&mut self, idx: usize) {
         self.selected = idx;
     }

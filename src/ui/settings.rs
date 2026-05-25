@@ -8,7 +8,7 @@ use ratatui::{
 
 use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    action_button_row_rects, centered_popup_rect, modal_close_button_rect, modal_scroll_area,
+    action_button_row_rects, centered_popup_rect, modal_close_button_rect,
     modal_section_heading_style, modal_stack_areas, panel_contrast_fg, primary_action_style,
     render_action_button, render_modal_choice_list, render_modal_description, render_modal_divider,
     render_modal_header_bar, render_modal_hint_line, render_modal_scroll_hints,
@@ -702,12 +702,15 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
         )
         .style(Style::default().fg(p.subtext0));
 
+    let viewport = crate::ui::ModalListViewport::new(
+        total_items,
+        list_area.height as usize,
+        app.settings.scroll,
+    );
+    let scroll = viewport.scroll();
+    let scroll_area = viewport.scroll_area(list_area);
+    let metrics = viewport.metrics();
     let viewport_rows = list_area.height as usize;
-    let metrics = crate::ui::modal_scroll_metrics(total_items, viewport_rows, app.settings.scroll);
-    let scroll = metrics
-        .max_offset_from_bottom
-        .saturating_sub(metrics.offset_from_bottom);
-    let scroll_area = modal_scroll_area(list_area, metrics);
 
     let selected =
         (selected_row >= scroll && selected_row < scroll + viewport_rows).then_some(selected_row);

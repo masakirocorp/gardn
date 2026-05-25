@@ -307,38 +307,28 @@ fn theme_scroll_len(state: &AppState) -> usize {
 }
 
 fn settings_theme_max_scroll(state: &AppState) -> usize {
-    theme_scroll_len(state)
-        .saturating_sub(settings_theme_list_rect(state.settings_content_rect()).height as usize)
+    settings_theme_viewport(state).max_scroll()
 }
 
-fn ensure_settings_selection_visible(state: &mut AppState) {
-    let viewport_rows = settings_theme_list_rect(state.settings_content_rect())
-        .height
-        .max(1) as usize;
-    let max_scroll = theme_scroll_len(state).saturating_sub(viewport_rows);
-    state.settings.scroll = state.settings.scroll.min(max_scroll);
-
-    let selected_row = theme_visual_row_for_selection(state, state.settings.list.selected);
-
-    if selected_row < state.settings.scroll {
-        state.settings.scroll = selected_row;
-    } else if selected_row >= state.settings.scroll + viewport_rows {
-        state.settings.scroll = selected_row + 1 - viewport_rows;
-    }
-    state.settings.scroll = state.settings.scroll.min(max_scroll);
-}
-
-fn set_settings_theme_offset_from_bottom(state: &mut AppState, offset_from_bottom: usize) {
-    let max_scroll = settings_theme_max_scroll(state);
-    state.settings.scroll = max_scroll.saturating_sub(offset_from_bottom.min(max_scroll));
-}
-
-fn settings_theme_scroll_metrics(state: &AppState) -> crate::pane::ScrollMetrics {
-    crate::ui::modal_scroll_metrics(
+fn settings_theme_viewport(state: &AppState) -> crate::ui::ModalListViewport {
+    crate::ui::ModalListViewport::new(
         theme_scroll_len(state),
         settings_theme_list_rect(state.settings_content_rect()).height as usize,
         state.settings.scroll,
     )
+}
+
+fn ensure_settings_selection_visible(state: &mut AppState) {
+    let viewport = settings_theme_viewport(state);
+    state.settings.scroll = viewport.scroll();
+
+    let selected_row = theme_visual_row_for_selection(state, state.settings.list.selected);
+    state.settings.scroll = viewport.ensure_visible(selected_row, None);
+}
+
+fn set_settings_theme_offset_from_bottom(state: &mut AppState, offset_from_bottom: usize) {
+    state.settings.scroll =
+        settings_theme_viewport(state).scroll_from_offset_from_bottom(offset_from_bottom);
 }
 
 fn selected_group_theme_name(state: &AppState) -> Option<String> {
@@ -621,6 +611,31 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
         SettingsSection::Integrations => selected_integration_action(state),
     }
 }
+fn select_previous_setting(state: &mut AppState, item_count: usize) {
+    if item_count == 0 {
+        return;
+    }
+
+    let selected = state.settings.list.selected.min(item_count - 1);
+    state.settings.list.selected = if selected == 0 {
+        item_count - 1
+    } else {
+        selected - 1
+    };
+}
+
+fn select_next_setting(state: &mut AppState, item_count: usize) {
+    if item_count == 0 {
+        return;
+    }
+
+    let selected = state.settings.list.selected.min(item_count - 1);
+    state.settings.list.selected = if selected + 1 == item_count {
+        0
+    } else {
+        selected + 1
+    };
+}
 
 fn handle_settings_modal_action(state: &mut AppState, key: &KeyEvent) -> Option<SettingsAction> {
     match super::modal::modal_action_from_key(key, super::modal::SETTINGS_ACTIONS) {
@@ -641,11 +656,11 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
     match state.settings.section {
         SettingsSection::Theme => match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
-                state.settings.list.move_prev();
+                select_previous_setting(state, theme_choice_len(state));
                 ensure_settings_selection_visible(state);
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                state.settings.list.move_next(theme_choice_len(state));
+                select_next_setting(state, theme_choice_len(state));
                 ensure_settings_selection_visible(state);
             }
             KeyCode::PageUp => {
@@ -681,8 +696,11 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
         },
         SettingsSection::Sound => match key.code {
-            KeyCode::Up | KeyCode::Char('k') | KeyCode::Down | KeyCode::Char('j') => {
-                state.settings.list.selected = 1 - state.settings.list.selected.min(1);
+            KeyCode::Up | KeyCode::Char('k') => {
+                select_previous_setting(state, 2);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                select_next_setting(state, 2);
             }
             KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
@@ -701,8 +719,8 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
         },
         SettingsSection::Toast => match key.code {
-            KeyCode::Up | KeyCode::Char('k') => state.settings.list.move_prev(),
-            KeyCode::Down | KeyCode::Char('j') => state.settings.list.move_next(4),
+            KeyCode::Up | KeyCode::Char('k') => select_previous_setting(state, 4),
+            KeyCode::Down | KeyCode::Char('j') => select_next_setting(state, 4),
             KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::Sound;
@@ -719,8 +737,11 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
         },
         SettingsSection::PaneLabels => match key.code {
-            KeyCode::Up | KeyCode::Char('k') | KeyCode::Down | KeyCode::Char('j') => {
-                state.settings.list.selected = 1 - state.settings.list.selected.min(1);
+            KeyCode::Up | KeyCode::Char('k') => {
+                select_previous_setting(state, 2);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                select_next_setting(state, 2);
             }
             KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -738,12 +759,11 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
         },
         SettingsSection::Integrations => match key.code {
-            KeyCode::Up | KeyCode::Char('k') => state.settings.list.move_prev(),
+            KeyCode::Up | KeyCode::Char('k') => {
+                select_previous_setting(state, state.integration_recommendations.len());
+            }
             KeyCode::Down | KeyCode::Char('j') => {
-                state
-                    .settings
-                    .list
-                    .move_next(state.integration_recommendations.len());
+                select_next_setting(state, state.integration_recommendations.len());
             }
             KeyCode::Enter | KeyCode::Char(' ') => return selected_integration_action(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -888,14 +908,8 @@ impl AppState {
         match self.settings.section {
             SettingsSection::Theme => {
                 let list_area = settings_theme_list_rect(area);
-                if row < list_area.y
-                    || row >= list_area.y + list_area.height
-                    || col < list_area.x
-                    || col >= list_area.x + list_area.width
-                {
-                    return None;
-                }
-                let visual_row = self.settings.scroll + (row - list_area.y) as usize;
+                let visual_row =
+                    settings_theme_viewport(self).hit_visual_row(list_area, col, row)?;
                 theme_selection_for_visual_row(self, visual_row)
             }
             SettingsSection::Sound => {
@@ -941,11 +955,10 @@ impl AppState {
         if self.settings.section != SettingsSection::Theme {
             return None;
         }
-        let metrics = settings_theme_scroll_metrics(self);
-        let track = crate::ui::modal_scrollbar_rect(
-            settings_theme_list_rect(self.settings_content_rect()),
-            metrics,
-        )?;
+        let list_area = settings_theme_list_rect(self.settings_content_rect());
+        let viewport = settings_theme_viewport(self);
+        let metrics = viewport.metrics();
+        let track = viewport.scroll_area(list_area).track?;
         if !(col >= track.x
             && col < track.x + track.width
             && row >= track.y
@@ -966,11 +979,10 @@ impl AppState {
         if self.settings.section != SettingsSection::Theme {
             return None;
         }
-        let metrics = settings_theme_scroll_metrics(self);
-        let track = crate::ui::modal_scrollbar_rect(
-            settings_theme_list_rect(self.settings_content_rect()),
-            metrics,
-        )?;
+        let list_area = settings_theme_list_rect(self.settings_content_rect());
+        let viewport = settings_theme_viewport(self);
+        let metrics = viewport.metrics();
+        let track = viewport.scroll_area(list_area).track?;
         Some(crate::ui::scrollbar_offset_from_drag_row(
             metrics,
             track,
@@ -1424,6 +1436,95 @@ mod tests {
     }
 
     #[test]
+    fn settings_arrows_wrap_top_and_bottom_in_each_section() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Theme);
+        state.settings.pending_theme_mode = Some(ThemeMode::Light);
+        state.settings.pending_light_theme_name =
+            Some(crate::app::state::DEFAULT_LIGHT_THEME_NAME.to_string());
+        state.settings.pending_dark_theme_name =
+            Some(crate::app::state::DEFAULT_DARK_THEME_NAME.to_string());
+        state.settings.list.selected = 0;
+        let theme_len = theme_choice_len(&state);
+        assert!(theme_len > 2);
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.list.selected, theme_len - 1);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.list.selected, 0);
+
+        open_settings_at(&mut state, SettingsSection::Sound);
+        state.settings.list.selected = 0;
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.list.selected, 1);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.list.selected, 0);
+
+        open_settings_at(&mut state, SettingsSection::Toast);
+        state.settings.list.selected = 0;
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.list.selected, 3);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.list.selected, 0);
+
+        open_settings_at(&mut state, SettingsSection::PaneLabels);
+        state.settings.list.selected = 0;
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.list.selected, 1);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.list.selected, 0);
+
+        state.integration_recommendations = vec![
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Pi,
+                crate::integration::IntegrationStatusKind::Current,
+                true,
+            ),
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Omp,
+                crate::integration::IntegrationStatusKind::NotInstalled,
+                true,
+            ),
+        ];
+        open_settings_at(&mut state, SettingsSection::Integrations);
+        state.settings.list.selected = 0;
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.list.selected, 1);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.list.selected, 0);
+    }
+
+    #[test]
     fn integrations_participates_in_left_and_right_tab_cycle() {
         let mut state = state_with_workspaces(&["test"]);
         open_settings_at(&mut state, SettingsSection::Theme);
@@ -1536,6 +1637,24 @@ mod tests {
     }
 
     #[test]
+    fn settings_theme_hover_ignores_scrollbar_column() {
+        let mut app = app_for_mouse_test();
+        open_settings(&mut app.state);
+        app.state.global_theme_mode = ThemeMode::System;
+        app.state.settings.pending_theme_mode = Some(ThemeMode::System);
+        app.state.settings.list.select(0);
+        let list_area = settings_theme_list_rect(app.state.settings_content_rect());
+        let track = settings_theme_viewport(&app.state)
+            .scroll_area(list_area)
+            .track
+            .expect("scrollbar track");
+
+        app.handle_mouse(mouse(MouseEventKind::Moved, track.x, track.y + 1));
+
+        assert_eq!(app.state.settings.list.selected, 0);
+    }
+
+    #[test]
     fn settings_theme_wheel_scrolls_without_changing_selection() {
         let mut app = app_for_mouse_test();
         open_settings(&mut app.state);
@@ -1562,8 +1681,10 @@ mod tests {
         open_settings(&mut app.state);
 
         let list_area = settings_theme_list_rect(app.state.settings_content_rect());
-        let metrics = settings_theme_scroll_metrics(&app.state);
-        let track = crate::ui::modal_scrollbar_rect(list_area, metrics).expect("scrollbar track");
+        let track = settings_theme_viewport(&app.state)
+            .scroll_area(list_area)
+            .track
+            .expect("scrollbar track");
         assert_eq!(app.state.settings.scroll, 0);
 
         app.handle_mouse(mouse(

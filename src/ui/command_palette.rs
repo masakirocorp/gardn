@@ -14,7 +14,7 @@ use crate::app::{
 use super::{
     scrollbar::render_scrollbar,
     widgets::{
-        action_button_row_rects, modal_scroll_area, modal_section_heading_style, panel_contrast_fg,
+        action_button_row_rects, modal_section_heading_style, panel_contrast_fg,
         primary_action_style, render_action_button, render_modal_header_bar,
         render_modal_scroll_hints, render_modal_shell, render_modal_subtitle,
         render_modal_text_input, ActionButtonSpec,
@@ -90,16 +90,18 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
         .selected
         .min(commands.len().saturating_sub(1));
     let palette_rows = command_palette_rows(&commands);
-    let visible_rows = rows[3].height as usize;
-    let max_start = palette_rows.len().saturating_sub(visible_rows);
-    let start = app.command_palette.scroll.min(max_start);
-    let end = (start + visible_rows).min(palette_rows.len());
-    let metrics = crate::ui::modal_scroll_metrics(palette_rows.len(), visible_rows, start);
-    let scroll_area = modal_scroll_area(rows[3], metrics);
+    let viewport = crate::ui::ModalListViewport::new(
+        palette_rows.len(),
+        rows[3].height as usize,
+        app.command_palette.scroll,
+    );
+    let visible_range = viewport.visible_range();
+    let metrics = viewport.metrics();
+    let scroll_area = viewport.scroll_area(rows[3]);
     let list_width =
         (scroll_area.body.width as usize).saturating_sub(COMMAND_PALETTE_KEY_HINT_RIGHT_PADDING);
 
-    let lines = palette_rows[start..end]
+    let lines = palette_rows[visible_range]
         .iter()
         .map(|row| match row {
             CommandPaletteRow::Spacer => Line::raw(""),
