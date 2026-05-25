@@ -158,6 +158,11 @@ impl Palette {
         let host_fg = host_theme.foreground.map(Self::terminal_color);
         let host_bg = host_theme.background.map(Self::terminal_color);
 
+        let text = host_fg.unwrap_or(Color::Reset);
+        let overlay0 = Self::neutral_from_foreground(host_fg, host_bg, appearance, 0.45);
+        let overlay1 = Self::neutral_from_foreground(host_fg, host_bg, appearance, 0.20);
+        let subtext0 = Self::neutral_from_foreground(host_fg, host_bg, appearance, 0.35);
+
         Self {
             accent: Self::terminal_palette_color(host_theme, 4, Color::Blue),
             panel_bg: Color::Reset,
@@ -170,10 +175,10 @@ impl Palette {
             surface_dim: host_bg
                 .map(|color| Self::surface_from_background(color, appearance, 0.05))
                 .unwrap_or(Color::DarkGray),
-            overlay0: Self::terminal_palette_color(host_theme, 8, Color::Gray),
-            overlay1: Self::terminal_palette_color(host_theme, 7, Color::White),
-            text: host_fg.unwrap_or(Color::Reset),
-            subtext0: Self::terminal_palette_color(host_theme, 8, Color::Gray),
+            overlay0,
+            overlay1,
+            text,
+            subtext0,
             mauve: Self::terminal_palette_color(host_theme, 5, Color::Magenta),
             green: Self::terminal_palette_color(host_theme, 2, Color::Green),
             yellow: Self::terminal_palette_color(host_theme, 3, Color::Yellow),
@@ -196,6 +201,30 @@ impl Palette {
             .flatten()
             .map(Self::terminal_color)
             .unwrap_or(fallback)
+    }
+
+    fn neutral_from_foreground(
+        foreground: Option<Color>,
+        background: Option<Color>,
+        appearance: crate::terminal_theme::ThemeAppearance,
+        amount_toward_background: f32,
+    ) -> Color {
+        let Some(Color::Rgb(fr, fg, fb)) = foreground else {
+            return match appearance {
+                ThemeAppearance::Light => Color::DarkGray,
+                ThemeAppearance::Dark => Color::Gray,
+            };
+        };
+        let Some(Color::Rgb(br, bg, bb)) = background else {
+            return Color::Rgb(fr, fg, fb);
+        };
+
+        let blend = |fg: u8, bg: u8| -> u8 {
+            let value = fg as f32 + (bg as f32 - fg as f32) * amount_toward_background;
+            value.round().clamp(0.0, 255.0) as u8
+        };
+
+        Color::Rgb(blend(fr, br), blend(fg, bg), blend(fb, bb))
     }
 
     fn surface_from_background(
@@ -2093,6 +2122,9 @@ mod tests {
 
         assert_eq!(palette.panel_bg, Color::Reset);
         assert_eq!(palette.text, Color::Rgb(220, 221, 222));
+        assert_eq!(palette.overlay0, Color::Rgb(126, 127, 128));
+        assert_eq!(palette.overlay1, Color::Rgb(178, 179, 180));
+        assert_eq!(palette.subtext0, Color::Rgb(147, 148, 149));
         assert_eq!(palette.accent, Color::Rgb(80, 130, 230));
         assert_eq!(palette.green, Color::Rgb(30, 160, 80));
         assert_eq!(palette.yellow, Color::Rgb(210, 170, 30));
@@ -2102,6 +2134,40 @@ mod tests {
         assert_eq!(palette.mauve, Color::Rgb(160, 90, 200));
         assert_ne!(palette.accent, palette.text);
         assert_ne!(palette.surface0, Palette::catppuccin().surface0);
+    }
+
+    #[test]
+    fn system_theme_derives_neutral_text_from_terminal_foreground() {
+        let mut host_theme = TerminalTheme {
+            foreground: Some(crate::terminal_theme::RgbColor { r: 0, g: 0, b: 0 }),
+            background: Some(crate::terminal_theme::RgbColor {
+                r: 255,
+                g: 255,
+                b: 255,
+            }),
+            ..Default::default()
+        };
+        host_theme.palette[7] = Some(crate::terminal_theme::RgbColor {
+            r: 250,
+            g: 250,
+            b: 250,
+        });
+        host_theme.palette[8] = Some(crate::terminal_theme::RgbColor {
+            r: 230,
+            g: 230,
+            b: 230,
+        });
+
+        let palette =
+            Palette::from_theme_with_terminal("system", ThemeAppearance::Light, host_theme)
+                .expect("system theme resolves");
+
+        assert_eq!(palette.text, Color::Rgb(0, 0, 0));
+        assert_eq!(palette.overlay0, Color::Rgb(115, 115, 115));
+        assert_eq!(palette.overlay1, Color::Rgb(51, 51, 51));
+        assert_eq!(palette.subtext0, Color::Rgb(89, 89, 89));
+        assert_ne!(palette.overlay0, Color::Rgb(230, 230, 230));
+        assert_ne!(palette.overlay1, Color::Rgb(250, 250, 250));
     }
 
     #[test]
