@@ -386,7 +386,14 @@ impl App {
     }
 
     pub(crate) fn handle_api_request(&mut self, request: crate::api::schema::Request) -> String {
-        self.drain_internal_events();
+        self.drain_all_internal_events();
+        self.handle_api_request_after_internal_events_drained(request)
+    }
+
+    pub(crate) fn handle_api_request_after_internal_events_drained(
+        &mut self,
+        request: crate::api::schema::Request,
+    ) -> String {
         use crate::api::schema::{
             ErrorBody, ErrorResponse, Method, ResponseResult, SuccessResponse,
         };
@@ -398,6 +405,16 @@ impl App {
                     id: request.id,
                     result: ResponseResult::Ok {},
                 }
+            }
+            Method::ServerLiveHandoff(_) => {
+                let response = ErrorResponse {
+                    id: request.id,
+                    error: ErrorBody {
+                        code: "unsupported_in_app_mode".into(),
+                        message: "live handoff is only supported by the headless server".into(),
+                    },
+                };
+                return serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string());
             }
             Method::ServerReloadConfig(_) => {
                 let report = self.reload_config();

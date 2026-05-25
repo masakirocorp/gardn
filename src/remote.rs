@@ -322,11 +322,15 @@ fn prepare_remote_hako(target: &str) -> io::Result<PreparedRemoteHako> {
     let platform = detect_remote_platform(target)?;
     let remote_hako = RemoteHako::for_platform(platform);
     let override_binary = remote_binary_override_path()?;
+    let path_remote_hako = remote_binary_on_path_any(target, &remote_hako)?;
 
     if override_binary.is_none() {
-        if let Some(path_remote_hako) = remote_binary_on_path(target, &remote_hako)? {
+        if let Some(path_remote_hako) = path_remote_hako
+            .as_ref()
+            .filter(|candidate| remote_binary_matches(target, candidate).unwrap_or(false))
+        {
             return Ok(PreparedRemoteHako {
-                remote_hako: path_remote_hako,
+                remote_hako: path_remote_hako.clone(),
                 installed_or_replaced: false,
             });
         }
@@ -338,6 +342,13 @@ fn prepare_remote_hako(target: &str) -> io::Result<PreparedRemoteHako> {
         }
     }
 
+    if let Some(status_probe_hako) = path_remote_hako.as_ref().or_else(|| {
+        remote_binary_exists(target, &remote_hako)
+            .ok()
+            .and_then(|exists| exists.then_some(&remote_hako))
+    }) {
+        confirm_remote_install_with_running_server(target, status_probe_hako)?;
+    }
     confirm_remote_install(
         target,
         &remote_hako,
@@ -381,22 +392,23 @@ fn detect_remote_platform(target: &str) -> io::Result<RemotePlatform> {
     })
 }
 
-fn remote_binary_on_path(target: &str, remote_hako: &RemoteHako) -> io::Result<Option<RemoteHako>> {
-    let output = ssh_output(target, remote_path_probe_command())?;
+fn remote_binary_on_path_any(
+    target: &str,
+    remote_hako: &RemoteHako,
+) -> io::Result<Option<RemoteHako>> {
+    let output = ssh_output(target, remote_path_probe_any_command())?;
     if !output.status.success() {
         return Ok(None);
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(remote_hako_from_path_probe(remote_hako, &stdout))
+    Ok(remote_hako_from_path_probe_any(remote_hako, &stdout))
 }
 
-fn remote_path_probe_command() -> &'static str {
+fn remote_path_probe_any_command() -> &'static str {
     r#"path=$(command -v hako) || exit 1
 test -n "$path" || exit 1
-version=$("$path" --version) || exit 1
-status=$("$path" status client --json) || exit 1
-printf '%s\n%s\n%s\n' "$path" "$version" "$status"
+printf '%s\n' "$path"
 "#
 }
 
@@ -413,6 +425,18 @@ fn remote_hako_from_path_probe(remote_hako: &RemoteHako, stdout: &str) -> Option
         return None;
     }
 
+    Some(remote_hako.clone().with_shell_path(shell_quote(path)))
+}
+
+fn remote_hako_from_path_probe_any(
+    remote_hako: &RemoteHako,
+    stdout: &str,
+) -> Option<RemoteHako> {
+    let mut lines = stdout.lines();
+    let path = lines.next()?;
+    if !path.starts_with('/') {
+        return None;
+    }
     Some(remote_hako.clone().with_shell_path(shell_quote(path)))
 }
 
@@ -434,6 +458,11 @@ fn remote_binary_matches(target: &str, remote_hako: &RemoteHako) -> io::Result<b
         && parse_client_status_json(status)
             .map(|status| status.protocol == CURRENT_PROTOCOL)
             .unwrap_or(false))
+}
+
+fn remote_binary_exists(target: &str, remote_hako: &RemoteHako) -> io::Result<bool> {
+    let command = format!("test -x {}", remote_hako.shell_path);
+    Ok(ssh_output(target, &command)?.status.success())
 }
 
 fn remote_binary_override_path() -> io::Result<Option<PathBuf>> {
@@ -506,6 +535,7 @@ enum RemoteServerStatus {
     Running {
         version: Option<String>,
         protocol: Option<u32>,
+        live_handoff: bool,
     },
     NotRunning,
 }
@@ -523,7 +553,12 @@ fn ensure_remote_server_ready(
     remote_binary_changed: bool,
 ) -> io::Result<()> {
     let status = remote_server_status(target, remote_hako)?;
-    let RemoteServerStatus::Running { version, protocol } = status else {
+    let RemoteServerStatus::Running {
+        version,
+        protocol,
+        live_handoff,
+    } = status
+    else {
         return Ok(());
     };
 
@@ -532,6 +567,17 @@ fn ensure_remote_server_ready(
     else {
         return Ok(());
     };
+
+    if live_handoff && confirm_remote_server_handoff(target, version.as_deref(), protocol, reason)?
+    {
+        match live_handoff_remote_server(target, remote_hako) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                eprintln!("remote live handoff failed: {err}");
+                eprintln!("falling back to remote server restart.");
+            }
+        }
+    }
 
     if confirm_remote_server_stop(target, version.as_deref(), protocol, reason)? {
         stop_remote_server(target, remote_hako)?;
@@ -556,6 +602,85 @@ fn remote_server_restart_reason(
     None
 }
 
+fn confirm_remote_install_with_running_server(
+    target: &str,
+    remote_hako: &RemoteHako,
+) -> io::Result<()> {
+    let status = match remote_server_status(target, remote_hako) {
+        Ok(status) => status,
+        Err(err) => {
+            if !io::stdin().is_terminal() {
+                return Err(io::Error::other(format!(
+                    "could not inspect the running remote hako server on {target} before installing: {err}; run from an interactive terminal to approve updating the remote binary"
+                )));
+            }
+            eprintln!(
+                "could not inspect the running remote hako server on {target} before installing: {err}"
+            );
+            eprint!("continue installing the remote hako binary? [Y/n] ");
+            io::stderr().flush()?;
+
+            let mut answer = String::new();
+            io::stdin().read_line(&mut answer)?;
+            let answer = answer.trim().to_ascii_lowercase();
+            if answer == "n" || answer == "no" {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "remote hako install cancelled",
+                ));
+            }
+            return Ok(());
+        }
+    };
+    let RemoteServerStatus::Running {
+        version,
+        protocol,
+        live_handoff,
+    } = status
+    else {
+        return Ok(());
+    };
+    if live_handoff {
+        return Ok(());
+    }
+
+    if !io::stdin().is_terminal() {
+        return Err(io::Error::other(format!(
+            "remote hako server on {target} is running v{} protocol {}, but it does not advertise live handoff; run from an interactive terminal to approve updating the remote binary",
+            version_label(version.as_deref()),
+            protocol_label(protocol)
+        )));
+    }
+
+    eprintln!("remote hako server on {target} is currently running:");
+    eprintln!(
+        "  server: v{} protocol {}",
+        version_label(version.as_deref()),
+        protocol_label(protocol)
+    );
+    eprintln!(
+        "this server does not advertise live handoff, so this attach cannot preserve its running panes during the update."
+    );
+    eprintln!(
+        "future remote updates can preserve panes after the remote server has run a handoff-capable version once."
+    );
+    eprintln!();
+    eprint!("continue installing the remote hako binary? [Y/n] ");
+    io::stderr().flush()?;
+
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+    let answer = answer.trim().to_ascii_lowercase();
+    if answer == "n" || answer == "no" {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "remote hako install cancelled",
+        ));
+    }
+
+    Ok(())
+}
+
 fn remote_server_status(target: &str, remote_hako: &RemoteHako) -> io::Result<RemoteServerStatus> {
     let command = format!("{} status server --json", remote_hako.shell_path);
     let output = ssh_output(target, &command)?;
@@ -577,6 +702,12 @@ struct RemoteServerStatusJson {
     running: bool,
     version: Option<String>,
     protocol: Option<u32>,
+    capabilities: Option<RemoteServerCapabilitiesJson>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RemoteServerCapabilitiesJson {
+    live_handoff: bool,
 }
 
 fn parse_client_status_json(status: &str) -> Option<RemoteClientStatusJson> {
@@ -596,6 +727,9 @@ fn parse_remote_server_status_json(status: &str) -> io::Result<RemoteServerStatu
     Ok(RemoteServerStatus::Running {
         version: parsed.version,
         protocol: parsed.protocol,
+        live_handoff: parsed
+            .capabilities
+            .is_some_and(|capabilities| capabilities.live_handoff),
     })
 }
 
@@ -669,6 +803,80 @@ fn confirm_remote_server_stop(
     }
 
     Ok(true)
+}
+
+fn confirm_remote_server_handoff(
+    target: &str,
+    version: Option<&str>,
+    protocol: Option<u32>,
+    reason: RemoteServerRestartReason,
+) -> io::Result<bool> {
+    if !io::stdin().is_terminal() {
+        if reason == RemoteServerRestartReason::ProtocolMismatch {
+            return Err(io::Error::other(format!(
+                "remote hako server on {target} is running with protocol {}, but this client needs protocol {CURRENT_PROTOCOL}; run from an interactive terminal to approve live handoff or stopping it",
+                protocol_label(protocol)
+            )));
+        }
+
+        eprintln!(
+            "remote hako server on {target} is still running v{}; it will use v{CURRENT_VERSION} after it restarts.",
+            version_label(version)
+        );
+        return Ok(false);
+    }
+
+    eprintln!("remote hako server on {target} is currently running:");
+    eprintln!(
+        "  server: v{} protocol {}",
+        version_label(version),
+        protocol_label(protocol)
+    );
+    eprintln!("  prepared binary: v{CURRENT_VERSION} protocol {CURRENT_PROTOCOL}");
+    eprintln!();
+
+    match reason {
+        RemoteServerRestartReason::ProtocolMismatch => {
+            eprintln!(
+                "the remote server protocol does not match this client. hako will try to hand off live pane processes to the prepared remote server before the old server exits."
+            );
+        }
+        RemoteServerRestartReason::BinaryUpdated => {
+            eprintln!(
+                "the remote hako binary was installed or replaced. hako will try to hand off live pane processes to the prepared remote server."
+            );
+        }
+        RemoteServerRestartReason::VersionMismatch => {
+            eprintln!(
+                "the remote server is still running a different hako version. hako will try to hand off live pane processes to the prepared remote server."
+            );
+        }
+    }
+
+    eprint!("live-handoff remote panes to the prepared server? [Y/n] ");
+    io::stderr().flush()?;
+
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+    let answer = answer.trim().to_ascii_lowercase();
+    Ok(answer != "n" && answer != "no")
+}
+
+fn live_handoff_remote_server(target: &str, remote_hako: &RemoteHako) -> io::Result<()> {
+    let command = format!(
+        "{} server live-handoff --import-exe {} --expected-protocol {CURRENT_PROTOCOL} --expected-version {CURRENT_VERSION}",
+        remote_hako.shell_path,
+        remote_hako.shell_path
+    );
+    let output = ssh_output(target, &command)?;
+    if !output.status.success() {
+        return Err(command_failed("remote server live handoff failed", &output));
+    }
+
+    eprintln!(
+        "handed off the remote hako server on {target}; reconnecting to the prepared server."
+    );
+    Ok(())
 }
 
 fn stop_remote_server(target: &str, remote_hako: &RemoteHako) -> io::Result<()> {
@@ -1485,12 +1693,28 @@ mod tests {
     fn parse_remote_server_status_json_reads_running_server() {
         assert_eq!(
             parse_remote_server_status_json(
+                r#"{"status":"running","running":true,"version":"0.6.0","protocol":8,"capabilities":{"live_handoff":true}}"#
+            )
+            .unwrap(),
+            RemoteServerStatus::Running {
+                version: Some("0.6.0".into()),
+                protocol: Some(8),
+                live_handoff: true
+            }
+        );
+    }
+
+    #[test]
+    fn parse_remote_server_status_json_treats_missing_capability_as_no_handoff() {
+        assert_eq!(
+            parse_remote_server_status_json(
                 r#"{"status":"running","running":true,"version":"0.6.0","protocol":8}"#
             )
             .unwrap(),
             RemoteServerStatus::Running {
                 version: Some("0.6.0".into()),
-                protocol: Some(8)
+                protocol: Some(8),
+                live_handoff: false
             }
         );
     }

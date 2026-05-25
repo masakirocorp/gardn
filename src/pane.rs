@@ -1,14 +1,13 @@
 use std::cell::Cell;
 use std::io::{Read, Write};
-#[cfg(unix)]
-use std::os::fd::AsRawFd;
+
 use std::sync::{
     atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering},
     Arc, Mutex,
 };
 
 use bytes::Bytes;
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use ratatui::{layout::Rect, style::Color, Frame};
 use tokio::sync::{mpsc, watch, Notify};
 use tracing::{debug, error, info, warn};
@@ -170,6 +169,104 @@ fn should_publish_detection_update(
         || (next.visible_idle && previous.visible_idle)
 }
 
+fn spawn_basic_detection_task(
+    pane_id: PaneId,
+    child_pid: Arc<AtomicU32>,
+    terminal: Arc<PaneTerminal>,
+    state_events: mpsc::Sender<AppEvent>,
+) -> (
+    tokio::task::AbortHandle,
+    Arc<Notify>,
+    Arc<Mutex<Option<PendingAgentRelease>>>,
+) {
+    let detect_reset_notify = Arc::new(Notify::new());
+    let detect_reset = detect_reset_notify.clone();
+    let pending_release = Arc::new(Mutex::new(None));
+    let pending_release_for_task = pending_release.clone();
+
+    let handle = tokio::spawn(async move {
+        let mut agent_presence = AgentDetectionPresence::from_agent(None);
+        let mut state = AgentState::Unknown;
+        let mut last_visible_blocker = false;
+        let mut last_visible_idle = false;
+        let mut last_visible_working = false;
+
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_millis(300)) => {}
+                _ = detect_reset.notified() => {
+                    agent_presence = AgentDetectionPresence::from_agent(None);
+                    state = AgentState::Unknown;
+                    last_visible_blocker = false;
+                    last_visible_idle = false;
+                    last_visible_working = false;
+                }
+            }
+
+            let now = std::time::Instant::now();
+            let pid = child_pid.load(Ordering::Acquire);
+            let mut agent_changed = false;
+            let mut agent = agent_presence.current_agent();
+
+            if pid > 0 {
+                let new_agent = crate::detect::foreground_job(pid).and_then(|job| {
+                    crate::detect::identify_agent_in_job(&job).map(|(agent, _)| agent)
+                });
+                let previous_agent = agent_presence.current_agent();
+                if agent_presence.observe_process_probe(new_agent) {
+                    agent = agent_presence.current_agent();
+                    agent_changed = previous_agent != agent;
+                }
+            }
+
+            let content = terminal.detection_text();
+            let detection = crate::detect::detect_agent(agent, &content);
+            let new_state = detection.state;
+            let visible_blocker = detection.visible_blocker && new_state == AgentState::Blocked;
+            let visible_idle = detection.visible_idle && new_state == AgentState::Idle;
+            let visible_working = detection.visible_working && new_state == AgentState::Working;
+
+            if should_publish_detection_update(
+                DetectionPublishState {
+                    state,
+                    visible_blocker: last_visible_blocker,
+                    visible_idle: last_visible_idle,
+                    visible_working: last_visible_working,
+                },
+                DetectionPublishState {
+                    state: new_state,
+                    visible_blocker,
+                    visible_idle,
+                    visible_working,
+                },
+                agent_changed,
+                false,
+            ) {
+                state = new_state;
+                last_visible_blocker = visible_blocker;
+                last_visible_idle = visible_idle;
+                last_visible_working = visible_working;
+                publish_state_changed_event(
+                    state_events.clone(),
+                    pane_id,
+                    agent,
+                    new_state,
+                    visible_blocker,
+                    visible_idle,
+                    visible_working,
+                    false,
+                    now,
+                )
+                .await;
+            }
+
+            let _ = active_pending_release(&pending_release_for_task, now);
+        }
+    });
+
+    (handle.abort_handle(), detect_reset_notify, pending_release)
+}
+
 impl AgentDetectionPresence {
     fn from_agent(current_agent: Option<Agent>) -> Self {
         Self {
@@ -232,11 +329,32 @@ pub struct PaneRuntime {
     resize_tx: watch::Sender<(u16, u16, u32, u32)>,
     current_size: Cell<(u16, u16, u32, u32)>,
     child_pid: Arc<AtomicU32>,
+    pty_master: Option<Box<dyn MasterPty + Send>>,
+    raw_master_fd: Option<std::os::fd::RawFd>,
+    force_resize_fd: Option<std::os::fd::RawFd>,
+    io_stop: Arc<AtomicBool>,
+    reader_paused: Arc<AtomicBool>,
+    reader_pause_ack: Arc<AtomicBool>,
+    reader_stopped_rx: Option<std::sync::mpsc::Receiver<()>>,
     kitty_keyboard_flags: Arc<AtomicU16>,
     detect_reset_notify: Arc<Notify>,
     pending_release: Arc<Mutex<Option<PendingAgentRelease>>>,
+    preserve_processes_on_drop: bool,
     // Task handles for deterministic shutdown
     detect_handle: tokio::task::AbortHandle,
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+pub struct PaneRuntimeImport {
+    pub pane_id: PaneId,
+    pub master_fd: std::os::fd::RawFd,
+    pub child_pid: u32,
+    pub rows: u16,
+    pub cols: u16,
+    pub cell_width_px: u32,
+    pub cell_height_px: u32,
+    pub initial_history_ansi: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -252,7 +370,16 @@ impl Drop for PaneRuntime {
         // Reader/writer/resize tasks shut down naturally via channel close
         // and PTY EOF when the rest of PaneRuntime is dropped.
         self.detect_handle.abort();
-        shutdown_pane_processes(self.pane_id, self.child_pid.load(Ordering::Acquire));
+        self.io_stop.store(true, Ordering::Release);
+        if !self.preserve_processes_on_drop {
+            shutdown_pane_processes(self.pane_id, self.child_pid.load(Ordering::Acquire));
+        }
+        if let Some(fd) = self.raw_master_fd.take() {
+            let _ = unsafe { libc::close(fd) };
+        }
+        if let Some(fd) = self.force_resize_fd.take() {
+            let _ = unsafe { libc::close(fd) };
+        }
     }
 }
 
@@ -316,6 +443,22 @@ fn shutdown_pane_processes(pane_id: PaneId, child_pid: u32) {
         pids = ?pids,
         "pane session still alive after forced shutdown"
     );
+}
+
+#[cfg(unix)]
+fn truncate_handoff_history(history: String, max_bytes: usize) -> String {
+    if history.len() <= max_bytes {
+        return history;
+    }
+    let mut start = history.len().saturating_sub(max_bytes);
+    while !history.is_char_boundary(start) {
+        start += 1;
+    }
+    let Some(newline_offset) = history[start..].find('\n') else {
+        return String::new();
+    };
+    start += newline_offset + 1;
+    history[start..].to_owned()
 }
 
 fn pane_shell(configured_shell: &str) -> String {
@@ -469,10 +612,241 @@ fn write_pty_bytes_locked(
     writer.flush()
 }
 
+#[cfg(unix)]
+fn duplicate_fd(fd: std::os::fd::RawFd) -> std::io::Result<std::os::fd::RawFd> {
+    let duplicated = unsafe { libc::dup(fd) };
+    if duplicated < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(duplicated)
+}
+
+#[cfg(unix)]
+fn set_cloexec(fd: std::os::fd::RawFd) -> std::io::Result<()> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+    if flags < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_nonblocking(fd: std::os::fd::RawFd) -> std::io::Result<()> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn duplicate_cloexec_fd(fd: std::os::fd::RawFd) -> std::io::Result<std::os::fd::RawFd> {
+    let duplicated = duplicate_fd(fd)?;
+    if let Err(err) = set_cloexec(duplicated) {
+        let _ = unsafe { libc::close(duplicated) };
+        return Err(err);
+    }
+    Ok(duplicated)
+}
+
+#[cfg(unix)]
+fn file_from_duplicated_fd(fd: std::os::fd::RawFd) -> std::io::Result<std::fs::File> {
+    use std::os::fd::FromRawFd;
+
+    let duplicated = duplicate_cloexec_fd(fd)?;
+    Ok(unsafe { std::fs::File::from_raw_fd(duplicated) })
+}
+
+#[cfg(unix)]
+fn poll_read_ready(fd: std::os::fd::RawFd, timeout_ms: i32) -> std::io::Result<bool> {
+    let mut poll_fd = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    loop {
+        let result = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+        if result < 0 {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(err);
+        }
+        return Ok(result > 0 && (poll_fd.revents & (libc::POLLIN | libc::POLLHUP)) != 0);
+    }
+}
+
+#[cfg(unix)]
+fn poll_write_ready(fd: std::os::fd::RawFd, timeout_ms: i32) -> std::io::Result<bool> {
+    let mut poll_fd = libc::pollfd {
+        fd,
+        events: libc::POLLOUT,
+        revents: 0,
+    };
+    loop {
+        let result = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+        if result < 0 {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(err);
+        }
+        return Ok(result > 0 && (poll_fd.revents & (libc::POLLOUT | libc::POLLHUP)) != 0);
+    }
+}
+
+#[cfg(unix)]
+fn write_all_nonblocking(
+    writer: &mut std::fs::File,
+    fd: std::os::fd::RawFd,
+    mut bytes: &[u8],
+    io_stop: &AtomicBool,
+) -> std::io::Result<()> {
+    while !bytes.is_empty() {
+        if io_stop.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        match writer.write(bytes) {
+            Ok(0) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    "pty write returned zero bytes",
+                ));
+            }
+            Ok(written) => bytes = &bytes[written..],
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                let _ = poll_write_ready(fd, 50)?;
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn resize_pty_fd(
+    fd: std::os::fd::RawFd,
+    rows: u16,
+    cols: u16,
+    cell_width_px: u32,
+    cell_height_px: u32,
+) -> std::io::Result<()> {
+    let size = libc::winsize {
+        ws_row: rows,
+        ws_col: cols,
+        ws_xpixel: (cols as u32)
+            .saturating_mul(cell_width_px)
+            .min(u16::MAX as u32) as u16,
+        ws_ypixel: (rows as u32)
+            .saturating_mul(cell_height_px)
+            .min(u16::MAX as u32) as u16,
+    };
+    if unsafe { libc::ioctl(fd, libc::TIOCSWINSZ, &size) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 impl PaneRuntime {
+    #[cfg(unix)]
+    fn master_fd(&self) -> Option<std::os::fd::RawFd> {
+        self.raw_master_fd.or_else(|| {
+            self.pty_master
+                .as_ref()
+                .and_then(|master| master.as_raw_fd())
+        })
+    }
+
     pub fn shutdown(self) {
         self.detect_handle.abort();
         shutdown_pane_processes(self.pane_id, self.child_pid.load(Ordering::Acquire));
+    }
+
+    #[cfg(unix)]
+    pub fn duplicate_handoff_fd(&self) -> std::io::Result<std::os::fd::RawFd> {
+        let master_fd = self
+            .master_fd()
+            .ok_or_else(|| std::io::Error::other("runtime has no PTY master fd"))?;
+        duplicate_cloexec_fd(master_fd)
+    }
+
+    #[cfg(unix)]
+    pub fn preserve_for_handoff(mut self) {
+        self.io_stop.store(true, Ordering::Release);
+        if let Some(reader_stopped_rx) = self.reader_stopped_rx.take() {
+            let _ = reader_stopped_rx.recv_timeout(std::time::Duration::from_millis(500));
+        }
+        self.detect_handle.abort();
+        self.preserve_processes_on_drop = true;
+    }
+
+    #[cfg(unix)]
+    pub fn assume_handoff_ownership(&mut self) {
+        self.preserve_processes_on_drop = false;
+    }
+
+    #[cfg(unix)]
+    pub fn set_handoff_reader_paused(&self, paused: bool) {
+        self.reader_paused.store(paused, Ordering::Release);
+        if !paused {
+            self.reader_pause_ack.store(false, Ordering::Release);
+        }
+    }
+
+    #[cfg(unix)]
+    pub fn pause_handoff_reader(&self, timeout: std::time::Duration) -> std::io::Result<()> {
+        self.reader_pause_ack.store(false, Ordering::Release);
+        self.reader_paused.store(true, Ordering::Release);
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            if self.reader_pause_ack.load(Ordering::Acquire) || self.io_stop.load(Ordering::Acquire)
+            {
+                return Ok(());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "timed out waiting for pane reader to pause for handoff",
+        ))
+    }
+
+    #[cfg(unix)]
+    pub fn handoff_pane(&self, pane_id: u32) -> crate::server::handoff::HandoffPane {
+        let child_pid = self.child_pid.load(Ordering::Acquire);
+        let (rows, cols, cell_width_px, cell_height_px) = self.current_size.get();
+        crate::server::handoff::HandoffPane {
+            pane_id,
+            child_pid,
+            rows,
+            cols,
+            cell_width_px,
+            cell_height_px,
+            initial_history_ansi: None,
+        }
+    }
+
+    #[cfg(unix)]
+    pub fn handoff_history_ansi(&self) -> Option<String> {
+        if self
+            .terminal
+            .input_state()
+            .is_some_and(|input_state| input_state.alternate_screen)
+        {
+            return None;
+        }
+        self.snapshot_history().map(|history| {
+            truncate_handoff_history(history, crate::server::handoff::MAX_REPLAY_BYTES_PER_PANE)
+        })
     }
 
     pub fn apply_host_terminal_theme(&self, theme: crate::terminal_theme::TerminalTheme) {
@@ -671,6 +1045,213 @@ impl PaneRuntime {
         )
     }
 
+    #[cfg(unix)]
+    pub fn from_handoff_fd(
+        import: PaneRuntimeImport,
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<AtomicBool>,
+    ) -> std::io::Result<Self> {
+        let PaneRuntimeImport {
+            pane_id,
+            master_fd,
+            child_pid,
+            rows,
+            cols,
+            cell_width_px,
+            cell_height_px,
+            initial_history_ansi,
+        } = import;
+        use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
+
+        let master_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(master_fd) };
+        set_cloexec(master_fd.as_raw_fd())?;
+        set_nonblocking(master_fd.as_raw_fd())?;
+        let reader = file_from_duplicated_fd(master_fd.as_raw_fd())?;
+        let writer = file_from_duplicated_fd(master_fd.as_raw_fd())?;
+        let force_resize_fd = duplicate_cloexec_fd(master_fd.as_raw_fd())?;
+        let resize_fd = unsafe {
+            std::os::fd::OwnedFd::from_raw_fd(duplicate_cloexec_fd(master_fd.as_raw_fd())?)
+        };
+        let io_stop = Arc::new(AtomicBool::new(false));
+        let reader_paused = Arc::new(AtomicBool::new(true));
+        let reader_pause_ack = Arc::new(AtomicBool::new(false));
+
+        let (input_tx, mut input_rx) = mpsc::channel::<Bytes>(32);
+        let mut terminal = crate::ghostty::Terminal::new(cols, rows, scrollback_limit_bytes)
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        if crate::kitty_graphics::is_enabled() {
+            terminal
+                .enable_kitty_graphics()
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
+        }
+        let pane_terminal = GhosttyPaneTerminal::new(terminal, input_tx.clone())?;
+        pane_terminal.apply_host_terminal_theme(host_terminal_theme);
+        if let Some(ansi) = initial_history_ansi.as_deref() {
+            pane_terminal.seed_history_ansi(ansi);
+        }
+        let terminal = Arc::new(PaneTerminal::new(pane_terminal));
+        let child_pid = Arc::new(AtomicU32::new(child_pid));
+        let kitty_keyboard_flags = Arc::new(AtomicU16::new(0));
+        let (reader_stopped_tx, reader_stopped_rx) = std::sync::mpsc::channel();
+
+        {
+            use std::os::fd::AsRawFd;
+
+            let mut reader = reader;
+            let reader_fd = reader.as_raw_fd();
+            let terminal = terminal.clone();
+            let response_writer = input_tx.clone();
+            let render_notify = render_notify.clone();
+            let render_dirty = render_dirty.clone();
+            let child_pid = child_pid.clone();
+            let events = events.clone();
+            let io_stop = io_stop.clone();
+            let reader_paused = reader_paused.clone();
+            let reader_pause_ack = reader_pause_ack.clone();
+            let rt = tokio::runtime::Handle::current();
+            tokio::task::spawn_blocking(move || {
+                let mut buf = [0u8; 8192];
+                loop {
+                    if io_stop.load(Ordering::Acquire) {
+                        break;
+                    }
+                    if reader_paused.load(Ordering::Acquire) {
+                        reader_pause_ack.store(true, Ordering::Release);
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                        continue;
+                    }
+                    reader_pause_ack.store(false, Ordering::Release);
+                    match poll_read_ready(reader_fd, 50) {
+                        Ok(true) => {}
+                        Ok(false) => continue,
+                        Err(e) => {
+                            debug!(pane = pane_id.raw(), err = %e, "handoff pty reader poll failed");
+                            break;
+                        }
+                    }
+                    match reader.read(&mut buf) {
+                        Ok(0) => break,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+                        Err(e) => {
+                            debug!(pane = pane_id.raw(), err = %e, "handoff pty reader closed");
+                            break;
+                        }
+                        Ok(n) => {
+                            let shell_pid = child_pid.load(Ordering::Acquire);
+                            let result = terminal.process_pty_bytes(
+                                pane_id,
+                                shell_pid,
+                                &buf[..n],
+                                &response_writer,
+                            );
+                            if result.request_render && !render_dirty.swap(true, Ordering::AcqRel) {
+                                render_notify.notify_one();
+                            }
+                            if let Some(delay) = result.render_delay {
+                                let render_notify = render_notify.clone();
+                                let render_dirty = render_dirty.clone();
+                                rt.spawn(async move {
+                                    tokio::time::sleep(delay).await;
+                                    if !render_dirty.swap(true, Ordering::AcqRel) {
+                                        render_notify.notify_one();
+                                    }
+                                });
+                            }
+                            for content in result.clipboard_writes {
+                                let _ =
+                                    rt.block_on(events.send(AppEvent::ClipboardWrite { content }));
+                            }
+                        }
+                    }
+                }
+                let _ = reader_stopped_tx.send(());
+                let _ = rt.block_on(events.send(AppEvent::PaneDied { pane_id }));
+                debug!(pane = pane_id.raw(), "handoff reader task exiting");
+            });
+        }
+
+        {
+            use std::os::fd::AsRawFd;
+
+            let mut writer = writer;
+            let writer_fd = writer.as_raw_fd();
+            let io_stop = io_stop.clone();
+            tokio::task::spawn_blocking(move || {
+                let rt = tokio::runtime::Handle::current();
+                while let Some(bytes) = rt.block_on(input_rx.recv()) {
+                    if io_stop.load(Ordering::Acquire) {
+                        break;
+                    }
+                    if let Err(e) = write_all_nonblocking(&mut writer, writer_fd, &bytes, &io_stop)
+                    {
+                        warn!(pane = pane_id.raw(), err = %e, "handoff pty write failed");
+                        break;
+                    }
+                    if let Err(e) = writer.flush() {
+                        warn!(pane = pane_id.raw(), err = %e, "handoff pty flush failed");
+                        break;
+                    }
+                }
+                debug!(pane = pane_id.raw(), "handoff writer task exiting");
+            });
+        }
+
+        let (resize_tx, mut resize_rx) =
+            watch::channel::<(u16, u16, u32, u32)>((rows, cols, cell_width_px, cell_height_px));
+        {
+            let io_stop = io_stop.clone();
+            let resize_fd = resize_fd.into_raw_fd();
+            tokio::task::spawn_blocking(move || {
+                let rt = tokio::runtime::Handle::current();
+                let mut last_size = (rows, cols, cell_width_px, cell_height_px);
+                while rt.block_on(resize_rx.changed()).is_ok() {
+                    if io_stop.load(Ordering::Acquire) {
+                        break;
+                    }
+                    let (rows, cols, cell_width_px, cell_height_px) =
+                        *resize_rx.borrow_and_update();
+                    if (rows, cols, cell_width_px, cell_height_px) == last_size {
+                        continue;
+                    }
+                    last_size = (rows, cols, cell_width_px, cell_height_px);
+                    if let Err(e) =
+                        resize_pty_fd(resize_fd, rows, cols, cell_width_px, cell_height_px)
+                    {
+                        warn!(pane = pane_id.raw(), err = %e, rows, cols, "handoff pty resize failed");
+                    }
+                }
+                let _ = unsafe { libc::close(resize_fd) };
+            });
+        }
+
+        let (detect_handle, detect_reset_notify, pending_release) =
+            spawn_basic_detection_task(pane_id, child_pid.clone(), terminal.clone(), events);
+
+        Ok(Self {
+            pane_id,
+            terminal,
+            sender: input_tx,
+            resize_tx,
+            current_size: Cell::new((rows, cols, cell_width_px, cell_height_px)),
+            child_pid,
+            pty_master: None,
+            raw_master_fd: Some(master_fd.into_raw_fd()),
+            force_resize_fd: Some(force_resize_fd),
+            io_stop,
+            reader_paused,
+            reader_pause_ack,
+            reader_stopped_rx: Some(reader_stopped_rx),
+            kitty_keyboard_flags,
+            detect_reset_notify,
+            pending_release,
+            preserve_processes_on_drop: true,
+            detect_handle,
+        })
+    }
+
     fn spawn_command_builder(
         pane_id: PaneId,
         rows: u16,
@@ -722,8 +1303,13 @@ impl PaneRuntime {
         let reader = file_from_duplicated_fd(master_fd)?;
         let writer = file_from_duplicated_fd(master_fd)?;
         let terminal_response_writer = file_from_duplicated_fd(master_fd)?;
+        let force_resize_fd = duplicate_cloexec_fd(master_fd)?;
+        let resize_fd = duplicate_cloexec_fd(master_fd)?;
         let io_stop = Arc::new(AtomicBool::new(false));
         let pty_write_lock = Arc::new(Mutex::new(()));
+        let reader_paused = Arc::new(AtomicBool::new(false));
+        let reader_pause_ack = Arc::new(AtomicBool::new(false));
+        let (reader_stopped_tx, reader_stopped_rx) = std::sync::mpsc::channel();
 
         // --- Child watcher task ---
         let child_pid = Arc::new(AtomicU32::new(0));
@@ -766,6 +1352,8 @@ impl PaneRuntime {
 
         // --- Reader task: PTY → terminal backend + screen snapshot + terminal query responses ---
         {
+            use std::os::fd::AsRawFd;
+
             let mut reader = reader;
             let reader_fd = reader.as_raw_fd();
             let mut terminal_response_writer = terminal_response_writer;
@@ -778,6 +1366,8 @@ impl PaneRuntime {
             let events = events.clone();
             let io_stop = io_stop.clone();
             let pty_write_lock = pty_write_lock.clone();
+            let reader_paused = reader_paused.clone();
+            let reader_pause_ack = reader_pause_ack.clone();
             let rt = tokio::runtime::Handle::current();
             tokio::task::spawn_blocking(move || {
                 let mut buf = [0u8; 8192];
@@ -785,6 +1375,12 @@ impl PaneRuntime {
                     if io_stop.load(Ordering::Acquire) {
                         break;
                     }
+                    if reader_paused.load(Ordering::Acquire) {
+                        reader_pause_ack.store(true, Ordering::Release);
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                        continue;
+                    }
+                    reader_pause_ack.store(false, Ordering::Release);
                     match poll_read_ready(reader_fd, 50) {
                         Ok(true) => {}
                         Ok(false) => continue,
@@ -847,6 +1443,7 @@ impl PaneRuntime {
                         }
                     }
                 }
+                let _ = reader_stopped_tx.send(());
                 debug!(pane = pane_id.raw(), "reader task exiting");
             });
         }
@@ -1124,6 +1721,8 @@ impl PaneRuntime {
                     if io_stop.load(Ordering::Acquire) {
                         break;
                     }
+                        break;
+                    }
                     if let Err(e) = write_pty_bytes_locked(
                         &mut writer,
                         writer_fd,
@@ -1142,30 +1741,27 @@ impl PaneRuntime {
         // --- Resize task ---
         let (resize_tx, mut resize_rx) = watch::channel::<(u16, u16, u32, u32)>((rows, cols, 0, 0));
         {
-            let master = pair.master;
+            let io_stop = io_stop.clone();
             tokio::task::spawn_blocking(move || {
                 let rt = tokio::runtime::Handle::current();
                 let mut last_size = (rows, cols, 0, 0);
                 while rt.block_on(resize_rx.changed()).is_ok() {
+                    if io_stop.load(Ordering::Acquire) {
+                        break;
+                    }
                     let (rows, cols, cell_width_px, cell_height_px) =
                         *resize_rx.borrow_and_update();
                     if (rows, cols, cell_width_px, cell_height_px) == last_size {
                         continue;
                     }
                     last_size = (rows, cols, cell_width_px, cell_height_px);
-                    if let Err(e) = master.resize(PtySize {
-                        rows,
-                        cols,
-                        pixel_width: (cols as u32)
-                            .saturating_mul(cell_width_px)
-                            .min(u16::MAX as u32) as u16,
-                        pixel_height: (rows as u32)
-                            .saturating_mul(cell_height_px)
-                            .min(u16::MAX as u32) as u16,
-                    }) {
+                    if let Err(e) =
+                        resize_pty_fd(resize_fd, rows, cols, cell_width_px, cell_height_px)
+                    {
                         warn!(pane = pane_id.raw(), err = %e, rows, cols, "pty resize failed");
                     }
                 }
+                let _ = unsafe { libc::close(resize_fd) };
             });
         }
 
@@ -1176,9 +1772,17 @@ impl PaneRuntime {
             resize_tx,
             current_size: Cell::new((rows, cols, 0, 0)),
             child_pid,
+            pty_master: Some(pair.master),
+            raw_master_fd: None,
+            force_resize_fd: Some(force_resize_fd),
+            io_stop,
+            reader_paused,
+            reader_pause_ack,
+            reader_stopped_rx: Some(reader_stopped_rx),
             kitty_keyboard_flags,
             detect_reset_notify,
             pending_release,
+            preserve_processes_on_drop: false,
             detect_handle,
         })
     }
@@ -1211,6 +1815,36 @@ impl PaneRuntime {
         self.terminal
             .resize(rows, cols, cell_width_px, cell_height_px);
         let _ = self.resize_tx.send(size);
+    }
+
+    pub fn nudge_child_redraw_after_handoff(&self) {
+        let Some(fd) = self.force_resize_fd else {
+            return;
+        };
+        let (rows, cols, cell_width_px, cell_height_px) = self.current_size.get();
+        let nudge = if rows > 2 {
+            (rows - 1, cols, cell_width_px, cell_height_px)
+        } else {
+            (
+                rows,
+                cols.saturating_sub(1).max(4),
+                cell_width_px,
+                cell_height_px,
+            )
+        };
+        if nudge == (rows, cols, cell_width_px, cell_height_px) {
+            return;
+        }
+
+        let Ok(fd) = duplicate_cloexec_fd(fd) else {
+            return;
+        };
+        std::thread::spawn(move || {
+            let _ = resize_pty_fd(fd, nudge.0, nudge.1, nudge.2, nudge.3);
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            let _ = resize_pty_fd(fd, rows, cols, cell_width_px, cell_height_px);
+            let _ = unsafe { libc::close(fd) };
+        });
     }
 
     /// Scroll up by N lines (into scrollback history).
@@ -1504,9 +2138,17 @@ impl PaneRuntime {
                 resize_tx,
                 current_size: Cell::new((rows, cols, 0, 0)),
                 child_pid: Arc::new(AtomicU32::new(0)),
+                pty_master: None,
+                raw_master_fd: None,
+                force_resize_fd: None,
+                io_stop: Arc::new(AtomicBool::new(false)),
+                reader_paused: Arc::new(AtomicBool::new(false)),
+                reader_pause_ack: Arc::new(AtomicBool::new(false)),
+                reader_stopped_rx: None,
                 kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
                 detect_reset_notify: Arc::new(Notify::new()),
                 pending_release: Arc::new(Mutex::new(None)),
+                preserve_processes_on_drop: true,
                 detect_handle: tokio::spawn(async {}).abort_handle(),
             },
             rx,
@@ -1720,9 +2362,17 @@ mod tests {
             resize_tx,
             current_size: Cell::new((80, 24, 0, 0)),
             child_pid: Arc::new(AtomicU32::new(0)),
+            pty_master: None,
+            raw_master_fd: None,
+            force_resize_fd: None,
+            io_stop: Arc::new(AtomicBool::new(false)),
+            reader_paused: Arc::new(AtomicBool::new(false)),
+            reader_pause_ack: Arc::new(AtomicBool::new(false)),
+            reader_stopped_rx: None,
             kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
             detect_reset_notify: Arc::new(Notify::new()),
             pending_release: Arc::new(Mutex::new(None)),
+            preserve_processes_on_drop: true,
             detect_handle: tokio::spawn(async {}).abort_handle(),
         };
 
@@ -1744,9 +2394,17 @@ mod tests {
             resize_tx,
             current_size: Cell::new((80, 24, 0, 0)),
             child_pid: Arc::new(AtomicU32::new(0)),
+            pty_master: None,
+            raw_master_fd: None,
+            force_resize_fd: None,
+            io_stop: Arc::new(AtomicBool::new(false)),
+            reader_paused: Arc::new(AtomicBool::new(false)),
+            reader_pause_ack: Arc::new(AtomicBool::new(false)),
+            reader_stopped_rx: None,
             kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
             detect_reset_notify: Arc::new(Notify::new()),
             pending_release: Arc::new(Mutex::new(None)),
+            preserve_processes_on_drop: true,
             detect_handle: tokio::spawn(async {}).abort_handle(),
         };
 
