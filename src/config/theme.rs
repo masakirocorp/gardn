@@ -1,13 +1,15 @@
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-/// Theme configuration: pick a built-in or override individual tokens.
+/// Theme configuration: pick built-ins or override individual tokens.
 ///
 /// ```toml
 /// [theme]
-/// name = "tokyo-night"  # built-in: system, terminal, catppuccin, dracula, etc.
+/// mode = "system"             # system, light, dark
+/// light = "catppuccin-latte"  # used in light appearance
+/// dark = "catppuccin"         # used in dark appearance
 ///
-/// [theme.custom]        # override individual tokens on top of the base
+/// [theme.custom]              # override individual tokens on top of the base
 /// accent = "#f5c2e7"
 /// red = "#ff6188"
 /// ```
@@ -16,6 +18,10 @@ use tracing::warn;
 pub struct ThemeConfig {
     /// Built-in theme name. Default: "catppuccin".
     pub name: Option<String>,
+    /// Built-in light theme used when mode resolves to light.
+    pub light: Option<String>,
+    /// Built-in dark theme used when mode resolves to dark.
+    pub dark: Option<String>,
     /// Light/dark resolution mode. Default: "system".
     pub mode: ThemeMode,
     /// Custom overrides — applied on top of the selected base theme.
@@ -170,6 +176,20 @@ mode = "light"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.theme.mode, ThemeMode::Light);
+    }
+
+    #[test]
+    fn theme_light_and_dark_names_parse() {
+        let toml = r#"
+[theme]
+mode = "system"
+light = "solarized-light"
+dark = "rose-pine"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.theme.mode, ThemeMode::System);
+        assert_eq!(config.theme.light.as_deref(), Some("solarized-light"));
+        assert_eq!(config.theme.dark.as_deref(), Some("rose-pine"));
     }
 
     #[test]

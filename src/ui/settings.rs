@@ -8,17 +8,19 @@ use ratatui::{
 
 use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    action_button_row_rects, centered_popup_rect, modal_scroll_area, modal_stack_areas,
-    panel_contrast_fg, primary_action_style, render_action_button, render_modal_choice_list,
-    render_modal_divider, render_modal_header_bar, render_modal_hint_line,
-    render_modal_scroll_hints, render_modal_subtitle, render_panel_shell, ActionButtonSpec,
+    action_button_row_rects, centered_popup_rect, modal_scroll_area, modal_section_heading_style,
+    modal_stack_areas, panel_contrast_fg, primary_action_style, render_action_button,
+    render_modal_choice_list, render_modal_description, render_modal_divider,
+    render_modal_header_bar, render_modal_hint_line, render_modal_scroll_hints,
+    render_modal_subtitle, render_panel_shell, ActionButtonSpec,
 };
 use crate::{
     app::{
-        state::{Palette, SettingsSection},
+        state::{theme_names_for_appearance, Palette, SettingsSection, THEME_NAMES},
         AppState,
     },
     config::{ThemeMode, ToastDelivery},
+    terminal_theme::ThemeAppearance,
 };
 
 pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -92,25 +94,6 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         SettingsSection::Theme => {
             render_settings_theme(app, frame, content_area);
         }
-        SettingsSection::ThemeMode => {
-            render_modal_choice_list(
-                frame,
-                content_area,
-                "theme mode",
-                "choose how hako resolves light and dark palettes",
-                &[
-                    ("system", ThemeMode::System),
-                    ("light", ThemeMode::Light),
-                    ("dark", ThemeMode::Dark),
-                ],
-                app.settings
-                    .pending_theme_mode
-                    .unwrap_or(app.global_theme_mode),
-                app.settings.list.selected,
-                p,
-                2,
-            );
-        }
         SettingsSection::Sound => {
             render_settings_toggle(
                 frame,
@@ -118,7 +101,9 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                 p,
                 "sound alerts",
                 "play sounds when agents change state in background",
-                app.sound_enabled(),
+                app.settings
+                    .pending_sound_enabled
+                    .unwrap_or_else(|| app.sound_enabled()),
                 app.settings.list.selected,
             );
         }
@@ -134,7 +119,9 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                     ("via terminal", ToastDelivery::Terminal),
                     ("via system", ToastDelivery::System),
                 ],
-                app.toast_delivery(),
+                app.settings
+                    .pending_toast_delivery
+                    .unwrap_or_else(|| app.toast_delivery()),
                 app.settings.list.selected,
                 p,
                 2,
@@ -147,7 +134,9 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                 p,
                 "agent border labels",
                 "show detected agent names in split pane borders",
-                app.agent_border_labels_enabled(),
+                app.settings
+                    .pending_agent_border_labels
+                    .unwrap_or_else(|| app.agent_border_labels_enabled()),
                 app.settings.list.selected,
             );
         }
@@ -179,21 +168,26 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
             frame,
             close_rect,
             Some("esc"),
-            "close",
+            "cancel",
             Style::default()
                 .fg(p.text)
                 .bg(p.surface0)
                 .add_modifier(Modifier::BOLD),
         );
 
-        if app.settings.section == SettingsSection::Theme {
-            render_modal_scroll_hints(frame, footer_rows[0], p);
+        if app.settings.section == SettingsSection::Integrations {
+            render_modal_hint_line(
+                frame,
+                footer_rows[0],
+                p,
+                &[("move", "↑↓"), ("action", "space/↵"), ("section", "tab")],
+            );
         } else {
             render_modal_hint_line(
                 frame,
                 footer_rows[0],
                 p,
-                &[("move", "↑↓"), ("section", "tab")],
+                &[("move", "↑↓"), ("select", "space"), ("section", "tab")],
             );
         }
     }
@@ -298,7 +292,7 @@ pub(crate) fn settings_button_rects(
             },
             ActionButtonSpec {
                 hint: Some("esc"),
-                label: "close",
+                label: "cancel",
             },
         ],
         2,
@@ -440,43 +434,236 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(lines), rows[3]);
 }
 
-fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
-    use crate::app::state::THEME_NAMES;
+fn theme_display_name(name: &str) -> &str {
+    match name {
+        "catppuccin-latte" => "catppuccin latte",
+        "tokyo-night-day" => "tokyo night day",
+        "gruvbox-light" => "gruvbox",
+        "one-light" => "one",
+        "solarized-light" => "solarized",
+        "kanagawa-lotus" => "kanagawa lotus",
+        "rose-pine-dawn" => "rose pine dawn",
+        "tokyo-night" => "tokyo night",
+        "one-dark" => "one dark",
+        "rose-pine" => "rose pine",
+        other => other,
+    }
+}
 
+fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
     let p = &app.palette;
+    let [desc_area, _, list_area] = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Min(2),
+    ])
+    .areas::<3>(area);
+    let [title_area, description_area] =
+        Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(desc_area);
+
+    let mode = app
+        .settings
+        .pending_theme_mode
+        .unwrap_or(app.global_theme_mode);
+    let description = if app.settings.group_theme_target.is_some() {
+        "choose a theme override for this group"
+    } else {
+        match mode {
+            ThemeMode::System => "choose the palettes hako uses for system light and dark",
+            ThemeMode::Light => "choose the palette hako uses in light mode",
+            ThemeMode::Dark => "choose the palette hako uses in dark mode",
+        }
+    };
+    render_modal_description(frame, title_area, "theme", modal_section_heading_style(p));
+    render_modal_description(
+        frame,
+        description_area,
+        description,
+        Style::default().fg(p.overlay1),
+    );
+
     let mut items: Vec<ListItem> = Vec::new();
+    let mut selected_row = app.settings.list.selected;
+    let list_width = list_area.width as usize;
+    let option_item = |label: &str, marker: &str, selected: bool, indent: &str| {
+        if selected {
+            let text = format!("{indent}{label}{marker}");
+            ListItem::new(Line::from(Span::styled(
+                format!("{text:<list_width$}"),
+                modal_option_style(p, true),
+            )))
+        } else {
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("{indent}{label}"), modal_option_style(p, false)),
+                Span::styled(marker.to_string(), modal_option_marker_style(p, false)),
+            ]))
+        }
+    };
+
     if app.settings.group_theme_target.is_some() {
         let selected = app.settings.list.selected == 0;
         let marker = if selected { " ✓" } else { "" };
-        items.push(ListItem::new(Line::from(vec![
-            Span::styled(
-                format!("default ({})", app.global_theme_name),
-                modal_option_style(p, selected),
-            ),
-            Span::styled(marker, modal_option_marker_style(p, selected)),
-        ])));
-    }
+        items.push(option_item(
+            &format!("default ({})", theme_display_name(&app.global_theme_name)),
+            marker,
+            selected,
+            " ",
+        ));
 
-    let offset = usize::from(app.settings.group_theme_target.is_some());
-    let selected_theme = app
-        .settings
-        .pending_theme_name
-        .as_deref()
-        .unwrap_or(&app.global_theme_name);
-    items.extend(THEME_NAMES.iter().enumerate().map(|(idx, name)| {
-        let selected = app.settings.list.selected == idx + offset;
-        let marker = if selected {
-            " ✓"
-        } else if app.settings.group_theme_target.is_none() && selected_theme == *name {
-            " ·"
+        let selected_theme = app
+            .settings
+            .pending_theme_name
+            .as_deref()
+            .unwrap_or(&app.global_theme_name);
+        items.extend(THEME_NAMES.iter().enumerate().map(|(idx, name)| {
+            let selected = app.settings.list.selected == idx + 1;
+            let marker = if selected {
+                " ✓"
+            } else if selected_theme == *name {
+                " ·"
+            } else {
+                ""
+            };
+            option_item(theme_display_name(name), marker, selected, " ")
+        }));
+    } else {
+        let light_theme = app
+            .settings
+            .pending_light_theme_name
+            .as_deref()
+            .unwrap_or(&app.global_light_theme_name);
+        let dark_theme = app
+            .settings
+            .pending_dark_theme_name
+            .as_deref()
+            .unwrap_or(&app.global_dark_theme_name);
+
+        selected_row = if app.settings.list.selected < ThemeMode::ALL.len() {
+            app.settings.list.selected + 1
         } else {
-            ""
+            let theme_idx = app.settings.list.selected - ThemeMode::ALL.len();
+            match mode {
+                ThemeMode::System => {
+                    let light_len = theme_names_for_appearance(ThemeAppearance::Light).len();
+                    if theme_idx < light_len {
+                        theme_idx + 6
+                    } else {
+                        theme_idx + 8
+                    }
+                }
+                ThemeMode::Light | ThemeMode::Dark => theme_idx + 6,
+            }
         };
-        ListItem::new(Line::from(vec![
-            Span::styled(*name, modal_option_style(p, selected)),
-            Span::styled(marker, modal_option_marker_style(p, selected)),
-        ]))
-    }));
+
+        items.push(ListItem::new(Line::from(Span::styled(
+            " mode",
+            modal_section_heading_style(p),
+        ))));
+        for candidate in ThemeMode::ALL {
+            let selected = selected_row == items.len();
+            let marker = if selected {
+                " ✓"
+            } else if mode == *candidate {
+                " ·"
+            } else {
+                ""
+            };
+            items.push(option_item(candidate.as_str(), marker, selected, "  "));
+        }
+
+        items.push(ListItem::new(Line::from("")));
+        match mode {
+            ThemeMode::System => {
+                let light_names = theme_names_for_appearance(ThemeAppearance::Light);
+                items.push(ListItem::new(Line::from(Span::styled(
+                    " light appearance",
+                    modal_section_heading_style(p),
+                ))));
+                for name in light_names {
+                    let selected = selected_row == items.len();
+                    let marker = if selected {
+                        " ✓"
+                    } else if light_theme == *name {
+                        " ·"
+                    } else {
+                        ""
+                    };
+                    items.push(option_item(
+                        theme_display_name(name),
+                        marker,
+                        selected,
+                        "  ",
+                    ));
+                }
+
+                items.push(ListItem::new(Line::from("")));
+                items.push(ListItem::new(Line::from(Span::styled(
+                    " dark appearance",
+                    modal_section_heading_style(p),
+                ))));
+                for name in theme_names_for_appearance(ThemeAppearance::Dark) {
+                    let selected = selected_row == items.len();
+                    let marker = if selected {
+                        " ✓"
+                    } else if dark_theme == *name {
+                        " ·"
+                    } else {
+                        ""
+                    };
+                    items.push(option_item(
+                        theme_display_name(name),
+                        marker,
+                        selected,
+                        "  ",
+                    ));
+                }
+            }
+            ThemeMode::Light => {
+                items.push(ListItem::new(Line::from(Span::styled(
+                    " light appearance",
+                    modal_section_heading_style(p),
+                ))));
+                for name in theme_names_for_appearance(ThemeAppearance::Light) {
+                    let selected = selected_row == items.len();
+                    let marker = if selected {
+                        " ✓"
+                    } else if light_theme == *name {
+                        " ·"
+                    } else {
+                        ""
+                    };
+                    items.push(option_item(
+                        theme_display_name(name),
+                        marker,
+                        selected,
+                        "  ",
+                    ));
+                }
+            }
+            ThemeMode::Dark => {
+                items.push(ListItem::new(Line::from(Span::styled(
+                    " dark appearance",
+                    modal_section_heading_style(p),
+                ))));
+                for name in theme_names_for_appearance(ThemeAppearance::Dark) {
+                    let selected = selected_row == items.len();
+                    let marker = if selected {
+                        " ✓"
+                    } else if dark_theme == *name {
+                        " ·"
+                    } else {
+                        ""
+                    };
+                    items.push(option_item(
+                        theme_display_name(name),
+                        marker,
+                        selected,
+                        "  ",
+                    ));
+                }
+            }
+        }
+    }
 
     let total_items = items.len();
     let list = List::new(items)
@@ -489,15 +676,17 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
         .highlight_symbol(" ")
         .style(Style::default().fg(p.subtext0));
 
-    let viewport_rows = area.height as usize;
+    let viewport_rows = list_area.height as usize;
     let metrics = crate::ui::modal_scroll_metrics(total_items, viewport_rows, app.settings.scroll);
     let scroll = metrics
         .max_offset_from_bottom
         .saturating_sub(metrics.offset_from_bottom);
-    let scroll_area = modal_scroll_area(area, metrics);
+    let scroll_area = modal_scroll_area(list_area, metrics);
 
+    let selected =
+        (selected_row >= scroll && selected_row < scroll + viewport_rows).then_some(selected_row);
     let mut state = ListState::default()
-        .with_selected(Some(app.settings.list.selected))
+        .with_selected(selected)
         .with_offset(scroll);
     frame.render_stateful_widget(list, scroll_area.body, &mut state);
     if let Some(track) = scroll_area.track {
@@ -575,6 +764,100 @@ mod tests {
         assert!(!text.contains("sound"));
         assert!(!text.contains("toasts"));
         assert!(!text.contains("pane labels"));
+    }
+
+    #[test]
+    fn theme_settings_light_mode_only_lists_light_themes() {
+        let mut app = AppState::test_new();
+        app.global_theme_mode = ThemeMode::Light;
+        app.settings.section = SettingsSection::Theme;
+        app.settings.pending_theme_mode = Some(ThemeMode::Light);
+        app.settings.pending_light_theme_name = Some("catppuccin-latte".to_string());
+
+        let backend = TestBackend::new(100, 50);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_theme(&app, frame, Rect::new(0, 0, 100, 50)))
+            .expect("render theme settings");
+
+        let text = buffer_text(terminal.backend().buffer(), 100, 50);
+        assert!(text.contains("catppuccin latte"));
+        assert!(text.contains("solarized"));
+        assert!(!text.contains("dracula"));
+        assert!(!text.contains("nord"));
+        assert!(!text.contains("vesper"));
+    }
+
+    #[test]
+    fn theme_settings_dark_mode_only_lists_dark_themes() {
+        let mut app = AppState::test_new();
+        app.global_theme_mode = ThemeMode::Dark;
+        app.settings.section = SettingsSection::Theme;
+        app.settings.pending_theme_mode = Some(ThemeMode::Dark);
+        app.settings.pending_dark_theme_name = Some("catppuccin".to_string());
+
+        let backend = TestBackend::new(100, 50);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_theme(&app, frame, Rect::new(0, 0, 100, 50)))
+            .expect("render theme settings");
+
+        let text = buffer_text(terminal.backend().buffer(), 100, 50);
+        assert!(text.contains("catppuccin"));
+        assert!(text.contains("dracula"));
+        assert!(!text.contains("catppuccin latte"));
+    }
+
+    #[test]
+    fn theme_settings_system_mode_lists_light_and_dark_selections() {
+        let mut app = AppState::test_new();
+        app.global_theme_mode = ThemeMode::System;
+        app.settings.section = SettingsSection::Theme;
+        app.settings.pending_theme_mode = Some(ThemeMode::System);
+        app.settings.pending_light_theme_name = Some("solarized-light".to_string());
+        app.settings.pending_dark_theme_name = Some("rose-pine".to_string());
+
+        let backend = TestBackend::new(100, 50);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_theme(&app, frame, Rect::new(0, 0, 100, 50)))
+            .expect("render theme settings");
+
+        let text = buffer_text(terminal.backend().buffer(), 100, 50);
+        assert!(text.contains("light appearance"));
+        assert!(text.contains("solarized"));
+
+        app.settings.list.selected = theme_names_for_appearance(ThemeAppearance::Light).len();
+        app.settings.scroll = theme_names_for_appearance(ThemeAppearance::Light).len() + 3;
+        terminal
+            .draw(|frame| render_settings_theme(&app, frame, Rect::new(0, 0, 100, 50)))
+            .expect("render theme settings");
+
+        let text = buffer_text(terminal.backend().buffer(), 100, 50);
+        assert!(text.contains("dark appearance"));
+        assert!(text.contains("rose pine"));
+    }
+
+    #[test]
+    fn theme_settings_system_scroll_can_reveal_dark_section_while_mode_selected() {
+        let mut app = AppState::test_new();
+        app.global_theme_mode = ThemeMode::System;
+        app.settings.section = SettingsSection::Theme;
+        app.settings.pending_theme_mode = Some(ThemeMode::System);
+        app.settings.pending_light_theme_name = Some("solarized-light".to_string());
+        app.settings.pending_dark_theme_name = Some("rose-pine".to_string());
+        app.settings.list.selected = 0;
+        app.settings.scroll = theme_names_for_appearance(ThemeAppearance::Light).len() + 2;
+
+        let backend = TestBackend::new(100, 50);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_theme(&app, frame, Rect::new(0, 0, 100, 50)))
+            .expect("render theme settings");
+
+        let text = buffer_text(terminal.backend().buffer(), 100, 50);
+        assert!(text.contains("dark appearance"));
+        assert!(text.contains("rose pine"));
     }
 
     #[test]

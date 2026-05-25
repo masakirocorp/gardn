@@ -54,7 +54,8 @@ impl App {
         self.state.host_terminal_theme = theme;
         if self.state.global_theme_mode == crate::config::ThemeMode::System
             || is_system_theme(&self.state.theme_name)
-            || is_system_theme(&self.state.global_theme_name)
+            || is_system_theme(&self.state.global_light_theme_name)
+            || is_system_theme(&self.state.global_dark_theme_name)
         {
             self.state.refresh_global_palette();
             self.state.apply_effective_theme();

@@ -138,7 +138,7 @@ not a gui window, not a web dashboard, not electron. hako runs inside whatever t
 - **tabs** — first-class in the socket api and cli
 - **mouse-native** — click panes/tabs/workspaces/agents, drag borders, select text to copy, right-click menus; not keyboard-only
 - **notifications** — sounds and toasts for background events; tab-aware suppression
-- **18 built-in themes** — catppuccin, terminal, tokyo night, gruvbox, one, solarized, kanagawa, rosé pine, vesper, and light variants for the main palettes
+- **built-in light and dark themes** — choose separate palettes for system light/dark, or force a light-only or dark-only theme list
 - **session persistence** — pane processes survive client detach; sessions restore after full restart
 
 ## agents can use hako too

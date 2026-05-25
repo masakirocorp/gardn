@@ -197,16 +197,20 @@ fn resolve_palette_with_legacy_accent(
     use_legacy_ui_accent: bool,
     host_theme: crate::terminal_theme::TerminalTheme,
 ) -> state::Palette {
-    // Start with the named theme (default: catppuccin)
-    let base_name = config.theme.name.as_deref().unwrap_or("catppuccin");
     let appearance = config.theme.mode.resolve(host_theme);
+    let (light_theme_name, dark_theme_name) = state::theme_config_names(&config.theme);
+    let base_name = match appearance {
+        crate::terminal_theme::ThemeAppearance::Light => &light_theme_name,
+        crate::terminal_theme::ThemeAppearance::Dark => &dark_theme_name,
+    };
     let mut palette = state::Palette::from_theme_with_terminal(base_name, appearance, host_theme)
         .unwrap_or_else(|| {
             tracing::warn!(
                 theme = base_name,
-                "unknown theme, falling back to catppuccin"
+                "unknown theme, falling back to default appearance theme"
             );
-            state::Palette::from_theme("catppuccin", appearance)
+            let fallback = state::default_theme_name_for_appearance(appearance);
+            state::Palette::from_theme(fallback, appearance)
                 .unwrap_or_else(state::Palette::catppuccin)
         });
 
@@ -369,12 +373,13 @@ impl App {
         let active_group = active_group.min(groups.len().saturating_sub(1));
         let host_terminal_theme = crate::terminal_theme::TerminalTheme::default();
         let global_palette = resolve_palette(config, host_terminal_theme);
-        let global_theme_name = config
-            .theme
-            .name
-            .clone()
-            .unwrap_or_else(|| "catppuccin".to_string());
+        let (global_light_theme_name, global_dark_theme_name) =
+            state::theme_config_names(&config.theme);
         let global_theme_mode = config.theme.mode;
+        let global_theme_name = match global_theme_mode.resolve(host_terminal_theme) {
+            crate::terminal_theme::ThemeAppearance::Light => global_light_theme_name.clone(),
+            crate::terminal_theme::ThemeAppearance::Dark => global_dark_theme_name.clone(),
+        };
 
         // Validate sidebar bounds before they reach any `u16::clamp(min, max)`
         // call: `clamp` panics when `min > max`. On bad config, fall back to
@@ -551,6 +556,8 @@ impl App {
             theme_name: global_theme_name.clone(),
             global_theme_name,
             global_theme_mode,
+            global_light_theme_name,
+            global_dark_theme_name,
             global_theme_custom: config.theme.custom.clone(),
             global_theme_use_legacy_ui_accent: config.ui.accent != "cyan"
                 && config
@@ -567,6 +574,11 @@ impl App {
                 original_theme: None,
                 pending_theme_name: None,
                 pending_theme_mode: None,
+                pending_light_theme_name: None,
+                pending_dark_theme_name: None,
+                pending_sound_enabled: None,
+                pending_toast_delivery: None,
+                pending_agent_border_labels: None,
                 group_theme_target: None,
             },
             integration_recommendations: crate::integration::integration_recommendations(),
@@ -1122,12 +1134,15 @@ impl App {
                 crate::worktree::expand_tilde_absolute_path(&config.worktrees.directory);
         }
         if !invalid_section("theme") {
-            self.state.global_theme_name = config
-                .theme
-                .name
-                .clone()
-                .unwrap_or_else(|| "catppuccin".to_string());
+            let (global_light_theme_name, global_dark_theme_name) =
+                state::theme_config_names(&config.theme);
+            self.state.global_light_theme_name = global_light_theme_name;
+            self.state.global_dark_theme_name = global_dark_theme_name;
             self.state.global_theme_mode = config.theme.mode;
+            self.state.global_theme_name = self
+                .state
+                .global_theme_name_for_mode(self.state.global_theme_mode)
+                .to_string();
             self.state.global_theme_custom = config.theme.custom.clone();
             self.state.global_theme_use_legacy_ui_accent = !invalid_section("ui")
                 && config.ui.accent != "cyan"
@@ -1931,13 +1946,23 @@ mod tests {
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
-        app.save_theme("gruvbox", crate::config::ThemeMode::Light);
+        app.save_theme(
+            "solarized-light",
+            "rose-pine",
+            crate::config::ThemeMode::System,
+        );
 
-        assert_eq!(app.state.global_theme_name, "gruvbox");
-        assert_eq!(app.state.global_theme_mode, crate::config::ThemeMode::Light);
+        assert_eq!(app.state.global_light_theme_name, "solarized-light");
+        assert_eq!(app.state.global_dark_theme_name, "rose-pine");
+        assert_eq!(
+            app.state.global_theme_mode,
+            crate::config::ThemeMode::System
+        );
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("name = \"gruvbox\""));
-        assert!(content.contains("mode = \"light\""));
+        assert!(!content.contains("name = \""));
+        assert!(content.contains("light = \"solarized-light\""));
+        assert!(content.contains("dark = \"rose-pine\""));
+        assert!(content.contains("mode = \"system\""));
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -3225,7 +3250,8 @@ mod tests {
     #[test]
     fn route_client_input_updates_host_terminal_theme_from_osc_response() {
         let mut app = test_app();
-        app.state.global_theme_name = "gruvbox".to_string();
+        app.state.global_light_theme_name = "gruvbox-light".to_string();
+        app.state.global_dark_theme_name = "gruvbox".to_string();
         app.state.global_theme_mode = crate::config::ThemeMode::System;
 
         app.route_client_input(b"\x1b]11;#f5f5f5\x07".to_vec());

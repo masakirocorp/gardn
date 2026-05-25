@@ -2156,7 +2156,8 @@ mod tests {
     #[test]
     fn system_theme_mode_uses_terminal_background() {
         let mut state = app_with_workspaces(&["one"]);
-        state.global_theme_name = "gruvbox".to_string();
+        state.global_light_theme_name = "gruvbox-light".to_string();
+        state.global_dark_theme_name = "gruvbox".to_string();
         state.global_theme_mode = ThemeMode::System;
         state.host_terminal_theme = TerminalTheme::default().with_color(
             DefaultColorKind::Background,
@@ -2170,7 +2171,7 @@ mod tests {
         state.refresh_global_palette();
         state.apply_effective_theme();
 
-        assert_eq!(state.theme_name, "gruvbox");
+        assert_eq!(state.theme_name, "gruvbox-light");
         assert_eq!(state.palette.panel_bg, Palette::gruvbox_light().panel_bg);
     }
 

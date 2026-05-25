@@ -2466,6 +2466,10 @@ next_tab = ""
 
         assert!(server.handle_server_event(ServerEvent::ClientInput {
             client_id: 1,
+            data: b" ".to_vec(),
+        }));
+        assert!(server.handle_server_event(ServerEvent::ClientInput {
+            client_id: 1,
             data: b"\r".to_vec(),
         }));
 

@@ -315,14 +315,21 @@ impl App {
         let previous_settings_section = self.state.settings.section;
         if let Some(action) = self.state.handle_mouse(&mut self.terminal_runtimes, mouse) {
             match action {
-                SettingsAction::SaveTheme { name, mode } => self.save_theme(&name, mode),
+                SettingsAction::SaveSettings {
+                    light,
+                    dark,
+                    mode,
+                    sound_enabled,
+                    toast_delivery,
+                    agent_border_labels,
+                } => {
+                    self.save_theme(&light, &dark, mode);
+                    self.save_sound(sound_enabled);
+                    self.save_toast_delivery(toast_delivery);
+                    self.save_agent_border_labels(agent_border_labels);
+                }
                 SettingsAction::SaveGroupTheme { group_idx, name } => {
                     self.state.set_group_theme(group_idx, name);
-                }
-                SettingsAction::SaveSound(enabled) => self.save_sound(enabled),
-                SettingsAction::SaveToastDelivery(delivery) => self.save_toast_delivery(delivery),
-                SettingsAction::SaveAgentBorderLabels(enabled) => {
-                    self.save_agent_border_labels(enabled)
                 }
                 SettingsAction::InstallRecommendedIntegrations => {
                     self.install_recommended_integrations()

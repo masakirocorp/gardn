@@ -1,6 +1,6 @@
 use crate::config::{
-    CustomThemeColors, Keybinds, NewTerminalCwdConfig, SoundConfig, ThemeMode, ToastConfig,
-    ToastDelivery,
+    CustomThemeColors, Keybinds, NewTerminalCwdConfig, SoundConfig, ThemeConfig, ThemeMode,
+    ToastConfig, ToastDelivery,
 };
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Direction, Rect};
@@ -634,24 +634,11 @@ impl Palette {
         appearance: crate::terminal_theme::ThemeAppearance,
         host_theme: TerminalTheme,
     ) -> Option<Self> {
-        let normalized = name.to_lowercase().replace([' ', '_'], "-");
-        if normalized == "system" {
+        let theme_name = theme_name_for_appearance(name, appearance)?;
+        if theme_name == "system" {
             return Some(Self::system(host_theme, appearance));
         }
-        if appearance == crate::terminal_theme::ThemeAppearance::Dark {
-            return Self::from_name(&normalized);
-        }
-
-        match normalized.as_str() {
-            "catppuccin" | "catppuccin-mocha" => Some(Self::catppuccin_light()),
-            "tokyo-night" | "tokyonight" => Some(Self::tokyo_night_light()),
-            "gruvbox" | "gruvbox-dark" => Some(Self::gruvbox_light()),
-            "one-dark" | "onedark" => Some(Self::one_light()),
-            "solarized" | "solarized-dark" => Some(Self::solarized_light()),
-            "kanagawa" => Some(Self::kanagawa_lotus()),
-            "rose-pine" | "rosepine" => Some(Self::rose_pine_light()),
-            _ => Self::from_name(&normalized),
-        }
+        Self::from_name(theme_name)
     }
 
     /// Apply custom color overrides on top of this palette.
@@ -801,7 +788,6 @@ pub enum AgentPanelScope {
 /// Which section of the settings panel is focused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsSection {
-    ThemeMode,
     Theme,
     Sound,
     Toast,
@@ -811,7 +797,6 @@ pub enum SettingsSection {
 
 impl SettingsSection {
     pub const ALL: &[Self] = &[
-        Self::ThemeMode,
         Self::Theme,
         Self::Sound,
         Self::Toast,
@@ -821,7 +806,6 @@ impl SettingsSection {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::ThemeMode => "mode",
             Self::Theme => "theme",
             Self::Sound => "sound",
             Self::Toast => "toasts",
@@ -831,11 +815,13 @@ impl SettingsSection {
     }
 }
 
-/// All built-in theme names in display order.
+pub const DEFAULT_DARK_THEME_NAME: &str = "catppuccin";
+pub const DEFAULT_LIGHT_THEME_NAME: &str = "catppuccin-latte";
+
+/// Legacy theme-family display order used where a single theme override is stored.
 pub const THEME_NAMES: &[&str] = &[
     "system",
-    "catppuccin",
-    "catppuccin-latte",
+    DEFAULT_DARK_THEME_NAME,
     "terminal",
     "tokyo-night",
     "dracula",
@@ -847,6 +833,117 @@ pub const THEME_NAMES: &[&str] = &[
     "rose-pine",
     "vesper",
 ];
+
+/// Built-in concrete themes that can render a light appearance.
+pub const LIGHT_THEME_NAMES: &[&str] = &[
+    "system",
+    DEFAULT_LIGHT_THEME_NAME,
+    "terminal",
+    "tokyo-night-day",
+    "gruvbox-light",
+    "one-light",
+    "solarized-light",
+    "kanagawa-lotus",
+    "rose-pine-dawn",
+];
+
+/// Built-in concrete themes that can render a dark appearance.
+pub const DARK_THEME_NAMES: &[&str] = &[
+    "system",
+    DEFAULT_DARK_THEME_NAME,
+    "terminal",
+    "tokyo-night",
+    "dracula",
+    "nord",
+    "gruvbox",
+    "one-dark",
+    "solarized",
+    "kanagawa",
+    "rose-pine",
+    "vesper",
+];
+
+pub fn normalize_theme_name(name: &str) -> String {
+    name.to_lowercase().replace([' ', '_'], "-")
+}
+
+pub fn theme_names_for_appearance(appearance: ThemeAppearance) -> &'static [&'static str] {
+    match appearance {
+        ThemeAppearance::Light => LIGHT_THEME_NAMES,
+        ThemeAppearance::Dark => DARK_THEME_NAMES,
+    }
+}
+
+pub fn default_theme_name_for_appearance(appearance: ThemeAppearance) -> &'static str {
+    match appearance {
+        ThemeAppearance::Light => DEFAULT_LIGHT_THEME_NAME,
+        ThemeAppearance::Dark => DEFAULT_DARK_THEME_NAME,
+    }
+}
+
+pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Option<&'static str> {
+    let normalized = normalize_theme_name(name);
+    match appearance {
+        ThemeAppearance::Light => match normalized.as_str() {
+            "system" => Some("system"),
+            "terminal" => Some("terminal"),
+            "catppuccin" | "catppuccin-mocha" | "catppuccin-latte" | "latte" | "light" => {
+                Some("catppuccin-latte")
+            }
+            "tokyo-night" | "tokyonight" | "tokyo-night-day" | "tokyo-day" | "tokyonight-day" => {
+                Some("tokyo-night-day")
+            }
+            "gruvbox" | "gruvbox-dark" | "gruvbox-light" => Some("gruvbox-light"),
+            "one-dark" | "onedark" | "one-light" | "onelight" => Some("one-light"),
+            "solarized" | "solarized-dark" | "solarized-light" => Some("solarized-light"),
+            "kanagawa" | "kanagawa-lotus" | "lotus" => Some("kanagawa-lotus"),
+            "rose-pine" | "rosepine" | "rose-pine-dawn" | "rosepine-dawn" | "dawn" => {
+                Some("rose-pine-dawn")
+            }
+            "dracula" | "nord" | "vesper" => None,
+            _ => None,
+        },
+        ThemeAppearance::Dark => match normalized.as_str() {
+            "system" => Some("system"),
+            "terminal" => Some("terminal"),
+            "catppuccin" | "catppuccin-mocha" | "catppuccin-latte" | "latte" | "light" => {
+                Some("catppuccin")
+            }
+            "tokyo-night" | "tokyonight" | "tokyo-night-day" | "tokyo-day" | "tokyonight-day" => {
+                Some("tokyo-night")
+            }
+            "dracula" => Some("dracula"),
+            "nord" => Some("nord"),
+            "gruvbox" | "gruvbox-dark" | "gruvbox-light" => Some("gruvbox"),
+            "one-dark" | "onedark" | "one-light" | "onelight" => Some("one-dark"),
+            "solarized" | "solarized-dark" | "solarized-light" => Some("solarized"),
+            "kanagawa" | "kanagawa-lotus" | "lotus" => Some("kanagawa"),
+            "rose-pine" | "rosepine" | "rose-pine-dawn" | "rosepine-dawn" | "dawn" => {
+                Some("rose-pine")
+            }
+            "vesper" => Some("vesper"),
+            _ => None,
+        },
+    }
+}
+
+pub fn theme_config_names(config: &ThemeConfig) -> (String, String) {
+    let light = config
+        .light
+        .as_deref()
+        .or(config.name.as_deref())
+        .and_then(|name| theme_name_for_appearance(name, ThemeAppearance::Light))
+        .unwrap_or(DEFAULT_LIGHT_THEME_NAME)
+        .to_string();
+    let dark = config
+        .dark
+        .as_deref()
+        .or(config.name.as_deref())
+        .and_then(|name| theme_name_for_appearance(name, ThemeAppearance::Dark))
+        .unwrap_or(DEFAULT_DARK_THEME_NAME)
+        .to_string();
+    (light, dark)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MenuListState {
@@ -915,6 +1012,16 @@ pub struct SettingsState {
     pub pending_theme_name: Option<String>,
     /// Pending global theme mode while settings is open.
     pub pending_theme_mode: Option<ThemeMode>,
+    /// Pending light theme while settings is open.
+    pub pending_light_theme_name: Option<String>,
+    /// Pending dark theme while settings is open.
+    pub pending_dark_theme_name: Option<String>,
+    /// Pending sound setting while settings is open.
+    pub pending_sound_enabled: Option<bool>,
+    /// Pending toast delivery while settings is open.
+    pub pending_toast_delivery: Option<ToastDelivery>,
+    /// Pending agent border label setting while settings is open.
+    pub pending_agent_border_labels: Option<bool>,
     /// Group whose theme is being edited, if settings was opened from a group menu.
     pub group_theme_target: Option<usize>,
 }
@@ -1239,6 +1346,10 @@ pub struct AppState {
     pub global_theme_name: String,
     /// Default app light/dark mode from config.
     pub global_theme_mode: ThemeMode,
+    /// Default app light theme from config.
+    pub global_light_theme_name: String,
+    /// Default app dark theme from config.
+    pub global_dark_theme_name: String,
     /// Custom color overrides from config, applied only to the global fallback theme.
     pub global_theme_custom: Option<CustomThemeColors>,
     /// Whether legacy `ui.accent` should override the global theme accent.
@@ -1267,6 +1378,16 @@ pub struct AppState {
 impl AppState {
     pub fn theme_appearance_for_mode(&self, mode: ThemeMode) -> ThemeAppearance {
         mode.resolve(self.host_terminal_theme)
+    }
+    pub fn global_theme_name_for_appearance(&self, appearance: ThemeAppearance) -> &str {
+        match appearance {
+            ThemeAppearance::Light => &self.global_light_theme_name,
+            ThemeAppearance::Dark => &self.global_dark_theme_name,
+        }
+    }
+
+    pub fn global_theme_name_for_mode(&self, mode: ThemeMode) -> &str {
+        self.global_theme_name_for_appearance(self.theme_appearance_for_mode(mode))
     }
 
     pub fn palette_for_theme_mode(&self, theme_name: &str, mode: ThemeMode) -> Option<Palette> {
@@ -1299,10 +1420,12 @@ impl AppState {
     }
 
     pub fn refresh_global_palette(&mut self) {
-        if let Some(palette) =
-            self.configured_global_palette(&self.global_theme_name, self.global_theme_mode)
-        {
+        let theme_name = self
+            .global_theme_name_for_mode(self.global_theme_mode)
+            .to_string();
+        if let Some(palette) = self.configured_global_palette(&theme_name, self.global_theme_mode) {
             self.global_palette = palette;
+            self.global_theme_name = theme_name;
         }
     }
 
@@ -1751,6 +1874,8 @@ impl AppState {
             theme_name: "catppuccin".to_string(),
             global_theme_name: "catppuccin".to_string(),
             global_theme_mode: ThemeMode::System,
+            global_light_theme_name: DEFAULT_LIGHT_THEME_NAME.to_string(),
+            global_dark_theme_name: DEFAULT_DARK_THEME_NAME.to_string(),
             global_theme_custom: None,
             global_theme_use_legacy_ui_accent: false,
             settings: SettingsState {
@@ -1761,6 +1886,11 @@ impl AppState {
                 original_theme: None,
                 pending_theme_name: None,
                 pending_theme_mode: None,
+                pending_light_theme_name: None,
+                pending_dark_theme_name: None,
+                pending_sound_enabled: None,
+                pending_toast_delivery: None,
+                pending_agent_border_labels: None,
                 group_theme_target: None,
             },
             integration_recommendations: Vec::new(),
@@ -1824,6 +1954,16 @@ mod tests {
     }
 
     #[test]
+    fn light_theme_names_resolve_to_light_appearance() {
+        for name in LIGHT_THEME_NAMES {
+            assert!(
+                Palette::from_theme(name, ThemeAppearance::Light).is_some(),
+                "light theme should resolve: {name}"
+            );
+        }
+    }
+
+    #[test]
     fn light_theme_aliases_resolve() {
         for name in ["light", "latte", "tokyo-day", "onelight", "lotus", "dawn"] {
             assert!(
@@ -1861,12 +2001,20 @@ mod tests {
     }
 
     #[test]
-    fn dark_only_theme_uses_dark_palette_in_light_mode() {
+    fn dark_only_theme_is_not_valid_in_light_mode() {
+        assert!(Palette::from_theme("nord", ThemeAppearance::Light).is_none());
+    }
+
+    #[test]
+    fn theme_config_names_derive_appearance_pair_from_legacy_name() {
+        let config = ThemeConfig {
+            name: Some("gruvbox".to_string()),
+            ..ThemeConfig::default()
+        };
+
         assert_eq!(
-            Palette::from_theme("nord", ThemeAppearance::Light)
-                .unwrap()
-                .panel_bg,
-            Palette::nord().panel_bg
+            theme_config_names(&config),
+            ("gruvbox-light".to_string(), "gruvbox".to_string())
         );
     }
 

@@ -41,13 +41,20 @@ impl App {
         });
     }
 
-    pub(super) fn save_theme(&mut self, name: &str, mode: crate::config::ThemeMode) {
+    pub(super) fn save_theme(&mut self, light: &str, dark: &str, mode: crate::config::ThemeMode) {
         if self.update_config_file("theme", |content| {
+            let content = crate::config::remove_section_key(content, "theme", "name");
             let content = crate::config::upsert_section_value(
-                content,
+                &content,
                 "theme",
-                "name",
-                &format!("\"{name}\""),
+                "light",
+                &format!("\"{light}\""),
+            );
+            let content = crate::config::upsert_section_value(
+                &content,
+                "theme",
+                "dark",
+                &format!("\"{dark}\""),
             );
             crate::config::upsert_section_value(
                 &content,
