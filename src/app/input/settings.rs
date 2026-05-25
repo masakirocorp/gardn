@@ -837,24 +837,24 @@ impl AppState {
             }
             SettingsSection::Sound => {
                 let list_y = area.y + 3;
-                if row >= list_y && row < list_y + 4 {
-                    Some(((row - list_y) / 2) as usize)
+                if row >= list_y && row < list_y + 2 {
+                    Some((row - list_y) as usize)
                 } else {
                     None
                 }
             }
             SettingsSection::Toast => {
                 let list_y = area.y + 3;
-                if row >= list_y && row < list_y + 8 {
-                    Some(((row - list_y) / 2) as usize)
+                if row >= list_y && row < list_y + 4 {
+                    Some((row - list_y) as usize)
                 } else {
                     None
                 }
             }
             SettingsSection::PaneLabels => {
                 let list_y = area.y + 3;
-                if row >= list_y && row < list_y + 4 {
-                    Some(((row - list_y) / 2) as usize)
+                if row >= list_y && row < list_y + 2 {
+                    Some((row - list_y) as usize)
                 } else {
                     None
                 }

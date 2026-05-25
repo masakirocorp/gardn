@@ -8,11 +8,11 @@ use ratatui::{
 
 use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    action_button_row_rects, centered_popup_rect, modal_scroll_area, modal_section_heading_style,
-    modal_stack_areas, panel_contrast_fg, primary_action_style, render_action_button,
-    render_modal_choice_list, render_modal_description, render_modal_divider,
+    action_button_row_rects, centered_popup_rect, modal_close_button_rect, modal_scroll_area,
+    modal_section_heading_style, modal_stack_areas, panel_contrast_fg, primary_action_style,
+    render_action_button, render_modal_choice_list, render_modal_description, render_modal_divider,
     render_modal_header_bar, render_modal_hint_line, render_modal_scroll_hints,
-    render_modal_subtitle, render_panel_shell, ActionButtonSpec,
+    render_modal_subtitle, render_panel_shell, secondary_action_style, ActionButtonSpec,
 };
 use crate::{
     app::{
@@ -53,7 +53,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     ])
     .areas::<3>(stack.header);
 
-    render_modal_header_bar(frame, header_rows[0], "settings", p, true);
+    render_modal_header_bar(frame, header_rows[0], "settings", p, false);
 
     let tab_labels = SettingsSection::ALL.iter().map(|section| {
         if app.settings_section_has_badge(*section) {
@@ -124,7 +124,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                     .unwrap_or_else(|| app.toast_delivery()),
                 app.settings.list.selected,
                 p,
-                2,
+                1,
             );
         }
         SettingsSection::PaneLabels => {
@@ -216,7 +216,14 @@ fn render_group_theme_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     ])
     .areas::<3>(stack.header);
 
-    render_modal_header_bar(frame, header_rows[0], "group theme", p, true);
+    render_modal_header_bar(frame, header_rows[0], "group theme", p, false);
+    render_action_button(
+        frame,
+        modal_close_button_rect(header_rows[0]),
+        Some("esc"),
+        "cancel",
+        secondary_action_style(p),
+    );
 
     let group_label = app
         .settings
@@ -275,7 +282,7 @@ pub(crate) fn settings_button_rects(
             inner,
             &[ActionButtonSpec {
                 hint: Some("esc"),
-                label: "close",
+                label: "cancel",
             }],
             2,
             inner.height.saturating_sub(1),
@@ -695,7 +702,7 @@ fn render_settings_toggle(
         current_value,
         selected_idx,
         p,
-        2,
+        1,
     );
 }
 
@@ -909,6 +916,53 @@ mod tests {
         assert_eq!(buffer[(0, 5)].symbol(), " ");
         assert_eq!(buffer[(1, 5)].symbol(), " ");
         assert_eq!(buffer[(2, 5)].symbol(), "l");
+    }
+
+    #[test]
+    fn settings_choice_tabs_use_single_row_options() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Toast;
+        app.settings.pending_toast_delivery = Some(ToastDelivery::Off);
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let popup = centered_popup_rect(area, 76, 22).expect("popup");
+        let inner = Rect::new(
+            popup.x + 1,
+            popup.y + 1,
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
+        );
+        let content = modal_stack_areas(inner, 3, 2, 0, 1).content;
+        let list_y = content.y + 3;
+        let buffer = terminal.backend().buffer();
+
+        assert_eq!(buffer[(content.x + 1, list_y)].symbol(), "o");
+        assert_eq!(buffer[(content.x + 1, list_y + 1)].symbol(), "i");
+        assert_eq!(buffer[(content.x + 1, list_y + 2)].symbol(), "v");
+        assert_eq!(buffer[(content.x + 1, list_y + 3)].symbol(), "v");
+    }
+
+    #[test]
+    fn settings_renders_single_escape_cancel_label() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Theme;
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert_eq!(text.matches("esc cancel").count(), 1);
+        assert!(!text.contains("esc close"));
     }
     #[test]
     fn integrations_selected_row_highlight_extends_to_row_end() {
