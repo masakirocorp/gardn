@@ -9,7 +9,7 @@ use std::os::unix::process::CommandExt;
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
-use std::process::Command;
+use std::process::{Child, Command};
 #[cfg(unix)]
 use std::time::Duration;
 
@@ -63,7 +63,7 @@ pub(crate) struct ReceivedHandoff {
 
 #[cfg(unix)]
 pub(crate) fn handoff_socket_path() -> PathBuf {
-    crate::session::data_dir().join(format!("herdr-handoff-{}.sock", std::process::id()))
+    crate::session::data_dir().join(format!("hako-handoff-{}.sock", std::process::id()))
 }
 
 #[cfg(unix)]
@@ -71,7 +71,7 @@ pub(crate) fn spawn_handoff_import(
     import_exe: Option<&Path>,
     socket_path: &Path,
     token: &str,
-) -> io::Result<u32> {
+) -> io::Result<Child> {
     let fallback_exe;
     let exe = if let Some(import_exe) = import_exe {
         import_exe
@@ -79,7 +79,7 @@ pub(crate) fn spawn_handoff_import(
         fallback_exe = std::env::current_exe().map_err(|err| {
             io::Error::new(
                 err.kind(),
-                format!("failed to determine herdr executable path: {err}"),
+                format!("failed to determine hako executable path: {err}"),
             )
         })?;
         &fallback_exe
@@ -94,7 +94,7 @@ pub(crate) fn spawn_handoff_import(
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    let child = command.spawn().map_err(|err| {
+    command.spawn().map_err(|err| {
         io::Error::new(
             err.kind(),
             format!(
@@ -102,8 +102,34 @@ pub(crate) fn spawn_handoff_import(
                 exe.display()
             ),
         )
-    })?;
-    Ok(child.id())
+    })
+}
+
+#[cfg(unix)]
+pub(crate) fn cleanup_failed_import_child(child: &mut Child) {
+    let pid = child.id();
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            info!(pid, status = %status, "handoff import server exited during rollback");
+            return;
+        }
+        Ok(None) => {}
+        Err(err) => {
+            warn!(pid, err = %err, "failed to inspect handoff import server before rollback");
+        }
+    }
+
+    if let Err(err) = child.kill() {
+        warn!(pid, err = %err, "failed to kill handoff import server during rollback");
+    }
+    match child.wait() {
+        Ok(status) => {
+            info!(pid, status = %status, "handoff import server reaped during rollback");
+        }
+        Err(err) => {
+            warn!(pid, err = %err, "failed to reap handoff import server during rollback");
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -235,7 +261,7 @@ pub(crate) fn receive(socket_path: &Path, token: &str) -> io::Result<ReceivedHan
         .is_some_and(|version| version != env!("CARGO_PKG_VERSION"))
     {
         return Err(io::Error::other(format!(
-            "handoff expected herdr v{}, but this server is v{}",
+            "handoff expected hako v{}, but this server is v{}",
             manifest.expected_version.as_deref().unwrap_or("unknown"),
             env!("CARGO_PKG_VERSION")
         )));

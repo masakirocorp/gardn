@@ -45,7 +45,7 @@ fn server_reload_config(args: &[String]) -> std::io::Result<i32> {
 fn server_live_handoff(args: &[String]) -> std::io::Result<i32> {
     let Some(params) = parse_live_handoff_params(args) else {
         eprintln!(
-            "usage: herdr server live-handoff [--import-exe <path>] [--expected-protocol <n>] [--expected-version <version>]"
+            "usage: hako server live-handoff [--import-exe <path>] [--expected-protocol <n>] [--expected-version <version>]"
         );
         return Ok(2);
     };
@@ -67,7 +67,7 @@ fn server_live_handoff(args: &[String]) -> std::io::Result<i32> {
     eprintln!(
         "live handoff complete; server log: {}",
         crate::session::data_dir()
-            .join("herdr-server.log")
+            .join("hako-server.log")
             .display()
     );
     Ok(0)
@@ -115,7 +115,7 @@ mod tests {
     fn live_handoff_params_parse_remote_update_fields() {
         let args = vec![
             "--import-exe".to_string(),
-            "/home/me/.local/bin/herdr".to_string(),
+            "/home/me/.local/bin/hako".to_string(),
             "--expected-protocol=9".to_string(),
             "--expected-version".to_string(),
             "0.6.2".to_string(),
@@ -125,7 +125,7 @@ mod tests {
 
         assert_eq!(
             params.import_exe.as_deref(),
-            Some("/home/me/.local/bin/herdr")
+            Some("/home/me/.local/bin/hako")
         );
         assert_eq!(params.expected_protocol, Some(9));
         assert_eq!(params.expected_version.as_deref(), Some("0.6.2"));

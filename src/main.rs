@@ -357,7 +357,19 @@ fn main() -> io::Result<()> {
     }
 
     if args.get(1).map(|s| s.as_str()) == Some("update") {
-        match update::self_update() {
+        let options = match update::parse_self_update_args(&args[2..]) {
+            Ok(options) => options,
+            Err(err) if err.starts_with("usage:") => {
+                eprintln!("{err}");
+                std::process::exit(0);
+            }
+            Err(err) => {
+                eprintln!("{err}");
+                eprintln!("usage: herdr update [--handoff]");
+                std::process::exit(2);
+            }
+        };
+        match update::self_update(options) {
             Ok(_) => return Ok(()),
             Err(e) => {
                 if e.starts_with("self-update is disabled") {
@@ -377,7 +389,7 @@ fn main() -> io::Result<()> {
         println!("       hako --session <name> [options]");
         println!("       hako --remote <ssh-target> [--session <name>]");
         println!("       hako session attach <name>");
-        println!("       hako update");
+        println!("       hako update [--handoff]");
         println!("       hako server stop");
         println!("       hako server reload-config");
         println!("       hako config <subcommand> ...");
@@ -452,6 +464,7 @@ fn main() -> io::Result<()> {
         println!("  --remote <target>   attach through ssh to a remote hako server");
         println!("  --remote-keybindings <local|server>");
         println!("                      keybindings for --remote app attach (default: local)");
+        println!("  --handoff           opt into live handoff for update or remote attach");
         println!("  --default-config    print default configuration and exit");
         println!("  --version, -V       print version and exit");
         println!("  --help, -h          show this help");

@@ -25,6 +25,7 @@ const NIX_UPDATE_COMMAND: &str = "update through Nix";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const FAKE_UPDATE_VERSION_ENV: &str = "HAKO_FAKE_UPDATE_VERSION";
 const SERVER_STOP_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
+const SERVER_HANDOFF_REQUEST_TIMEOUT: Duration = Duration::from_secs(240);
 const SERVER_HANDOFF_CONFIRM_TIMEOUT: Duration = Duration::from_secs(30);
 const SERVER_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const STAR_PROMPT_REPO: &str = "masakirocorp/hako";
@@ -410,7 +411,10 @@ fn version_label(version: Option<&str>) -> &str {
     version.unwrap_or("unknown")
 }
 
-fn update_requires_live_handoff(server: &crate::api::RuntimeStatus, release: &ReleaseInfo) -> bool {
+fn update_requires_server_restart(
+    server: &crate::api::RuntimeStatus,
+    release: &ReleaseInfo,
+) -> bool {
     match (server.protocol, release.target_protocol) {
         (Some(server_protocol), Some(target_protocol)) => server_protocol != target_protocol,
         _ => true,
@@ -437,7 +441,7 @@ fn parse_live_handoff_before_update_response(input: &str) -> Option<bool> {
 struct RunningServerUpdatePlan {
     target: RunningUpdateTarget,
     server: crate::api::RuntimeStatus,
-    requires_live_handoff: bool,
+    requires_server_restart: bool,
 }
 
 impl RunningServerUpdatePlan {
@@ -519,7 +523,7 @@ fn plan_running_server_updates(
         )
         .map_err(|err| {
             format!(
-                "failed to read status for herdr target {} at {}: {err}. stop it with `{}` and run `herdr update` again",
+                "failed to read status for hako target {} at {}: {err}. stop it with `{}` and run `hako update` again",
                 target.label,
                 target.socket_path.display(),
                 target.stop_command
@@ -528,7 +532,7 @@ fn plan_running_server_updates(
             Some(server) => server,
             None if target.must_be_running => {
                 return Err(format!(
-                        "herdr target {} looked running, but its status API did not respond at {}. stop it with `{}` and run `herdr update` again",
+                        "hako target {} looked running, but its status API did not respond at {}. stop it with `{}` and run `hako update` again",
                     target.label,
                     target.socket_path.display(),
                     target.stop_command
@@ -536,7 +540,7 @@ fn plan_running_server_updates(
             }
             None if client_protocol_server_is_running_at(&target.client_socket_path) => {
                 return Err(format!(
-                    "herdr target {} has a client socket, but its status API did not respond at {}. stop it with `{}` and run `herdr update` again",
+                    "hako target {} has a client socket, but its status API did not respond at {}. stop it with `{}` and run `hako update` again",
                     target.label,
                     target.socket_path.display(),
                     target.stop_command
@@ -546,7 +550,7 @@ fn plan_running_server_updates(
         };
 
         plans.push(RunningServerUpdatePlan {
-            requires_live_handoff: update_requires_live_handoff(&server, release),
+            requires_server_restart: update_requires_server_restart(&server, release),
             server,
             target,
         });
@@ -554,7 +558,7 @@ fn plan_running_server_updates(
 
     if plans.is_empty() && target_client_protocol_server_is_running()? {
         return Err(format!(
-            "a herdr server is listening, but its status API is unavailable; try `{}`, or stop the old server process manually, then run `herdr update` again",
+            "a hako server is listening, but its status API is unavailable; try `{}`, or stop the old server process manually, then run `hako update` again",
             crate::session::local_stop_command()
         ));
     }
@@ -593,7 +597,7 @@ fn running_update_targets() -> Result<Vec<RunningUpdateTarget>, String> {
             name: None,
             label: socket_path.display().to_string(),
             stop_command: format!(
-                "{}={} herdr server stop",
+                "{}={} hako server stop",
                 crate::api::SOCKET_PATH_ENV_VAR,
                 socket_path.display()
             ),
@@ -608,7 +612,7 @@ fn running_update_targets() -> Result<Vec<RunningUpdateTarget>, String> {
     }
 
     let sessions = crate::session::list_sessions()
-        .map_err(|err| format!("failed to list herdr sessions: {err}"))?;
+        .map_err(|err| format!("failed to list hako sessions: {err}"))?;
     Ok(sessions
         .into_iter()
         .map(|session| RunningUpdateTarget {
@@ -623,9 +627,9 @@ fn running_update_targets() -> Result<Vec<RunningUpdateTarget>, String> {
                 Some(&session.name)
             }),
             attach_command: Some(if session.default {
-                "herdr".to_string()
+                "hako".to_string()
             } else {
-                format!("herdr session attach {}", session.name)
+                format!("hako session attach {}", session.name)
             }),
             label: session.name.clone(),
             client_socket_path: crate::session::client_socket_path_for(if session.default {
@@ -647,7 +651,7 @@ fn target_client_protocol_server_is_running() -> Result<bool, String> {
     }
 
     let sessions = crate::session::list_sessions()
-        .map_err(|err| format!("failed to list herdr sessions: {err}"))?;
+        .map_err(|err| format!("failed to list hako sessions: {err}"))?;
     Ok(sessions.into_iter().any(|session| {
         let client_socket = crate::session::client_socket_path_for(if session.default {
             None
@@ -658,18 +662,37 @@ fn target_client_protocol_server_is_running() -> Result<bool, String> {
     }))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct SelfUpdateOptions {
+    pub(crate) live_handoff: bool,
+}
+
+pub(crate) fn parse_self_update_args(args: &[String]) -> Result<SelfUpdateOptions, String> {
+    let mut options = SelfUpdateOptions::default();
+    for arg in args {
+        match arg.as_str() {
+            "--handoff" => options.live_handoff = true,
+            "--help" | "-h" => {
+                return Err("usage: hako update [--handoff]".to_string());
+            }
+            _ => return Err(format!("unknown update option: {arg}")),
+        }
+    }
+    Ok(options)
+}
+
 fn prompt_to_stop_old_servers_before_update(
     plans: &[RunningServerUpdatePlan],
     release: &ReleaseInfo,
 ) -> Result<bool, String> {
     if !io::stdin().is_terminal() {
         return Err(
-            "one or more herdr targets are running and cannot perform live handoff for this update; run `herdr update` from an interactive terminal, or stop those targets and run `herdr update` again"
+            "one or more hako targets must restart for this update; run `hako update` from an interactive terminal, or stop those targets and run `hako update` again"
                 .to_string(),
         );
     }
     eprintln!(
-        "these running herdr targets are too old to preserve panes during this update to v{}:",
+        "these running hako targets must restart to use v{}:",
         release.version
     );
     for plan in plans {
@@ -680,9 +703,8 @@ fn prompt_to_stop_old_servers_before_update(
             protocol_label(plan.server.protocol)
         );
     }
-    eprintln!(
-        "herdr can leave them running, or stop them after installing the update. stopping them will exit their pane processes."
-    );
+    eprintln!("hako can leave them running, or stop them after installing the update.");
+    eprintln!("stopping them will exit their pane processes.");
 
     loop {
         eprint!("stop these old targets after updating? [y/N] ");
@@ -709,12 +731,37 @@ fn prompt_to_stop_old_servers_before_update(
 fn confirm_running_server_update_action(
     plans: Vec<RunningServerUpdatePlan>,
     release: &ReleaseInfo,
+    options: SelfUpdateOptions,
 ) -> Result<Vec<RunningServerUpdateDecision>, String> {
     if plans.is_empty() {
         return Ok(Vec::new());
     }
 
-    print_running_session_update_summary(&plans, release);
+    print_running_session_update_summary(&plans, release, options);
+
+    if !options.live_handoff {
+        let restart_required: Vec<RunningServerUpdatePlan> = plans
+            .iter()
+            .filter(|plan| plan.requires_server_restart)
+            .cloned()
+            .collect();
+        let stop_restart_required = if restart_required.is_empty() {
+            false
+        } else {
+            prompt_to_stop_old_servers_before_update(&restart_required, release)?
+        };
+        return Ok(plans
+            .into_iter()
+            .map(|plan| {
+                let action = if plan.requires_server_restart && stop_restart_required {
+                    RunningServerUpdateAction::StopOldServer
+                } else {
+                    RunningServerUpdateAction::None
+                };
+                RunningServerUpdateDecision { plan, action }
+            })
+            .collect());
+    }
 
     let handoff_supported: Vec<&RunningServerUpdatePlan> = plans
         .iter()
@@ -722,7 +769,7 @@ fn confirm_running_server_update_action(
         .collect();
     let handoff_unsupported_requiring_update: Vec<&RunningServerUpdatePlan> = plans
         .iter()
-        .filter(|plan| !server_supports_live_handoff(&plan.server) && plan.requires_live_handoff)
+        .filter(|plan| !server_supports_live_handoff(&plan.server) && plan.requires_server_restart)
         .collect();
 
     let live_handoff = if handoff_supported.is_empty() {
@@ -731,7 +778,7 @@ fn confirm_running_server_update_action(
         prompt_to_live_handoff_sessions_before_update(
             &handoff_supported,
             release,
-            plans.iter().any(|plan| plan.requires_live_handoff),
+            plans.iter().any(|plan| plan.requires_server_restart),
         )?
     };
 
@@ -750,7 +797,7 @@ fn confirm_running_server_update_action(
         let action = if server_supports_live_handoff(&plan.server) && live_handoff {
             RunningServerUpdateAction::LiveHandoff
         } else if !server_supports_live_handoff(&plan.server)
-            && plan.requires_live_handoff
+            && plan.requires_server_restart
             && stop_unsupported
         {
             RunningServerUpdateAction::StopOldServer
@@ -763,21 +810,34 @@ fn confirm_running_server_update_action(
     Ok(decisions)
 }
 
-fn print_running_session_update_summary(plans: &[RunningServerUpdatePlan], release: &ReleaseInfo) {
-    eprintln!("running herdr targets:");
+fn print_running_session_update_summary(
+    plans: &[RunningServerUpdatePlan],
+    release: &ReleaseInfo,
+    options: SelfUpdateOptions,
+) {
+    eprintln!("running hako targets:");
     for plan in plans {
-        let capability = if server_supports_live_handoff(&plan.server) {
-            "handoff supported"
+        if options.live_handoff {
+            let capability = if server_supports_live_handoff(&plan.server) {
+                "handoff supported"
+            } else {
+                "too old for handoff"
+            };
+            eprintln!(
+                "  {}: v{} protocol {} ({})",
+                plan.label(),
+                version_label(plan.server.version.as_deref()),
+                protocol_label(plan.server.protocol),
+                capability
+            );
         } else {
-            "too old for handoff"
-        };
-        eprintln!(
-            "  {}: v{} protocol {} ({})",
-            plan.label(),
-            version_label(plan.server.version.as_deref()),
-            protocol_label(plan.server.protocol),
-            capability
-        );
+            eprintln!(
+                "  {}: v{} protocol {}",
+                plan.label(),
+                version_label(plan.server.version.as_deref()),
+                protocol_label(plan.server.protocol)
+            );
+        }
     }
     eprintln!(
         "  update: v{} protocol {}",
@@ -795,7 +855,7 @@ fn prompt_to_live_handoff_sessions_before_update(
     if !io::stdin().is_terminal() {
         if requires_live_handoff {
             return Err(format!(
-                "one or more herdr targets are running and updating to v{} requires live server handoff; run `herdr update` from an interactive terminal, or stop those targets and run `herdr update` again",
+                "one or more hako targets are running and updating to v{} requires live server handoff; run `hako update` from an interactive terminal, or stop those targets and run `hako update` again",
                 release.version
             ));
         }
@@ -806,7 +866,7 @@ fn prompt_to_live_handoff_sessions_before_update(
     }
 
     eprintln!(
-        "herdr can hand off {} running target{} to the new server so pane processes keep running.",
+        "hako can hand off {} running target{} to the new server so pane processes keep running.",
         plans.len(),
         if plans.len() == 1 { "" } else { "s" }
     );
@@ -902,7 +962,7 @@ fn prompt_to_stop_old_server_after_failed_handoff(
         protocol_label(release.target_protocol)
     );
     eprintln!(
-        "you can keep using the old server, or stop it now so the next `herdr` start uses v{}.",
+        "you can keep using the old server, or stop it now so the next `hako` start uses v{}.",
         release.version
     );
     eprintln!("stopping the old server will exit its pane processes.");
@@ -968,13 +1028,13 @@ fn recover_failed_live_handoff_for_update(
         FailedHandoffServerState::NoServerResponding => {
             if let Some(command) = plan.attach_command() {
                 eprintln!(
-                    "no herdr server is responding for session {}. the binary was updated; run `{command}` to start v{}.",
+                    "no hako server is responding for session {}. the binary was updated; run `{command}` to start v{}.",
                     plan.label(),
                     release.version
                 );
             } else {
                 eprintln!(
-                    "no herdr server is responding at {}. the binary was updated; restart with the same socket override to use v{}.",
+                    "no hako server is responding at {}. the binary was updated; restart with the same socket override to use v{}.",
                     plan.socket_path().display(),
                     release.version
                 );
@@ -983,7 +1043,7 @@ fn recover_failed_live_handoff_for_update(
         }
         FailedHandoffServerState::Unknown(status_error) => {
             eprintln!(
-                "herdr could not determine server state for {} {} after the failed handoff: {status_error}",
+                "hako could not determine server state for {} {} after the failed handoff: {status_error}",
                 plan.target_noun(),
                 plan.label()
             );
@@ -1117,7 +1177,7 @@ fn live_handoff_server_via_api_for_update_at(
 ) -> Result<(), String> {
     live_handoff_server_via_api_for_release_at(
         socket_path,
-        SERVER_HANDOFF_CONFIRM_TIMEOUT,
+        SERVER_HANDOFF_REQUEST_TIMEOUT,
         updated_exe,
         release,
     )
@@ -1165,7 +1225,7 @@ fn wait_for_server_shutdown_at(socket_path: &Path, timeout: Duration) -> Result<
 }
 
 fn stop_running_server_for_update(plan: &RunningServerUpdatePlan) -> Result<(), String> {
-    eprintln!("stopping herdr {} {}...", plan.target_noun(), plan.label());
+    eprintln!("stopping hako {} {}...", plan.target_noun(), plan.label());
     stop_server_via_api_at(plan.socket_path(), SERVER_STOP_RESPONSE_TIMEOUT)?;
     wait_for_server_shutdown_at(plan.socket_path(), SERVER_HANDOFF_CONFIRM_TIMEOUT)?;
     Ok(())
@@ -1256,7 +1316,7 @@ fn print_running_session_update_outcomes(
     release: &ReleaseInfo,
 ) {
     if outcomes.is_empty() {
-        eprintln!("run herdr again.");
+        eprintln!("run hako again.");
         return;
     }
 
@@ -1666,7 +1726,7 @@ fn maybe_offer_star_after_successful_update() {
 // ---------------------------------------------------------------------------
 
 /// Manual self-update command (`hako update`).
-pub fn self_update() -> Result<Version, String> {
+pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
     if is_homebrew_managed_install() {
         return Err(format!(
             "self-update is disabled for Homebrew installs; run `{HOMEBREW_UPDATE_COMMAND}`"
@@ -1697,7 +1757,7 @@ pub fn self_update() -> Result<Version, String> {
 
     let running_server_plans = plan_running_server_updates(&release)?;
     let server_update_decisions =
-        confirm_running_server_update_action(running_server_plans, &release)?;
+        confirm_running_server_update_action(running_server_plans, &release, options)?;
 
     eprintln!("downloading v{}...", release.version);
     if let Err(e) =
@@ -1944,13 +2004,13 @@ mod tests {
         ReleaseInfo {
             version: Version::parse(version).unwrap(),
             target_protocol,
-            download_url: "https://example.com/herdr".to_string(),
+            download_url: "https://example.com/hako".to_string(),
             notes_body: "### Changed\n- One".to_string(),
         }
     }
 
     fn set_test_config_home(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("herdr-update-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hako-update-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         std::env::set_var("XDG_CONFIG_HOME", &dir);
@@ -2060,6 +2120,24 @@ mod tests {
     }
 
     #[test]
+    fn self_update_args_gate_live_handoff() {
+        assert_eq!(
+            parse_self_update_args(&[]).unwrap(),
+            SelfUpdateOptions {
+                live_handoff: false
+            }
+        );
+        assert_eq!(
+            parse_self_update_args(&["--handoff".to_string()]).unwrap(),
+            SelfUpdateOptions { live_handoff: true }
+        );
+        assert_eq!(
+            parse_self_update_args(&["--unknown".to_string()]).unwrap_err(),
+            "unknown update option: --unknown"
+        );
+    }
+
+    #[test]
     fn parse_live_handoff_before_update_response_defaults_yes_for_blank() {
         assert_eq!(parse_live_handoff_before_update_response(""), Some(true));
         assert_eq!(parse_live_handoff_before_update_response("\n"), Some(true));
@@ -2071,7 +2149,7 @@ mod tests {
     }
 
     #[test]
-    fn update_requires_live_handoff_when_target_protocol_differs_or_unknown() {
+    fn update_requires_server_restart_when_target_protocol_differs_or_unknown() {
         let server = crate::api::RuntimeStatus {
             version: Some("0.5.5".to_string()),
             protocol: Some(2),
@@ -2092,9 +2170,53 @@ mod tests {
             ..compatible_release.clone()
         };
 
-        assert!(!update_requires_live_handoff(&server, &compatible_release));
-        assert!(update_requires_live_handoff(&server, &incompatible_release));
-        assert!(update_requires_live_handoff(&server, &unknown_release));
+        assert!(!update_requires_server_restart(
+            &server,
+            &compatible_release
+        ));
+        assert!(update_requires_server_restart(
+            &server,
+            &incompatible_release
+        ));
+        assert!(update_requires_server_restart(&server, &unknown_release));
+    }
+
+    #[test]
+    fn plain_update_requires_restart_for_supported_servers_without_handoff() {
+        assert!(
+            !io::stdin().is_terminal(),
+            "this test relies on noninteractive test stdin"
+        );
+        let release = fake_release("9.8.7", Some(77));
+        let plan = RunningServerUpdatePlan {
+            target: RunningUpdateTarget {
+                name: Some("work".to_string()),
+                label: "work".to_string(),
+                stop_command: "hako session stop work".to_string(),
+                attach_command: Some("hako session attach work".to_string()),
+                socket_path: crate::session::api_socket_path_for(Some("work")),
+                client_socket_path: crate::session::client_socket_path_for(Some("work")),
+                must_be_running: true,
+            },
+            requires_server_restart: true,
+            server: crate::api::RuntimeStatus {
+                version: Some("0.6.2".to_string()),
+                protocol: Some(76),
+                capabilities: Some(crate::api::schema::ServerCapabilities { live_handoff: true }),
+            },
+        };
+
+        let err = confirm_running_server_update_action(
+            vec![plan],
+            &release,
+            SelfUpdateOptions {
+                live_handoff: false,
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.contains("must restart"), "unexpected error: {err}");
+        assert!(!err.contains("live handoff"), "unexpected error: {err}");
     }
 
     #[test]
@@ -2131,11 +2253,11 @@ mod tests {
     fn explicit_session_update_targets_only_that_session() {
         let _guard = env_lock().lock().unwrap();
         let config_home = set_test_config_home("explicit-session");
-        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/ignored-herdr.sock");
+        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/ignored-hako.sock");
         std::env::remove_var(crate::session::SESSION_ENV_VAR);
         crate::session::clear_explicit_session_for_test();
         let args = vec![
-            "herdr".to_string(),
+            "hako".to_string(),
             "--session".to_string(),
             "work".to_string(),
             "update".to_string(),
@@ -2160,7 +2282,7 @@ mod tests {
     #[test]
     fn socket_override_update_targets_socket_not_env_session() {
         let _guard = env_lock().lock().unwrap();
-        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/custom-herdr.sock");
+        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/custom-hako.sock");
         std::env::set_var(crate::session::SESSION_ENV_VAR, "work");
         crate::session::clear_explicit_session_for_test();
 
@@ -2174,7 +2296,7 @@ mod tests {
         assert_eq!(targets[0].name, None);
         assert_eq!(
             targets[0].socket_path,
-            PathBuf::from("/tmp/custom-herdr.sock")
+            PathBuf::from("/tmp/custom-hako.sock")
         );
         assert!(targets[0]
             .stop_command
@@ -2205,7 +2327,7 @@ mod tests {
             "unexpected error: {err}"
         );
         assert!(
-            err.contains("herdr session stop work"),
+            err.contains("hako session stop work"),
             "unexpected error: {err}"
         );
     }
@@ -2253,7 +2375,7 @@ mod tests {
     }
 
     #[test]
-    fn noninteractive_update_requires_handoff_fails_before_install() {
+    fn noninteractive_plain_update_requiring_restart_fails_without_handoff() {
         let _guard = env_lock().lock().unwrap();
         assert!(
             !io::stdin().is_terminal(),
@@ -2276,27 +2398,27 @@ mod tests {
             target: RunningUpdateTarget {
                 name: Some("work".to_string()),
                 label: "work".to_string(),
-                stop_command: "herdr session stop work".to_string(),
-                attach_command: Some("herdr session attach work".to_string()),
+                stop_command: "hako session stop work".to_string(),
+                attach_command: Some("hako session attach work".to_string()),
                 socket_path: crate::session::api_socket_path_for(Some("work")),
                 client_socket_path: crate::session::client_socket_path_for(Some("work")),
                 must_be_running: true,
             },
-            requires_live_handoff: true,
+            requires_server_restart: true,
             server,
         };
 
-        let err =
-            prompt_to_live_handoff_sessions_before_update(&[&plan], &release, true).unwrap_err();
+        let err = confirm_running_server_update_action(
+            vec![plan],
+            &release,
+            SelfUpdateOptions {
+                live_handoff: false,
+            },
+        )
+        .unwrap_err();
 
-        assert!(
-            err.contains("requires live server handoff"),
-            "unexpected error: {err}"
-        );
-        assert!(
-            err.contains("run `hako update` from an interactive terminal"),
-            "unexpected error: {err}"
-        );
+        assert!(err.contains("must restart"), "unexpected error: {err}");
+        assert!(!err.contains("live handoff"), "unexpected error: {err}");
         std::env::remove_var(crate::session::SESSION_ENV_VAR);
         crate::session::clear_explicit_session_for_test();
     }
@@ -2388,7 +2510,7 @@ mod tests {
                 .unwrap();
             let value: serde_json::Value = serde_json::from_str(&request).unwrap();
             assert_eq!(value["method"], "server.live_handoff");
-            assert_eq!(value["params"]["import_exe"], "/tmp/herdr-new");
+            assert_eq!(value["params"]["import_exe"], "/tmp/hako-new");
             assert_eq!(value["params"]["expected_protocol"], 77);
             assert_eq!(value["params"]["expected_version"], "9.8.7");
             stream
@@ -2399,14 +2521,14 @@ mod tests {
         let release = ReleaseInfo {
             version: Version::parse("9.8.7").unwrap(),
             target_protocol: Some(77),
-            download_url: "https://example.com/herdr".to_string(),
+            download_url: "https://example.com/hako".to_string(),
             notes_body: "### Changed\n- One".to_string(),
         };
 
         let result = live_handoff_server_via_api_for_release_at(
             &socket_path,
             Duration::from_millis(200),
-            Path::new("/tmp/herdr-new"),
+            Path::new("/tmp/hako-new"),
             &release,
         );
         let _ = handle.join();
