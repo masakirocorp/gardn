@@ -2,6 +2,7 @@ use crate::config::{
     CustomThemeColors, Keybinds, NewTerminalCwdConfig, SoundConfig, ThemeConfig, ThemeMode,
     ToastConfig, ToastDelivery,
 };
+use crate::detect::AgentState;
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Direction, Rect};
 use ratatui::style::Color;
@@ -805,7 +806,57 @@ pub enum Mode {
     GroupMenu,
     AgentMenu,
     KeybindHelp,
+    Navigator,
     CommandPalette,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NavigatorTarget {
+    Workspace {
+        ws_idx: usize,
+    },
+    Tab {
+        ws_idx: usize,
+        tab_idx: usize,
+    },
+    Pane {
+        ws_idx: usize,
+        tab_idx: usize,
+        pane_id: PaneId,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NavigatorRow {
+    pub target: NavigatorTarget,
+    pub depth: u8,
+    pub label: String,
+    pub meta: String,
+    pub status: AgentState,
+    pub seen: bool,
+    pub is_current: bool,
+    pub is_workspace: bool,
+    pub is_tab: bool,
+    pub expanded: bool,
+    pub search_text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NavigatorStateFilter {
+    Blocked,
+    Working,
+    Idle,
+    Done,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct NavigatorState {
+    pub query: String,
+    pub selected: usize,
+    pub scroll: usize,
+    pub search_focused: bool,
+    pub state_filter: Option<NavigatorStateFilter>,
+    pub expanded_workspaces: std::collections::HashSet<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -1279,6 +1330,7 @@ pub struct AppState {
     pub release_notes: Option<ReleaseNotesState>,
     pub product_announcement: Option<ProductAnnouncementState>,
     pub keybind_help: KeybindHelpState,
+    pub navigator: NavigatorState,
     pub command_palette: CommandPaletteState,
     pub command_catalog: Vec<crate::commands::ProjectCommand>,
     pub command_runs: std::collections::HashMap<String, crate::commands::CommandRun>,
@@ -1808,6 +1860,7 @@ impl AppState {
                 selected: 0,
                 scroll: 0,
             },
+            navigator: NavigatorState::default(),
             command_catalog: Vec::new(),
             command_runs: std::collections::HashMap::new(),
             port_registry: crate::ports::PortRegistry::default(),

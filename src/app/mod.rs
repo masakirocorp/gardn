@@ -489,6 +489,7 @@ impl App {
                 selected: 0,
                 scroll: 0,
             },
+            navigator: state::NavigatorState::default(),
             command_catalog: Vec::new(),
             command_runs: HashMap::new(),
             port_registry: crate::ports::PortRegistry::default(),
@@ -1362,6 +1363,9 @@ impl App {
             }
             Mode::KeybindHelp => {
                 input::handle_keybind_help_key(&mut self.state, key_event);
+            }
+            Mode::Navigator => {
+                input::handle_navigator_key(&mut self.state, key_event);
             }
             Mode::CommandPalette => {
                 self.handle_command_palette_key(key_event);
