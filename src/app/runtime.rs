@@ -112,6 +112,7 @@ impl App {
                 }
                 self.state.outer_terminal_focus = Some(true);
                 self.state.mark_active_tab_seen();
+                self.query_host_terminal_theme();
                 true
             }
             crate::raw_input::RawInputEvent::OuterFocusLost => {

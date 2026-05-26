@@ -97,6 +97,8 @@ pub struct App {
     pub(crate) overlay_panes: HashMap<crate::layout::PaneId, OverlayPaneState>,
     pub(crate) local_terminal_notifications: bool,
     pub(crate) config_reloaded_from_disk: bool,
+    #[cfg(test)]
+    pub(crate) host_terminal_theme_query_count: std::cell::Cell<usize>,
 }
 
 pub(crate) enum LoopEvent {
@@ -689,6 +691,8 @@ impl App {
             overlay_panes: HashMap::new(),
             local_terminal_notifications: true,
             config_reloaded_from_disk: false,
+            #[cfg(test)]
+            host_terminal_theme_query_count: std::cell::Cell::new(0),
         }
     }
 
@@ -1197,6 +1201,7 @@ impl App {
                 self.state.host_terminal_theme,
             );
             self.state.apply_effective_theme();
+            self.query_host_terminal_theme();
         }
 
         let status = if diagnostics.is_empty() {
@@ -1322,8 +1327,12 @@ impl App {
                         }
                     }
                 }
-                crate::raw_input::RawInputEvent::OuterFocusGained
-                | crate::raw_input::RawInputEvent::OuterFocusLost => {}
+                crate::raw_input::RawInputEvent::OuterFocusGained => {
+                    if apply_host_terminal_theme {
+                        self.query_host_terminal_theme();
+                    }
+                }
+                crate::raw_input::RawInputEvent::OuterFocusLost => {}
                 crate::raw_input::RawInputEvent::HostDefaultColor { kind, color } => {
                     if apply_host_terminal_theme {
                         self.update_host_terminal_theme(kind, color);
@@ -2016,6 +2025,7 @@ mod tests {
         assert!(content.contains("light = \"solarized-light\""));
         assert!(content.contains("dark = \"rose-pine\""));
         assert!(content.contains("mode = \"system\""));
+        assert_eq!(app.host_terminal_theme_query_count.get(), 1);
     }
 
     #[test]
@@ -2178,6 +2188,7 @@ mod tests {
         assert!(handled);
         assert_eq!(app.state.outer_terminal_focus, Some(true));
         assert!(!app.full_redraw_pending);
+        assert_eq!(app.host_terminal_theme_query_count.get(), 1);
     }
 
     #[tokio::test]
@@ -3408,6 +3419,15 @@ mod tests {
             app.state.palette.panel_bg,
             state::Palette::gruvbox_light().panel_bg
         );
+    }
+
+    #[test]
+    fn route_client_input_requeries_host_terminal_theme_on_focus_gained() {
+        let mut app = test_app();
+
+        app.route_client_input(b"\x1b[I".to_vec());
+
+        assert_eq!(app.host_terminal_theme_query_count.get(), 1);
     }
 
     #[test]

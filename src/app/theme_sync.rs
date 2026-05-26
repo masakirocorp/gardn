@@ -8,6 +8,9 @@ fn is_system_theme(name: &str) -> bool {
 
 impl App {
     pub(super) fn query_host_terminal_theme(&self) {
+        #[cfg(test)]
+        self.host_terminal_theme_query_count
+            .set(self.host_terminal_theme_query_count.get() + 1);
         use std::io::Write;
 
         let _ = std::io::stdout()
