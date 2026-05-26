@@ -1457,7 +1457,7 @@ mod tests {
     fn reload_local_client_config_refreshes_redraw_on_focus_gained() {
         let _guard = crate::config::test_config_env_lock().lock().unwrap();
         let path = std::env::temp_dir().join(format!(
-            "herdr-client-config-reload-{}-{}.toml",
+            "hako-client-config-reload-{}-{}.toml",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

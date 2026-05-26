@@ -38,6 +38,7 @@ pub enum AppEvent {
         message: Option<String>,
         custom_status: Option<String>,
         seq: Option<u64>,
+        session_ref: Option<crate::agent_resume::AgentSessionRef>,
     },
     /// Hook authority was explicitly cleared for a pane.
     HookAuthorityCleared {

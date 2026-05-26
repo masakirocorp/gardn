@@ -326,6 +326,35 @@ fn pane_shell_from(configured_shell: &str, env_shell: Option<String>) -> String 
         .unwrap_or_else(|| "/bin/sh".into())
 }
 
+fn restore_command_builder(agent: &str, fallback_shell: &str, argv: &[String]) -> CommandBuilder {
+    let mut cmd = CommandBuilder::new("/bin/sh");
+    cmd.arg("-c");
+    cmd.arg(
+        r#"agent="$1"
+fallback_shell="$2"
+early_window="$3"
+shift 3
+	start="$(date +%s 2>/dev/null || printf 0)"
+	"$@"
+	status="$?"
+	end="$(date +%s 2>/dev/null || printf 999999)"
+	elapsed="$((end - start))"
+	if [ "$status" -ne 0 ] && [ "$elapsed" -le "$early_window" ]; then
+	  printf 'hako: %s session restore failed; started a shell instead\n' "$agent"
+	fi
+	exec "$fallback_shell"
+	"#,
+    );
+    cmd.arg("hako-agent-restore");
+    cmd.arg(agent);
+    cmd.arg(fallback_shell);
+    cmd.arg("30");
+    for arg in argv {
+        cmd.arg(arg);
+    }
+    cmd
+}
+
 impl PaneRuntime {
     pub fn shutdown(self) {
         self.detect_handle.abort();
@@ -369,6 +398,7 @@ impl PaneRuntime {
             render_dirty,
             cmd,
             "failed to spawn shell",
+            None,
         )
     }
 
@@ -406,6 +436,7 @@ impl PaneRuntime {
             render_dirty,
             cmd,
             "failed to spawn command pane",
+            None,
         )
     }
 
@@ -446,6 +477,48 @@ impl PaneRuntime {
             render_dirty,
             cmd,
             "failed to spawn argv command pane",
+            None,
+        )
+    }
+
+    pub fn spawn_agent_restore(
+        pane_id: PaneId,
+        rows: u16,
+        cols: u16,
+        cwd: std::path::PathBuf,
+        restore_plan: &crate::agent_resume::AgentResumePlan,
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        default_shell: &str,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<AtomicBool>,
+    ) -> std::io::Result<Self> {
+        if restore_plan.argv.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "restore argv must not be empty",
+            ));
+        }
+
+        let shell = pane_shell(default_shell);
+        let mut cmd = restore_command_builder(&restore_plan.agent, &shell, &restore_plan.argv);
+        cmd.cwd(cwd);
+        cmd.env(crate::HAKO_ENV_VAR, crate::HAKO_ENV_VALUE);
+        apply_pane_terminal_env(&mut cmd);
+        crate::integration::apply_pane_env(&mut cmd, pane_id);
+        Self::spawn_command_builder(
+            pane_id,
+            rows,
+            cols,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            events,
+            render_notify,
+            render_dirty,
+            cmd,
+            "failed to spawn agent restore pane",
+            crate::detect::parse_agent_label(&restore_plan.agent),
         )
     }
 
@@ -460,6 +533,7 @@ impl PaneRuntime {
         render_dirty: Arc<AtomicBool>,
         cmd: CommandBuilder,
         spawn_error_message: &'static str,
+        initial_detected_agent: Option<Agent>,
     ) -> std::io::Result<Self> {
         let pty_system = native_pty_system();
         let pair = pty_system
@@ -615,12 +689,17 @@ impl PaneRuntime {
             let pending_release_for_task = pending_release.clone();
 
             let handle = tokio::spawn(async move {
-                let mut agent_presence = AgentDetectionPresence::from_agent(None);
-                let mut state = AgentState::Unknown;
+                let mut agent_presence = AgentDetectionPresence::from_agent(initial_detected_agent);
+                let mut state = if initial_detected_agent.is_some() {
+                    AgentState::Idle
+                } else {
+                    AgentState::Unknown
+                };
                 let mut last_process_check = Instant::now();
                 let mut last_foreground_pgid = None;
                 let mut pending_foreground_shell_clear = false;
                 let mut foreground_shell_exit_reported = false;
+                let mut pending_restore_probe = initial_detected_agent.is_some();
                 let mut last_claude_working_at = None;
                 let mut last_visible_blocker = false;
                 let mut last_visible_idle = false;
@@ -647,6 +726,7 @@ impl PaneRuntime {
                             last_foreground_pgid = None;
                             pending_foreground_shell_clear = false;
                             foreground_shell_exit_reported = false;
+                            pending_restore_probe = false;
                             last_claude_working_at = None;
                             last_visible_blocker = false;
                             last_visible_idle = false;
@@ -667,6 +747,7 @@ impl PaneRuntime {
                         || agent_presence.current_agent().is_none()
                         || foreground_group_changed
                         || pending_foreground_shell_clear
+                        || pending_restore_probe
                         || now.duration_since(last_process_check) >= PROCESS_RECHECK;
 
                     let mut agent_changed = false;
@@ -728,8 +809,10 @@ impl PaneRuntime {
                             };
                             if new_agent.is_some() {
                                 last_foreground_pgid = process_group_id;
+                                pending_restore_probe = false;
                             } else if agent_presence.current_agent().is_none() {
                                 last_foreground_pgid = None;
+                                pending_restore_probe = false;
                             }
                             if changed {
                                 agent = agent_presence.current_agent();
@@ -1308,6 +1391,68 @@ mod tests {
             &[("TERM", "vt100"), ("COLORTERM", "24bit")],
         );
         assert_eq!(output, "vt100\n24bit\n");
+    }
+
+    #[tokio::test]
+    async fn spawn_agent_restore_keeps_pane_alive_after_early_failure() {
+        let (events, mut event_rx) = mpsc::channel(4);
+        let runtime = PaneRuntime::spawn_agent_restore(
+            PaneId::from_raw(7),
+            24,
+            80,
+            std::env::current_dir().unwrap(),
+            &crate::agent_resume::AgentResumePlan {
+                agent: "codex".into(),
+                argv: vec!["/bin/sh".into(), "-c".into(), "exit 7".into()],
+                dedupe_key: "test".into(),
+            },
+            0,
+            crate::terminal_theme::TerminalTheme::default(),
+            "/bin/sh",
+            events,
+            Arc::new(Notify::new()),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+        assert!(runtime
+            .visible_text()
+            .contains("hako: codex session restore failed; started a shell instead"));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), event_rx.recv())
+                .await
+                .is_err(),
+            "fallback shell should keep the pane runtime alive"
+        );
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(2500);
+        let mut cleared = false;
+        while tokio::time::Instant::now() < deadline {
+            let Some(event) = tokio::time::timeout(
+                deadline.saturating_duration_since(tokio::time::Instant::now()),
+                event_rx.recv(),
+            )
+            .await
+            .expect("fallback shell should clear the seeded restored agent") else {
+                break;
+            };
+            if matches!(
+                event,
+                AppEvent::StateChanged {
+                    pane_id,
+                    agent: None,
+                    state: AgentState::Unknown,
+                    ..
+                } if pane_id == PaneId::from_raw(7)
+            ) {
+                cleared = true;
+                break;
+            }
+        }
+        assert!(cleared);
+
+        runtime.shutdown();
     }
 
     #[tokio::test]

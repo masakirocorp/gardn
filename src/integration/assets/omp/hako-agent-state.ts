@@ -1,7 +1,7 @@
 // installed by hako
 // safe to edit. this integration only activates inside hako-managed panes.
 // HAKO_INTEGRATION_ID=omp
-// HAKO_INTEGRATION_VERSION=1
+// HAKO_INTEGRATION_VERSION=2
 // @ts-nocheck
 
 import { createConnection } from "node:net";
@@ -52,6 +52,8 @@ const retryGraceMs = parseDurationEnv("HAKO_OMP_RETRY_GRACE_MS", 2500);
 const retryableErrorPattern =
   /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i;
 let reportSeq = Date.now() * 1000;
+let currentAgentSessionId: string | undefined;
+let currentAgentSessionPath: string | undefined;
 
 function nextReportSeq(): number {
   reportSeq += 1;
@@ -70,18 +72,45 @@ function parseDurationEnv(name: string, fallback: number): number {
   return parsed;
 }
 
+function updateSessionRef(ctx: any): void {
+  try {
+    const file = ctx?.sessionManager?.getSessionFile?.();
+    currentAgentSessionPath =
+      typeof file === "string" && file.startsWith("/") ? file : undefined;
+  } catch {
+    currentAgentSessionPath = undefined;
+  }
+
+  try {
+    const id = ctx?.sessionManager?.getSessionId?.();
+    currentAgentSessionId = typeof id === "string" && id.length > 0 ? id : undefined;
+  } catch {
+    currentAgentSessionId = undefined;
+  }
+}
+
+function withSessionRef(params: Record<string, unknown>): Record<string, unknown> {
+  if (currentAgentSessionPath) {
+    return { ...params, agent_session_path: currentAgentSessionPath };
+  }
+  if (currentAgentSessionId) {
+    return { ...params, agent_session_id: currentAgentSessionId };
+  }
+  return params;
+}
+
 function sendState(state: AgentState, message?: string, seq = nextReportSeq()): Promise<void> {
   return sendRequest({
     id: `${source}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     method: "pane.report_agent",
-    params: {
+    params: withSessionRef({
       pane_id: paneId,
       source,
-      agent: "omp",
+      agent: "pi",
       state,
       message,
       seq,
-    },
+    }),
   });
 }
 
@@ -146,7 +175,7 @@ function releaseAgent(): Promise<void> {
     params: {
       pane_id: paneId,
       source,
-      agent: "omp",
+      agent: "pi",
       seq: nextReportSeq(),
     },
   });
@@ -200,9 +229,9 @@ export default function (pi) {
     return { state: "idle" as const, message: undefined };
   }
 
-  function publishState() {
+  function publishState(force = false) {
     const next = desiredState();
-    if (next.state === lastState && next.message === lastMessage) {
+    if (!force && next.state === lastState && next.message === lastMessage) {
       return;
     }
     lastState = next.state;
@@ -219,6 +248,11 @@ export default function (pi) {
     }, idleDebounceMs);
     idleTimer.unref?.();
   }
+
+  pi.on("session_start", (_event, ctx) => {
+    updateSessionRef(ctx);
+    publishState(true);
+  });
 
   function holdForRetry(message: string) {
     clearPendingTimers();
@@ -252,10 +286,6 @@ export default function (pi) {
     publishState();
   });
 
-  pi.on("session_start", () => {
-    publishState();
-  });
-
   pi.on("agent_start", () => {
     clearPendingTimers();
     clearFailureState();
@@ -265,7 +295,7 @@ export default function (pi) {
 
   pi.on("agent_end", (event) => {
     if (!agentActive) {
-      // OMP can emit duplicate/late end events while auto-retry is already
+      // Pi can emit duplicate/late end events while auto-retry is already
       // holding the pane in Working. Do not let an unqualified duplicate end
       // cancel the retry hold and publish a false Idle.
       return;

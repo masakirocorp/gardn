@@ -18,6 +18,7 @@ const NESTED_HAKO_MESSAGES: [&str; 6] = [
     "recursion detected. base case not found. aborting.",
 ];
 
+mod agent_resume;
 mod api;
 mod app;
 mod cli;
@@ -179,7 +180,7 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # mouse_capture = true
 
 # Force a full redraw when the outer terminal regains focus.
-# Set false to reduce visible flashing when switching back to Herdr.
+# Set false to reduce visible flashing when switching back to Hako.
 # Trade-off: rare host terminal surface corruption may persist until the next full redraw.
 # redraw_on_focus_gained = true
 
@@ -224,6 +225,11 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # by default, droid is muted.
 # [ui.sound.agents]
 # droid = "off"
+
+[session]
+# Resume supported AI-agent panes into their native conversation sessions after
+# a Hako server restart. Requires official integrations that report session refs.
+# resume_agents_on_restore = false
 
 [experimental]
 # Allow launching hako from inside a hako-managed pane.

@@ -1737,7 +1737,7 @@ fn pane_run(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N]");
+        eprintln!("usage: hako pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
         return Ok(2);
     };
 
@@ -1748,6 +1748,8 @@ fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
     let mut message = None;
     let mut custom_status = None;
     let mut seq = None;
+    let mut agent_session_id = None;
+    let mut agent_session_path = None;
 
     let mut index = 1;
     while index < args.len() {
@@ -1800,6 +1802,22 @@ fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
                 seq = Some(parse_u64_flag("--seq", value)?);
                 index += 2;
             }
+            "--agent-session-id" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --agent-session-id");
+                    return Ok(2);
+                };
+                agent_session_id = Some(value.clone());
+                index += 2;
+            }
+            "--agent-session-path" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --agent-session-path");
+                    return Ok(2);
+                };
+                agent_session_path = Some(value.clone());
+                index += 2;
+            }
             other => {
                 eprintln!("unknown option: {other}");
                 return Ok(2);
@@ -1828,6 +1846,8 @@ fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
         message,
         custom_status,
         seq,
+        agent_session_id,
+        agent_session_path,
     }))
 }
 
@@ -2437,7 +2457,7 @@ fn print_pane_help() {
     eprintln!("  hako pane close <pane_id>");
     eprintln!("  hako pane send-text <pane_id> <text>");
     eprintln!("  hako pane send-keys <pane_id> <key> [key ...]");
-    eprintln!("  hako pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N]");
+    eprintln!("  hako pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
     eprintln!("  hako pane run <pane_id> <command>");
 }
 fn print_wait_help() {
