@@ -1019,7 +1019,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
         "omp integration install should write local files without a server"
     );
     let omp_content = fs::read_to_string(&expected_omp_extension).unwrap();
-    assert!(omp_content.contains("agent: \"omp\","));
+    assert!(omp_content.contains("HAKO_INTEGRATION_ID=omp"));
 
     let integration_status = Command::new(env!("CARGO_BIN_EXE_hako"))
         .args(["integration", "status"])
@@ -1031,7 +1031,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
     let status_stdout = String::from_utf8_lossy(&integration_status.stdout);
     assert!(status_stdout.contains("pi: current (v2)"));
     assert!(status_stdout.contains("claude: not installed"));
-    assert!(status_stdout.contains("omp: current (v1)"));
+    assert!(status_stdout.contains("omp: current (v2)"));
 
     let integration_uninstall = Command::new(env!("CARGO_BIN_EXE_hako"))
         .args(["integration", "uninstall", "pi"])
