@@ -234,7 +234,6 @@ fn restore_tab(
                 launch,
                 scrollback_limit_bytes,
                 crate::terminal_theme::TerminalTheme::default(),
-                default_shell,
                 events.clone(),
                 render_notify.clone(),
                 render_dirty.clone(),
