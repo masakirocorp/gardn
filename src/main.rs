@@ -18,6 +18,7 @@ const NESTED_HAKO_MESSAGES: [&str; 6] = [
     "recursion detected. base case not found. aborting.",
 ];
 
+mod agent_resume;
 mod api;
 mod app;
 mod cli;
@@ -178,6 +179,11 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # Pane apps like lazygit and btop can still receive mouse when they request it.
 # mouse_capture = true
 
+# Force a full redraw when the outer terminal regains focus.
+# Set false to reduce visible flashing when switching back to Hako.
+# Trade-off: rare host terminal surface corruption may persist until the next full redraw.
+# redraw_on_focus_gained = true
+
 # Pane scrollback lines to scroll per mouse wheel notch.
 # mouse_scroll_lines = 3
 
@@ -220,12 +226,19 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # [ui.sound.agents]
 # droid = "off"
 
+[session]
+# Resume supported AI-agent panes into their native conversation sessions after
+# a Hako server restart. Requires official integrations that report session refs.
+# resume_agents_on_restore = false
+
 [experimental]
 # Allow launching hako from inside a hako-managed pane.
 # allow_nested = false
 # Experimental local Kitty graphics rendering for attached clients.
 # Requires a Kitty graphics-compatible outer terminal.
 # kitty_graphics = false
+# Save recent pane screen history across full server restarts.
+pane_history = false
 # Expose the focused pane's cursor to the outer terminal so macOS input
 # methods keep tracking the candidate window when TUIs paint their own
 # cursor (Claude Code, pi, codex). Trade-off: extra cursor visible for

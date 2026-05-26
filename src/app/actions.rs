@@ -6,12 +6,15 @@ use tracing::{info, warn};
 use crate::detect::{Agent, AgentState};
 use crate::events::AppEvent;
 use crate::layout::{find_in_direction, NavDirection, PaneId};
-use crate::terminal::EffectiveStateChange;
+use crate::terminal::{EffectiveStateChange, TerminalStateMutation};
 #[cfg(test)]
 use crate::workspace::GitWorkSummary;
 use crate::workspace::WorkspaceGitStatus;
 
-use super::state::{AppState, Group, Mode, ToastKind, ToastNotification, ToastTarget, ViewLayout};
+use super::state::{
+    AppState, Group, Mode, NavigatorRow, NavigatorStateFilter, NavigatorTarget, ToastKind,
+    ToastNotification, ToastTarget, ViewLayout,
+};
 
 fn hunk_diff_project_command(root: std::path::PathBuf) -> crate::commands::ProjectCommand {
     crate::commands::ProjectCommand {
@@ -119,6 +122,489 @@ pub struct PaneStateUpdate {
     pub known_agent: Option<Agent>,
     pub state: AgentState,
     pub custom_status: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Navigator operations
+// ---------------------------------------------------------------------------
+
+impl AppState {
+    pub(crate) fn open_navigator(&mut self) {
+        self.navigator.query.clear();
+        self.navigator.search_focused = false;
+        self.navigator.state_filter = None;
+        self.navigator.scroll = 0;
+        self.navigator.expanded_workspaces.clear();
+
+        for ws in &self.workspaces {
+            self.navigator.expanded_workspaces.insert(ws.id.clone());
+        }
+
+        self.mode = Mode::Navigator;
+        self.navigator.selected = self.current_navigator_row_index().unwrap_or(0);
+        self.ensure_navigator_selection_visible();
+    }
+
+    pub(crate) fn navigator_rows(&self) -> Vec<NavigatorRow> {
+        let query = self.navigator.query.trim().to_lowercase();
+        let query_kind = navigator_query_kind(&query, self.navigator.state_filter);
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let mut rows = Vec::new();
+        for (ws_idx, ws) in self.workspaces.iter().enumerate() {
+            let workspace_label = ws.display_name_from(&self.terminals, &terminal_runtimes);
+            let activity = workspace_activity_summary(ws, &self.terminals);
+            let workspace_search_text = format!("{workspace_label} {activity}").to_lowercase();
+            let workspace_matches = match query_kind {
+                NavigatorQueryKind::Empty => true,
+                NavigatorQueryKind::State(filter) => {
+                    let (state, seen) = ws.aggregate_state(&self.terminals);
+                    navigator_state_filter_matches(filter, state, seen)
+                }
+                NavigatorQueryKind::Text => navigator_matches(&query, &workspace_search_text),
+            };
+
+            let child_rows = self.navigator_child_rows(ws_idx, query_kind, &query);
+            if !workspace_matches && child_rows.is_empty() {
+                continue;
+            }
+
+            let expanded = !matches!(query_kind, NavigatorQueryKind::Empty)
+                || self.navigator.expanded_workspaces.contains(&ws.id);
+            let (state, seen) = ws.aggregate_state(&self.terminals);
+            let pane_count = ws.tabs.iter().map(|tab| tab.panes.len()).sum::<usize>();
+            rows.push(NavigatorRow {
+                target: NavigatorTarget::Workspace { ws_idx },
+                depth: 0,
+                label: format!("{workspace_label} ({pane_count})"),
+                meta: activity,
+                status: state,
+                seen,
+                is_current: self.active == Some(ws_idx),
+                is_workspace: true,
+                is_tab: false,
+                expanded,
+                search_text: workspace_search_text,
+            });
+            if expanded {
+                rows.extend(child_rows);
+            }
+        }
+        rows
+    }
+
+    fn navigator_child_rows(
+        &self,
+        ws_idx: usize,
+        query_kind: NavigatorQueryKind,
+        query: &str,
+    ) -> Vec<NavigatorRow> {
+        let Some(ws) = self.workspaces.get(ws_idx) else {
+            return Vec::new();
+        };
+        let multi_tab = ws.tabs.len() > 1;
+        let mut rows = Vec::new();
+        for tab_idx in 0..ws.tabs.len() {
+            let tab_row = multi_tab.then(|| self.navigator_tab_row(ws_idx, tab_idx));
+            let tab_matches = tab_row.as_ref().is_some_and(|row| match query_kind {
+                NavigatorQueryKind::Empty => true,
+                NavigatorQueryKind::State(filter) => {
+                    navigator_state_filter_matches(filter, row.status, row.seen)
+                }
+                NavigatorQueryKind::Text => navigator_matches(query, &row.search_text),
+            });
+            let pane_rows = self.navigator_pane_rows_for_tab(ws_idx, tab_idx, multi_tab);
+            let filtered_panes = match query_kind {
+                NavigatorQueryKind::Empty => pane_rows,
+                NavigatorQueryKind::State(filter) => pane_rows
+                    .into_iter()
+                    .filter(|row| navigator_state_filter_matches(filter, row.status, row.seen))
+                    .collect::<Vec<_>>(),
+                NavigatorQueryKind::Text if tab_matches => pane_rows,
+                NavigatorQueryKind::Text => pane_rows
+                    .into_iter()
+                    .filter(|row| navigator_matches(query, &row.search_text))
+                    .collect::<Vec<_>>(),
+            };
+
+            if let Some(tab_row) = tab_row {
+                if tab_matches || !filtered_panes.is_empty() {
+                    rows.push(tab_row);
+                }
+            }
+            rows.extend(filtered_panes);
+        }
+        rows
+    }
+
+    fn navigator_tab_row(&self, ws_idx: usize, tab_idx: usize) -> NavigatorRow {
+        let ws = &self.workspaces[ws_idx];
+        let tab = &ws.tabs[tab_idx];
+        let label = tab.display_name();
+        let (status, seen) = tab_aggregate_state(tab, &self.terminals);
+        let activity = tab_activity_summary(tab, &self.terminals);
+        let pane_count = tab.panes.len();
+        let meta = if activity.is_empty() {
+            format!("{pane_count} panes")
+        } else {
+            format!("{pane_count} panes · {activity}")
+        };
+        let search_text = format!("{label} {meta}").to_lowercase();
+        NavigatorRow {
+            target: NavigatorTarget::Tab { ws_idx, tab_idx },
+            depth: 1,
+            label,
+            meta,
+            status,
+            seen,
+            is_current: false,
+            is_workspace: false,
+            is_tab: true,
+            expanded: true,
+            search_text,
+        }
+    }
+
+    fn navigator_pane_rows_for_tab(
+        &self,
+        ws_idx: usize,
+        tab_idx: usize,
+        multi_tab: bool,
+    ) -> Vec<NavigatorRow> {
+        let Some(ws) = self.workspaces.get(ws_idx) else {
+            return Vec::new();
+        };
+        let Some(tab) = ws.tabs.get(tab_idx) else {
+            return Vec::new();
+        };
+        let mut rows = Vec::new();
+        for pane_id in tab.layout.pane_ids() {
+            let Some(pane) = tab.panes.get(&pane_id) else {
+                continue;
+            };
+            let terminal = self.terminals.get(&pane.attached_terminal_id);
+            let pane_number = ws.public_pane_number(pane_id).unwrap_or(0);
+            let label = terminal
+                .and_then(|terminal| terminal.manual_label.as_deref())
+                .or_else(|| terminal.and_then(|terminal| terminal.agent_name.as_deref()))
+                .or_else(|| terminal.and_then(|terminal| terminal.effective_agent_label()))
+                .map(str::to_string)
+                .or_else(|| {
+                    launch_label(terminal.and_then(|terminal| terminal.launch_argv.as_ref()))
+                })
+                .unwrap_or_else(|| format!("pane {pane_number}"));
+            let agent_label = terminal
+                .and_then(|terminal| terminal.agent_name.as_deref())
+                .or_else(|| terminal.and_then(|terminal| terminal.effective_agent_label()));
+            let custom_status = terminal.and_then(|terminal| terminal.effective_custom_status());
+            let state = terminal
+                .map(|terminal| terminal.state)
+                .unwrap_or(AgentState::Unknown);
+            let status = custom_status
+                .map(str::to_string)
+                .or_else(|| agent_label.map(|_| state_label_text(state, pane.seen).to_string()));
+            let meta = match (agent_label, status.as_deref()) {
+                (Some(agent_label), Some(status)) => format!("{agent_label} · {status}"),
+                (Some(agent_label), None) => agent_label.to_string(),
+                (None, _) => "shell".to_string(),
+            };
+            let is_current = self.is_active_pane(ws_idx, tab_idx, pane_id);
+            let search_text = format!("{label} {meta}").to_lowercase();
+            rows.push(NavigatorRow {
+                target: NavigatorTarget::Pane {
+                    ws_idx,
+                    tab_idx,
+                    pane_id,
+                },
+                depth: if multi_tab { 2 } else { 1 },
+                label,
+                meta,
+                status: state,
+                seen: pane.seen,
+                is_current,
+                is_workspace: false,
+                is_tab: false,
+                expanded: false,
+                search_text,
+            });
+        }
+        rows
+    }
+
+    fn current_navigator_row_index(&self) -> Option<usize> {
+        let rows = self.navigator_rows();
+        rows.iter()
+            .position(|row| matches!(row.target, NavigatorTarget::Pane { .. }) && row.is_current)
+            .or_else(|| rows.iter().position(|row| row.is_current))
+    }
+
+    pub(crate) fn ensure_navigator_selection_visible(&mut self) {
+        let body = self.navigator_body_rect();
+        let viewport = body.height as usize;
+        if viewport == 0 {
+            self.navigator.scroll = 0;
+            return;
+        }
+        let max_scroll = self.navigator_max_scroll(viewport);
+        if self.navigator.selected < self.navigator.scroll {
+            self.navigator.scroll = self.navigator.selected;
+        } else if self.navigator.selected >= self.navigator.scroll.saturating_add(viewport) {
+            self.navigator.scroll = self
+                .navigator
+                .selected
+                .saturating_add(1)
+                .saturating_sub(viewport);
+        }
+        self.navigator.scroll = self.navigator.scroll.min(max_scroll);
+    }
+
+    pub(crate) fn navigator_max_scroll(&self, viewport: usize) -> usize {
+        if viewport == 0 {
+            return 0;
+        }
+        self.navigator_rows().len().saturating_sub(viewport)
+    }
+
+    pub(crate) fn move_navigator_selection(&mut self, delta: isize) {
+        let count = self.navigator_rows().len();
+        if count == 0 {
+            self.navigator.selected = 0;
+            self.navigator.scroll = 0;
+            return;
+        }
+        let current = self.navigator.selected.min(count - 1) as isize;
+        self.navigator.selected = (current + delta).clamp(0, count as isize - 1) as usize;
+        self.ensure_navigator_selection_visible();
+    }
+
+    pub(crate) fn clamp_navigator_selection(&mut self) {
+        let count = self.navigator_rows().len();
+        self.navigator.selected = self.navigator.selected.min(count.saturating_sub(1));
+        self.ensure_navigator_selection_visible();
+    }
+
+    pub(crate) fn toggle_selected_navigator_workspace(&mut self) {
+        let Some(row) = self.navigator_rows().get(self.navigator.selected).cloned() else {
+            return;
+        };
+        let NavigatorTarget::Workspace { ws_idx } = row.target else {
+            return;
+        };
+        let Some(workspace_id) = self.workspaces.get(ws_idx).map(|ws| ws.id.clone()) else {
+            return;
+        };
+        if self.navigator.expanded_workspaces.contains(&workspace_id) {
+            self.navigator.expanded_workspaces.remove(&workspace_id);
+        } else {
+            self.navigator.expanded_workspaces.insert(workspace_id);
+        }
+        self.clamp_navigator_selection();
+    }
+
+    pub(crate) fn accept_navigator_selection(&mut self) -> bool {
+        let Some(row) = self.navigator_rows().get(self.navigator.selected).cloned() else {
+            return false;
+        };
+        self.focus_navigator_target(row.target)
+    }
+
+    pub(crate) fn focus_navigator_target(&mut self, target: NavigatorTarget) -> bool {
+        match target {
+            NavigatorTarget::Workspace { ws_idx } => {
+                if ws_idx >= self.workspaces.len() {
+                    return false;
+                }
+                self.switch_workspace(ws_idx);
+                self.mode = Mode::Terminal;
+                true
+            }
+            NavigatorTarget::Tab { ws_idx, tab_idx } => {
+                if ws_idx >= self.workspaces.len() {
+                    return false;
+                }
+                let tab_exists = self
+                    .workspaces
+                    .get(ws_idx)
+                    .is_some_and(|ws| tab_idx < ws.tabs.len());
+                if !tab_exists {
+                    return false;
+                }
+                self.switch_workspace(ws_idx);
+                self.switch_tab(tab_idx);
+                self.mode = Mode::Terminal;
+                true
+            }
+            NavigatorTarget::Pane {
+                ws_idx,
+                tab_idx,
+                pane_id,
+            } => {
+                if ws_idx >= self.workspaces.len() {
+                    return false;
+                }
+                self.switch_workspace(ws_idx);
+                self.switch_tab(tab_idx);
+                if let Some(tab) = self
+                    .workspaces
+                    .get_mut(ws_idx)
+                    .and_then(|ws| ws.tabs.get_mut(tab_idx))
+                {
+                    if tab.panes.contains_key(&pane_id) {
+                        tab.layout.focus_pane(pane_id);
+                        self.mark_session_dirty();
+                        self.mode = Mode::Terminal;
+                        return true;
+                    }
+                }
+                false
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NavigatorQueryKind {
+    Empty,
+    Text,
+    State(NavigatorStateFilter),
+}
+
+fn navigator_query_kind(
+    query: &str,
+    state_filter: Option<NavigatorStateFilter>,
+) -> NavigatorQueryKind {
+    if let Some(filter) = state_filter {
+        return NavigatorQueryKind::State(filter);
+    }
+    if query.is_empty() {
+        NavigatorQueryKind::Empty
+    } else {
+        NavigatorQueryKind::Text
+    }
+}
+
+fn navigator_state_filter_matches(
+    filter: NavigatorStateFilter,
+    state: AgentState,
+    seen: bool,
+) -> bool {
+    match filter {
+        NavigatorStateFilter::Blocked => state == AgentState::Blocked,
+        NavigatorStateFilter::Working => state == AgentState::Working,
+        NavigatorStateFilter::Idle => state == AgentState::Idle && seen,
+        NavigatorStateFilter::Done => state == AgentState::Idle && !seen,
+    }
+}
+
+fn navigator_matches(query: &str, text: &str) -> bool {
+    query
+        .split_whitespace()
+        .all(|part| text.contains(&part.to_lowercase()))
+}
+
+fn launch_label(argv: Option<&Vec<String>>) -> Option<String> {
+    let argv = argv?;
+    let command = argv.first()?;
+    std::path::Path::new(command)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_string)
+        .or_else(|| Some(command.clone()))
+}
+
+fn state_label_text(state: AgentState, seen: bool) -> &'static str {
+    match (state, seen) {
+        (AgentState::Blocked, _) => "blocked",
+        (AgentState::Working, _) => "working",
+        (AgentState::Idle, false) => "done",
+        (AgentState::Idle, true) => "idle",
+        (AgentState::Unknown, _) => "unknown",
+    }
+}
+
+fn tab_aggregate_state(
+    tab: &crate::workspace::Tab,
+    terminals: &std::collections::HashMap<
+        crate::terminal::TerminalId,
+        crate::terminal::TerminalState,
+    >,
+) -> (AgentState, bool) {
+    let mut aggregate = AgentState::Unknown;
+    let mut seen = true;
+    for pane in tab.panes.values() {
+        let Some(terminal) = terminals.get(&pane.attached_terminal_id) else {
+            continue;
+        };
+        if state_priority(terminal.state, pane.seen) > state_priority(aggregate, seen) {
+            aggregate = terminal.state;
+            seen = pane.seen;
+        }
+    }
+    (aggregate, seen)
+}
+
+fn state_priority(state: AgentState, seen: bool) -> u8 {
+    match (state, seen) {
+        (AgentState::Blocked, _) => 5,
+        (AgentState::Working, _) => 4,
+        (AgentState::Idle, false) => 3,
+        (AgentState::Idle, true) => 2,
+        (AgentState::Unknown, _) => 1,
+    }
+}
+
+fn tab_activity_summary(
+    tab: &crate::workspace::Tab,
+    terminals: &std::collections::HashMap<
+        crate::terminal::TerminalId,
+        crate::terminal::TerminalState,
+    >,
+) -> String {
+    activity_summary_for_panes(tab.panes.values(), terminals)
+}
+
+fn workspace_activity_summary(
+    ws: &crate::workspace::Workspace,
+    terminals: &std::collections::HashMap<
+        crate::terminal::TerminalId,
+        crate::terminal::TerminalState,
+    >,
+) -> String {
+    activity_summary_for_panes(ws.tabs.iter().flat_map(|tab| tab.panes.values()), terminals)
+}
+
+fn activity_summary_for_panes<'a>(
+    panes: impl Iterator<Item = &'a crate::pane::PaneState>,
+    terminals: &std::collections::HashMap<
+        crate::terminal::TerminalId,
+        crate::terminal::TerminalState,
+    >,
+) -> String {
+    let mut blocked = 0usize;
+    let mut working = 0usize;
+    let mut done = 0usize;
+    for pane in panes {
+        let Some(terminal) = terminals.get(&pane.attached_terminal_id) else {
+            continue;
+        };
+        match (terminal.state, pane.seen) {
+            (AgentState::Blocked, _) => blocked += 1,
+            (AgentState::Working, _) => working += 1,
+            (AgentState::Idle, false) => done += 1,
+            _ => {}
+        }
+    }
+
+    let mut parts = Vec::new();
+    if blocked > 0 {
+        parts.push(format!("{blocked} blocked"));
+    }
+    if working > 0 {
+        parts.push(format!("{working} working"));
+    }
+    if done > 0 {
+        parts.push(format!("{done} done"));
+    }
+    parts.join(" · ")
 }
 
 // ---------------------------------------------------------------------------
@@ -1483,7 +1969,7 @@ impl AppState {
                 observed_at,
             } => self
                 .update_terminal_state(pane_id, |terminal| {
-                    terminal.set_detected_state_with_screen_signals_at(
+                    Some(terminal.set_detected_state_with_screen_signals_at(
                         agent,
                         state,
                         visible_blocker,
@@ -1491,7 +1977,7 @@ impl AppState {
                         visible_working,
                         process_exited,
                         observed_at,
-                    )
+                    ))
                 })
                 .into_iter()
                 .collect(),
@@ -1503,14 +1989,16 @@ impl AppState {
                 message,
                 custom_status,
                 seq,
+                session_ref,
             } => self
                 .update_terminal_state(pane_id, |terminal| {
-                    terminal.set_hook_authority_with_custom_status(
+                    terminal.set_hook_authority_with_session_ref(
                         source,
                         agent_label,
                         state,
                         message,
                         custom_status,
+                        session_ref,
                         seq,
                     )
                 })
@@ -1522,7 +2010,7 @@ impl AppState {
                 seq,
             } => self
                 .update_terminal_state(pane_id, |terminal| {
-                    terminal.clear_hook_authority(source.as_deref(), seq)
+                    terminal.clear_hook_authority_with_mutation(source.as_deref(), seq)
                 })
                 .into_iter()
                 .collect(),
@@ -1534,7 +2022,7 @@ impl AppState {
                 ..
             } => self
                 .update_terminal_state(pane_id, |terminal| {
-                    terminal.release_agent(&source, &agent_label, seq)
+                    terminal.release_agent_with_mutation(&source, &agent_label, seq)
                 })
                 .into_iter()
                 .collect(),
@@ -1550,7 +2038,7 @@ impl AppState {
 
     fn update_terminal_state<F>(&mut self, pane_id: PaneId, update: F) -> Option<PaneStateUpdate>
     where
-        F: FnOnce(&mut crate::terminal::TerminalState) -> Option<EffectiveStateChange>,
+        F: FnOnce(&mut crate::terminal::TerminalState) -> Option<TerminalStateMutation>,
     {
         let ws_idx = self
             .workspaces
@@ -1560,10 +2048,14 @@ impl AppState {
             .pane_state(pane_id)?
             .attached_terminal_id
             .clone();
-        let change = {
+        let mutation = {
             let terminal = self.terminals.get_mut(&terminal_id)?;
             update(terminal)?
         };
+        if mutation.session_ref_changed {
+            self.mark_session_dirty();
+        }
+        let change = mutation.effective_state_change?;
         let update = PaneStateUpdate {
             pane_id,
             ws_idx,
@@ -1798,6 +2290,139 @@ mod tests {
             .unwrap();
         assert!(status.success());
         root
+    }
+
+    #[test]
+    fn navigator_rows_show_tab_nodes_only_for_multi_tab_workspaces() {
+        let mut state = app_with_workspaces(&["single", "multi"]);
+        state.workspaces[1].test_add_tab(Some("tests"));
+        state.ensure_test_terminals();
+
+        state.open_navigator();
+        let rows = state.navigator_rows();
+
+        assert!(!rows
+            .iter()
+            .any(|row| matches!(row.target, NavigatorTarget::Tab { ws_idx: 0, .. })));
+        assert!(rows.iter().any(|row| matches!(
+            row.target,
+            NavigatorTarget::Tab {
+                ws_idx: 1,
+                tab_idx: 0
+            }
+        )));
+        assert!(rows.iter().any(|row| matches!(
+            row.target,
+            NavigatorTarget::Tab {
+                ws_idx: 1,
+                tab_idx: 1
+            }
+        )));
+    }
+
+    #[test]
+    fn navigator_rows_include_shell_and_agent_panes() {
+        let mut state = app_with_workspaces(&["one"]);
+        let shell = state.workspaces[0].tabs[0].root_pane;
+        let agent = state.workspaces[0].test_split(Direction::Horizontal);
+        state.ensure_test_terminals();
+
+        let terminal_id = state.workspaces[0].terminal_id(agent).cloned().unwrap();
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_detected_state(Some(Agent::Claude), AgentState::Working);
+
+        state.open_navigator();
+        let rows = state.navigator_rows();
+
+        assert!(rows.iter().any(|row| matches!(
+            row.target,
+            NavigatorTarget::Pane { pane_id, .. } if pane_id == shell
+        )));
+        assert!(rows.iter().any(|row| matches!(
+            row.target,
+            NavigatorTarget::Pane { pane_id, .. } if pane_id == agent
+        ) && row.meta.contains("claude")));
+    }
+
+    #[test]
+    fn accepting_navigator_pane_switches_workspace_tab_and_focus() {
+        let mut state = app_with_workspaces(&["one", "two"]);
+        let target = state.workspaces[1].tabs[0].root_pane;
+        state.open_navigator();
+        state.navigator.selected = state
+            .navigator_rows()
+            .iter()
+            .position(|row| {
+                matches!(
+                    row.target,
+                    NavigatorTarget::Pane { pane_id, .. } if pane_id == target
+                )
+            })
+            .unwrap();
+
+        assert!(state.accept_navigator_selection());
+
+        assert_eq!(state.active, Some(1));
+        assert_eq!(state.workspaces[1].focused_pane_id(), Some(target));
+        assert_eq!(state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn navigator_search_filters_panes_but_keeps_workspace_context() {
+        let mut state = app_with_workspaces(&["one"]);
+        let root = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.workspaces[0].terminal_id(root).cloned().unwrap();
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_manual_label("weekly review".into());
+
+        state.open_navigator();
+        state.navigator.query = "weekly".into();
+        let rows = state.navigator_rows();
+
+        assert!(rows.iter().any(|row| row.is_workspace));
+        assert!(rows
+            .iter()
+            .any(|row| !row.is_workspace && row.label.contains("weekly")));
+    }
+
+    #[test]
+    fn navigator_state_filter_matches_agent_state_not_label_text() {
+        let mut state = app_with_workspaces(&["one"]);
+        let shell = state.workspaces[0].tabs[0].root_pane;
+        let working = state.workspaces[0].test_split(Direction::Horizontal);
+        state.ensure_test_terminals();
+
+        let shell_terminal_id = state.workspaces[0].terminal_id(shell).cloned().unwrap();
+        state
+            .terminals
+            .get_mut(&shell_terminal_id)
+            .unwrap()
+            .set_manual_label("working notes".into());
+        let working_terminal_id = state.workspaces[0].terminal_id(working).cloned().unwrap();
+        state
+            .terminals
+            .get_mut(&working_terminal_id)
+            .unwrap()
+            .set_detected_state(Some(Agent::Codex), AgentState::Working);
+
+        state.open_navigator();
+        state.navigator.state_filter = Some(NavigatorStateFilter::Working);
+        let rows = state.navigator_rows();
+
+        assert!(rows.iter().any(|row| matches!(
+            row.target,
+            NavigatorTarget::Pane { pane_id, .. } if pane_id == working
+        )));
+        assert!(!rows.iter().any(|row| matches!(
+            row.target,
+            NavigatorTarget::Pane { pane_id, .. } if pane_id == shell
+        )));
     }
 
     #[test]
@@ -2893,6 +3518,7 @@ mod tests {
             message: None,
             custom_status: None,
             seq: None,
+            session_ref: None,
         });
 
         let toast = state.toast.as_ref().unwrap();
@@ -2932,6 +3558,7 @@ mod tests {
             message: None,
             custom_status: None,
             seq: Some(1),
+            session_ref: None,
         });
         state.handle_app_event(AppEvent::StateChanged {
             pane_id: bg_pane_id,
@@ -2982,6 +3609,7 @@ mod tests {
             message: None,
             custom_status: None,
             seq: Some(1),
+            session_ref: None,
         });
         state.handle_app_event(AppEvent::StateChanged {
             pane_id: bg_pane_id,
@@ -2997,6 +3625,39 @@ mod tests {
         let terminal = state.terminals.get(&bg_terminal_id).unwrap();
         assert_eq!(terminal.state, AgentState::Working);
         assert!(state.toast.is_none());
+    }
+
+    #[test]
+    fn hidden_session_ref_only_update_marks_session_dirty_without_visible_update() {
+        let mut state = app_with_workspaces(&["active"]);
+        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
+
+        let first_updates = state.handle_app_event(AppEvent::HookStateReported {
+            pane_id,
+            source: "hako:pi".into(),
+            agent_label: "pi".into(),
+            state: AgentState::Working,
+            message: None,
+            custom_status: None,
+            seq: Some(20),
+            session_ref: crate::agent_resume::AgentSessionRef::path("/tmp/one.jsonl"),
+        });
+        assert_eq!(first_updates.len(), 1);
+        state.session_dirty = false;
+
+        let second_updates = state.handle_app_event(AppEvent::HookStateReported {
+            pane_id,
+            source: "hako:pi".into(),
+            agent_label: "pi".into(),
+            state: AgentState::Working,
+            message: None,
+            custom_status: None,
+            seq: Some(21),
+            session_ref: crate::agent_resume::AgentSessionRef::path("/tmp/two.jsonl"),
+        });
+
+        assert!(second_updates.is_empty());
+        assert!(state.session_dirty);
     }
 
     #[test]

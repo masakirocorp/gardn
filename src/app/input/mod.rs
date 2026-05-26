@@ -38,7 +38,7 @@ pub(crate) use self::{
     modal::{
         handle_agent_menu_key, handle_confirm_close_key, handle_confirm_delete_group_key,
         handle_context_menu_key, handle_global_menu_key, handle_group_menu_key,
-        handle_keybind_help_key, handle_rename_key, handle_resize_key,
+        handle_keybind_help_key, handle_navigator_key, handle_rename_key, handle_resize_key,
     },
     navigate::terminal_direct_navigation_action,
     settings::open_settings_at,
@@ -91,6 +91,7 @@ impl App {
                     Mode::GroupMenu => handle_group_menu_key(&mut self.state, key_event),
                     Mode::AgentMenu => handle_agent_menu_key(&mut self.state, key_event),
                     Mode::KeybindHelp => handle_keybind_help_key(&mut self.state, key_event),
+                    Mode::Navigator => handle_navigator_key(&mut self.state, key_event),
                     Mode::CommandPalette => self.handle_command_palette_key(key_event),
                     Mode::Terminal => unreachable!(),
                 }
@@ -330,6 +331,9 @@ impl App {
                 }
                 SettingsAction::SaveGroupTheme { group_idx, name } => {
                     self.state.set_group_theme(group_idx, name);
+                }
+                SettingsAction::SavePaneHistory(enabled) => {
+                    self.save_pane_history_persistence(enabled)
                 }
                 SettingsAction::InstallRecommendedIntegrations => {
                     self.install_recommended_integrations()

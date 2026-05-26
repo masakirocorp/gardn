@@ -39,6 +39,24 @@ pub struct SessionSnapshot {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct SessionHistorySnapshot {
+    /// Format version follows the matching session snapshot version.
+    #[serde(default)]
+    pub version: u32,
+    pub workspaces: Vec<WorkspaceHistorySnapshot>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct WorkspaceHistorySnapshot {
+    pub tabs: Vec<TabHistorySnapshot>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TabHistorySnapshot {
+    pub panes: HashMap<u32, PaneHistorySnapshot>,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct WorkspaceSnapshot {
     #[serde(default)]
     pub id: Option<String>,
@@ -112,6 +130,22 @@ pub struct PaneSnapshot {
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_session: Option<PaneAgentSessionSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaneAgentSessionSnapshot {
+    pub source: String,
+    pub agent: String,
+    pub kind: crate::agent_resume::AgentSessionRefKind,
+    pub value: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PaneHistorySnapshot {
+    pub ansi: String,
+    pub lines: usize,
 }
 
 /// Serializable BSP tree.
@@ -347,12 +381,37 @@ fn capture_tab(
             .get(id)
             .and_then(|pane| terminals.get(&pane.attached_terminal_id))
             .and_then(|terminal| terminal.agent_name.clone());
+        let agent_session =
+            tab.panes
+                .get(id)
+                .and_then(|pane| terminals.get(&pane.attached_terminal_id))
+                .and_then(|terminal| {
+                    if let Some(authority) = terminal.hook_authority.as_ref() {
+                        if let Some(session_ref) = authority.session_ref.as_ref() {
+                            return Some(PaneAgentSessionSnapshot {
+                                source: authority.source.clone(),
+                                agent: authority.agent_label.clone(),
+                                kind: session_ref.kind,
+                                value: session_ref.value.clone(),
+                            });
+                        }
+                    }
+                    terminal.persisted_agent_session.as_ref().map(|session| {
+                        PaneAgentSessionSnapshot {
+                            source: session.source.clone(),
+                            agent: session.agent.clone(),
+                            kind: session.session_ref.kind,
+                            value: session.session_ref.value.clone(),
+                        }
+                    })
+                });
         panes.insert(
             id.raw(),
             PaneSnapshot {
                 cwd,
                 label,
                 agent_name,
+                agent_session,
             },
         );
     }
@@ -364,6 +423,52 @@ fn capture_tab(
         focused: Some(tab.layout.focused().raw()),
         root_pane: Some(tab.root_pane.raw()),
     }
+}
+
+/// Capture pane screen history separately from the structural session snapshot.
+pub fn capture_history(
+    workspaces: &[Workspace],
+    terminal_runtimes: &TerminalRuntimeRegistry,
+) -> SessionHistorySnapshot {
+    SessionHistorySnapshot {
+        version: SNAPSHOT_VERSION,
+        workspaces: workspaces
+            .iter()
+            .map(|workspace| WorkspaceHistorySnapshot {
+                tabs: workspace
+                    .tabs
+                    .iter()
+                    .map(|tab| TabHistorySnapshot {
+                        panes: capture_tab_history(tab, terminal_runtimes),
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+fn capture_tab_history(
+    tab: &crate::workspace::Tab,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+) -> HashMap<u32, PaneHistorySnapshot> {
+    let mut panes = HashMap::new();
+    for (id, pane) in &tab.panes {
+        if let Some(history) = capture_pane_history(Some(pane), terminal_runtimes) {
+            panes.insert(id.raw(), history);
+        }
+    }
+    panes
+}
+
+fn capture_pane_history(
+    pane: Option<&crate::pane::PaneState>,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+) -> Option<PaneHistorySnapshot> {
+    let ansi = terminal_runtimes
+        .get(&pane?.attached_terminal_id)?
+        .snapshot_history()?;
+    let lines = ansi.lines().count();
+    Some(PaneHistorySnapshot { ansi, lines })
 }
 
 pub(super) fn capture_node(node: &Node) -> LayoutSnapshot {
@@ -395,6 +500,18 @@ pub(super) fn parse_snapshot(content: &str) -> Result<SessionSnapshot, String> {
         ));
     }
     migrate_snapshot(raw)
+}
+
+pub(super) fn parse_history_snapshot(content: &str) -> Result<SessionHistorySnapshot, String> {
+    let snapshot =
+        serde_json::from_str::<SessionHistorySnapshot>(content).map_err(|e| e.to_string())?;
+    if snapshot.version > SNAPSHOT_VERSION {
+        return Err(format!(
+            "history snapshot version {} is newer than supported {}",
+            snapshot.version, SNAPSHOT_VERSION
+        ));
+    }
+    Ok(snapshot)
 }
 
 pub(super) fn snapshot_file_version(content: &str) -> Option<u32> {
@@ -444,12 +561,19 @@ mod tests {
 
     fn capture_from_state(state: &AppState) -> SessionSnapshot {
         let terminal_runtimes = TerminalRuntimeRegistry::new();
+        capture_from_state_with_runtimes(state, &terminal_runtimes)
+    }
+
+    fn capture_from_state_with_runtimes(
+        state: &AppState,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+    ) -> SessionSnapshot {
         capture(
             &state.groups,
             state.active_group,
             &state.workspaces,
             &state.terminals,
-            &terminal_runtimes,
+            terminal_runtimes,
             state.active,
             state.selected,
             state.agent_panel_scope,
@@ -459,6 +583,13 @@ mod tests {
             state.right_sidebar_width,
             state.right_sidebar_collapsed,
         )
+    }
+
+    fn capture_history_from_state_with_runtimes(
+        state: &AppState,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+    ) -> SessionHistorySnapshot {
+        capture_history(&state.workspaces, terminal_runtimes)
     }
 
     #[test]
@@ -571,6 +702,7 @@ mod tests {
                 cwd: PathBuf::from("/home/can/Projects/hako"),
                 label: None,
                 agent_name: None,
+                agent_session: None,
             },
         );
         panes.insert(
@@ -579,6 +711,7 @@ mod tests {
                 cwd: PathBuf::from("/home/can/Projects/website"),
                 label: Some("website".into()),
                 agent_name: None,
+                agent_session: None,
             },
         );
 
@@ -698,6 +831,42 @@ mod tests {
         assert_eq!(restored.sidebar_section_split, None);
         assert_eq!(restored.right_sidebar_width, None);
         assert!(!restored.right_sidebar_collapsed);
+    }
+
+    #[test]
+    fn old_pane_snapshot_with_embedded_history_is_ignored() {
+        let json = serde_json::json!({
+            "version": SNAPSHOT_VERSION,
+            "workspaces": [{
+                "id": "wtest",
+                "identity_cwd": "/tmp",
+                "tabs": [{
+                    "layout": { "Pane": 0 },
+                    "panes": {
+                        "0": {
+                            "cwd": "/tmp",
+                            "history": {
+                                "ansi": "legacy-secret",
+                                "lines": 1
+                            }
+                        }
+                    },
+                    "zoomed": false,
+                    "focused": 0,
+                    "root_pane": 0
+                }],
+                "active_tab": 0
+            }],
+            "active": 0,
+            "selected": 0
+        })
+        .to_string();
+
+        let restored = parse_snapshot(&json).unwrap();
+
+        let encoded = serde_json::to_string(&restored).unwrap();
+        assert!(!encoded.contains("legacy-secret"));
+        assert!(!encoded.contains("\"history\""));
     }
 
     #[test]
@@ -886,6 +1055,152 @@ mod tests {
         assert_eq!(tab.panes[&second.raw()].cwd, PathBuf::from("/tmp/hako"));
     }
 
+    #[tokio::test]
+    async fn capture_contract_tracks_pane_history_from_runtime() {
+        let state = state_with_workspaces(&["one"]);
+        let root = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.workspaces[0].tabs[0].panes[&root]
+            .attached_terminal_id
+            .clone();
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+        terminal_runtimes.insert(
+            terminal_id,
+            crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
+                20,
+                3,
+                4096,
+                b"alpha\r\nbeta\r\ngamma\r\n",
+            ),
+        );
+
+        let snapshot = capture_from_state_with_runtimes(&state, &terminal_runtimes);
+        let encoded = serde_json::to_string(&snapshot).unwrap();
+        assert!(!encoded.contains("alpha"));
+        assert!(!encoded.contains("\"history\""));
+
+        let history_snapshot = capture_history_from_state_with_runtimes(&state, &terminal_runtimes);
+        let history = &history_snapshot.workspaces[0].tabs[0].panes[&root.raw()];
+
+        assert!(history.ansi.contains("alpha"));
+        assert!(history.ansi.contains("gamma"));
+        assert!(history.lines >= 3);
+    }
+
+    #[tokio::test]
+    async fn capture_contract_tracks_history_for_each_pane() {
+        let mut state = state_with_workspaces(&["one"]);
+        let first = state.workspaces[0].tabs[0].root_pane;
+        let second = state.workspaces[0].test_split(Direction::Horizontal);
+        let first_terminal_id = state.workspaces[0].tabs[0].panes[&first]
+            .attached_terminal_id
+            .clone();
+        let second_terminal_id = state.workspaces[0].tabs[0].panes[&second]
+            .attached_terminal_id
+            .clone();
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+        terminal_runtimes.insert(
+            first_terminal_id,
+            crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
+                20,
+                3,
+                4096,
+                b"first-pane-history\r\n",
+            ),
+        );
+        terminal_runtimes.insert(
+            second_terminal_id,
+            crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
+                20,
+                3,
+                4096,
+                b"second-pane-history\r\n",
+            ),
+        );
+
+        let snapshot = capture_from_state_with_runtimes(&state, &terminal_runtimes);
+        let encoded = serde_json::to_string(&snapshot).unwrap();
+        assert!(!encoded.contains("first-pane-history"));
+        assert!(!encoded.contains("second-pane-history"));
+
+        let history_snapshot = capture_history_from_state_with_runtimes(&state, &terminal_runtimes);
+        let tab = &history_snapshot.workspaces[0].tabs[0];
+        let first_history = &tab.panes[&first.raw()];
+        let second_history = &tab.panes[&second.raw()];
+
+        assert!(first_history.ansi.contains("first-pane-history"));
+        assert!(second_history.ansi.contains("second-pane-history"));
+    }
+
+    #[test]
+    fn capture_contract_tracks_hook_authority_agent_session() {
+        let mut state = state_with_workspaces(&["one"]);
+        let root = state.workspaces[0].tabs[0].root_pane;
+        state.ensure_test_terminals();
+        let terminal_id = state.workspaces[0].tabs[0].panes[&root]
+            .attached_terminal_id
+            .clone();
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_hook_authority_with_session_ref(
+                "hako:pi".into(),
+                "pi".into(),
+                crate::detect::AgentState::Working,
+                None,
+                None,
+                crate::agent_resume::AgentSessionRef::path("/tmp/pi-session.jsonl"),
+                Some(20),
+            );
+
+        let snapshot = capture_from_state(&state);
+        let agent_session = snapshot.workspaces[0].tabs[0].panes[&root.raw()]
+            .agent_session
+            .as_ref()
+            .expect("agent session should be captured");
+
+        assert_eq!(agent_session.source, "hako:pi");
+        assert_eq!(agent_session.agent, "pi");
+        assert_eq!(
+            agent_session.kind,
+            crate::agent_resume::AgentSessionRefKind::Path
+        );
+        assert_eq!(agent_session.value, "/tmp/pi-session.jsonl");
+    }
+
+    #[test]
+    fn capture_contract_preserves_restored_agent_session() {
+        let mut state = state_with_workspaces(&["one"]);
+        let root = state.workspaces[0].tabs[0].root_pane;
+        state.ensure_test_terminals();
+        let terminal_id = state.workspaces[0].tabs[0].panes[&root]
+            .attached_terminal_id
+            .clone();
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
+                source: "hako:opencode".into(),
+                agent: "opencode".into(),
+                session_ref: crate::agent_resume::AgentSessionRef::id("opencode-session").unwrap(),
+            });
+
+        let snapshot = capture_from_state(&state);
+        let agent_session = snapshot.workspaces[0].tabs[0].panes[&root.raw()]
+            .agent_session
+            .as_ref()
+            .expect("persisted agent session should be captured");
+
+        assert_eq!(agent_session.source, "hako:opencode");
+        assert_eq!(agent_session.agent, "opencode");
+        assert_eq!(
+            agent_session.kind,
+            crate::agent_resume::AgentSessionRefKind::Id
+        );
+        assert_eq!(agent_session.value, "opencode-session");
+    }
+
     #[test]
     fn old_unversioned_snapshot_loads_as_version_0() {
         let json = r#"{"workspaces":[],"active":null,"selected":0}"#;
@@ -915,6 +1230,7 @@ mod tests {
                 cwd: PathBuf::from("/tmp/this-directory-does-not-exist-for-hako-test"),
                 label: None,
                 agent_name: None,
+                agent_session: None,
             },
         );
         panes.insert(
@@ -925,6 +1241,7 @@ mod tests {
                     .unwrap_or_else(|_| PathBuf::from("/tmp")),
                 label: None,
                 agent_name: None,
+                agent_session: None,
             },
         );
 

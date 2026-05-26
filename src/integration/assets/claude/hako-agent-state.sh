@@ -2,7 +2,7 @@
 # installed by hako
 # safe to edit. this hook only activates inside hako-managed panes.
 # HAKO_INTEGRATION_ID=claude
-# HAKO_INTEGRATION_VERSION=3
+# HAKO_INTEGRATION_VERSION=4
 
 set -eu
 
@@ -60,6 +60,8 @@ if is_subagent and action in ("idle", "release"):
 
 request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
 report_seq = time.time_ns()
+session_id = hook_input.get("session_id")
+agent_session_id = session_id if isinstance(session_id, str) and session_id else None
 if action == "release":
     request = {
         "id": request_id,
@@ -83,6 +85,8 @@ else:
             "seq": report_seq,
         },
     }
+    if agent_session_id:
+        request["params"]["agent_session_id"] = agent_session_id
 
 try:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

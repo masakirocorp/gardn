@@ -142,6 +142,9 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                 app.settings.list.selected,
             );
         }
+        SettingsSection::Experiments => {
+            render_settings_experiments(app, frame, content_area);
+        }
         SettingsSection::Integrations => {
             render_settings_integrations(app, frame, content_area);
         }
@@ -745,6 +748,18 @@ fn render_settings_toggle(
     );
 }
 
+fn render_settings_experiments(app: &AppState, frame: &mut Frame, area: Rect) {
+    render_settings_toggle(
+        frame,
+        area,
+        &app.palette,
+        "pane screen history",
+        "save recent pane output across server restarts",
+        app.pane_history_persistence_enabled(),
+        app.settings.list.selected,
+    );
+}
+
 fn modal_option_style(p: &Palette, selected: bool) -> Style {
     if selected {
         Style::default()
@@ -1098,6 +1113,43 @@ mod tests {
         );
     }
 
+    #[test]
+    fn experiments_pane_history_uses_settings_choice_marker() {
+        let mut app = AppState::test_new();
+        app.pane_history_persistence = true;
+        app.settings.section = SettingsSection::Experiments;
+        app.settings.list.selected = 0;
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("on ✓"));
+        assert!(text.contains("pane screen history"));
+    }
+
+    #[test]
+    fn experiments_pane_history_keeps_off_marker_when_disabled() {
+        let mut app = AppState::test_new();
+        app.pane_history_persistence = false;
+        app.settings.section = SettingsSection::Experiments;
+        app.settings.list.selected = 1;
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("off ✓"));
+        assert!(text.contains("pane screen history"));
+    }
     fn assert_no_option_line(text: &str, option: &str) {
         let mut in_appearance_section = false;
         for line in text.lines() {

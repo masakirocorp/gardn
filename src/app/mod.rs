@@ -87,6 +87,7 @@ pub struct App {
     pub(crate) next_auto_update_check: Option<Instant>,
     pub(crate) selection_autoscroll_deadline: Option<Instant>,
     pub(crate) session_save_deadline: Option<Instant>,
+    pub(crate) persist_pane_history: bool,
     pub(crate) last_render_at: Option<Instant>,
     pub(crate) suppressed_repeat_keys:
         HashSet<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
@@ -315,12 +316,19 @@ impl App {
                 false,
             )
         } else if let Some(snap) = crate::persist::load() {
+            let history = config
+                .experimental
+                .pane_history
+                .then(crate::persist::load_history)
+                .flatten();
             let (ws, terminals, terminal_runtimes) = crate::persist::restore(
                 &snap,
+                history.as_ref(),
                 24,
                 80,
                 config.advanced.scrollback_limit_bytes,
                 &config.terminal.default_shell,
+                config.session.resume_agents_on_restore,
                 event_tx.clone(),
                 render_notify.clone(),
                 render_dirty.clone(),
@@ -458,7 +466,7 @@ impl App {
             request_new_workspace: false,
             request_new_tab: false,
             request_reload_config: false,
-            request_client_sound_config_reload: false,
+            request_client_config_reload: false,
             request_clipboard_write: None,
             request_command_action: None,
             creating_new_tab: false,
@@ -489,6 +497,7 @@ impl App {
                 selected: 0,
                 scroll: 0,
             },
+            navigator: state::NavigatorState::default(),
             command_catalog: Vec::new(),
             command_runs: HashMap::new(),
             port_registry: crate::ports::PortRegistry::default(),
@@ -550,10 +559,12 @@ impl App {
             collapsed_workspace_groups: Vec::new(),
             agent_panel_scope,
             mouse_capture: config.ui.mouse_capture,
+            redraw_on_focus_gained: config.ui.redraw_on_focus_gained,
             mouse_scroll_lines: config.ui.mouse_scroll_lines(),
             confirm_close: config.ui.confirm_close,
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             show_agent_labels_on_pane_borders: config.ui.show_agent_labels_on_pane_borders,
+            pane_history_persistence: config.experimental.pane_history,
             reveal_hidden_cursor_for_cjk_ime: config.experimental.reveal_hidden_cursor_for_cjk_ime,
             cjk_ime_agent_filter_configured: !config.experimental.cjk_ime_agents.is_empty(),
             cjk_ime_agents: parse_cjk_ime_agents(&config.experimental.cjk_ime_agents),
@@ -663,6 +674,7 @@ impl App {
                 .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL),
             session_save_deadline: None,
             selection_autoscroll_deadline: None,
+            persist_pane_history: config.experimental.pane_history,
             last_render_at: None,
             suppressed_repeat_keys: HashSet::new(),
             api_rx,
@@ -1105,6 +1117,10 @@ impl App {
                     .sidebar_width
                     .clamp(self.state.sidebar_min_width, self.state.sidebar_max_width);
                 self.state.mouse_capture = config.ui.mouse_capture;
+                if self.state.redraw_on_focus_gained != config.ui.redraw_on_focus_gained {
+                    self.state.request_client_config_reload = true;
+                }
+                self.state.redraw_on_focus_gained = config.ui.redraw_on_focus_gained;
                 self.state.mouse_scroll_lines = config.ui.mouse_scroll_lines();
                 self.state.confirm_close = config.ui.confirm_close;
                 self.state.prompt_new_tab_name = config.ui.prompt_new_tab_name;
@@ -1115,7 +1131,7 @@ impl App {
                 self.state.agent_panel_scroll = 0;
                 self.state.accent = crate::config::parse_color(&config.ui.accent);
                 if !self.state.local_sound_playback && self.state.sound != config.ui.sound {
-                    self.state.request_client_sound_config_reload = true;
+                    self.state.request_client_config_reload = true;
                 }
                 self.state.sound = config.ui.sound.clone();
                 self.state.toast_config = config.ui.toast.clone();
@@ -1136,6 +1152,11 @@ impl App {
             self.state.cjk_ime_agents = parse_cjk_ime_agents(&config.experimental.cjk_ime_agents);
             self.state.cjk_ime_cursor_shape =
                 config.experimental.cjk_ime_cursor_shape.to_decscusr();
+            self.persist_pane_history = config.experimental.pane_history;
+            self.state.pane_history_persistence = config.experimental.pane_history;
+            if !self.persist_pane_history {
+                crate::persist::clear_history();
+            }
         }
 
         if !invalid_section("advanced") {
@@ -1358,6 +1379,9 @@ impl App {
             Mode::KeybindHelp => {
                 input::handle_keybind_help_key(&mut self.state, key_event);
             }
+            Mode::Navigator => {
+                input::handle_navigator_key(&mut self.state, key_event);
+            }
             Mode::CommandPalette => {
                 self.handle_command_palette_key(key_event);
             }
@@ -1529,6 +1553,17 @@ mod tests {
     }
 
     #[test]
+    fn startup_uses_redraw_on_focus_gained_config() {
+        let mut config = Config::default();
+        config.ui.redraw_on_focus_gained = false;
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let app = App::new(&config, true, None, api_rx, crate::api::EventHub::default());
+
+        assert!(!app.state.redraw_on_focus_gained);
+    }
+
+    #[test]
     fn startup_restores_preview_update_available_from_saved_notes() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("startup-preview-update-available");
@@ -1638,7 +1673,7 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
-            "[terminal]\ndefault_shell = \"nu\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+g\"\nprefix = \"ctrl+a\"\n[ui]\nagent_panel_scope = \"current\"\n[ui.toast]\ndelivery = \"hako\"\n",
+            "[terminal]\ndefault_shell = \"nu\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+g\"\nprefix = \"ctrl+a\"\n[ui]\nagent_panel_scope = \"current\"\nredraw_on_focus_gained = false\n[ui.toast]\ndelivery = \"hako\"\n",
         )
         .unwrap();
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
@@ -1662,6 +1697,8 @@ mod tests {
             app.state.agent_panel_scope,
             state::AgentPanelScope::CurrentWorkspace
         );
+        assert!(!app.state.redraw_on_focus_gained);
+        assert!(app.state.request_client_config_reload);
         assert_eq!(app.state.default_shell, "nu");
         assert_eq!(
             app.state.new_terminal_cwd,
@@ -1979,6 +2016,28 @@ mod tests {
         assert!(content.contains("light = \"solarized-light\""));
         assert!(content.contains("dark = \"rose-pine\""));
         assert!(content.contains("mode = \"system\""));
+    }
+
+    #[test]
+    fn settings_save_pane_history_persists_then_applies_live_config() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("settings-save-pane-history");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "onboarding = false\n").unwrap();
+        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        assert!(!app.persist_pane_history);
+        assert!(!app.state.pane_history_persistence);
+
+        app.save_pane_history_persistence(true);
+
+        assert!(app.persist_pane_history);
+        assert!(app.state.pane_history_persistence);
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("[experimental]"));
+        assert!(content.contains("pane_history = true"));
+        assert!(app.state.config_diagnostic.is_none());
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -2105,6 +2164,20 @@ mod tests {
         assert!(app.state.workspaces[0].tabs[0].panes[&root_pane].seen);
         assert!(app.state.workspaces[0].tabs[0].panes[&split_pane].seen);
         assert!(!app.state.workspaces[0].tabs[background_tab].panes[&background_pane].seen);
+    }
+
+    #[tokio::test]
+    async fn outer_focus_gained_does_not_require_full_redraw_when_disabled() {
+        let mut app = test_app();
+        app.state.redraw_on_focus_gained = false;
+
+        let handled = app
+            .handle_raw_input_event(crate::raw_input::RawInputEvent::OuterFocusGained)
+            .await;
+
+        assert!(handled);
+        assert_eq!(app.state.outer_terminal_focus, Some(true));
+        assert!(!app.full_redraw_pending);
     }
 
     #[tokio::test]

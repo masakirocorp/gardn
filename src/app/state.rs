@@ -2,6 +2,7 @@ use crate::config::{
     CustomThemeColors, Keybinds, NewTerminalCwdConfig, SoundConfig, ThemeConfig, ThemeMode,
     ToastConfig, ToastDelivery,
 };
+use crate::detect::AgentState;
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Direction, Rect};
 use ratatui::style::Color;
@@ -805,7 +806,57 @@ pub enum Mode {
     GroupMenu,
     AgentMenu,
     KeybindHelp,
+    Navigator,
     CommandPalette,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NavigatorTarget {
+    Workspace {
+        ws_idx: usize,
+    },
+    Tab {
+        ws_idx: usize,
+        tab_idx: usize,
+    },
+    Pane {
+        ws_idx: usize,
+        tab_idx: usize,
+        pane_id: PaneId,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NavigatorRow {
+    pub target: NavigatorTarget,
+    pub depth: u8,
+    pub label: String,
+    pub meta: String,
+    pub status: AgentState,
+    pub seen: bool,
+    pub is_current: bool,
+    pub is_workspace: bool,
+    pub is_tab: bool,
+    pub expanded: bool,
+    pub search_text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NavigatorStateFilter {
+    Blocked,
+    Working,
+    Idle,
+    Done,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct NavigatorState {
+    pub query: String,
+    pub selected: usize,
+    pub scroll: usize,
+    pub search_focused: bool,
+    pub state_filter: Option<NavigatorStateFilter>,
+    pub expanded_workspaces: std::collections::HashSet<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -827,6 +878,7 @@ pub enum SettingsSection {
     Sound,
     Toast,
     PaneLabels,
+    Experiments,
     Integrations,
 }
 
@@ -837,6 +889,7 @@ impl SettingsSection {
         Self::Toast,
         Self::PaneLabels,
         Self::Integrations,
+        Self::Experiments,
     ];
 
     pub fn label(self) -> &'static str {
@@ -845,6 +898,7 @@ impl SettingsSection {
             Self::Sound => "sound",
             Self::Toast => "toasts",
             Self::PaneLabels => "pane labels",
+            Self::Experiments => "experiments",
             Self::Integrations => "integrations",
         }
     }
@@ -1260,7 +1314,7 @@ pub struct AppState {
     pub request_reload_config: bool,
     /// Set when the headless server should ask attached clients to reload
     /// their client-local sound config from disk.
-    pub request_client_sound_config_reload: bool,
+    pub request_client_config_reload: bool,
     /// Set when UI interaction requested a clipboard write that must be
     /// handled by the outer App/event loop instead of directly from AppState.
     pub request_clipboard_write: Option<Vec<u8>>,
@@ -1279,6 +1333,7 @@ pub struct AppState {
     pub release_notes: Option<ReleaseNotesState>,
     pub product_announcement: Option<ProductAnnouncementState>,
     pub keybind_help: KeybindHelpState,
+    pub navigator: NavigatorState,
     pub command_palette: CommandPaletteState,
     pub command_catalog: Vec<crate::commands::ProjectCommand>,
     pub command_runs: std::collections::HashMap<String, crate::commands::CommandRun>,
@@ -1331,10 +1386,12 @@ pub struct AppState {
     /// Capture mouse input for Hako's own mouse UI. When false, Hako only
     /// captures mouse while the focused pane app requests mouse reporting.
     pub mouse_capture: bool,
+    pub redraw_on_focus_gained: bool,
     pub mouse_scroll_lines: usize,
     pub confirm_close: bool,
     pub prompt_new_tab_name: bool,
     pub show_agent_labels_on_pane_borders: bool,
+    pub pane_history_persistence: bool,
     /// Expose the focused pane's cursor anchor to the outer terminal even when
     /// the pane requested `?25l`. See `[experimental] reveal_hidden_cursor_for_cjk_ime`.
     pub reveal_hidden_cursor_for_cjk_ime: bool,
@@ -1613,6 +1670,10 @@ impl AppState {
         self.show_agent_labels_on_pane_borders
     }
 
+    pub fn pane_history_persistence_enabled(&self) -> bool {
+        self.pane_history_persistence
+    }
+
     pub(crate) fn integration_updates_available(&self) -> bool {
         self.integration_recommendations
             .iter()
@@ -1785,7 +1846,7 @@ impl AppState {
             request_new_workspace: false,
             request_new_tab: false,
             request_reload_config: false,
-            request_client_sound_config_reload: false,
+            request_client_config_reload: false,
             request_clipboard_write: None,
             request_command_action: None,
             creating_new_tab: false,
@@ -1807,6 +1868,7 @@ impl AppState {
                 selected: 0,
                 scroll: 0,
             },
+            navigator: NavigatorState::default(),
             command_catalog: Vec::new(),
             command_runs: std::collections::HashMap::new(),
             port_registry: crate::ports::PortRegistry::default(),
@@ -1868,10 +1930,12 @@ impl AppState {
             collapsed_workspace_groups: Vec::new(),
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
             mouse_capture: true,
+            redraw_on_focus_gained: true,
             mouse_scroll_lines: crate::config::DEFAULT_MOUSE_SCROLL_LINES,
             confirm_close: true,
             prompt_new_tab_name: true,
             show_agent_labels_on_pane_borders: false,
+            pane_history_persistence: false,
             reveal_hidden_cursor_for_cjk_ime: false,
             cjk_ime_agent_filter_configured: false,
             cjk_ime_agents: Vec::new(),

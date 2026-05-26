@@ -47,7 +47,10 @@ impl App {
                 self.state.right_sidebar_width,
                 self.state.right_sidebar_collapsed,
             );
-            crate::persist::save(&snap);
+            let history = self.persist_pane_history.then(|| {
+                crate::persist::capture_history(&self.state.workspaces, &self.terminal_runtimes)
+            });
+            crate::persist::save(&snap, history.as_ref());
         }
 
         self.session_save_deadline = None;

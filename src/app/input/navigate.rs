@@ -709,10 +709,7 @@ pub(super) fn execute_navigate_action_in_context(
                 leave_navigate_mode(state);
             }
         }
-        NavigateAction::WorkspacePicker => {
-            state.mobile_switcher_scroll = 0;
-            state.mode = Mode::Navigate;
-        }
+        NavigateAction::WorkspacePicker => state.open_navigator(),
         NavigateAction::PreviousWorkspace => {
             state.previous_workspace();
             leave_navigate_mode(state);

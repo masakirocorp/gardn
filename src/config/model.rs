@@ -74,6 +74,14 @@ pub struct TerminalConfig {
     pub new_cwd: NewTerminalCwdConfig,
 }
 
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct SessionConfig {
+    /// Resume supported AI-agent panes into their native conversation sessions
+    /// when restoring a Hako session. Default: false.
+    pub resume_agents_on_restore: bool,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct WorktreesConfig {
@@ -114,6 +122,7 @@ pub struct Config {
     pub onboarding: Option<bool>,
     pub theme: ThemeConfig,
     pub terminal: TerminalConfig,
+    pub session: SessionConfig,
     pub keys: KeysConfig,
     pub ui: UiConfig,
     pub advanced: AdvancedConfig,
@@ -252,6 +261,8 @@ pub struct UiConfig {
     pub sidebar_max_width: u16,
     /// Capture mouse input for Hako's mouse UI. Default: true.
     pub mouse_capture: bool,
+    /// Force a full host-terminal redraw when the outer terminal regains focus. Default: true.
+    pub redraw_on_focus_gained: bool,
     /// Lines to scroll per mouse wheel notch. Default: 3.
     pub mouse_scroll_lines: Option<NonZeroUsize>,
     /// Ask for confirmation before closing a workspace. Default: true.
@@ -313,6 +324,8 @@ pub struct ExperimentalConfig {
     pub allow_nested: bool,
     /// Experimental local Kitty graphics rendering for attached clients. Default: false.
     pub kitty_graphics: bool,
+    /// Persist pane screen history to session-history.json. Default: false.
+    pub pane_history: bool,
     /// Expose the focused pane's cursor anchor to the outer terminal even when
     /// the pane requested `?25l`, so macOS native input methods keep tracking
     /// the candidate window when TUIs paint their own cursor (Claude Code, pi,
@@ -407,6 +420,7 @@ impl Default for UiConfig {
             sidebar_min_width: 18,
             sidebar_max_width: 36,
             mouse_capture: true,
+            redraw_on_focus_gained: true,
             mouse_scroll_lines: None,
             confirm_close: true,
             prompt_new_tab_name: true,
@@ -510,6 +524,19 @@ new_cwd = "~/Projects"
             config.terminal.new_cwd,
             NewTerminalCwdConfig::Path("~/Projects".into())
         );
+    }
+
+    #[test]
+    fn resume_agents_on_restore_defaults_off_and_parses() {
+        let default_config = Config::default();
+        assert!(!default_config.session.resume_agents_on_restore);
+
+        let toml = r#"
+[session]
+resume_agents_on_restore = true
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.session.resume_agents_on_restore);
     }
 
     #[test]
@@ -648,6 +675,19 @@ mouse_capture = false
     }
 
     #[test]
+    fn redraw_on_focus_gained_default_on_and_parse() {
+        let default_config = Config::default();
+        assert!(default_config.ui.redraw_on_focus_gained);
+
+        let toml = r#"
+[ui]
+redraw_on_focus_gained = false
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(!config.ui.redraw_on_focus_gained);
+    }
+
+    #[test]
     fn mouse_scroll_lines_defaults_to_three_and_parses() {
         let default_config = Config::default();
         assert_eq!(
@@ -745,6 +785,19 @@ delivery = "terminal"
     }
 
     #[test]
+    fn pane_history_persistence_is_opt_in() {
+        assert!(!Config::default().experimental.pane_history);
+
+        let toml = r#"
+[experimental]
+pane_history = true
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+
+        assert!(config.experimental.pane_history);
+    }
+
+    #[test]
     fn kitty_graphics_default_off_and_parse() {
         let config = Config::default();
         assert!(!config.experimental.kitty_graphics);
@@ -763,10 +816,12 @@ kitty_graphics = true
 [experimental]
 allow_nested = true
 kitty_graphics = true
+pane_history = true
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.experimental.allow_nested);
         assert!(config.experimental.kitty_graphics);
+        assert!(config.experimental.pane_history);
     }
 
     #[test]
