@@ -332,6 +332,9 @@ impl App {
                 SettingsAction::SaveGroupTheme { group_idx, name } => {
                     self.state.set_group_theme(group_idx, name);
                 }
+                SettingsAction::SavePaneHistory(enabled) => {
+                    self.save_pane_history_persistence(enabled)
+                }
                 SettingsAction::InstallRecommendedIntegrations => {
                     self.install_recommended_integrations()
                 }
