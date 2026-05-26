@@ -1260,7 +1260,7 @@ pub struct AppState {
     pub request_reload_config: bool,
     /// Set when the headless server should ask attached clients to reload
     /// their client-local sound config from disk.
-    pub request_client_sound_config_reload: bool,
+    pub request_client_config_reload: bool,
     /// Set when UI interaction requested a clipboard write that must be
     /// handled by the outer App/event loop instead of directly from AppState.
     pub request_clipboard_write: Option<Vec<u8>>,
@@ -1331,6 +1331,7 @@ pub struct AppState {
     /// Capture mouse input for Hako's own mouse UI. When false, Hako only
     /// captures mouse while the focused pane app requests mouse reporting.
     pub mouse_capture: bool,
+    pub redraw_on_focus_gained: bool,
     pub mouse_scroll_lines: usize,
     pub confirm_close: bool,
     pub prompt_new_tab_name: bool,
@@ -1785,7 +1786,7 @@ impl AppState {
             request_new_workspace: false,
             request_new_tab: false,
             request_reload_config: false,
-            request_client_sound_config_reload: false,
+            request_client_config_reload: false,
             request_clipboard_write: None,
             request_command_action: None,
             creating_new_tab: false,
@@ -1868,6 +1869,7 @@ impl AppState {
             collapsed_workspace_groups: Vec::new(),
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
             mouse_capture: true,
+            redraw_on_focus_gained: true,
             mouse_scroll_lines: crate::config::DEFAULT_MOUSE_SCROLL_LINES,
             confirm_close: true,
             prompt_new_tab_name: true,
