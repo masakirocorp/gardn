@@ -272,6 +272,7 @@ full logging and environment variable details: [configuration docs](https://hako
 
 ## docs
 
+- [features](./docs/features.md) — product feature reference
 - [configuration](https://hako.masakiro.com/docs/configuration/) — keybindings, themes, notifications, environment variables
 - [integrations](https://hako.masakiro.com/docs/integrations/) — pi, claude code, codex, opencode, hermes integrations
 - [`SKILL.md`](./SKILL.md) — reusable agent skill
