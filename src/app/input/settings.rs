@@ -25,9 +25,12 @@ pub(super) enum SettingsAction {
         mode: ThemeMode,
         sound_enabled: bool,
         toast_delivery: ToastDelivery,
+        confirm_close: bool,
+        prompt_new_tab_name: bool,
         agent_border_labels: bool,
     },
     SavePaneHistory(bool),
+    SaveResumeAgentsOnRestore(bool),
     SaveGroupTheme {
         group_idx: usize,
         name: Option<String>,
@@ -48,10 +51,14 @@ impl App {
                     mode,
                     sound_enabled,
                     toast_delivery,
+                    confirm_close,
+                    prompt_new_tab_name,
                     agent_border_labels,
                 } => {
                     self.save_theme(&light, &dark, mode);
                     self.save_sound(sound_enabled);
+                    self.save_confirm_close(confirm_close);
+                    self.save_prompt_new_tab_name(prompt_new_tab_name);
                     self.save_toast_delivery(toast_delivery);
                     self.save_agent_border_labels(agent_border_labels);
                 }
@@ -61,6 +68,9 @@ impl App {
                 }
                 SettingsAction::SavePaneHistory(enabled) => {
                     self.save_pane_history_persistence(enabled)
+                }
+                SettingsAction::SaveResumeAgentsOnRestore(enabled) => {
+                    self.save_resume_agents_on_restore(enabled)
                 }
                 SettingsAction::InstallRecommendedIntegrations => {
                     self.install_recommended_integrations()
@@ -384,6 +394,20 @@ fn pending_toast_delivery(state: &AppState) -> ToastDelivery {
         .unwrap_or_else(|| state.toast_delivery())
 }
 
+fn pending_confirm_close(state: &AppState) -> bool {
+    state
+        .settings
+        .pending_confirm_close
+        .unwrap_or_else(|| state.confirm_close_enabled())
+}
+
+fn pending_prompt_new_tab_name(state: &AppState) -> bool {
+    state
+        .settings
+        .pending_prompt_new_tab_name
+        .unwrap_or_else(|| state.prompt_new_tab_name_enabled())
+}
+
 fn pending_agent_border_labels(state: &AppState) -> bool {
     state
         .settings
@@ -513,7 +537,10 @@ fn cancel_settings(state: &mut AppState) {
     state.settings.pending_dark_theme_name = None;
     state.settings.pending_sound_enabled = None;
     state.settings.pending_toast_delivery = None;
+    state.settings.pending_confirm_close = None;
+    state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_agent_border_labels = None;
+    state.settings.pending_resume_agents_on_restore = None;
     state.settings.group_theme_target = None;
     super::modal::leave_modal(state);
 }
@@ -551,7 +578,10 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_dark_theme_name = None;
     state.settings.pending_sound_enabled = None;
     state.settings.pending_toast_delivery = None;
+    state.settings.pending_confirm_close = None;
+    state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_agent_border_labels = None;
+    state.settings.pending_resume_agents_on_restore = None;
 }
 
 fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
@@ -565,6 +595,8 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
     let theme_mode = pending_theme_mode(state);
     let sound_enabled = pending_sound_enabled(state);
     let toast_delivery = pending_toast_delivery(state);
+    let confirm_close = pending_confirm_close(state);
+    let prompt_new_tab_name = pending_prompt_new_tab_name(state);
     let agent_border_labels = pending_agent_border_labels(state);
     let group_theme_name = state
         .settings
@@ -590,6 +622,8 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
         mode: theme_mode,
         sound_enabled,
         toast_delivery,
+        confirm_close,
+        prompt_new_tab_name,
         agent_border_labels,
     })
 }
@@ -610,13 +644,34 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
             None
         }
         SettingsSection::PaneLabels => {
-            state.settings.pending_agent_border_labels = Some(state.settings.list.selected == 0);
+            match state.settings.list.selected {
+                0 => state.settings.pending_confirm_close = Some(!pending_confirm_close(state)),
+                1 => {
+                    state.settings.pending_prompt_new_tab_name =
+                        Some(!pending_prompt_new_tab_name(state))
+                }
+                2 => {
+                    state.settings.pending_agent_border_labels =
+                        Some(!pending_agent_border_labels(state))
+                }
+                _ => {}
+            }
             None
         }
-        SettingsSection::Experiments => Some(SettingsAction::SavePaneHistory(
+        SettingsSection::Experiments => selected_experiment_action(state),
+        SettingsSection::Integrations => selected_integration_action(state),
+    }
+}
+
+fn selected_experiment_action(state: &mut AppState) -> Option<SettingsAction> {
+    match state.settings.list.selected {
+        0 => Some(SettingsAction::SaveResumeAgentsOnRestore(
+            !state.resume_agents_on_restore_enabled(),
+        )),
+        1 => Some(SettingsAction::SavePaneHistory(
             !state.pane_history_persistence_enabled(),
         )),
-        SettingsSection::Integrations => selected_integration_action(state),
+        _ => None,
     }
 }
 fn select_previous_setting(state: &mut AppState, item_count: usize) {
@@ -736,7 +791,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 state.settings.section = SettingsSection::PaneLabels;
-                state.settings.list.selected = usize::from(!pending_agent_border_labels(state));
+                state.settings.list.selected = 0;
             }
             _ => {
                 if let Some(action) = handle_settings_modal_action(state, &key) {
@@ -746,10 +801,10 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
         },
         SettingsSection::PaneLabels => match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
-                select_previous_setting(state, 2);
+                select_previous_setting(state, 3);
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                select_next_setting(state, 2);
+                select_next_setting(state, 3);
             }
             KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -767,11 +822,13 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
         },
         SettingsSection::Experiments => match key.code {
-            KeyCode::Enter | KeyCode::Char(' ') => {
-                return Some(SettingsAction::SavePaneHistory(
-                    !state.pane_history_persistence_enabled(),
-                ));
+            KeyCode::Up | KeyCode::Char('k') => {
+                select_previous_setting(state, 2);
             }
+            KeyCode::Down | KeyCode::Char('j') => {
+                select_next_setting(state, 2);
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => return selected_experiment_action(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::Integrations;
                 state.settings.list.selected = 0;
@@ -798,7 +855,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             KeyCode::Enter | KeyCode::Char(' ') => return selected_integration_action(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::PaneLabels;
-                state.settings.list.selected = usize::from(!pending_agent_border_labels(state));
+                state.settings.list.selected = 0;
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 state.settings.section = SettingsSection::Experiments;
@@ -828,14 +885,18 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
     state.settings.pending_dark_theme_name = Some(state.global_dark_theme_name.clone());
     state.settings.pending_sound_enabled = Some(state.sound_enabled());
     state.settings.pending_toast_delivery = Some(state.toast_delivery());
+    state.settings.pending_confirm_close = Some(state.confirm_close_enabled());
+    state.settings.pending_prompt_new_tab_name = Some(state.prompt_new_tab_name_enabled());
     state.settings.pending_agent_border_labels = Some(state.agent_border_labels_enabled());
+    state.settings.pending_resume_agents_on_restore =
+        Some(state.resume_agents_on_restore_enabled());
     state.settings.group_theme_target = None;
     state.settings.section = section;
     state.settings.list.selected = match section {
         SettingsSection::Theme => target_theme_index(state),
         SettingsSection::Sound => usize::from(!pending_sound_enabled(state)),
         SettingsSection::Toast => toast_delivery_index(pending_toast_delivery(state)),
-        SettingsSection::PaneLabels => usize::from(!pending_agent_border_labels(state)),
+        SettingsSection::PaneLabels => 0,
         SettingsSection::Experiments => 0,
         SettingsSection::Integrations => 0,
     };
@@ -862,7 +923,10 @@ pub(crate) fn open_group_theme_settings(state: &mut AppState, group_idx: usize) 
     state.settings.pending_dark_theme_name = None;
     state.settings.pending_sound_enabled = None;
     state.settings.pending_toast_delivery = None;
+    state.settings.pending_confirm_close = None;
+    state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_agent_border_labels = None;
+    state.settings.pending_resume_agents_on_restore = None;
     state.settings.group_theme_target = Some(group_idx);
     state.settings.section = SettingsSection::Theme;
 
@@ -960,15 +1024,19 @@ impl AppState {
             }
             SettingsSection::PaneLabels => {
                 let list_y = area.y + 3;
-                if row >= list_y && row < list_y + 2 {
-                    Some((row - list_y) as usize)
+                if row >= list_y && row < list_y + 6 {
+                    Some(((row - list_y) / 2) as usize)
                 } else {
                     None
                 }
             }
             SettingsSection::Experiments => {
                 let list_y = area.y + 3;
-                (row == list_y).then_some(0)
+                if row >= list_y && row < list_y + 4 {
+                    Some(((row - list_y) / 2) as usize)
+                } else {
+                    None
+                }
             }
             SettingsSection::Integrations => {
                 let list_y = area.y + 4;
@@ -1052,9 +1120,7 @@ impl AppState {
                         SettingsSection::Toast => {
                             toast_delivery_index(pending_toast_delivery(self))
                         }
-                        SettingsSection::PaneLabels => {
-                            usize::from(!pending_agent_border_labels(self))
-                        }
+                        SettingsSection::PaneLabels => 0,
                         SettingsSection::Experiments => 0,
                         SettingsSection::Integrations => 0,
                     });
@@ -1073,9 +1139,7 @@ impl AppState {
                         | SettingsSection::Sound
                         | SettingsSection::Toast
                         | SettingsSection::PaneLabels => select_pending_setting(self),
-                        SettingsSection::Experiments => Some(SettingsAction::SavePaneHistory(
-                            !self.pane_history_persistence_enabled(),
-                        )),
+                        SettingsSection::Experiments => selected_experiment_action(self),
                         SettingsSection::Integrations => None,
                     };
                 }
@@ -1340,6 +1404,8 @@ mod tests {
                 mode: ThemeMode::Light,
                 sound_enabled: false,
                 toast_delivery: ToastDelivery::Off,
+                confirm_close: true,
+                prompt_new_tab_name: true,
                 agent_border_labels: false,
             })
         );
@@ -1426,17 +1492,87 @@ mod tests {
     }
 
     #[test]
-    fn settings_experiments_toggles_pane_history() {
+    fn settings_behavior_toggles_close_prompt_and_border_labels() {
         let mut state = state_with_workspaces(&["test"]);
-        state.pane_history_persistence = false;
-        open_settings_at(&mut state, SettingsSection::Experiments);
+        state.confirm_close = true;
+        state.prompt_new_tab_name = true;
+        state.show_agent_labels_on_pane_borders = false;
+        open_settings_at(&mut state, SettingsSection::PaneLabels);
+
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+            ),
+            None
+        );
+        assert_eq!(state.settings.pending_confirm_close, Some(false));
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.pending_prompt_new_tab_name, Some(false));
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.pending_agent_border_labels, Some(true));
 
         let action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
         );
 
-        assert_eq!(action, Some(SettingsAction::SavePaneHistory(true)));
+        assert!(matches!(
+            action,
+            Some(SettingsAction::SaveSettings {
+                confirm_close: false,
+                prompt_new_tab_name: false,
+                agent_border_labels: true,
+                ..
+            })
+        ));
+        assert_eq!(state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn settings_experiments_toggles_resume_agents_and_pane_history() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.resume_agents_on_restore = false;
+        state.pane_history_persistence = false;
+        open_settings_at(&mut state, SettingsSection::Experiments);
+
+        let resume_action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            resume_action,
+            Some(SettingsAction::SaveResumeAgentsOnRestore(true))
+        );
+        assert_eq!(state.mode, Mode::Settings);
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        let history_action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(history_action, Some(SettingsAction::SavePaneHistory(true)));
         assert_eq!(state.mode, Mode::Settings);
     }
 
@@ -1580,7 +1716,7 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
         );
-        assert_eq!(state.settings.list.selected, 1);
+        assert_eq!(state.settings.list.selected, 2);
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
@@ -1793,20 +1929,69 @@ mod tests {
     }
 
     #[test]
-    fn settings_mouse_click_toggles_pane_history() {
+    fn settings_mouse_click_toggles_behavior_options() {
         let mut app = app_for_mouse_test();
+        app.state.confirm_close = true;
+        app.state.prompt_new_tab_name = true;
+        app.state.show_agent_labels_on_pane_borders = false;
+        open_settings_at(&mut app.state, SettingsSection::PaneLabels);
+
+        let area = app.state.settings_content_rect();
+        assert_eq!(
+            app.state.handle_settings_mouse(mouse(
+                MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                area.x + 2,
+                area.y + 3,
+            )),
+            None
+        );
+        assert_eq!(app.state.settings.pending_confirm_close, Some(false));
+        assert_eq!(app.state.settings.list.selected, 0);
+
+        app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            area.x + 2,
+            area.y + 5,
+        ));
+        assert_eq!(app.state.settings.pending_prompt_new_tab_name, Some(false));
+        assert_eq!(app.state.settings.list.selected, 1);
+
+        app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            area.x + 2,
+            area.y + 7,
+        ));
+        assert_eq!(app.state.settings.pending_agent_border_labels, Some(true));
+        assert_eq!(app.state.settings.list.selected, 2);
+    }
+    #[test]
+    fn settings_mouse_click_toggles_resume_agents_and_pane_history() {
+        let mut app = app_for_mouse_test();
+        app.state.resume_agents_on_restore = false;
         app.state.pane_history_persistence = false;
         open_settings_at(&mut app.state, SettingsSection::Experiments);
 
         let area = app.state.settings_content_rect();
-        let action = app.state.handle_settings_mouse(mouse(
+        let resume_action = app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             area.x + 2,
             area.y + 3,
         ));
 
-        assert_eq!(action, Some(SettingsAction::SavePaneHistory(true)));
+        assert_eq!(
+            resume_action,
+            Some(SettingsAction::SaveResumeAgentsOnRestore(true))
+        );
         assert_eq!(app.state.settings.list.selected, 0);
+
+        let history_action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            area.x + 2,
+            area.y + 5,
+        ));
+
+        assert_eq!(history_action, Some(SettingsAction::SavePaneHistory(true)));
+        assert_eq!(app.state.settings.list.selected, 1);
     }
 
     #[test]

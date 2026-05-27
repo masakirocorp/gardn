@@ -322,10 +322,14 @@ impl App {
                     mode,
                     sound_enabled,
                     toast_delivery,
+                    confirm_close,
+                    prompt_new_tab_name,
                     agent_border_labels,
                 } => {
                     self.save_theme(&light, &dark, mode);
                     self.save_sound(sound_enabled);
+                    self.save_confirm_close(confirm_close);
+                    self.save_prompt_new_tab_name(prompt_new_tab_name);
                     self.save_toast_delivery(toast_delivery);
                     self.save_agent_border_labels(agent_border_labels);
                 }
@@ -335,6 +339,9 @@ impl App {
                 }
                 SettingsAction::SavePaneHistory(enabled) => {
                     self.save_pane_history_persistence(enabled)
+                }
+                SettingsAction::SaveResumeAgentsOnRestore(enabled) => {
+                    self.save_resume_agents_on_restore(enabled)
                 }
                 SettingsAction::InstallRecommendedIntegrations => {
                     self.install_recommended_integrations()

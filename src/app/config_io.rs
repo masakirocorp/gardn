@@ -90,6 +90,21 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
+    pub(super) fn save_confirm_close(&mut self, enabled: bool) {
+        if self.update_config_file("close confirmation", |content| {
+            crate::config::upsert_section_bool(content, "ui", "confirm_close", enabled)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
+    pub(super) fn save_prompt_new_tab_name(&mut self, enabled: bool) {
+        if self.update_config_file("new tab name prompt", |content| {
+            crate::config::upsert_section_bool(content, "ui", "prompt_new_tab_name", enabled)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
 
     pub(super) fn save_agent_border_labels(&mut self, enabled: bool) {
         if self.update_config_file("agent border labels", |content| {
@@ -107,6 +122,19 @@ impl App {
     pub(super) fn save_pane_history_persistence(&mut self, enabled: bool) {
         if self.update_config_file("pane screen history", |content| {
             crate::config::upsert_section_bool(content, "experimental", "pane_history", enabled)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
+    pub(super) fn save_resume_agents_on_restore(&mut self, enabled: bool) {
+        if self.update_config_file("agent session restore", |content| {
+            crate::config::upsert_section_bool(
+                content,
+                "session",
+                "resume_agents_on_restore",
+                enabled,
+            )
         }) {
             self.apply_config_from_disk(false);
         }
