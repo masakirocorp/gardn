@@ -22,6 +22,10 @@ let
         '') entries}
       '';
   };
+  zigTool = runCommand "hako-zig-tool" { } ''
+    mkdir -p $out/bin
+    ln -s ${lib.getExe zig_0_15} $out/bin/zig
+  '';
 in
 rustPlatform.buildRustPackage {
   pname = "hako";
@@ -47,6 +51,7 @@ rustPlatform.buildRustPackage {
   nativeBuildInputs = [
     git
     pkg-config
+    zigTool
   ];
 
   env = {
