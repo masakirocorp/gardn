@@ -75,6 +75,19 @@ impl App {
         }
     }
 
+    pub(super) fn save_new_terminal_cwd(&mut self, policy: &crate::config::NewTerminalCwdConfig) {
+        let value = match policy {
+            crate::config::NewTerminalCwdConfig::Follow => "\"follow\"".to_string(),
+            crate::config::NewTerminalCwdConfig::Home => "\"home\"".to_string(),
+            crate::config::NewTerminalCwdConfig::Current => "\"current\"".to_string(),
+            crate::config::NewTerminalCwdConfig::Path(path) => format!("{path:?}"),
+        };
+        if self.update_config_file("new terminal cwd", |content| {
+            crate::config::upsert_section_value(content, "terminal", "new_cwd", &value)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
     pub(super) fn save_toast_delivery(&mut self, delivery: crate::config::ToastDelivery) {
         let value = match delivery {
             crate::config::ToastDelivery::Off => "\"off\"",

@@ -1099,6 +1099,8 @@ pub struct SettingsState {
     pub pending_confirm_close: Option<bool>,
     /// Pending new-tab naming prompt setting while settings is open.
     pub pending_prompt_new_tab_name: Option<bool>,
+    /// Pending new-terminal cwd policy while settings is open.
+    pub pending_new_terminal_cwd: Option<NewTerminalCwdConfig>,
     /// Pending agent border label setting while settings is open.
     pub pending_agent_border_labels: Option<bool>,
     /// Pending native agent resume setting while settings is open.
@@ -1997,6 +1999,7 @@ impl AppState {
                 pending_toast_delivery: None,
                 pending_confirm_close: None,
                 pending_prompt_new_tab_name: None,
+                pending_new_terminal_cwd: None,
                 pending_agent_border_labels: None,
                 pending_resume_agents_on_restore: None,
                 group_theme_target: None,

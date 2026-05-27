@@ -21,7 +21,7 @@ use crate::{
         },
         AppState,
     },
-    config::{ThemeMode, ToastDelivery},
+    config::{NewTerminalCwdConfig, ThemeMode, ToastDelivery},
     terminal_theme::ThemeAppearance,
 };
 
@@ -738,7 +738,22 @@ fn render_settings_toggle(
     );
 }
 
+fn new_terminal_cwd_label(policy: &NewTerminalCwdConfig) -> String {
+    match policy {
+        NewTerminalCwdConfig::Follow => "follow focused pane".to_string(),
+        NewTerminalCwdConfig::Home => "home directory".to_string(),
+        NewTerminalCwdConfig::Current => "hako process directory".to_string(),
+        NewTerminalCwdConfig::Path(path) => format!("custom path: {path}"),
+    }
+}
+
 fn render_settings_behavior(app: &AppState, frame: &mut Frame, area: Rect) {
+    let cwd_label = new_terminal_cwd_label(
+        &app.settings
+            .pending_new_terminal_cwd
+            .clone()
+            .unwrap_or_else(|| app.new_terminal_cwd.clone()),
+    );
     let options = [
         (
             "confirm before closing workspaces",
@@ -754,6 +769,7 @@ fn render_settings_behavior(app: &AppState, frame: &mut Frame, area: Rect) {
                 .pending_prompt_new_tab_name
                 .unwrap_or_else(|| app.prompt_new_tab_name_enabled()),
         ),
+        ("new terminal cwd", cwd_label.as_str(), true),
         (
             "agent border labels",
             "show detected agent names in split pane borders",
@@ -1142,6 +1158,8 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("● confirm before closing workspaces"));
         assert!(text.contains("● name new tabs"));
+        assert!(text.contains("● new terminal cwd"));
+        assert!(text.contains("follow focused pane"));
         assert!(text.contains("○ agent border labels"));
     }
     #[test]

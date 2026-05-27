@@ -324,12 +324,14 @@ impl App {
                     toast_delivery,
                     confirm_close,
                     prompt_new_tab_name,
+                    new_terminal_cwd,
                     agent_border_labels,
                 } => {
                     self.save_theme(&light, &dark, mode);
                     self.save_sound(sound_enabled);
                     self.save_confirm_close(confirm_close);
                     self.save_prompt_new_tab_name(prompt_new_tab_name);
+                    self.save_new_terminal_cwd(&new_terminal_cwd);
                     self.save_toast_delivery(toast_delivery);
                     self.save_agent_border_labels(agent_border_labels);
                 }
