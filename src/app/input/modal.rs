@@ -512,6 +512,21 @@ pub(super) fn open_new_group_dialog(state: &mut AppState) {
     state.name_input_replace_on_type = true;
     state.mode = Mode::RenameGroup;
 }
+pub(super) fn open_worktree_directory_editor(state: &mut AppState) {
+    state.creating_new_tab = false;
+    state.creating_new_group = false;
+    state.group_icon_picker_open = false;
+    state.requested_new_tab_name = None;
+    state.rename_group_target = None;
+    state.rename_pane_target = None;
+    state.name_input = state
+        .settings
+        .pending_worktree_directory
+        .clone()
+        .unwrap_or_else(|| state.worktree_directory.display().to_string());
+    state.name_input_replace_on_type = false;
+    state.mode = Mode::EditWorktreeDirectory;
+}
 
 pub(super) fn leave_modal(state: &mut AppState) {
     if state.active.is_some() {
@@ -671,6 +686,37 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
     }
 }
 
+pub(super) fn apply_worktree_directory_action(
+    state: &mut AppState,
+    action: ModalAction,
+) -> Option<String> {
+    match action {
+        ModalAction::Save => {
+            let directory = state.name_input.trim().to_string();
+            if directory.is_empty() {
+                return None;
+            }
+            state.settings.pending_worktree_directory = Some(directory.clone());
+            state.name_input.clear();
+            state.name_input_replace_on_type = false;
+            state.mode = Mode::Settings;
+            Some(directory)
+        }
+        ModalAction::Clear => {
+            state.name_input.clear();
+            state.name_input_replace_on_type = false;
+            None
+        }
+        ModalAction::Cancel => {
+            state.name_input.clear();
+            state.name_input_replace_on_type = false;
+            state.mode = Mode::Settings;
+            None
+        }
+        _ => None,
+    }
+}
+
 fn clear_rename_input(state: &mut AppState) {
     state.name_input.clear();
     state.name_input_replace_on_type = false;
@@ -735,6 +781,39 @@ fn delete_rename_input_word(state: &mut AppState) {
 pub(crate) fn handle_rename_key(state: &mut AppState, key: KeyEvent) {
     if let Some(action) = modal_action_from_key(&key, RENAME_ACTIONS) {
         apply_rename_action(state, action);
+        return;
+    }
+
+    match key.code {
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            clear_rename_input(state);
+        }
+        KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => {
+            clear_rename_input(state);
+        }
+        KeyCode::Backspace
+            if key.modifiers.contains(KeyModifiers::CONTROL)
+                || key.modifiers.contains(KeyModifiers::ALT) =>
+        {
+            delete_rename_input_word(state);
+        }
+        KeyCode::Char('h' | 'w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            delete_rename_input_word(state);
+        }
+        KeyCode::Backspace => delete_rename_input_char(state),
+        KeyCode::Char(c) if key.modifiers.difference(KeyModifiers::SHIFT).is_empty() => {
+            if state.name_input_replace_on_type {
+                clear_rename_input(state);
+            }
+            state.name_input.push(c);
+        }
+        _ => {}
+    }
+}
+
+pub(crate) fn handle_worktree_directory_key(state: &mut AppState, key: KeyEvent) {
+    if let Some(action) = modal_action_from_key(&key, RENAME_ACTIONS) {
+        apply_worktree_directory_action(state, action);
         return;
     }
 
@@ -1104,6 +1183,25 @@ mod tests {
         );
 
         assert_eq!(state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn worktree_directory_editor_updates_pending_setting() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.worktree_directory = std::path::PathBuf::from("/tmp/hako-worktrees");
+        open_worktree_directory_editor(&mut state);
+
+        state.name_input = "~/Projects/hako-worktrees".to_string();
+        handle_worktree_directory_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.mode, Mode::Settings);
+        assert_eq!(
+            state.settings.pending_worktree_directory.as_deref(),
+            Some("~/Projects/hako-worktrees")
+        );
     }
 
     #[test]

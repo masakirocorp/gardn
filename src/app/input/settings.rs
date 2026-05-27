@@ -32,6 +32,7 @@ pub(super) enum SettingsAction {
         sidebar_width: u16,
         sidebar_min_width: u16,
         sidebar_max_width: u16,
+        worktree_directory: Option<String>,
         agent_border_labels: bool,
     },
     SavePaneHistory(bool),
@@ -64,6 +65,7 @@ impl App {
                     sidebar_min_width,
                     sidebar_max_width,
                     agent_border_labels,
+                    worktree_directory,
                 } => {
                     self.save_theme(&light, &dark, mode);
                     self.save_sound(sound_enabled);
@@ -72,6 +74,9 @@ impl App {
                     self.save_new_terminal_cwd(&new_terminal_cwd);
                     self.save_mouse_scroll_lines(mouse_scroll_lines);
                     self.save_sidebar_widths(sidebar_width, sidebar_min_width, sidebar_max_width);
+                    if let Some(directory) = worktree_directory {
+                        self.save_worktree_directory(&directory);
+                    }
                     self.save_toast_delivery(toast_delivery);
                     self.save_agent_border_labels(agent_border_labels);
                 }
@@ -589,6 +594,7 @@ fn cancel_settings(state: &mut AppState) {
     state.settings.pending_confirm_close = None;
     state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_new_terminal_cwd = None;
+    state.settings.pending_worktree_directory = None;
     state.settings.pending_mouse_scroll_lines = None;
     state.settings.pending_sidebar_width = None;
     state.settings.pending_sidebar_min_width = None;
@@ -639,6 +645,7 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_sidebar_width = None;
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
+    state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_resume_agents_on_restore = None;
 }
@@ -661,6 +668,7 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
     let sidebar_width = pending_sidebar_width(state);
     let sidebar_min_width = pending_sidebar_min_width(state);
     let sidebar_max_width = pending_sidebar_max_width(state);
+    let worktree_directory = state.settings.pending_worktree_directory.clone();
     let agent_border_labels = pending_agent_border_labels(state);
     let group_theme_name = state
         .settings
@@ -693,6 +701,7 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
         sidebar_width,
         sidebar_min_width,
         sidebar_max_width,
+        worktree_directory,
         agent_border_labels,
     })
 }
@@ -749,6 +758,7 @@ fn select_pending_layout_setting(state: &mut AppState) {
             state.settings.pending_sidebar_max_width = Some(next);
             state.settings.pending_sidebar_width = Some(pending_sidebar_width(state).min(next));
         }
+        3 => super::modal::open_worktree_directory_editor(state),
         _ => {}
     }
 }
@@ -896,10 +906,10 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
         },
         SettingsSection::Layout => match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
-                select_previous_setting(state, 3);
+                select_previous_setting(state, 4);
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                select_next_setting(state, 3);
+                select_next_setting(state, 4);
             }
             KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -1050,6 +1060,7 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
     state.settings.pending_sidebar_width = Some(state.default_sidebar_width);
     state.settings.pending_sidebar_min_width = Some(state.sidebar_min_width);
     state.settings.pending_sidebar_max_width = Some(state.sidebar_max_width);
+    state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = Some(state.agent_border_labels_enabled());
     state.settings.pending_resume_agents_on_restore =
         Some(state.resume_agents_on_restore_enabled());
@@ -1094,6 +1105,7 @@ pub(crate) fn open_group_theme_settings(state: &mut AppState, group_idx: usize) 
     state.settings.pending_sidebar_width = None;
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
+    state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_resume_agents_on_restore = None;
     state.settings.group_theme_target = Some(group_idx);
@@ -1177,7 +1189,7 @@ impl AppState {
             }
             SettingsSection::Layout => {
                 let list_y = area.y + 3;
-                if row >= list_y && row < list_y + 6 {
+                if row >= list_y && row < list_y + 8 {
                     Some(((row - list_y) / 2) as usize)
                 } else {
                     None
@@ -1432,7 +1444,7 @@ mod tests {
         );
         assert_eq!(
             state.settings.section,
-            crate::app::state::SettingsSection::Sound
+            crate::app::state::SettingsSection::Layout
         );
 
         update_settings_state(
@@ -1590,6 +1602,7 @@ mod tests {
                 sidebar_width: 26,
                 sidebar_min_width: 18,
                 sidebar_max_width: 36,
+                worktree_directory: None,
                 agent_border_labels: false,
             })
         );
@@ -1708,6 +1721,18 @@ mod tests {
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
         assert_eq!(state.settings.pending_sidebar_max_width, Some(38));
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        assert_eq!(state.mode, Mode::EditWorktreeDirectory);
+        assert_eq!(state.name_input, "/tmp/hako-worktrees");
+        state.mode = Mode::Settings;
 
         let action = update_settings_state(
             &mut state,
@@ -1943,6 +1968,19 @@ mod tests {
         );
         assert_eq!(state.settings.list.selected, 0);
 
+        open_settings_at(&mut state, SettingsSection::Layout);
+        state.settings.list.selected = 0;
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.list.selected, 3);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.list.selected, 0);
+
         open_settings_at(&mut state, SettingsSection::Sound);
         state.settings.list.selected = 0;
         update_settings_state(
@@ -1975,7 +2013,7 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
         );
-        assert_eq!(state.settings.list.selected, 2);
+        assert_eq!(state.settings.list.selected, 4);
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),

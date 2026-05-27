@@ -132,6 +132,7 @@ fn agent_panel_current_workspace_idx(app: &AppState) -> Option<usize> {
             | Mode::RenameWorkspace
             | Mode::RenameGroup
             | Mode::RenamePane
+            | Mode::EditWorktreeDirectory
             | Mode::Resize
             | Mode::ConfirmClose
             | Mode::ConfirmDeleteGroup

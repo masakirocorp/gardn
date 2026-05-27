@@ -766,10 +766,16 @@ fn render_settings_layout(app: &AppState, frame: &mut Frame, area: Rect) {
     let width_label = format!("{width} columns");
     let min_label = format!("{min} columns");
     let max_label = format!("{max} columns");
+    let worktree_directory = app
+        .settings
+        .pending_worktree_directory
+        .clone()
+        .unwrap_or_else(|| app.worktree_directory.display().to_string());
     let options = [
         ("default sidebar width", width_label.as_str(), true),
         ("minimum sidebar width", min_label.as_str(), true),
         ("maximum sidebar width", max_label.as_str(), true),
+        ("worktree directory", worktree_directory.as_str(), true),
     ];
     render_settings_toggle_list(app, frame, area, &options);
 }
@@ -1194,6 +1200,8 @@ mod tests {
         assert!(text.contains("18 columns"));
         assert!(text.contains("● maximum sidebar width"));
         assert!(text.contains("36 columns"));
+        assert!(text.contains("● worktree directory"));
+        assert!(text.contains("/tmp/hako-worktrees"));
     }
     #[test]
     fn behavior_settings_render_close_prompt_and_agent_labels() {

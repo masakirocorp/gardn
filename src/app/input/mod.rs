@@ -39,6 +39,7 @@ pub(crate) use self::{
         handle_agent_menu_key, handle_confirm_close_key, handle_confirm_delete_group_key,
         handle_context_menu_key, handle_global_menu_key, handle_group_menu_key,
         handle_keybind_help_key, handle_navigator_key, handle_rename_key, handle_resize_key,
+        handle_worktree_directory_key,
     },
     navigate::terminal_direct_navigation_action,
     settings::open_settings_at,
@@ -74,6 +75,9 @@ impl App {
                     | Mode::RenameGroup
                     | Mode::RenameTab
                     | Mode::RenamePane => handle_rename_key(&mut self.state, key_event),
+                    Mode::EditWorktreeDirectory => {
+                        handle_worktree_directory_key(&mut self.state, key_event)
+                    }
                     Mode::Resize => handle_resize_key(&mut self.state, key),
                     Mode::ConfirmClose => handle_confirm_close_key(&mut self.state, key_event),
                     Mode::ConfirmDeleteGroup => {
@@ -329,6 +333,7 @@ impl App {
                     sidebar_width,
                     sidebar_min_width,
                     sidebar_max_width,
+                    worktree_directory,
                     agent_border_labels,
                 } => {
                     self.save_theme(&light, &dark, mode);
@@ -338,6 +343,9 @@ impl App {
                     self.save_new_terminal_cwd(&new_terminal_cwd);
                     self.save_mouse_scroll_lines(mouse_scroll_lines);
                     self.save_sidebar_widths(sidebar_width, sidebar_min_width, sidebar_max_width);
+                    if let Some(directory) = worktree_directory {
+                        self.save_worktree_directory(&directory);
+                    }
                     self.save_toast_delivery(toast_delivery);
                     self.save_agent_border_labels(agent_border_labels);
                 }

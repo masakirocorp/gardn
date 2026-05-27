@@ -797,6 +797,7 @@ pub enum Mode {
     RenameGroup,
     RenameTab,
     RenamePane,
+    EditWorktreeDirectory,
     Resize,
     ConfirmClose,
     ConfirmDeleteGroup,
@@ -1112,6 +1113,8 @@ pub struct SettingsState {
     pub pending_sidebar_min_width: Option<u16>,
     /// Pending maximum expanded sidebar width while settings is open.
     pub pending_sidebar_max_width: Option<u16>,
+    /// Pending worktree checkout parent directory while settings is open.
+    pub pending_worktree_directory: Option<String>,
     /// Pending agent border label setting while settings is open.
     pub pending_agent_border_labels: Option<bool>,
     /// Pending native agent resume setting while settings is open.
@@ -2015,6 +2018,7 @@ impl AppState {
                 pending_sidebar_width: None,
                 pending_sidebar_min_width: None,
                 pending_sidebar_max_width: None,
+                pending_worktree_directory: None,
                 pending_agent_border_labels: None,
                 pending_resume_agents_on_restore: None,
                 group_theme_target: None,

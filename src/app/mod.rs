@@ -617,6 +617,7 @@ impl App {
                 pending_sidebar_width: None,
                 pending_sidebar_min_width: None,
                 pending_sidebar_max_width: None,
+                pending_worktree_directory: None,
                 pending_agent_border_labels: None,
                 pending_resume_agents_on_restore: None,
                 group_theme_target: None,
@@ -1379,6 +1380,9 @@ impl App {
             Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
                 input::handle_rename_key(&mut self.state, key_event);
             }
+            Mode::EditWorktreeDirectory => {
+                input::handle_worktree_directory_key(&mut self.state, key_event);
+            }
             Mode::Resize => {
                 input::handle_resize_key(&mut self.state, key);
             }
@@ -2109,6 +2113,30 @@ mod tests {
         assert!(content.contains("sidebar_width = 30"));
         assert!(content.contains("sidebar_min_width = 20"));
         assert!(content.contains("sidebar_max_width = 40"));
+        assert!(app.state.config_diagnostic.is_none());
+
+        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn settings_save_worktree_directory_persists_then_applies_live_config() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("settings-save-worktree-directory");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "onboarding = false\n").unwrap();
+        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        app.save_worktree_directory("~/Projects/hako-worktrees");
+
+        assert!(app
+            .state
+            .worktree_directory
+            .ends_with("Projects/hako-worktrees"));
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("[worktrees]"));
+        assert!(content.contains("directory = \"~/Projects/hako-worktrees\""));
         assert!(app.state.config_diagnostic.is_none());
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
