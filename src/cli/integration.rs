@@ -102,11 +102,15 @@ fn parse_integration_target(
     action: &str,
 ) -> std::io::Result<Option<IntegrationTarget>> {
     let Some(target) = args.first().map(|arg| arg.as_str()) else {
-        eprintln!("usage: hako integration {action} <pi|omp|claude|codex|opencode|hermes>");
+        eprintln!(
+            "usage: hako integration {action} <pi|omp|claude|codex|opencode|hermes|qodercli>"
+        );
         return Ok(None);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako integration {action} <pi|omp|claude|codex|opencode|hermes>");
+        eprintln!(
+            "usage: hako integration {action} <pi|omp|claude|codex|opencode|hermes|qodercli>"
+        );
         return Ok(None);
     }
 
@@ -117,9 +121,10 @@ fn parse_integration_target(
         "codex" => IntegrationTarget::Codex,
         "opencode" => IntegrationTarget::Opencode,
         "hermes" => IntegrationTarget::Hermes,
+        "qodercli" => IntegrationTarget::Qodercli,
         _ => {
             eprintln!("unknown integration target: {target}");
-            eprintln!("currently supported: pi, omp, claude, codex, opencode, hermes");
+            eprintln!("currently supported: pi, omp, claude, codex, opencode, hermes, qodercli");
             return Ok(None);
         }
     };
@@ -135,11 +140,13 @@ fn print_integration_help() {
     eprintln!("  hako integration install codex");
     eprintln!("  hako integration install opencode");
     eprintln!("  hako integration install hermes");
+    eprintln!("  hako integration install qodercli");
     eprintln!("  hako integration uninstall pi");
     eprintln!("  hako integration uninstall omp");
     eprintln!("  hako integration uninstall claude");
     eprintln!("  hako integration uninstall codex");
     eprintln!("  hako integration uninstall opencode");
     eprintln!("  hako integration uninstall hermes");
+    eprintln!("  hako integration uninstall qodercli");
     eprintln!("  hako integration status [--outdated-only]");
 }
