@@ -45,6 +45,10 @@ fn append_prefix_hint(
     spans.push(Span::styled(label, dim_style));
 }
 
+fn keybind_label(bindings: &crate::config::ActionKeybinds) -> String {
+    bindings.label().unwrap_or_else(|| "unset".to_string())
+}
+
 fn render_bottom_bar(frame: &mut Frame, area: Rect, line: Line<'_>, bg: ratatui::style::Color) {
     frame.render_widget(Clear, area);
     let buf = frame.buffer_mut();
@@ -168,12 +172,17 @@ pub(super) fn render_navigate_overlay(app: &AppState, frame: &mut Frame, area: R
     let help = prefix_rhs_label(&kb.help);
     let settings = prefix_rhs_label(&kb.settings);
     let detach = prefix_rhs_label(&kb.detach);
+    let workspace_nav = format!(
+        "{} / {}",
+        keybind_label(&kb.navigate.workspace_up),
+        keybind_label(&kb.navigate.workspace_down)
+    );
     let line = Line::from(vec![
         Span::styled(" navigate ", mode_style),
         Span::raw(" "),
         Span::styled("esc", key),
         Span::styled(" back  ", dim),
-        Span::styled("↑↓", key),
+        Span::styled(workspace_nav, key),
         Span::styled(" space  ", dim),
         Span::styled("↵", key),
         Span::styled(" open  ", dim),
