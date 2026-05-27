@@ -325,6 +325,7 @@ impl App {
                     confirm_close,
                     prompt_new_tab_name,
                     new_terminal_cwd,
+                    mouse_scroll_lines,
                     agent_border_labels,
                 } => {
                     self.save_theme(&light, &dark, mode);
@@ -332,6 +333,7 @@ impl App {
                     self.save_confirm_close(confirm_close);
                     self.save_prompt_new_tab_name(prompt_new_tab_name);
                     self.save_new_terminal_cwd(&new_terminal_cwd);
+                    self.save_mouse_scroll_lines(mouse_scroll_lines);
                     self.save_toast_delivery(toast_delivery);
                     self.save_agent_border_labels(agent_border_labels);
                 }

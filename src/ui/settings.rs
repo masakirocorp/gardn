@@ -754,6 +754,12 @@ fn render_settings_behavior(app: &AppState, frame: &mut Frame, area: Rect) {
             .clone()
             .unwrap_or_else(|| app.new_terminal_cwd.clone()),
     );
+    let scroll_label = format!(
+        "{} lines per wheel notch",
+        app.settings
+            .pending_mouse_scroll_lines
+            .unwrap_or(app.mouse_scroll_lines)
+    );
     let options = [
         (
             "confirm before closing workspaces",
@@ -770,6 +776,7 @@ fn render_settings_behavior(app: &AppState, frame: &mut Frame, area: Rect) {
                 .unwrap_or_else(|| app.prompt_new_tab_name_enabled()),
         ),
         ("new terminal cwd", cwd_label.as_str(), true),
+        ("mouse wheel speed", scroll_label.as_str(), true),
         (
             "agent border labels",
             "show detected agent names in split pane borders",
@@ -1160,6 +1167,8 @@ mod tests {
         assert!(text.contains("● name new tabs"));
         assert!(text.contains("● new terminal cwd"));
         assert!(text.contains("follow focused pane"));
+        assert!(text.contains("● mouse wheel speed"));
+        assert!(text.contains("3 lines per wheel notch"));
         assert!(text.contains("○ agent border labels"));
     }
     #[test]

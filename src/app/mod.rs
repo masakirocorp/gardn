@@ -613,6 +613,7 @@ impl App {
                 pending_confirm_close: None,
                 pending_prompt_new_tab_name: None,
                 pending_new_terminal_cwd: None,
+                pending_mouse_scroll_lines: None,
                 pending_agent_border_labels: None,
                 pending_resume_agents_on_restore: None,
                 group_theme_target: None,
@@ -2057,6 +2058,31 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("[terminal]"));
         assert!(content.contains("new_cwd = \"home\""));
+        assert!(app.state.config_diagnostic.is_none());
+
+        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+    #[test]
+    fn settings_save_mouse_scroll_lines_persists_then_applies_live_config() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("settings-save-mouse-scroll-lines");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "onboarding = false\n").unwrap();
+        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        assert_eq!(
+            app.state.mouse_scroll_lines,
+            crate::config::DEFAULT_MOUSE_SCROLL_LINES
+        );
+
+        app.save_mouse_scroll_lines(5);
+
+        assert_eq!(app.state.mouse_scroll_lines, 5);
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("[ui]"));
+        assert!(content.contains("mouse_scroll_lines = 5"));
         assert!(app.state.config_diagnostic.is_none());
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);

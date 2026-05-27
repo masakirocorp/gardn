@@ -28,6 +28,7 @@ pub(super) enum SettingsAction {
         confirm_close: bool,
         prompt_new_tab_name: bool,
         new_terminal_cwd: NewTerminalCwdConfig,
+        mouse_scroll_lines: usize,
         agent_border_labels: bool,
     },
     SavePaneHistory(bool),
@@ -55,6 +56,7 @@ impl App {
                     confirm_close,
                     prompt_new_tab_name,
                     new_terminal_cwd,
+                    mouse_scroll_lines,
                     agent_border_labels,
                 } => {
                     self.save_theme(&light, &dark, mode);
@@ -62,6 +64,7 @@ impl App {
                     self.save_confirm_close(confirm_close);
                     self.save_prompt_new_tab_name(prompt_new_tab_name);
                     self.save_new_terminal_cwd(&new_terminal_cwd);
+                    self.save_mouse_scroll_lines(mouse_scroll_lines);
                     self.save_toast_delivery(toast_delivery);
                     self.save_agent_border_labels(agent_border_labels);
                 }
@@ -419,6 +422,13 @@ fn pending_new_terminal_cwd(state: &AppState) -> NewTerminalCwdConfig {
         .unwrap_or_else(|| state.new_terminal_cwd.clone())
 }
 
+fn pending_mouse_scroll_lines(state: &AppState) -> usize {
+    state
+        .settings
+        .pending_mouse_scroll_lines
+        .unwrap_or(state.mouse_scroll_lines)
+}
+
 fn pending_agent_border_labels(state: &AppState) -> bool {
     state
         .settings
@@ -551,6 +561,7 @@ fn cancel_settings(state: &mut AppState) {
     state.settings.pending_confirm_close = None;
     state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_new_terminal_cwd = None;
+    state.settings.pending_mouse_scroll_lines = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_resume_agents_on_restore = None;
     state.settings.group_theme_target = None;
@@ -593,6 +604,7 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_confirm_close = None;
     state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_new_terminal_cwd = None;
+    state.settings.pending_mouse_scroll_lines = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_resume_agents_on_restore = None;
 }
@@ -611,6 +623,7 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
     let confirm_close = pending_confirm_close(state);
     let prompt_new_tab_name = pending_prompt_new_tab_name(state);
     let new_terminal_cwd = pending_new_terminal_cwd(state);
+    let mouse_scroll_lines = pending_mouse_scroll_lines(state);
     let agent_border_labels = pending_agent_border_labels(state);
     let group_theme_name = state
         .settings
@@ -639,6 +652,7 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
         confirm_close,
         prompt_new_tab_name,
         new_terminal_cwd,
+        mouse_scroll_lines,
         agent_border_labels,
     })
 }
@@ -650,6 +664,15 @@ fn next_terminal_cwd_policy(policy: NewTerminalCwdConfig) -> NewTerminalCwdConfi
         NewTerminalCwdConfig::Current | NewTerminalCwdConfig::Path(_) => {
             NewTerminalCwdConfig::Follow
         }
+    }
+}
+
+fn next_mouse_scroll_lines(lines: usize) -> usize {
+    match lines {
+        0 | 1 => 3,
+        2 | 3 => 5,
+        4 | 5 => 10,
+        _ => 1,
     }
 }
 fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
@@ -679,6 +702,10 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
                     state.settings.pending_new_terminal_cwd = Some(next);
                 }
                 3 => {
+                    let next = next_mouse_scroll_lines(pending_mouse_scroll_lines(state));
+                    state.settings.pending_mouse_scroll_lines = Some(next);
+                }
+                4 => {
                     state.settings.pending_agent_border_labels =
                         Some(!pending_agent_border_labels(state))
                 }
@@ -829,10 +856,10 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
         },
         SettingsSection::PaneLabels => match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
-                select_previous_setting(state, 4);
+                select_previous_setting(state, 5);
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                select_next_setting(state, 4);
+                select_next_setting(state, 5);
             }
             KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -916,6 +943,7 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
     state.settings.pending_confirm_close = Some(state.confirm_close_enabled());
     state.settings.pending_prompt_new_tab_name = Some(state.prompt_new_tab_name_enabled());
     state.settings.pending_new_terminal_cwd = Some(state.new_terminal_cwd.clone());
+    state.settings.pending_mouse_scroll_lines = Some(state.mouse_scroll_lines);
     state.settings.pending_agent_border_labels = Some(state.agent_border_labels_enabled());
     state.settings.pending_resume_agents_on_restore =
         Some(state.resume_agents_on_restore_enabled());
@@ -955,6 +983,7 @@ pub(crate) fn open_group_theme_settings(state: &mut AppState, group_idx: usize) 
     state.settings.pending_confirm_close = None;
     state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_new_terminal_cwd = None;
+    state.settings.pending_mouse_scroll_lines = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_resume_agents_on_restore = None;
     state.settings.group_theme_target = Some(group_idx);
@@ -1054,7 +1083,7 @@ impl AppState {
             }
             SettingsSection::PaneLabels => {
                 let list_y = area.y + 3;
-                if row >= list_y && row < list_y + 8 {
+                if row >= list_y && row < list_y + 10 {
                     Some(((row - list_y) / 2) as usize)
                 } else {
                     None
@@ -1437,6 +1466,7 @@ mod tests {
                 confirm_close: true,
                 prompt_new_tab_name: true,
                 new_terminal_cwd: NewTerminalCwdConfig::Follow,
+                mouse_scroll_lines: crate::config::DEFAULT_MOUSE_SCROLL_LINES,
                 agent_border_labels: false,
             })
         );
@@ -1529,6 +1559,7 @@ mod tests {
         state.prompt_new_tab_name = true;
         state.show_agent_labels_on_pane_borders = false;
         state.new_terminal_cwd = NewTerminalCwdConfig::Follow;
+        state.mouse_scroll_lines = 3;
         open_settings_at(&mut state, SettingsSection::PaneLabels);
 
         assert_eq!(
@@ -1562,6 +1593,15 @@ mod tests {
             state.settings.pending_new_terminal_cwd,
             Some(NewTerminalCwdConfig::Home)
         );
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.pending_mouse_scroll_lines, Some(5));
 
         update_settings_state(
             &mut state,
@@ -1584,6 +1624,7 @@ mod tests {
                 confirm_close: false,
                 prompt_new_tab_name: false,
                 new_terminal_cwd: NewTerminalCwdConfig::Home,
+                mouse_scroll_lines: 5,
                 agent_border_labels: true,
                 ..
             })
@@ -1981,6 +2022,7 @@ mod tests {
         app.state.prompt_new_tab_name = true;
         app.state.show_agent_labels_on_pane_borders = false;
         app.state.new_terminal_cwd = NewTerminalCwdConfig::Follow;
+        app.state.mouse_scroll_lines = 3;
         app.state.view.terminal_area = Rect::new(26, 0, 100, 30);
         open_settings_at(&mut app.state, SettingsSection::PaneLabels);
 
@@ -2014,14 +2056,21 @@ mod tests {
             Some(NewTerminalCwdConfig::Home)
         );
         assert_eq!(app.state.settings.list.selected, 2);
-
         app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             area.x + 2,
             area.y + 9,
         ));
-        assert_eq!(app.state.settings.pending_agent_border_labels, Some(true));
+        assert_eq!(app.state.settings.pending_mouse_scroll_lines, Some(5));
         assert_eq!(app.state.settings.list.selected, 3);
+
+        app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            area.x + 2,
+            area.y + 11,
+        ));
+        assert_eq!(app.state.settings.pending_agent_border_labels, Some(true));
+        assert_eq!(app.state.settings.list.selected, 4);
     }
     #[test]
     fn settings_mouse_click_toggles_resume_agents_and_pane_history() {

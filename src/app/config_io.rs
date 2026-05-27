@@ -88,6 +88,19 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
+    pub(super) fn save_mouse_scroll_lines(&mut self, lines: usize) {
+        let lines = lines.max(1);
+        if self.update_config_file("mouse scroll lines", |content| {
+            crate::config::upsert_section_value(
+                content,
+                "ui",
+                "mouse_scroll_lines",
+                &lines.to_string(),
+            )
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
     pub(super) fn save_toast_delivery(&mut self, delivery: crate::config::ToastDelivery) {
         let value = match delivery {
             crate::config::ToastDelivery::Off => "\"off\"",
