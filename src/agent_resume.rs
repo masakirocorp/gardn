@@ -66,7 +66,7 @@ pub fn session_ref_from_report(
         return None;
     }
 
-    if agent == "pi" {
+    if matches!(agent, "pi" | "omp") {
         return _agent_session_path
             .and_then(AgentSessionRef::path)
             .or_else(|| agent_session_id.and_then(AgentSessionRef::id));
@@ -85,7 +85,7 @@ pub fn session_ref_from_snapshot(
         return None;
     }
     let session_ref = match (agent, kind) {
-        ("pi", AgentSessionRefKind::Path) => AgentSessionRef::path(value)?,
+        ("pi" | "omp", AgentSessionRefKind::Path) => AgentSessionRef::path(value)?,
         (_, AgentSessionRefKind::Id) => AgentSessionRef::id(value)?,
         _ => return None,
     };
@@ -114,6 +114,9 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
         }
         ("hako:pi", "pi", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
             vec!["pi".into(), "--session".into(), session_ref.value.clone()]
+        }
+        ("hako:omp", "omp", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
+            vec!["omp".into(), "--session".into(), session_ref.value.clone()]
         }
         ("hako:hermes", "hermes", AgentSessionRefKind::Id) => {
             vec![
@@ -152,6 +155,7 @@ fn is_official_agent_source(source: &str, agent: &str) -> bool {
         ("hako:claude", "claude")
             | ("hako:codex", "codex")
             | ("hako:pi", "pi")
+            | ("hako:omp", "omp")
             | ("hako:hermes", "hermes")
             | ("hako:opencode", "opencode")
     )
@@ -206,6 +210,16 @@ mod tests {
         );
         assert_eq!(
             plan(
+                "hako:omp",
+                "omp",
+                &AgentSessionRef::path("/tmp/omp-session.jsonl").unwrap()
+            )
+            .unwrap()
+            .argv,
+            vec!["omp", "--session", "/tmp/omp-session.jsonl"]
+        );
+        assert_eq!(
+            plan(
                 "hako:hermes",
                 "hermes",
                 &AgentSessionRef::id("hermes-session").unwrap()
@@ -253,6 +267,15 @@ mod tests {
         .unwrap();
         assert_eq!(session_ref.kind, AgentSessionRefKind::Path);
         assert_eq!(session_ref.value, "/tmp/pi-session.jsonl");
+        let omp_session_ref = session_ref_from_report(
+            "hako:omp",
+            "omp",
+            Some("omp-id".into()),
+            Some("/tmp/omp-session.jsonl".into()),
+        )
+        .unwrap();
+        assert_eq!(omp_session_ref.kind, AgentSessionRefKind::Path);
+        assert_eq!(omp_session_ref.value, "/tmp/omp-session.jsonl");
 
         assert!(session_ref_from_report("hako:pi", "pi", Some("bad\nid".into()), None).is_none());
         assert!(
