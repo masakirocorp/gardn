@@ -101,6 +101,33 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
+    pub(super) fn save_sidebar_widths(&mut self, width: u16, min: u16, max: u16) {
+        let (min, max) = crate::config::validated_sidebar_bounds(min, max)
+            .unwrap_or((self.state.sidebar_min_width, self.state.sidebar_max_width));
+        let width = width.clamp(min, max);
+        if self.update_config_file("sidebar widths", |content| {
+            let content = crate::config::upsert_section_value(
+                content,
+                "ui",
+                "sidebar_width",
+                &width.to_string(),
+            );
+            let content = crate::config::upsert_section_value(
+                &content,
+                "ui",
+                "sidebar_min_width",
+                &min.to_string(),
+            );
+            crate::config::upsert_section_value(
+                &content,
+                "ui",
+                "sidebar_max_width",
+                &max.to_string(),
+            )
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
     pub(super) fn save_toast_delivery(&mut self, delivery: crate::config::ToastDelivery) {
         let value = match delivery {
             crate::config::ToastDelivery::Off => "\"off\"",

@@ -614,6 +614,9 @@ impl App {
                 pending_prompt_new_tab_name: None,
                 pending_new_terminal_cwd: None,
                 pending_mouse_scroll_lines: None,
+                pending_sidebar_width: None,
+                pending_sidebar_min_width: None,
+                pending_sidebar_max_width: None,
                 pending_agent_border_labels: None,
                 pending_resume_agents_on_restore: None,
                 group_theme_target: None,
@@ -2083,6 +2086,29 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("[ui]"));
         assert!(content.contains("mouse_scroll_lines = 5"));
+        assert!(app.state.config_diagnostic.is_none());
+
+        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+    #[test]
+    fn settings_save_sidebar_widths_persists_then_applies_live_config() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("settings-save-sidebar-widths");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "onboarding = false\n").unwrap();
+        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        app.save_sidebar_widths(30, 20, 40);
+
+        assert_eq!(app.state.default_sidebar_width, 30);
+        assert_eq!(app.state.sidebar_min_width, 20);
+        assert_eq!(app.state.sidebar_max_width, 40);
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("sidebar_width = 30"));
+        assert!(content.contains("sidebar_min_width = 20"));
+        assert!(content.contains("sidebar_max_width = 40"));
         assert!(app.state.config_diagnostic.is_none());
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);

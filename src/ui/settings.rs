@@ -96,6 +96,9 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         SettingsSection::Theme => {
             render_settings_theme(app, frame, content_area);
         }
+        SettingsSection::Layout => {
+            render_settings_layout(app, frame, content_area);
+        }
         SettingsSection::Sound => {
             render_settings_toggle(
                 frame,
@@ -747,6 +750,29 @@ fn new_terminal_cwd_label(policy: &NewTerminalCwdConfig) -> String {
     }
 }
 
+fn render_settings_layout(app: &AppState, frame: &mut Frame, area: Rect) {
+    let width = app
+        .settings
+        .pending_sidebar_width
+        .unwrap_or(app.default_sidebar_width);
+    let min = app
+        .settings
+        .pending_sidebar_min_width
+        .unwrap_or(app.sidebar_min_width);
+    let max = app
+        .settings
+        .pending_sidebar_max_width
+        .unwrap_or(app.sidebar_max_width);
+    let width_label = format!("{width} columns");
+    let min_label = format!("{min} columns");
+    let max_label = format!("{max} columns");
+    let options = [
+        ("default sidebar width", width_label.as_str(), true),
+        ("minimum sidebar width", min_label.as_str(), true),
+        ("maximum sidebar width", max_label.as_str(), true),
+    ];
+    render_settings_toggle_list(app, frame, area, &options);
+}
 fn render_settings_behavior(app: &AppState, frame: &mut Frame, area: Rect) {
     let cwd_label = new_terminal_cwd_label(
         &app.settings
@@ -1146,6 +1172,29 @@ mod tests {
         assert!(!text.contains("↵ apply"));
     }
 
+    #[test]
+    fn layout_settings_render_sidebar_widths() {
+        let mut app = AppState::test_new();
+        app.default_sidebar_width = 26;
+        app.sidebar_min_width = 18;
+        app.sidebar_max_width = 36;
+        app.settings.section = SettingsSection::Layout;
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("● default sidebar width"));
+        assert!(text.contains("26 columns"));
+        assert!(text.contains("● minimum sidebar width"));
+        assert!(text.contains("18 columns"));
+        assert!(text.contains("● maximum sidebar width"));
+        assert!(text.contains("36 columns"));
+    }
     #[test]
     fn behavior_settings_render_close_prompt_and_agent_labels() {
         let mut app = AppState::test_new();

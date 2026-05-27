@@ -326,6 +326,9 @@ impl App {
                     prompt_new_tab_name,
                     new_terminal_cwd,
                     mouse_scroll_lines,
+                    sidebar_width,
+                    sidebar_min_width,
+                    sidebar_max_width,
                     agent_border_labels,
                 } => {
                     self.save_theme(&light, &dark, mode);
@@ -334,6 +337,7 @@ impl App {
                     self.save_prompt_new_tab_name(prompt_new_tab_name);
                     self.save_new_terminal_cwd(&new_terminal_cwd);
                     self.save_mouse_scroll_lines(mouse_scroll_lines);
+                    self.save_sidebar_widths(sidebar_width, sidebar_min_width, sidebar_max_width);
                     self.save_toast_delivery(toast_delivery);
                     self.save_agent_border_labels(agent_border_labels);
                 }

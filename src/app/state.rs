@@ -875,6 +875,7 @@ pub enum AgentPanelScope {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsSection {
     Theme,
+    Layout,
     Sound,
     Toast,
     PaneLabels,
@@ -885,6 +886,7 @@ pub enum SettingsSection {
 impl SettingsSection {
     pub const ALL: &[Self] = &[
         Self::Theme,
+        Self::Layout,
         Self::Sound,
         Self::Toast,
         Self::PaneLabels,
@@ -895,6 +897,7 @@ impl SettingsSection {
     pub fn label(self) -> &'static str {
         match self {
             Self::Theme => "theme",
+            Self::Layout => "layout",
             Self::Sound => "sound",
             Self::Toast => "toasts",
             Self::PaneLabels => "behavior",
@@ -1103,6 +1106,12 @@ pub struct SettingsState {
     pub pending_new_terminal_cwd: Option<NewTerminalCwdConfig>,
     /// Pending mouse wheel scroll amount while settings is open.
     pub pending_mouse_scroll_lines: Option<usize>,
+    /// Pending default sidebar width while settings is open.
+    pub pending_sidebar_width: Option<u16>,
+    /// Pending minimum expanded sidebar width while settings is open.
+    pub pending_sidebar_min_width: Option<u16>,
+    /// Pending maximum expanded sidebar width while settings is open.
+    pub pending_sidebar_max_width: Option<u16>,
     /// Pending agent border label setting while settings is open.
     pub pending_agent_border_labels: Option<bool>,
     /// Pending native agent resume setting while settings is open.
@@ -2003,6 +2012,9 @@ impl AppState {
                 pending_prompt_new_tab_name: None,
                 pending_new_terminal_cwd: None,
                 pending_mouse_scroll_lines: None,
+                pending_sidebar_width: None,
+                pending_sidebar_min_width: None,
+                pending_sidebar_max_width: None,
                 pending_agent_border_labels: None,
                 pending_resume_agents_on_restore: None,
                 group_theme_target: None,

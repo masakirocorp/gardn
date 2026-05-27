@@ -29,6 +29,9 @@ pub(super) enum SettingsAction {
         prompt_new_tab_name: bool,
         new_terminal_cwd: NewTerminalCwdConfig,
         mouse_scroll_lines: usize,
+        sidebar_width: u16,
+        sidebar_min_width: u16,
+        sidebar_max_width: u16,
         agent_border_labels: bool,
     },
     SavePaneHistory(bool),
@@ -57,6 +60,9 @@ impl App {
                     prompt_new_tab_name,
                     new_terminal_cwd,
                     mouse_scroll_lines,
+                    sidebar_width,
+                    sidebar_min_width,
+                    sidebar_max_width,
                     agent_border_labels,
                 } => {
                     self.save_theme(&light, &dark, mode);
@@ -65,6 +71,7 @@ impl App {
                     self.save_prompt_new_tab_name(prompt_new_tab_name);
                     self.save_new_terminal_cwd(&new_terminal_cwd);
                     self.save_mouse_scroll_lines(mouse_scroll_lines);
+                    self.save_sidebar_widths(sidebar_width, sidebar_min_width, sidebar_max_width);
                     self.save_toast_delivery(toast_delivery);
                     self.save_agent_border_labels(agent_border_labels);
                 }
@@ -429,6 +436,27 @@ fn pending_mouse_scroll_lines(state: &AppState) -> usize {
         .unwrap_or(state.mouse_scroll_lines)
 }
 
+fn pending_sidebar_width(state: &AppState) -> u16 {
+    state
+        .settings
+        .pending_sidebar_width
+        .unwrap_or(state.default_sidebar_width)
+}
+
+fn pending_sidebar_min_width(state: &AppState) -> u16 {
+    state
+        .settings
+        .pending_sidebar_min_width
+        .unwrap_or(state.sidebar_min_width)
+}
+
+fn pending_sidebar_max_width(state: &AppState) -> u16 {
+    state
+        .settings
+        .pending_sidebar_max_width
+        .unwrap_or(state.sidebar_max_width)
+}
+
 fn pending_agent_border_labels(state: &AppState) -> bool {
     state
         .settings
@@ -562,6 +590,9 @@ fn cancel_settings(state: &mut AppState) {
     state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_new_terminal_cwd = None;
     state.settings.pending_mouse_scroll_lines = None;
+    state.settings.pending_sidebar_width = None;
+    state.settings.pending_sidebar_min_width = None;
+    state.settings.pending_sidebar_max_width = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_resume_agents_on_restore = None;
     state.settings.group_theme_target = None;
@@ -605,6 +636,9 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_new_terminal_cwd = None;
     state.settings.pending_mouse_scroll_lines = None;
+    state.settings.pending_sidebar_width = None;
+    state.settings.pending_sidebar_min_width = None;
+    state.settings.pending_sidebar_max_width = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_resume_agents_on_restore = None;
 }
@@ -624,6 +658,9 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
     let prompt_new_tab_name = pending_prompt_new_tab_name(state);
     let new_terminal_cwd = pending_new_terminal_cwd(state);
     let mouse_scroll_lines = pending_mouse_scroll_lines(state);
+    let sidebar_width = pending_sidebar_width(state);
+    let sidebar_min_width = pending_sidebar_min_width(state);
+    let sidebar_max_width = pending_sidebar_max_width(state);
     let agent_border_labels = pending_agent_border_labels(state);
     let group_theme_name = state
         .settings
@@ -653,6 +690,9 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
         prompt_new_tab_name,
         new_terminal_cwd,
         mouse_scroll_lines,
+        sidebar_width,
+        sidebar_min_width,
+        sidebar_max_width,
         agent_border_labels,
     })
 }
@@ -675,10 +715,51 @@ fn next_mouse_scroll_lines(lines: usize) -> usize {
         _ => 1,
     }
 }
+
+fn select_pending_layout_setting(state: &mut AppState) {
+    match state.settings.list.selected {
+        0 => {
+            let min = pending_sidebar_min_width(state);
+            let max = pending_sidebar_max_width(state);
+            let current = pending_sidebar_width(state).clamp(min, max);
+            let next = current.saturating_add(2);
+            state.settings.pending_sidebar_width = Some(if next > max { min } else { next });
+        }
+        1 => {
+            let max = pending_sidebar_max_width(state);
+            let current = pending_sidebar_min_width(state);
+            let next = current.saturating_add(2);
+            let next = if next >= max {
+                10.min(max)
+            } else {
+                next.max(10)
+            };
+            state.settings.pending_sidebar_min_width = Some(next);
+            state.settings.pending_sidebar_width = Some(pending_sidebar_width(state).max(next));
+        }
+        2 => {
+            let min = pending_sidebar_min_width(state);
+            let current = pending_sidebar_max_width(state);
+            let next = current.saturating_add(2);
+            let next = if next > 48 {
+                min.max(24)
+            } else {
+                next.max(min)
+            };
+            state.settings.pending_sidebar_max_width = Some(next);
+            state.settings.pending_sidebar_width = Some(pending_sidebar_width(state).min(next));
+        }
+        _ => {}
+    }
+}
 fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
     match state.settings.section {
         SettingsSection::Theme => {
             preview_selected_theme(state);
+            None
+        }
+        SettingsSection::Layout => {
+            select_pending_layout_setting(state);
             None
         }
         SettingsSection::Sound => {
@@ -797,8 +878,8 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 if state.settings.group_theme_target.is_none() {
-                    state.settings.section = SettingsSection::Sound;
-                    state.settings.list.selected = usize::from(!pending_sound_enabled(state));
+                    state.settings.section = SettingsSection::Layout;
+                    state.settings.list.selected = 0;
                 }
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -806,6 +887,29 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                     state.settings.section = SettingsSection::Experiments;
                     state.settings.list.selected = 0;
                 }
+            }
+            _ => {
+                if let Some(action) = handle_settings_modal_action(state, &key) {
+                    return Some(action);
+                }
+            }
+        },
+        SettingsSection::Layout => match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                select_previous_setting(state, 3);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                select_next_setting(state, 3);
+            }
+            KeyCode::Char(' ') => return select_pending_setting(state),
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                state.settings.section = SettingsSection::Theme;
+                state.settings.list.selected = target_theme_index(state);
+                ensure_settings_selection_visible(state);
+            }
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                state.settings.section = SettingsSection::Sound;
+                state.settings.list.selected = usize::from(!pending_sound_enabled(state));
             }
             _ => {
                 if let Some(action) = handle_settings_modal_action(state, &key) {
@@ -826,9 +930,8 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 state.settings.list.selected = toast_delivery_index(pending_toast_delivery(state));
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
-                state.settings.section = SettingsSection::Theme;
-                state.settings.list.selected = target_theme_index(state);
-                ensure_settings_selection_visible(state);
+                state.settings.section = SettingsSection::Layout;
+                state.settings.list.selected = 0;
             }
             _ => {
                 if let Some(action) = handle_settings_modal_action(state, &key) {
@@ -944,6 +1047,9 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
     state.settings.pending_prompt_new_tab_name = Some(state.prompt_new_tab_name_enabled());
     state.settings.pending_new_terminal_cwd = Some(state.new_terminal_cwd.clone());
     state.settings.pending_mouse_scroll_lines = Some(state.mouse_scroll_lines);
+    state.settings.pending_sidebar_width = Some(state.default_sidebar_width);
+    state.settings.pending_sidebar_min_width = Some(state.sidebar_min_width);
+    state.settings.pending_sidebar_max_width = Some(state.sidebar_max_width);
     state.settings.pending_agent_border_labels = Some(state.agent_border_labels_enabled());
     state.settings.pending_resume_agents_on_restore =
         Some(state.resume_agents_on_restore_enabled());
@@ -951,6 +1057,7 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
     state.settings.section = section;
     state.settings.list.selected = match section {
         SettingsSection::Theme => target_theme_index(state),
+        SettingsSection::Layout => 0,
         SettingsSection::Sound => usize::from(!pending_sound_enabled(state)),
         SettingsSection::Toast => toast_delivery_index(pending_toast_delivery(state)),
         SettingsSection::PaneLabels => 0,
@@ -984,6 +1091,9 @@ pub(crate) fn open_group_theme_settings(state: &mut AppState, group_idx: usize) 
     state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_new_terminal_cwd = None;
     state.settings.pending_mouse_scroll_lines = None;
+    state.settings.pending_sidebar_width = None;
+    state.settings.pending_sidebar_min_width = None;
+    state.settings.pending_sidebar_max_width = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_resume_agents_on_restore = None;
     state.settings.group_theme_target = Some(group_idx);
@@ -1064,6 +1174,14 @@ impl AppState {
                 let visual_row =
                     settings_theme_viewport(self).hit_visual_row(list_area, col, row)?;
                 theme_selection_for_visual_row(self, visual_row)
+            }
+            SettingsSection::Layout => {
+                let list_y = area.y + 3;
+                if row >= list_y && row < list_y + 6 {
+                    Some(((row - list_y) / 2) as usize)
+                } else {
+                    None
+                }
             }
             SettingsSection::Sound => {
                 let list_y = area.y + 3;
@@ -1175,6 +1293,7 @@ impl AppState {
                     self.settings.section = section;
                     self.settings.list.select(match section {
                         SettingsSection::Theme => target_theme_index(self),
+                        SettingsSection::Layout => 0,
                         SettingsSection::Sound => usize::from(!pending_sound_enabled(self)),
                         SettingsSection::Toast => {
                             toast_delivery_index(pending_toast_delivery(self))
@@ -1195,6 +1314,7 @@ impl AppState {
                     }
                     return match self.settings.section {
                         SettingsSection::Theme
+                        | SettingsSection::Layout
                         | SettingsSection::Sound
                         | SettingsSection::Toast
                         | SettingsSection::PaneLabels => select_pending_setting(self),
@@ -1467,6 +1587,9 @@ mod tests {
                 prompt_new_tab_name: true,
                 new_terminal_cwd: NewTerminalCwdConfig::Follow,
                 mouse_scroll_lines: crate::config::DEFAULT_MOUSE_SCROLL_LINES,
+                sidebar_width: 26,
+                sidebar_min_width: 18,
+                sidebar_max_width: 36,
                 agent_border_labels: false,
             })
         );
@@ -1552,6 +1675,55 @@ mod tests {
         assert_eq!(state.mode, Mode::Settings);
     }
 
+    #[test]
+    fn settings_layout_cycles_sidebar_widths() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.default_sidebar_width = 26;
+        state.sidebar_min_width = 18;
+        state.sidebar_max_width = 36;
+        open_settings_at(&mut state, SettingsSection::Layout);
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.pending_sidebar_width, Some(28));
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.pending_sidebar_min_width, Some(20));
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.pending_sidebar_max_width, Some(38));
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert!(matches!(
+            action,
+            Some(SettingsAction::SaveSettings {
+                sidebar_width: 28,
+                sidebar_min_width: 20,
+                sidebar_max_width: 38,
+                ..
+            })
+        ));
+    }
     #[test]
     fn settings_behavior_toggles_close_prompt_and_border_labels() {
         let mut state = state_with_workspaces(&["test"]);
