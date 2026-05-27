@@ -1466,9 +1466,14 @@ impl AppState {
     }
 
     pub(crate) fn focus_pane(&mut self, pane_id: crate::layout::PaneId) {
-        if let Some(ws) = self.active.and_then(|i| self.workspaces.get_mut(i)) {
+        let Some(ws_idx) = self.active else {
+            return;
+        };
+        let previous = self.current_pane_focus_target();
+        if let Some(ws) = self.workspaces.get_mut(ws_idx) {
             if ws.layout.focused() != pane_id {
                 ws.layout.focus_pane(pane_id);
+                self.record_pane_focus_change(previous, ws_idx, pane_id);
                 self.mark_session_dirty();
             }
         }

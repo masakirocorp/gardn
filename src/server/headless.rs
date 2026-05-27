@@ -709,8 +709,8 @@ impl HeadlessServer {
                     let data = base64::engine::general_purpose::STANDARD.encode(content.as_slice());
                     self.send_to_client(client_id, ServerMessage::Clipboard { data });
                 }
-                // ClipboardWrite doesn't change visual state — no render needed.
-                false
+                self.app.show_clipboard_feedback();
+                true
             }
             AppEvent::StateChanged { pane_id, agent, .. } => {
                 // Capture toast before handling.
@@ -1915,6 +1915,16 @@ impl HeadlessServer {
 
         if self
             .app
+            .copy_feedback_deadline
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.app.copy_feedback_deadline = None;
+            self.app.state.copy_feedback = None;
+            changed = true;
+        }
+
+        if self
+            .app
             .next_animation_tick
             .is_some_and(|deadline| now >= deadline)
         {
@@ -2089,6 +2099,7 @@ fn is_keybinding_config_diagnostic(diagnostic: &str) -> bool {
 /// Run the headless server. This is the entry point called from main.rs.
 pub fn run_server() -> io::Result<()> {
     init_logging();
+    crate::platform::raise_server_nofile_limit();
 
     let loaded_config = config::Config::load();
     let (api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();

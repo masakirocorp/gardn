@@ -1272,6 +1272,11 @@ pub struct ToastNotification {
     pub target: Option<ToastTarget>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CopyFeedback {
+    pub message: String,
+}
+
 pub struct ReleaseNotesState {
     pub version: String,
     pub body: String,
@@ -1311,6 +1316,12 @@ pub enum SidebarWidthSource {
     Manual,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PaneFocusTarget {
+    pub workspace_id: String,
+    pub pane_id: PaneId,
+}
+
 /// All application state — pure data, no channels or async runtime.
 /// Testable without PTYs or a tokio runtime.
 pub struct AppState {
@@ -1323,6 +1334,7 @@ pub struct AppState {
     pub direct_attach_resize_locks: std::collections::HashSet<crate::terminal::TerminalId>,
     pub workspaces: Vec<Workspace>,
     pub active: Option<usize>,
+    pub(crate) previous_pane_focus: Option<PaneFocusTarget>,
     pub selected: usize,
     pub mode: Mode,
     pub should_quit: bool,
@@ -1380,6 +1392,7 @@ pub struct AppState {
     pub update_dismissed: bool,
     pub config_diagnostic: Option<String>,
     pub toast: Option<ToastNotification>,
+    pub copy_feedback: Option<CopyFeedback>,
     /// Last reported focus state for the outer terminal hosting hako.
     /// None means unsupported or not yet reported, which preserves active-pane suppression.
     pub outer_terminal_focus: Option<bool>,
@@ -1390,6 +1403,7 @@ pub struct AppState {
     pub sidebar_width: u16,
     pub sidebar_min_width: u16,
     pub sidebar_max_width: u16,
+    pub mobile_width_threshold: u16,
     pub sidebar_width_source: SidebarWidthSource,
     pub sidebar_width_auto: bool,
     pub sidebar_collapsed: bool,
@@ -1904,6 +1918,7 @@ impl AppState {
                 scroll: 0,
             },
             navigator: NavigatorState::default(),
+            previous_pane_focus: None,
             command_catalog: Vec::new(),
             command_runs: std::collections::HashMap::new(),
             port_registry: crate::ports::PortRegistry::default(),
@@ -1969,7 +1984,9 @@ impl AppState {
             mouse_scroll_lines: crate::config::DEFAULT_MOUSE_SCROLL_LINES,
             confirm_close: true,
             prompt_new_tab_name: true,
+            copy_feedback: None,
             show_agent_labels_on_pane_borders: false,
+            mobile_width_threshold: crate::config::DEFAULT_MOBILE_WIDTH_THRESHOLD,
             pane_history_persistence: false,
             resume_agents_on_restore: false,
             reveal_hidden_cursor_for_cjk_ime: false,

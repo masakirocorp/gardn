@@ -136,6 +136,7 @@ pub(super) fn keybind_help_groups(
             keybind_label(&kb.cycle_pane_previous),
             "cycle pane previous",
         ),
+        (keybind_label(&kb.last_pane), "last pane"),
         (
             keybind_label(&kb.toggle_right_sidebar),
             "toggle right sidebar",

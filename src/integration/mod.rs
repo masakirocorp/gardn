@@ -28,7 +28,7 @@ const CODEX_INTEGRATION_VERSION: u32 = 4;
 const CODEX_HOME_ENV_VAR: &str = "CODEX_HOME";
 const OPENCODE_PLUGIN_INSTALL_NAME: &str = "hako-agent-state.js";
 const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/hako-agent-state.js");
-const OPENCODE_INTEGRATION_VERSION: u32 = 2;
+const OPENCODE_INTEGRATION_VERSION: u32 = 3;
 const HERMES_PLUGIN_INSTALL_NAME: &str = "hako-agent-state";
 const HERMES_PLUGIN_MANIFEST_INSTALL_NAME: &str = "plugin.yaml";
 const HERMES_PLUGIN_INIT_INSTALL_NAME: &str = "__init__.py";
@@ -2751,6 +2751,7 @@ mod tests {
         assert!(CODEX_HOOK_ASSET.contains("HAKO_HOOK_INPUT_FILE"));
         assert!(CODEX_HOOK_ASSET.contains("agent_session_id"));
         assert!(OPENCODE_PLUGIN_ASSET.contains("properties?.sessionID"));
+        assert!(OPENCODE_PLUGIN_ASSET.contains("dispose: async"));
         assert!(OPENCODE_PLUGIN_ASSET.contains("agent_session_id: sessionID"));
         assert!(HERMES_PLUGIN_INIT_ASSET.contains("session_id = _session_id(kwargs)"));
         assert!(HERMES_PLUGIN_INIT_ASSET.contains("agent_session_id"));

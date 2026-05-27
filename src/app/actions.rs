@@ -12,8 +12,8 @@ use crate::workspace::GitWorkSummary;
 use crate::workspace::WorkspaceGitStatus;
 
 use super::state::{
-    AppState, Group, Mode, NavigatorRow, NavigatorStateFilter, NavigatorTarget, ToastKind,
-    ToastNotification, ToastTarget, ViewLayout,
+    AppState, Group, Mode, NavigatorRow, NavigatorStateFilter, NavigatorTarget, PaneFocusTarget,
+    ToastKind, ToastNotification, ToastTarget, ViewLayout,
 };
 
 fn hunk_diff_project_command(root: std::path::PathBuf) -> crate::commands::ProjectCommand {
@@ -129,6 +129,80 @@ pub struct PaneStateUpdate {
 // ---------------------------------------------------------------------------
 
 impl AppState {
+    pub(crate) fn current_pane_focus_target(&self) -> Option<PaneFocusTarget> {
+        let ws_idx = self.active?;
+        let ws = self.workspaces.get(ws_idx)?;
+        let pane_id = ws.focused_pane_id()?;
+        Some(PaneFocusTarget {
+            workspace_id: ws.id.clone(),
+            pane_id,
+        })
+    }
+
+    fn pane_focus_target_indices(&self, target: &PaneFocusTarget) -> Option<(usize, usize)> {
+        let ws_idx = self
+            .workspaces
+            .iter()
+            .position(|ws| ws.id == target.workspace_id)?;
+        let tab_idx = self.workspaces[ws_idx].find_tab_index_for_pane(target.pane_id)?;
+        Some((ws_idx, tab_idx))
+    }
+
+    pub(crate) fn record_pane_focus_change(
+        &mut self,
+        previous: Option<PaneFocusTarget>,
+        ws_idx: usize,
+        pane_id: PaneId,
+    ) {
+        let Some(ws) = self.workspaces.get(ws_idx) else {
+            return;
+        };
+        let target = PaneFocusTarget {
+            workspace_id: ws.id.clone(),
+            pane_id,
+        };
+        if previous.as_ref() != Some(&target) {
+            self.previous_pane_focus = previous;
+        }
+    }
+
+    fn record_pane_focus_after_navigation(&mut self, previous: Option<PaneFocusTarget>) {
+        let current = self.current_pane_focus_target();
+        if previous != current {
+            self.previous_pane_focus = previous;
+        }
+    }
+
+    pub(crate) fn focus_pane_in_workspace(&mut self, ws_idx: usize, pane_id: PaneId) -> bool {
+        let Some(ws) = self.workspaces.get(ws_idx) else {
+            return false;
+        };
+        let Some(tab_idx) = ws.find_tab_index_for_pane(pane_id) else {
+            return false;
+        };
+        let previous = self.current_pane_focus_target();
+        let target = PaneFocusTarget {
+            workspace_id: ws.id.clone(),
+            pane_id,
+        };
+        if previous.as_ref() == Some(&target) {
+            return false;
+        }
+
+        self.switch_workspace_tab(ws_idx, tab_idx);
+        if let Some(tab) = self
+            .workspaces
+            .get_mut(ws_idx)
+            .and_then(|ws| ws.tabs.get_mut(tab_idx))
+        {
+            tab.layout.focus_pane(pane_id);
+            self.previous_pane_focus = previous;
+            self.mark_session_dirty();
+            return true;
+        }
+        false
+    }
+
     pub(crate) fn open_navigator(&mut self) {
         self.navigator.query.clear();
         self.navigator.search_focused = false;
@@ -428,8 +502,7 @@ impl AppState {
                 if !tab_exists {
                     return false;
                 }
-                self.switch_workspace(ws_idx);
-                self.switch_tab(tab_idx);
+                self.switch_workspace_tab(ws_idx, tab_idx);
                 self.mode = Mode::Terminal;
                 true
             }
@@ -441,19 +514,15 @@ impl AppState {
                 if ws_idx >= self.workspaces.len() {
                     return false;
                 }
-                self.switch_workspace(ws_idx);
-                self.switch_tab(tab_idx);
-                if let Some(tab) = self
+                if self
                     .workspaces
-                    .get_mut(ws_idx)
-                    .and_then(|ws| ws.tabs.get_mut(tab_idx))
+                    .get(ws_idx)
+                    .and_then(|ws| ws.tabs.get(tab_idx))
+                    .is_some_and(|tab| tab.panes.contains_key(&pane_id))
                 {
-                    if tab.panes.contains_key(&pane_id) {
-                        tab.layout.focus_pane(pane_id);
-                        self.mark_session_dirty();
-                        self.mode = Mode::Terminal;
-                        return true;
-                    }
+                    self.focus_pane_in_workspace(ws_idx, pane_id);
+                    self.mode = Mode::Terminal;
+                    return true;
                 }
                 false
             }
@@ -1184,6 +1253,7 @@ impl AppState {
 
     pub fn switch_workspace(&mut self, idx: usize) {
         if idx < self.workspaces.len() {
+            let previous_focus = self.current_pane_focus_target();
             let group_id = self.workspaces[idx].group_id.clone();
             if let Some(group_idx) = self.group_index_for_id(&group_id) {
                 self.active_group = group_idx;
@@ -1210,7 +1280,55 @@ impl AppState {
             }
             self.tab_scroll_follow_active = true;
             self.refresh_tab_bar_view();
+            self.record_pane_focus_after_navigation(previous_focus);
         }
+    }
+
+    pub(crate) fn switch_workspace_tab(&mut self, ws_idx: usize, tab_idx: usize) -> bool {
+        if ws_idx >= self.workspaces.len() {
+            return false;
+        }
+        if self
+            .workspaces
+            .get(ws_idx)
+            .is_none_or(|ws| tab_idx >= ws.tabs.len())
+        {
+            return false;
+        }
+
+        let previous_focus = self.current_pane_focus_target();
+        let workspace_changed = self.active != Some(ws_idx);
+        let group_id = self.workspaces[ws_idx].group_id.clone();
+        if let Some(group_idx) = self.group_index_for_id(&group_id) {
+            self.active_group = group_idx;
+        }
+        self.selection = None;
+        self.selection_autoscroll = None;
+        self.active = Some(ws_idx);
+        self.selected = ws_idx;
+        let workspace_id = self.workspaces[ws_idx].id.clone();
+        if workspace_changed {
+            crate::logging::workspace_focused(&workspace_id);
+        }
+        self.mark_session_dirty();
+        if workspace_changed
+            && matches!(
+                self.agent_panel_scope,
+                crate::app::state::AgentPanelScope::CurrentWorkspace
+            )
+        {
+            self.agent_panel_scroll = 0;
+        }
+        self.ensure_workspace_visible(ws_idx);
+        if let Some(ws) = self.workspaces.get_mut(ws_idx) {
+            ws.switch_tab(tab_idx);
+            let tab_id = format!("{}:{}", workspace_id, tab_idx + 1);
+            crate::logging::tab_focused(&workspace_id, &tab_id);
+        }
+        self.tab_scroll_follow_active = true;
+        self.refresh_tab_bar_view();
+        self.record_pane_focus_after_navigation(previous_focus);
+        true
     }
 
     pub(crate) fn ensure_workspace_visible(&mut self, idx: usize) {
@@ -1302,6 +1420,7 @@ impl AppState {
 
     pub fn switch_tab(&mut self, idx: usize) {
         if let Some(ws_idx) = self.active {
+            let previous_focus = self.current_pane_focus_target();
             self.selection = None;
             self.selection_autoscroll = None;
             let Some(ws) = self.workspaces.get_mut(ws_idx) else {
@@ -1314,6 +1433,7 @@ impl AppState {
             self.mark_session_dirty();
             self.tab_scroll_follow_active = true;
             self.refresh_tab_bar_view();
+            self.record_pane_focus_after_navigation(previous_focus);
         }
     }
 
@@ -1450,22 +1570,17 @@ impl AppState {
             return false;
         };
         let ws_idx = target.ws_idx;
-        let tab_idx = target.tab_idx;
         let pane_id = target.pane_id;
 
-        self.switch_workspace(ws_idx);
-        self.switch_tab(tab_idx);
-        if let Some(tab) = self
-            .workspaces
-            .get_mut(ws_idx)
-            .and_then(|ws| ws.tabs.get_mut(tab_idx))
+        if self.active == Some(ws_idx) && self.workspaces[ws_idx].focused_pane_id() == Some(pane_id)
         {
-            if tab.panes.contains_key(&pane_id) {
-                tab.layout.focus_pane(pane_id);
-                self.mark_session_dirty();
-                self.ensure_agent_panel_entry_visible(idx);
-                return true;
-            }
+            self.ensure_agent_panel_entry_visible(idx);
+            return true;
+        }
+
+        if self.focus_pane_in_workspace(ws_idx, pane_id) {
+            self.ensure_agent_panel_entry_visible(idx);
+            return true;
         }
         false
     }
@@ -1696,14 +1811,7 @@ impl AppState {
 
         if let Some(focused) = panes.iter().find(|p| p.is_focused) {
             if let Some(target) = find_in_direction(focused, direction, &panes) {
-                if let Some(tab) = self
-                    .workspaces
-                    .get_mut(ws_idx)
-                    .and_then(|ws| ws.active_tab_mut())
-                {
-                    tab.layout.focus_pane(target);
-                    self.mark_session_dirty();
-                }
+                self.focus_pane_in_workspace(ws_idx, target);
             }
         }
     }
@@ -1727,16 +1835,45 @@ impl AppState {
     }
 
     pub fn cycle_pane(&mut self, reverse: bool) {
-        if let Some(tab) = self
-            .active
-            .and_then(|i| self.workspaces.get_mut(i))
-            .and_then(|ws| ws.active_tab_mut())
-        {
-            if reverse {
-                tab.layout.focus_prev();
+        let Some(ws_idx) = self.active else {
+            return;
+        };
+        let Some(tab) = self.workspaces.get(ws_idx).and_then(|ws| ws.active_tab()) else {
+            return;
+        };
+        let ids = tab.layout.pane_ids();
+        if let Some(pos) = ids.iter().position(|id| *id == tab.layout.focused()) {
+            let target = if reverse {
+                ids[(pos + ids.len() - 1) % ids.len()]
             } else {
-                tab.layout.focus_next();
-            }
+                ids[(pos + 1) % ids.len()]
+            };
+            self.focus_pane_in_workspace(ws_idx, target);
+        }
+    }
+
+    pub fn last_pane(&mut self) {
+        let Some(target) = self.previous_pane_focus.clone() else {
+            return;
+        };
+        let Some((ws_idx, tab_idx)) = self.pane_focus_target_indices(&target) else {
+            self.previous_pane_focus = None;
+            return;
+        };
+        let current = self.current_pane_focus_target();
+        if current.as_ref() == Some(&target) {
+            self.previous_pane_focus = None;
+            return;
+        }
+
+        self.switch_workspace_tab(ws_idx, tab_idx);
+        if let Some(tab) = self
+            .workspaces
+            .get_mut(ws_idx)
+            .and_then(|ws| ws.tabs.get_mut(tab_idx))
+        {
+            tab.layout.focus_pane(target.pane_id);
+            self.previous_pane_focus = current;
             self.mark_session_dirty();
         }
     }

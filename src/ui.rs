@@ -52,7 +52,10 @@ pub(crate) use self::scrollbar::{
 };
 use self::settings::render_settings_overlay;
 use self::sidebar::{render_right_sidebar, render_sidebar, render_sidebar_collapsed};
-use self::status::{render_config_diagnostic, render_toast_notification, toast_notification_rect};
+use self::status::{
+    render_config_diagnostic, render_copy_feedback, render_toast_notification,
+    toast_notification_rect,
+};
 use self::tabs::render_tab_bar;
 use self::widgets::fill_rect;
 pub(crate) use self::{
@@ -189,7 +192,7 @@ fn compute_view_internal(
     resize_panes: bool,
     cell_size: crate::kitty_graphics::HostCellSize,
 ) {
-    if is_mobile_width(area) {
+    if is_mobile_width(area, app.mobile_width_threshold) {
         compute_mobile_view(app, terminal_runtimes, area, resize_panes, cell_size);
         return;
     }
@@ -506,6 +509,7 @@ fn render_notifications(app: &AppState, frame: &mut Frame, terminal_area: Rect) 
     if let Some(message) = &app.config_diagnostic {
         render_config_diagnostic(frame, terminal_area, message, &app.palette);
     }
+    let mut copy_feedback_offset = u16::from(has_config_diagnostic);
     if let Some(toast) = &app.toast {
         if app.view.layout == ViewLayout::Mobile {
             render_mobile_toast_banner(
@@ -524,6 +528,20 @@ fn render_notifications(app: &AppState, frame: &mut Frame, terminal_area: Rect) 
                 &app.palette,
             );
         }
+        copy_feedback_offset =
+            copy_feedback_offset.saturating_add(if app.view.layout == ViewLayout::Mobile {
+                1
+            } else {
+                toast_notification_rect(terminal_area, toast, has_config_diagnostic).height
+            });
+    }
+    if let Some(feedback) = &app.copy_feedback {
+        let area = if app.view.layout == ViewLayout::Mobile {
+            frame.area()
+        } else {
+            terminal_area
+        };
+        render_copy_feedback(frame, area, feedback, copy_feedback_offset, &app.palette);
     }
 }
 
@@ -630,6 +648,24 @@ mod tests {
             app.view.mobile_menu_hit_area.x + app.view.mobile_menu_hit_area.width,
             44
         );
+    }
+
+    #[test]
+    fn configured_mobile_width_threshold_controls_layout_switch() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("one")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        compute_view(&mut app, Rect::new(0, 0, 80, 20));
+        assert_eq!(app.view.layout, ViewLayout::Desktop);
+
+        app.mobile_width_threshold = 90;
+        compute_view(&mut app, Rect::new(0, 0, 80, 20));
+        assert_eq!(app.view.layout, ViewLayout::Mobile);
+        assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 80, 2));
+        assert_eq!(app.view.terminal_area, Rect::new(0, 2, 80, 18));
     }
 
     #[tokio::test]

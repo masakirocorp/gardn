@@ -528,6 +528,7 @@ pub(crate) enum NavigateAction {
     OpenCommandPalette,
     CyclePaneNext,
     CyclePanePrevious,
+    LastPane,
     Help,
     Settings,
     ReloadConfig,
@@ -628,6 +629,7 @@ fn action_for_key(
         (&kb.focus_pane_right, NavigateAction::FocusPaneRight),
         (&kb.cycle_pane_next, NavigateAction::CyclePaneNext),
         (&kb.cycle_pane_previous, NavigateAction::CyclePanePrevious),
+        (&kb.last_pane, NavigateAction::LastPane),
         (&kb.split_vertical, NavigateAction::SplitVertical),
         (&kb.split_horizontal, NavigateAction::SplitHorizontal),
         (&kb.close_pane, NavigateAction::ClosePane),
@@ -820,6 +822,10 @@ pub(super) fn execute_navigate_action_in_context(
         }
         NavigateAction::CyclePanePrevious => {
             state.cycle_pane(true);
+            leave_navigate_mode(state);
+        }
+        NavigateAction::LastPane => {
+            state.last_pane();
             leave_navigate_mode(state);
         }
         NavigateAction::Help => super::modal::open_keybind_help(state),
