@@ -21,7 +21,7 @@ use crate::{
         },
         AppState,
     },
-    config::{ThemeMode, ToastDelivery},
+    config::{NewTerminalCwdConfig, ThemeMode, ToastDelivery},
     terminal_theme::ThemeAppearance,
 };
 
@@ -96,6 +96,9 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         SettingsSection::Theme => {
             render_settings_theme(app, frame, content_area);
         }
+        SettingsSection::Layout => {
+            render_settings_layout(app, frame, content_area);
+        }
         SettingsSection::Sound => {
             render_settings_toggle(
                 frame,
@@ -130,17 +133,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
             );
         }
         SettingsSection::PaneLabels => {
-            render_settings_toggle(
-                frame,
-                content_area,
-                p,
-                "agent border labels",
-                "show detected agent names in split pane borders",
-                app.settings
-                    .pending_agent_border_labels
-                    .unwrap_or_else(|| app.agent_border_labels_enabled()),
-                app.settings.list.selected,
-            );
+            render_settings_behavior(app, frame, content_area);
         }
         SettingsSection::Experiments => {
             render_settings_experiments(app, frame, content_area);
@@ -748,16 +741,133 @@ fn render_settings_toggle(
     );
 }
 
-fn render_settings_experiments(app: &AppState, frame: &mut Frame, area: Rect) {
-    render_settings_toggle(
-        frame,
-        area,
-        &app.palette,
-        "pane screen history",
-        "save recent pane output across server restarts",
-        app.pane_history_persistence_enabled(),
-        app.settings.list.selected,
+fn new_terminal_cwd_label(policy: &NewTerminalCwdConfig) -> String {
+    match policy {
+        NewTerminalCwdConfig::Follow => "follow focused pane".to_string(),
+        NewTerminalCwdConfig::Home => "home directory".to_string(),
+        NewTerminalCwdConfig::Current => "hako process directory".to_string(),
+        NewTerminalCwdConfig::Path(path) => format!("custom path: {path}"),
+    }
+}
+
+fn render_settings_layout(app: &AppState, frame: &mut Frame, area: Rect) {
+    let width = app
+        .settings
+        .pending_sidebar_width
+        .unwrap_or(app.default_sidebar_width);
+    let min = app
+        .settings
+        .pending_sidebar_min_width
+        .unwrap_or(app.sidebar_min_width);
+    let max = app
+        .settings
+        .pending_sidebar_max_width
+        .unwrap_or(app.sidebar_max_width);
+    let width_label = format!("{width} columns");
+    let min_label = format!("{min} columns");
+    let max_label = format!("{max} columns");
+    let worktree_directory = app
+        .settings
+        .pending_worktree_directory
+        .clone()
+        .unwrap_or_else(|| app.worktree_directory.display().to_string());
+    let options = [
+        ("default sidebar width", width_label.as_str(), true),
+        ("minimum sidebar width", min_label.as_str(), true),
+        ("maximum sidebar width", max_label.as_str(), true),
+        ("worktree directory", worktree_directory.as_str(), true),
+    ];
+    render_settings_toggle_list(app, frame, area, &options);
+}
+fn render_settings_behavior(app: &AppState, frame: &mut Frame, area: Rect) {
+    let cwd_label = new_terminal_cwd_label(
+        &app.settings
+            .pending_new_terminal_cwd
+            .clone()
+            .unwrap_or_else(|| app.new_terminal_cwd.clone()),
     );
+    let scroll_label = format!(
+        "{} lines per wheel notch",
+        app.settings
+            .pending_mouse_scroll_lines
+            .unwrap_or(app.mouse_scroll_lines)
+    );
+    let options = [
+        (
+            "confirm before closing workspaces",
+            "ask before closing a workspace or its last tab",
+            app.settings
+                .pending_confirm_close
+                .unwrap_or_else(|| app.confirm_close_enabled()),
+        ),
+        (
+            "name new tabs",
+            "ask for a tab name before creating a new tab",
+            app.settings
+                .pending_prompt_new_tab_name
+                .unwrap_or_else(|| app.prompt_new_tab_name_enabled()),
+        ),
+        ("new terminal cwd", cwd_label.as_str(), true),
+        ("mouse wheel speed", scroll_label.as_str(), true),
+        (
+            "agent border labels",
+            "show detected agent names in split pane borders",
+            app.settings
+                .pending_agent_border_labels
+                .unwrap_or_else(|| app.agent_border_labels_enabled()),
+        ),
+    ];
+    render_settings_toggle_list(app, frame, area, &options);
+}
+
+fn render_settings_toggle_list(
+    app: &AppState,
+    frame: &mut Frame,
+    area: Rect,
+    options: &[(&str, &str, bool)],
+) {
+    let p = &app.palette;
+    let rows: Vec<ListItem<'_>> = options
+        .iter()
+        .enumerate()
+        .map(|(idx, (title, description, enabled))| {
+            let selected = app.settings.list.selected == idx;
+            let marker = if *enabled { "●" } else { "○" };
+            let marker_style = if *enabled {
+                Style::default().fg(p.green)
+            } else {
+                Style::default().fg(p.overlay0)
+            };
+            ListItem::new(vec![
+                Line::from(vec![
+                    Span::styled(marker, marker_style),
+                    Span::raw(" "),
+                    Span::styled(*title, Style::default().fg(p.text)),
+                ]),
+                Line::from(Span::styled(*description, Style::default().fg(p.subtext0))),
+            ])
+            .style(modal_option_style(p, selected))
+        })
+        .collect();
+    let list = List::new(rows).highlight_symbol(" ");
+    let mut state = ListState::default().with_selected(Some(app.settings.list.selected));
+    frame.render_stateful_widget(list, area, &mut state);
+}
+
+fn render_settings_experiments(app: &AppState, frame: &mut Frame, area: Rect) {
+    let options = [
+        (
+            "resume agent sessions",
+            "restart supported agents in their native session after restore",
+            app.resume_agents_on_restore_enabled(),
+        ),
+        (
+            "pane screen history",
+            "save recent pane output across server restarts",
+            app.pane_history_persistence_enabled(),
+        ),
+    ];
+    render_settings_toggle_list(app, frame, area, &options);
 }
 
 fn modal_option_style(p: &Palette, selected: bool) -> Style {
@@ -1067,6 +1177,57 @@ mod tests {
         assert!(text.contains("↵ save"));
         assert!(!text.contains("↵ apply"));
     }
+
+    #[test]
+    fn layout_settings_render_sidebar_widths() {
+        let mut app = AppState::test_new();
+        app.default_sidebar_width = 26;
+        app.sidebar_min_width = 18;
+        app.sidebar_max_width = 36;
+        app.settings.section = SettingsSection::Layout;
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("● default sidebar width"));
+        assert!(text.contains("26 columns"));
+        assert!(text.contains("● minimum sidebar width"));
+        assert!(text.contains("18 columns"));
+        assert!(text.contains("● maximum sidebar width"));
+        assert!(text.contains("36 columns"));
+        assert!(text.contains("● worktree directory"));
+        assert!(text.contains("/tmp/hako-worktrees"));
+    }
+    #[test]
+    fn behavior_settings_render_close_prompt_and_agent_labels() {
+        let mut app = AppState::test_new();
+        app.confirm_close = true;
+        app.prompt_new_tab_name = true;
+        app.show_agent_labels_on_pane_borders = false;
+        app.settings.section = SettingsSection::PaneLabels;
+        app.settings.list.selected = 0;
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("● confirm before closing workspaces"));
+        assert!(text.contains("● name new tabs"));
+        assert!(text.contains("● new terminal cwd"));
+        assert!(text.contains("follow focused pane"));
+        assert!(text.contains("● mouse wheel speed"));
+        assert!(text.contains("3 lines per wheel notch"));
+        assert!(text.contains("○ agent border labels"));
+    }
     #[test]
     fn integrations_selected_row_highlight_extends_to_row_end() {
         let mut app = AppState::test_new();
@@ -1114,9 +1275,10 @@ mod tests {
     }
 
     #[test]
-    fn experiments_pane_history_uses_settings_choice_marker() {
+    fn experiments_render_agent_resume_and_pane_history() {
         let mut app = AppState::test_new();
-        app.pane_history_persistence = true;
+        app.resume_agents_on_restore = true;
+        app.pane_history_persistence = false;
         app.settings.section = SettingsSection::Experiments;
         app.settings.list.selected = 0;
 
@@ -1128,14 +1290,15 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("on ✓"));
-        assert!(text.contains("pane screen history"));
+        assert!(text.contains("● resume agent sessions"));
+        assert!(text.contains("○ pane screen history"));
     }
 
     #[test]
-    fn experiments_pane_history_keeps_off_marker_when_disabled() {
+    fn experiments_pane_history_uses_enabled_marker() {
         let mut app = AppState::test_new();
-        app.pane_history_persistence = false;
+        app.resume_agents_on_restore = false;
+        app.pane_history_persistence = true;
         app.settings.section = SettingsSection::Experiments;
         app.settings.list.selected = 1;
 
@@ -1147,8 +1310,8 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("off ✓"));
-        assert!(text.contains("pane screen history"));
+        assert!(text.contains("○ resume agent sessions"));
+        assert!(text.contains("● pane screen history"));
     }
     fn assert_no_option_line(text: &str, option: &str) {
         let mut in_appearance_section = false;

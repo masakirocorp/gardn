@@ -97,6 +97,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         Mode::RenameTab if app.creating_new_tab => "new tab",
         Mode::RenameTab => "rename tab",
         Mode::RenamePane => "rename pane",
+        Mode::EditWorktreeDirectory => "worktree directory",
         _ => return,
     };
 

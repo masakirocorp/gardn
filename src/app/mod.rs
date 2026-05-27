@@ -567,6 +567,7 @@ impl App {
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             show_agent_labels_on_pane_borders: config.ui.show_agent_labels_on_pane_borders,
             pane_history_persistence: config.experimental.pane_history,
+            resume_agents_on_restore: config.session.resume_agents_on_restore,
             reveal_hidden_cursor_for_cjk_ime: config.experimental.reveal_hidden_cursor_for_cjk_ime,
             cjk_ime_agent_filter_configured: !config.experimental.cjk_ime_agents.is_empty(),
             cjk_ime_agents: parse_cjk_ime_agents(&config.experimental.cjk_ime_agents),
@@ -609,7 +610,16 @@ impl App {
                 pending_dark_theme_name: None,
                 pending_sound_enabled: None,
                 pending_toast_delivery: None,
+                pending_confirm_close: None,
+                pending_prompt_new_tab_name: None,
+                pending_new_terminal_cwd: None,
+                pending_mouse_scroll_lines: None,
+                pending_sidebar_width: None,
+                pending_sidebar_min_width: None,
+                pending_sidebar_max_width: None,
+                pending_worktree_directory: None,
                 pending_agent_border_labels: None,
+                pending_resume_agents_on_restore: None,
                 group_theme_target: None,
             },
             integration_recommendations: crate::integration::integration_recommendations(),
@@ -1158,6 +1168,7 @@ impl App {
                 config.experimental.cjk_ime_cursor_shape.to_decscusr();
             self.persist_pane_history = config.experimental.pane_history;
             self.state.pane_history_persistence = config.experimental.pane_history;
+            self.state.resume_agents_on_restore = config.session.resume_agents_on_restore;
             if !self.persist_pane_history {
                 crate::persist::clear_history();
             }
@@ -1368,6 +1379,9 @@ impl App {
             }
             Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
                 input::handle_rename_key(&mut self.state, key_event);
+            }
+            Mode::EditWorktreeDirectory => {
+                input::handle_worktree_directory_key(&mut self.state, key_event);
             }
             Mode::Resize => {
                 input::handle_resize_key(&mut self.state, key);
@@ -2029,6 +2043,136 @@ mod tests {
     }
 
     #[test]
+    fn settings_save_new_terminal_cwd_persists_then_applies_live_config() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("settings-save-new-terminal-cwd");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "onboarding = false\n").unwrap();
+        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        assert_eq!(
+            app.state.new_terminal_cwd,
+            crate::config::NewTerminalCwdConfig::Follow
+        );
+
+        app.save_new_terminal_cwd(&crate::config::NewTerminalCwdConfig::Home);
+
+        assert_eq!(
+            app.state.new_terminal_cwd,
+            crate::config::NewTerminalCwdConfig::Home
+        );
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("[terminal]"));
+        assert!(content.contains("new_cwd = \"home\""));
+        assert!(app.state.config_diagnostic.is_none());
+
+        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+    #[test]
+    fn settings_save_mouse_scroll_lines_persists_then_applies_live_config() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("settings-save-mouse-scroll-lines");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "onboarding = false\n").unwrap();
+        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        assert_eq!(
+            app.state.mouse_scroll_lines,
+            crate::config::DEFAULT_MOUSE_SCROLL_LINES
+        );
+
+        app.save_mouse_scroll_lines(5);
+
+        assert_eq!(app.state.mouse_scroll_lines, 5);
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("[ui]"));
+        assert!(content.contains("mouse_scroll_lines = 5"));
+        assert!(app.state.config_diagnostic.is_none());
+
+        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+    #[test]
+    fn settings_save_sidebar_widths_persists_then_applies_live_config() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("settings-save-sidebar-widths");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "onboarding = false\n").unwrap();
+        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        app.save_sidebar_widths(30, 20, 40);
+
+        assert_eq!(app.state.default_sidebar_width, 30);
+        assert_eq!(app.state.sidebar_min_width, 20);
+        assert_eq!(app.state.sidebar_max_width, 40);
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("sidebar_width = 30"));
+        assert!(content.contains("sidebar_min_width = 20"));
+        assert!(content.contains("sidebar_max_width = 40"));
+        assert!(app.state.config_diagnostic.is_none());
+
+        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn settings_save_worktree_directory_persists_then_applies_live_config() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("settings-save-worktree-directory");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "onboarding = false\n").unwrap();
+        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        app.save_worktree_directory("~/Projects/hako-worktrees");
+
+        assert!(app
+            .state
+            .worktree_directory
+            .ends_with("Projects/hako-worktrees"));
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("[worktrees]"));
+        assert!(content.contains("directory = \"~/Projects/hako-worktrees\""));
+        assert!(app.state.config_diagnostic.is_none());
+
+        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+    #[test]
+    fn settings_save_close_and_tab_prompts_persist_then_apply_live_config() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("settings-save-close-tab-prompts");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "onboarding = false\n[ui]\nconfirm_close = true\nprompt_new_tab_name = true\n",
+        )
+        .unwrap();
+        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        assert!(app.state.confirm_close);
+        assert!(app.state.prompt_new_tab_name);
+
+        app.save_confirm_close(false);
+        app.save_prompt_new_tab_name(false);
+
+        assert!(!app.state.confirm_close);
+        assert!(!app.state.prompt_new_tab_name);
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("confirm_close = false"));
+        assert!(content.contains("prompt_new_tab_name = false"));
+        assert!(app.state.config_diagnostic.is_none());
+
+        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
     fn settings_save_pane_history_persists_then_applies_live_config() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("settings-save-pane-history");
@@ -2047,6 +2191,29 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("[experimental]"));
         assert!(content.contains("pane_history = true"));
+        assert!(app.state.config_diagnostic.is_none());
+
+        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn settings_save_resume_agents_persists_then_applies_live_config() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("settings-save-resume-agents");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "onboarding = false\n").unwrap();
+        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        assert!(!app.state.resume_agents_on_restore);
+
+        app.save_resume_agents_on_restore(true);
+
+        assert!(app.state.resume_agents_on_restore);
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("[session]"));
+        assert!(content.contains("resume_agents_on_restore = true"));
         assert!(app.state.config_diagnostic.is_none());
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);

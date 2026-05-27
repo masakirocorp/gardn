@@ -18,9 +18,9 @@ use super::WheelRouting;
 use super::{
     modal::{
         apply_context_menu_action, apply_global_menu_action, apply_rename_action,
-        confirm_close_accept, confirm_close_cancel, confirm_delete_group_accept,
-        confirm_delete_group_cancel, global_menu_actions, leave_modal, modal_action_from_buttons,
-        open_new_tab_dialog, ModalAction,
+        apply_worktree_directory_action, confirm_close_accept, confirm_close_cancel,
+        confirm_delete_group_accept, confirm_delete_group_cancel, global_menu_actions, leave_modal,
+        modal_action_from_buttons, open_new_tab_dialog, ModalAction,
     },
     settings::SettingsAction,
     ScrollbarClickTarget, TAB_DRAG_THRESHOLD, WORKSPACE_DRAG_THRESHOLD,
@@ -266,6 +266,28 @@ impl AppState {
                         Some(ModalAction::Confirm) => confirm_delete_group_accept(self),
                         Some(ModalAction::Cancel) | None => confirm_delete_group_cancel(self),
                         _ => {}
+                    }
+                    return None;
+                }
+                if self.mode == Mode::EditWorktreeDirectory {
+                    let Some(inner) = self.rename_modal_inner() else {
+                        apply_worktree_directory_action(self, ModalAction::Cancel);
+                        return None;
+                    };
+
+                    let (save, clear, cancel) = crate::ui::rename_button_rects(inner);
+                    if let Some(action) = modal_action_from_buttons(
+                        mouse.column,
+                        mouse.row,
+                        &[
+                            (save, ModalAction::Save),
+                            (clear, ModalAction::Clear),
+                            (cancel, ModalAction::Cancel),
+                        ],
+                    ) {
+                        apply_worktree_directory_action(self, action);
+                    } else if !rect_contains(inner, mouse.column, mouse.row) {
+                        apply_worktree_directory_action(self, ModalAction::Cancel);
                     }
                     return None;
                 }

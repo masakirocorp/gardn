@@ -403,6 +403,7 @@ impl AppState {
                 | Mode::RenameWorkspace
                 | Mode::RenameGroup
                 | Mode::RenamePane
+                | Mode::EditWorktreeDirectory
                 | Mode::Resize
                 | Mode::ConfirmClose
                 | Mode::ConfirmDeleteGroup
@@ -673,6 +674,7 @@ impl AppState {
             self.mode,
             Mode::Navigate
                 | Mode::RenameWorkspace
+                | Mode::EditWorktreeDirectory
                 | Mode::Resize
                 | Mode::ConfirmClose
                 | Mode::ConfirmDeleteGroup

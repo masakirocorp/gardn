@@ -797,6 +797,7 @@ pub enum Mode {
     RenameGroup,
     RenameTab,
     RenamePane,
+    EditWorktreeDirectory,
     Resize,
     ConfirmClose,
     ConfirmDeleteGroup,
@@ -875,6 +876,7 @@ pub enum AgentPanelScope {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsSection {
     Theme,
+    Layout,
     Sound,
     Toast,
     PaneLabels,
@@ -885,6 +887,7 @@ pub enum SettingsSection {
 impl SettingsSection {
     pub const ALL: &[Self] = &[
         Self::Theme,
+        Self::Layout,
         Self::Sound,
         Self::Toast,
         Self::PaneLabels,
@@ -895,9 +898,10 @@ impl SettingsSection {
     pub fn label(self) -> &'static str {
         match self {
             Self::Theme => "theme",
+            Self::Layout => "layout",
             Self::Sound => "sound",
             Self::Toast => "toasts",
-            Self::PaneLabels => "pane labels",
+            Self::PaneLabels => "behavior",
             Self::Experiments => "experiments",
             Self::Integrations => "integrations",
         }
@@ -1095,8 +1099,26 @@ pub struct SettingsState {
     pub pending_sound_enabled: Option<bool>,
     /// Pending toast delivery while settings is open.
     pub pending_toast_delivery: Option<ToastDelivery>,
+    /// Pending workspace close confirmation setting while settings is open.
+    pub pending_confirm_close: Option<bool>,
+    /// Pending new-tab naming prompt setting while settings is open.
+    pub pending_prompt_new_tab_name: Option<bool>,
+    /// Pending new-terminal cwd policy while settings is open.
+    pub pending_new_terminal_cwd: Option<NewTerminalCwdConfig>,
+    /// Pending mouse wheel scroll amount while settings is open.
+    pub pending_mouse_scroll_lines: Option<usize>,
+    /// Pending default sidebar width while settings is open.
+    pub pending_sidebar_width: Option<u16>,
+    /// Pending minimum expanded sidebar width while settings is open.
+    pub pending_sidebar_min_width: Option<u16>,
+    /// Pending maximum expanded sidebar width while settings is open.
+    pub pending_sidebar_max_width: Option<u16>,
+    /// Pending worktree checkout parent directory while settings is open.
+    pub pending_worktree_directory: Option<String>,
     /// Pending agent border label setting while settings is open.
     pub pending_agent_border_labels: Option<bool>,
+    /// Pending native agent resume setting while settings is open.
+    pub pending_resume_agents_on_restore: Option<bool>,
     /// Group whose theme is being edited, if settings was opened from a group menu.
     pub group_theme_target: Option<usize>,
 }
@@ -1392,6 +1414,7 @@ pub struct AppState {
     pub prompt_new_tab_name: bool,
     pub show_agent_labels_on_pane_borders: bool,
     pub pane_history_persistence: bool,
+    pub resume_agents_on_restore: bool,
     /// Expose the focused pane's cursor anchor to the outer terminal even when
     /// the pane requested `?25l`. See `[experimental] reveal_hidden_cursor_for_cjk_ime`.
     pub reveal_hidden_cursor_for_cjk_ime: bool,
@@ -1666,12 +1689,24 @@ impl AppState {
         self.toast_config.delivery
     }
 
+    pub fn confirm_close_enabled(&self) -> bool {
+        self.confirm_close
+    }
+
+    pub fn prompt_new_tab_name_enabled(&self) -> bool {
+        self.prompt_new_tab_name
+    }
+
     pub fn agent_border_labels_enabled(&self) -> bool {
         self.show_agent_labels_on_pane_borders
     }
 
     pub fn pane_history_persistence_enabled(&self) -> bool {
         self.pane_history_persistence
+    }
+
+    pub fn resume_agents_on_restore_enabled(&self) -> bool {
+        self.resume_agents_on_restore
     }
 
     pub(crate) fn integration_updates_available(&self) -> bool {
@@ -1936,6 +1971,7 @@ impl AppState {
             prompt_new_tab_name: true,
             show_agent_labels_on_pane_borders: false,
             pane_history_persistence: false,
+            resume_agents_on_restore: false,
             reveal_hidden_cursor_for_cjk_ime: false,
             cjk_ime_agent_filter_configured: false,
             cjk_ime_agents: Vec::new(),
@@ -1975,7 +2011,16 @@ impl AppState {
                 pending_dark_theme_name: None,
                 pending_sound_enabled: None,
                 pending_toast_delivery: None,
+                pending_confirm_close: None,
+                pending_prompt_new_tab_name: None,
+                pending_new_terminal_cwd: None,
+                pending_mouse_scroll_lines: None,
+                pending_sidebar_width: None,
+                pending_sidebar_min_width: None,
+                pending_sidebar_max_width: None,
+                pending_worktree_directory: None,
                 pending_agent_border_labels: None,
+                pending_resume_agents_on_restore: None,
                 group_theme_target: None,
             },
             integration_recommendations: Vec::new(),

@@ -594,6 +594,17 @@ mod tests {
             vec!["pi", "--session", "/tmp/pi-session.jsonl"]
         );
 
+        let omp_session = super::super::snapshot::PaneAgentSessionSnapshot {
+            source: "hako:omp".into(),
+            agent: "omp".into(),
+            kind: crate::agent_resume::AgentSessionRefKind::Path,
+            value: "/tmp/omp-session.jsonl".into(),
+        };
+        assert_eq!(
+            restore_plan_for_snapshot(&omp_session, true).unwrap().argv,
+            vec!["omp", "--session", "/tmp/omp-session.jsonl"]
+        );
+
         let unsupported_path = super::super::snapshot::PaneAgentSessionSnapshot {
             source: "hako:claude".into(),
             agent: "claude".into(),

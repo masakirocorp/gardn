@@ -75,6 +75,71 @@ impl App {
         }
     }
 
+    pub(super) fn save_new_terminal_cwd(&mut self, policy: &crate::config::NewTerminalCwdConfig) {
+        let value = match policy {
+            crate::config::NewTerminalCwdConfig::Follow => "\"follow\"".to_string(),
+            crate::config::NewTerminalCwdConfig::Home => "\"home\"".to_string(),
+            crate::config::NewTerminalCwdConfig::Current => "\"current\"".to_string(),
+            crate::config::NewTerminalCwdConfig::Path(path) => format!("{path:?}"),
+        };
+        if self.update_config_file("new terminal cwd", |content| {
+            crate::config::upsert_section_value(content, "terminal", "new_cwd", &value)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+    pub(super) fn save_mouse_scroll_lines(&mut self, lines: usize) {
+        let lines = lines.max(1);
+        if self.update_config_file("mouse scroll lines", |content| {
+            crate::config::upsert_section_value(
+                content,
+                "ui",
+                "mouse_scroll_lines",
+                &lines.to_string(),
+            )
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+    pub(super) fn save_sidebar_widths(&mut self, width: u16, min: u16, max: u16) {
+        let (min, max) = crate::config::validated_sidebar_bounds(min, max)
+            .unwrap_or((self.state.sidebar_min_width, self.state.sidebar_max_width));
+        let width = width.clamp(min, max);
+        if self.update_config_file("sidebar widths", |content| {
+            let content = crate::config::upsert_section_value(
+                content,
+                "ui",
+                "sidebar_width",
+                &width.to_string(),
+            );
+            let content = crate::config::upsert_section_value(
+                &content,
+                "ui",
+                "sidebar_min_width",
+                &min.to_string(),
+            );
+            crate::config::upsert_section_value(
+                &content,
+                "ui",
+                "sidebar_max_width",
+                &max.to_string(),
+            )
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+    pub(super) fn save_worktree_directory(&mut self, directory: &str) {
+        if self.update_config_file("worktree directory", |content| {
+            crate::config::upsert_section_value(
+                content,
+                "worktrees",
+                "directory",
+                &format!("{directory:?}"),
+            )
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
     pub(super) fn save_toast_delivery(&mut self, delivery: crate::config::ToastDelivery) {
         let value = match delivery {
             crate::config::ToastDelivery::Off => "\"off\"",
@@ -86,6 +151,21 @@ impl App {
             let content =
                 crate::config::upsert_section_value(content, "ui.toast", "delivery", value);
             crate::config::remove_section_key(&content, "ui.toast", "enabled")
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+    pub(super) fn save_confirm_close(&mut self, enabled: bool) {
+        if self.update_config_file("close confirmation", |content| {
+            crate::config::upsert_section_bool(content, "ui", "confirm_close", enabled)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
+    pub(super) fn save_prompt_new_tab_name(&mut self, enabled: bool) {
+        if self.update_config_file("new tab name prompt", |content| {
+            crate::config::upsert_section_bool(content, "ui", "prompt_new_tab_name", enabled)
         }) {
             self.apply_config_from_disk(false);
         }
@@ -107,6 +187,19 @@ impl App {
     pub(super) fn save_pane_history_persistence(&mut self, enabled: bool) {
         if self.update_config_file("pane screen history", |content| {
             crate::config::upsert_section_bool(content, "experimental", "pane_history", enabled)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
+    pub(super) fn save_resume_agents_on_restore(&mut self, enabled: bool) {
+        if self.update_config_file("agent session restore", |content| {
+            crate::config::upsert_section_bool(
+                content,
+                "session",
+                "resume_agents_on_restore",
+                enabled,
+            )
         }) {
             self.apply_config_from_disk(false);
         }
