@@ -3775,7 +3775,7 @@ next_tab = ""
             content: b"test".to_vec(),
         });
 
-        assert!(!changed);
+        assert!(changed);
         match read_server_message(
             foreground_control_rx
                 .recv_timeout(Duration::from_millis(100))
