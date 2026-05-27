@@ -12,7 +12,7 @@ use crate::layout::PaneId;
 pub(crate) const HAKO_PANE_ID_ENV_VAR: &str = "HAKO_PANE_ID";
 const PI_EXTENSION_INSTALL_NAME: &str = "hako-agent-state.ts";
 const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/hako-agent-state.ts");
-const PI_INTEGRATION_VERSION: u32 = 2;
+const PI_INTEGRATION_VERSION: u32 = 3;
 const OMP_EXTENSION_INSTALL_NAME: &str = PI_EXTENSION_INSTALL_NAME;
 const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/hako-agent-state.ts");
 const OMP_INTEGRATION_VERSION: u32 = 2;
@@ -20,11 +20,11 @@ const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
 const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
 const CLAUDE_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const CLAUDE_HOOK_ASSET: &str = include_str!("assets/claude/hako-agent-state.sh");
-const CLAUDE_INTEGRATION_VERSION: u32 = 4;
+const CLAUDE_INTEGRATION_VERSION: u32 = 5;
 const CLAUDE_CONFIG_DIR_ENV_VAR: &str = "CLAUDE_CONFIG_DIR";
 const CODEX_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const CODEX_HOOK_ASSET: &str = include_str!("assets/codex/hako-agent-state.sh");
-const CODEX_INTEGRATION_VERSION: u32 = 4;
+const CODEX_INTEGRATION_VERSION: u32 = 5;
 const CODEX_HOME_ENV_VAR: &str = "CODEX_HOME";
 const OPENCODE_PLUGIN_INSTALL_NAME: &str = "hako-agent-state.js";
 const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/hako-agent-state.js");
@@ -2449,7 +2449,7 @@ mod tests {
 
         assert_eq!(claude.path, hook_path);
         assert_eq!(claude.installed_version, Some(1));
-        assert_eq!(claude.expected_version, 4);
+        assert_eq!(claude.expected_version, 5);
         assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
         std::env::remove_var("HOME");
@@ -2479,7 +2479,7 @@ mod tests {
 
         assert_eq!(claude.path, hook_path);
         assert_eq!(claude.installed_version, Some(2));
-        assert_eq!(claude.expected_version, 4);
+        assert_eq!(claude.expected_version, 5);
         assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
         std::env::remove_var("HOME");
@@ -2583,7 +2583,7 @@ mod tests {
 
         assert_eq!(codex.path, hook_path);
         assert_eq!(codex.installed_version, Some(2));
-        assert_eq!(codex.expected_version, 4);
+        assert_eq!(codex.expected_version, 5);
         assert_eq!(codex.state, IntegrationStatusKind::Outdated);
 
         std::env::remove_var("HOME");

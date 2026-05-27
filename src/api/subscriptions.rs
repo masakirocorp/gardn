@@ -49,7 +49,28 @@ pub(super) struct ActiveAgentStatusChangedSubscription {
     pane_id: String,
     status_filter: Option<crate::api::schema::AgentStatus>,
     last_status: Option<crate::api::schema::AgentStatus>,
+    emit_initial_match: bool,
+    last_presentation: Option<PanePresentationSnapshot>,
     request_prefix: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PanePresentationSnapshot {
+    title: Option<String>,
+    display_agent: Option<String>,
+    custom_status: Option<String>,
+    state_labels: std::collections::HashMap<String, String>,
+}
+
+impl PanePresentationSnapshot {
+    fn from(pane: &crate::api::schema::PaneInfo) -> Self {
+        Self {
+            title: pane.title.clone(),
+            display_agent: pane.display_agent.clone(),
+            custom_status: pane.custom_status.clone(),
+            state_labels: pane.state_labels.clone(),
+        }
+    }
 }
 
 pub(super) struct ActiveEventSubscription {
@@ -177,12 +198,16 @@ impl ActiveSubscription {
                 agent_status,
             } => {
                 let probe = pane_get(format!("{request_id}:sub:{index}:probe"), &pane_id, api_tx)?;
+                let emit_initial_match =
+                    agent_status.is_some_and(|wanted| wanted == probe.agent_status);
 
                 Ok(Self::AgentStatusChanged(
                     ActiveAgentStatusChangedSubscription {
                         pane_id,
                         status_filter: agent_status,
                         last_status: Some(probe.agent_status),
+                        emit_initial_match,
+                        last_presentation: Some(PanePresentationSnapshot::from(&probe)),
                         request_prefix: format!("{request_id}:sub:{index}"),
                     },
                 ))
@@ -264,14 +289,24 @@ impl ActiveAgentStatusChangedSubscription {
         )
         .ok()?;
         let current_status = pane.agent_status;
+        let current_presentation = PanePresentationSnapshot::from(&pane);
         let previous_status = self.last_status.replace(current_status);
-        if previous_status.is_none() || previous_status == Some(current_status) {
-            return None;
-        }
-        if self
-            .status_filter
-            .is_some_and(|wanted| wanted != current_status)
-        {
+        let previous_presentation = self.last_presentation.replace(current_presentation.clone());
+        let presentation_changed = previous_presentation
+            .as_ref()
+            .is_some_and(|previous| previous != &current_presentation);
+        let status_changed = previous_status.is_some_and(|previous| previous != current_status);
+        let should_emit = if self.emit_initial_match {
+            self.emit_initial_match = false;
+            self.status_filter
+                .is_some_and(|wanted| wanted == current_status)
+        } else {
+            (status_changed || presentation_changed)
+                && !self
+                    .status_filter
+                    .is_some_and(|wanted| wanted != current_status)
+        };
+        if !should_emit {
             return None;
         }
 
@@ -282,7 +317,10 @@ impl ActiveAgentStatusChangedSubscription {
                 workspace_id: pane.workspace_id,
                 agent_status: current_status,
                 agent: pane.agent,
+                title: pane.title,
+                display_agent: pane.display_agent,
                 custom_status: pane.custom_status,
+                state_labels: pane.state_labels,
             }),
         })
     }

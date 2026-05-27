@@ -1,5 +1,6 @@
 // installed by hako
-// safe to edit. this integration only activates inside hako-managed panes.
+// managed by hako; reinstalling or updating the integration overwrites this file.
+// add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=omp
 // HAKO_INTEGRATION_VERSION=2
 // @ts-nocheck

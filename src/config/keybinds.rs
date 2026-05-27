@@ -251,7 +251,7 @@ pub struct NavigateKeybinds {
     pub pane_right: ActionKeybinds,
 }
 
-/// Parsed keybinds for Herdr actions.
+/// Parsed keybinds for Hako actions.
 #[derive(Debug, Clone)]
 pub struct Keybinds {
     pub navigate: NavigateKeybinds,
