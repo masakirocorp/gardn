@@ -402,8 +402,12 @@ pub(super) fn handle_navigate_reserved_key(state: &mut AppState, key: TerminalKe
                 }
                 return true;
             }
-            KeyCode::Char(c @ '1'..='9') => {
-                let idx = (c as usize) - ('1' as usize);
+            KeyCode::Char(c @ ('1'..='9' | '0')) => {
+                let idx = if c == '0' {
+                    9
+                } else {
+                    (c as usize) - ('1' as usize)
+                };
                 if let Some(ws_idx) = state.sidebar_visible_workspace_indices().get(idx).copied() {
                     state.switch_workspace(ws_idx);
                     leave_navigate_mode(state);
@@ -521,6 +525,7 @@ pub(crate) enum NavigateAction {
     ToggleGroupFilter,
     PreviousGroup,
     NextGroup,
+    SwitchGroup(usize),
     PreviousAgent,
     NextAgent,
     OpenAgentMenu,
@@ -579,6 +584,13 @@ fn indexed_navigation_action(
                     .get(idx)
                     .copied()
                     .map(NavigateAction::SwitchWorkspace);
+            }
+        }
+    }
+    for binding in &kb.switch_group {
+        if trigger_matches(binding) {
+            if let Some(idx) = binding.matched_index(key) {
+                return Some(NavigateAction::SwitchGroup(idx));
             }
         }
     }
@@ -734,6 +746,12 @@ pub(super) fn execute_navigate_action_in_context(
                 .is_some_and(|ws| idx < ws.tabs.len());
             if tab_exists {
                 state.switch_tab(idx);
+                leave_navigate_mode(state);
+            }
+        }
+        NavigateAction::SwitchGroup(idx) => {
+            if idx < state.groups.len() {
+                state.switch_group(idx);
                 leave_navigate_mode(state);
             }
         }
@@ -1466,6 +1484,20 @@ navigate_pane_right = "ctrl+l"
         );
 
         assert_eq!(action, Some(NavigateAction::SwitchTab(2)));
+    }
+
+    #[test]
+    fn terminal_direct_indexed_group_shortcut_maps_to_navigation_action() {
+        let mut state = state_with_workspaces(&["test"]);
+        let config: Config = toml::from_str("[keys]\nswitch_group = \"ctrl+1..0\"\n").unwrap();
+        state.keybinds.switch_group = config.keybinds().switch_group;
+
+        let action = terminal_direct_navigation_action(
+            &state,
+            TerminalKey::new(KeyCode::Char('0'), KeyModifiers::CONTROL),
+        );
+
+        assert_eq!(action, Some(NavigateAction::SwitchGroup(9)));
     }
 
     #[test]

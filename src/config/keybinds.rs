@@ -221,14 +221,12 @@ pub struct IndexedKeybind {
 
 impl IndexedKeybind {
     pub fn matched_index(&self, key: TerminalKey) -> Option<usize> {
-        let KeyCode::Char(c @ '1'..='9') = key.code else {
-            return None;
+        let index = match key.code {
+            KeyCode::Char(c @ '1'..='9') => (c as usize) - ('1' as usize),
+            KeyCode::Char('0') => 9,
+            _ => return None,
         };
-        if terminal_key_matches_combo(key, self.trigger.combo()) {
-            Some((c as usize) - ('1' as usize))
-        } else {
-            None
-        }
+        terminal_key_matches_combo(key, self.trigger.combo()).then_some(index)
     }
 }
 
@@ -274,6 +272,7 @@ pub struct Keybinds {
     pub toggle_group_filter: ActionKeybinds,
     pub previous_group: ActionKeybinds,
     pub next_group: ActionKeybinds,
+    pub switch_group: Vec<IndexedKeybind>,
     pub previous_agent: ActionKeybinds,
     pub next_agent: ActionKeybinds,
     pub open_agent_menu: ActionKeybinds,
@@ -461,6 +460,7 @@ impl Config {
             ),
             previous_group: action!("keys.previous_group", &self.keys.previous_group),
             next_group: action!("keys.next_group", &self.keys.next_group),
+            switch_group: indexed!("keys.switch_group", &self.keys.switch_group),
             previous_agent: action!("keys.previous_agent", &self.keys.previous_agent),
             next_agent: action!("keys.next_agent", &self.keys.next_agent),
             open_agent_menu: action!("keys.open_agent_menu", &self.keys.open_agent_menu),
@@ -572,7 +572,7 @@ fn reserve_navigate_runtime_keys(registry: &mut BindingRegistry) {
         registry.reserve_direct(combo, "navigate reserved keys");
     }
 
-    for idx in '1'..='9' {
+    for idx in INDEXED_ONE_TO_ZERO {
         registry.reserve_direct(
             (KeyCode::Char(idx), KeyModifiers::empty()),
             "navigate reserved keys",
@@ -680,14 +680,14 @@ fn parse_indexed_bindings(
         .bindings
         .into_iter()
         .filter_map(|binding| {
-            if matches!(binding.trigger.combo().0, KeyCode::Char('1'..='9')) {
+            if matches!(binding.trigger.combo().0, KeyCode::Char('1'..='9' | '0')) {
                 Some(IndexedKeybind {
                     trigger: binding.trigger,
                     label: binding.label,
                 })
             } else {
                 let diag = format!(
-                    "indexed keybinding must use 1..9: {field} = {:?}; disabling binding",
+                    "indexed keybinding must use 1..9 or 0: {field} = {:?}; disabling binding",
                     binding.label
                 );
                 warn!(message = %diag, "config diagnostic");
@@ -810,6 +810,23 @@ fn reject_binding(
     false
 }
 
+const INDEXED_ONE_TO_NINE: [char; 9] = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+const INDEXED_ONE_TO_ZERO: [char; 10] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+
+enum IndexedRange {
+    OneToNine,
+    OneToZero,
+}
+
+impl IndexedRange {
+    fn keys(&self) -> &'static [char] {
+        match self {
+            Self::OneToNine => &INDEXED_ONE_TO_NINE,
+            Self::OneToZero => &INDEXED_ONE_TO_ZERO,
+        }
+    }
+}
+
 fn parse_binding_string(raw: &str) -> Option<ParsedBinding> {
     let trimmed = raw.trim();
     let (trigger_prefix, body) = if let Some(rest) = trimmed.strip_prefix("prefix+") {
@@ -818,13 +835,12 @@ fn parse_binding_string(raw: &str) -> Option<ParsedBinding> {
         (false, trimmed)
     };
 
-    if let Some(range_modifiers) = parse_range_modifiers(body) {
-        let bindings = (1..=9)
+    if let Some((range_modifiers, range)) = parse_range_modifiers(body) {
+        let bindings = range
+            .keys()
+            .iter()
             .map(|idx| {
-                let combo = (
-                    KeyCode::Char(char::from_digit(idx, 10).unwrap_or('1')),
-                    range_modifiers,
-                );
+                let combo = (KeyCode::Char(*idx), range_modifiers);
                 let key_label = format_key_combo(combo);
                 ResolvedBinding {
                     trigger: if trigger_prefix {
@@ -928,21 +944,28 @@ fn parse_modifier_token(token: &str) -> Option<KeyModifiers> {
     }
 }
 
-fn parse_range_modifiers(s: &str) -> Option<KeyModifiers> {
+fn parse_range_modifiers(s: &str) -> Option<(KeyModifiers, IndexedRange)> {
     let mut modifiers = KeyModifiers::empty();
-    let mut saw_range = false;
+    let mut range = None;
     for part in s.split('+') {
         let trimmed = part.trim();
-        if trimmed == "1..9" {
-            if saw_range {
-                return None;
+        match trimmed {
+            "1..9" => {
+                if range.is_some() {
+                    return None;
+                }
+                range = Some(IndexedRange::OneToNine);
             }
-            saw_range = true;
-        } else {
-            modifiers |= parse_modifier_token(trimmed)?;
+            "1..0" => {
+                if range.is_some() {
+                    return None;
+                }
+                range = Some(IndexedRange::OneToZero);
+            }
+            _ => modifiers |= parse_modifier_token(trimmed)?,
         }
     }
-    saw_range.then_some(modifiers)
+    range.map(|range| (modifiers, range))
 }
 
 fn parse_modifier_combo(s: &str) -> Option<KeyModifiers> {
@@ -1576,19 +1599,27 @@ command = "echo no"
         let config: Config = toml::from_str(
             r#"
 [keys]
-switch_workspace = "prefix+shift+1..9"
+switch_workspace = "prefix+shift+1..0"
 "#,
         )
         .unwrap();
         let kb = config.keybinds();
-        assert_eq!(kb.switch_workspace.len(), 9);
+        assert_eq!(kb.switch_workspace.len(), 10);
         assert_eq!(
             kb.switch_workspace[0].trigger,
             BindingTrigger::Prefix((KeyCode::Char('1'), KeyModifiers::SHIFT))
         );
         assert_eq!(kb.switch_workspace[0].label, "prefix+shift+1");
+        assert_eq!(
+            kb.switch_workspace[9].trigger,
+            BindingTrigger::Prefix((KeyCode::Char('0'), KeyModifiers::SHIFT))
+        );
+        assert_eq!(
+            kb.switch_workspace[9]
+                .matched_index(TerminalKey::new(KeyCode::Char('0'), KeyModifiers::SHIFT)),
+            Some(9)
+        );
     }
-
     #[test]
     fn default_keymap_is_prefix_first_and_tab_centered() {
         let kb = Config::default().keybinds();
@@ -1606,11 +1637,25 @@ switch_workspace = "prefix+shift+1..9"
                 KeyModifiers::empty()
             ))]
         );
-        assert_eq!(kb.switch_tab.len(), 9);
+        assert_eq!(kb.switch_tab.len(), 10);
         assert!(kb
             .switch_tab
             .iter()
             .all(|binding| binding.trigger.is_prefix()));
+        assert_eq!(
+            kb.switch_tab[9].trigger,
+            BindingTrigger::Prefix((KeyCode::Char('0'), KeyModifiers::empty()))
+        );
+        assert_eq!(kb.switch_workspace.len(), 10);
+        assert_eq!(
+            kb.switch_workspace[0].trigger,
+            BindingTrigger::Prefix((KeyCode::Char('1'), KeyModifiers::SHIFT))
+        );
+        assert_eq!(kb.switch_group.len(), 10);
+        assert_eq!(
+            kb.switch_group[0].trigger,
+            BindingTrigger::Prefix((KeyCode::Char('1'), KeyModifiers::ALT))
+        );
         assert!(kb
             .new_tab
             .bindings

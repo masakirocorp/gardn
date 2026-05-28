@@ -1524,7 +1524,7 @@ mod tests {
     }
 
     #[test]
-    fn keybind_help_shows_unset_for_optional_actions() {
+    fn keybind_help_shows_defaults_and_unset_optional_actions() {
         let app = crate::app::state::AppState::test_new();
         let groups = keybind_help_groups(&app);
 
@@ -1538,6 +1538,12 @@ mod tests {
             .iter()
             .find(|(name, _)| *name == "workspaces / tabs")
             .expect("workspace tab group")
+            .1
+            .clone();
+        let group_keys = groups
+            .iter()
+            .find(|(name, _)| *name == "groups")
+            .expect("groups group")
             .1
             .clone();
         let agents = groups
@@ -1561,7 +1567,9 @@ mod tests {
         assert!(workspace_tab.contains(&("unset".to_string(), "previous agent")));
         assert!(workspace_tab.contains(&("unset".to_string(), "next agent")));
         assert!(workspace_tab.contains(&("unset".to_string(), "focus agent 1-9")));
-        assert!(workspace_tab.contains(&("unset".to_string(), "switch workspace 1-9")));
+        assert!(workspace_tab.contains(&("prefix+shift+1..0".to_string(), "switch space 1-10")));
+        assert!(workspace_tab.contains(&("prefix+1..0".to_string(), "switch tab 1-10")));
+        assert!(group_keys.contains(&("prefix+alt+1..0".to_string(), "switch group 1-10")));
         assert!(panes
             .iter()
             .any(|(key, label)| key == "prefix+h" && *label == "focus pane left"));

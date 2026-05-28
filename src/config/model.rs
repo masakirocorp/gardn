@@ -194,6 +194,8 @@ pub struct KeysConfig {
     pub previous_group: BindingConfig,
     /// Focus the next group. Unset by default.
     pub next_group: BindingConfig,
+    /// Switch to group 1-10 from prefix mode. Default: "prefix+alt+1..0".
+    pub switch_group: BindingConfig,
     /// Focus the previous agent shown in the agent panel. Unset by default.
     pub previous_agent: BindingConfig,
     /// Focus the next agent shown in the agent panel. Unset by default.
@@ -210,9 +212,9 @@ pub struct KeysConfig {
     pub previous_tab: BindingConfig,
     /// Select the next tab. Default: "prefix+n".
     pub next_tab: BindingConfig,
-    /// Switch to tab 1-9. Default: "prefix+1..9".
+    /// Switch to tab 1-10. Default: "prefix+1..0".
     pub switch_tab: BindingConfig,
-    /// Switch to workspace 1-9 from prefix mode. Unset by default.
+    /// Switch to workspace 1-10 from prefix mode. Default: "prefix+shift+1..0".
     pub switch_workspace: BindingConfig,
     /// Close the active tab. Default: "prefix+shift+x".
     pub close_tab: BindingConfig,
@@ -398,6 +400,7 @@ impl Default for KeysConfig {
             toggle_group_filter: BindingConfig::empty(),
             previous_group: BindingConfig::empty(),
             next_group: BindingConfig::empty(),
+            switch_group: BindingConfig::one("prefix+alt+1..0"),
             previous_agent: BindingConfig::empty(),
             next_agent: BindingConfig::empty(),
             open_agent_menu: BindingConfig::empty(),
@@ -406,8 +409,8 @@ impl Default for KeysConfig {
             rename_tab: BindingConfig::one("prefix+shift+t"),
             previous_tab: BindingConfig::one("prefix+p"),
             next_tab: BindingConfig::one("prefix+n"),
-            switch_tab: BindingConfig::one("prefix+1..9"),
-            switch_workspace: BindingConfig::empty(),
+            switch_tab: BindingConfig::one("prefix+1..0"),
+            switch_workspace: BindingConfig::one("prefix+shift+1..0"),
             close_tab: BindingConfig::one("prefix+shift+x"),
             rename_pane: BindingConfig::one("prefix+shift+p"),
             edit_scrollback: BindingConfig::one("prefix+e"),
