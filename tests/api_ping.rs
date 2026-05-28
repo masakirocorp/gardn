@@ -191,7 +191,6 @@ fn wait_for_event(
     wait_for_event_matching(reader, expected, timeout, |_| true)
 }
 
-#[cfg(not(target_os = "macos"))]
 fn wait_for_event_matching<F>(
     reader: &mut JsonLineReader,
     expected: &str,
@@ -1976,10 +1975,13 @@ fn metadata_status_subscription_filter_and_ttl_expiry_are_observable() {
     );
     assert_eq!(metadata["result"]["type"], "ok");
 
-    let set_event = reader.read_json_line(Duration::from_secs(2));
-    assert_eq!(set_event["event"], "pane.agent_status_changed");
+    let set_event = wait_for_event_matching(
+        &mut reader,
+        "pane.agent_status_changed",
+        Duration::from_secs(2),
+        |event| event["data"]["custom_status"] == "short lived",
+    );
     assert_eq!(set_event["data"]["agent_status"], "working");
-    assert_eq!(set_event["data"]["custom_status"], "short lived");
 
     let expiry_event = reader.read_json_line(Duration::from_secs(3));
     assert_eq!(expiry_event["event"], "pane.agent_status_changed");
