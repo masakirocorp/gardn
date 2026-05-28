@@ -406,7 +406,11 @@ pub(crate) fn handle_keybind_help_key(state: &mut AppState, key: KeyEvent) {
     }
 }
 
-pub(super) fn open_rename_workspace(state: &mut AppState, ws_idx: usize) {
+pub(super) fn open_rename_workspace(
+    state: &mut AppState,
+    terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    ws_idx: usize,
+) {
     state.selected = ws_idx;
     state.creating_new_tab = false;
     state.creating_new_group = false;
@@ -414,7 +418,8 @@ pub(super) fn open_rename_workspace(state: &mut AppState, ws_idx: usize) {
     state.requested_new_tab_name = None;
     state.rename_group_target = None;
     state.rename_pane_target = None;
-    state.name_input = state.workspaces[ws_idx].display_name();
+    state.name_input =
+        state.workspaces[ws_idx].display_name_from(&state.terminals, terminal_runtimes);
     state.name_input_replace_on_type = false;
     state.mode = Mode::RenameWorkspace;
 }
@@ -933,7 +938,7 @@ pub(super) fn apply_context_menu_action(
     let item = menu.items().get(idx).copied();
     match (menu.kind, item) {
         (ContextMenuKind::Workspace { ws_idx }, Some("rename")) => {
-            open_rename_workspace(state, ws_idx);
+            open_rename_workspace(state, terminal_runtimes, ws_idx);
         }
         (ContextMenuKind::Group { group_idx, .. }, Some("rename")) => {
             open_rename_group_at(state, group_idx);

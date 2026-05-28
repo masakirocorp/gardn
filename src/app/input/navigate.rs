@@ -719,8 +719,8 @@ pub(super) fn execute_navigate_action_in_context(
             leave_navigate_mode(state);
         }
         NavigateAction::RenameWorkspace => {
-            if state.workspace_in_active_group(state.selected) {
-                super::modal::open_rename_workspace(state, state.selected);
+            if let Some(ws_idx) = workspace_action_target(state, context) {
+                super::modal::open_rename_workspace(state, terminal_runtimes, ws_idx);
             }
         }
         NavigateAction::CloseWorkspace => {
@@ -898,6 +898,14 @@ pub(super) fn execute_navigate_action_in_context(
     finish_action_context(state, context, previous_mode);
 }
 
+fn workspace_action_target(state: &AppState, context: ActionContext) -> Option<usize> {
+    match context {
+        ActionContext::Direct | ActionContext::Prefix => state.active,
+        ActionContext::Navigate => {
+            Some(state.selected).filter(|idx| state.workspace_in_active_group(*idx))
+        }
+    }
+}
 fn leave_navigate_mode(state: &mut AppState) {
     if state.active.is_some() {
         state.mode = Mode::Terminal;
@@ -1004,6 +1012,7 @@ mod tests {
         app::{state::Group, App},
         config::Config,
         input::TerminalKey,
+        terminal::TerminalState,
         workspace::Workspace,
     };
 
@@ -1019,6 +1028,51 @@ mod tests {
 
         assert_eq!(state.mode, Mode::RenameWorkspace);
         assert_eq!(state.name_input, "test");
+    }
+
+    #[test]
+    fn rename_workspace_prefills_live_terminal_cwd_label() {
+        let mut state = state_with_workspaces(&["stale"]);
+        let root = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.workspaces[0].panes[&root]
+            .attached_terminal_id
+            .clone();
+        state.workspaces[0].custom_name = None;
+        state.workspaces[0].identity_cwd = "/__hako_original__".into();
+        state.terminals.insert(
+            terminal_id.clone(),
+            TerminalState::new(terminal_id, "/__hako_projects__".into()),
+        );
+        state.keybinds.rename_workspace = crate::config::ActionKeybinds::prefix("g");
+
+        handle_navigate_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('g'), KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.mode, Mode::RenameWorkspace);
+        assert_eq!(state.name_input, "__hako_projects__");
+        assert_eq!(state.workspaces[0].display_name(), "__hako_original__");
+    }
+
+    #[test]
+    fn prefix_rename_workspace_targets_active_workspace_not_stale_selection() {
+        let mut state = state_with_workspaces(&["main", "issue"]);
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+        state.active = Some(1);
+        state.selected = 0;
+        state.mode = Mode::Prefix;
+
+        execute_navigate_action_in_context(
+            &mut state,
+            &mut terminal_runtimes,
+            NavigateAction::RenameWorkspace,
+            ActionContext::Prefix,
+        );
+
+        assert_eq!(state.mode, Mode::RenameWorkspace);
+        assert_eq!(state.selected, 1);
+        assert_eq!(state.name_input, "issue");
     }
 
     #[test]
