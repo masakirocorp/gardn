@@ -1,5 +1,7 @@
 use std::cell::Cell;
-use std::io::{BufWriter, Read, Write};
+use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
 use std::sync::{
     atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering},
     Arc, Mutex,
@@ -332,6 +334,141 @@ fn pane_shell_from(configured_shell: &str, env_shell: Option<String>) -> String 
         .unwrap_or_else(|| "/bin/sh".into())
 }
 
+#[cfg(unix)]
+fn duplicate_fd(fd: std::os::fd::RawFd) -> std::io::Result<std::os::fd::RawFd> {
+    let duplicated = unsafe { libc::dup(fd) };
+    if duplicated < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(duplicated)
+}
+
+#[cfg(unix)]
+fn set_cloexec(fd: std::os::fd::RawFd) -> std::io::Result<()> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+    if flags < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_nonblocking(fd: std::os::fd::RawFd) -> std::io::Result<()> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn duplicate_cloexec_fd(fd: std::os::fd::RawFd) -> std::io::Result<std::os::fd::RawFd> {
+    let duplicated = duplicate_fd(fd)?;
+    if let Err(err) = set_cloexec(duplicated) {
+        let _ = unsafe { libc::close(duplicated) };
+        return Err(err);
+    }
+    Ok(duplicated)
+}
+
+#[cfg(unix)]
+fn file_from_duplicated_fd(fd: std::os::fd::RawFd) -> std::io::Result<std::fs::File> {
+    use std::os::fd::FromRawFd;
+
+    let duplicated = duplicate_cloexec_fd(fd)?;
+    Ok(unsafe { std::fs::File::from_raw_fd(duplicated) })
+}
+
+#[cfg(unix)]
+fn poll_read_ready(fd: std::os::fd::RawFd, timeout_ms: i32) -> std::io::Result<bool> {
+    let mut poll_fd = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    loop {
+        let result = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+        if result < 0 {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(err);
+        }
+        return Ok(result > 0 && (poll_fd.revents & (libc::POLLIN | libc::POLLHUP)) != 0);
+    }
+}
+
+#[cfg(unix)]
+fn poll_write_ready(fd: std::os::fd::RawFd, timeout_ms: i32) -> std::io::Result<bool> {
+    let mut poll_fd = libc::pollfd {
+        fd,
+        events: libc::POLLOUT,
+        revents: 0,
+    };
+    loop {
+        let result = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+        if result < 0 {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(err);
+        }
+        return Ok(result > 0 && (poll_fd.revents & (libc::POLLOUT | libc::POLLHUP)) != 0);
+    }
+}
+
+#[cfg(unix)]
+fn write_all_nonblocking(
+    writer: &mut std::fs::File,
+    fd: std::os::fd::RawFd,
+    mut bytes: &[u8],
+    io_stop: &AtomicBool,
+) -> std::io::Result<()> {
+    while !bytes.is_empty() {
+        if io_stop.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        match writer.write(bytes) {
+            Ok(0) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    "pty write returned zero bytes",
+                ));
+            }
+            Ok(written) => bytes = &bytes[written..],
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                let _ = poll_write_ready(fd, 50)?;
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn write_pty_bytes_locked(
+    writer: &mut std::fs::File,
+    fd: std::os::fd::RawFd,
+    bytes: &[u8],
+    io_stop: &AtomicBool,
+    pty_write_lock: &Mutex<()>,
+) -> std::io::Result<()> {
+    let _guard = pty_write_lock
+        .lock()
+        .map_err(|_| std::io::Error::other("pty write lock poisoned"))?;
+    write_all_nonblocking(writer, fd, bytes, io_stop)?;
+    writer.flush()
+}
+
 impl PaneRuntime {
     pub fn shutdown(self) {
         self.detect_handle.abort();
@@ -577,14 +714,16 @@ impl PaneRuntime {
         let terminal = Arc::new(PaneTerminal::new(pane_terminal));
         let kitty_keyboard_flags = Arc::new(AtomicU16::new(0));
 
-        let reader = pair
+        let master_fd = pair
             .master
-            .try_clone_reader()
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
+            .as_raw_fd()
+            .ok_or_else(|| std::io::Error::other("pty master fd is unavailable"))?;
+        set_nonblocking(master_fd)?;
+        let reader = file_from_duplicated_fd(master_fd)?;
+        let writer = file_from_duplicated_fd(master_fd)?;
+        let terminal_response_writer = file_from_duplicated_fd(master_fd)?;
+        let io_stop = Arc::new(AtomicBool::new(false));
+        let pty_write_lock = Arc::new(Mutex::new(()));
 
         // --- Child watcher task ---
         let child_pid = Arc::new(AtomicU32::new(0));
@@ -628,18 +767,35 @@ impl PaneRuntime {
         // --- Reader task: PTY → terminal backend + screen snapshot + terminal query responses ---
         {
             let mut reader = reader;
+            let reader_fd = reader.as_raw_fd();
+            let mut terminal_response_writer = terminal_response_writer;
+            let terminal_response_fd = terminal_response_writer.as_raw_fd();
             let terminal = terminal.clone();
             let response_writer = input_tx.clone();
             let render_notify = render_notify.clone();
             let render_dirty = render_dirty.clone();
             let child_pid = child_pid.clone();
             let events = events.clone();
+            let io_stop = io_stop.clone();
+            let pty_write_lock = pty_write_lock.clone();
             let rt = tokio::runtime::Handle::current();
             tokio::task::spawn_blocking(move || {
                 let mut buf = [0u8; 8192];
                 loop {
+                    if io_stop.load(Ordering::Acquire) {
+                        break;
+                    }
+                    match poll_read_ready(reader_fd, 50) {
+                        Ok(true) => {}
+                        Ok(false) => continue,
+                        Err(e) => {
+                            debug!(pane = pane_id.raw(), err = %e, "pty reader poll failed");
+                            break;
+                        }
+                    }
                     match reader.read(&mut buf) {
                         Ok(0) => break,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
                         Err(e) => {
                             debug!(pane = pane_id.raw(), err = %e, "pty reader closed");
                             break;
@@ -652,6 +808,18 @@ impl PaneRuntime {
                                 &buf[..n],
                                 &response_writer,
                             );
+                            for response in result.terminal_responses {
+                                if let Err(err) = write_pty_bytes_locked(
+                                    &mut terminal_response_writer,
+                                    terminal_response_fd,
+                                    &response,
+                                    &io_stop,
+                                    &pty_write_lock,
+                                ) {
+                                    warn!(pane = pane_id.raw(), err = %err, "terminal response write failed");
+                                    break;
+                                }
+                            }
                             if result.request_render && !render_dirty.swap(true, Ordering::AcqRel) {
                                 render_notify.notify_one();
                             }
@@ -944,16 +1112,26 @@ impl PaneRuntime {
 
         // --- Writer task: channel → PTY ---
         {
-            let mut writer = BufWriter::new(writer);
+            use std::os::fd::AsRawFd;
+
+            let mut writer = writer;
+            let writer_fd = writer.as_raw_fd();
+            let io_stop = io_stop.clone();
+            let pty_write_lock = pty_write_lock.clone();
             tokio::task::spawn_blocking(move || {
                 let rt = tokio::runtime::Handle::current();
                 while let Some(bytes) = rt.block_on(input_rx.recv()) {
-                    if let Err(e) = writer.write_all(&bytes) {
-                        warn!(pane = pane_id.raw(), err = %e, "pty write failed");
+                    if io_stop.load(Ordering::Acquire) {
                         break;
                     }
-                    if let Err(e) = writer.flush() {
-                        warn!(pane = pane_id.raw(), err = %e, "pty flush failed");
+                    if let Err(e) = write_pty_bytes_locked(
+                        &mut writer,
+                        writer_fd,
+                        &bytes,
+                        &io_stop,
+                        &pty_write_lock,
+                    ) {
+                        warn!(pane = pane_id.raw(), err = %e, "pty write failed");
                         break;
                     }
                 }

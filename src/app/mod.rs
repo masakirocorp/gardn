@@ -528,6 +528,7 @@ impl App {
             command_catalog: Vec::new(),
             command_runs: HashMap::new(),
             port_registry: crate::ports::PortRegistry::default(),
+            copy_mode: None,
             workspace_scroll: 0,
             agent_panel_scroll: 0,
             tab_scroll: 0,
@@ -1408,6 +1409,9 @@ impl App {
             }
             Mode::Navigate => {
                 self.handle_navigate_key(key);
+            }
+            Mode::Copy => {
+                self.handle_copy_mode_key(key);
             }
             Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
                 input::handle_rename_key(&mut self.state, key_event);
