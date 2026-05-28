@@ -792,6 +792,7 @@ pub enum Mode {
     ProductAnnouncement,
     Navigate,
     Prefix,
+    Copy,
     Terminal,
     RenameWorkspace,
     RenameGroup,
@@ -858,6 +859,14 @@ pub(crate) struct NavigatorState {
     pub search_focused: bool,
     pub state_filter: Option<NavigatorStateFilter>,
     pub expanded_workspaces: std::collections::HashSet<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CopyModeState {
+    pub pane_id: PaneId,
+    pub cursor_row: u16,
+    pub cursor_col: u16,
+    pub selecting: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -1372,6 +1381,7 @@ pub struct AppState {
     pub command_catalog: Vec<crate::commands::ProjectCommand>,
     pub command_runs: std::collections::HashMap<String, crate::commands::CommandRun>,
     pub port_registry: crate::ports::PortRegistry,
+    pub copy_mode: Option<CopyModeState>,
     pub workspace_scroll: usize,
     pub agent_panel_scroll: usize,
     pub tab_scroll: usize,
@@ -1922,6 +1932,7 @@ impl AppState {
             command_catalog: Vec::new(),
             command_runs: std::collections::HashMap::new(),
             port_registry: crate::ports::PortRegistry::default(),
+            copy_mode: None,
             workspace_scroll: 0,
             agent_panel_scroll: 0,
             tab_scroll: 0,
