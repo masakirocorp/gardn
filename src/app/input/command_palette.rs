@@ -339,7 +339,11 @@ fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
         CommandPaletteAction::RenameWorkspace => {
             let selected = app.state.selected;
             if app.state.workspace_in_active_group(selected) {
-                super::modal::open_rename_workspace(&mut app.state, selected);
+                super::modal::open_rename_workspace(
+                    &mut app.state,
+                    &app.terminal_runtimes,
+                    selected,
+                );
                 return;
             }
         }

@@ -404,12 +404,12 @@ impl GhosttyPaneTerminal {
             initial_foreground: core.initial_default_foreground.map(terminal_theme_color),
             initial_background: core.initial_default_background.map(terminal_theme_color),
         };
-        for reply in core
+        let mut terminal_responses: Vec<Bytes> = core
             .osc_color_query_responder
             .observe(bytes, color_snapshot)
-        {
-            let _ = response_writer.try_send(Bytes::from(reply));
-        }
+            .into_iter()
+            .map(Bytes::from)
+            .collect();
 
         let alternate_screen = core
             .terminal
@@ -435,8 +435,6 @@ impl GhosttyPaneTerminal {
             );
         }
 
-        core.kitty_keyboard.observe(filtered_bytes.as_ref());
-        let mut terminal_responses = Vec::new();
         core.default_color_event_tracker
             .observe(filtered_bytes.as_ref());
         respond_to_default_color_events(&mut core, &mut terminal_responses);
@@ -1638,12 +1636,13 @@ mod tests {
                 .with_palette_color(0, crate::terminal_theme::RgbColor { r: 1, g: 2, b: 3 });
         }
 
-        pane.process_pty_bytes(PaneId::from_raw(1), 0, b"\x1b]4;0;?\x07", &tx);
+        let result = pane.process_pty_bytes(PaneId::from_raw(1), 0, b"\x1b]4;0;?\x07", &tx);
 
         assert_eq!(
-            rx.try_recv().unwrap().as_ref(),
-            b"\x1b]4;0;rgb:01/02/03\x1b\\"
+            result.terminal_responses,
+            vec![Bytes::from_static(b"\x1b]4;0;rgb:01/02/03\x1b\\")]
         );
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]
@@ -2240,6 +2239,7 @@ mod tests {
                 g: 0x2b,
                 b: 0x36,
             }),
+            ..Default::default()
         });
 
         let result = pane.process_pty_bytes(pane_id, 0, b"\x1b]11;?\x07\x1b[c", &tx);
@@ -2266,6 +2266,7 @@ mod tests {
                 g: 0x2b,
                 b: 0x36,
             }),
+            ..Default::default()
         });
 
         let result = pane.process_pty_bytes(pane_id, 0, b"\x1b]11;?\x07", &tx);

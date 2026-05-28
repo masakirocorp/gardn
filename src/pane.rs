@@ -1,5 +1,7 @@
 use std::cell::Cell;
-use std::io::{BufWriter, Read, Write};
+use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
 use std::sync::{
     atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering},
     Arc, Mutex,
@@ -467,30 +469,6 @@ fn write_pty_bytes_locked(
     writer.flush()
 }
 
-#[cfg(unix)]
-fn resize_pty_fd(
-    fd: std::os::fd::RawFd,
-    rows: u16,
-    cols: u16,
-    cell_width_px: u32,
-    cell_height_px: u32,
-) -> std::io::Result<()> {
-    let size = libc::winsize {
-        ws_row: rows,
-        ws_col: cols,
-        ws_xpixel: (cols as u32)
-            .saturating_mul(cell_width_px)
-            .min(u16::MAX as u32) as u16,
-        ws_ypixel: (rows as u32)
-            .saturating_mul(cell_height_px)
-            .min(u16::MAX as u32) as u16,
-    };
-    if unsafe { libc::ioctl(fd, libc::TIOCSWINSZ, &size) } < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    Ok(())
-}
-
 impl PaneRuntime {
     pub fn shutdown(self) {
         self.detect_handle.abort();
@@ -736,7 +714,7 @@ impl PaneRuntime {
         let terminal = Arc::new(PaneTerminal::new(pane_terminal));
         let kitty_keyboard_flags = Arc::new(AtomicU16::new(0));
 
-        let reader = pair
+        let master_fd = pair
             .master
             .as_raw_fd()
             .ok_or_else(|| std::io::Error::other("pty master fd is unavailable"))?;
@@ -744,13 +722,8 @@ impl PaneRuntime {
         let reader = file_from_duplicated_fd(master_fd)?;
         let writer = file_from_duplicated_fd(master_fd)?;
         let terminal_response_writer = file_from_duplicated_fd(master_fd)?;
-        let force_resize_fd = duplicate_cloexec_fd(master_fd)?;
-        let resize_fd = duplicate_cloexec_fd(master_fd)?;
         let io_stop = Arc::new(AtomicBool::new(false));
         let pty_write_lock = Arc::new(Mutex::new(()));
-        let reader_paused = Arc::new(AtomicBool::new(false));
-        let reader_pause_ack = Arc::new(AtomicBool::new(false));
-        let (reader_stopped_tx, reader_stopped_rx) = std::sync::mpsc::channel();
 
         // --- Child watcher task ---
         let child_pid = Arc::new(AtomicU32::new(0));
@@ -805,14 +778,24 @@ impl PaneRuntime {
             let events = events.clone();
             let io_stop = io_stop.clone();
             let pty_write_lock = pty_write_lock.clone();
-            let reader_paused = reader_paused.clone();
-            let reader_pause_ack = reader_pause_ack.clone();
             let rt = tokio::runtime::Handle::current();
             tokio::task::spawn_blocking(move || {
                 let mut buf = [0u8; 8192];
                 loop {
+                    if io_stop.load(Ordering::Acquire) {
+                        break;
+                    }
+                    match poll_read_ready(reader_fd, 50) {
+                        Ok(true) => {}
+                        Ok(false) => continue,
+                        Err(e) => {
+                            debug!(pane = pane_id.raw(), err = %e, "pty reader poll failed");
+                            break;
+                        }
+                    }
                     match reader.read(&mut buf) {
                         Ok(0) => break,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
                         Err(e) => {
                             debug!(pane = pane_id.raw(), err = %e, "pty reader closed");
                             break;
