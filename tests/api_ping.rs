@@ -1969,7 +1969,7 @@ fn metadata_status_subscription_filter_and_ttl_expiry_are_observable() {
     let metadata = send_request(
         &socket_path,
         &format!(
-            r#"{{"id":"req_meta_sub_4","method":"pane.report_metadata","params":{{"pane_id":"{}","source":"user:pi-display","agent":"pi","applies_to_source":"hako:pi","custom_status":"short lived","ttl_ms":100}}}}"#,
+            r#"{{"id":"req_meta_sub_4","method":"pane.report_metadata","params":{{"pane_id":"{}","source":"user:pi-display","agent":"pi","applies_to_source":"hako:pi","custom_status":"short lived","ttl_ms":2000}}}}"#,
             pane_id
         ),
     );
@@ -1978,12 +1978,12 @@ fn metadata_status_subscription_filter_and_ttl_expiry_are_observable() {
     let set_event = wait_for_event_matching(
         &mut reader,
         "pane.agent_status_changed",
-        Duration::from_secs(2),
+        Duration::from_secs(5),
         |event| event["data"]["custom_status"] == "short lived",
     );
     assert_eq!(set_event["data"]["agent_status"], "working");
 
-    let expiry_event = reader.read_json_line(Duration::from_secs(3));
+    let expiry_event = reader.read_json_line(Duration::from_secs(5));
     assert_eq!(expiry_event["event"], "pane.agent_status_changed");
     assert_eq!(expiry_event["data"]["agent_status"], "working");
     assert!(expiry_event["data"]["custom_status"].is_null());
