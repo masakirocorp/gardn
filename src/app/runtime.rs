@@ -229,6 +229,15 @@ impl App {
         }
 
         if self
+            .copy_feedback_deadline
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.copy_feedback_deadline = None;
+            self.state.copy_feedback = None;
+            changed = true;
+        }
+
+        if self
             .next_animation_tick
             .is_some_and(|deadline| now >= deadline)
         {
@@ -244,6 +253,8 @@ impl App {
             self.tick_selection_autoscroll(now);
             changed = true;
         }
+
+        changed |= self.clear_due_selection_highlight(now);
 
         self.start_git_status_refresh_if_due(now);
 
@@ -261,8 +272,45 @@ impl App {
             self.save_session_now();
         }
 
+        if let Some(deadline) = self
+            .agent_metadata_deadline
+            .filter(|deadline| now >= *deadline)
+        {
+            for update in self.state.expire_agent_metadata_at(deadline, now) {
+                self.emit_pane_state_update(&update);
+            }
+            self.sync_agent_metadata_deadline();
+            changed = true;
+        }
+
         self.sync_animation_timer(now);
         changed
+    }
+
+    /// Clears temporary copied-token highlights, such as after double-click copy.
+    pub(crate) fn clear_due_selection_highlight(&mut self, now: Instant) -> bool {
+        if self
+            .selection_highlight_clear_deadline
+            .is_none_or(|deadline| now < deadline)
+        {
+            return false;
+        }
+
+        self.selection_highlight_clear_deadline = None;
+        if self
+            .state
+            .selection
+            .as_ref()
+            .is_some_and(|selection| !selection.is_in_progress())
+        {
+            self.state.clear_selection();
+            return true;
+        }
+        false
+    }
+
+    pub(crate) fn sync_agent_metadata_deadline(&mut self) {
+        self.agent_metadata_deadline = self.state.next_agent_metadata_expiry();
     }
 
     pub(crate) fn sync_animation_timer(&mut self, now: Instant) {
@@ -496,12 +544,15 @@ impl App {
             include_resize_poll.then_some(self.next_resize_poll),
             self.config_diagnostic_deadline,
             self.toast_deadline,
+            self.copy_feedback_deadline,
             self.next_animation_tick,
             (!self.state.workspaces.is_empty()).then_some(self.next_command_scan),
             self.git_refresh_deadline(),
             self.next_auto_update_check,
+            self.agent_metadata_deadline,
             self.session_save_deadline,
             self.selection_autoscroll_deadline,
+            self.selection_highlight_clear_deadline,
             render_deadline,
         ]
         .into_iter()

@@ -19,25 +19,28 @@ fn keybind_label(bindings: &crate::config::ActionKeybinds) -> String {
 
 fn indexed_label(bindings: &[crate::config::IndexedKeybind]) -> String {
     if bindings.is_empty() {
-        "unset".to_string()
-    } else if bindings.len() == 9 {
-        let first = &bindings[0].label;
-        if first.ends_with('1') {
-            format!("{}1..9", first.trim_end_matches('1'))
-        } else {
-            bindings
-                .iter()
-                .map(|binding| binding.label.clone())
-                .collect::<Vec<_>>()
-                .join(" / ")
-        }
-    } else {
-        bindings
-            .iter()
-            .map(|binding| binding.label.clone())
-            .collect::<Vec<_>>()
-            .join(" / ")
+        return "unset".to_string();
     }
+
+    let range_label = match bindings.len() {
+        10 => Some("1..0"),
+        9 => Some("1..9"),
+        _ => None,
+    };
+    if let Some(range_label) = range_label {
+        let first = &bindings[0].label;
+        let last_digit = range_label.chars().last().unwrap_or('9');
+        let last = &bindings[bindings.len() - 1].label;
+        if first.ends_with('1') && last.ends_with(last_digit) {
+            return format!("{}{}", first.trim_end_matches('1'), range_label);
+        }
+    }
+
+    bindings
+        .iter()
+        .map(|binding| binding.label.clone())
+        .collect::<Vec<_>>()
+        .join(" / ")
 }
 
 pub(super) fn keybind_help_groups(
@@ -69,11 +72,27 @@ pub(super) fn keybind_help_groups(
         "navigation",
         vec![
             ("esc".to_string(), "back"),
-            ("↑ / ↓".to_string(), "space list"),
-            ("h j k l / arrows".to_string(), "move focus"),
+            (
+                format!(
+                    "{} / {}",
+                    keybind_label(&kb.navigate.workspace_up),
+                    keybind_label(&kb.navigate.workspace_down)
+                ),
+                "space list",
+            ),
+            (
+                format!(
+                    "{} / {} / {} / {} / left / right",
+                    keybind_label(&kb.navigate.pane_left),
+                    keybind_label(&kb.navigate.pane_down),
+                    keybind_label(&kb.navigate.pane_up),
+                    keybind_label(&kb.navigate.pane_right)
+                ),
+                "move focus",
+            ),
             ("tab / shift+tab".to_string(), "cycle pane"),
             ("enter".to_string(), "open workspace"),
-            ("1..9".to_string(), "switch workspace"),
+            ("1..0".to_string(), "switch workspace"),
         ],
     ));
 
@@ -84,7 +103,7 @@ pub(super) fn keybind_help_groups(
         (keybind_label(&kb.close_workspace), "close workspace"),
         (keybind_label(&kb.previous_workspace), "previous workspace"),
         (keybind_label(&kb.next_workspace), "next workspace"),
-        (indexed_label(&kb.switch_workspace), "switch workspace 1-9"),
+        (indexed_label(&kb.switch_workspace), "switch space 1-10"),
         (keybind_label(&kb.previous_agent), "previous agent"),
         (keybind_label(&kb.next_agent), "next agent"),
         (indexed_label(&kb.focus_agent), "focus agent 1-9"),
@@ -92,7 +111,7 @@ pub(super) fn keybind_help_groups(
         (keybind_label(&kb.rename_tab), "rename tab"),
         (keybind_label(&kb.previous_tab), "previous tab"),
         (keybind_label(&kb.next_tab), "next tab"),
-        (indexed_label(&kb.switch_tab), "switch tab 1-9"),
+        (indexed_label(&kb.switch_tab), "switch tab 1-10"),
         (keybind_label(&kb.close_tab), "close tab"),
     ];
     groups.push(("workspaces / tabs", workspace_tab));
@@ -108,6 +127,7 @@ pub(super) fn keybind_help_groups(
         ),
         (keybind_label(&kb.previous_group), "previous group"),
         (keybind_label(&kb.next_group), "next group"),
+        (indexed_label(&kb.switch_group), "switch group 1-10"),
     ];
     groups.push(("groups", group_keys));
 
@@ -136,6 +156,7 @@ pub(super) fn keybind_help_groups(
             keybind_label(&kb.cycle_pane_previous),
             "cycle pane previous",
         ),
+        (keybind_label(&kb.last_pane), "last pane"),
         (
             keybind_label(&kb.toggle_right_sidebar),
             "toggle right sidebar",

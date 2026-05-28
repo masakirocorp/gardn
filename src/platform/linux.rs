@@ -9,6 +9,8 @@ use super::{
     LimitedRead, Signal,
 };
 
+pub fn raise_server_nofile_limit() {}
+
 /// Collect the foreground terminal job for a given child PID.
 pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
     let tpgid = foreground_process_group_id(child_pid)?;
@@ -162,6 +164,16 @@ pub fn write_clipboard(bytes: &[u8]) -> bool {
         }
     }
     false
+}
+
+pub fn open_url(url: &str) -> std::io::Result<()> {
+    Command::new("xdg-open")
+        .arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    Ok(())
 }
 
 pub fn read_clipboard_image() -> Option<ClipboardImage> {

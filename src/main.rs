@@ -121,6 +121,7 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # toggle_group_filter = "" # optional, unset by default
 # previous_group = ""     # optional, unset by default
 # next_group = ""         # optional, unset by default
+# switch_group = "prefix+alt+1..0"
 # previous_agent = ""     # optional, unset by default
 # next_agent = ""         # optional, unset by default
 # open_agent_menu = ""    # optional, unset by default
@@ -130,8 +131,8 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # rename_tab = "prefix+shift+t"
 # previous_tab = "prefix+p"
 # next_tab = "prefix+n"
-# switch_tab = "prefix+1..9"
-# switch_workspace = ""   # optional indexed binding, e.g. "prefix+shift+1..9"
+# switch_tab = "prefix+1..0"
+# switch_workspace = "prefix+shift+1..0"
 # close_tab = "prefix+shift+x"
 # rename_pane = "prefix+shift+p"
 # edit_scrollback = "prefix+e"
@@ -149,6 +150,15 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # toggle_sidebar = "prefix+b"
 # toggle_right_sidebar = "" # optional, unset by default
 
+# Navigate-mode movement. These local shortcuts win while navigate mode is open.
+# They are independent from focus_pane_*. Do not include prefix+, esc, enter, tab, or unmodified 1..0.
+# navigate_workspace_up = "up"
+# navigate_workspace_down = "down"
+# navigate_pane_left = "h"      # left arrow always focuses the pane to the left
+# navigate_pane_down = "j"
+# navigate_pane_up = "k"
+# navigate_pane_right = "l"     # right arrow always focuses the pane to the right
+
 # Custom commands use the same binding syntax.
 # type = "shell" runs detached in the background.
 # type = "pane" opens a temporary pane and closes it when the command exits.
@@ -158,7 +168,7 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # command = "lazygit"
 
 # Legacy indexed shortcut config is still parsed for compatibility.
-# Prefer switch_tab, switch_workspace, and focus_agent for new configs.
+# Prefer switch_tab, switch_workspace, switch_group, and focus_agent for new configs.
 # [keys.indexed]
 # tabs = ""       # e.g. "ctrl" makes ctrl+1..9 switch tabs directly
 # workspaces = "" # e.g. "ctrl+shift" makes ctrl+shift+1..9 switch workspaces directly
@@ -173,6 +183,10 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 
 # Maximum sidebar width when expanded (columns)
 # sidebar_max_width = 36
+
+# Terminal width at or below which Hako uses the mobile single-column layout.
+# Increase this for foldables, tablets, or wide phone terminals.
+# mobile_width_threshold = 64
 
 # Capture mouse input for Hako's mouse UI.
 # Set false to let the terminal handle normal clicks, such as Cmd-clicking URLs.

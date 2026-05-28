@@ -892,16 +892,19 @@ impl AppState {
             }
 
             MouseEventKind::Up(MouseButton::Left) => {
-                if self.selection.is_some() {
+                // Mouse-up either finishes a drag selection or releases after a
+                // double-click copy; the latter is already copied.
+                if let Some(selection) = self.selection.as_ref() {
+                    let was_click = selection.was_just_click();
+                    let was_already_copied = selection.is_done();
+
                     self.workspace_press = None;
                     self.tab_press = None;
                     self.drag = None;
                     self.selection_autoscroll = None;
-                    let was_click = self.selection.as_ref().is_some_and(|s| s.was_just_click());
                     if was_click {
                         self.selection = None;
-                        self.selection_autoscroll = None;
-                    } else {
+                    } else if !was_already_copied {
                         self.copy_selection(terminal_runtimes);
                     }
                     return None;
@@ -968,13 +971,6 @@ impl AppState {
                                 self.mode = Mode::Terminal;
                                 return None;
                             }
-                        }
-                        let was_click = self.selection.as_ref().is_some_and(|s| s.was_just_click());
-                        if was_click {
-                            self.selection = None;
-                            self.selection_autoscroll = None;
-                        } else {
-                            self.copy_selection(terminal_runtimes);
                         }
                     }
                 }
@@ -1466,9 +1462,14 @@ impl AppState {
     }
 
     pub(crate) fn focus_pane(&mut self, pane_id: crate::layout::PaneId) {
-        if let Some(ws) = self.active.and_then(|i| self.workspaces.get_mut(i)) {
+        let Some(ws_idx) = self.active else {
+            return;
+        };
+        let previous = self.current_pane_focus_target();
+        if let Some(ws) = self.workspaces.get_mut(ws_idx) {
             if ws.layout.focused() != pane_id {
                 ws.layout.focus_pane(pane_id);
+                self.record_pane_focus_change(previous, ws_idx, pane_id);
                 self.mark_session_dirty();
             }
         }

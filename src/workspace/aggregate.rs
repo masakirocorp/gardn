@@ -18,6 +18,7 @@ pub struct PaneDetail {
     pub state: AgentState,
     pub seen: bool,
     pub custom_status: Option<String>,
+    pub state_labels: HashMap<String, String>,
 }
 
 impl Tab {
@@ -59,7 +60,17 @@ impl Tab {
                     }
                 };
                 let agent_label = terminal
-                    .and_then(|terminal| terminal.effective_agent_label().map(str::to_string))
+                    .and_then(|terminal| {
+                        let fallback = terminal
+                            .agent_name
+                            .as_deref()
+                            .or_else(|| terminal.effective_agent_label())?;
+                        Some(
+                            terminal
+                                .effective_display_agent()
+                                .unwrap_or_else(|| fallback.to_string()),
+                        )
+                    })
                     .or(fallback_agent_label)?;
                 let fallback_agent = {
                     #[cfg(test)]
@@ -93,6 +104,7 @@ impl Tab {
                 } else {
                     state
                 };
+                let presentation = terminal.map(TerminalState::effective_presentation);
                 Some(PaneDetail {
                     pane_id: *id,
                     tab_idx: self.number.saturating_sub(1),
@@ -102,9 +114,12 @@ impl Tab {
                     agent,
                     state,
                     seen: pane.seen,
-                    custom_status: terminal
-                        .and_then(TerminalState::effective_custom_status)
-                        .map(str::to_string),
+                    custom_status: presentation
+                        .as_ref()
+                        .and_then(|presentation| presentation.custom_status.clone()),
+                    state_labels: presentation
+                        .map(|presentation| presentation.state_labels)
+                        .unwrap_or_default(),
                 })
             })
             .collect()

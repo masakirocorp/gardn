@@ -16,6 +16,7 @@ impl App {
     pub(crate) fn handle_internal_event(&mut self, ev: AppEvent) {
         if let AppEvent::ClipboardWrite { content } = ev {
             crate::selection::write_osc52_bytes(&content);
+            self.show_clipboard_feedback();
             return;
         }
 
@@ -90,6 +91,7 @@ impl App {
         for update in &pane_updates {
             self.emit_pane_state_update(update);
         }
+        self.sync_agent_metadata_deadline();
         if let Some((pane_id, agent)) = released_agent {
             if pane_updates.iter().any(|update| update.pane_id == pane_id) {
                 if let Some((ws_idx, _)) = self.find_pane(pane_id) {
@@ -180,6 +182,13 @@ impl App {
         self.shutdown_detached_terminal_runtimes();
     }
 
+    pub(crate) fn show_clipboard_feedback(&mut self) {
+        self.state.copy_feedback = Some(crate::app::state::CopyFeedback {
+            message: "copied to clipboard".to_string(),
+        });
+        self.copy_feedback_deadline = Some(Instant::now() + super::COPY_FEEDBACK_DURATION);
+    }
+
     fn restore_overlay_after_exit(&mut self, overlay: OverlayPaneState) {
         for temp_file in &overlay.temp_files {
             let _ = std::fs::remove_file(temp_file);
@@ -204,7 +213,7 @@ impl App {
         }
     }
 
-    fn emit_pane_state_update(&self, update: &crate::app::actions::PaneStateUpdate) {
+    pub(crate) fn emit_pane_state_update(&self, update: &crate::app::actions::PaneStateUpdate) {
         let Some(pane_id) = self.public_pane_id(update.ws_idx, update.pane_id) else {
             return;
         };
@@ -221,7 +230,9 @@ impl App {
             });
         }
 
-        if update.previous_state != update.state {
+        if update.previous_state != update.state
+            || update.previous_presentation != update.presentation
+        {
             let agent_status = self
                 .state
                 .workspaces
@@ -229,14 +240,17 @@ impl App {
                 .and_then(|ws| ws.pane_state(update.pane_id))
                 .map(|pane| pane_agent_status(update.state, pane.seen))
                 .unwrap_or_else(|| pane_agent_status(update.state, true));
-            let custom_status = update.custom_status.clone();
+            let presentation = update.presentation.clone();
             self.emit_event(crate::api::schema::EventEnvelope {
                 event: crate::api::schema::EventKind::PaneAgentStatusChanged,
                 data: crate::api::schema::EventData::PaneAgentStatusChanged {
                     pane_id,
                     workspace_id,
                     agent_status,
-                    custom_status,
+                    title: presentation.title,
+                    display_agent: presentation.display_agent,
+                    custom_status: presentation.custom_status,
+                    state_labels: presentation.state_labels,
                 },
             });
         }
@@ -479,6 +493,9 @@ impl App {
             Method::PaneRead(params) => return self.handle_pane_read(request.id, params),
             Method::PaneReportAgent(params) => {
                 return self.handle_pane_report_agent(request.id, params);
+            }
+            Method::PaneReportMetadata(params) => {
+                return self.handle_pane_report_metadata(request.id, params);
             }
             Method::PaneClearAgentAuthority(params) => {
                 return self.handle_pane_clear_agent_authority(request.id, params);

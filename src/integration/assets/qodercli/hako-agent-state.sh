@@ -2,13 +2,23 @@
 # installed by hako
 # managed by hako; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
-# HAKO_INTEGRATION_ID=codex
-# HAKO_INTEGRATION_VERSION=5
+# HAKO_INTEGRATION_ID=qodercli
+# HAKO_INTEGRATION_VERSION=1
+#
+# Reports qodercli agent state changes to hako. Registered as a Command hook
+# in ~/.qoder/settings.json by `hako integration install qodercli` and
+# invoked by qodercli's hook system on lifecycle events.
+#
+# qodercli (per https://docs.qoder.com/zh/cli/hooks) sends a JSON payload on
+# stdin describing the hook event. The event name is read from the stdin
+# payload's `hook_event_name` field, the same way
+# `assets/claude/hako-agent-state.sh` already consumes claude code's stdin
+# payload. No environment variable is consulted for the event identity.
 
 set -eu
 
 action="${1:-}"
-hook_input_file="$(mktemp "${TMPDIR:-/tmp}/hako-codex-hook.XXXXXX")" || exit 0
+hook_input_file="$(mktemp "${TMPDIR:-/tmp}/hako-qodercli-hook.XXXXXX")" || exit 0
 trap 'rm -f "$hook_input_file"' EXIT HUP INT TERM
 cat >"$hook_input_file" 2>/dev/null || true
 
@@ -29,7 +39,7 @@ import random
 import socket
 import time
 
-source = "hako:codex"
+source = "hako:qodercli"
 action = os.environ.get("HAKO_ACTION", "")
 pane_id = os.environ.get("HAKO_PANE_ID")
 socket_path = os.environ.get("HAKO_SOCKET_PATH")
@@ -48,6 +58,17 @@ if hook_input_file:
     except Exception:
         hook_input = {}
 
+# Per docs.qoder.com/zh/cli/hooks the payload always carries `hook_event_name`.
+hook_event_name = str(hook_input.get("hook_event_name") or "")
+is_subagent = bool(hook_input.get("agent_id"))
+if hook_event_name == "SubagentStop":
+    # SubagentStop is a completion event; never let it revive an idle pane the
+    # way the parallel claude integration does.
+    raise SystemExit(0)
+if is_subagent and action in ("idle", "release"):
+    # Subagent completion must not make the parent pane look done early.
+    raise SystemExit(0)
+
 request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
 report_seq = time.time_ns()
 session_id = hook_input.get("session_id")
@@ -59,7 +80,7 @@ if action == "release":
         "params": {
             "pane_id": pane_id,
             "source": source,
-            "agent": "codex",
+            "agent": "qodercli",
             "seq": report_seq,
         },
     }
@@ -70,7 +91,7 @@ else:
         "params": {
             "pane_id": pane_id,
             "source": source,
-            "agent": "codex",
+            "agent": "qodercli",
             "state": action,
             "seq": report_seq,
         },

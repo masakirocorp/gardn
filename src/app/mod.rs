@@ -39,6 +39,9 @@ const GIT_REMOTE_STATUS_REFRESH_INTERVAL: Duration = Duration::from_millis(1500)
 const AUTO_UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
 const SESSION_SAVE_DEBOUNCE: Duration = Duration::from_secs(5);
 const SIDEBAR_DOUBLE_CLICK_WINDOW: Duration = Duration::from_millis(350);
+const COPY_FEEDBACK_DURATION: Duration = Duration::from_secs(2);
+const PANE_DOUBLE_CLICK_WINDOW: Duration = Duration::from_millis(350);
+const PANE_COPY_HIGHLIGHT_DURATION: Duration = Duration::from_millis(500);
 
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
@@ -64,6 +67,23 @@ pub(crate) struct OverlayPaneState {
     temp_files: Vec<std::path::PathBuf>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PaneClickState {
+    pane_id: crate::layout::PaneId,
+    viewport_row: u16,
+    col: u16,
+    at: Instant,
+}
+
+impl PaneClickState {
+    fn is_double_click_for(self, next: Self) -> bool {
+        self.pane_id == next.pane_id
+            && next.at.duration_since(self.at) <= PANE_DOUBLE_CLICK_WINDOW
+            && self.viewport_row.abs_diff(next.viewport_row) <= 1
+            && self.col.abs_diff(next.col) <= 1
+    }
+}
+
 pub struct App {
     pub state: AppState,
     pub(crate) terminal_runtimes: crate::terminal::TerminalRuntimeRegistry,
@@ -77,15 +97,19 @@ pub struct App {
     pub(crate) last_terminal_size: Option<(u16, u16)>,
     pub(crate) config_diagnostic_deadline: Option<Instant>,
     pub(crate) toast_deadline: Option<Instant>,
+    pub(crate) copy_feedback_deadline: Option<Instant>,
     pub(crate) last_git_remote_status_refresh: Instant,
     pub(crate) git_refresh_in_flight: bool,
     pub(crate) last_sidebar_divider_click: Option<Instant>,
+    pub(crate) last_pane_click: Option<PaneClickState>,
     pub(crate) next_resize_poll: Instant,
     pub(crate) next_port_scan: Instant,
     pub(crate) next_command_scan: Instant,
     pub(crate) next_animation_tick: Option<Instant>,
     pub(crate) next_auto_update_check: Option<Instant>,
+    pub(crate) agent_metadata_deadline: Option<Instant>,
     pub(crate) selection_autoscroll_deadline: Option<Instant>,
+    pub(crate) selection_highlight_clear_deadline: Option<Instant>,
     pub(crate) session_save_deadline: Option<Instant>,
     pub(crate) persist_pane_history: bool,
     pub(crate) last_render_at: Option<Instant>,
@@ -460,6 +484,7 @@ impl App {
             direct_attach_resize_locks: std::collections::HashSet::new(),
             workspaces,
             active,
+            previous_pane_focus: None,
             selected,
             mode,
             should_quit: false,
@@ -539,6 +564,7 @@ impl App {
             update_dismissed: false,
             config_diagnostic,
             toast: None,
+            copy_feedback: None,
             outer_terminal_focus: None,
             prefix_code,
             prefix_mods,
@@ -546,6 +572,7 @@ impl App {
             sidebar_width,
             sidebar_min_width,
             sidebar_max_width,
+            mobile_width_threshold: config.ui.mobile_width_threshold,
             sidebar_width_source,
             sidebar_width_auto: false,
             sidebar_collapsed,
@@ -671,6 +698,7 @@ impl App {
         Self {
             config_diagnostic_deadline: None,
             toast_deadline: None,
+            copy_feedback_deadline: None,
             state,
             terminal_runtimes: restored_terminal_runtimes,
             event_tx,
@@ -678,14 +706,17 @@ impl App {
             last_git_remote_status_refresh: Instant::now() - GIT_REMOTE_STATUS_REFRESH_INTERVAL,
             git_refresh_in_flight: false,
             last_sidebar_divider_click: None,
+            last_pane_click: None,
             next_resize_poll: Instant::now() + RESIZE_POLL_INTERVAL,
             next_port_scan: Instant::now() + PORT_SCAN_INTERVAL,
             next_command_scan: Instant::now(),
             next_animation_tick: None,
             next_auto_update_check: auto_updates_enabled(no_session)
                 .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL),
+            agent_metadata_deadline: None,
             session_save_deadline: None,
             selection_autoscroll_deadline: None,
+            selection_highlight_clear_deadline: None,
             persist_pane_history: config.experimental.pane_history,
             last_render_at: None,
             suppressed_repeat_keys: HashSet::new(),
@@ -1124,6 +1155,7 @@ impl App {
                 }
                 self.state.sidebar_min_width = config.ui.sidebar_min_width;
                 self.state.sidebar_max_width = config.ui.sidebar_max_width;
+                self.state.mobile_width_threshold = config.ui.mobile_width_threshold;
                 // Re-clamp the live width to the new bounds. No source guard — bounds
                 // always apply, including to widths owned by Persisted or Manual.
                 self.state.sidebar_width = self

@@ -84,11 +84,11 @@ impl App {
             return;
         }
 
-        if handle_navigate_reserved_key(&mut self.state, key) {
+        if handle_navigate_reserved_key(&mut self.state, raw_key) {
             return;
         }
 
-        if let Some(action) = action_for_key(&self.state, raw_key, BindingDispatch::Prefix) {
+        if let Some(action) = navigate_mode_action_for_key(&self.state, raw_key) {
             if action == NavigateAction::EditScrollback {
                 self.launch_focused_scrollback_editor();
             } else {
@@ -391,74 +391,95 @@ pub(crate) fn command_for_key(
         .cloned()
 }
 
-pub(super) fn handle_navigate_reserved_key(state: &mut AppState, key: KeyEvent) -> bool {
+pub(super) fn handle_navigate_reserved_key(state: &mut AppState, key: TerminalKey) -> bool {
     let (code, modifiers) = crate::config::normalize_key_combo((key.code, key.modifiers));
-    if !modifiers.is_empty() {
-        return false;
+    if modifiers.is_empty() {
+        match code {
+            KeyCode::Enter => {
+                if state.workspace_in_active_group(state.selected) {
+                    state.switch_workspace(state.selected);
+                    leave_navigate_mode(state);
+                }
+                return true;
+            }
+            KeyCode::Char(c @ ('1'..='9' | '0')) => {
+                let idx = if c == '0' {
+                    9
+                } else {
+                    (c as usize) - ('1' as usize)
+                };
+                if let Some(ws_idx) = state.sidebar_visible_workspace_indices().get(idx).copied() {
+                    state.switch_workspace(ws_idx);
+                    leave_navigate_mode(state);
+                }
+                return true;
+            }
+            KeyCode::Tab => {
+                state.cycle_pane(false);
+                return true;
+            }
+            KeyCode::BackTab => {
+                state.cycle_pane(true);
+                return true;
+            }
+            KeyCode::Left => {
+                state.navigate_pane(NavDirection::Left);
+                return true;
+            }
+            KeyCode::Right => {
+                state.navigate_pane(NavDirection::Right);
+                return true;
+            }
+            _ => {}
+        }
     }
 
-    match code {
-        KeyCode::Enter => {
-            if state.workspace_in_active_group(state.selected) {
-                state.switch_workspace(state.selected);
-                leave_navigate_mode(state);
-            }
-            true
-        }
-        KeyCode::Char(c @ '1'..='9') => {
-            let idx = (c as usize) - ('1' as usize);
-            if let Some(ws_idx) = state.sidebar_visible_workspace_indices().get(idx).copied() {
-                state.switch_workspace(ws_idx);
-                leave_navigate_mode(state);
-            }
-            true
-        }
-        KeyCode::Up => {
-            let visible = state.sidebar_visible_workspace_indices();
-            if let Some(pos) = visible.iter().position(|idx| *idx == state.selected) {
-                if let Some(prev) = pos.checked_sub(1).and_then(|idx| visible.get(idx)) {
-                    state.selected = *prev;
-                    state.ensure_workspace_visible(state.selected);
-                }
-            }
-            true
-        }
-        KeyCode::Down => {
-            let visible = state.sidebar_visible_workspace_indices();
-            if let Some(pos) = visible.iter().position(|idx| *idx == state.selected) {
-                if let Some(next) = visible.get(pos + 1) {
-                    state.selected = *next;
-                    state.ensure_workspace_visible(state.selected);
-                }
-            }
-            true
-        }
-        KeyCode::Char('h') | KeyCode::Left => {
-            state.navigate_pane(NavDirection::Left);
-            true
-        }
-        KeyCode::Char('j') => {
-            state.navigate_pane(NavDirection::Down);
-            true
-        }
-        KeyCode::Char('k') => {
-            state.navigate_pane(NavDirection::Up);
-            true
-        }
-        KeyCode::Char('l') | KeyCode::Right => {
-            state.navigate_pane(NavDirection::Right);
-            true
-        }
-        KeyCode::Tab => {
-            state.cycle_pane(false);
-            true
-        }
-        KeyCode::BackTab => {
-            state.cycle_pane(true);
-            true
-        }
-        _ => false,
+    if state.keybinds.navigate.workspace_up.matches_direct_key(key) {
+        move_selected_workspace_by_visible_delta(state, -1);
+        return true;
     }
+    if state
+        .keybinds
+        .navigate
+        .workspace_down
+        .matches_direct_key(key)
+    {
+        move_selected_workspace_by_visible_delta(state, 1);
+        return true;
+    }
+    if state.keybinds.navigate.pane_left.matches_direct_key(key) {
+        state.navigate_pane(NavDirection::Left);
+        return true;
+    }
+    if state.keybinds.navigate.pane_down.matches_direct_key(key) {
+        state.navigate_pane(NavDirection::Down);
+        return true;
+    }
+    if state.keybinds.navigate.pane_up.matches_direct_key(key) {
+        state.navigate_pane(NavDirection::Up);
+        return true;
+    }
+    if state.keybinds.navigate.pane_right.matches_direct_key(key) {
+        state.navigate_pane(NavDirection::Right);
+        return true;
+    }
+
+    false
+}
+
+fn move_selected_workspace_by_visible_delta(state: &mut AppState, delta: isize) {
+    let visible = state.sidebar_visible_workspace_indices();
+    let Some(pos) = visible.iter().position(|idx| *idx == state.selected) else {
+        return;
+    };
+    let Some(next) = pos
+        .checked_add_signed(delta)
+        .and_then(|idx| visible.get(idx))
+    else {
+        return;
+    };
+    state.selected = *next;
+    state.ensure_workspace_visible(state.selected);
 }
 
 #[allow(dead_code)] // exercised in input unit tests; production uses App::handle_navigate_key
@@ -472,11 +493,11 @@ pub(crate) fn handle_navigate_key(state: &mut AppState, key: KeyEvent) {
         return;
     }
 
-    if handle_navigate_reserved_key(state, key) {
+    if handle_navigate_reserved_key(state, terminal_key) {
         return;
     }
 
-    if let Some(action) = action_for_key(state, terminal_key, BindingDispatch::Prefix) {
+    if let Some(action) = navigate_mode_action_for_key(state, terminal_key) {
         execute_navigate_action_in_context(
             state,
             &mut terminal_runtimes,
@@ -504,6 +525,7 @@ pub(crate) enum NavigateAction {
     ToggleGroupFilter,
     PreviousGroup,
     NextGroup,
+    SwitchGroup(usize),
     PreviousAgent,
     NextAgent,
     OpenAgentMenu,
@@ -528,6 +550,7 @@ pub(crate) enum NavigateAction {
     OpenCommandPalette,
     CyclePaneNext,
     CyclePanePrevious,
+    LastPane,
     Help,
     Settings,
     ReloadConfig,
@@ -561,6 +584,13 @@ fn indexed_navigation_action(
                     .get(idx)
                     .copied()
                     .map(NavigateAction::SwitchWorkspace);
+            }
+        }
+    }
+    for binding in &kb.switch_group {
+        if trigger_matches(binding) {
+            if let Some(idx) = binding.matched_index(key) {
+                return Some(NavigateAction::SwitchGroup(idx));
             }
         }
     }
@@ -628,6 +658,7 @@ fn action_for_key(
         (&kb.focus_pane_right, NavigateAction::FocusPaneRight),
         (&kb.cycle_pane_next, NavigateAction::CyclePaneNext),
         (&kb.cycle_pane_previous, NavigateAction::CyclePanePrevious),
+        (&kb.last_pane, NavigateAction::LastPane),
         (&kb.split_vertical, NavigateAction::SplitVertical),
         (&kb.split_horizontal, NavigateAction::SplitHorizontal),
         (&kb.close_pane, NavigateAction::ClosePane),
@@ -648,6 +679,20 @@ fn action_for_key(
         }
     }
     None
+}
+
+fn navigate_mode_action_for_key(state: &AppState, key: TerminalKey) -> Option<NavigateAction> {
+    let action = action_for_key(state, key, BindingDispatch::Prefix)?;
+    if matches!(
+        action,
+        NavigateAction::FocusPaneLeft
+            | NavigateAction::FocusPaneDown
+            | NavigateAction::FocusPaneUp
+            | NavigateAction::FocusPaneRight
+    ) {
+        return None;
+    }
+    Some(action)
 }
 
 #[cfg(test)]
@@ -701,6 +746,12 @@ pub(super) fn execute_navigate_action_in_context(
                 .is_some_and(|ws| idx < ws.tabs.len());
             if tab_exists {
                 state.switch_tab(idx);
+                leave_navigate_mode(state);
+            }
+        }
+        NavigateAction::SwitchGroup(idx) => {
+            if idx < state.groups.len() {
+                state.switch_group(idx);
                 leave_navigate_mode(state);
             }
         }
@@ -820,6 +871,10 @@ pub(super) fn execute_navigate_action_in_context(
         }
         NavigateAction::CyclePanePrevious => {
             state.cycle_pane(true);
+            leave_navigate_mode(state);
+        }
+        NavigateAction::LastPane => {
+            state.last_pane();
             leave_navigate_mode(state);
         }
         NavigateAction::Help => super::modal::open_keybind_help(state),
@@ -1095,6 +1150,158 @@ mod tests {
         );
 
         assert_eq!(state.selected, 2);
+    }
+
+    #[test]
+    fn navigate_workspace_keys_are_configurable() {
+        let mut state = state_with_workspaces(&["a", "b"]);
+        let config: Config = toml::from_str(
+            r#"
+[keys]
+navigate_workspace_down = "j"
+navigate_pane_down = "ctrl+j"
+"#,
+        )
+        .unwrap();
+        state.keybinds = config.keybinds();
+        state.selected = 0;
+
+        handle_navigate_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.selected, 1);
+        assert_eq!(state.mode, Mode::Navigate);
+    }
+
+    #[test]
+    fn navigate_pane_keys_are_configurable() {
+        let mut state = state_with_workspaces(&["test"]);
+        let root = state.workspaces[0].tabs[0].root_pane;
+        let below = state.workspaces[0].test_split(Direction::Vertical);
+        state.workspaces[0].layout.focus_pane(root);
+        state.view.pane_infos = state.workspaces[0]
+            .active_tab()
+            .unwrap()
+            .layout
+            .panes(ratatui::layout::Rect::new(0, 0, 80, 24));
+        let config: Config = toml::from_str(
+            r#"
+[keys]
+navigate_workspace_down = "j"
+navigate_pane_down = "ctrl+j"
+"#,
+        )
+        .unwrap();
+        state.keybinds = config.keybinds();
+
+        handle_navigate_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
+        );
+
+        assert_eq!(state.workspaces[0].focused_pane_id(), Some(below));
+        assert_eq!(state.mode, Mode::Navigate);
+    }
+
+    #[test]
+    fn focus_pane_prefix_rhs_does_not_create_navigate_mode_pane_shortcut() {
+        let mut state = state_with_workspaces(&["test"]);
+        let root = state.workspaces[0].tabs[0].root_pane;
+        let below = state.workspaces[0].test_split(Direction::Vertical);
+        state.workspaces[0].layout.focus_pane(root);
+        state.view.pane_infos = state.workspaces[0]
+            .active_tab()
+            .unwrap()
+            .layout
+            .panes(ratatui::layout::Rect::new(0, 0, 80, 24));
+        let config: Config = toml::from_str(
+            r#"
+[keys]
+focus_pane_down = "prefix+f"
+"#,
+        )
+        .unwrap();
+        state.keybinds = config.keybinds();
+
+        handle_navigate_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::empty()),
+        );
+        assert_eq!(state.workspaces[0].focused_pane_id(), Some(root));
+
+        handle_navigate_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::empty()),
+        );
+        assert_eq!(state.workspaces[0].focused_pane_id(), Some(below));
+        assert_eq!(state.mode, Mode::Navigate);
+    }
+
+    #[test]
+    fn customized_navigate_pane_key_disables_matching_prefix_rhs_fallback() {
+        let mut state = state_with_workspaces(&["test"]);
+        let root = state.workspaces[0].tabs[0].root_pane;
+        let below = state.workspaces[0].test_split(Direction::Vertical);
+        state.workspaces[0].layout.focus_pane(root);
+        state.view.pane_infos = state.workspaces[0]
+            .active_tab()
+            .unwrap()
+            .layout
+            .panes(ratatui::layout::Rect::new(0, 0, 80, 24));
+        let config: Config = toml::from_str(
+            r#"
+[keys]
+navigate_pane_down = "ctrl+j"
+"#,
+        )
+        .unwrap();
+        state.keybinds = config.keybinds();
+
+        handle_navigate_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::empty()),
+        );
+        assert_eq!(state.workspaces[0].focused_pane_id(), Some(root));
+
+        handle_navigate_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
+        );
+        assert_eq!(state.workspaces[0].focused_pane_id(), Some(below));
+        assert_eq!(state.mode, Mode::Navigate);
+    }
+
+    #[test]
+    fn left_and_right_arrows_remain_permanent_navigate_pane_aliases() {
+        let mut state = state_with_workspaces(&["test"]);
+        let root = state.workspaces[0].tabs[0].root_pane;
+        let right = state.workspaces[0].test_split(Direction::Horizontal);
+        state.workspaces[0].layout.focus_pane(right);
+        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 80, 24));
+        let config: Config = toml::from_str(
+            r#"
+[keys]
+navigate_pane_left = "ctrl+h"
+navigate_pane_right = "ctrl+l"
+"#,
+        )
+        .unwrap();
+        state.keybinds = config.keybinds();
+
+        handle_navigate_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Left, KeyModifiers::empty()),
+        );
+        assert_eq!(state.workspaces[0].focused_pane_id(), Some(root));
+        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 80, 24));
+
+        handle_navigate_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Right, KeyModifiers::empty()),
+        );
+        assert_eq!(state.workspaces[0].focused_pane_id(), Some(right));
         assert_eq!(state.mode, Mode::Navigate);
     }
 
@@ -1277,6 +1484,20 @@ mod tests {
         );
 
         assert_eq!(action, Some(NavigateAction::SwitchTab(2)));
+    }
+
+    #[test]
+    fn terminal_direct_indexed_group_shortcut_maps_to_navigation_action() {
+        let mut state = state_with_workspaces(&["test"]);
+        let config: Config = toml::from_str("[keys]\nswitch_group = \"ctrl+1..0\"\n").unwrap();
+        state.keybinds.switch_group = config.keybinds().switch_group;
+
+        let action = terminal_direct_navigation_action(
+            &state,
+            TerminalKey::new(KeyCode::Char('0'), KeyModifiers::CONTROL),
+        );
+
+        assert_eq!(action, Some(NavigateAction::SwitchGroup(9)));
     }
 
     #[test]

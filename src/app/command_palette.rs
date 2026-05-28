@@ -10,6 +10,7 @@ pub(crate) enum CommandPaletteAction {
     PreviousWorkspace,
     NextWorkspace,
     SwitchWorkspace(usize),
+    SwitchTab(usize),
     NewTab,
     RenameTab,
     PreviousTab,
@@ -66,6 +67,11 @@ impl CommandPaletteCommand {
             key_label: None,
             action,
         }
+    }
+
+    fn with_key_label(mut self, key_label: Option<String>) -> Self {
+        self.key_label = key_label;
+        self
     }
 
     fn matches(&self, query: &str) -> bool {
@@ -244,17 +250,33 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
         CommandPaletteCommand::new("detach / quit", "app", CommandPaletteAction::DetachOrQuit),
     ];
 
+    if let Some(ws) = state.active.and_then(|idx| state.workspaces.get(idx)) {
+        commands.extend(ws.tabs.iter().enumerate().map(|(idx, tab)| {
+            CommandPaletteCommand::new(
+                format!("switch to tab: {}", tab.display_name()),
+                "tabs",
+                CommandPaletteAction::SwitchTab(idx),
+            )
+            .with_key_label(indexed_keybind_label(&state.keybinds.switch_tab, idx))
+        }));
+    }
+
     commands.extend(
         state
             .visible_workspace_indices()
             .into_iter()
-            .filter_map(|idx| {
+            .enumerate()
+            .filter_map(|(shortcut_idx, idx)| {
                 state.workspaces.get(idx).map(|workspace| {
                     CommandPaletteCommand::new(
                         format!("switch to space: {}", workspace.display_name()),
                         "spaces",
                         CommandPaletteAction::SwitchWorkspace(idx),
                     )
+                    .with_key_label(indexed_keybind_label(
+                        &state.keybinds.switch_workspace,
+                        shortcut_idx,
+                    ))
                 })
             }),
     );
@@ -265,6 +287,7 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
             "groups",
             CommandPaletteAction::SwitchGroup(idx),
         )
+        .with_key_label(indexed_keybind_label(&state.keybinds.switch_group, idx))
     }));
 
     commands.extend(
@@ -283,10 +306,19 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
     );
 
     for command in &mut commands {
-        command.key_label = command_palette_key_label(state, &command.action);
+        if command.key_label.is_none() {
+            command.key_label = command_palette_key_label(state, &command.action);
+        }
     }
 
     commands
+}
+
+fn indexed_keybind_label(
+    bindings: &[crate::config::IndexedKeybind],
+    index: usize,
+) -> Option<String> {
+    bindings.get(index).map(|binding| binding.label.clone())
 }
 
 fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) -> Option<String> {
@@ -299,6 +331,7 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
         CommandPaletteAction::PreviousWorkspace => label(&kb.previous_workspace),
         CommandPaletteAction::NextWorkspace => label(&kb.next_workspace),
         CommandPaletteAction::NewTab => label(&kb.new_tab),
+        CommandPaletteAction::SwitchTab(idx) => indexed_keybind_label(&kb.switch_tab, *idx),
         CommandPaletteAction::RenameTab => label(&kb.rename_tab),
         CommandPaletteAction::PreviousTab => label(&kb.previous_tab),
         CommandPaletteAction::NextTab => label(&kb.next_tab),

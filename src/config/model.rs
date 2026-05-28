@@ -3,8 +3,8 @@ use std::num::NonZeroUsize;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::{
-    BindingConfig, CommandKeybindConfig, SoundConfig, ThemeConfig, DEFAULT_MOUSE_SCROLL_LINES,
-    DEFAULT_SCROLLBACK_LIMIT_BYTES,
+    BindingConfig, CommandKeybindConfig, SoundConfig, ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD,
+    DEFAULT_MOUSE_SCROLL_LINES, DEFAULT_SCROLLBACK_LIMIT_BYTES,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
@@ -154,6 +154,20 @@ pub struct KeysConfig {
     pub close_workspace: BindingConfig,
     /// Open the workspace navigation surface. Default: "prefix+w"
     pub workspace_picker: BindingConfig,
+    /// Open the session navigator. Default: "prefix+g"
+    pub goto: BindingConfig,
+    /// Move workspace selection up in navigate mode. Default: "up".
+    pub navigate_workspace_up: BindingConfig,
+    /// Move workspace selection down in navigate mode. Default: "down".
+    pub navigate_workspace_down: BindingConfig,
+    /// Focus the pane to the left in navigate mode. Default: "h". Left arrow is always an alias.
+    pub navigate_pane_left: BindingConfig,
+    /// Focus the pane below in navigate mode. Default: "j".
+    pub navigate_pane_down: BindingConfig,
+    /// Focus the pane above in navigate mode. Default: "k".
+    pub navigate_pane_up: BindingConfig,
+    /// Focus the pane to the right in navigate mode. Default: "l". Right arrow is always an alias.
+    pub navigate_pane_right: BindingConfig,
     /// Detach from server/client mode, or exit --no-session mode. Default: "prefix+q".
     pub detach: BindingConfig,
     /// Reload config.toml in the running app/server. Default: "prefix+shift+r".
@@ -180,6 +194,8 @@ pub struct KeysConfig {
     pub previous_group: BindingConfig,
     /// Focus the next group. Unset by default.
     pub next_group: BindingConfig,
+    /// Switch to group 1-10 from prefix mode. Default: "prefix+alt+1..0".
+    pub switch_group: BindingConfig,
     /// Focus the previous agent shown in the agent panel. Unset by default.
     pub previous_agent: BindingConfig,
     /// Focus the next agent shown in the agent panel. Unset by default.
@@ -196,9 +212,9 @@ pub struct KeysConfig {
     pub previous_tab: BindingConfig,
     /// Select the next tab. Default: "prefix+n".
     pub next_tab: BindingConfig,
-    /// Switch to tab 1-9. Default: "prefix+1..9".
+    /// Switch to tab 1-10. Default: "prefix+1..0".
     pub switch_tab: BindingConfig,
-    /// Switch to workspace 1-9 from prefix mode. Unset by default.
+    /// Switch to workspace 1-10 from prefix mode. Default: "prefix+shift+1..0".
     pub switch_workspace: BindingConfig,
     /// Close the active tab. Default: "prefix+shift+x".
     pub close_tab: BindingConfig,
@@ -218,6 +234,8 @@ pub struct KeysConfig {
     pub cycle_pane_next: BindingConfig,
     /// Cycle to the previous pane. Default: "prefix+shift+tab".
     pub cycle_pane_previous: BindingConfig,
+    /// Focus the last focused pane across workspaces and tabs. Unset by default.
+    pub last_pane: BindingConfig,
     /// Split pane vertically (side by side). Default: "prefix+v"
     pub split_vertical: BindingConfig,
     /// Split pane horizontally (stacked). Default: "prefix+minus"
@@ -259,6 +277,8 @@ pub struct UiConfig {
     pub sidebar_min_width: u16,
     /// Maximum sidebar width (columns) when expanded. Default: 36.
     pub sidebar_max_width: u16,
+    /// Terminal width at or below which Hako uses the mobile single-column layout. Default: 64.
+    pub mobile_width_threshold: u16,
     /// Capture mouse input for Hako's mouse UI. Default: true.
     pub mouse_capture: bool,
     /// Force a full host-terminal redraw when the outer terminal regains focus. Default: true.
@@ -360,6 +380,13 @@ impl Default for KeysConfig {
             rename_workspace: BindingConfig::one("prefix+shift+w"),
             close_workspace: BindingConfig::one("prefix+shift+d"),
             workspace_picker: BindingConfig::one("prefix+w"),
+            goto: BindingConfig::one("prefix+g"),
+            navigate_workspace_up: BindingConfig::one("up"),
+            navigate_workspace_down: BindingConfig::one("down"),
+            navigate_pane_left: BindingConfig::one("h"),
+            navigate_pane_down: BindingConfig::one("j"),
+            navigate_pane_up: BindingConfig::one("k"),
+            navigate_pane_right: BindingConfig::one("l"),
             detach: BindingConfig::one("prefix+q"),
             reload_config: BindingConfig::one("prefix+shift+r"),
             open_notification_target: BindingConfig::one("prefix+o"),
@@ -373,6 +400,7 @@ impl Default for KeysConfig {
             toggle_group_filter: BindingConfig::empty(),
             previous_group: BindingConfig::empty(),
             next_group: BindingConfig::empty(),
+            switch_group: BindingConfig::one("prefix+alt+1..0"),
             previous_agent: BindingConfig::empty(),
             next_agent: BindingConfig::empty(),
             open_agent_menu: BindingConfig::empty(),
@@ -381,8 +409,8 @@ impl Default for KeysConfig {
             rename_tab: BindingConfig::one("prefix+shift+t"),
             previous_tab: BindingConfig::one("prefix+p"),
             next_tab: BindingConfig::one("prefix+n"),
-            switch_tab: BindingConfig::one("prefix+1..9"),
-            switch_workspace: BindingConfig::empty(),
+            switch_tab: BindingConfig::one("prefix+1..0"),
+            switch_workspace: BindingConfig::one("prefix+shift+1..0"),
             close_tab: BindingConfig::one("prefix+shift+x"),
             rename_pane: BindingConfig::one("prefix+shift+p"),
             edit_scrollback: BindingConfig::one("prefix+e"),
@@ -392,6 +420,7 @@ impl Default for KeysConfig {
             focus_pane_right: BindingConfig::one("prefix+l"),
             cycle_pane_next: BindingConfig::one("prefix+tab"),
             cycle_pane_previous: BindingConfig::one("prefix+shift+tab"),
+            last_pane: BindingConfig::empty(),
             split_vertical: BindingConfig::one("prefix+v"),
             split_horizontal: BindingConfig::one("prefix+minus"),
             close_pane: BindingConfig::one("prefix+x"),
@@ -419,6 +448,7 @@ impl Default for UiConfig {
             sidebar_width: 26,
             sidebar_min_width: 18,
             sidebar_max_width: 36,
+            mobile_width_threshold: DEFAULT_MOBILE_WIDTH_THRESHOLD,
             mouse_capture: true,
             redraw_on_focus_gained: true,
             mouse_scroll_lines: None,
@@ -642,14 +672,20 @@ cjk_ime_agents = ["claude", "codex"]
         assert_eq!(default_config.ui.sidebar_min_width, 18);
         assert_eq!(default_config.ui.sidebar_max_width, 36);
 
+        assert_eq!(
+            default_config.ui.mobile_width_threshold,
+            DEFAULT_MOBILE_WIDTH_THRESHOLD
+        );
         let toml = r#"
 [ui]
 sidebar_min_width = 12
 sidebar_max_width = 80
+mobile_width_threshold = 96
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.ui.sidebar_min_width, 12);
         assert_eq!(config.ui.sidebar_max_width, 80);
+        assert_eq!(config.ui.mobile_width_threshold, 96);
     }
 
     #[test]

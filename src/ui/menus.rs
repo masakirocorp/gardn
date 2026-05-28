@@ -21,6 +21,44 @@ fn prefix_rhs_label(bindings: &crate::config::ActionKeybinds) -> String {
         .unwrap_or_else(|| "unset".to_string())
 }
 
+fn indexed_prefix_rhs_label(bindings: &[crate::config::IndexedKeybind]) -> String {
+    let labels: Vec<&str> = bindings
+        .iter()
+        .filter(|binding| binding.trigger.is_prefix())
+        .map(|binding| {
+            binding
+                .label
+                .strip_prefix("prefix+")
+                .unwrap_or(&binding.label)
+        })
+        .collect();
+
+    if labels.is_empty() {
+        return "unset".to_string();
+    }
+
+    if let (Some(first), Some(last)) = (labels.first(), labels.last()) {
+        let last_key = if last.ends_with('0') {
+            "0"
+        } else if last.ends_with('9') {
+            "9"
+        } else {
+            ""
+        };
+        if !last_key.is_empty() {
+            if let (Some(first_prefix), Some(last_prefix)) =
+                (first.strip_suffix('1'), last.strip_suffix(last_key))
+            {
+                if first_prefix == last_prefix {
+                    return format!("{first_prefix}1..{last_key}");
+                }
+            }
+        }
+    }
+
+    labels.join(" / ")
+}
+
 fn append_prefix_hint(
     spans: &mut Vec<Span<'static>>,
     used_width: &mut usize,
@@ -43,6 +81,10 @@ fn append_prefix_hint(
     *used_width = used_width.saturating_add(width);
     spans.push(Span::styled(key_label, key_style));
     spans.push(Span::styled(label, dim_style));
+}
+
+fn keybind_label(bindings: &crate::config::ActionKeybinds) -> String {
+    bindings.label().unwrap_or_else(|| "unset".to_string())
 }
 
 fn render_bottom_bar(frame: &mut Frame, area: Rect, line: Line<'_>, bg: ratatui::style::Color) {
@@ -121,6 +163,28 @@ pub(super) fn render_prefix_overlay(app: &AppState, frame: &mut Frame, area: Rec
     );
 
     for (key_label, label) in [
+        (indexed_prefix_rhs_label(&app.keybinds.switch_tab), "tabs"),
+        (
+            indexed_prefix_rhs_label(&app.keybinds.switch_workspace),
+            "spaces",
+        ),
+        (
+            indexed_prefix_rhs_label(&app.keybinds.switch_group),
+            "groups",
+        ),
+    ] {
+        append_prefix_hint(
+            &mut spans,
+            &mut used_width,
+            max_width,
+            key,
+            dim,
+            key_label,
+            label,
+            true,
+        );
+    }
+    for (key_label, label) in [
         (prefix_rhs_label(&app.keybinds.new_tab), "tab"),
         (prefix_rhs_label(&app.keybinds.split_vertical), "split│"),
         (prefix_rhs_label(&app.keybinds.split_horizontal), "split─"),
@@ -168,12 +232,17 @@ pub(super) fn render_navigate_overlay(app: &AppState, frame: &mut Frame, area: R
     let help = prefix_rhs_label(&kb.help);
     let settings = prefix_rhs_label(&kb.settings);
     let detach = prefix_rhs_label(&kb.detach);
+    let workspace_nav = format!(
+        "{} / {}",
+        keybind_label(&kb.navigate.workspace_up),
+        keybind_label(&kb.navigate.workspace_down)
+    );
     let line = Line::from(vec![
         Span::styled(" navigate ", mode_style),
         Span::raw(" "),
         Span::styled("esc", key),
         Span::styled(" back  ", dim),
-        Span::styled("↑↓", key),
+        Span::styled(workspace_nav, key),
         Span::styled(" space  ", dim),
         Span::styled("↵", key),
         Span::styled(" open  ", dim),

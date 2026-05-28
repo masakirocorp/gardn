@@ -8,11 +8,11 @@ use crate::api::schema::{
     AgentReadParams, AgentRenameParams, AgentSendParams, AgentStartParams, AgentStatus,
     AgentTarget, EmptyParams, GroupCreateParams, GroupRenameParams, GroupTarget, IntegrationTarget,
     Method, OutputMatch, PaneAgentState, PaneListParams, PaneReadParams, PaneRenameParams,
-    PaneReportAgentParams, PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams,
-    PaneSplitParams, PaneTarget, PaneWaitForOutputParams, PingParams, ReadFormat, ReadSource,
-    Request, SplitDirection, Subscription, TabCreateParams, TabListParams, TabRenameParams,
-    TabTarget, WorkspaceCreateParams, WorkspaceMoveToGroupParams, WorkspaceRenameParams,
-    WorkspaceTarget,
+    PaneReportAgentParams, PaneReportMetadataParams, PaneSendInputParams, PaneSendKeysParams,
+    PaneSendTextParams, PaneSplitParams, PaneTarget, PaneWaitForOutputParams, PingParams,
+    ReadFormat, ReadSource, Request, SplitDirection, Subscription, TabCreateParams, TabListParams,
+    TabRenameParams, TabTarget, WorkspaceCreateParams, WorkspaceMoveToGroupParams,
+    WorkspaceRenameParams, WorkspaceTarget,
 };
 
 mod worktree;
@@ -1452,6 +1452,7 @@ fn run_pane_command(args: &[String]) -> std::io::Result<i32> {
         Some("send-keys") => pane_send_keys(&args[1..]),
         Some("run") => pane_run(&args[1..]),
         Some("report-agent") => pane_report_agent(&args[1..]),
+        Some("report-metadata") => pane_report_metadata(&args[1..]),
         Some("help" | "--help" | "-h") => {
             print_pane_help();
             Ok(0)
@@ -1841,6 +1842,190 @@ fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
         seq,
         agent_session_id,
         agent_session_path,
+    }))
+}
+
+fn pane_report_metadata(args: &[String]) -> std::io::Result<i32> {
+    let Some(raw_pane_id) = args.first() else {
+        eprintln!("usage: hako pane report-metadata <pane_id> --source ID [--agent LABEL] [--applies-to-source ID] [--title TEXT|--clear-title] [--display-agent TEXT|--clear-display-agent] [--custom-status TEXT|--clear-custom-status] [--state-label STATUS=TEXT] [--clear-state-labels] [--seq N] [--ttl-ms N]");
+        return Ok(2);
+    };
+
+    let pane_id = normalize_pane_id(raw_pane_id);
+    let mut source = None;
+    let mut agent = None;
+    let mut applies_to_source = None;
+    let mut title = None;
+    let mut display_agent = None;
+    let mut custom_status = None;
+    let mut state_labels = std::collections::HashMap::new();
+    let mut clear_title = false;
+    let mut clear_display_agent = false;
+    let mut clear_custom_status = false;
+    let mut clear_state_labels = false;
+    let mut seq = None;
+    let mut ttl_ms = None;
+
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--source" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --source");
+                    return Ok(2);
+                };
+                source = Some(value.clone());
+                index += 2;
+            }
+            "--agent" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --agent");
+                    return Ok(2);
+                };
+                agent = Some(value.clone());
+                index += 2;
+            }
+            "--applies-to-source" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --applies-to-source");
+                    return Ok(2);
+                };
+                applies_to_source = Some(value.clone());
+                index += 2;
+            }
+            "--title" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --title");
+                    return Ok(2);
+                };
+                title = Some(value.clone());
+                index += 2;
+            }
+            "--clear-title" => {
+                clear_title = true;
+                index += 1;
+            }
+            "--display-agent" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --display-agent");
+                    return Ok(2);
+                };
+                display_agent = Some(value.clone());
+                index += 2;
+            }
+            "--clear-display-agent" => {
+                clear_display_agent = true;
+                index += 1;
+            }
+            "--custom-status" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --custom-status");
+                    return Ok(2);
+                };
+                custom_status = Some(value.clone());
+                index += 2;
+            }
+            "--clear-custom-status" => {
+                clear_custom_status = true;
+                index += 1;
+            }
+            "--state-label" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --state-label");
+                    return Ok(2);
+                };
+                let Some((status, label)) = value.split_once('=') else {
+                    eprintln!("expected --state-label STATUS=TEXT");
+                    return Ok(2);
+                };
+                let status = status.trim().to_ascii_lowercase();
+                if !matches!(
+                    status.as_str(),
+                    "idle" | "working" | "blocked" | "done" | "unknown"
+                ) {
+                    eprintln!("unknown state label: {status}");
+                    return Ok(2);
+                }
+                state_labels.insert(status, label.to_string());
+                index += 2;
+            }
+            "--clear-state-labels" => {
+                clear_state_labels = true;
+                index += 1;
+            }
+            "--seq" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --seq");
+                    return Ok(2);
+                };
+                seq = Some(parse_u64_flag("--seq", value)?);
+                index += 2;
+            }
+            "--ttl-ms" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --ttl-ms");
+                    return Ok(2);
+                };
+                ttl_ms = Some(parse_u64_flag("--ttl-ms", value)?);
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return Ok(2);
+            }
+        }
+    }
+
+    let Some(source) = source.and_then(|source| {
+        let source = source.trim().to_string();
+        (!source.is_empty()).then_some(source)
+    }) else {
+        eprintln!("missing required --source");
+        return Ok(2);
+    };
+    if applies_to_source
+        .as_deref()
+        .is_some_and(|source| source.trim().is_empty())
+    {
+        eprintln!("missing value for --applies-to-source");
+        return Ok(2);
+    }
+    if title.is_some() && clear_title
+        || display_agent.is_some() && clear_display_agent
+        || custom_status.is_some() && clear_custom_status
+        || !state_labels.is_empty() && clear_state_labels
+    {
+        eprintln!("cannot set and clear the same metadata field");
+        return Ok(2);
+    }
+    if title.is_none()
+        && display_agent.is_none()
+        && custom_status.is_none()
+        && state_labels.is_empty()
+        && !clear_title
+        && !clear_display_agent
+        && !clear_custom_status
+        && !clear_state_labels
+    {
+        eprintln!("missing metadata field to set or clear");
+        return Ok(2);
+    }
+
+    send_ok_request(Method::PaneReportMetadata(PaneReportMetadataParams {
+        pane_id,
+        source,
+        agent,
+        applies_to_source,
+        title,
+        display_agent,
+        custom_status,
+        state_labels,
+        clear_title,
+        clear_display_agent,
+        clear_custom_status,
+        clear_state_labels,
+        seq,
+        ttl_ms,
     }))
 }
 
@@ -2451,6 +2636,7 @@ fn print_pane_help() {
     eprintln!("  hako pane send-text <pane_id> <text>");
     eprintln!("  hako pane send-keys <pane_id> <key> [key ...]");
     eprintln!("  hako pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
+    eprintln!("  hako pane report-metadata <pane_id> --source ID [--agent LABEL] [--applies-to-source ID] [--title TEXT|--clear-title] [--display-agent TEXT|--clear-display-agent] [--custom-status TEXT|--clear-custom-status] [--state-label STATUS=TEXT] [--clear-state-labels] [--seq N] [--ttl-ms N]");
     eprintln!("  hako pane run <pane_id> <command>");
 }
 fn print_wait_help() {

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,6 +94,8 @@ pub enum Method {
     PaneRead(PaneReadParams),
     #[serde(rename = "pane.report_agent")]
     PaneReportAgent(PaneReportAgentParams),
+    #[serde(rename = "pane.report_metadata")]
+    PaneReportMetadata(PaneReportMetadataParams),
     #[serde(rename = "pane.clear_agent_authority")]
     PaneClearAgentAuthority(PaneClearAgentAuthorityParams),
     #[serde(rename = "pane.release_agent")]
@@ -372,6 +376,36 @@ pub struct PaneReportAgentParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaneReportMetadataParams {
+    pub pane_id: String,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applies_to_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_status: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub state_labels: HashMap<String, String>,
+    #[serde(default)]
+    pub clear_title: bool,
+    #[serde(default)]
+    pub clear_display_agent: bool,
+    #[serde(default)]
+    pub clear_custom_status: bool,
+    #[serde(default)]
+    pub clear_state_labels: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaneClearAgentAuthorityParams {
     pub pane_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -498,6 +532,7 @@ pub enum IntegrationTarget {
     Codex,
     Opencode,
     Hermes,
+    Qodercli,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -791,7 +826,15 @@ pub struct AgentInfo {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_agent: Option<String>,
     pub agent_status: AgentStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_status: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub state_labels: HashMap<String, String>,
     pub workspace_id: String,
     pub tab_id: String,
     pub pane_id: String,
@@ -814,9 +857,15 @@ pub struct PaneInfo {
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_agent: Option<String>,
     pub agent_status: AgentStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_status: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub state_labels: HashMap<String, String>,
     pub revision: u64,
 }
 
@@ -885,6 +934,12 @@ pub struct PaneAgentStatusChangedEvent {
     pub agent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub state_labels: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -953,7 +1008,13 @@ pub enum EventData {
         workspace_id: String,
         agent_status: AgentStatus,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        display_agent: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         custom_status: Option<String>,
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+        state_labels: HashMap<String, String>,
     },
 }
 
@@ -1016,6 +1077,33 @@ mod tests {
                 seq: Some(42),
                 agent_session_id: Some("pi-session".into()),
                 agent_session_path: Some("/tmp/pi-session.jsonl".into()),
+            }),
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        let restored: Request = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, request);
+    }
+
+    #[test]
+    fn request_round_trips_for_pane_report_metadata() {
+        let request = Request {
+            id: "req_metadata".into(),
+            method: Method::PaneReportMetadata(PaneReportMetadataParams {
+                pane_id: "1-1".into(),
+                source: "user:claude-title".into(),
+                agent: Some("claude".into()),
+                applies_to_source: Some("hako:claude".into()),
+                title: Some("Refactor auth".into()),
+                display_agent: Some("Claude auth".into()),
+                custom_status: Some("refactor auth".into()),
+                state_labels: HashMap::from([("working".into(), "deep in the mines".into())]),
+                clear_title: false,
+                clear_display_agent: false,
+                clear_custom_status: false,
+                clear_state_labels: false,
+                seq: Some(42),
+                ttl_ms: Some(3_600_000),
             }),
         };
 
@@ -1285,6 +1373,87 @@ mod tests {
     }
 
     #[test]
+    fn worktree_request_and_response_round_trip() {
+        let request = Request {
+            id: "req_worktree".into(),
+            method: Method::WorktreeCreate(WorktreeCreateParams {
+                workspace_id: Some("1".into()),
+                branch: Some("worktree/api".into()),
+                base: Some("HEAD".into()),
+                focus: true,
+                ..WorktreeCreateParams::default()
+            }),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let restored: Request = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, request);
+
+        let response = SuccessResponse {
+            id: "req_worktree".into(),
+            result: ResponseResult::WorktreeCreated {
+                workspace: WorkspaceInfo {
+                    workspace_id: "w_1".into(),
+                    group_id: "default".into(),
+                    number: 2,
+                    label: "hako".into(),
+                    focused: true,
+                    pane_count: 1,
+                    tab_count: 1,
+                    active_tab_id: "w_1:1".into(),
+                    agent_status: AgentStatus::Unknown,
+                    worktree: Some(WorkspaceWorktreeInfo {
+                        repo_key: "/repo/hako/.git".into(),
+                        repo_name: "hako".into(),
+                        repo_root: "/repo/hako".into(),
+                        checkout_path: "/worktrees/hako/worktree-api".into(),
+                        is_linked_worktree: true,
+                    }),
+                },
+                tab: TabInfo {
+                    tab_id: "w_1:1".into(),
+                    workspace_id: "w_1".into(),
+                    number: 1,
+                    label: "hako".into(),
+                    focused: true,
+                    pane_count: 1,
+                    agent_status: AgentStatus::Unknown,
+                },
+                root_pane: PaneInfo {
+                    pane_id: "w_1-1".into(),
+                    terminal_id: "term_1".into(),
+                    workspace_id: "w_1".into(),
+                    tab_id: "w_1:1".into(),
+                    focused: true,
+                    cwd: Some("/worktrees/hako/worktree-api".into()),
+                    label: None,
+                    agent: None,
+                    title: None,
+                    display_agent: None,
+                    agent_status: AgentStatus::Unknown,
+                    custom_status: None,
+                    state_labels: HashMap::new(),
+                    revision: 0,
+                },
+                worktree: WorktreeInfo {
+                    path: "/worktrees/hako/worktree-api".into(),
+                    branch: Some("worktree/api".into()),
+                    is_bare: false,
+                    is_detached: false,
+                    is_prunable: false,
+                    is_linked_worktree: true,
+                    open_workspace_id: Some("w_1".into()),
+                    label: "hako".into(),
+                },
+            },
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("\"type\":\"worktree_created\""));
+        assert!(json.contains("\"worktree\""));
+        let restored: SuccessResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, response);
+    }
+
+    #[test]
     fn create_response_round_trips_with_root_pane() {
         let response = SuccessResponse {
             id: "req_2".into(),
@@ -1307,8 +1476,11 @@ mod tests {
                     cwd: Some("/tmp/review".into()),
                     label: None,
                     agent: None,
+                    title: None,
+                    display_agent: None,
                     agent_status: AgentStatus::Unknown,
                     custom_status: None,
+                    state_labels: HashMap::new(),
                     revision: 0,
                 },
             },
