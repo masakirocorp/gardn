@@ -1272,7 +1272,7 @@ fn pane_report_agent_updates_effective_state() {
     assert_eq!(agent["result"]["agent"]["agent"], "pi");
     assert_eq!(
         agent["result"]["agent"]["agent_session"]["source"],
-        "herdr:pi"
+        "hako:pi"
     );
     assert_eq!(agent["result"]["agent"]["agent_session"]["agent"], "pi");
     assert_eq!(agent["result"]["agent"]["agent_session"]["kind"], "path");
