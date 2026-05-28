@@ -17,6 +17,7 @@ use crate::events::AppEvent;
 use crate::layout::PaneId;
 
 mod input;
+mod kitty_keyboard;
 mod osc;
 mod state;
 mod terminal;
@@ -342,19 +343,6 @@ pub struct PaneRuntime {
     preserve_processes_on_drop: bool,
     // Task handles for deterministic shutdown
     detect_handle: tokio::task::AbortHandle,
-}
-
-#[cfg(unix)]
-#[derive(Debug)]
-pub struct PaneRuntimeImport {
-    pub pane_id: PaneId,
-    pub master_fd: std::os::fd::RawFd,
-    pub child_pid: u32,
-    pub rows: u16,
-    pub cols: u16,
-    pub cell_width_px: u32,
-    pub cell_height_px: u32,
-    pub initial_history_ansi: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -821,16 +809,25 @@ impl PaneRuntime {
     }
 
     #[cfg(unix)]
-    pub fn handoff_pane(&self, pane_id: u32) -> crate::server::handoff::HandoffPane {
+    pub fn handoff_runtime_state(
+        &self,
+        pane_id: u32,
+    ) -> crate::handoff_runtime::HandoffRuntimeState {
         let child_pid = self.child_pid.load(Ordering::Acquire);
         let (rows, cols, cell_width_px, cell_height_px) = self.current_size.get();
-        crate::server::handoff::HandoffPane {
+        crate::handoff_runtime::HandoffRuntimeState {
             pane_id,
             child_pid,
             rows,
             cols,
             cell_width_px,
             cell_height_px,
+            keyboard_protocol_flags: match self.keyboard_protocol() {
+                crate::input::KeyboardProtocol::Legacy => 0,
+                crate::input::KeyboardProtocol::Kitty { flags } => flags,
+            },
+            keyboard_protocol_ansi: self.terminal.kitty_keyboard_state_ansi(),
+            input_state: self.input_state(),
             initial_history_ansi: None,
         }
     }
@@ -1047,23 +1044,27 @@ impl PaneRuntime {
 
     #[cfg(unix)]
     pub fn from_handoff_fd(
-        import: PaneRuntimeImport,
+        import: crate::handoff_runtime::ImportedHandoffRuntime,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
         render_dirty: Arc<AtomicBool>,
     ) -> std::io::Result<Self> {
-        let PaneRuntimeImport {
+        let crate::handoff_runtime::ImportedHandoffRuntime { master_fd, state } = import;
+        let crate::handoff_runtime::HandoffRuntimeState {
             pane_id,
-            master_fd,
             child_pid,
             rows,
             cols,
             cell_width_px,
             cell_height_px,
+            keyboard_protocol_flags,
+            keyboard_protocol_ansi,
+            input_state,
             initial_history_ansi,
-        } = import;
+        } = state;
+        let pane_id = PaneId::from_raw(pane_id);
         use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 
         let master_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(master_fd) };
@@ -1089,12 +1090,20 @@ impl PaneRuntime {
         }
         let pane_terminal = GhosttyPaneTerminal::new(terminal, input_tx.clone())?;
         pane_terminal.apply_host_terminal_theme(host_terminal_theme);
+        if let Some(input_state) = input_state {
+            pane_terminal.seed_handoff_input_state(input_state);
+        }
+        if let Some(ansi) = keyboard_protocol_ansi.as_deref() {
+            pane_terminal.seed_keyboard_protocol_ansi(ansi);
+        } else {
+            pane_terminal.seed_keyboard_protocol_flags(keyboard_protocol_flags);
+        }
         if let Some(ansi) = initial_history_ansi.as_deref() {
             pane_terminal.seed_history_ansi(ansi);
         }
         let terminal = Arc::new(PaneTerminal::new(pane_terminal));
         let child_pid = Arc::new(AtomicU32::new(child_pid));
-        let kitty_keyboard_flags = Arc::new(AtomicU16::new(0));
+        let kitty_keyboard_flags = Arc::new(AtomicU16::new(keyboard_protocol_flags));
         let (reader_stopped_tx, reader_stopped_rx) = std::sync::mpsc::channel();
 
         {
@@ -1797,7 +1806,6 @@ impl PaneRuntime {
         self.detect_reset_notify.notify_one();
     }
 
-    #[cfg(test)]
     pub(crate) fn current_size(&self) -> (u16, u16) {
         let (rows, cols, _, _) = self.current_size.get();
         (rows, cols)
@@ -2232,6 +2240,97 @@ mod tests {
             &[("TERM", "vt100"), ("COLORTERM", "24bit")],
         );
         assert_eq!(output, "vt100\n24bit\n");
+    }
+
+    #[tokio::test]
+    async fn handoff_history_ansi_captures_primary_screen() {
+        let runtime =
+            PaneRuntime::test_with_scrollback_bytes(40, 5, 4096, b"handoff-primary-history\r\n");
+
+        let history = runtime.handoff_history_ansi().unwrap();
+
+        assert!(history.contains("handoff-primary-history"));
+    }
+
+    #[tokio::test]
+    async fn handoff_history_ansi_skips_alternate_screen() {
+        let runtime = PaneRuntime::test_with_scrollback_bytes(
+            40,
+            5,
+            4096,
+            b"primary\r\n\x1b[?1049halt-screen",
+        );
+
+        assert!(runtime.handoff_history_ansi().is_none());
+    }
+
+    #[tokio::test]
+    async fn handoff_runtime_state_captures_terminal_input_state() {
+        let runtime = PaneRuntime::test_with_screen_bytes(
+            80,
+            24,
+            b"\x1b[>5u\x1b[>4;2m\x1b[?1h\x1b[?2004h\x1b[?1004h\x1b[?1002h\x1b[?1006h",
+        );
+
+        let pane = runtime.handoff_runtime_state(12);
+
+        assert_eq!(pane.keyboard_protocol_flags, 5);
+        assert_eq!(
+            pane.input_state,
+            Some(InputState {
+                alternate_screen: false,
+                application_cursor: true,
+                bracketed_paste: true,
+                focus_reporting: true,
+                mouse_protocol_mode: crate::input::MouseProtocolMode::ButtonMotion,
+                mouse_protocol_encoding: crate::input::MouseProtocolEncoding::Sgr,
+                mouse_alternate_scroll: true,
+                modify_other_keys: true,
+            })
+        );
+    }
+
+    #[test]
+    fn truncate_handoff_history_keeps_recent_utf8_boundary() {
+        let history = format!("old\n{}\nrecent\n", "é".repeat(8));
+
+        let truncated = truncate_handoff_history(history, 20);
+
+        assert_eq!(truncated, "recent\n");
+        assert!(truncated.is_char_boundary(0));
+    }
+
+    #[test]
+    fn truncate_handoff_history_drops_partial_long_line() {
+        let history = format!("old\n{}", "x".repeat(64));
+
+        let truncated = truncate_handoff_history(history, 12);
+
+        assert!(truncated.is_empty());
+    }
+
+    fn process_command_name(pid: u32) -> Option<String> {
+        let output = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "comm="])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let command = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        (!command.is_empty()).then_some(command)
+    }
+
+    async fn wait_for_child_pid(runtime: &PaneRuntime) -> u32 {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+        while tokio::time::Instant::now() < deadline {
+            let pid = runtime.child_pid.load(Ordering::Acquire);
+            if pid != 0 {
+                return pid;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("child pid was not published");
     }
 
     #[tokio::test]

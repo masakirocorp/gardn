@@ -166,8 +166,10 @@ impl App {
             self.state.host_terminal_theme,
             &self.state.default_shell,
         )?;
+        let root_pane = ws.tabs[idx].root_pane;
         self.terminal_runtimes.insert(terminal.id.clone(), runtime);
         self.state.terminals.insert(terminal.id.clone(), terminal);
+        self.state.remove_alias_shadowed_by_new_pane(root_pane);
         if focus {
             ws.switch_tab(idx);
             self.state.mode = Mode::Terminal;
@@ -218,6 +220,8 @@ impl App {
         self.state.terminals.insert(terminal.id.clone(), terminal);
         self.state.workspaces.push(ws);
         let idx = self.state.workspaces.len() - 1;
+        self.state
+            .remove_alias_shadowed_by_new_pane(self.state.workspaces[idx].tabs[0].root_pane);
         let workspace_id = self.state.workspaces[idx].id.clone();
         let root_pane = self.state.workspaces[idx].tabs[0].root_pane.raw();
         crate::logging::workspace_created(&workspace_id, root_pane);

@@ -597,6 +597,7 @@ impl AppState {
             ) {
                 let new_id = new_pane.pane_id;
                 terminal_runtimes.insert(new_pane.terminal.id.clone(), new_pane.runtime);
+                self.remove_alias_shadowed_by_new_pane(new_id);
                 self.terminals
                     .insert(new_pane.terminal.id.clone(), new_pane.terminal);
                 ws.layout.focus_pane(new_id);

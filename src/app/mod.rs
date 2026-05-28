@@ -482,6 +482,7 @@ impl App {
             group_filter_enabled: true,
             terminals: std::collections::HashMap::new(),
             direct_attach_resize_locks: std::collections::HashSet::new(),
+            pane_id_aliases: std::collections::HashMap::new(),
             workspaces,
             active,
             previous_pane_focus: None,
@@ -745,7 +746,10 @@ impl App {
         api_rx: tokio::sync::mpsc::UnboundedReceiver<crate::api::ApiRequestMessage>,
         event_hub: crate::api::EventHub,
         snapshot: &crate::persist::SessionSnapshot,
-        imports: &mut std::collections::HashMap<u32, crate::persist::ImportedPaneRuntime>,
+        imports: &mut std::collections::HashMap<
+            u32,
+            crate::handoff_runtime::ImportedHandoffRuntime,
+        >,
     ) -> io::Result<Self> {
         let mut app = Self::new(config, true, config_diagnostic, api_rx, event_hub);
         let (workspaces, terminals, runtimes) = crate::persist::restore_handoff(
@@ -757,9 +761,11 @@ impl App {
             app.render_notify.clone(),
             app.render_dirty.clone(),
         )?;
+        let pane_id_aliases = crate::persist::handoff_pane_aliases(snapshot, &workspaces);
 
         app.no_session = false;
         app.state.detach_exits = false;
+        app.state.pane_id_aliases = pane_id_aliases;
         app.state.workspaces = workspaces;
         app.state.terminals = terminals;
         app.terminal_runtimes = runtimes.into();

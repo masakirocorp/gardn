@@ -1341,6 +1341,7 @@ pub struct AppState {
         std::collections::HashMap<crate::terminal::TerminalId, crate::terminal::TerminalState>,
     /// Terminal ids whose size is currently owned by a direct attach client.
     pub direct_attach_resize_locks: std::collections::HashSet<crate::terminal::TerminalId>,
+    pub(crate) pane_id_aliases: std::collections::HashMap<u32, PaneId>,
     pub workspaces: Vec<Workspace>,
     pub active: Option<usize>,
     pub(crate) previous_pane_focus: Option<PaneFocusTarget>,
@@ -1705,6 +1706,10 @@ impl AppState {
         self.session_dirty = true;
     }
 
+    pub(crate) fn remove_alias_shadowed_by_new_pane(&mut self, pane_id: PaneId) {
+        self.pane_id_aliases.remove(&pane_id.raw());
+    }
+
     pub fn sound_enabled(&self) -> bool {
         self.sound.enabled
     }
@@ -1895,6 +1900,7 @@ impl AppState {
             group_filter_enabled: true,
             terminals: std::collections::HashMap::new(),
             direct_attach_resize_locks: std::collections::HashSet::new(),
+            pane_id_aliases: std::collections::HashMap::new(),
             workspaces: Vec::new(),
             active: None,
             selected: 0,
