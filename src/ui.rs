@@ -1524,6 +1524,33 @@ mod tests {
     }
 
     #[test]
+    fn prefix_mode_renders_indexed_navigation_hints_when_wide_enough() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.mode = Mode::Prefix;
+        app.view.terminal_area = ratatui::layout::Rect::new(0, 0, 120, 4);
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 4))
+            .expect("test terminal");
+
+        terminal
+            .draw(|frame| render_prefix_overlay(&app, frame, app.view.terminal_area))
+            .expect("draw prefix overlay");
+
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("1..0"));
+        assert!(rendered.contains("tabs"));
+        assert!(rendered.contains("shift+1..0"));
+        assert!(rendered.contains("spaces"));
+        assert!(rendered.contains("alt+1..0"));
+        assert!(rendered.contains("groups"));
+    }
+
+    #[test]
     fn keybind_help_shows_defaults_and_unset_optional_actions() {
         let app = crate::app::state::AppState::test_new();
         let groups = keybind_help_groups(&app);

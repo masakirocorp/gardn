@@ -359,6 +359,7 @@ fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
             super::modal::open_new_tab_dialog(&mut app.state);
             return;
         }
+        CommandPaletteAction::SwitchTab(idx) => app.state.switch_tab(idx),
         CommandPaletteAction::RenameTab => {
             super::modal::open_rename_active_tab(&mut app.state, false);
             return;
@@ -537,6 +538,18 @@ mod tests {
     }
 
     #[test]
+    fn command_palette_enter_switches_to_selected_tab() {
+        let mut app = app_with_space();
+        app.state.workspaces[0].test_add_tab(Some("logs"));
+        app.state.command_palette.query = "switch to tab logs".to_string();
+
+        app.handle_command_palette_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+
+        assert_eq!(app.state.workspaces[0].active_tab_index(), 1);
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
     fn command_palette_selection_clamps() {
         let mut app = app_with_space();
 
@@ -619,6 +632,29 @@ mod tests {
             command.title == "new space"
                 && command.key_label.as_deref()
                     == app.state.keybinds.new_workspace.label().as_deref()
+        }));
+    }
+
+    #[test]
+    fn command_palette_commands_include_indexed_navigation_labels() {
+        let mut app = app_with_space();
+        app.state.workspaces[0].test_add_tab(Some("logs"));
+
+        let commands = command_palette_visible_commands(&app.state);
+
+        assert!(commands.iter().any(|command| {
+            command.title == "switch to tab: logs"
+                && command.action == CommandPaletteAction::SwitchTab(1)
+                && command.key_label.as_deref() == Some("prefix+2")
+        }));
+        assert!(commands.iter().any(|command| {
+            command.title == "switch to space: test"
+                && command.action == CommandPaletteAction::SwitchWorkspace(0)
+                && command.key_label.as_deref() == Some("prefix+shift+1")
+        }));
+        assert!(commands.iter().any(|command| {
+            matches!(command.action, CommandPaletteAction::SwitchGroup(0))
+                && command.key_label.as_deref() == Some("prefix+alt+1")
         }));
     }
 
