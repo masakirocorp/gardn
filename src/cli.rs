@@ -10,9 +10,9 @@ use crate::api::schema::{
     Method, OutputMatch, PaneAgentState, PaneListParams, PaneReadParams, PaneRenameParams,
     PaneReportAgentParams, PaneReportMetadataParams, PaneSendInputParams, PaneSendKeysParams,
     PaneSendTextParams, PaneSplitParams, PaneTarget, PaneWaitForOutputParams, PingParams,
-    ReadFormat, ReadSource, Request, SplitDirection, Subscription, TabCreateParams, TabListParams,
-    TabRenameParams, TabTarget, WorkspaceCreateParams, WorkspaceMoveToGroupParams,
-    WorkspaceRenameParams, WorkspaceTarget,
+    ReadFormat, ReadSource, Request, ServerLiveHandoffParams, SplitDirection, Subscription,
+    TabCreateParams, TabListParams, TabRenameParams, TabTarget, WorkspaceCreateParams,
+    WorkspaceMoveToGroupParams, WorkspaceRenameParams, WorkspaceTarget,
 };
 
 mod worktree;
@@ -58,6 +58,8 @@ fn run_server_command(args: &[String]) -> std::io::Result<Option<i32>> {
 
     match subcommand {
         "stop" => server_stop(&args[1..]).map(Some),
+        "live-handoff" => server_live_handoff(&args[1..]).map(Some),
+        "--handoff-import" => Ok(None),
         "reload-config" => server_reload_config(&args[1..]).map(Some),
         "help" | "--help" | "-h" => {
             print_server_help();
@@ -589,6 +591,61 @@ fn server_reload_config(args: &[String]) -> std::io::Result<i32> {
         id: "cli:server:reload-config".into(),
         method: Method::ServerReloadConfig(EmptyParams::default()),
     })?)
+}
+
+fn server_live_handoff(args: &[String]) -> std::io::Result<i32> {
+    let Some(params) = parse_live_handoff_params(args) else {
+        eprintln!(
+            "usage: hako server live-handoff [--import-exe <path>] [--expected-protocol <n>] [--expected-version <version>]"
+        );
+        return Ok(2);
+    };
+
+    let response = send_request(&Request {
+        id: "cli:server:live-handoff".into(),
+        method: Method::ServerLiveHandoff(params),
+    })?;
+    if response.get("error").is_some() {
+        let rendered = serde_json::to_string(&response).unwrap_or_else(|err| {
+            format!(
+                "{{\"error\":{{\"code\":\"render_failed\",\"message\":\"failed to render error response: {err}\"}}}}"
+            )
+        });
+        eprintln!("{rendered}");
+        return Ok(1);
+    }
+
+    eprintln!(
+        "live handoff complete; server log: {}",
+        crate::session::data_dir().join("hako-server.log").display()
+    );
+    Ok(0)
+}
+
+fn parse_live_handoff_params(args: &[String]) -> Option<ServerLiveHandoffParams> {
+    let mut params = ServerLiveHandoffParams::default();
+    let mut idx = 0;
+    while idx < args.len() {
+        let arg = &args[idx];
+        let (flag, value) = if let Some((flag, value)) = arg.split_once('=') {
+            (flag, Some(value.to_string()))
+        } else {
+            let value = args.get(idx + 1).cloned();
+            idx += 1;
+            (arg.as_str(), value)
+        };
+        let value = value?;
+        match flag {
+            "--import-exe" => params.import_exe = Some(value),
+            "--expected-protocol" => {
+                params.expected_protocol = Some(value.parse().ok()?);
+            }
+            "--expected-version" => params.expected_version = Some(value),
+            _ => return None,
+        }
+        idx += 1;
+    }
+    Some(params)
 }
 fn session_attach_help(args: &[String]) -> std::io::Result<i32> {
     if matches!(
@@ -2554,6 +2611,7 @@ fn print_server_help() {
     eprintln!("hako server commands:");
     eprintln!("  hako server                run as headless server");
     eprintln!("  hako server stop           stop the running server via the API socket");
+    eprintln!("  hako server live-handoff   hand off live panes to a new local server");
     eprintln!("  hako server reload-config  reload config.toml in the running server");
 }
 

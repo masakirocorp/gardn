@@ -2716,6 +2716,7 @@ mod tests {
             mouse_protocol_mode: crate::input::MouseProtocolMode::ButtonMotion,
             mouse_protocol_encoding: crate::input::MouseProtocolEncoding::Sgr,
             mouse_alternate_scroll: true,
+            modify_other_keys: false,
         };
 
         assert_eq!(wheel_routing(input_state), WheelRouting::MouseReport);
@@ -3040,6 +3041,7 @@ mod tests {
             mouse_protocol_mode: crate::input::MouseProtocolMode::None,
             mouse_protocol_encoding: crate::input::MouseProtocolEncoding::Default,
             mouse_alternate_scroll: true,
+            modify_other_keys: false,
         };
 
         assert_eq!(wheel_routing(input_state), WheelRouting::AlternateScroll);
@@ -3055,6 +3057,7 @@ mod tests {
             mouse_protocol_mode: crate::input::MouseProtocolMode::None,
             mouse_protocol_encoding: crate::input::MouseProtocolEncoding::Default,
             mouse_alternate_scroll: true,
+            modify_other_keys: false,
         };
 
         assert_eq!(wheel_routing(input_state), WheelRouting::HostScroll);

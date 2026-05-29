@@ -1777,19 +1777,6 @@ impl AppState {
         }
     }
 
-    pub(crate) fn terminal_id_is_attached(
-        &self,
-        terminal_id: &crate::terminal::TerminalId,
-    ) -> bool {
-        self.workspaces.iter().any(|ws| {
-            ws.tabs.iter().any(|tab| {
-                tab.panes
-                    .values()
-                    .any(|pane| &pane.attached_terminal_id == terminal_id)
-            })
-        })
-    }
-
     pub(crate) fn terminal_has_command_run(
         &self,
         terminal_id: &crate::terminal::TerminalId,
@@ -2794,6 +2781,7 @@ impl AppState {
         }
 
         let workspace_terminal_ids = self.terminal_ids_for_workspace(ws_idx);
+        self.pane_id_aliases.retain(|_, alias| *alias != pane_id);
         let should_close_workspace = {
             let ws = &mut self.workspaces[ws_idx];
             ws.remove_pane(pane_id)

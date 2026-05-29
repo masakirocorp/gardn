@@ -19,6 +19,64 @@ impl TerminalRuntime {
         self.0.shutdown();
     }
 
+    #[cfg(unix)]
+    pub fn duplicate_handoff_fd(&self) -> std::io::Result<std::os::fd::RawFd> {
+        self.0.duplicate_handoff_fd()
+    }
+
+    #[cfg(unix)]
+    pub fn preserve_for_handoff(self) {
+        self.0.preserve_for_handoff()
+    }
+
+    #[cfg(unix)]
+    pub fn assume_handoff_ownership(&mut self) {
+        self.0.assume_handoff_ownership();
+    }
+
+    #[cfg(unix)]
+    pub fn set_handoff_reader_paused(&self, paused: bool) {
+        self.0.set_handoff_reader_paused(paused);
+    }
+
+    #[cfg(unix)]
+    pub fn pause_handoff_reader(&self, timeout: std::time::Duration) -> std::io::Result<()> {
+        self.0.pause_handoff_reader(timeout)
+    }
+
+    #[cfg(unix)]
+    pub fn handoff_runtime_state(
+        &self,
+        pane_id: u32,
+    ) -> crate::handoff_runtime::HandoffRuntimeState {
+        self.0.handoff_runtime_state(pane_id)
+    }
+
+    #[cfg(unix)]
+    pub fn handoff_history_ansi(&self) -> Option<String> {
+        self.0.handoff_history_ansi()
+    }
+
+    #[cfg(unix)]
+    pub fn from_handoff_fd(
+        import: crate::handoff_runtime::ImportedHandoffRuntime,
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<AtomicBool>,
+    ) -> std::io::Result<Self> {
+        crate::pane::PaneRuntime::from_handoff_fd(
+            import,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            events,
+            render_notify,
+            render_dirty,
+        )
+        .map(Self)
+    }
+
     pub fn spawn(
         pane_id: PaneId,
         rows: u16,
@@ -171,6 +229,10 @@ impl TerminalRuntime {
 
     pub fn resize(&self, rows: u16, cols: u16, cell_width_px: u32, cell_height_px: u32) {
         self.0.resize(rows, cols, cell_width_px, cell_height_px);
+    }
+
+    pub fn nudge_child_redraw_after_handoff(&self) {
+        self.0.nudge_child_redraw_after_handoff();
     }
 
     pub fn scroll_up(&self, lines: usize) {
@@ -329,14 +391,14 @@ impl TerminalRuntime {
     pub fn cwd(&self) -> Option<std::path::PathBuf> {
         self.0.cwd()
     }
+
+    pub(crate) fn current_size(&self) -> (u16, u16) {
+        self.0.current_size()
+    }
 }
 
 #[cfg(test)]
 impl TerminalRuntime {
-    pub(crate) fn current_size(&self) -> (u16, u16) {
-        self.0.current_size()
-    }
-
     pub(crate) fn test_with_channel(cols: u16, rows: u16) -> (Self, mpsc::Receiver<Bytes>) {
         let (runtime, rx) = crate::pane::PaneRuntime::test_with_channel(cols, rows);
         (Self(runtime), rx)

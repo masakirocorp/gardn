@@ -482,6 +482,7 @@ impl App {
             group_filter_enabled: true,
             terminals: std::collections::HashMap::new(),
             direct_attach_resize_locks: std::collections::HashSet::new(),
+            pane_id_aliases: std::collections::HashMap::new(),
             workspaces,
             active,
             previous_pane_focus: None,
@@ -736,6 +737,74 @@ impl App {
             #[cfg(test)]
             host_terminal_theme_query_count: std::cell::Cell::new(0),
         }
+    }
+
+    #[cfg(unix)]
+    pub fn new_from_handoff(
+        config: &Config,
+        config_diagnostic: Option<String>,
+        api_rx: tokio::sync::mpsc::UnboundedReceiver<crate::api::ApiRequestMessage>,
+        event_hub: crate::api::EventHub,
+        snapshot: &crate::persist::SessionSnapshot,
+        imports: &mut std::collections::HashMap<
+            u32,
+            crate::handoff_runtime::ImportedHandoffRuntime,
+        >,
+    ) -> io::Result<Self> {
+        let mut app = Self::new(config, true, config_diagnostic, api_rx, event_hub);
+        let (workspaces, terminals, runtimes) = crate::persist::restore_handoff(
+            snapshot,
+            config.advanced.scrollback_limit_bytes,
+            &config.terminal.default_shell,
+            imports,
+            app.event_tx.clone(),
+            app.render_notify.clone(),
+            app.render_dirty.clone(),
+        )?;
+        let pane_id_aliases = crate::persist::handoff_pane_aliases(snapshot, &workspaces);
+
+        app.no_session = false;
+        app.state.detach_exits = false;
+        app.state.pane_id_aliases = pane_id_aliases;
+        app.state.workspaces = workspaces;
+        app.state.terminals = terminals;
+        app.terminal_runtimes = runtimes.into();
+        app.state.active = snapshot
+            .active
+            .filter(|&idx| idx < app.state.workspaces.len());
+        app.state.selected = snapshot
+            .selected
+            .min(app.state.workspaces.len().saturating_sub(1));
+        app.state.agent_panel_scope = snapshot.agent_panel_scope;
+        if let Some(width) = snapshot.sidebar_width {
+            app.state.sidebar_width = width;
+            app.state.sidebar_width_source = state::SidebarWidthSource::Persisted;
+        }
+        if let Some(split) = snapshot.sidebar_section_split {
+            app.state.sidebar_section_split = split;
+        }
+        app.state.mode = if app.state.active.is_some() {
+            state::Mode::Terminal
+        } else {
+            state::Mode::Navigate
+        };
+        app.last_focus = app.state.active.and_then(|idx| {
+            app.state
+                .workspaces
+                .get(idx)
+                .and_then(|ws| ws.focused_pane_id().map(|pane_id| (idx, pane_id)))
+        });
+        Ok(app)
+    }
+
+    #[cfg(unix)]
+    pub fn unpause_handoff_readers(&self) {
+        self.terminal_runtimes.set_handoff_readers_paused(false);
+    }
+
+    #[cfg(unix)]
+    pub fn assume_handoff_ownership(&mut self) {
+        self.terminal_runtimes.assume_handoff_ownership();
     }
 
     fn request_full_redraw(&mut self) {

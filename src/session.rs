@@ -101,7 +101,11 @@ pub fn local_attach_command() -> String {
 }
 
 pub fn local_stop_command() -> String {
-    match active_name() {
+    stop_command_for(active_name().as_deref())
+}
+
+pub fn stop_command_for(name: Option<&str>) -> String {
+    match name {
         Some(name) => format!("hako session stop {name}"),
         None => "hako server stop".to_string(),
     }
@@ -254,9 +258,12 @@ fn send_stop_request(
     let Some(write_timeout) = socket_timeout_until(deadline) else {
         return Ok(None);
     };
-    stream
-        .set_write_timeout(Some(write_timeout))
-        .map_err(|err| err.to_string())?;
+    if let Err(err) = stream.set_write_timeout(Some(write_timeout)) {
+        if stop_request_error_allows_wait(&err) {
+            return Ok(None);
+        }
+        return Err(err.to_string());
+    }
 
     let response = send_stop_request_inner(&mut stream, request, deadline);
     match response {
@@ -300,6 +307,7 @@ fn stop_request_error_allows_wait(err: &std::io::Error) -> bool {
             | std::io::ErrorKind::NotConnected
             | std::io::ErrorKind::TimedOut
             | std::io::ErrorKind::WouldBlock
+            | std::io::ErrorKind::InvalidInput
     )
 }
 

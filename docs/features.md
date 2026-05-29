@@ -18,6 +18,7 @@ A session is a persistent Hako runtime with its own sockets, panes, tabs, worksp
 - **Attach takeover** — direct attach is exclusive by default; `--takeover` can claim a terminal attachment from another client.
 - **Multiple clients** — more than one client can connect to a server; the foreground interactive client drives shared runtime size, theme, and keybindings.
 - **Clipboard bridging** — thin clients forward OSC 52 clipboard writes locally and can bridge local clipboard-image paste into server panes.
+- **Live server handoff** — supported updates can move live pane PTYs and session state into a replacement server so running pane processes survive a server swap.
 
 ### Workspaces
 
@@ -237,8 +238,8 @@ Hako exposes the same runtime model through the CLI and local Unix socket API.
 - **`hako integration`** — install, uninstall, and inspect agent integrations.
 - **`hako group`** — list, create, focus/switch, rename, and delete workspace groups.
 - **`hako config reset-keys`** — remove custom keybindings while preserving the rest of the config.
-- **`hako update`** — self-update supported binary installs.
-- **`hako server`** — run the headless server, stop it, or reload config.
+- **`hako update`** — self-update supported binary installs; `--handoff` can preserve live panes while moving running sessions to the updated server.
+- **`hako server`** — run the headless server, stop it, reload config, or trigger a live handoff.
 - **Launch flags** — `--no-session`, `--default-config`, and `--remote-keybindings <local|server>` control startup and remote behavior.
 - **JSON output** — status, session, and worktree commands expose machine-readable output where supported.
 - **Read modes** — pane and agent reads support visible, recent, recent-unwrapped, ANSI, raw, and bounded line output.
@@ -321,6 +322,7 @@ Hako uses a hosted manifest for update checks and release metadata.
 - The app can notify when a new release is available.
 - `hako update` downloads and swaps supported binary installs.
 - Homebrew and Nix-managed installs are blocked from self-update and should use their package manager.
+- Live handoff can preserve running pane processes during updates when both the old and new server support the handoff protocol.
 - In-app release notes can be shown after an update.
 - Post-update checks can report outdated integrations.
 - Product announcements can be shown separately from release notes and tracked as seen per version.

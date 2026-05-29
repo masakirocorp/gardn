@@ -99,7 +99,6 @@ impl ApiClient {
         let ack = read_json_line(&mut reader)?;
         Ok((ack, EventStream { reader }))
     }
-
     fn connect(&self) -> io::Result<UnixStream> {
         UnixStream::connect(self.socket_path())
     }
