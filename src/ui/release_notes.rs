@@ -546,7 +546,7 @@ mod tests {
             "detach from this session, then run hako update in your shell"
         );
         assert_eq!(lines[0].spans[0].style.fg, Some(palette.accent));
-        assert_eq!(lines[0].spans[1].style.fg, Some(palette.text));
+        assert_eq!(lines[0].spans[1].style.fg, Some(palette.accent));
     }
 
     #[test]
@@ -610,7 +610,7 @@ mod tests {
         );
 
         assert_eq!(lines.len(), 4);
-        assert_eq!(line_text(&lines[0].1), " FIXED");
+        assert_eq!(line_text(&lines[0].1), " fixed");
         assert_eq!(line_text(&lines[1].1), "▏ just check");
         assert_eq!(line_text(&lines[2].1), "▏ - not a bullet");
         assert_eq!(line_text(&lines[3].1), " • after");

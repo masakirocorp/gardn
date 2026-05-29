@@ -586,7 +586,7 @@ mod tests {
         layout::PaneInfo,
         workspace::{GitWorkSummary, Workspace},
     };
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{backend::TestBackend, style::Color, Terminal};
 
     #[tokio::test]
     async fn focused_pane_cursor_wins_during_terminal_render() {
