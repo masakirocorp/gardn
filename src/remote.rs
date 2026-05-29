@@ -335,10 +335,7 @@ impl InstallSource {
     }
 }
 
-fn prepare_remote_hako(
-    target: &str,
-    live_handoff_enabled: bool,
-) -> io::Result<PreparedRemoteHako> {
+fn prepare_remote_hako(target: &str, live_handoff_enabled: bool) -> io::Result<PreparedRemoteHako> {
     let platform = detect_remote_platform(target)?;
     let remote_hako = RemoteHako::for_platform(platform);
     let override_binary = remote_binary_override_path()?;
@@ -436,6 +433,7 @@ printf '%s\n' "$path"
 "#
 }
 
+#[cfg(test)]
 fn remote_hako_from_path_probe(remote_hako: &RemoteHako, stdout: &str) -> Option<RemoteHako> {
     let mut lines = stdout.lines();
     let path = lines.next()?;
@@ -452,10 +450,7 @@ fn remote_hako_from_path_probe(remote_hako: &RemoteHako, stdout: &str) -> Option
     Some(remote_hako.clone().with_shell_path(shell_quote(path)))
 }
 
-fn remote_hako_from_path_probe_any(
-    remote_hako: &RemoteHako,
-    stdout: &str,
-) -> Option<RemoteHako> {
+fn remote_hako_from_path_probe_any(remote_hako: &RemoteHako, stdout: &str) -> Option<RemoteHako> {
     let mut lines = stdout.lines();
     let path = lines.next()?;
     if !path.starts_with('/') {

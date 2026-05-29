@@ -601,126 +601,6 @@ fn write_pty_bytes_locked(
 }
 
 #[cfg(unix)]
-fn duplicate_fd(fd: std::os::fd::RawFd) -> std::io::Result<std::os::fd::RawFd> {
-    let duplicated = unsafe { libc::dup(fd) };
-    if duplicated < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    Ok(duplicated)
-}
-
-#[cfg(unix)]
-fn set_cloexec(fd: std::os::fd::RawFd) -> std::io::Result<()> {
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
-    if flags < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    if unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn set_nonblocking(fd: std::os::fd::RawFd) -> std::io::Result<()> {
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-    if flags < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn duplicate_cloexec_fd(fd: std::os::fd::RawFd) -> std::io::Result<std::os::fd::RawFd> {
-    let duplicated = duplicate_fd(fd)?;
-    if let Err(err) = set_cloexec(duplicated) {
-        let _ = unsafe { libc::close(duplicated) };
-        return Err(err);
-    }
-    Ok(duplicated)
-}
-
-#[cfg(unix)]
-fn file_from_duplicated_fd(fd: std::os::fd::RawFd) -> std::io::Result<std::fs::File> {
-    use std::os::fd::FromRawFd;
-
-    let duplicated = duplicate_cloexec_fd(fd)?;
-    Ok(unsafe { std::fs::File::from_raw_fd(duplicated) })
-}
-
-#[cfg(unix)]
-fn poll_read_ready(fd: std::os::fd::RawFd, timeout_ms: i32) -> std::io::Result<bool> {
-    let mut poll_fd = libc::pollfd {
-        fd,
-        events: libc::POLLIN,
-        revents: 0,
-    };
-    loop {
-        let result = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
-        if result < 0 {
-            let err = std::io::Error::last_os_error();
-            if err.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(err);
-        }
-        return Ok(result > 0 && (poll_fd.revents & (libc::POLLIN | libc::POLLHUP)) != 0);
-    }
-}
-
-#[cfg(unix)]
-fn poll_write_ready(fd: std::os::fd::RawFd, timeout_ms: i32) -> std::io::Result<bool> {
-    let mut poll_fd = libc::pollfd {
-        fd,
-        events: libc::POLLOUT,
-        revents: 0,
-    };
-    loop {
-        let result = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
-        if result < 0 {
-            let err = std::io::Error::last_os_error();
-            if err.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(err);
-        }
-        return Ok(result > 0 && (poll_fd.revents & (libc::POLLOUT | libc::POLLHUP)) != 0);
-    }
-}
-
-#[cfg(unix)]
-fn write_all_nonblocking(
-    writer: &mut std::fs::File,
-    fd: std::os::fd::RawFd,
-    mut bytes: &[u8],
-    io_stop: &AtomicBool,
-) -> std::io::Result<()> {
-    while !bytes.is_empty() {
-        if io_stop.load(Ordering::Acquire) {
-            return Ok(());
-        }
-        match writer.write(bytes) {
-            Ok(0) => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::WriteZero,
-                    "pty write returned zero bytes",
-                ));
-            }
-            Ok(written) => bytes = &bytes[written..],
-            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                let _ = poll_write_ready(fd, 50)?;
-            }
-            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(err) => return Err(err),
-        }
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
 fn resize_pty_fd(
     fd: std::os::fd::RawFd,
     rows: u16,
@@ -1177,7 +1057,11 @@ impl PaneRuntime {
                     }
                 }
                 let _ = reader_stopped_tx.send(());
-                let _ = rt.block_on(events.send(AppEvent::PaneDied { pane_id }));
+                let _ = rt.block_on(events.send(AppEvent::PaneDied {
+                    pane_id,
+                    child_pid: child_pid.load(Ordering::Acquire),
+                    exit_success: false,
+                }));
                 debug!(pane = pane_id.raw(), "handoff reader task exiting");
             });
         }
@@ -1728,8 +1612,6 @@ impl PaneRuntime {
                 let rt = tokio::runtime::Handle::current();
                 while let Some(bytes) = rt.block_on(input_rx.recv()) {
                     if io_stop.load(Ordering::Acquire) {
-                        break;
-                    }
                         break;
                     }
                     if let Err(e) = write_pty_bytes_locked(
@@ -2371,30 +2253,6 @@ mod tests {
         );
 
         runtime.shutdown();
-    }
-
-    fn process_command_name(pid: u32) -> Option<String> {
-        let output = std::process::Command::new("ps")
-            .args(["-p", &pid.to_string(), "-o", "comm="])
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let command = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        (!command.is_empty()).then_some(command)
-    }
-
-    async fn wait_for_child_pid(runtime: &PaneRuntime) -> u32 {
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-        while tokio::time::Instant::now() < deadline {
-            let pid = runtime.child_pid.load(Ordering::Acquire);
-            if pid != 0 {
-                return pid;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        panic!("child pid was not published");
     }
 
     #[tokio::test]

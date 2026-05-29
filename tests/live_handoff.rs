@@ -59,11 +59,7 @@ fn spawn_server_with_env(
 ) -> SpawnedHako {
     fs::create_dir_all(config_home.join("hako")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
-    fs::write(
-        config_home.join("hako/config.toml"),
-        "onboarding = false\n",
-    )
-    .unwrap();
+    fs::write(config_home.join("hako/config.toml"), "onboarding = false\n").unwrap();
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -526,7 +522,7 @@ fn live_handoff_preserves_pane_process_io() {
         "second:after-handoff-second",
         Duration::from_secs(5),
     );
-    wait_for_output(&api_socket, &second_pane_id, "second:after-handoff-sec");
+    wait_for_output(&api_socket, &second_pane_id, "second:after-handoff");
 
     let _ = request(
         &api_socket,

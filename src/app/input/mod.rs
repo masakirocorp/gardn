@@ -585,26 +585,33 @@ impl AppState {
             follow_cwd,
         ));
 
-        if let Some(ws) = self.active.and_then(|i| self.workspaces.get_mut(i)) {
-            if let Ok(new_pane) = ws.split_focused(
-                direction,
-                new_rows,
-                new_cols,
-                cwd,
-                self.pane_scrollback_limit_bytes,
-                self.host_terminal_theme,
-                &self.default_shell,
-            ) {
-                let new_id = new_pane.pane_id;
-                terminal_runtimes.insert(new_pane.terminal.id.clone(), new_pane.runtime);
-                self.remove_alias_shadowed_by_new_pane(new_id);
-                self.terminals
-                    .insert(new_pane.terminal.id.clone(), new_pane.terminal);
-                ws.layout.focus_pane(new_id);
-                self.mark_session_dirty();
-                self.mode = Mode::Terminal;
-            }
+        let Some(ws_idx) = self.active else {
+            return;
+        };
+        let Some(ws) = self.workspaces.get_mut(ws_idx) else {
+            return;
+        };
+        let Ok(new_pane) = ws.split_focused(
+            direction,
+            new_rows,
+            new_cols,
+            cwd,
+            self.pane_scrollback_limit_bytes,
+            self.host_terminal_theme,
+            &self.default_shell,
+        ) else {
+            return;
+        };
+        let new_id = new_pane.pane_id;
+        terminal_runtimes.insert(new_pane.terminal.id.clone(), new_pane.runtime);
+        self.terminals
+            .insert(new_pane.terminal.id.clone(), new_pane.terminal);
+        self.remove_alias_shadowed_by_new_pane(new_id);
+        if let Some(ws) = self.workspaces.get_mut(ws_idx) {
+            ws.layout.focus_pane(new_id);
         }
+        self.mark_session_dirty();
+        self.mode = Mode::Terminal;
     }
 }
 

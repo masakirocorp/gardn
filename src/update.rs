@@ -2010,7 +2010,7 @@ mod tests {
     }
 
     fn set_test_config_home(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("hako-update-{name}-{}", std::process::id()));
+        let dir = PathBuf::from(format!("/tmp/hako-update-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         std::env::set_var("XDG_CONFIG_HOME", &dir);

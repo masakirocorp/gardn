@@ -1777,19 +1777,6 @@ impl AppState {
         }
     }
 
-    pub(crate) fn terminal_id_is_attached(
-        &self,
-        terminal_id: &crate::terminal::TerminalId,
-    ) -> bool {
-        self.workspaces.iter().any(|ws| {
-            ws.tabs.iter().any(|tab| {
-                tab.panes
-                    .values()
-                    .any(|pane| &pane.attached_terminal_id == terminal_id)
-            })
-        })
-    }
-
     pub(crate) fn terminal_has_command_run(
         &self,
         terminal_id: &crate::terminal::TerminalId,

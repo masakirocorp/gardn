@@ -314,8 +314,6 @@ fn restore_workspace(
         return (None, failed_imports);
     }
 
-    let worktree_space = restored_worktree_space_membership(snap.worktree_space.clone());
-
     (
         Some(Workspace {
             id: snap
@@ -329,7 +327,7 @@ fn restore_workspace(
             cached_git_ahead_behind: None,
             cached_git_work_summary: None,
             cached_git_space: None,
-            worktree_space,
+            worktree_space: None,
             public_pane_numbers,
             next_public_pane_number,
             active_tab: snap.active_tab.min(tabs.len().saturating_sub(1)),
@@ -340,16 +338,6 @@ fn restore_workspace(
         .map(|workspace| (workspace, terminals, terminal_runtimes)),
         failed_imports,
     )
-}
-
-fn restored_worktree_space_membership(
-    space: Option<crate::workspace::WorktreeSpaceMembership>,
-) -> Option<crate::workspace::WorktreeSpaceMembership> {
-    space.filter(|space| {
-        space.checkout_path.exists()
-            && crate::workspace::git_space_metadata(&space.checkout_path)
-                .is_some_and(|current| current.key == space.key)
-    })
 }
 
 fn restore_tab(
@@ -443,7 +431,6 @@ fn restore_tab(
                 launch,
                 runtime_context.scrollback_limit_bytes,
                 crate::terminal_theme::TerminalTheme::default(),
-                runtime_context.default_shell,
                 runtime_context.events.clone(),
                 runtime_context.render_notify.clone(),
                 runtime_context.render_dirty.clone(),

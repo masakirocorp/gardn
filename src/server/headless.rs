@@ -34,10 +34,7 @@ use crate::app;
 use crate::config;
 use crate::events::AppEvent;
 use crate::ipc::{remove_socket_file_if_owned, socket_file_identity, SocketFileIdentity};
-use crate::protocol::{
-    self, AttachScrollDirection, AttachScrollSource, FrameData, ServerMessage, MAX_FRAME_SIZE,
-    MAX_GRAPHICS_FRAME_SIZE,
-};
+use crate::protocol::{self, FrameData, ServerMessage, MAX_FRAME_SIZE, MAX_GRAPHICS_FRAME_SIZE};
 use crate::server::client_accept::{
     accept_pending_client_connections, reject_pending_client_connections,
 };
@@ -529,6 +526,8 @@ impl HeadlessServer {
         }
 
         let snapshot = crate::persist::capture(
+            &self.app.state.groups,
+            self.app.state.active_group,
             &self.app.state.workspaces,
             &self.app.state.terminals,
             &self.app.terminal_runtimes,
@@ -536,8 +535,10 @@ impl HeadlessServer {
             self.app.state.selected,
             self.app.state.agent_panel_scope,
             self.app.state.sidebar_width,
+            self.app.state.sidebar_collapsed,
             self.app.state.sidebar_section_split,
-            self.app.state.collapsed_space_keys.clone(),
+            self.app.state.right_sidebar_width,
+            self.app.state.right_sidebar_collapsed,
         );
 
         let mut handoff_entries = Vec::new();
@@ -2366,7 +2367,7 @@ impl HeadlessServer {
             let previous_toast = self.app.state.toast.clone();
             for update in self.app.state.expire_agent_metadata_at(deadline, now) {
                 self.app
-                    .refresh_new_hako_toast_context_for_update(&update, &previous_toast);
+                    .refresh_new_herdr_toast_context_for_update(&update, &previous_toast);
                 self.app.emit_pane_state_update(&update);
             }
             self.app.sync_agent_metadata_deadline();

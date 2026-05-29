@@ -783,7 +783,6 @@ impl App {
         if let Some(split) = snapshot.sidebar_section_split {
             app.state.sidebar_section_split = split;
         }
-        app.state.collapsed_space_keys = snapshot.collapsed_space_keys.clone();
         app.state.mode = if app.state.active.is_some() {
             state::Mode::Terminal
         } else {

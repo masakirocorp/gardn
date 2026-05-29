@@ -99,25 +99,6 @@ impl ApiClient {
         let ack = read_json_line(&mut reader)?;
         Ok((ack, EventStream { reader }))
     }
-
-    pub fn status(&self) -> Result<crate::api::RuntimeStatus, ApiClientError> {
-        let response = self.request(Request {
-            id: "api-client:status".into(),
-            method: Method::Ping(PingParams::default()),
-        })?;
-        match response.result {
-            ResponseResult::Pong {
-                version,
-                protocol,
-                capabilities,
-            } => Ok(crate::api::RuntimeStatus {
-                version: Some(version),
-                protocol: Some(protocol),
-                capabilities,
-            }),
-            result => Err(ApiClientError::UnexpectedResult(format!("{result:?}"))),
-        }
-    }
     fn connect(&self) -> io::Result<UnixStream> {
         UnixStream::connect(self.socket_path())
     }

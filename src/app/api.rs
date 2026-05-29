@@ -47,11 +47,6 @@ impl App {
             false
         };
 
-        if let AppEvent::WorktreeRemoveFinished(result) = ev {
-            self.handle_worktree_remove_finished(result);
-            return;
-        }
-
         if let AppEvent::PaneDied { pane_id, .. } = &ev {
             if self.runtime_exit_action(*pane_id) == RuntimeExitAction::RespawnShell
                 && self.respawn_shell_for_launch_pane(*pane_id)
@@ -473,7 +468,7 @@ impl App {
     }
 
     pub(crate) fn handle_api_request(&mut self, request: crate::api::schema::Request) -> String {
-        self.drain_all_internal_events();
+        self.drain_internal_events();
         self.handle_api_request_after_internal_events_drained(request)
     }
 
