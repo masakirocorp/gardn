@@ -1042,6 +1042,24 @@ impl Palette {
         )
     }
 
+    /// Omarchy Vantablack.
+    pub fn vantablack() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(141, 141, 141),
+            Self::rgb(255, 255, 255),
+            Self::rgb(0, 0, 0),
+            Self::rgb(64, 64, 64),
+            Self::rgb(164, 164, 164),
+            Self::rgb(182, 182, 182),
+            Self::rgb(206, 206, 206),
+            Self::rgb(141, 141, 141),
+            Self::rgb(155, 155, 155),
+            Self::rgb(176, 176, 176),
+            Self::rgb(236, 236, 236),
+            Self::rgb(92, 92, 92),
+        )
+    }
+
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
@@ -1092,6 +1110,7 @@ impl Palette {
             "osaka-jade" => Some(Self::osaka_jade()),
             "retro-82" => Some(Self::retro_82()),
             "solitude" => Some(Self::solitude()),
+            "vantablack" => Some(Self::vantablack()),
             _ => None,
         }
     }
@@ -1387,6 +1406,7 @@ pub const THEME_NAMES: &[&str] = &[
     "solitude",
     "terminal",
     "tokyo-night",
+    "vantablack",
     "vesper",
 ];
 
@@ -1431,6 +1451,7 @@ pub const DARK_THEME_NAMES: &[&str] = &[
     "solarized",
     "solitude",
     "tokyo-night",
+    "vantablack",
     "vesper",
 ];
 
@@ -1504,7 +1525,8 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             | "miasma"
             | "osaka-jade"
             | "retro-82"
-            | "solitude" => None,
+            | "solitude"
+            | "vantablack" => None,
             _ => None,
         },
         ThemeAppearance::Dark => match normalized.as_str() {
@@ -1548,6 +1570,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "osaka-jade" => Some("osaka-jade"),
             "retro-82" => Some("retro-82"),
             "solitude" => Some("solitude"),
+            "vantablack" => Some("vantablack"),
             _ => None,
         },
     }
