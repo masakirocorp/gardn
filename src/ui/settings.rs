@@ -471,6 +471,7 @@ fn theme_display_name(name: &str) -> &str {
         "retro-82" => "retro 82",
         "solitude" => "solitude",
         "vantablack" => "vantablack",
+        "white" => "white",
         other => other,
     }
 }

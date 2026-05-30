@@ -1060,6 +1060,24 @@ impl Palette {
         )
     }
 
+    /// Omarchy White.
+    pub fn white() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(110, 110, 110),
+            Self::rgb(0, 0, 0),
+            Self::rgb(255, 255, 255),
+            Self::rgb(192, 192, 192),
+            Self::rgb(42, 42, 42),
+            Self::rgb(58, 58, 58),
+            Self::rgb(74, 74, 74),
+            Self::rgb(26, 26, 26),
+            Self::rgb(46, 46, 46),
+            Self::rgb(62, 62, 62),
+            Self::rgb(0, 0, 0),
+            Self::rgb(192, 192, 192),
+        )
+    }
+
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
@@ -1111,6 +1129,7 @@ impl Palette {
             "retro-82" => Some(Self::retro_82()),
             "solitude" => Some(Self::solitude()),
             "vantablack" => Some(Self::vantablack()),
+            "white" => Some(Self::white()),
             _ => None,
         }
     }
@@ -1422,6 +1441,7 @@ pub const LIGHT_THEME_NAMES: &[&str] = &[
     "rose-pine-dawn",
     "solarized-light",
     "tokyo-night-day",
+    "white",
 ];
 
 /// Built-in concrete themes that can render a dark appearance.
@@ -1499,6 +1519,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
                 Some("monokai-pro-light-sun")
             }
             "flexoki-light" => Some("flexoki-light"),
+            "white" => Some("white"),
             "dracula"
             | "nord"
             | "vesper"
