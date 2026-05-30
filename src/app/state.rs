@@ -129,26 +129,135 @@ pub struct Palette {
 }
 
 impl Palette {
-    /// Catppuccin Mocha — the default.
-    pub fn catppuccin() -> Self {
+    #[allow(clippy::too_many_arguments)]
+    fn catppuccin_palette(
+        accent: Color,
+        panel_bg: Color,
+        surface0: Color,
+        surface1: Color,
+        surface_dim: Color,
+        overlay0: Color,
+        overlay1: Color,
+        text: Color,
+        subtext0: Color,
+        mauve: Color,
+        green: Color,
+        yellow: Color,
+        red: Color,
+        blue: Color,
+        teal: Color,
+        peach: Color,
+    ) -> Self {
         Self {
-            accent: Color::Rgb(137, 180, 250), // blue
-            panel_bg: Color::Rgb(24, 24, 37),
-            surface0: Color::Rgb(49, 50, 68),
-            surface1: Color::Rgb(69, 71, 90),
-            surface_dim: Color::Rgb(30, 30, 46),
-            overlay0: Color::Rgb(108, 112, 134),
-            overlay1: Color::Rgb(127, 132, 156),
-            text: Color::Rgb(205, 214, 244),
-            subtext0: Color::Rgb(166, 173, 200),
-            mauve: Color::Rgb(203, 166, 247),
-            green: Color::Rgb(166, 227, 161),
-            yellow: Color::Rgb(249, 226, 175),
-            red: Color::Rgb(243, 139, 168),
-            blue: Color::Rgb(137, 180, 250),
-            teal: Color::Rgb(148, 226, 213),
-            peach: Color::Rgb(250, 179, 135),
+            accent,
+            panel_bg,
+            surface0,
+            surface1,
+            surface_dim,
+            overlay0,
+            overlay1,
+            text,
+            subtext0,
+            mauve,
+            green,
+            yellow,
+            red,
+            blue,
+            teal,
+            peach,
         }
+    }
+
+    /// Catppuccin Mocha.
+    pub fn catppuccin() -> Self {
+        Self::catppuccin_palette(
+            Self::rgb(137, 180, 250),
+            Self::rgb(30, 30, 46),
+            Self::rgb(49, 50, 68),
+            Self::rgb(69, 71, 90),
+            Self::rgb(24, 24, 37),
+            Self::rgb(108, 112, 134),
+            Self::rgb(127, 132, 156),
+            Self::rgb(205, 214, 244),
+            Self::rgb(166, 173, 200),
+            Self::rgb(203, 166, 247),
+            Self::rgb(166, 227, 161),
+            Self::rgb(249, 226, 175),
+            Self::rgb(243, 139, 168),
+            Self::rgb(137, 180, 250),
+            Self::rgb(148, 226, 213),
+            Self::rgb(250, 179, 135),
+        )
+    }
+
+    /// Catppuccin Latte.
+    pub fn catppuccin_light() -> Self {
+        Self::catppuccin_palette(
+            Self::rgb(30, 102, 245),
+            Self::rgb(239, 241, 245),
+            Self::rgb(204, 208, 218),
+            Self::rgb(188, 192, 204),
+            Self::rgb(230, 233, 239),
+            Self::rgb(156, 160, 176),
+            Self::rgb(140, 143, 161),
+            Self::rgb(76, 79, 105),
+            Self::rgb(108, 111, 133),
+            Self::rgb(136, 57, 239),
+            Self::rgb(64, 160, 43),
+            Self::rgb(223, 142, 29),
+            Self::rgb(210, 15, 57),
+            Self::rgb(30, 102, 245),
+            Self::rgb(23, 146, 153),
+            Self::rgb(254, 100, 11),
+        )
+    }
+
+    pub fn catppuccin_latte() -> Self {
+        Self::catppuccin_light()
+    }
+
+    /// Catppuccin Frappé.
+    pub fn catppuccin_frappe() -> Self {
+        Self::catppuccin_palette(
+            Self::rgb(140, 170, 238),
+            Self::rgb(48, 52, 70),
+            Self::rgb(65, 69, 89),
+            Self::rgb(81, 87, 109),
+            Self::rgb(41, 44, 60),
+            Self::rgb(115, 121, 148),
+            Self::rgb(131, 139, 167),
+            Self::rgb(198, 208, 245),
+            Self::rgb(165, 173, 206),
+            Self::rgb(202, 158, 230),
+            Self::rgb(166, 209, 137),
+            Self::rgb(229, 200, 144),
+            Self::rgb(231, 130, 132),
+            Self::rgb(140, 170, 238),
+            Self::rgb(129, 200, 190),
+            Self::rgb(239, 159, 118),
+        )
+    }
+
+    /// Catppuccin Macchiato.
+    pub fn catppuccin_macchiato() -> Self {
+        Self::catppuccin_palette(
+            Self::rgb(138, 173, 244),
+            Self::rgb(36, 39, 58),
+            Self::rgb(54, 58, 79),
+            Self::rgb(73, 77, 100),
+            Self::rgb(30, 32, 48),
+            Self::rgb(110, 115, 141),
+            Self::rgb(128, 135, 162),
+            Self::rgb(202, 211, 245),
+            Self::rgb(165, 173, 203),
+            Self::rgb(198, 160, 246),
+            Self::rgb(166, 218, 149),
+            Self::rgb(238, 212, 159),
+            Self::rgb(237, 135, 150),
+            Self::rgb(138, 173, 244),
+            Self::rgb(139, 213, 202),
+            Self::rgb(245, 169, 127),
+        )
     }
 
     /// System — respect the host terminal defaults and ANSI palette.
@@ -246,33 +355,6 @@ impl Palette {
         };
         Color::Rgb(adjust(r), adjust(g), adjust(b))
     }
-
-    /// Catppuccin Latte.
-    pub fn catppuccin_light() -> Self {
-        Self {
-            accent: Color::Rgb(30, 102, 245),
-            panel_bg: Color::Rgb(239, 241, 245),
-            surface0: Color::Rgb(204, 208, 218),
-            surface1: Color::Rgb(188, 192, 204),
-            surface_dim: Color::Rgb(220, 224, 232),
-            overlay0: Color::Rgb(108, 111, 133),
-            overlay1: Color::Rgb(92, 95, 119),
-            text: Color::Rgb(76, 79, 105),
-            subtext0: Color::Rgb(108, 111, 133),
-            mauve: Color::Rgb(136, 57, 239),
-            green: Color::Rgb(64, 160, 43),
-            yellow: Color::Rgb(223, 142, 29),
-            red: Color::Rgb(210, 15, 57),
-            blue: Color::Rgb(30, 102, 245),
-            teal: Color::Rgb(23, 146, 153),
-            peach: Color::Rgb(254, 100, 11),
-        }
-    }
-
-    pub fn catppuccin_latte() -> Self {
-        Self::catppuccin_light()
-    }
-
     /// Terminal 16-color theme.
     pub fn terminal() -> Self {
         Self {
@@ -295,26 +377,22 @@ impl Palette {
         }
     }
 
-    /// Tokyo Night — blue-purple aesthetic.
+    /// Tokyo Night.
     pub fn tokyo_night() -> Self {
-        Self {
-            accent: Color::Rgb(122, 162, 247), // blue
-            panel_bg: Color::Rgb(26, 27, 38),
-            surface0: Color::Rgb(36, 40, 59),
-            surface1: Color::Rgb(65, 72, 104),
-            surface_dim: Color::Rgb(26, 27, 38),
-            overlay0: Color::Rgb(86, 95, 137),
-            overlay1: Color::Rgb(105, 113, 150),
-            text: Color::Rgb(192, 202, 245),
-            subtext0: Color::Rgb(169, 177, 214),
-            mauve: Color::Rgb(187, 154, 247),
-            green: Color::Rgb(158, 206, 106),
-            yellow: Color::Rgb(224, 175, 104),
-            red: Color::Rgb(247, 118, 142),
-            blue: Color::Rgb(122, 162, 247),
-            teal: Color::Rgb(125, 207, 255),
-            peach: Color::Rgb(255, 158, 100),
-        }
+        Self::omarchy_palette(
+            Self::rgb(122, 162, 247),
+            Self::rgb(169, 177, 214),
+            Self::rgb(26, 27, 38),
+            Self::rgb(50, 52, 74),
+            Self::rgb(247, 118, 142),
+            Self::rgb(158, 206, 106),
+            Self::rgb(224, 175, 104),
+            Self::rgb(122, 162, 247),
+            Self::rgb(173, 142, 230),
+            Self::rgb(68, 157, 171),
+            Self::rgb(120, 124, 153),
+            Self::rgb(68, 75, 106),
+        )
     }
 
     /// Tokyo Night Day.
@@ -365,48 +443,40 @@ impl Palette {
         }
     }
 
-    /// Nord — frosty blue palette.
+    /// Nord.
     pub fn nord() -> Self {
-        Self {
-            accent: Color::Rgb(136, 192, 208), // frost
-            panel_bg: Color::Rgb(46, 52, 64),
-            surface0: Color::Rgb(59, 66, 82),
-            surface1: Color::Rgb(67, 76, 94),
-            surface_dim: Color::Rgb(46, 52, 64),
-            overlay0: Color::Rgb(76, 86, 106),
-            overlay1: Color::Rgb(100, 110, 130),
-            text: Color::Rgb(236, 239, 244),
-            subtext0: Color::Rgb(216, 222, 233),
-            mauve: Color::Rgb(180, 142, 173),
-            green: Color::Rgb(163, 190, 140),
-            yellow: Color::Rgb(235, 203, 139),
-            red: Color::Rgb(191, 97, 106),
-            blue: Color::Rgb(129, 161, 193),
-            teal: Color::Rgb(143, 188, 187),
-            peach: Color::Rgb(208, 135, 112),
-        }
+        Self::omarchy_palette(
+            Self::rgb(129, 161, 193),
+            Self::rgb(216, 222, 233),
+            Self::rgb(46, 52, 64),
+            Self::rgb(59, 66, 82),
+            Self::rgb(191, 97, 106),
+            Self::rgb(163, 190, 140),
+            Self::rgb(235, 203, 139),
+            Self::rgb(129, 161, 193),
+            Self::rgb(180, 142, 173),
+            Self::rgb(136, 192, 208),
+            Self::rgb(229, 233, 240),
+            Self::rgb(76, 86, 106),
+        )
     }
 
-    /// Gruvbox Dark — warm retro palette.
+    /// Gruvbox.
     pub fn gruvbox() -> Self {
-        Self {
-            accent: Color::Rgb(215, 153, 33), // yellow
-            panel_bg: Color::Rgb(40, 40, 40),
-            surface0: Color::Rgb(60, 56, 54),
-            surface1: Color::Rgb(80, 73, 69),
-            surface_dim: Color::Rgb(40, 40, 40),
-            overlay0: Color::Rgb(146, 131, 116),
-            overlay1: Color::Rgb(168, 153, 132),
-            text: Color::Rgb(235, 219, 178),
-            subtext0: Color::Rgb(213, 196, 161),
-            mauve: Color::Rgb(211, 134, 155),
-            green: Color::Rgb(184, 187, 38),
-            yellow: Color::Rgb(250, 189, 47),
-            red: Color::Rgb(251, 73, 52),
-            blue: Color::Rgb(131, 165, 152),
-            teal: Color::Rgb(142, 192, 124),
-            peach: Color::Rgb(254, 128, 25),
-        }
+        Self::omarchy_palette(
+            Self::rgb(125, 174, 163),
+            Self::rgb(212, 190, 152),
+            Self::rgb(40, 40, 40),
+            Self::rgb(60, 56, 54),
+            Self::rgb(234, 105, 98),
+            Self::rgb(169, 182, 101),
+            Self::rgb(216, 166, 87),
+            Self::rgb(125, 174, 163),
+            Self::rgb(211, 134, 155),
+            Self::rgb(137, 180, 130),
+            Self::rgb(212, 190, 152),
+            Self::rgb(60, 56, 54),
+        )
     }
 
     /// Gruvbox Light.
@@ -519,26 +589,22 @@ impl Palette {
         }
     }
 
-    /// Kanagawa — inspired by Katsushika Hokusai.
+    /// Kanagawa.
     pub fn kanagawa() -> Self {
-        Self {
-            accent: Color::Rgb(126, 156, 216), // blue
-            panel_bg: Color::Rgb(31, 31, 40),
-            surface0: Color::Rgb(42, 42, 55),
-            surface1: Color::Rgb(54, 54, 70),
-            surface_dim: Color::Rgb(31, 31, 40),
-            overlay0: Color::Rgb(114, 113, 105),
-            overlay1: Color::Rgb(135, 134, 125),
-            text: Color::Rgb(220, 215, 186),
-            subtext0: Color::Rgb(200, 195, 170),
-            mauve: Color::Rgb(149, 127, 184),
-            green: Color::Rgb(118, 148, 106),
-            yellow: Color::Rgb(192, 163, 110),
-            red: Color::Rgb(195, 64, 67),
-            blue: Color::Rgb(126, 156, 216),
-            teal: Color::Rgb(127, 180, 202),
-            peach: Color::Rgb(255, 160, 102),
-        }
+        Self::omarchy_palette(
+            Self::rgb(126, 156, 216),
+            Self::rgb(220, 215, 186),
+            Self::rgb(31, 31, 40),
+            Self::rgb(9, 6, 24),
+            Self::rgb(195, 64, 67),
+            Self::rgb(118, 148, 106),
+            Self::rgb(192, 163, 110),
+            Self::rgb(126, 156, 216),
+            Self::rgb(149, 127, 184),
+            Self::rgb(106, 149, 137),
+            Self::rgb(200, 192, 147),
+            Self::rgb(114, 113, 105),
+        )
     }
 
     /// Kanagawa Lotus — the light Kanagawa variant.
@@ -586,29 +652,21 @@ impl Palette {
     }
 
     /// Rose Pine Dawn.
-    pub fn rose_pine_light() -> Self {
-        Self {
-            accent: Color::Rgb(144, 122, 169),
-            panel_bg: Color::Rgb(250, 244, 237),
-            surface0: Color::Rgb(242, 233, 222),
-            surface1: Color::Rgb(223, 218, 217),
-            surface_dim: Color::Rgb(246, 238, 229),
-            overlay0: Color::Rgb(152, 147, 165),
-            overlay1: Color::Rgb(121, 117, 147),
-            text: Color::Rgb(87, 82, 121),
-            subtext0: Color::Rgb(110, 106, 134),
-            mauve: Color::Rgb(144, 122, 169),
-            green: Color::Rgb(40, 105, 131),
-            yellow: Color::Rgb(234, 157, 52),
-            red: Color::Rgb(180, 99, 122),
-            blue: Color::Rgb(40, 105, 131),
-            teal: Color::Rgb(86, 148, 159),
-            peach: Color::Rgb(215, 130, 126),
-        }
-    }
-
     pub fn rose_pine_dawn() -> Self {
-        Self::rose_pine_light()
+        Self::omarchy_palette(
+            Self::rgb(86, 148, 159),
+            Self::rgb(87, 82, 121),
+            Self::rgb(250, 244, 237),
+            Self::rgb(242, 233, 225),
+            Self::rgb(180, 99, 122),
+            Self::rgb(40, 105, 131),
+            Self::rgb(234, 157, 52),
+            Self::rgb(86, 148, 159),
+            Self::rgb(144, 122, 169),
+            Self::rgb(215, 130, 126),
+            Self::rgb(87, 82, 121),
+            Self::rgb(152, 147, 165),
+        )
     }
 
     /// Vesper — minimal high-contrast monochrome with peach and mint accents.
@@ -632,12 +690,559 @@ impl Palette {
             peach: Color::Rgb(255, 199, 153),
         }
     }
+    fn rgb(r: u8, g: u8, b: u8) -> Color {
+        Color::Rgb(r, g, b)
+    }
+
+    // Monokai variants share the same token layout; named arguments keep
+    // the copied upstream palette values auditable.
+    #[allow(clippy::too_many_arguments)]
+    fn monokai_palette(
+        accent: Color,
+        panel_bg: Color,
+        surface0: Color,
+        surface1: Color,
+        surface_dim: Color,
+        overlay0: Color,
+        overlay1: Color,
+        text: Color,
+        subtext0: Color,
+        red: Color,
+        green: Color,
+        yellow: Color,
+        peach: Color,
+        mauve: Color,
+        teal: Color,
+    ) -> Self {
+        Self {
+            accent,
+            panel_bg,
+            surface0,
+            surface1,
+            surface_dim,
+            overlay0,
+            overlay1,
+            text,
+            subtext0,
+            mauve,
+            green,
+            yellow,
+            red,
+            blue: teal,
+            teal,
+            peach,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn omarchy_palette(
+        accent: Color,
+        foreground: Color,
+        background: Color,
+        color0: Color,
+        color1: Color,
+        color2: Color,
+        color3: Color,
+        color4: Color,
+        color5: Color,
+        color6: Color,
+        color7: Color,
+        color8: Color,
+    ) -> Self {
+        Self {
+            accent,
+            panel_bg: background,
+            surface0: color0,
+            surface1: color8,
+            surface_dim: background,
+            overlay0: color8,
+            overlay1: color7,
+            text: foreground,
+            subtext0: color7,
+            mauve: color5,
+            green: color2,
+            yellow: color3,
+            red: color1,
+            blue: color4,
+            teal: color6,
+            peach: color3,
+        }
+    }
+
+    /// Monokai Pro.
+    pub fn monokai_pro() -> Self {
+        Self::monokai_palette(
+            Self::rgb(255, 216, 102),
+            Self::rgb(34, 31, 34),
+            Self::rgb(45, 42, 46),
+            Self::rgb(64, 62, 65),
+            Self::rgb(25, 24, 26),
+            Self::rgb(114, 112, 114),
+            Self::rgb(147, 146, 147),
+            Self::rgb(252, 252, 250),
+            Self::rgb(193, 192, 192),
+            Self::rgb(255, 97, 136),
+            Self::rgb(169, 220, 118),
+            Self::rgb(255, 216, 102),
+            Self::rgb(252, 152, 103),
+            Self::rgb(171, 157, 242),
+            Self::rgb(120, 220, 232),
+        )
+    }
+
+    /// Monokai Pro Light.
+    pub fn monokai_pro_light() -> Self {
+        Self::monokai_palette(
+            Self::rgb(225, 71, 117),
+            Self::rgb(237, 231, 229),
+            Self::rgb(250, 244, 242),
+            Self::rgb(211, 205, 204),
+            Self::rgb(224, 218, 217),
+            Self::rgb(165, 159, 160),
+            Self::rgb(145, 140, 142),
+            Self::rgb(41, 36, 42),
+            Self::rgb(112, 107, 110),
+            Self::rgb(225, 71, 117),
+            Self::rgb(38, 157, 105),
+            Self::rgb(204, 122, 10),
+            Self::rgb(225, 96, 50),
+            Self::rgb(112, 88, 190),
+            Self::rgb(28, 140, 168),
+        )
+    }
+
+    /// Monokai Pro Light Sun.
+    pub fn monokai_pro_light_sun() -> Self {
+        Self::monokai_palette(
+            Self::rgb(206, 71, 112),
+            Self::rgb(238, 229, 222),
+            Self::rgb(248, 239, 231),
+            Self::rgb(210, 201, 196),
+            Self::rgb(222, 213, 208),
+            Self::rgb(165, 156, 156),
+            Self::rgb(146, 137, 138),
+            Self::rgb(44, 35, 46),
+            Self::rgb(114, 105, 109),
+            Self::rgb(206, 71, 112),
+            Self::rgb(33, 136, 113),
+            Self::rgb(177, 104, 3),
+            Self::rgb(212, 87, 43),
+            Self::rgb(104, 81, 162),
+            Self::rgb(36, 115, 182),
+        )
+    }
+
+    /// Monokai Pro Spectrum.
+    pub fn monokai_pro_spectrum() -> Self {
+        Self::monokai_palette(
+            Self::rgb(252, 229, 102),
+            Self::rgb(25, 25, 25),
+            Self::rgb(34, 34, 34),
+            Self::rgb(54, 53, 55),
+            Self::rgb(19, 19, 19),
+            Self::rgb(105, 103, 108),
+            Self::rgb(139, 136, 143),
+            Self::rgb(247, 241, 255),
+            Self::rgb(186, 182, 192),
+            Self::rgb(252, 97, 141),
+            Self::rgb(123, 216, 143),
+            Self::rgb(252, 229, 102),
+            Self::rgb(253, 147, 83),
+            Self::rgb(148, 138, 227),
+            Self::rgb(90, 212, 230),
+        )
+    }
+
+    /// Monokai Pro Ristretto.
+    pub fn monokai_pro_ristretto() -> Self {
+        Self::monokai_palette(
+            Self::rgb(249, 204, 108),
+            Self::rgb(33, 28, 28),
+            Self::rgb(44, 37, 37),
+            Self::rgb(64, 56, 56),
+            Self::rgb(25, 21, 21),
+            Self::rgb(114, 105, 106),
+            Self::rgb(148, 138, 139),
+            Self::rgb(255, 241, 243),
+            Self::rgb(195, 183, 184),
+            Self::rgb(253, 104, 131),
+            Self::rgb(173, 218, 120),
+            Self::rgb(249, 204, 108),
+            Self::rgb(243, 141, 112),
+            Self::rgb(168, 169, 235),
+            Self::rgb(133, 218, 204),
+        )
+    }
+
+    /// Monokai Pro Octagon.
+    pub fn monokai_pro_octagon() -> Self {
+        Self::monokai_palette(
+            Self::rgb(255, 215, 109),
+            Self::rgb(30, 31, 43),
+            Self::rgb(40, 42, 58),
+            Self::rgb(58, 61, 75),
+            Self::rgb(22, 24, 33),
+            Self::rgb(105, 109, 119),
+            Self::rgb(136, 141, 148),
+            Self::rgb(234, 242, 241),
+            Self::rgb(178, 185, 189),
+            Self::rgb(255, 101, 122),
+            Self::rgb(186, 215, 97),
+            Self::rgb(255, 215, 109),
+            Self::rgb(255, 155, 94),
+            Self::rgb(195, 154, 201),
+            Self::rgb(156, 209, 187),
+        )
+    }
+
+    /// Monokai Pro Machine.
+    pub fn monokai_pro_machine() -> Self {
+        Self::monokai_palette(
+            Self::rgb(255, 237, 114),
+            Self::rgb(29, 37, 40),
+            Self::rgb(39, 49, 54),
+            Self::rgb(58, 68, 73),
+            Self::rgb(22, 27, 30),
+            Self::rgb(107, 118, 120),
+            Self::rgb(139, 151, 152),
+            Self::rgb(242, 255, 252),
+            Self::rgb(184, 196, 195),
+            Self::rgb(255, 109, 126),
+            Self::rgb(162, 229, 123),
+            Self::rgb(255, 237, 114),
+            Self::rgb(255, 178, 112),
+            Self::rgb(186, 160, 248),
+            Self::rgb(124, 213, 241),
+        )
+    }
+
+    /// Monokai Classic.
+    pub fn monokai_classic() -> Self {
+        Self::monokai_palette(
+            Self::rgb(230, 219, 116),
+            Self::rgb(29, 30, 25),
+            Self::rgb(39, 40, 34),
+            Self::rgb(59, 60, 53),
+            Self::rgb(22, 22, 19),
+            Self::rgb(110, 112, 102),
+            Self::rgb(145, 146, 136),
+            Self::rgb(253, 255, 241),
+            Self::rgb(192, 193, 181),
+            Self::rgb(249, 38, 114),
+            Self::rgb(166, 226, 46),
+            Self::rgb(230, 219, 116),
+            Self::rgb(253, 151, 31),
+            Self::rgb(174, 129, 255),
+            Self::rgb(102, 217, 239),
+        )
+    }
+
+    /// Omarchy Ethereal.
+    pub fn ethereal() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(125, 130, 217),
+            Self::rgb(255, 206, 173),
+            Self::rgb(6, 11, 30),
+            Self::rgb(60, 72, 109),
+            Self::rgb(237, 91, 90),
+            Self::rgb(146, 165, 147),
+            Self::rgb(233, 187, 79),
+            Self::rgb(125, 130, 217),
+            Self::rgb(200, 157, 193),
+            Self::rgb(163, 191, 209),
+            Self::rgb(249, 153, 87),
+            Self::rgb(109, 125, 182),
+        )
+    }
+
+    /// Omarchy Everforest.
+    pub fn everforest() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(127, 187, 179),
+            Self::rgb(211, 198, 170),
+            Self::rgb(45, 53, 59),
+            Self::rgb(71, 82, 88),
+            Self::rgb(230, 126, 128),
+            Self::rgb(167, 192, 128),
+            Self::rgb(219, 188, 127),
+            Self::rgb(127, 187, 179),
+            Self::rgb(214, 153, 182),
+            Self::rgb(131, 192, 146),
+            Self::rgb(211, 198, 170),
+            Self::rgb(71, 82, 88),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn flexoki_palette(
+        accent: Color,
+        panel_bg: Color,
+        surface0: Color,
+        surface1: Color,
+        surface_dim: Color,
+        overlay0: Color,
+        overlay1: Color,
+        text: Color,
+        subtext0: Color,
+        mauve: Color,
+        green: Color,
+        yellow: Color,
+        red: Color,
+        blue: Color,
+        teal: Color,
+        peach: Color,
+    ) -> Self {
+        Self {
+            accent,
+            panel_bg,
+            surface0,
+            surface1,
+            surface_dim,
+            overlay0,
+            overlay1,
+            text,
+            subtext0,
+            mauve,
+            green,
+            yellow,
+            red,
+            blue,
+            teal,
+            peach,
+        }
+    }
+
+    /// Flexoki Light.
+    pub fn flexoki_light() -> Self {
+        Self::flexoki_palette(
+            Self::rgb(36, 131, 123),
+            Self::rgb(255, 252, 240),
+            Self::rgb(230, 228, 217),
+            Self::rgb(206, 205, 195),
+            Self::rgb(242, 240, 229),
+            Self::rgb(183, 181, 172),
+            Self::rgb(111, 110, 105),
+            Self::rgb(16, 15, 15),
+            Self::rgb(111, 110, 105),
+            Self::rgb(94, 64, 157),
+            Self::rgb(102, 128, 11),
+            Self::rgb(173, 131, 1),
+            Self::rgb(175, 48, 41),
+            Self::rgb(32, 94, 166),
+            Self::rgb(36, 131, 123),
+            Self::rgb(188, 82, 21),
+        )
+    }
+
+    /// Flexoki.
+    pub fn flexoki() -> Self {
+        Self::flexoki_palette(
+            Self::rgb(58, 169, 159),
+            Self::rgb(16, 15, 15),
+            Self::rgb(40, 39, 38),
+            Self::rgb(64, 62, 60),
+            Self::rgb(28, 27, 26),
+            Self::rgb(87, 86, 83),
+            Self::rgb(135, 133, 128),
+            Self::rgb(206, 205, 195),
+            Self::rgb(135, 133, 128),
+            Self::rgb(139, 126, 200),
+            Self::rgb(135, 154, 57),
+            Self::rgb(208, 162, 21),
+            Self::rgb(209, 77, 65),
+            Self::rgb(67, 133, 190),
+            Self::rgb(58, 169, 159),
+            Self::rgb(218, 112, 44),
+        )
+    }
+
+    /// Omarchy Hackerman.
+    pub fn hackerman() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(130, 251, 156),
+            Self::rgb(221, 247, 255),
+            Self::rgb(11, 12, 22),
+            Self::rgb(62, 64, 88),
+            Self::rgb(80, 248, 114),
+            Self::rgb(79, 232, 143),
+            Self::rgb(80, 247, 212),
+            Self::rgb(130, 157, 212),
+            Self::rgb(134, 167, 223),
+            Self::rgb(124, 248, 247),
+            Self::rgb(133, 225, 251),
+            Self::rgb(106, 110, 149),
+        )
+    }
+
+    /// Omarchy Last Horizon.
+    pub fn last_horizon() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(181, 151, 144),
+            Self::rgb(250, 252, 251),
+            Self::rgb(12, 11, 12),
+            Self::rgb(12, 11, 12),
+            Self::rgb(195, 139, 123),
+            Self::rgb(135, 169, 176),
+            Self::rgb(107, 94, 115),
+            Self::rgb(181, 151, 144),
+            Self::rgb(196, 216, 226),
+            Self::rgb(165, 160, 182),
+            Self::rgb(207, 211, 205),
+            Self::rgb(88, 78, 81),
+        )
+    }
+
+    /// Omarchy Lumon.
+    pub fn lumon() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(139, 201, 235),
+            Self::rgb(214, 226, 238),
+            Self::rgb(22, 36, 45),
+            Self::rgb(27, 45, 64),
+            Self::rgb(77, 134, 176),
+            Self::rgb(94, 149, 188),
+            Self::rgb(111, 164, 201),
+            Self::rgb(111, 184, 227),
+            Self::rgb(139, 201, 235),
+            Self::rgb(180, 228, 246),
+            Self::rgb(214, 226, 238),
+            Self::rgb(48, 72, 96),
+        )
+    }
+
+    /// Omarchy Matte Black.
+    pub fn matte_black() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(230, 142, 13),
+            Self::rgb(190, 190, 190),
+            Self::rgb(18, 18, 18),
+            Self::rgb(51, 51, 51),
+            Self::rgb(211, 95, 95),
+            Self::rgb(255, 193, 7),
+            Self::rgb(185, 28, 28),
+            Self::rgb(230, 142, 13),
+            Self::rgb(211, 95, 95),
+            Self::rgb(190, 190, 190),
+            Self::rgb(190, 190, 190),
+            Self::rgb(138, 138, 141),
+        )
+    }
+
+    /// Omarchy Miasma.
+    pub fn miasma() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(120, 130, 75),
+            Self::rgb(194, 194, 176),
+            Self::rgb(34, 34, 34),
+            Self::rgb(0, 0, 0),
+            Self::rgb(104, 87, 66),
+            Self::rgb(95, 135, 95),
+            Self::rgb(179, 109, 67),
+            Self::rgb(120, 130, 75),
+            Self::rgb(187, 119, 68),
+            Self::rgb(201, 165, 84),
+            Self::rgb(215, 196, 131),
+            Self::rgb(102, 102, 102),
+        )
+    }
+
+    /// Omarchy Osaka Jade.
+    pub fn osaka_jade() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(80, 148, 117),
+            Self::rgb(193, 196, 151),
+            Self::rgb(17, 28, 24),
+            Self::rgb(35, 55, 43),
+            Self::rgb(255, 83, 69),
+            Self::rgb(84, 158, 106),
+            Self::rgb(69, 148, 81),
+            Self::rgb(80, 148, 117),
+            Self::rgb(210, 104, 156),
+            Self::rgb(45, 213, 183),
+            Self::rgb(246, 245, 221),
+            Self::rgb(83, 104, 91),
+        )
+    }
+
+    /// Omarchy Retro 82.
+    pub fn retro_82() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(250, 169, 104),
+            Self::rgb(246, 220, 172),
+            Self::rgb(5, 24, 46),
+            Self::rgb(48, 52, 66),
+            Self::rgb(248, 85, 37),
+            Self::rgb(2, 131, 145),
+            Self::rgb(233, 123, 60),
+            Self::rgb(250, 169, 104),
+            Self::rgb(63, 143, 138),
+            Self::rgb(140, 191, 184),
+            Self::rgb(167, 201, 198),
+            Self::rgb(19, 78, 90),
+        )
+    }
+
+    /// Omarchy Solitude.
+    pub fn solitude() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(121, 129, 134),
+            Self::rgb(202, 204, 204),
+            Self::rgb(16, 19, 21),
+            Self::rgb(16, 19, 21),
+            Self::rgb(86, 93, 96),
+            Self::rgb(159, 165, 169),
+            Self::rgb(217, 219, 220),
+            Self::rgb(121, 129, 134),
+            Self::rgb(174, 174, 174),
+            Self::rgb(112, 112, 112),
+            Self::rgb(203, 194, 190),
+            Self::rgb(75, 78, 85),
+        )
+    }
+
+    /// Omarchy Vantablack.
+    pub fn vantablack() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(141, 141, 141),
+            Self::rgb(255, 255, 255),
+            Self::rgb(0, 0, 0),
+            Self::rgb(64, 64, 64),
+            Self::rgb(164, 164, 164),
+            Self::rgb(182, 182, 182),
+            Self::rgb(206, 206, 206),
+            Self::rgb(141, 141, 141),
+            Self::rgb(155, 155, 155),
+            Self::rgb(176, 176, 176),
+            Self::rgb(236, 236, 236),
+            Self::rgb(92, 92, 92),
+        )
+    }
+
+    /// Omarchy White.
+    pub fn white() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(110, 110, 110),
+            Self::rgb(0, 0, 0),
+            Self::rgb(255, 255, 255),
+            Self::rgb(192, 192, 192),
+            Self::rgb(42, 42, 42),
+            Self::rgb(58, 58, 58),
+            Self::rgb(74, 74, 74),
+            Self::rgb(26, 26, 26),
+            Self::rgb(46, 46, 46),
+            Self::rgb(62, 62, 62),
+            Self::rgb(0, 0, 0),
+            Self::rgb(192, 192, 192),
+        )
+    }
 
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
-            "catppuccin" | "catppuccin-mocha" => Some(Self::catppuccin()),
+            "catppuccin" | "catppuccin-mocha" | "mocha" => Some(Self::catppuccin()),
             "catppuccin-latte" | "latte" | "light" => Some(Self::catppuccin_latte()),
+            "catppuccin-frappe" | "frappe" => Some(Self::catppuccin_frappe()),
+            "catppuccin-macchiato" | "macchiato" => Some(Self::catppuccin_macchiato()),
             "terminal" => Some(Self::terminal()),
             "tokyo-night" | "tokyonight" => Some(Self::tokyo_night()),
             "tokyo-night-day" | "tokyo-day" | "tokyonight-day" => Some(Self::tokyo_night_day()),
@@ -654,6 +1259,38 @@ impl Palette {
             "rose-pine" | "rosepine" => Some(Self::rose_pine()),
             "rose-pine-dawn" | "rosepine-dawn" | "dawn" => Some(Self::rose_pine_dawn()),
             "vesper" => Some(Self::vesper()),
+            "monokai-pro" | "monokai" => Some(Self::monokai_pro()),
+            "monokai-pro-light" | "monokai-light" => Some(Self::monokai_pro_light()),
+            "monokai-pro-light-sun" | "monokai-pro-sun" | "monokai-sun" | "sun" => {
+                Some(Self::monokai_pro_light_sun())
+            }
+            "monokai-pro-spectrum" | "monokai-spectrum" | "spectrum" => {
+                Some(Self::monokai_pro_spectrum())
+            }
+            "monokai-pro-ristretto" | "monokai-ristretto" | "ristretto" => {
+                Some(Self::monokai_pro_ristretto())
+            }
+            "monokai-pro-octagon" | "monokai-octagon" | "octagon" => {
+                Some(Self::monokai_pro_octagon())
+            }
+            "monokai-pro-machine" | "monokai-machine" | "machine" => {
+                Some(Self::monokai_pro_machine())
+            }
+            "monokai-classic" | "classic" => Some(Self::monokai_classic()),
+            "ethereal" => Some(Self::ethereal()),
+            "everforest" => Some(Self::everforest()),
+            "flexoki" => Some(Self::flexoki()),
+            "flexoki-light" => Some(Self::flexoki_light()),
+            "hackerman" => Some(Self::hackerman()),
+            "last-horizon" => Some(Self::last_horizon()),
+            "lumon" => Some(Self::lumon()),
+            "matte-black" => Some(Self::matte_black()),
+            "miasma" => Some(Self::miasma()),
+            "osaka-jade" => Some(Self::osaka_jade()),
+            "retro-82" => Some(Self::retro_82()),
+            "solitude" => Some(Self::solitude()),
+            "vantablack" => Some(Self::vantablack()),
+            "white" => Some(Self::white()),
             _ => None,
         }
     }
@@ -924,40 +1561,84 @@ pub const DEFAULT_LIGHT_THEME_NAME: &str = "catppuccin-latte";
 pub const THEME_NAMES: &[&str] = &[
     "system",
     DEFAULT_DARK_THEME_NAME,
+    "catppuccin-frappe",
+    "catppuccin-macchiato",
+    "dracula",
+    "ethereal",
+    "everforest",
+    "flexoki",
+    "gruvbox",
+    "hackerman",
+    "kanagawa",
+    "last-horizon",
+    "lumon",
+    "matte-black",
+    "miasma",
+    "monokai-classic",
+    "monokai-pro",
+    "monokai-pro-machine",
+    "monokai-pro-octagon",
+    "monokai-pro-ristretto",
+    "monokai-pro-spectrum",
+    "nord",
+    "one-dark",
+    "osaka-jade",
+    "retro-82",
+    "rose-pine",
+    "solarized",
+    "solitude",
     "terminal",
     "tokyo-night",
-    "dracula",
-    "nord",
-    "gruvbox",
-    "one-dark",
-    "solarized",
-    "kanagawa",
-    "rose-pine",
+    "vantablack",
     "vesper",
 ];
 
 /// Built-in concrete themes that can render a light appearance.
 pub const LIGHT_THEME_NAMES: &[&str] = &[
     DEFAULT_LIGHT_THEME_NAME,
-    "tokyo-night-day",
+    "flexoki-light",
     "gruvbox-light",
-    "one-light",
-    "solarized-light",
     "kanagawa-lotus",
+    "monokai-pro-light",
+    "monokai-pro-light-sun",
+    "one-light",
     "rose-pine-dawn",
+    "solarized-light",
+    "tokyo-night-day",
+    "white",
 ];
 
 /// Built-in concrete themes that can render a dark appearance.
 pub const DARK_THEME_NAMES: &[&str] = &[
     DEFAULT_DARK_THEME_NAME,
-    "tokyo-night",
+    "catppuccin-frappe",
+    "catppuccin-macchiato",
     "dracula",
-    "nord",
+    "ethereal",
+    "everforest",
+    "flexoki",
     "gruvbox",
-    "one-dark",
-    "solarized",
+    "hackerman",
     "kanagawa",
+    "last-horizon",
+    "lumon",
+    "matte-black",
+    "miasma",
+    "monokai-classic",
+    "monokai-pro",
+    "monokai-pro-machine",
+    "monokai-pro-octagon",
+    "monokai-pro-ristretto",
+    "monokai-pro-spectrum",
+    "nord",
+    "one-dark",
+    "osaka-jade",
+    "retro-82",
     "rose-pine",
+    "solarized",
+    "solitude",
+    "tokyo-night",
+    "vantablack",
     "vesper",
 ];
 
@@ -985,9 +1666,8 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
         ThemeAppearance::Light => match normalized.as_str() {
             "system" => Some("system"),
             "terminal" => Some("terminal"),
-            "catppuccin" | "catppuccin-mocha" | "catppuccin-latte" | "latte" | "light" => {
-                Some("catppuccin-latte")
-            }
+            "catppuccin" | "catppuccin-mocha" | "catppuccin-latte" | "latte" | "light"
+            | "mocha" => Some("catppuccin-latte"),
             "tokyo-night" | "tokyonight" | "tokyo-night-day" | "tokyo-day" | "tokyonight-day" => {
                 Some("tokyo-night-day")
             }
@@ -998,15 +1678,55 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "rose-pine" | "rosepine" | "rose-pine-dawn" | "rosepine-dawn" | "dawn" => {
                 Some("rose-pine-dawn")
             }
-            "dracula" | "nord" | "vesper" => None,
+            "monokai-pro" | "monokai" | "monokai-pro-light" | "monokai-light" => {
+                Some("monokai-pro-light")
+            }
+            "monokai-pro-light-sun" | "monokai-pro-sun" | "monokai-sun" | "sun" => {
+                Some("monokai-pro-light-sun")
+            }
+            "flexoki" | "flexoki-light" => Some("flexoki-light"),
+            "white" => Some("white"),
+            "dracula"
+            | "nord"
+            | "vesper"
+            | "catppuccin-frappe"
+            | "frappe"
+            | "catppuccin-macchiato"
+            | "macchiato"
+            | "monokai-pro-spectrum"
+            | "monokai-spectrum"
+            | "spectrum"
+            | "monokai-pro-ristretto"
+            | "monokai-ristretto"
+            | "ristretto"
+            | "monokai-pro-octagon"
+            | "monokai-octagon"
+            | "octagon"
+            | "monokai-pro-machine"
+            | "monokai-machine"
+            | "machine"
+            | "monokai-classic"
+            | "classic"
+            | "ethereal"
+            | "everforest"
+            | "hackerman"
+            | "last-horizon"
+            | "lumon"
+            | "matte-black"
+            | "miasma"
+            | "osaka-jade"
+            | "retro-82"
+            | "solitude"
+            | "vantablack" => None,
             _ => None,
         },
         ThemeAppearance::Dark => match normalized.as_str() {
             "system" => Some("system"),
             "terminal" => Some("terminal"),
-            "catppuccin" | "catppuccin-mocha" | "catppuccin-latte" | "latte" | "light" => {
-                Some("catppuccin")
-            }
+            "catppuccin" | "catppuccin-mocha" | "mocha" | "catppuccin-latte" | "latte"
+            | "light" => Some("catppuccin"),
+            "catppuccin-frappe" | "frappe" => Some("catppuccin-frappe"),
+            "catppuccin-macchiato" | "macchiato" => Some("catppuccin-macchiato"),
             "tokyo-night" | "tokyonight" | "tokyo-night-day" | "tokyo-day" | "tokyonight-day" => {
                 Some("tokyo-night")
             }
@@ -1020,6 +1740,30 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
                 Some("rose-pine")
             }
             "vesper" => Some("vesper"),
+            "monokai-pro" | "monokai" | "monokai-pro-light" | "monokai-light" => {
+                Some("monokai-pro")
+            }
+            "monokai-pro-spectrum" | "monokai-spectrum" | "spectrum" => {
+                Some("monokai-pro-spectrum")
+            }
+            "monokai-pro-ristretto" | "monokai-ristretto" | "ristretto" => {
+                Some("monokai-pro-ristretto")
+            }
+            "monokai-pro-octagon" | "monokai-octagon" | "octagon" => Some("monokai-pro-octagon"),
+            "monokai-pro-machine" | "monokai-machine" | "machine" => Some("monokai-pro-machine"),
+            "monokai-classic" | "classic" => Some("monokai-classic"),
+            "ethereal" => Some("ethereal"),
+            "everforest" => Some("everforest"),
+            "flexoki" | "flexoki-light" => Some("flexoki"),
+            "hackerman" => Some("hackerman"),
+            "last-horizon" => Some("last-horizon"),
+            "lumon" => Some("lumon"),
+            "matte-black" => Some("matte-black"),
+            "miasma" => Some("miasma"),
+            "osaka-jade" => Some("osaka-jade"),
+            "retro-82" => Some("retro-82"),
+            "solitude" => Some("solitude"),
+            "vantablack" => Some("vantablack"),
             _ => None,
         },
     }
@@ -2125,6 +2869,80 @@ mod tests {
                 "light theme should resolve: {name}"
             );
         }
+    }
+    #[test]
+    fn monokai_pro_variants_resolve() {
+        for name in [
+            "monokai-pro",
+            "monokai-pro-light",
+            "monokai-pro-light-sun",
+            "monokai-pro-spectrum",
+            "monokai-pro-ristretto",
+            "monokai-pro-octagon",
+            "monokai-pro-machine",
+            "monokai-classic",
+        ] {
+            assert!(
+                Palette::from_name(name).is_some(),
+                "monokai variant should resolve: {name}"
+            );
+        }
+    }
+    #[test]
+    fn catppuccin_flavors_resolve() {
+        for name in [
+            "catppuccin-latte",
+            "catppuccin-frappe",
+            "catppuccin-macchiato",
+            "catppuccin",
+            "catppuccin-mocha",
+        ] {
+            assert!(
+                Palette::from_name(name).is_some(),
+                "catppuccin flavor should resolve: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn catppuccin_flavors_use_official_palette_values() {
+        let latte = Palette::from_name("catppuccin-latte").expect("latte");
+        assert_eq!(latte.panel_bg, Color::Rgb(239, 241, 245));
+        assert_eq!(latte.surface0, Color::Rgb(204, 208, 218));
+        assert_eq!(latte.text, Color::Rgb(76, 79, 105));
+
+        let frappe = Palette::from_name("catppuccin-frappe").expect("frappe");
+        assert_eq!(frappe.panel_bg, Color::Rgb(48, 52, 70));
+        assert_eq!(frappe.surface0, Color::Rgb(65, 69, 89));
+        assert_eq!(frappe.text, Color::Rgb(198, 208, 245));
+
+        let macchiato = Palette::from_name("catppuccin-macchiato").expect("macchiato");
+        assert_eq!(macchiato.panel_bg, Color::Rgb(36, 39, 58));
+        assert_eq!(macchiato.surface0, Color::Rgb(54, 58, 79));
+        assert_eq!(macchiato.text, Color::Rgb(202, 211, 245));
+
+        let mocha = Palette::from_name("catppuccin").expect("mocha");
+        assert_eq!(mocha.panel_bg, Color::Rgb(30, 30, 46));
+        assert_eq!(mocha.surface0, Color::Rgb(49, 50, 68));
+        assert_eq!(mocha.text, Color::Rgb(205, 214, 244));
+    }
+    #[test]
+    fn flexoki_variants_use_official_website_values() {
+        let light = Palette::from_name("flexoki-light").expect("flexoki light");
+        assert_eq!(light.accent, Color::Rgb(36, 131, 123));
+        assert_eq!(light.panel_bg, Color::Rgb(255, 252, 240));
+        assert_eq!(light.surface_dim, Color::Rgb(242, 240, 229));
+        assert_eq!(light.surface0, Color::Rgb(230, 228, 217));
+        assert_eq!(light.surface1, Color::Rgb(206, 205, 195));
+        assert_eq!(light.text, Color::Rgb(16, 15, 15));
+
+        let dark = Palette::from_name("flexoki").expect("flexoki");
+        assert_eq!(dark.accent, Color::Rgb(58, 169, 159));
+        assert_eq!(dark.panel_bg, Color::Rgb(16, 15, 15));
+        assert_eq!(dark.surface_dim, Color::Rgb(28, 27, 26));
+        assert_eq!(dark.surface0, Color::Rgb(40, 39, 38));
+        assert_eq!(dark.surface1, Color::Rgb(64, 62, 60));
+        assert_eq!(dark.text, Color::Rgb(206, 205, 195));
     }
 
     #[test]

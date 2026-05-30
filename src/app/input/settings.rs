@@ -1623,7 +1623,9 @@ mod tests {
         assert_eq!(action, None);
         assert_eq!(
             state.settings.pending_light_theme_name.as_deref(),
-            Some("tokyo-night-day")
+            theme_names_for_appearance(ThemeAppearance::Light)
+                .get(1)
+                .copied()
         );
         assert_eq!(state.mode, Mode::Settings);
     }
