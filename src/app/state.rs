@@ -1028,6 +1028,24 @@ impl Palette {
         )
     }
 
+    /// Omarchy Solitude.
+    pub fn solitude() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(121, 129, 134),
+            Self::rgb(202, 204, 204),
+            Self::rgb(16, 19, 21),
+            Self::rgb(16, 19, 21),
+            Self::rgb(86, 93, 96),
+            Self::rgb(159, 165, 169),
+            Self::rgb(217, 219, 220),
+            Self::rgb(121, 129, 134),
+            Self::rgb(174, 174, 174),
+            Self::rgb(112, 112, 112),
+            Self::rgb(203, 194, 190),
+            Self::rgb(75, 78, 85),
+        )
+    }
+
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
@@ -1077,6 +1095,7 @@ impl Palette {
             "miasma" => Some(Self::miasma()),
             "osaka-jade" => Some(Self::osaka_jade()),
             "retro-82" => Some(Self::retro_82()),
+            "solitude" => Some(Self::solitude()),
             _ => None,
         }
     }
@@ -1369,6 +1388,7 @@ pub const THEME_NAMES: &[&str] = &[
     "retro-82",
     "rose-pine",
     "solarized",
+    "solitude",
     "terminal",
     "tokyo-night",
     "vesper",
@@ -1413,6 +1433,7 @@ pub const DARK_THEME_NAMES: &[&str] = &[
     "retro-82",
     "rose-pine",
     "solarized",
+    "solitude",
     "tokyo-night",
     "vesper",
 ];
@@ -1486,7 +1507,8 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             | "matte-black"
             | "miasma"
             | "osaka-jade"
-            | "retro-82" => None,
+            | "retro-82"
+            | "solitude" => None,
             _ => None,
         },
         ThemeAppearance::Dark => match normalized.as_str() {
@@ -1529,6 +1551,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "miasma" => Some("miasma"),
             "osaka-jade" => Some("osaka-jade"),
             "retro-82" => Some("retro-82"),
+            "solitude" => Some("solitude"),
             _ => None,
         },
     }

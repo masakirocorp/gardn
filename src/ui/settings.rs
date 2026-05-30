@@ -469,6 +469,7 @@ fn theme_display_name(name: &str) -> &str {
         "miasma" => "miasma",
         "osaka-jade" => "osaka jade",
         "retro-82" => "retro 82",
+        "solitude" => "solitude",
         other => other,
     }
 }
