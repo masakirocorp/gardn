@@ -953,6 +953,24 @@ impl Palette {
         )
     }
 
+    /// Omarchy Lumon.
+    pub fn lumon() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(139, 201, 235),
+            Self::rgb(214, 226, 238),
+            Self::rgb(22, 36, 45),
+            Self::rgb(27, 45, 64),
+            Self::rgb(77, 134, 176),
+            Self::rgb(94, 149, 188),
+            Self::rgb(111, 164, 201),
+            Self::rgb(111, 184, 227),
+            Self::rgb(139, 201, 235),
+            Self::rgb(180, 228, 246),
+            Self::rgb(214, 226, 238),
+            Self::rgb(48, 72, 96),
+        )
+    }
+
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
@@ -997,6 +1015,7 @@ impl Palette {
             "flexoki-light" => Some(Self::flexoki_light()),
             "hackerman" => Some(Self::hackerman()),
             "last-horizon" => Some(Self::last_horizon()),
+            "lumon" => Some(Self::lumon()),
             _ => None,
         }
     }
@@ -1274,6 +1293,7 @@ pub const THEME_NAMES: &[&str] = &[
     "hackerman",
     "kanagawa",
     "last-horizon",
+    "lumon",
     "monokai-classic",
     "monokai-pro",
     "monokai-pro-machine",
@@ -1313,6 +1333,7 @@ pub const DARK_THEME_NAMES: &[&str] = &[
     "hackerman",
     "kanagawa",
     "last-horizon",
+    "lumon",
     "monokai-classic",
     "monokai-pro",
     "monokai-pro-machine",
@@ -1391,7 +1412,8 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             | "ethereal"
             | "everforest"
             | "hackerman"
-            | "last-horizon" => None,
+            | "last-horizon"
+            | "lumon" => None,
             _ => None,
         },
         ThemeAppearance::Dark => match normalized.as_str() {
@@ -1429,6 +1451,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "everforest" => Some("everforest"),
             "hackerman" => Some("hackerman"),
             "last-horizon" => Some("last-horizon"),
+            "lumon" => Some("lumon"),
             _ => None,
         },
     }

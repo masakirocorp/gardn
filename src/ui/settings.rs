@@ -464,6 +464,7 @@ fn theme_display_name(name: &str) -> &str {
         "flexoki-light" => "flexoki light",
         "hackerman" => "hackerman",
         "last-horizon" => "last horizon",
+        "lumon" => "lumon",
         other => other,
     }
 }
