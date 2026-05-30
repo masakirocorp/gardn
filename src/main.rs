@@ -69,9 +69,12 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 
 [theme]
 # built-in themes: system, terminal, catppuccin, catppuccin-latte,
-#                  tokyo-night, dracula, nord,
-#                  gruvbox, one-dark, solarized, kanagawa, rose-pine,
-#                  vesper
+#                  tokyo-night, dracula, nord, gruvbox, one-dark,
+#                  solarized, kanagawa, rose-pine, vesper, monokai-pro,
+#                  monokai-pro-light, monokai-pro-light-sun,
+#                  monokai-pro-spectrum, monokai-pro-ristretto,
+#                  monokai-pro-octagon, monokai-pro-machine,
+#                  monokai-classic
 # name = "catppuccin"
 
 # override individual color tokens on top of the base theme.

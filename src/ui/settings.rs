@@ -451,6 +451,14 @@ fn theme_display_name(name: &str) -> &str {
         "tokyo-night" => "tokyo night",
         "one-dark" => "one dark",
         "rose-pine" => "rose pine",
+        "monokai-pro" => "monokai pro",
+        "monokai-pro-light" => "monokai pro light",
+        "monokai-pro-light-sun" => "monokai pro sun",
+        "monokai-pro-spectrum" => "monokai pro spectrum",
+        "monokai-pro-ristretto" => "monokai pro ristretto",
+        "monokai-pro-octagon" => "monokai pro octagon",
+        "monokai-pro-machine" => "monokai pro machine",
+        "monokai-classic" => "monokai classic",
         other => other,
     }
 }

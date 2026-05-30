@@ -632,6 +632,217 @@ impl Palette {
             peach: Color::Rgb(255, 199, 153),
         }
     }
+    fn rgb(r: u8, g: u8, b: u8) -> Color {
+        Color::Rgb(r, g, b)
+    }
+
+    // Monokai variants share the same token layout; named arguments keep
+    // the copied upstream palette values auditable.
+    #[allow(clippy::too_many_arguments)]
+    fn monokai_palette(
+        accent: Color,
+        panel_bg: Color,
+        surface0: Color,
+        surface1: Color,
+        surface_dim: Color,
+        overlay0: Color,
+        overlay1: Color,
+        text: Color,
+        subtext0: Color,
+        red: Color,
+        green: Color,
+        yellow: Color,
+        peach: Color,
+        mauve: Color,
+        teal: Color,
+    ) -> Self {
+        Self {
+            accent,
+            panel_bg,
+            surface0,
+            surface1,
+            surface_dim,
+            overlay0,
+            overlay1,
+            text,
+            subtext0,
+            mauve,
+            green,
+            yellow,
+            red,
+            blue: teal,
+            teal,
+            peach,
+        }
+    }
+
+    /// Monokai Pro.
+    pub fn monokai_pro() -> Self {
+        Self::monokai_palette(
+            Self::rgb(255, 216, 102),
+            Self::rgb(34, 31, 34),
+            Self::rgb(45, 42, 46),
+            Self::rgb(64, 62, 65),
+            Self::rgb(25, 24, 26),
+            Self::rgb(114, 112, 114),
+            Self::rgb(147, 146, 147),
+            Self::rgb(252, 252, 250),
+            Self::rgb(193, 192, 192),
+            Self::rgb(255, 97, 136),
+            Self::rgb(169, 220, 118),
+            Self::rgb(255, 216, 102),
+            Self::rgb(252, 152, 103),
+            Self::rgb(171, 157, 242),
+            Self::rgb(120, 220, 232),
+        )
+    }
+
+    /// Monokai Pro Light.
+    pub fn monokai_pro_light() -> Self {
+        Self::monokai_palette(
+            Self::rgb(225, 71, 117),
+            Self::rgb(237, 231, 229),
+            Self::rgb(250, 244, 242),
+            Self::rgb(211, 205, 204),
+            Self::rgb(224, 218, 217),
+            Self::rgb(165, 159, 160),
+            Self::rgb(145, 140, 142),
+            Self::rgb(41, 36, 42),
+            Self::rgb(112, 107, 110),
+            Self::rgb(225, 71, 117),
+            Self::rgb(38, 157, 105),
+            Self::rgb(204, 122, 10),
+            Self::rgb(225, 96, 50),
+            Self::rgb(112, 88, 190),
+            Self::rgb(28, 140, 168),
+        )
+    }
+
+    /// Monokai Pro Light Sun.
+    pub fn monokai_pro_light_sun() -> Self {
+        Self::monokai_palette(
+            Self::rgb(206, 71, 112),
+            Self::rgb(238, 229, 222),
+            Self::rgb(248, 239, 231),
+            Self::rgb(210, 201, 196),
+            Self::rgb(222, 213, 208),
+            Self::rgb(165, 156, 156),
+            Self::rgb(146, 137, 138),
+            Self::rgb(44, 35, 46),
+            Self::rgb(114, 105, 109),
+            Self::rgb(206, 71, 112),
+            Self::rgb(33, 136, 113),
+            Self::rgb(177, 104, 3),
+            Self::rgb(212, 87, 43),
+            Self::rgb(104, 81, 162),
+            Self::rgb(36, 115, 182),
+        )
+    }
+
+    /// Monokai Pro Spectrum.
+    pub fn monokai_pro_spectrum() -> Self {
+        Self::monokai_palette(
+            Self::rgb(252, 229, 102),
+            Self::rgb(25, 25, 25),
+            Self::rgb(34, 34, 34),
+            Self::rgb(54, 53, 55),
+            Self::rgb(19, 19, 19),
+            Self::rgb(105, 103, 108),
+            Self::rgb(139, 136, 143),
+            Self::rgb(247, 241, 255),
+            Self::rgb(186, 182, 192),
+            Self::rgb(252, 97, 141),
+            Self::rgb(123, 216, 143),
+            Self::rgb(252, 229, 102),
+            Self::rgb(253, 147, 83),
+            Self::rgb(148, 138, 227),
+            Self::rgb(90, 212, 230),
+        )
+    }
+
+    /// Monokai Pro Ristretto.
+    pub fn monokai_pro_ristretto() -> Self {
+        Self::monokai_palette(
+            Self::rgb(249, 204, 108),
+            Self::rgb(33, 28, 28),
+            Self::rgb(44, 37, 37),
+            Self::rgb(64, 56, 56),
+            Self::rgb(25, 21, 21),
+            Self::rgb(114, 105, 106),
+            Self::rgb(148, 138, 139),
+            Self::rgb(255, 241, 243),
+            Self::rgb(195, 183, 184),
+            Self::rgb(253, 104, 131),
+            Self::rgb(173, 218, 120),
+            Self::rgb(249, 204, 108),
+            Self::rgb(243, 141, 112),
+            Self::rgb(168, 169, 235),
+            Self::rgb(133, 218, 204),
+        )
+    }
+
+    /// Monokai Pro Octagon.
+    pub fn monokai_pro_octagon() -> Self {
+        Self::monokai_palette(
+            Self::rgb(255, 215, 109),
+            Self::rgb(30, 31, 43),
+            Self::rgb(40, 42, 58),
+            Self::rgb(58, 61, 75),
+            Self::rgb(22, 24, 33),
+            Self::rgb(105, 109, 119),
+            Self::rgb(136, 141, 148),
+            Self::rgb(234, 242, 241),
+            Self::rgb(178, 185, 189),
+            Self::rgb(255, 101, 122),
+            Self::rgb(186, 215, 97),
+            Self::rgb(255, 215, 109),
+            Self::rgb(255, 155, 94),
+            Self::rgb(195, 154, 201),
+            Self::rgb(156, 209, 187),
+        )
+    }
+
+    /// Monokai Pro Machine.
+    pub fn monokai_pro_machine() -> Self {
+        Self::monokai_palette(
+            Self::rgb(255, 237, 114),
+            Self::rgb(29, 37, 40),
+            Self::rgb(39, 49, 54),
+            Self::rgb(58, 68, 73),
+            Self::rgb(22, 27, 30),
+            Self::rgb(107, 118, 120),
+            Self::rgb(139, 151, 152),
+            Self::rgb(242, 255, 252),
+            Self::rgb(184, 196, 195),
+            Self::rgb(255, 109, 126),
+            Self::rgb(162, 229, 123),
+            Self::rgb(255, 237, 114),
+            Self::rgb(255, 178, 112),
+            Self::rgb(186, 160, 248),
+            Self::rgb(124, 213, 241),
+        )
+    }
+
+    /// Monokai Classic.
+    pub fn monokai_classic() -> Self {
+        Self::monokai_palette(
+            Self::rgb(230, 219, 116),
+            Self::rgb(29, 30, 25),
+            Self::rgb(39, 40, 34),
+            Self::rgb(59, 60, 53),
+            Self::rgb(22, 22, 19),
+            Self::rgb(110, 112, 102),
+            Self::rgb(145, 146, 136),
+            Self::rgb(253, 255, 241),
+            Self::rgb(192, 193, 181),
+            Self::rgb(249, 38, 114),
+            Self::rgb(166, 226, 46),
+            Self::rgb(230, 219, 116),
+            Self::rgb(253, 151, 31),
+            Self::rgb(174, 129, 255),
+            Self::rgb(102, 217, 239),
+        )
+    }
 
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
@@ -654,6 +865,24 @@ impl Palette {
             "rose-pine" | "rosepine" => Some(Self::rose_pine()),
             "rose-pine-dawn" | "rosepine-dawn" | "dawn" => Some(Self::rose_pine_dawn()),
             "vesper" => Some(Self::vesper()),
+            "monokai-pro" | "monokai" => Some(Self::monokai_pro()),
+            "monokai-pro-light" | "monokai-light" => Some(Self::monokai_pro_light()),
+            "monokai-pro-light-sun" | "monokai-pro-sun" | "monokai-sun" | "sun" => {
+                Some(Self::monokai_pro_light_sun())
+            }
+            "monokai-pro-spectrum" | "monokai-spectrum" | "spectrum" => {
+                Some(Self::monokai_pro_spectrum())
+            }
+            "monokai-pro-ristretto" | "monokai-ristretto" | "ristretto" => {
+                Some(Self::monokai_pro_ristretto())
+            }
+            "monokai-pro-octagon" | "monokai-octagon" | "octagon" => {
+                Some(Self::monokai_pro_octagon())
+            }
+            "monokai-pro-machine" | "monokai-machine" | "machine" => {
+                Some(Self::monokai_pro_machine())
+            }
+            "monokai-classic" | "classic" => Some(Self::monokai_classic()),
             _ => None,
         }
     }
@@ -924,40 +1153,54 @@ pub const DEFAULT_LIGHT_THEME_NAME: &str = "catppuccin-latte";
 pub const THEME_NAMES: &[&str] = &[
     "system",
     DEFAULT_DARK_THEME_NAME,
+    "dracula",
+    "gruvbox",
+    "kanagawa",
+    "monokai-classic",
+    "monokai-pro",
+    "monokai-pro-machine",
+    "monokai-pro-octagon",
+    "monokai-pro-ristretto",
+    "monokai-pro-spectrum",
+    "nord",
+    "one-dark",
+    "rose-pine",
+    "solarized",
     "terminal",
     "tokyo-night",
-    "dracula",
-    "nord",
-    "gruvbox",
-    "one-dark",
-    "solarized",
-    "kanagawa",
-    "rose-pine",
     "vesper",
 ];
 
 /// Built-in concrete themes that can render a light appearance.
 pub const LIGHT_THEME_NAMES: &[&str] = &[
     DEFAULT_LIGHT_THEME_NAME,
-    "tokyo-night-day",
     "gruvbox-light",
-    "one-light",
-    "solarized-light",
     "kanagawa-lotus",
+    "monokai-pro-light",
+    "monokai-pro-light-sun",
+    "one-light",
     "rose-pine-dawn",
+    "solarized-light",
+    "tokyo-night-day",
 ];
 
 /// Built-in concrete themes that can render a dark appearance.
 pub const DARK_THEME_NAMES: &[&str] = &[
     DEFAULT_DARK_THEME_NAME,
-    "tokyo-night",
     "dracula",
-    "nord",
     "gruvbox",
-    "one-dark",
-    "solarized",
     "kanagawa",
+    "monokai-classic",
+    "monokai-pro",
+    "monokai-pro-machine",
+    "monokai-pro-octagon",
+    "monokai-pro-ristretto",
+    "monokai-pro-spectrum",
+    "nord",
+    "one-dark",
     "rose-pine",
+    "solarized",
+    "tokyo-night",
     "vesper",
 ];
 
@@ -998,7 +1241,29 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "rose-pine" | "rosepine" | "rose-pine-dawn" | "rosepine-dawn" | "dawn" => {
                 Some("rose-pine-dawn")
             }
-            "dracula" | "nord" | "vesper" => None,
+            "monokai-pro" | "monokai" | "monokai-pro-light" | "monokai-light" => {
+                Some("monokai-pro-light")
+            }
+            "monokai-pro-light-sun" | "monokai-pro-sun" | "monokai-sun" | "sun" => {
+                Some("monokai-pro-light-sun")
+            }
+            "dracula"
+            | "nord"
+            | "vesper"
+            | "monokai-pro-spectrum"
+            | "monokai-spectrum"
+            | "spectrum"
+            | "monokai-pro-ristretto"
+            | "monokai-ristretto"
+            | "ristretto"
+            | "monokai-pro-octagon"
+            | "monokai-octagon"
+            | "octagon"
+            | "monokai-pro-machine"
+            | "monokai-machine"
+            | "machine"
+            | "monokai-classic"
+            | "classic" => None,
             _ => None,
         },
         ThemeAppearance::Dark => match normalized.as_str() {
@@ -1020,6 +1285,18 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
                 Some("rose-pine")
             }
             "vesper" => Some("vesper"),
+            "monokai-pro" | "monokai" | "monokai-pro-light" | "monokai-light" => {
+                Some("monokai-pro")
+            }
+            "monokai-pro-spectrum" | "monokai-spectrum" | "spectrum" => {
+                Some("monokai-pro-spectrum")
+            }
+            "monokai-pro-ristretto" | "monokai-ristretto" | "ristretto" => {
+                Some("monokai-pro-ristretto")
+            }
+            "monokai-pro-octagon" | "monokai-octagon" | "octagon" => Some("monokai-pro-octagon"),
+            "monokai-pro-machine" | "monokai-machine" | "machine" => Some("monokai-pro-machine"),
+            "monokai-classic" | "classic" => Some("monokai-classic"),
             _ => None,
         },
     }
@@ -2123,6 +2400,24 @@ mod tests {
             assert!(
                 Palette::from_theme(name, ThemeAppearance::Light).is_some(),
                 "light theme should resolve: {name}"
+            );
+        }
+    }
+    #[test]
+    fn monokai_pro_variants_resolve() {
+        for name in [
+            "monokai-pro",
+            "monokai-pro-light",
+            "monokai-pro-light-sun",
+            "monokai-pro-spectrum",
+            "monokai-pro-ristretto",
+            "monokai-pro-octagon",
+            "monokai-pro-machine",
+            "monokai-classic",
+        ] {
+            assert!(
+                Palette::from_name(name).is_some(),
+                "monokai variant should resolve: {name}"
             );
         }
     }
