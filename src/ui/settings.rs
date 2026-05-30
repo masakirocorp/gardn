@@ -463,6 +463,7 @@ fn theme_display_name(name: &str) -> &str {
         "everforest" => "everforest",
         "flexoki-light" => "flexoki light",
         "hackerman" => "hackerman",
+        "last-horizon" => "last horizon",
         other => other,
     }
 }

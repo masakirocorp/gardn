@@ -935,6 +935,24 @@ impl Palette {
         )
     }
 
+    /// Omarchy Last Horizon.
+    pub fn last_horizon() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(181, 151, 144),
+            Self::rgb(250, 252, 251),
+            Self::rgb(12, 11, 12),
+            Self::rgb(12, 11, 12),
+            Self::rgb(195, 139, 123),
+            Self::rgb(135, 169, 176),
+            Self::rgb(107, 94, 115),
+            Self::rgb(181, 151, 144),
+            Self::rgb(196, 216, 226),
+            Self::rgb(165, 160, 182),
+            Self::rgb(207, 211, 205),
+            Self::rgb(88, 78, 81),
+        )
+    }
+
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
@@ -978,6 +996,7 @@ impl Palette {
             "everforest" => Some(Self::everforest()),
             "flexoki-light" => Some(Self::flexoki_light()),
             "hackerman" => Some(Self::hackerman()),
+            "last-horizon" => Some(Self::last_horizon()),
             _ => None,
         }
     }
@@ -1254,6 +1273,7 @@ pub const THEME_NAMES: &[&str] = &[
     "gruvbox",
     "hackerman",
     "kanagawa",
+    "last-horizon",
     "monokai-classic",
     "monokai-pro",
     "monokai-pro-machine",
@@ -1292,6 +1312,7 @@ pub const DARK_THEME_NAMES: &[&str] = &[
     "gruvbox",
     "hackerman",
     "kanagawa",
+    "last-horizon",
     "monokai-classic",
     "monokai-pro",
     "monokai-pro-machine",
@@ -1369,7 +1390,8 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             | "classic"
             | "ethereal"
             | "everforest"
-            | "hackerman" => None,
+            | "hackerman"
+            | "last-horizon" => None,
             _ => None,
         },
         ThemeAppearance::Dark => match normalized.as_str() {
@@ -1406,6 +1428,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "ethereal" => Some("ethereal"),
             "everforest" => Some("everforest"),
             "hackerman" => Some("hackerman"),
+            "last-horizon" => Some("last-horizon"),
             _ => None,
         },
     }
