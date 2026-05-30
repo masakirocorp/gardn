@@ -357,26 +357,22 @@ impl Palette {
         }
     }
 
-    /// Nord — frosty blue palette.
+    /// Nord.
     pub fn nord() -> Self {
-        Self {
-            accent: Color::Rgb(136, 192, 208), // frost
-            panel_bg: Color::Rgb(46, 52, 64),
-            surface0: Color::Rgb(59, 66, 82),
-            surface1: Color::Rgb(67, 76, 94),
-            surface_dim: Color::Rgb(46, 52, 64),
-            overlay0: Color::Rgb(76, 86, 106),
-            overlay1: Color::Rgb(100, 110, 130),
-            text: Color::Rgb(236, 239, 244),
-            subtext0: Color::Rgb(216, 222, 233),
-            mauve: Color::Rgb(180, 142, 173),
-            green: Color::Rgb(163, 190, 140),
-            yellow: Color::Rgb(235, 203, 139),
-            red: Color::Rgb(191, 97, 106),
-            blue: Color::Rgb(129, 161, 193),
-            teal: Color::Rgb(143, 188, 187),
-            peach: Color::Rgb(208, 135, 112),
-        }
+        Self::omarchy_palette(
+            Self::rgb(129, 161, 193),
+            Self::rgb(216, 222, 233),
+            Self::rgb(46, 52, 64),
+            Self::rgb(59, 66, 82),
+            Self::rgb(191, 97, 106),
+            Self::rgb(163, 190, 140),
+            Self::rgb(235, 203, 139),
+            Self::rgb(129, 161, 193),
+            Self::rgb(180, 142, 173),
+            Self::rgb(136, 192, 208),
+            Self::rgb(229, 233, 240),
+            Self::rgb(76, 86, 106),
+        )
     }
 
     /// Gruvbox.
