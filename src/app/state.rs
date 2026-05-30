@@ -129,26 +129,22 @@ pub struct Palette {
 }
 
 impl Palette {
-    /// Catppuccin Mocha — the default.
+    /// Catppuccin.
     pub fn catppuccin() -> Self {
-        Self {
-            accent: Color::Rgb(137, 180, 250), // blue
-            panel_bg: Color::Rgb(24, 24, 37),
-            surface0: Color::Rgb(49, 50, 68),
-            surface1: Color::Rgb(69, 71, 90),
-            surface_dim: Color::Rgb(30, 30, 46),
-            overlay0: Color::Rgb(108, 112, 134),
-            overlay1: Color::Rgb(127, 132, 156),
-            text: Color::Rgb(205, 214, 244),
-            subtext0: Color::Rgb(166, 173, 200),
-            mauve: Color::Rgb(203, 166, 247),
-            green: Color::Rgb(166, 227, 161),
-            yellow: Color::Rgb(249, 226, 175),
-            red: Color::Rgb(243, 139, 168),
-            blue: Color::Rgb(137, 180, 250),
-            teal: Color::Rgb(148, 226, 213),
-            peach: Color::Rgb(250, 179, 135),
-        }
+        Self::omarchy_palette(
+            Self::rgb(137, 180, 250),
+            Self::rgb(205, 214, 244),
+            Self::rgb(30, 30, 46),
+            Self::rgb(69, 71, 90),
+            Self::rgb(243, 139, 168),
+            Self::rgb(166, 227, 161),
+            Self::rgb(249, 226, 175),
+            Self::rgb(137, 180, 250),
+            Self::rgb(245, 194, 231),
+            Self::rgb(148, 226, 213),
+            Self::rgb(186, 194, 222),
+            Self::rgb(88, 91, 112),
+        )
     }
 
     /// System — respect the host terminal defaults and ANSI palette.
@@ -673,6 +669,41 @@ impl Palette {
             blue: teal,
             teal,
             peach,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn omarchy_palette(
+        accent: Color,
+        foreground: Color,
+        background: Color,
+        color0: Color,
+        color1: Color,
+        color2: Color,
+        color3: Color,
+        color4: Color,
+        color5: Color,
+        color6: Color,
+        color7: Color,
+        color8: Color,
+    ) -> Self {
+        Self {
+            accent,
+            panel_bg: background,
+            surface0: color0,
+            surface1: color8,
+            surface_dim: background,
+            overlay0: color8,
+            overlay1: color7,
+            text: foreground,
+            subtext0: color7,
+            mauve: color5,
+            green: color2,
+            yellow: color3,
+            red: color1,
+            blue: color4,
+            teal: color6,
+            peach: color3,
         }
     }
 
@@ -1247,6 +1278,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "monokai-pro-light-sun" | "monokai-pro-sun" | "monokai-sun" | "sun" => {
                 Some("monokai-pro-light-sun")
             }
+
             "dracula"
             | "nord"
             | "vesper"
@@ -1297,6 +1329,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "monokai-pro-octagon" | "monokai-octagon" | "octagon" => Some("monokai-pro-octagon"),
             "monokai-pro-machine" | "monokai-machine" | "machine" => Some("monokai-pro-machine"),
             "monokai-classic" | "classic" => Some("monokai-classic"),
+
             _ => None,
         },
     }
