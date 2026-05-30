@@ -989,6 +989,24 @@ impl Palette {
         )
     }
 
+    /// Omarchy Miasma.
+    pub fn miasma() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(120, 130, 75),
+            Self::rgb(194, 194, 176),
+            Self::rgb(34, 34, 34),
+            Self::rgb(0, 0, 0),
+            Self::rgb(104, 87, 66),
+            Self::rgb(95, 135, 95),
+            Self::rgb(179, 109, 67),
+            Self::rgb(120, 130, 75),
+            Self::rgb(187, 119, 68),
+            Self::rgb(201, 165, 84),
+            Self::rgb(215, 196, 131),
+            Self::rgb(102, 102, 102),
+        )
+    }
+
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
@@ -1035,6 +1053,7 @@ impl Palette {
             "last-horizon" => Some(Self::last_horizon()),
             "lumon" => Some(Self::lumon()),
             "matte-black" => Some(Self::matte_black()),
+            "miasma" => Some(Self::miasma()),
             _ => None,
         }
     }
@@ -1314,6 +1333,7 @@ pub const THEME_NAMES: &[&str] = &[
     "last-horizon",
     "lumon",
     "matte-black",
+    "miasma",
     "monokai-classic",
     "monokai-pro",
     "monokai-pro-machine",
@@ -1355,6 +1375,7 @@ pub const DARK_THEME_NAMES: &[&str] = &[
     "last-horizon",
     "lumon",
     "matte-black",
+    "miasma",
     "monokai-classic",
     "monokai-pro",
     "monokai-pro-machine",
@@ -1435,7 +1456,8 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             | "hackerman"
             | "last-horizon"
             | "lumon"
-            | "matte-black" => None,
+            | "matte-black"
+            | "miasma" => None,
             _ => None,
         },
         ThemeAppearance::Dark => match normalized.as_str() {
@@ -1475,6 +1497,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "last-horizon" => Some("last-horizon"),
             "lumon" => Some("lumon"),
             "matte-black" => Some("matte-black"),
+            "miasma" => Some("miasma"),
             _ => None,
         },
     }

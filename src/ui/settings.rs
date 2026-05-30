@@ -466,6 +466,7 @@ fn theme_display_name(name: &str) -> &str {
         "last-horizon" => "last horizon",
         "lumon" => "lumon",
         "matte-black" => "matte black",
+        "miasma" => "miasma",
         other => other,
     }
 }
