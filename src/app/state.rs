@@ -379,26 +379,22 @@ impl Palette {
         }
     }
 
-    /// Gruvbox Dark — warm retro palette.
+    /// Gruvbox.
     pub fn gruvbox() -> Self {
-        Self {
-            accent: Color::Rgb(215, 153, 33), // yellow
-            panel_bg: Color::Rgb(40, 40, 40),
-            surface0: Color::Rgb(60, 56, 54),
-            surface1: Color::Rgb(80, 73, 69),
-            surface_dim: Color::Rgb(40, 40, 40),
-            overlay0: Color::Rgb(146, 131, 116),
-            overlay1: Color::Rgb(168, 153, 132),
-            text: Color::Rgb(235, 219, 178),
-            subtext0: Color::Rgb(213, 196, 161),
-            mauve: Color::Rgb(211, 134, 155),
-            green: Color::Rgb(184, 187, 38),
-            yellow: Color::Rgb(250, 189, 47),
-            red: Color::Rgb(251, 73, 52),
-            blue: Color::Rgb(131, 165, 152),
-            teal: Color::Rgb(142, 192, 124),
-            peach: Color::Rgb(254, 128, 25),
-        }
+        Self::omarchy_palette(
+            Self::rgb(125, 174, 163),
+            Self::rgb(212, 190, 152),
+            Self::rgb(40, 40, 40),
+            Self::rgb(60, 56, 54),
+            Self::rgb(234, 105, 98),
+            Self::rgb(169, 182, 101),
+            Self::rgb(216, 166, 87),
+            Self::rgb(125, 174, 163),
+            Self::rgb(211, 134, 155),
+            Self::rgb(137, 180, 130),
+            Self::rgb(212, 190, 152),
+            Self::rgb(60, 56, 54),
+        )
     }
 
     /// Gruvbox Light.
