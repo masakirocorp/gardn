@@ -245,24 +245,20 @@ impl Palette {
 
     /// Catppuccin Latte.
     pub fn catppuccin_light() -> Self {
-        Self {
-            accent: Color::Rgb(30, 102, 245),
-            panel_bg: Color::Rgb(239, 241, 245),
-            surface0: Color::Rgb(204, 208, 218),
-            surface1: Color::Rgb(188, 192, 204),
-            surface_dim: Color::Rgb(220, 224, 232),
-            overlay0: Color::Rgb(108, 111, 133),
-            overlay1: Color::Rgb(92, 95, 119),
-            text: Color::Rgb(76, 79, 105),
-            subtext0: Color::Rgb(108, 111, 133),
-            mauve: Color::Rgb(136, 57, 239),
-            green: Color::Rgb(64, 160, 43),
-            yellow: Color::Rgb(223, 142, 29),
-            red: Color::Rgb(210, 15, 57),
-            blue: Color::Rgb(30, 102, 245),
-            teal: Color::Rgb(23, 146, 153),
-            peach: Color::Rgb(254, 100, 11),
-        }
+        Self::omarchy_palette(
+            Self::rgb(30, 102, 245),
+            Self::rgb(76, 79, 105),
+            Self::rgb(239, 241, 245),
+            Self::rgb(188, 192, 204),
+            Self::rgb(210, 15, 57),
+            Self::rgb(64, 160, 43),
+            Self::rgb(223, 142, 29),
+            Self::rgb(30, 102, 245),
+            Self::rgb(234, 118, 203),
+            Self::rgb(23, 146, 153),
+            Self::rgb(92, 95, 119),
+            Self::rgb(172, 176, 190),
+        )
     }
 
     pub fn catppuccin_latte() -> Self {
