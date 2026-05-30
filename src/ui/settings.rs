@@ -442,6 +442,9 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
 fn theme_display_name(name: &str) -> &str {
     match name {
         "catppuccin-latte" => "catppuccin latte",
+        "catppuccin" => "catppuccin mocha",
+        "catppuccin-frappe" => "catppuccin frappe",
+        "catppuccin-macchiato" => "catppuccin macchiato",
         "tokyo-night-day" => "tokyo night day",
         "gruvbox-light" => "gruvbox",
         "one-light" => "one",

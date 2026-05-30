@@ -129,21 +129,134 @@ pub struct Palette {
 }
 
 impl Palette {
-    /// Catppuccin.
+    #[allow(clippy::too_many_arguments)]
+    fn catppuccin_palette(
+        accent: Color,
+        panel_bg: Color,
+        surface0: Color,
+        surface1: Color,
+        surface_dim: Color,
+        overlay0: Color,
+        overlay1: Color,
+        text: Color,
+        subtext0: Color,
+        mauve: Color,
+        green: Color,
+        yellow: Color,
+        red: Color,
+        blue: Color,
+        teal: Color,
+        peach: Color,
+    ) -> Self {
+        Self {
+            accent,
+            panel_bg,
+            surface0,
+            surface1,
+            surface_dim,
+            overlay0,
+            overlay1,
+            text,
+            subtext0,
+            mauve,
+            green,
+            yellow,
+            red,
+            blue,
+            teal,
+            peach,
+        }
+    }
+
+    /// Catppuccin Mocha.
     pub fn catppuccin() -> Self {
-        Self::omarchy_palette(
+        Self::catppuccin_palette(
             Self::rgb(137, 180, 250),
-            Self::rgb(205, 214, 244),
             Self::rgb(30, 30, 46),
+            Self::rgb(49, 50, 68),
             Self::rgb(69, 71, 90),
-            Self::rgb(243, 139, 168),
+            Self::rgb(24, 24, 37),
+            Self::rgb(108, 112, 134),
+            Self::rgb(127, 132, 156),
+            Self::rgb(205, 214, 244),
+            Self::rgb(166, 173, 200),
+            Self::rgb(203, 166, 247),
             Self::rgb(166, 227, 161),
             Self::rgb(249, 226, 175),
+            Self::rgb(243, 139, 168),
             Self::rgb(137, 180, 250),
-            Self::rgb(245, 194, 231),
             Self::rgb(148, 226, 213),
-            Self::rgb(186, 194, 222),
-            Self::rgb(88, 91, 112),
+            Self::rgb(250, 179, 135),
+        )
+    }
+
+    /// Catppuccin Latte.
+    pub fn catppuccin_light() -> Self {
+        Self::catppuccin_palette(
+            Self::rgb(30, 102, 245),
+            Self::rgb(239, 241, 245),
+            Self::rgb(204, 208, 218),
+            Self::rgb(188, 192, 204),
+            Self::rgb(230, 233, 239),
+            Self::rgb(156, 160, 176),
+            Self::rgb(140, 143, 161),
+            Self::rgb(76, 79, 105),
+            Self::rgb(108, 111, 133),
+            Self::rgb(136, 57, 239),
+            Self::rgb(64, 160, 43),
+            Self::rgb(223, 142, 29),
+            Self::rgb(210, 15, 57),
+            Self::rgb(30, 102, 245),
+            Self::rgb(23, 146, 153),
+            Self::rgb(254, 100, 11),
+        )
+    }
+
+    pub fn catppuccin_latte() -> Self {
+        Self::catppuccin_light()
+    }
+
+    /// Catppuccin Frappé.
+    pub fn catppuccin_frappe() -> Self {
+        Self::catppuccin_palette(
+            Self::rgb(140, 170, 238),
+            Self::rgb(48, 52, 70),
+            Self::rgb(65, 69, 89),
+            Self::rgb(81, 87, 109),
+            Self::rgb(41, 44, 60),
+            Self::rgb(115, 121, 148),
+            Self::rgb(131, 139, 167),
+            Self::rgb(198, 208, 245),
+            Self::rgb(165, 173, 206),
+            Self::rgb(202, 158, 230),
+            Self::rgb(166, 209, 137),
+            Self::rgb(229, 200, 144),
+            Self::rgb(231, 130, 132),
+            Self::rgb(140, 170, 238),
+            Self::rgb(129, 200, 190),
+            Self::rgb(239, 159, 118),
+        )
+    }
+
+    /// Catppuccin Macchiato.
+    pub fn catppuccin_macchiato() -> Self {
+        Self::catppuccin_palette(
+            Self::rgb(138, 173, 244),
+            Self::rgb(36, 39, 58),
+            Self::rgb(54, 58, 79),
+            Self::rgb(73, 77, 100),
+            Self::rgb(30, 32, 48),
+            Self::rgb(110, 115, 141),
+            Self::rgb(128, 135, 162),
+            Self::rgb(202, 211, 245),
+            Self::rgb(165, 173, 203),
+            Self::rgb(198, 160, 246),
+            Self::rgb(166, 218, 149),
+            Self::rgb(238, 212, 159),
+            Self::rgb(237, 135, 150),
+            Self::rgb(138, 173, 244),
+            Self::rgb(139, 213, 202),
+            Self::rgb(245, 169, 127),
         )
     }
 
@@ -242,29 +355,6 @@ impl Palette {
         };
         Color::Rgb(adjust(r), adjust(g), adjust(b))
     }
-
-    /// Catppuccin Latte.
-    pub fn catppuccin_light() -> Self {
-        Self::omarchy_palette(
-            Self::rgb(30, 102, 245),
-            Self::rgb(76, 79, 105),
-            Self::rgb(239, 241, 245),
-            Self::rgb(188, 192, 204),
-            Self::rgb(210, 15, 57),
-            Self::rgb(64, 160, 43),
-            Self::rgb(223, 142, 29),
-            Self::rgb(30, 102, 245),
-            Self::rgb(234, 118, 203),
-            Self::rgb(23, 146, 153),
-            Self::rgb(92, 95, 119),
-            Self::rgb(172, 176, 190),
-        )
-    }
-
-    pub fn catppuccin_latte() -> Self {
-        Self::catppuccin_light()
-    }
-
     /// Terminal 16-color theme.
     pub fn terminal() -> Self {
         Self {
@@ -1084,8 +1174,10 @@ impl Palette {
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
-            "catppuccin" | "catppuccin-mocha" => Some(Self::catppuccin()),
+            "catppuccin" | "catppuccin-mocha" | "mocha" => Some(Self::catppuccin()),
             "catppuccin-latte" | "latte" | "light" => Some(Self::catppuccin_latte()),
+            "catppuccin-frappe" | "frappe" => Some(Self::catppuccin_frappe()),
+            "catppuccin-macchiato" | "macchiato" => Some(Self::catppuccin_macchiato()),
             "terminal" => Some(Self::terminal()),
             "tokyo-night" | "tokyonight" => Some(Self::tokyo_night()),
             "tokyo-night-day" | "tokyo-day" | "tokyonight-day" => Some(Self::tokyo_night_day()),
@@ -1403,6 +1495,8 @@ pub const DEFAULT_LIGHT_THEME_NAME: &str = "catppuccin-latte";
 pub const THEME_NAMES: &[&str] = &[
     "system",
     DEFAULT_DARK_THEME_NAME,
+    "catppuccin-frappe",
+    "catppuccin-macchiato",
     "dracula",
     "ethereal",
     "everforest",
@@ -1450,6 +1544,8 @@ pub const LIGHT_THEME_NAMES: &[&str] = &[
 /// Built-in concrete themes that can render a dark appearance.
 pub const DARK_THEME_NAMES: &[&str] = &[
     DEFAULT_DARK_THEME_NAME,
+    "catppuccin-frappe",
+    "catppuccin-macchiato",
     "dracula",
     "ethereal",
     "everforest",
@@ -1502,9 +1598,8 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
         ThemeAppearance::Light => match normalized.as_str() {
             "system" => Some("system"),
             "terminal" => Some("terminal"),
-            "catppuccin" | "catppuccin-mocha" | "catppuccin-latte" | "latte" | "light" => {
-                Some("catppuccin-latte")
-            }
+            "catppuccin" | "catppuccin-mocha" | "catppuccin-latte" | "latte" | "light"
+            | "mocha" => Some("catppuccin-latte"),
             "tokyo-night" | "tokyonight" | "tokyo-night-day" | "tokyo-day" | "tokyonight-day" => {
                 Some("tokyo-night-day")
             }
@@ -1526,6 +1621,10 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "dracula"
             | "nord"
             | "vesper"
+            | "catppuccin-frappe"
+            | "frappe"
+            | "catppuccin-macchiato"
+            | "macchiato"
             | "monokai-pro-spectrum"
             | "monokai-spectrum"
             | "spectrum"
@@ -1556,9 +1655,10 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
         ThemeAppearance::Dark => match normalized.as_str() {
             "system" => Some("system"),
             "terminal" => Some("terminal"),
-            "catppuccin" | "catppuccin-mocha" | "catppuccin-latte" | "latte" | "light" => {
-                Some("catppuccin")
-            }
+            "catppuccin" | "catppuccin-mocha" | "mocha" | "catppuccin-latte" | "latte"
+            | "light" => Some("catppuccin"),
+            "catppuccin-frappe" | "frappe" => Some("catppuccin-frappe"),
+            "catppuccin-macchiato" | "macchiato" => Some("catppuccin-macchiato"),
             "tokyo-night" | "tokyonight" | "tokyo-night-day" | "tokyo-day" | "tokyonight-day" => {
                 Some("tokyo-night")
             }
@@ -2718,6 +2818,44 @@ mod tests {
                 "monokai variant should resolve: {name}"
             );
         }
+    }
+    #[test]
+    fn catppuccin_flavors_resolve() {
+        for name in [
+            "catppuccin-latte",
+            "catppuccin-frappe",
+            "catppuccin-macchiato",
+            "catppuccin",
+            "catppuccin-mocha",
+        ] {
+            assert!(
+                Palette::from_name(name).is_some(),
+                "catppuccin flavor should resolve: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn catppuccin_flavors_use_official_palette_values() {
+        let latte = Palette::from_name("catppuccin-latte").expect("latte");
+        assert_eq!(latte.panel_bg, Color::Rgb(239, 241, 245));
+        assert_eq!(latte.surface0, Color::Rgb(204, 208, 218));
+        assert_eq!(latte.text, Color::Rgb(76, 79, 105));
+
+        let frappe = Palette::from_name("catppuccin-frappe").expect("frappe");
+        assert_eq!(frappe.panel_bg, Color::Rgb(48, 52, 70));
+        assert_eq!(frappe.surface0, Color::Rgb(65, 69, 89));
+        assert_eq!(frappe.text, Color::Rgb(198, 208, 245));
+
+        let macchiato = Palette::from_name("catppuccin-macchiato").expect("macchiato");
+        assert_eq!(macchiato.panel_bg, Color::Rgb(36, 39, 58));
+        assert_eq!(macchiato.surface0, Color::Rgb(54, 58, 79));
+        assert_eq!(macchiato.text, Color::Rgb(202, 211, 245));
+
+        let mocha = Palette::from_name("catppuccin").expect("mocha");
+        assert_eq!(mocha.panel_bg, Color::Rgb(30, 30, 46));
+        assert_eq!(mocha.surface0, Color::Rgb(49, 50, 68));
+        assert_eq!(mocha.text, Color::Rgb(205, 214, 244));
     }
 
     #[test]
