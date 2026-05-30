@@ -973,21 +973,86 @@ impl Palette {
         )
     }
 
-    /// Omarchy Flexoki Light.
+    #[allow(clippy::too_many_arguments)]
+    fn flexoki_palette(
+        accent: Color,
+        panel_bg: Color,
+        surface0: Color,
+        surface1: Color,
+        surface_dim: Color,
+        overlay0: Color,
+        overlay1: Color,
+        text: Color,
+        subtext0: Color,
+        mauve: Color,
+        green: Color,
+        yellow: Color,
+        red: Color,
+        blue: Color,
+        teal: Color,
+        peach: Color,
+    ) -> Self {
+        Self {
+            accent,
+            panel_bg,
+            surface0,
+            surface1,
+            surface_dim,
+            overlay0,
+            overlay1,
+            text,
+            subtext0,
+            mauve,
+            green,
+            yellow,
+            red,
+            blue,
+            teal,
+            peach,
+        }
+    }
+
+    /// Flexoki Light.
     pub fn flexoki_light() -> Self {
-        Self::omarchy_palette(
-            Self::rgb(32, 94, 166),
-            Self::rgb(16, 15, 15),
+        Self::flexoki_palette(
+            Self::rgb(36, 131, 123),
             Self::rgb(255, 252, 240),
-            Self::rgb(218, 216, 206),
-            Self::rgb(209, 77, 65),
+            Self::rgb(230, 228, 217),
+            Self::rgb(206, 205, 195),
+            Self::rgb(242, 240, 229),
+            Self::rgb(183, 181, 172),
+            Self::rgb(111, 110, 105),
+            Self::rgb(16, 15, 15),
+            Self::rgb(111, 110, 105),
+            Self::rgb(94, 64, 157),
+            Self::rgb(102, 128, 11),
+            Self::rgb(173, 131, 1),
+            Self::rgb(175, 48, 41),
+            Self::rgb(32, 94, 166),
+            Self::rgb(36, 131, 123),
+            Self::rgb(188, 82, 21),
+        )
+    }
+
+    /// Flexoki.
+    pub fn flexoki() -> Self {
+        Self::flexoki_palette(
+            Self::rgb(58, 169, 159),
+            Self::rgb(16, 15, 15),
+            Self::rgb(40, 39, 38),
+            Self::rgb(64, 62, 60),
+            Self::rgb(28, 27, 26),
+            Self::rgb(87, 86, 83),
+            Self::rgb(135, 133, 128),
+            Self::rgb(206, 205, 195),
+            Self::rgb(135, 133, 128),
+            Self::rgb(139, 126, 200),
             Self::rgb(135, 154, 57),
             Self::rgb(208, 162, 21),
-            Self::rgb(32, 94, 166),
-            Self::rgb(206, 93, 151),
+            Self::rgb(209, 77, 65),
+            Self::rgb(67, 133, 190),
             Self::rgb(58, 169, 159),
-            Self::rgb(183, 181, 172),
-            Self::rgb(16, 15, 15),
+            Self::rgb(218, 112, 44),
         )
     }
 
@@ -1214,6 +1279,7 @@ impl Palette {
             "monokai-classic" | "classic" => Some(Self::monokai_classic()),
             "ethereal" => Some(Self::ethereal()),
             "everforest" => Some(Self::everforest()),
+            "flexoki" => Some(Self::flexoki()),
             "flexoki-light" => Some(Self::flexoki_light()),
             "hackerman" => Some(Self::hackerman()),
             "last-horizon" => Some(Self::last_horizon()),
@@ -1500,6 +1566,7 @@ pub const THEME_NAMES: &[&str] = &[
     "dracula",
     "ethereal",
     "everforest",
+    "flexoki",
     "gruvbox",
     "hackerman",
     "kanagawa",
@@ -1549,6 +1616,7 @@ pub const DARK_THEME_NAMES: &[&str] = &[
     "dracula",
     "ethereal",
     "everforest",
+    "flexoki",
     "gruvbox",
     "hackerman",
     "kanagawa",
@@ -1616,7 +1684,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "monokai-pro-light-sun" | "monokai-pro-sun" | "monokai-sun" | "sun" => {
                 Some("monokai-pro-light-sun")
             }
-            "flexoki-light" => Some("flexoki-light"),
+            "flexoki" | "flexoki-light" => Some("flexoki-light"),
             "white" => Some("white"),
             "dracula"
             | "nord"
@@ -1686,6 +1754,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "monokai-classic" | "classic" => Some("monokai-classic"),
             "ethereal" => Some("ethereal"),
             "everforest" => Some("everforest"),
+            "flexoki" | "flexoki-light" => Some("flexoki"),
             "hackerman" => Some("hackerman"),
             "last-horizon" => Some("last-horizon"),
             "lumon" => Some("lumon"),
@@ -2856,6 +2925,24 @@ mod tests {
         assert_eq!(mocha.panel_bg, Color::Rgb(30, 30, 46));
         assert_eq!(mocha.surface0, Color::Rgb(49, 50, 68));
         assert_eq!(mocha.text, Color::Rgb(205, 214, 244));
+    }
+    #[test]
+    fn flexoki_variants_use_official_website_values() {
+        let light = Palette::from_name("flexoki-light").expect("flexoki light");
+        assert_eq!(light.accent, Color::Rgb(36, 131, 123));
+        assert_eq!(light.panel_bg, Color::Rgb(255, 252, 240));
+        assert_eq!(light.surface_dim, Color::Rgb(242, 240, 229));
+        assert_eq!(light.surface0, Color::Rgb(230, 228, 217));
+        assert_eq!(light.surface1, Color::Rgb(206, 205, 195));
+        assert_eq!(light.text, Color::Rgb(16, 15, 15));
+
+        let dark = Palette::from_name("flexoki").expect("flexoki");
+        assert_eq!(dark.accent, Color::Rgb(58, 169, 159));
+        assert_eq!(dark.panel_bg, Color::Rgb(16, 15, 15));
+        assert_eq!(dark.surface_dim, Color::Rgb(28, 27, 26));
+        assert_eq!(dark.surface0, Color::Rgb(40, 39, 38));
+        assert_eq!(dark.surface1, Color::Rgb(64, 62, 60));
+        assert_eq!(dark.text, Color::Rgb(206, 205, 195));
     }
 
     #[test]
