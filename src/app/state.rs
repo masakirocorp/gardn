@@ -921,6 +921,24 @@ impl Palette {
         )
     }
 
+    /// Omarchy Hackerman.
+    pub fn hackerman() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(130, 251, 156),
+            Self::rgb(221, 247, 255),
+            Self::rgb(11, 12, 22),
+            Self::rgb(62, 64, 88),
+            Self::rgb(80, 248, 114),
+            Self::rgb(79, 232, 143),
+            Self::rgb(80, 247, 212),
+            Self::rgb(130, 157, 212),
+            Self::rgb(134, 167, 223),
+            Self::rgb(124, 248, 247),
+            Self::rgb(133, 225, 251),
+            Self::rgb(106, 110, 149),
+        )
+    }
+
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
@@ -963,6 +981,7 @@ impl Palette {
             "ethereal" => Some(Self::ethereal()),
             "everforest" => Some(Self::everforest()),
             "flexoki-light" => Some(Self::flexoki_light()),
+            "hackerman" => Some(Self::hackerman()),
             _ => None,
         }
     }
@@ -1237,6 +1256,7 @@ pub const THEME_NAMES: &[&str] = &[
     "ethereal",
     "everforest",
     "gruvbox",
+    "hackerman",
     "kanagawa",
     "monokai-classic",
     "monokai-pro",
@@ -1274,6 +1294,7 @@ pub const DARK_THEME_NAMES: &[&str] = &[
     "ethereal",
     "everforest",
     "gruvbox",
+    "hackerman",
     "kanagawa",
     "monokai-classic",
     "monokai-pro",
@@ -1351,7 +1372,8 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             | "monokai-classic"
             | "classic"
             | "ethereal"
-            | "everforest" => None,
+            | "everforest"
+            | "hackerman" => None,
             _ => None,
         },
         ThemeAppearance::Dark => match normalized.as_str() {
@@ -1387,6 +1409,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "monokai-classic" | "classic" => Some("monokai-classic"),
             "ethereal" => Some("ethereal"),
             "everforest" => Some("everforest"),
+            "hackerman" => Some("hackerman"),
             _ => None,
         },
     }

@@ -462,6 +462,7 @@ fn theme_display_name(name: &str) -> &str {
         "ethereal" => "ethereal",
         "everforest" => "everforest",
         "flexoki-light" => "flexoki light",
+        "hackerman" => "hackerman",
         other => other,
     }
 }
