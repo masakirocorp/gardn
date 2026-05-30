@@ -99,6 +99,10 @@ impl App {
                     Mode::AgentMenu => handle_agent_menu_key(&mut self.state, key_event),
                     Mode::KeybindHelp => handle_keybind_help_key(&mut self.state, key_event),
                     Mode::Navigator => handle_navigator_key(&mut self.state, key_event),
+                    Mode::CommandPalette if key_event.code == KeyCode::Enter => {
+                        self.execute_selected_command_palette_command_interactive()
+                            .await
+                    }
                     Mode::CommandPalette => self.handle_command_palette_key(key_event),
                     Mode::Terminal => unreachable!(),
                 }

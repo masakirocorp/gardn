@@ -2116,6 +2116,7 @@ pub struct AppState {
     pub request_new_workspace: bool,
     pub request_new_tab: bool,
     pub request_reload_config: bool,
+    pub request_open_git_diff: bool,
     /// Set when the headless server should ask attached clients to reload
     /// their client-local sound config from disk.
     pub request_client_config_reload: bool,
@@ -2668,6 +2669,7 @@ impl AppState {
             request_new_workspace: false,
             request_new_tab: false,
             request_reload_config: false,
+            request_open_git_diff: false,
             request_client_config_reload: false,
             request_clipboard_write: None,
             request_command_action: None,

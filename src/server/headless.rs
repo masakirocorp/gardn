@@ -287,6 +287,10 @@ impl HeadlessServer {
                 needs_render = true;
             }
 
+            if self.handle_open_git_diff_request() {
+                needs_render = true;
+            }
+
             if let Some(action) = self.app.state.request_command_action.take() {
                 match action {
                     app::state::CommandPanelAction::RunOrFocus(command_id) => {
@@ -880,6 +884,29 @@ impl HeadlessServer {
         for client_id in client_ids {
             self.send_client_graphics_cleanup(client_id);
         }
+    }
+
+    fn handle_open_git_diff_request(&mut self) -> bool {
+        if !self.app.state.request_open_git_diff {
+            return false;
+        }
+
+        self.app.state.request_open_git_diff = false;
+        if let Err(err) = self
+            .app
+            .state
+            .open_git_diff_panel(&mut self.app.terminal_runtimes)
+        {
+            self.app.state.toast = Some(app::state::ToastNotification {
+                kind: app::state::ToastKind::NeedsAttention,
+                title: "git diff failed".to_string(),
+                context: err,
+                target: None,
+            });
+            self.app.toast_deadline = Some(Instant::now() + Duration::from_secs(8));
+        }
+
+        true
     }
 
     fn update_client_host_theme_from_events(
@@ -2822,6 +2849,26 @@ mod tests {
         server.handle_scheduled_tasks_headless(now);
 
         assert_eq!(server.app.next_port_scan, now + app::PORT_SCAN_INTERVAL);
+    }
+
+    #[test]
+    fn headless_handles_git_diff_open_request() {
+        let mut server = test_headless_server();
+        server.app.state.request_open_git_diff = true;
+
+        assert!(server.handle_open_git_diff_request());
+
+        assert!(!server.app.state.request_open_git_diff);
+        assert_eq!(
+            server
+                .app
+                .state
+                .toast
+                .as_ref()
+                .map(|toast| toast.title.as_str()),
+            Some("git diff failed")
+        );
+        assert!(server.app.toast_deadline.is_some());
     }
 
     fn temp_project(name: &str) -> PathBuf {

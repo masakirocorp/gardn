@@ -519,6 +519,7 @@ impl App {
             request_new_workspace: false,
             request_new_tab: false,
             request_reload_config: false,
+            request_open_git_diff: false,
             request_client_config_reload: false,
             request_clipboard_write: None,
             request_command_action: None,
@@ -891,6 +892,23 @@ impl App {
             if self.state.request_reload_config {
                 self.state.request_reload_config = false;
                 self.reload_config();
+                needs_render = true;
+            }
+
+            if self.state.request_open_git_diff {
+                self.state.request_open_git_diff = false;
+                self.refresh_host_terminal_theme_for(Duration::from_millis(500))
+                    .await;
+                let previous_toast = self.state.toast.clone();
+                if let Err(err) = self.state.open_git_diff_panel(&mut self.terminal_runtimes) {
+                    self.state.toast = Some(crate::app::state::ToastNotification {
+                        kind: crate::app::state::ToastKind::NeedsAttention,
+                        title: "git diff failed".to_string(),
+                        context: err,
+                        target: None,
+                    });
+                    self.sync_toast_deadline(previous_toast);
+                }
                 needs_render = true;
             }
 

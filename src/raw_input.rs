@@ -202,7 +202,7 @@ impl RawInputByteFramer {
             return chunks;
         }
 
-        if starts_with_incomplete_default_color_response(&self.buffer) {
+        if starts_with_incomplete_host_color_response(&self.buffer) {
             tracing::trace!(
                 len = self.buffer.len(),
                 "waiting for host color response terminator"
@@ -521,13 +521,16 @@ enum ControlString {
     },
 }
 
-fn starts_with_incomplete_default_color_response(buffer: &[u8]) -> bool {
+fn starts_with_incomplete_host_color_response(buffer: &[u8]) -> bool {
     matches!(
         control_string(buffer),
         Some(ControlString::Incomplete {
             family: ControlStringFamily::Osc
         })
-    ) && matches!(buffer.get(..5), Some(b"\x1b]10;" | b"\x1b]11;"))
+    ) && (buffer.starts_with(b"\x1b]4;")
+        || buffer.starts_with(b"\x1b]10;")
+        || buffer.starts_with(b"\x1b]11;")
+        || buffer.starts_with(b"\x1b]12;"))
 }
 
 fn control_string(buffer: &[u8]) -> Option<ControlString> {
@@ -541,6 +544,7 @@ fn control_string(buffer: &[u8]) -> Option<ControlString> {
         Some(len) => ControlString::Complete { len, family },
         None => ControlString::Incomplete { family },
     })
+}
 }
 
 fn first_complete_utf8_char_len(buffer: &[u8]) -> Option<usize> {
@@ -1628,6 +1632,26 @@ mod tests {
     }
 
     #[test]
+    fn flush_incomplete_input_bytes_keeps_split_palette_response_buffered() {
+        let mut buffer = b"\x1b]4;2;rgb:a6a6/e3e3/a1a1\x1b".to_vec();
+
+        let flushed = flush_incomplete_input_bytes(&mut buffer);
+
+        assert!(flushed.is_none());
+        assert_eq!(buffer, b"\x1b]4;2;rgb:a6a6/e3e3/a1a1\x1b");
+    }
+
+    #[test]
+    fn flush_incomplete_input_bytes_keeps_split_cursor_response_buffered() {
+        let mut buffer = b"\x1b]12;rgb:f5f5/e0e0/dc".to_vec();
+
+        let flushed = flush_incomplete_input_bytes(&mut buffer);
+
+        assert!(flushed.is_none());
+        assert_eq!(buffer, b"\x1b]12;rgb:f5f5/e0e0/dc");
+    }
+
+    #[test]
     fn flush_incomplete_input_bytes_drops_string_introducers_after_timeout() {
         for bytes in [
             b"\x1b]".as_slice(),
@@ -1723,6 +1747,7 @@ mod tests {
         assert!(matches!(event, RawInputEvent::Unsupported));
         assert_eq!(consumed, b"\x1bPabc\x07def\x1b\\".len());
     }
+
     #[test]
     fn non_osc_default_color_text_remains_key_input() {
         let events = parse_raw_input_bytes_sync(b"11;rgb:2828/2a2a/3636\x07");

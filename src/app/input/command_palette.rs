@@ -71,6 +71,34 @@ impl App {
     }
 }
 
+impl App {
+    pub(super) async fn execute_selected_command_palette_command_interactive(&mut self) {
+        let commands = command_palette_visible_commands(&self.state);
+        let Some(command) = commands.get(self.state.command_palette.selected).cloned() else {
+            return;
+        };
+
+        if command.action == CommandPaletteAction::OpenGitDiff {
+            leave_command_palette(&mut self.state);
+            self.refresh_host_terminal_theme_for(std::time::Duration::from_millis(500))
+                .await;
+            let previous_toast = self.state.toast.clone();
+            if let Err(err) = self.state.open_git_diff_panel(&mut self.terminal_runtimes) {
+                self.state.toast = Some(crate::app::state::ToastNotification {
+                    kind: crate::app::state::ToastKind::NeedsAttention,
+                    title: "git diff failed".to_string(),
+                    context: err,
+                    target: None,
+                });
+                self.sync_toast_deadline(previous_toast);
+            }
+            return;
+        }
+
+        execute_command_palette_action(self, command.action);
+    }
+}
+
 fn leave_command_palette(state: &mut AppState) {
     state.mode = if state.active.is_some() {
         Mode::Terminal
@@ -441,19 +469,7 @@ fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
         }
         CommandPaletteAction::PreviousAgent => app.state.previous_agent(),
         CommandPaletteAction::NextAgent => app.state.next_agent(),
-        CommandPaletteAction::OpenGitDiff => {
-            let previous_toast = app.state.toast.clone();
-            if let Err(err) = app.state.open_git_diff_panel(&mut app.terminal_runtimes) {
-                app.state.toast = Some(crate::app::state::ToastNotification {
-                    kind: crate::app::state::ToastKind::NeedsAttention,
-                    title: "git diff failed".to_string(),
-                    context: err,
-                    target: None,
-                });
-                app.sync_toast_deadline(previous_toast);
-            }
-            return;
-        }
+        CommandPaletteAction::OpenGitDiff => app.state.request_open_git_diff = true,
         CommandPaletteAction::ToggleSidebar => {
             app.state.sidebar_collapsed = !app.state.sidebar_collapsed;
             app.state.mark_session_dirty();
@@ -552,6 +568,17 @@ mod tests {
         app.handle_command_palette_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
 
         assert_eq!(app.state.workspaces[0].active_tab_index(), 1);
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn command_palette_enter_requests_git_diff_and_closes_palette() {
+        let mut app = app_with_space();
+        app.state.command_palette.query = "open git diff".to_string();
+
+        app.handle_command_palette_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+
+        assert!(app.state.request_open_git_diff);
         assert_eq!(app.state.mode, Mode::Terminal);
     }
 
