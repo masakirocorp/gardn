@@ -119,8 +119,17 @@ impl ClientConnection {
     ) -> bool {
         let mut next_theme = self.host_terminal_theme;
         for event in events {
-            if let crate::raw_input::RawInputEvent::HostDefaultColor { kind, color } = event {
-                next_theme = next_theme.with_color(*kind, *color);
+            match event {
+                crate::raw_input::RawInputEvent::HostDefaultColor { kind, color } => {
+                    next_theme = next_theme.with_color(*kind, *color);
+                }
+                crate::raw_input::RawInputEvent::HostPaletteColor { index, color } => {
+                    next_theme = next_theme.with_palette_color(*index, *color);
+                }
+                crate::raw_input::RawInputEvent::HostCursorColor { color } => {
+                    next_theme = next_theme.with_cursor_color(*color);
+                }
+                _ => {}
             }
         }
 
@@ -205,4 +214,65 @@ pub(crate) fn render_targets(
 
     targets.sort_by_key(|(client_id, _, _, is_foreground, _)| (*is_foreground, *client_id));
     targets
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_host_theme_updates_include_palette_and_cursor_replies() {
+        let mut client = ClientConnection::new(
+            (80, 24),
+            crate::kitty_graphics::HostCellSize::default(),
+            crate::terminal_theme::TerminalTheme::default(),
+            None,
+            1,
+            RenderEncoding::SemanticFrame,
+            None,
+        );
+
+        assert!(client.update_host_theme_from_events(&[
+            crate::raw_input::RawInputEvent::HostDefaultColor {
+                kind: crate::terminal_theme::DefaultColorKind::Foreground,
+                color: crate::terminal_theme::RgbColor { r: 1, g: 2, b: 3 },
+            },
+            crate::raw_input::RawInputEvent::HostPaletteColor {
+                index: 4,
+                color: crate::terminal_theme::RgbColor {
+                    r: 137,
+                    g: 180,
+                    b: 250,
+                },
+            },
+            crate::raw_input::RawInputEvent::HostCursorColor {
+                color: crate::terminal_theme::RgbColor {
+                    r: 245,
+                    g: 224,
+                    b: 220,
+                },
+            },
+        ]));
+
+        assert_eq!(
+            client.host_terminal_theme.foreground,
+            Some(crate::terminal_theme::RgbColor { r: 1, g: 2, b: 3 })
+        );
+        assert_eq!(
+            client.host_terminal_theme.palette[4],
+            Some(crate::terminal_theme::RgbColor {
+                r: 137,
+                g: 180,
+                b: 250,
+            })
+        );
+        assert_eq!(
+            client.host_terminal_theme.cursor,
+            Some(crate::terminal_theme::RgbColor {
+                r: 245,
+                g: 224,
+                b: 220,
+            })
+        );
+    }
 }

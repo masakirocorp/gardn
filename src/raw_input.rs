@@ -223,7 +223,7 @@ pub(crate) fn flush_incomplete_input_bytes(buffer: &mut Vec<u8>) -> Option<Vec<u
         return None;
     }
 
-    if starts_with_incomplete_default_color_response(buffer) {
+    if starts_with_incomplete_host_color_response(buffer) {
         tracing::trace!(
             len = buffer.len(),
             "waiting for host color response terminator"
@@ -357,9 +357,15 @@ fn extract_one_event(buffer: &[u8]) -> Option<(RawInputEvent, usize)> {
     Some((RawInputEvent::Key(key), consumed))
 }
 
-fn starts_with_incomplete_default_color_response(buffer: &[u8]) -> bool {
-    find_osc_terminator(buffer).is_none()
-        && matches!(buffer.get(..5), Some(b"\x1b]10;" | b"\x1b]11;"))
+fn starts_with_incomplete_host_color_response(buffer: &[u8]) -> bool {
+    if find_osc_terminator(buffer).is_some() {
+        return false;
+    }
+
+    buffer.starts_with(b"\x1b]4;")
+        || buffer.starts_with(b"\x1b]10;")
+        || buffer.starts_with(b"\x1b]11;")
+        || buffer.starts_with(b"\x1b]12;")
 }
 
 fn first_complete_utf8_char_len(buffer: &[u8]) -> Option<usize> {
@@ -1407,6 +1413,26 @@ mod tests {
 
         assert!(flushed.is_none());
         assert_eq!(buffer, b"\x1b]11;rgb:2828/2a2a/3636\x1b");
+    }
+
+    #[test]
+    fn flush_incomplete_input_bytes_keeps_split_palette_response_buffered() {
+        let mut buffer = b"\x1b]4;2;rgb:a6a6/e3e3/a1a1\x1b".to_vec();
+
+        let flushed = flush_incomplete_input_bytes(&mut buffer);
+
+        assert!(flushed.is_none());
+        assert_eq!(buffer, b"\x1b]4;2;rgb:a6a6/e3e3/a1a1\x1b");
+    }
+
+    #[test]
+    fn flush_incomplete_input_bytes_keeps_split_cursor_response_buffered() {
+        let mut buffer = b"\x1b]12;rgb:f5f5/e0e0/dc".to_vec();
+
+        let flushed = flush_incomplete_input_bytes(&mut buffer);
+
+        assert!(flushed.is_none());
+        assert_eq!(buffer, b"\x1b]12;rgb:f5f5/e0e0/dc");
     }
 
     #[test]

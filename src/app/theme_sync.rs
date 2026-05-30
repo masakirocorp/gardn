@@ -18,6 +18,63 @@ impl App {
         let _ = std::io::stdout().flush();
     }
 
+    pub(crate) async fn refresh_host_terminal_theme_for(&mut self, timeout: std::time::Duration) {
+        self.query_host_terminal_theme();
+
+        let deadline = std::time::Instant::now() + timeout;
+        let mut idle_deadline: Option<std::time::Instant> = None;
+
+        loop {
+            if host_terminal_theme_complete(self.state.host_terminal_theme) {
+                break;
+            }
+
+            let now = std::time::Instant::now();
+            if now >= deadline || idle_deadline.is_some_and(|idle| now >= idle) {
+                break;
+            }
+
+            let wait_until = idle_deadline.unwrap_or(deadline).min(deadline);
+            let Some(rx) = self.input_rx.as_mut() else {
+                break;
+            };
+
+            match tokio::time::timeout_at(tokio::time::Instant::from_std(wait_until), rx.recv())
+                .await
+            {
+                Ok(Some(event)) => {
+                    if self.handle_host_terminal_theme_event(&event) {
+                        idle_deadline =
+                            Some(std::time::Instant::now() + std::time::Duration::from_millis(80));
+                    }
+                }
+                Ok(None) => {
+                    self.input_rx = None;
+                    break;
+                }
+                Err(_) => break,
+            }
+        }
+    }
+
+    fn handle_host_terminal_theme_event(
+        &mut self,
+        event: &crate::raw_input::RawInputEvent,
+    ) -> bool {
+        match event {
+            crate::raw_input::RawInputEvent::HostDefaultColor { kind, color } => {
+                self.update_host_terminal_theme(*kind, *color)
+            }
+            crate::raw_input::RawInputEvent::HostPaletteColor { index, color } => {
+                self.update_host_terminal_palette_color(*index, *color)
+            }
+            crate::raw_input::RawInputEvent::HostCursorColor { color } => {
+                self.update_host_terminal_cursor_color(*color)
+            }
+            _ => false,
+        }
+    }
+
     pub(super) fn update_host_terminal_theme(
         &mut self,
         kind: crate::terminal_theme::DefaultColorKind,
@@ -79,4 +136,9 @@ impl App {
         self.render_dirty.store(true, Ordering::Release);
         self.render_notify.notify_one();
     }
+}
+fn host_terminal_theme_complete(theme: crate::terminal_theme::TerminalTheme) -> bool {
+    theme.foreground.is_some()
+        && theme.background.is_some()
+        && theme.palette.iter().all(Option::is_some)
 }

@@ -6,8 +6,9 @@ pub(crate) fn command(
     palette: &Palette,
     appearance: ThemeAppearance,
     terminal_theme: TerminalTheme,
+    passthrough_terminal: bool,
 ) -> String {
-    let config = config(palette, appearance, terminal_theme);
+    let config = config(palette, appearance, terminal_theme, passthrough_terminal);
     format!(
         r#"if command -v hunk >/dev/null 2>&1; then
   hunk_version="$(hunk --version 2>/dev/null)"
@@ -47,8 +48,10 @@ pub(crate) fn config(
     palette: &Palette,
     appearance: ThemeAppearance,
     terminal_theme: TerminalTheme,
+    passthrough_terminal: bool,
 ) -> String {
-    let colors = HunkThemeColors::from_palette(palette, appearance, terminal_theme);
+    let colors =
+        HunkThemeColors::from_palette(palette, appearance, terminal_theme, passthrough_terminal);
     format!(
         r#"theme = "custom"
 
@@ -191,6 +194,7 @@ impl HunkThemeColors {
         palette: &Palette,
         appearance: ThemeAppearance,
         terminal_theme: TerminalTheme,
+        passthrough_terminal: bool,
     ) -> Self {
         let fallback_background = background_fallback(appearance);
         let fallback_foreground = foreground_fallback(appearance);
@@ -206,48 +210,74 @@ impl HunkThemeColors {
             DefaultColorKind::Foreground,
             fallback_foreground,
         );
-        let panel = palette_color(
+        let default_panel = palette_color(
             palette.surface_dim,
             terminal_theme,
             DefaultColorKind::Background,
             background,
         );
-        let panel_alt = palette_color(
+        let default_panel_alt = palette_color(
             palette.surface0,
             terminal_theme,
             DefaultColorKind::Background,
-            panel,
+            default_panel,
         );
-        let context_bg = palette_color(
+        let default_context_bg = palette_color(
             palette.surface_dim,
             terminal_theme,
             DefaultColorKind::Background,
-            panel,
+            default_panel,
         );
-        let context_content_bg = palette_color(
+        let default_context_content_bg = palette_color(
             palette.panel_bg,
             terminal_theme,
             DefaultColorKind::Background,
             background,
         );
-        let muted = palette_color(
+        let (panel, panel_alt, context_bg, context_content_bg, diff_bg_amount, diff_content_amount) =
+            if passthrough_terminal {
+                (background, background, background, background, 0.10, 0.16)
+            } else {
+                (
+                    default_panel,
+                    default_panel_alt,
+                    default_context_bg,
+                    default_context_content_bg,
+                    0.16,
+                    0.24,
+                )
+            };
+        let default_muted = palette_color(
             palette.subtext0,
             terminal_theme,
             DefaultColorKind::Foreground,
             text,
         );
-        let overlay = palette_color(
+        let default_overlay = palette_color(
             palette.overlay0,
             terminal_theme,
             DefaultColorKind::Foreground,
-            muted,
+            default_muted,
         );
-        let border = palette_color(
-            palette.surface1,
-            terminal_theme,
-            DefaultColorKind::Background,
-            overlay,
-        );
+        let (muted, overlay) = if passthrough_terminal {
+            // ANSI gray is often tuned for terminal text, not for Hunk's solid
+            // panel fills. Derive neutral UI text from the actual terminal
+            // foreground/background so light terminal themes do not become
+            // gray-on-white.
+            (blend(text, background, 0.35), blend(text, background, 0.45))
+        } else {
+            (default_muted, default_overlay)
+        };
+        let border = if passthrough_terminal {
+            overlay
+        } else {
+            palette_color(
+                palette.surface1,
+                terminal_theme,
+                DefaultColorKind::Background,
+                overlay,
+            )
+        };
         let accent = palette_color(
             palette.accent,
             terminal_theme,
@@ -291,9 +321,12 @@ impl HunkThemeColors {
         );
 
         Self {
+            // Hunk custom themes must inherit from one built-in theme. Use the
+            // least-branded light/dark bases so any future Hunk role we do not
+            // override stays neutral instead of leaking another product palette.
             base: match appearance {
-                ThemeAppearance::Light => "catppuccin-latte",
-                ThemeAppearance::Dark => "catppuccin-mocha",
+                ThemeAppearance::Light => "paper",
+                ThemeAppearance::Dark => "graphite",
             },
             background: background.hex(),
             panel: panel.hex(),
@@ -303,15 +336,15 @@ impl HunkThemeColors {
             accent_muted: accent.hex(),
             text: text.hex(),
             muted: muted.hex(),
-            added_bg: blend(background, green, 0.16).hex(),
-            removed_bg: blend(background, red, 0.16).hex(),
+            added_bg: blend(background, green, diff_bg_amount).hex(),
+            removed_bg: blend(background, red, diff_bg_amount).hex(),
             context_bg: context_bg.hex(),
-            added_content_bg: blend(panel_alt, green, 0.24).hex(),
-            removed_content_bg: blend(panel_alt, red, 0.24).hex(),
+            added_content_bg: blend(context_content_bg, green, diff_content_amount).hex(),
+            removed_content_bg: blend(context_content_bg, red, diff_content_amount).hex(),
             context_content_bg: context_content_bg.hex(),
             added_sign_color: green.hex(),
             removed_sign_color: red.hex(),
-            line_number_bg: panel.hex(),
+            line_number_bg: context_bg.hex(),
             line_number_fg: overlay.hex(),
             selected_hunk: blend(background, accent, 0.24).hex(),
             badge_added: green.hex(),
@@ -440,16 +473,17 @@ mod tests {
     #[test]
     fn hunk_command_uses_hako_theme_for_hunk_014_and_falls_back_for_old_hunk() {
         let command = command(
-            &Palette::catppuccin(),
+            &Palette::tokyo_night(),
             ThemeAppearance::Dark,
             TerminalTheme::default(),
+            false,
         );
 
         assert!(command.contains("theme = \"custom\""));
         assert!(command.contains("label = \"Hako\""));
-        assert!(command.contains("base = \"catppuccin-mocha\""));
-        assert!(command.contains("accent = \"#89b4fa\""));
-        assert!(command.contains("text = \"#cdd6f4\""));
+        assert!(command.contains("base = \"graphite\""));
+        assert!(command.contains("accent = \"#7aa2f7\""));
+        assert!(command.contains("text = \"#c0caf5\""));
         assert!(command.contains("XDG_CONFIG_HOME=\"$config_dir\" hunk diff --watch"));
         assert!(command.contains("exec hunk diff --watch --theme graphite"));
         assert!(command.contains("brew install modem-dev/tap/hunk"));
@@ -459,14 +493,15 @@ mod tests {
     #[test]
     fn hunk_config_uses_light_base_for_light_appearance() {
         let config = config(
-            &Palette::catppuccin_latte(),
+            &Palette::tokyo_night_day(),
             ThemeAppearance::Light,
             TerminalTheme::default(),
+            false,
         );
 
-        assert!(config.contains("base = \"catppuccin-latte\""));
-        assert!(config.contains("accent = \"#1e66f5\""));
-        assert!(config.contains("text = \"#4c4f69\""));
+        assert!(config.contains("base = \"paper\""));
+        assert!(config.contains("accent = \"#34548a\""));
+        assert!(config.contains("text = \"#343b58\""));
     }
 
     #[test]
@@ -512,15 +547,103 @@ mod tests {
                     b: 100,
                 },
             );
-        let config = config(&Palette::terminal(), ThemeAppearance::Light, host);
+        let config = config(&Palette::terminal(), ThemeAppearance::Light, host, true);
 
         assert!(config.contains("background = \"#fafbfc\""));
         assert!(config.contains("text = \"#112233\""));
         assert!(config.contains("accent = \"#0a141e\""));
-        assert!(config.contains("panel = \"#505a64\""));
-        assert!(config.contains("muted = \"#646e78\""));
+        assert!(config.contains("panel = \"#fafbfc\""));
+        assert!(config.contains("muted = \"#636e79\""));
+        assert!(config.contains("lineNumberBg = \"#fafbfc\""));
+        assert!(config.contains("lineNumberFg = \"#7a848d\""));
         assert!(!config.contains("#eff1f5"));
         assert!(!config.contains("#181825"));
+    }
+
+    #[test]
+    fn terminal_passthrough_avoids_ansi_gray_surfaces() {
+        let host = TerminalTheme::default()
+            .with_color(
+                DefaultColorKind::Foreground,
+                RgbColor {
+                    r: 20,
+                    g: 30,
+                    b: 40,
+                },
+            )
+            .with_color(
+                DefaultColorKind::Background,
+                RgbColor {
+                    r: 245,
+                    g: 246,
+                    b: 247,
+                },
+            )
+            .with_palette_color(
+                8,
+                RgbColor {
+                    r: 80,
+                    g: 90,
+                    b: 100,
+                },
+            );
+        let config = config(&Palette::terminal(), ThemeAppearance::Light, host, true);
+
+        assert!(config.contains("panel = \"#f5f6f7\""));
+        assert!(config.contains("panelAlt = \"#f5f6f7\""));
+        assert!(config.contains("contextBg = \"#f5f6f7\""));
+        assert!(config.contains("lineNumberBg = \"#f5f6f7\""));
+        assert!(config.contains("muted = \"#636a70\""));
+        assert!(config.contains("lineNumberFg = \"#797f85\""));
+        assert!(!config.contains("panel = \"#505a64\""));
+    }
+
+    #[test]
+    fn system_terminal_source_uses_host_palette_for_hunk_semantics() {
+        let host = TerminalTheme::default()
+            .with_color(
+                DefaultColorKind::Foreground,
+                RgbColor {
+                    r: 20,
+                    g: 30,
+                    b: 40,
+                },
+            )
+            .with_color(
+                DefaultColorKind::Background,
+                RgbColor {
+                    r: 245,
+                    g: 246,
+                    b: 247,
+                },
+            )
+            .with_palette_color(
+                2,
+                RgbColor {
+                    r: 10,
+                    g: 160,
+                    b: 20,
+                },
+            )
+            .with_palette_color(
+                4,
+                RgbColor {
+                    r: 30,
+                    g: 90,
+                    b: 220,
+                },
+            );
+        let palette = Palette::system(host, ThemeAppearance::Light);
+        let config = config(&palette, ThemeAppearance::Light, host, true);
+
+        assert!(config.contains("background = \"#f5f6f7\""));
+        assert!(config.contains("panel = \"#f5f6f7\""));
+        assert!(config.contains("accent = \"#1e5adc\""));
+        assert!(config.contains("accentMuted = \"#1e5adc\""));
+        assert!(config.contains("fileModified = \"#1e5adc\""));
+        assert!(config.contains("badgeAdded = \"#0aa014\""));
+        assert!(config.contains("fileNew = \"#0aa014\""));
+        assert!(config.contains("addedSignColor = \"#0aa014\""));
     }
 
     #[test]
@@ -529,6 +652,7 @@ mod tests {
             &Palette::tokyo_night(),
             ThemeAppearance::Dark,
             TerminalTheme::default(),
+            false,
         );
 
         assert!(config.contains("accent = \"#7aa2f7\""));

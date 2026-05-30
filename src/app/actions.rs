@@ -23,15 +23,25 @@ fn hunk_diff_project_command(
     palette: &crate::app::state::Palette,
     appearance: crate::terminal_theme::ThemeAppearance,
     terminal_theme: crate::terminal_theme::TerminalTheme,
+    passthrough_terminal: bool,
 ) -> crate::commands::ProjectCommand {
     crate::commands::ProjectCommand {
         id: format!("builtin:git-diff:{}", root.display()),
         root,
         source: crate::commands::CommandSource::BuiltIn,
         name: "diff".to_string(),
-        command: crate::hunk_theme::command(palette, appearance, terminal_theme),
+        command: crate::hunk_theme::command(
+            palette,
+            appearance,
+            terminal_theme,
+            passthrough_terminal,
+        ),
         confidence: crate::commands::CommandConfidence::Explicit,
     }
+}
+
+fn hunk_uses_terminal_color_passthrough(theme_name: &str) -> bool {
+    matches!(theme_name, "system" | "terminal")
 }
 
 fn is_background_completion_transition(prev_state: AgentState, new_state: AgentState) -> bool {
@@ -776,9 +786,18 @@ impl AppState {
             .git_diff_target(terminal_runtimes)
             .ok_or_else(|| "no git repo for current space".to_string())?;
         let appearance = self.theme_appearance_for_mode(self.global_theme_mode);
+        // The settings UI calls the host-color source "terminal"; internally the
+        // effective theme is "system" when Hako follows the host terminal colors.
+        let passthrough_terminal = hunk_uses_terminal_color_passthrough(&self.theme_name);
         self.run_project_command_entry(
             terminal_runtimes,
-            hunk_diff_project_command(root, &self.palette, appearance, self.host_terminal_theme),
+            hunk_diff_project_command(
+                root,
+                &self.palette,
+                appearance,
+                self.host_terminal_theme,
+                passthrough_terminal,
+            ),
             ws_idx,
         )
     }
@@ -2869,6 +2888,13 @@ mod tests {
             state.mode = Mode::Terminal;
         }
         state
+    }
+
+    #[test]
+    fn hunk_terminal_passthrough_covers_terminal_color_sources() {
+        assert!(hunk_uses_terminal_color_passthrough("system"));
+        assert!(hunk_uses_terminal_color_passthrough("terminal"));
+        assert!(!hunk_uses_terminal_color_passthrough("tokyo-night"));
     }
 
     fn temp_project(name: &str) -> std::path::PathBuf {
