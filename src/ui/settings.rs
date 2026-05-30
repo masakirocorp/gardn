@@ -459,6 +459,7 @@ fn theme_display_name(name: &str) -> &str {
         "monokai-pro-octagon" => "monokai pro octagon",
         "monokai-pro-machine" => "monokai pro machine",
         "monokai-classic" => "monokai classic",
+        "ethereal" => "ethereal",
         other => other,
     }
 }

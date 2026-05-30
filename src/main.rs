@@ -72,8 +72,8 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 #                 kanagawa-lotus, monokai-pro-light,
 #                 monokai-pro-light-sun, one-light, rose-pine-dawn,
 #                 solarized-light, tokyo-night-day, catppuccin, dracula,
-#                 gruvbox, kanagawa, monokai-classic, monokai-pro,
-#                 monokai-pro-machine, monokai-pro-octagon,
+#                 ethereal, gruvbox, kanagawa, monokai-classic,
+#                 monokai-pro, monokai-pro-machine, monokai-pro-octagon,
 #                 monokai-pro-ristretto, monokai-pro-spectrum, nord,
 #                 one-dark, rose-pine, solarized, tokyo-night, vesper
 # name = "catppuccin"

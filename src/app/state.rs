@@ -871,6 +871,24 @@ impl Palette {
         )
     }
 
+    /// Omarchy Ethereal.
+    pub fn ethereal() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(125, 130, 217),
+            Self::rgb(255, 206, 173),
+            Self::rgb(6, 11, 30),
+            Self::rgb(60, 72, 109),
+            Self::rgb(237, 91, 90),
+            Self::rgb(146, 165, 147),
+            Self::rgb(233, 187, 79),
+            Self::rgb(125, 130, 217),
+            Self::rgb(200, 157, 193),
+            Self::rgb(163, 191, 209),
+            Self::rgb(249, 153, 87),
+            Self::rgb(109, 125, 182),
+        )
+    }
+
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
@@ -910,6 +928,7 @@ impl Palette {
                 Some(Self::monokai_pro_machine())
             }
             "monokai-classic" | "classic" => Some(Self::monokai_classic()),
+            "ethereal" => Some(Self::ethereal()),
             _ => None,
         }
     }
@@ -1181,6 +1200,7 @@ pub const THEME_NAMES: &[&str] = &[
     "system",
     DEFAULT_DARK_THEME_NAME,
     "dracula",
+    "ethereal",
     "gruvbox",
     "kanagawa",
     "monokai-classic",
@@ -1215,6 +1235,7 @@ pub const LIGHT_THEME_NAMES: &[&str] = &[
 pub const DARK_THEME_NAMES: &[&str] = &[
     DEFAULT_DARK_THEME_NAME,
     "dracula",
+    "ethereal",
     "gruvbox",
     "kanagawa",
     "monokai-classic",
@@ -1291,7 +1312,8 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             | "monokai-machine"
             | "machine"
             | "monokai-classic"
-            | "classic" => None,
+            | "classic"
+            | "ethereal" => None,
             _ => None,
         },
         ThemeAppearance::Dark => match normalized.as_str() {
@@ -1325,7 +1347,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "monokai-pro-octagon" | "monokai-octagon" | "octagon" => Some("monokai-pro-octagon"),
             "monokai-pro-machine" | "monokai-machine" | "machine" => Some("monokai-pro-machine"),
             "monokai-classic" | "classic" => Some("monokai-classic"),
-
+            "ethereal" => Some("ethereal"),
             _ => None,
         },
     }
