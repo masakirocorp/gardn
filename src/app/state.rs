@@ -1003,6 +1003,24 @@ impl Palette {
         )
     }
 
+    /// Omarchy Osaka Jade.
+    pub fn osaka_jade() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(80, 148, 117),
+            Self::rgb(193, 196, 151),
+            Self::rgb(17, 28, 24),
+            Self::rgb(35, 55, 43),
+            Self::rgb(255, 83, 69),
+            Self::rgb(84, 158, 106),
+            Self::rgb(69, 148, 81),
+            Self::rgb(80, 148, 117),
+            Self::rgb(210, 104, 156),
+            Self::rgb(45, 213, 183),
+            Self::rgb(246, 245, 221),
+            Self::rgb(83, 104, 91),
+        )
+    }
+
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
@@ -1050,6 +1068,7 @@ impl Palette {
             "lumon" => Some(Self::lumon()),
             "matte-black" => Some(Self::matte_black()),
             "miasma" => Some(Self::miasma()),
+            "osaka-jade" => Some(Self::osaka_jade()),
             _ => None,
         }
     }
@@ -1338,6 +1357,7 @@ pub const THEME_NAMES: &[&str] = &[
     "monokai-pro-spectrum",
     "nord",
     "one-dark",
+    "osaka-jade",
     "rose-pine",
     "solarized",
     "terminal",
@@ -1380,6 +1400,7 @@ pub const DARK_THEME_NAMES: &[&str] = &[
     "monokai-pro-spectrum",
     "nord",
     "one-dark",
+    "osaka-jade",
     "rose-pine",
     "solarized",
     "tokyo-night",
@@ -1453,7 +1474,8 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             | "last-horizon"
             | "lumon"
             | "matte-black"
-            | "miasma" => None,
+            | "miasma"
+            | "osaka-jade" => None,
             _ => None,
         },
         ThemeAppearance::Dark => match normalized.as_str() {
@@ -1494,6 +1516,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "lumon" => Some("lumon"),
             "matte-black" => Some("matte-black"),
             "miasma" => Some("miasma"),
+            "osaka-jade" => Some("osaka-jade"),
             _ => None,
         },
     }
