@@ -566,29 +566,21 @@ impl Palette {
     }
 
     /// Rose Pine Dawn.
-    pub fn rose_pine_light() -> Self {
-        Self {
-            accent: Color::Rgb(144, 122, 169),
-            panel_bg: Color::Rgb(250, 244, 237),
-            surface0: Color::Rgb(242, 233, 222),
-            surface1: Color::Rgb(223, 218, 217),
-            surface_dim: Color::Rgb(246, 238, 229),
-            overlay0: Color::Rgb(152, 147, 165),
-            overlay1: Color::Rgb(121, 117, 147),
-            text: Color::Rgb(87, 82, 121),
-            subtext0: Color::Rgb(110, 106, 134),
-            mauve: Color::Rgb(144, 122, 169),
-            green: Color::Rgb(40, 105, 131),
-            yellow: Color::Rgb(234, 157, 52),
-            red: Color::Rgb(180, 99, 122),
-            blue: Color::Rgb(40, 105, 131),
-            teal: Color::Rgb(86, 148, 159),
-            peach: Color::Rgb(215, 130, 126),
-        }
-    }
-
     pub fn rose_pine_dawn() -> Self {
-        Self::rose_pine_light()
+        Self::omarchy_palette(
+            Self::rgb(86, 148, 159),
+            Self::rgb(87, 82, 121),
+            Self::rgb(250, 244, 237),
+            Self::rgb(242, 233, 225),
+            Self::rgb(180, 99, 122),
+            Self::rgb(40, 105, 131),
+            Self::rgb(234, 157, 52),
+            Self::rgb(86, 148, 159),
+            Self::rgb(144, 122, 169),
+            Self::rgb(215, 130, 126),
+            Self::rgb(87, 82, 121),
+            Self::rgb(152, 147, 165),
+        )
     }
 
     /// Vesper — minimal high-contrast monochrome with peach and mint accents.
