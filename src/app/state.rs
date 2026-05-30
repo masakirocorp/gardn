@@ -907,6 +907,24 @@ impl Palette {
         )
     }
 
+    /// Omarchy Flexoki Light.
+    pub fn flexoki_light() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(32, 94, 166),
+            Self::rgb(16, 15, 15),
+            Self::rgb(255, 252, 240),
+            Self::rgb(218, 216, 206),
+            Self::rgb(209, 77, 65),
+            Self::rgb(135, 154, 57),
+            Self::rgb(208, 162, 21),
+            Self::rgb(32, 94, 166),
+            Self::rgb(206, 93, 151),
+            Self::rgb(58, 169, 159),
+            Self::rgb(183, 181, 172),
+            Self::rgb(16, 15, 15),
+        )
+    }
+
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
@@ -948,6 +966,7 @@ impl Palette {
             "monokai-classic" | "classic" => Some(Self::monokai_classic()),
             "ethereal" => Some(Self::ethereal()),
             "everforest" => Some(Self::everforest()),
+            "flexoki-light" => Some(Self::flexoki_light()),
             _ => None,
         }
     }
@@ -1241,6 +1260,7 @@ pub const THEME_NAMES: &[&str] = &[
 /// Built-in concrete themes that can render a light appearance.
 pub const LIGHT_THEME_NAMES: &[&str] = &[
     DEFAULT_LIGHT_THEME_NAME,
+    "flexoki-light",
     "gruvbox-light",
     "kanagawa-lotus",
     "monokai-pro-light",
@@ -1316,7 +1336,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "monokai-pro-light-sun" | "monokai-pro-sun" | "monokai-sun" | "sun" => {
                 Some("monokai-pro-light-sun")
             }
-
+            "flexoki-light" => Some("flexoki-light"),
             "dracula"
             | "nord"
             | "vesper"

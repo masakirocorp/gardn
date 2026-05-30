@@ -68,8 +68,8 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # onboarding = true
 
 [theme]
-# built-in themes: system, terminal, catppuccin-latte, gruvbox-light,
-#                 kanagawa-lotus, monokai-pro-light,
+# built-in themes: system, terminal, catppuccin-latte, flexoki-light,
+#                 gruvbox-light, kanagawa-lotus, monokai-pro-light,
 #                 monokai-pro-light-sun, one-light, rose-pine-dawn,
 #                 solarized-light, tokyo-night-day, catppuccin, dracula,
 #                 ethereal, everforest, gruvbox, kanagawa,

@@ -461,6 +461,7 @@ fn theme_display_name(name: &str) -> &str {
         "monokai-classic" => "monokai classic",
         "ethereal" => "ethereal",
         "everforest" => "everforest",
+        "flexoki-light" => "flexoki light",
         other => other,
     }
 }
