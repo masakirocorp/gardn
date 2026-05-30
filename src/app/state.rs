@@ -287,26 +287,22 @@ impl Palette {
         }
     }
 
-    /// Tokyo Night — blue-purple aesthetic.
+    /// Tokyo Night.
     pub fn tokyo_night() -> Self {
-        Self {
-            accent: Color::Rgb(122, 162, 247), // blue
-            panel_bg: Color::Rgb(26, 27, 38),
-            surface0: Color::Rgb(36, 40, 59),
-            surface1: Color::Rgb(65, 72, 104),
-            surface_dim: Color::Rgb(26, 27, 38),
-            overlay0: Color::Rgb(86, 95, 137),
-            overlay1: Color::Rgb(105, 113, 150),
-            text: Color::Rgb(192, 202, 245),
-            subtext0: Color::Rgb(169, 177, 214),
-            mauve: Color::Rgb(187, 154, 247),
-            green: Color::Rgb(158, 206, 106),
-            yellow: Color::Rgb(224, 175, 104),
-            red: Color::Rgb(247, 118, 142),
-            blue: Color::Rgb(122, 162, 247),
-            teal: Color::Rgb(125, 207, 255),
-            peach: Color::Rgb(255, 158, 100),
-        }
+        Self::omarchy_palette(
+            Self::rgb(122, 162, 247),
+            Self::rgb(169, 177, 214),
+            Self::rgb(26, 27, 38),
+            Self::rgb(50, 52, 74),
+            Self::rgb(247, 118, 142),
+            Self::rgb(158, 206, 106),
+            Self::rgb(224, 175, 104),
+            Self::rgb(122, 162, 247),
+            Self::rgb(173, 142, 230),
+            Self::rgb(68, 157, 171),
+            Self::rgb(120, 124, 153),
+            Self::rgb(68, 75, 106),
+        )
     }
 
     /// Tokyo Night Day.
