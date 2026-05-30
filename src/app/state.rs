@@ -507,26 +507,22 @@ impl Palette {
         }
     }
 
-    /// Kanagawa — inspired by Katsushika Hokusai.
+    /// Kanagawa.
     pub fn kanagawa() -> Self {
-        Self {
-            accent: Color::Rgb(126, 156, 216), // blue
-            panel_bg: Color::Rgb(31, 31, 40),
-            surface0: Color::Rgb(42, 42, 55),
-            surface1: Color::Rgb(54, 54, 70),
-            surface_dim: Color::Rgb(31, 31, 40),
-            overlay0: Color::Rgb(114, 113, 105),
-            overlay1: Color::Rgb(135, 134, 125),
-            text: Color::Rgb(220, 215, 186),
-            subtext0: Color::Rgb(200, 195, 170),
-            mauve: Color::Rgb(149, 127, 184),
-            green: Color::Rgb(118, 148, 106),
-            yellow: Color::Rgb(192, 163, 110),
-            red: Color::Rgb(195, 64, 67),
-            blue: Color::Rgb(126, 156, 216),
-            teal: Color::Rgb(127, 180, 202),
-            peach: Color::Rgb(255, 160, 102),
-        }
+        Self::omarchy_palette(
+            Self::rgb(126, 156, 216),
+            Self::rgb(220, 215, 186),
+            Self::rgb(31, 31, 40),
+            Self::rgb(9, 6, 24),
+            Self::rgb(195, 64, 67),
+            Self::rgb(118, 148, 106),
+            Self::rgb(192, 163, 110),
+            Self::rgb(126, 156, 216),
+            Self::rgb(149, 127, 184),
+            Self::rgb(106, 149, 137),
+            Self::rgb(200, 192, 147),
+            Self::rgb(114, 113, 105),
+        )
     }
 
     /// Kanagawa Lotus — the light Kanagawa variant.
