@@ -77,7 +77,7 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 #                 monokai-classic, monokai-pro, monokai-pro-machine,
 #                 monokai-pro-octagon, monokai-pro-ristretto,
 #                 monokai-pro-spectrum, nord, one-dark, osaka-jade,
-#                 rose-pine, solarized, tokyo-night, vesper
+#                 retro-82, rose-pine, solarized, tokyo-night, vesper
 # name = "catppuccin"
 
 # override individual color tokens on top of the base theme.

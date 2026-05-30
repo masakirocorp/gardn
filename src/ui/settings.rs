@@ -468,6 +468,7 @@ fn theme_display_name(name: &str) -> &str {
         "matte-black" => "matte black",
         "miasma" => "miasma",
         "osaka-jade" => "osaka jade",
+        "retro-82" => "retro 82",
         other => other,
     }
 }
