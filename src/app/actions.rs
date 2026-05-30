@@ -18,27 +18,18 @@ use super::state::{
     PaneFocusTarget, ToastKind, ToastNotification, ToastTarget, ViewLayout,
 };
 
-fn hunk_diff_project_command(root: std::path::PathBuf) -> crate::commands::ProjectCommand {
+fn hunk_diff_project_command(
+    root: std::path::PathBuf,
+    palette: &crate::app::state::Palette,
+    appearance: crate::terminal_theme::ThemeAppearance,
+    terminal_theme: crate::terminal_theme::TerminalTheme,
+) -> crate::commands::ProjectCommand {
     crate::commands::ProjectCommand {
         id: format!("builtin:git-diff:{}", root.display()),
         root,
         source: crate::commands::CommandSource::BuiltIn,
         name: "diff".to_string(),
-        command: r#"if command -v hunk >/dev/null 2>&1; then
-  exec hunk diff --watch --theme graphite
-fi
-
-printf '%s\n' \
-  'hunk is not installed.' \
-  '' \
-  'install with:' \
-  '  brew install modem-dev/tap/hunk' \
-  '  npm i -g hunkdiff' \
-  '' \
-  'press enter to close...'
-read _
-"#
-        .to_string(),
+        command: crate::hunk_theme::command(palette, appearance, terminal_theme),
         confidence: crate::commands::CommandConfidence::Explicit,
     }
 }
@@ -790,7 +781,12 @@ impl AppState {
         let (root, ws_idx) = self
             .git_diff_target(terminal_runtimes)
             .ok_or_else(|| "no git repo for current space".to_string())?;
-        self.run_project_command_entry(terminal_runtimes, hunk_diff_project_command(root), ws_idx)
+        let appearance = self.theme_appearance_for_mode(self.global_theme_mode);
+        self.run_project_command_entry(
+            terminal_runtimes,
+            hunk_diff_project_command(root, &self.palette, appearance, self.host_terminal_theme),
+            ws_idx,
+        )
     }
 
     fn run_project_command_entry(
@@ -3397,22 +3393,6 @@ mod tests {
         state.terminals.get_mut(&second_terminal_id).unwrap().cwd = second.clone();
 
         assert_eq!(state.git_diff_target(&terminal_runtimes), Some((second, 1)));
-    }
-
-    #[test]
-    fn hunk_diff_command_uses_graphite_theme() {
-        let root = temp_git_repo("diff-graphite-theme");
-
-        let command = hunk_diff_project_command(root.clone());
-
-        assert_eq!(command.root, root);
-        assert_eq!(command.source, crate::commands::CommandSource::BuiltIn);
-        assert_eq!(command.name, "diff");
-        assert!(command
-            .command
-            .contains("exec hunk diff --watch --theme graphite"));
-        assert!(command.command.contains("brew install modem-dev/tap/hunk"));
-        assert!(command.command.contains("npm i -g hunkdiff"));
     }
 
     #[test]
