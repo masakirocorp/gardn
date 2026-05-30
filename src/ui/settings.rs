@@ -460,6 +460,7 @@ fn theme_display_name(name: &str) -> &str {
         "monokai-pro-machine" => "monokai pro machine",
         "monokai-classic" => "monokai classic",
         "ethereal" => "ethereal",
+        "everforest" => "everforest",
         other => other,
     }
 }

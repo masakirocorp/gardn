@@ -889,6 +889,24 @@ impl Palette {
         )
     }
 
+    /// Omarchy Everforest.
+    pub fn everforest() -> Self {
+        Self::omarchy_palette(
+            Self::rgb(127, 187, 179),
+            Self::rgb(211, 198, 170),
+            Self::rgb(45, 53, 59),
+            Self::rgb(71, 82, 88),
+            Self::rgb(230, 126, 128),
+            Self::rgb(167, 192, 128),
+            Self::rgb(219, 188, 127),
+            Self::rgb(127, 187, 179),
+            Self::rgb(214, 153, 182),
+            Self::rgb(131, 192, 146),
+            Self::rgb(211, 198, 170),
+            Self::rgb(71, 82, 88),
+        )
+    }
+
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
@@ -929,6 +947,7 @@ impl Palette {
             }
             "monokai-classic" | "classic" => Some(Self::monokai_classic()),
             "ethereal" => Some(Self::ethereal()),
+            "everforest" => Some(Self::everforest()),
             _ => None,
         }
     }
@@ -1201,6 +1220,7 @@ pub const THEME_NAMES: &[&str] = &[
     DEFAULT_DARK_THEME_NAME,
     "dracula",
     "ethereal",
+    "everforest",
     "gruvbox",
     "kanagawa",
     "monokai-classic",
@@ -1236,6 +1256,7 @@ pub const DARK_THEME_NAMES: &[&str] = &[
     DEFAULT_DARK_THEME_NAME,
     "dracula",
     "ethereal",
+    "everforest",
     "gruvbox",
     "kanagawa",
     "monokai-classic",
@@ -1313,7 +1334,8 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             | "machine"
             | "monokai-classic"
             | "classic"
-            | "ethereal" => None,
+            | "ethereal"
+            | "everforest" => None,
             _ => None,
         },
         ThemeAppearance::Dark => match normalized.as_str() {
@@ -1348,6 +1370,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "monokai-pro-machine" | "monokai-machine" | "machine" => Some("monokai-pro-machine"),
             "monokai-classic" | "classic" => Some("monokai-classic"),
             "ethereal" => Some("ethereal"),
+            "everforest" => Some("everforest"),
             _ => None,
         },
     }
