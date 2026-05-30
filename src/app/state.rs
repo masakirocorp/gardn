@@ -765,19 +765,22 @@ impl Palette {
 
     /// Monokai Pro Ristretto.
     pub fn monokai_pro_ristretto() -> Self {
-        Self::omarchy_palette(
-            Self::rgb(243, 141, 112),
-            Self::rgb(230, 217, 219),
+        Self::monokai_palette(
+            Self::rgb(249, 204, 108),
+            Self::rgb(33, 28, 28),
             Self::rgb(44, 37, 37),
+            Self::rgb(64, 56, 56),
+            Self::rgb(25, 21, 21),
             Self::rgb(114, 105, 106),
+            Self::rgb(148, 138, 139),
+            Self::rgb(255, 241, 243),
+            Self::rgb(195, 183, 184),
             Self::rgb(253, 104, 131),
             Self::rgb(173, 218, 120),
             Self::rgb(249, 204, 108),
             Self::rgb(243, 141, 112),
             Self::rgb(168, 169, 235),
             Self::rgb(133, 218, 204),
-            Self::rgb(230, 217, 219),
-            Self::rgb(148, 138, 139),
         )
     }
 
