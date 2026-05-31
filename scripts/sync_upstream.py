@@ -106,7 +106,7 @@ def main() -> int:
 
     print("fetching origin and upstream")
     run("git", "fetch", "origin", "master", "--prune", check=True)
-    run("git", "fetch", "upstream", "--prune", "--tags", check=True)
+    run("git", "fetch", "upstream", "--prune", "--no-tags", check=True)
 
     if is_ancestor(args.upstream, args.base):
         print("no upstream changes to sync")

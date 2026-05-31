@@ -101,6 +101,7 @@ Default release flow:
 just check
 just release 0.x.y
 ```
+Hako release history is independent of upstream Herdr. Ignore inherited upstream `v*` tags; Hako's release line starts at `v0.1.0`.
 
 `just release 0.x.y` bumps `Cargo.toml`, runs tests, commits, tags, and pushes. GitHub Actions builds the binaries after the tag is pushed, creates the GitHub release, and uploads all four binary assets.
 

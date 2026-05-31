@@ -39,8 +39,13 @@ release version:
         echo "error: commit your changes first"; \
         exit 1; \
     fi
-    @if git rev-parse "v{{version}}" >/dev/null 2>&1; then \
-        echo "error: tag v{{version}} already exists"; \
+    @tag="v{{version}}"; \
+    if git rev-parse "$tag" >/dev/null 2>&1; then \
+        echo "error: tag $tag already exists"; \
+        exit 1; \
+    fi; \
+    if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then \
+        echo "error: origin tag $tag already exists"; \
         exit 1; \
     fi
     sed -i.bak 's/^version = ".*"/version = "{{version}}"/' Cargo.toml && rm -f Cargo.toml.bak
@@ -49,7 +54,8 @@ release version:
     git add Cargo.toml Cargo.lock
     git diff --cached --quiet || git commit -m "release: v{{version}}"
     git tag -a v{{version}} -m "v{{version}}"
-    git push --follow-tags
+    git push origin HEAD
+    git push origin v{{version}}
     @echo "v{{version}} released — GitHub Actions building binaries"
 
 # Print default config
