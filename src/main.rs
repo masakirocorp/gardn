@@ -41,6 +41,7 @@ mod platform;
 mod ports;
 mod product_announcements;
 mod protocol;
+mod pty;
 mod raw_input;
 mod release_notes;
 mod remote;
