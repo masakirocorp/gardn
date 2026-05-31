@@ -819,8 +819,7 @@ pub(super) fn execute_navigate_action_in_context(
             leave_navigate_mode(state);
         }
         NavigateAction::CloseTab => {
-            state.close_tab();
-            if state.mode != Mode::ConfirmClose {
+            if !state.close_tab() {
                 leave_navigate_mode(state);
             }
         }
@@ -846,8 +845,9 @@ pub(super) fn execute_navigate_action_in_context(
             leave_navigate_mode(state);
         }
         NavigateAction::ClosePane => {
-            state.close_pane();
-            leave_navigate_mode(state);
+            if !state.close_pane() {
+                leave_navigate_mode(state);
+            }
         }
         NavigateAction::EditScrollback => {}
         NavigateAction::CopyMode => state.enter_copy_mode(terminal_runtimes),
@@ -1769,6 +1769,45 @@ navigate_pane_right = "ctrl+l"
         assert!(state.workspaces.is_empty());
     }
 
+
+    #[test]
+    fn closing_linked_worktree_closes_workspace_without_removing_checkout() {
+        let mut state = state_with_workspaces(&["main", "issue"]);
+        state.selected = 1;
+        state.active = Some(1);
+        state.mode = Mode::Navigate;
+        state.confirm_close = false;
+        state.workspaces[1].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
+            key: "repo-key".into(),
+            label: "hako".into(),
+            repo_root: "/repo/hako".into(),
+            checkout_path: "/repo/hako-issue".into(),
+            is_linked_worktree: true,
+        });
+
+        execute_navigate_action(&mut state, NavigateAction::CloseWorkspace);
+
+        assert_eq!(state.request_remove_linked_worktree, None);
+        assert_eq!(state.workspaces.len(), 1);
+        assert_eq!(state.workspaces[0].display_name(), "main");
+        assert_eq!(state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn prefix_close_pane_last_parent_group_pane_opens_confirmation() {
+        let mut state = state_with_workspaces(&["main", "issue"]);
+        mark_worktree_space_member(&mut state, 0, "repo-key");
+        mark_worktree_space_member(&mut state, 1, "repo-key");
+        state.selected = 1;
+        state.active = Some(0);
+        state.mode = Mode::Navigate;
+
+        execute_navigate_action(&mut state, NavigateAction::ClosePane);
+
+        assert_eq!(state.selected, 0);
+        assert_eq!(state.mode, Mode::ConfirmClose);
+        assert_eq!(state.workspaces.len(), 2);
+    }
     #[tokio::test]
     async fn custom_command_runs_from_prefix_key_in_navigate_mode() {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
