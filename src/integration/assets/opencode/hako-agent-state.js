@@ -111,9 +111,8 @@ export const HakoAgentStatePlugin = async () => {
           break;
         case "session.created":
         case "session.updated":
-          if (sessionID) {
-            await reportState("idle", sessionID);
-          }
+          // Metadata events only; lifecycle state comes from session.status and
+          // the deprecated session.idle event.
           break;
         case "session.status": {
           const status =

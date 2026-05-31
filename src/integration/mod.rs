@@ -2987,6 +2987,11 @@ mod tests {
         assert!(OPENCODE_PLUGIN_ASSET.contains("properties?.sessionID"));
         assert!(OPENCODE_PLUGIN_ASSET.contains("dispose: async"));
         assert!(OPENCODE_PLUGIN_ASSET.contains("agent_session_id: sessionID"));
+        assert!(
+            !OPENCODE_PLUGIN_ASSET.contains(
+                "await reportState(\"idle\", sessionID);\n          }\n          break;\n        case \"session.status\""
+            )
+        );
         assert!(HERMES_PLUGIN_INIT_ASSET.contains("session_id = _session_id(kwargs)"));
         assert!(HERMES_PLUGIN_INIT_ASSET.contains("agent_session_id"));
         // Qoder hook reads the event from the stdin JSON payload (per

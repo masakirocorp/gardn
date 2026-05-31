@@ -104,6 +104,7 @@ async fn publish_state_changed_event(
 }
 
 const AGENT_MISS_CONFIRMATION_ATTEMPTS: u8 = 6;
+const STABLE_VISIBLE_SIGNAL_REFRESH: std::time::Duration = std::time::Duration::from_millis(800);
 
 #[derive(Debug, Clone, Copy)]
 struct AgentDetectionPresence {
@@ -117,6 +118,29 @@ fn should_clear_agent_for_foreground_shell(
     foreground_is_pane_shell: bool,
 ) -> bool {
     previous_agent.is_some() && new_agent.is_none() && foreground_is_pane_shell
+}
+
+fn usable_process_cwd(pid: u32) -> Option<std::path::PathBuf> {
+    crate::platform::process_cwd(pid).filter(|cwd| cwd.is_absolute() && cwd.is_dir())
+}
+
+fn foreground_member_cwd_different_from_shell(
+    shell_pid: u32,
+    shell_cwd: Option<&std::path::PathBuf>,
+) -> Option<std::path::PathBuf> {
+    let job = crate::detect::foreground_job(shell_pid)?;
+    for process in job.processes {
+        if process.pid == shell_pid {
+            continue;
+        }
+        let Some(cwd) = usable_process_cwd(process.pid) else {
+            continue;
+        };
+        if shell_cwd != Some(&cwd) {
+            return Some(cwd);
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,6 +184,7 @@ fn should_publish_detection_update(
     next: DetectionPublishState,
     agent_changed: bool,
     process_exited: bool,
+    stable_visible_signal_refresh_due: bool,
 ) -> bool {
     next.state != previous.state
         || next.visible_blocker != previous.visible_blocker
@@ -167,7 +192,26 @@ fn should_publish_detection_update(
         || next.visible_working != previous.visible_working
         || agent_changed
         || process_exited
+        || (stable_visible_signal_refresh_due
+            && ((next.visible_blocker && previous.visible_blocker)
+                || (next.visible_idle && previous.visible_idle)
+                || (next.visible_working && previous.visible_working)))
+}
+
+fn stable_visible_signal_refresh_due(
+    previous: DetectionPublishState,
+    next: DetectionPublishState,
+    last_refresh: Option<std::time::Instant>,
+    now: std::time::Instant,
+) -> bool {
+    let stable_visible_signal = (next.visible_blocker && previous.visible_blocker)
         || (next.visible_idle && previous.visible_idle)
+        || (next.visible_working && previous.visible_working);
+
+    stable_visible_signal
+        && last_refresh.is_none_or(|last_refresh| {
+            now.duration_since(last_refresh) >= STABLE_VISIBLE_SIGNAL_REFRESH
+        })
 }
 
 fn spawn_basic_detection_task(
@@ -191,6 +235,7 @@ fn spawn_basic_detection_task(
         let mut last_visible_blocker = false;
         let mut last_visible_idle = false;
         let mut last_visible_working = false;
+        let mut last_visible_signal_refresh = None;
 
         loop {
             tokio::select! {
@@ -201,6 +246,7 @@ fn spawn_basic_detection_task(
                     last_visible_blocker = false;
                     last_visible_idle = false;
                     last_visible_working = false;
+                    last_visible_signal_refresh = None;
                 }
             }
 
@@ -227,26 +273,41 @@ fn spawn_basic_detection_task(
             let visible_idle = detection.visible_idle && new_state == AgentState::Idle;
             let visible_working = detection.visible_working && new_state == AgentState::Working;
 
+            let previous_publish = DetectionPublishState {
+                state,
+                visible_blocker: last_visible_blocker,
+                visible_idle: last_visible_idle,
+                visible_working: last_visible_working,
+            };
+            let next_publish = DetectionPublishState {
+                state: new_state,
+                visible_blocker,
+                visible_idle,
+                visible_working,
+            };
+            let stable_refresh_due = stable_visible_signal_refresh_due(
+                previous_publish,
+                next_publish,
+                last_visible_signal_refresh,
+                now,
+            );
+
             if should_publish_detection_update(
-                DetectionPublishState {
-                    state,
-                    visible_blocker: last_visible_blocker,
-                    visible_idle: last_visible_idle,
-                    visible_working: last_visible_working,
-                },
-                DetectionPublishState {
-                    state: new_state,
-                    visible_blocker,
-                    visible_idle,
-                    visible_working,
-                },
+                previous_publish,
+                next_publish,
                 agent_changed,
                 false,
+                stable_refresh_due,
             ) {
                 state = new_state;
                 last_visible_blocker = visible_blocker;
                 last_visible_idle = visible_idle;
                 last_visible_working = visible_working;
+                if visible_blocker || visible_idle || visible_working {
+                    last_visible_signal_refresh = Some(now);
+                } else {
+                    last_visible_signal_refresh = None;
+                }
                 publish_state_changed_event(
                     state_events.clone(),
                     pane_id,
@@ -1378,6 +1439,7 @@ impl PaneRuntime {
                 let mut last_visible_blocker = false;
                 let mut last_visible_idle = false;
                 let mut last_visible_working = false;
+                let mut last_visible_signal_refresh = None;
 
                 tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -1405,6 +1467,7 @@ impl PaneRuntime {
                             last_visible_blocker = false;
                             last_visible_idle = false;
                             last_visible_working = false;
+                            last_visible_signal_refresh = None;
                         }
                     }
 
@@ -1551,21 +1614,31 @@ impl PaneRuntime {
                     let visible_working =
                         detection.visible_working && new_state == AgentState::Working;
 
+                    let previous_publish = DetectionPublishState {
+                        state,
+                        visible_blocker: last_visible_blocker,
+                        visible_idle: last_visible_idle,
+                        visible_working: last_visible_working,
+                    };
+                    let next_publish = DetectionPublishState {
+                        state: new_state,
+                        visible_blocker,
+                        visible_idle,
+                        visible_working,
+                    };
+                    let stable_refresh_due = stable_visible_signal_refresh_due(
+                        previous_publish,
+                        next_publish,
+                        last_visible_signal_refresh,
+                        now,
+                    );
+
                     if should_publish_detection_update(
-                        DetectionPublishState {
-                            state,
-                            visible_blocker: last_visible_blocker,
-                            visible_idle: last_visible_idle,
-                            visible_working: last_visible_working,
-                        },
-                        DetectionPublishState {
-                            state: new_state,
-                            visible_blocker,
-                            visible_idle,
-                            visible_working,
-                        },
+                        previous_publish,
+                        next_publish,
                         agent_changed,
                         process_exited,
+                        stable_refresh_due,
                     ) {
                         debug!(
                             pane = pane_id.raw(),
@@ -1579,6 +1652,11 @@ impl PaneRuntime {
                         last_visible_blocker = visible_blocker;
                         last_visible_idle = visible_idle;
                         last_visible_working = visible_working;
+                        if visible_blocker || visible_idle || visible_working {
+                            last_visible_signal_refresh = Some(now);
+                        } else {
+                            last_visible_signal_refresh = None;
+                        }
                         publish_state_changed_event(
                             state_events.clone(),
                             pane_id,
@@ -1967,6 +2045,32 @@ impl PaneRuntime {
     pub fn cwd(&self) -> Option<std::path::PathBuf> {
         let pid = self.child_pid.load(Ordering::Relaxed);
         crate::platform::process_cwd(pid)
+    }
+
+    /// Get the current working directory of the process group controlling the pane PTY.
+    pub fn foreground_cwd(&self) -> Option<std::path::PathBuf> {
+        #[cfg(unix)]
+        {
+            let pid = self.child_pid.load(Ordering::Acquire);
+            let shell_cwd = usable_process_cwd(pid);
+            let foreground_pgid = self
+                .master_fd()
+                .and_then(crate::platform::foreground_process_group_id_for_tty_fd)
+                .or_else(|| crate::platform::foreground_process_group_id(pid));
+            let leader_cwd = foreground_pgid.and_then(usable_process_cwd);
+
+            if leader_cwd.as_ref() == shell_cwd.as_ref() {
+                foreground_member_cwd_different_from_shell(pid, shell_cwd.as_ref()).or(leader_cwd)
+            } else {
+                leader_cwd
+                    .or_else(|| foreground_member_cwd_different_from_shell(pid, shell_cwd.as_ref()))
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            None
+        }
     }
 }
 
@@ -2396,29 +2500,101 @@ mod tests {
 
     #[test]
     fn stable_visible_idle_republishes_for_stale_hook_deadline() {
+        let now = std::time::Instant::now();
         let previous = DetectionPublishState {
             state: AgentState::Idle,
             visible_blocker: false,
             visible_idle: true,
             visible_working: false,
         };
+        let refresh_due = stable_visible_signal_refresh_due(
+            previous,
+            previous,
+            Some(now - STABLE_VISIBLE_SIGNAL_REFRESH),
+            now,
+        );
 
         assert!(should_publish_detection_update(
-            previous, previous, false, false
+            previous,
+            previous,
+            false,
+            false,
+            refresh_due
         ));
     }
 
     #[test]
     fn stable_plain_idle_does_not_republish() {
+        let now = std::time::Instant::now();
         let previous = DetectionPublishState {
             state: AgentState::Idle,
             visible_blocker: false,
             visible_idle: false,
             visible_working: false,
         };
+        let refresh_due = stable_visible_signal_refresh_due(
+            previous,
+            previous,
+            Some(now - STABLE_VISIBLE_SIGNAL_REFRESH),
+            now,
+        );
 
         assert!(!should_publish_detection_update(
-            previous, previous, false, false
+            previous,
+            previous,
+            false,
+            false,
+            refresh_due
+        ));
+    }
+
+    #[test]
+    fn stable_visible_working_republishes_for_hook_override_refresh() {
+        let now = std::time::Instant::now();
+        let previous = DetectionPublishState {
+            state: AgentState::Working,
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: true,
+        };
+        let refresh_due = stable_visible_signal_refresh_due(
+            previous,
+            previous,
+            Some(now - STABLE_VISIBLE_SIGNAL_REFRESH),
+            now,
+        );
+
+        assert!(should_publish_detection_update(
+            previous,
+            previous,
+            false,
+            false,
+            refresh_due
+        ));
+    }
+
+    #[test]
+    fn stable_visible_blocker_republishes_for_hook_override_refresh() {
+        let now = std::time::Instant::now();
+        let previous = DetectionPublishState {
+            state: AgentState::Blocked,
+            visible_blocker: true,
+            visible_idle: false,
+            visible_working: false,
+        };
+        let refresh_due = stable_visible_signal_refresh_due(
+            previous,
+            previous,
+            Some(now - STABLE_VISIBLE_SIGNAL_REFRESH),
+            now,
+        );
+
+        assert!(should_publish_detection_update(
+            previous,
+            previous,
+            false,
+            false,
+            refresh_due
         ));
     }
 

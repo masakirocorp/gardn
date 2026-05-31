@@ -4,9 +4,10 @@ use std::time::{Duration, Instant};
 
 // Effective state arbitration is intentionally centralized here. Hooks are the
 // default authority for agent-owned internal state, but a narrow set of strong
-// visible screen signals can veto stale non-blocked hook reports. Precedence is:
-// hook blocked > strong visible blocker > Claude visible idle > hook > fallback.
-// Process-exit updates clear matching hook authority before recomputing state.
+// visible screen signals can veto stale hook reports. Precedence is: strong
+// visible working for the same agent > hook blocked > strong visible blocker >
+// Claude visible idle > hook > fallback. Process-exit updates clear matching
+// hook authority before recomputing state.
 
 use crate::detect::{Agent, AgentState};
 use crate::terminal::TerminalId;
@@ -590,7 +591,7 @@ impl TerminalState {
         self.fallback_visible_working
             && self.fallback_not_older_than_hook()
             && self.hook_authority.as_ref().is_some_and(|authority| {
-                authority.state == AgentState::Idle
+                matches!(authority.state, AgentState::Idle | AgentState::Blocked)
                     && crate::detect::parse_agent_label(&authority.agent_label)
                         == self.detected_agent
             })
@@ -646,6 +647,22 @@ impl TerminalState {
         self.agent_name = None;
     }
 
+    pub fn clear_agent_runtime_identity_after_respawn(&mut self) {
+        self.detected_agent = None;
+        self.fallback_state = AgentState::Unknown;
+        self.fallback_visible_blocker = false;
+        self.fallback_visible_idle = false;
+        self.fallback_visible_working = false;
+        self.fallback_observed_at = None;
+        self.stale_hook_idle_since = None;
+        self.hook_authority = None;
+        self.persisted_agent_session = None;
+        self.agent_metadata.clear();
+        self.launch_argv = None;
+        self.respawn_shell_on_exit = false;
+        self.clear_agent_name();
+    }
+
     pub fn is_agent_terminal(&self) -> bool {
         self.agent_name.is_some()
             || self.effective_agent_label().is_some()
@@ -673,15 +690,15 @@ impl TerminalState {
         previous_presentation: EffectivePresentation,
         now: Instant,
     ) -> Option<EffectiveStateChange> {
-        let state = if self
+        let state = if self.visible_working_overrides_hook() {
+            AgentState::Working
+        } else if self
             .hook_authority
             .as_ref()
             .is_some_and(|authority| authority.state == AgentState::Blocked)
             || self.visible_blocker_overrides_hook()
         {
             AgentState::Blocked
-        } else if self.visible_working_overrides_hook() {
-            AgentState::Working
         } else if self.visible_idle_stales_hook(now) {
             AgentState::Idle
         } else {
@@ -1173,6 +1190,50 @@ mod tests {
         assert_eq!(
             change.effective_state_change.unwrap().previous_state,
             AgentState::Idle
+        );
+    }
+
+    #[test]
+    fn refreshed_visible_working_overrides_newer_hook_blocked() {
+        let now = Instant::now();
+        let mut terminal = test_terminal();
+        terminal.set_detected_state_with_screen_signals_at(
+            Some(Agent::Codex),
+            AgentState::Working,
+            false,
+            false,
+            true,
+            false,
+            now,
+        );
+        terminal.set_hook_authority_with_custom_status_at(
+            "hako:codex".into(),
+            "codex".into(),
+            AgentState::Blocked,
+            None,
+            Some("permission".into()),
+            None,
+            None,
+            now + CLAUDE_WORKING_HOLD + Duration::from_millis(1),
+        );
+
+        assert_eq!(terminal.state, AgentState::Blocked);
+
+        let change = terminal.set_detected_state_with_screen_signals_at(
+            Some(Agent::Codex),
+            AgentState::Working,
+            false,
+            false,
+            true,
+            false,
+            now + CLAUDE_WORKING_HOLD + Duration::from_millis(800),
+        );
+
+        assert_eq!(terminal.state, AgentState::Working);
+        assert_eq!(terminal.effective_custom_status(), None);
+        assert_eq!(
+            change.effective_state_change.unwrap().previous_state,
+            AgentState::Blocked
         );
     }
 

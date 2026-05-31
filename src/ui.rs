@@ -1506,28 +1506,94 @@ mod tests {
             .1
             .clone();
 
-        assert!(global.contains(&("prefix+space".to_string(), "command palette")));
-        assert!(agents.contains(&("unset".to_string(), "open agent menu")));
-        assert!(panes.contains(&("unset".to_string(), "toggle right sidebar")));
-        assert!(workspace_tab.contains(&("unset".to_string(), "previous workspace")));
-        assert!(workspace_tab.contains(&("unset".to_string(), "next workspace")));
-        assert!(workspace_tab.contains(&("unset".to_string(), "previous agent")));
-        assert!(workspace_tab.contains(&("unset".to_string(), "next agent")));
-        assert!(workspace_tab.contains(&("unset".to_string(), "focus agent 1-9")));
-        assert!(workspace_tab.contains(&("prefix+shift+1..0".to_string(), "switch space 1-10")));
-        assert!(workspace_tab.contains(&("prefix+1..0".to_string(), "switch tab 1-10")));
-        assert!(group_keys.contains(&("prefix+alt+1..0".to_string(), "switch group 1-10")));
+        assert!(global
+            .iter()
+            .any(|(key, label)| key == "prefix+space" && label.as_ref() == "command palette"));
+        assert!(agents
+            .iter()
+            .any(|(key, label)| key == "unset" && label.as_ref() == "open agent menu"));
         assert!(panes
             .iter()
-            .any(|(key, label)| key == "prefix+h" && *label == "focus pane left"));
+            .any(|(key, label)| key == "unset" && label.as_ref() == "toggle right sidebar"));
+        assert!(workspace_tab
+            .iter()
+            .any(|(key, label)| key == "unset" && label.as_ref() == "previous workspace"));
+        assert!(workspace_tab
+            .iter()
+            .any(|(key, label)| key == "unset" && label.as_ref() == "next workspace"));
+        assert!(workspace_tab
+            .iter()
+            .any(|(key, label)| key == "unset" && label.as_ref() == "previous agent"));
+        assert!(workspace_tab
+            .iter()
+            .any(|(key, label)| key == "unset" && label.as_ref() == "next agent"));
+        assert!(workspace_tab
+            .iter()
+            .any(|(key, label)| key == "unset" && label.as_ref() == "focus agent 1-9"));
+        assert!(workspace_tab.iter().any(|(key, label)| {
+            key == "prefix+shift+1..0" && label.as_ref() == "switch space 1-10"
+        }));
+        assert!(workspace_tab
+            .iter()
+            .any(|(key, label)| key == "prefix+1..0" && label.as_ref() == "switch tab 1-10"));
+        assert!(group_keys.iter().any(|(key, label)| {
+            key == "prefix+alt+1..0" && label.as_ref() == "switch group 1-10"
+        }));
         assert!(panes
             .iter()
-            .any(|(key, label)| key == "prefix+j" && *label == "focus pane down"));
+            .any(|(key, label)| key == "prefix+h" && label.as_ref() == "focus pane left"));
         assert!(panes
             .iter()
-            .any(|(key, label)| key == "prefix+k" && *label == "focus pane up"));
+            .any(|(key, label)| key == "prefix+j" && label.as_ref() == "focus pane down"));
         assert!(panes
             .iter()
-            .any(|(key, label)| key == "prefix+l" && *label == "focus pane right"));
+            .any(|(key, label)| key == "prefix+k" && label.as_ref() == "focus pane up"));
+        assert!(panes
+            .iter()
+            .any(|(key, label)| key == "prefix+l" && label.as_ref() == "focus pane right"));
+    }
+
+    #[test]
+    fn keybind_help_shows_custom_command_descriptions() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.keybinds.custom_commands = vec![
+            crate::config::CustomCommandKeybind {
+                bindings: crate::config::ActionKeybinds::prefix("alt+g"),
+                label: "prefix+alt+g".to_string(),
+                command: "lazygit".to_string(),
+                action: crate::config::CustomCommandAction::Pane,
+                description: Some("open lazygit".to_string()),
+            },
+            crate::config::CustomCommandKeybind {
+                bindings: crate::config::ActionKeybinds::prefix("alt+h"),
+                label: "prefix+alt+h".to_string(),
+                command: "echo hello".to_string(),
+                action: crate::config::CustomCommandAction::Shell,
+                description: None,
+            },
+        ];
+
+        let groups = keybind_help_groups(&app);
+        let custom = groups
+            .iter()
+            .find(|(name, _)| *name == "custom")
+            .expect("custom group")
+            .1
+            .clone();
+        assert!(custom
+            .iter()
+            .any(|(key, label)| key == "prefix+alt+g" && label.as_ref() == "open lazygit"));
+        assert!(custom
+            .iter()
+            .any(|(key, label)| key == "prefix+alt+h" && label.as_ref() == "custom command"));
+
+        let rendered_help = keybind_help_lines(&app)
+            .into_iter()
+            .flat_map(|(_, line)| line.spans)
+            .map(|span| span.content.into_owned())
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(rendered_help.contains("open lazygit"));
+        assert!(rendered_help.contains("custom command"));
     }
 }

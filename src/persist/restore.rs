@@ -406,6 +406,7 @@ fn restore_tab(
         let old_pane_id = reverse_id_map.get(id).copied();
         let imported_runtime = old_pane_id.and_then(|old_id| imported_panes.remove(&old_id));
         let was_imported = imported_runtime.is_some();
+        let was_native_agent_restore = !was_imported && startup.restore_plan.is_some();
         let runtime_result = if let Some(imported) = imported_runtime {
             TerminalRuntime::from_handoff_fd(
                 crate::handoff_runtime::ImportedHandoffRuntime {
@@ -455,7 +456,9 @@ fn restore_tab(
             Ok(runtime) => {
                 let terminal_id = TerminalId::alloc();
                 let mut terminal = TerminalState::new(terminal_id.clone(), cwd.clone());
-                if was_imported {
+                if was_native_agent_restore {
+                    terminal = terminal.with_respawn_shell_on_exit();
+                } else if was_imported {
                     if let Some(argv) = saved_launch_argv {
                         terminal = terminal.with_launch_argv(argv).with_respawn_shell_on_exit();
                     }
@@ -738,6 +741,30 @@ fn collect_ids_inner(node: &Node, ids: &mut Vec<PaneId>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: OsString) -> Self {
+            let previous = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = self.previous.take() {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
 
     #[test]
     fn capture_and_restore_node_round_trip() {
@@ -1027,14 +1054,130 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
         );
 
-        let session = terminals
+        let terminal = terminals
             .values()
             .next()
-            .and_then(|terminal| terminal.persisted_agent_session.as_ref())
+            .expect("restored terminal should exist");
+        assert!(
+            !terminal.respawn_shell_on_exit,
+            "agent sessions should not use native restore lifecycle when resume_agents_on_restore is disabled"
+        );
+        let session = terminal
+            .persisted_agent_session
+            .as_ref()
             .expect("persisted agent session should survive restore");
         assert_eq!(session.source, "hako:opencode");
         assert_eq!(session.agent, "opencode");
         assert_eq!(session.session_ref.value, "opencode-session");
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn native_agent_restore_marks_terminal_for_shell_respawn() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _lock = crate::integration::integration_env_lock();
+        let cwd = std::env::current_dir().unwrap();
+        let base = std::env::temp_dir().join(format!(
+            "hako-agent-restore-respawn-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bin = base.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let codex = bin.join("codex");
+        std::fs::write(&codex, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = match std::env::var_os("PATH") {
+            Some(path) => std::env::join_paths(
+                std::iter::once(bin.as_os_str().to_owned())
+                    .chain(std::env::split_paths(&path).map(|path| path.into_os_string())),
+            )
+            .unwrap(),
+            None => bin.as_os_str().to_owned(),
+        };
+        let _path_guard = EnvVarGuard::set("PATH", path);
+        let snapshot = SessionSnapshot {
+            version: super::super::snapshot::SNAPSHOT_VERSION,
+            groups: {
+                let group = crate::app::state::Group::default_group();
+                vec![super::super::snapshot::GroupSnapshot {
+                    id: group.id,
+                    name: group.name,
+                    icon: group.icon,
+                    theme_name: group.theme_name,
+                }]
+            },
+            active_group: 0,
+            workspaces: vec![WorkspaceSnapshot {
+                id: Some("workspace".into()),
+                custom_name: None,
+                identity_cwd: cwd.clone(),
+                group_id: crate::workspace::DEFAULT_GROUP_ID.into(),
+                tabs: vec![TabSnapshot {
+                    custom_name: None,
+                    layout: LayoutSnapshot::Pane(0),
+                    panes: HashMap::from([(
+                        0,
+                        super::super::snapshot::PaneSnapshot {
+                            cwd,
+                            label: None,
+                            agent_name: None,
+                            agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
+                                source: "hako:codex".into(),
+                                agent: "codex".into(),
+                                kind: crate::agent_resume::AgentSessionRefKind::Id,
+                                value: "codex-session".into(),
+                            }),
+                            launch_argv: None,
+                        },
+                    )]),
+                    zoomed: false,
+                    focused: Some(0),
+                    root_pane: Some(0),
+                }],
+                active_tab: 0,
+            }],
+            active: Some(0),
+            selected: 0,
+            agent_panel_scope: Default::default(),
+            sidebar_width: None,
+            sidebar_collapsed: false,
+            sidebar_section_split: None,
+            right_sidebar_width: None,
+            right_sidebar_collapsed: false,
+        };
+        let (events, _event_rx) = mpsc::channel(4);
+
+        let (_workspaces, terminals, runtimes) = restore(
+            &snapshot,
+            None,
+            24,
+            80,
+            0,
+            "/bin/sh",
+            true,
+            events,
+            Arc::new(Notify::new()),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        let terminal = terminals
+            .values()
+            .next()
+            .expect("native agent restore should create terminal state");
+        assert!(
+            terminal.respawn_shell_on_exit,
+            "restored native agent panes should keep the pane open after the resume process exits"
+        );
+
+        for runtime in runtimes.into_values() {
+            runtime.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[tokio::test]

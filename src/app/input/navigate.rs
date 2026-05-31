@@ -1794,6 +1794,7 @@ navigate_pane_right = "ctrl+l"
             label: "prefix+g".into(),
             command,
             action: crate::config::CustomCommandAction::Shell,
+            description: None,
         }];
 
         app.handle_key(TerminalKey::new(
@@ -1853,6 +1854,7 @@ navigate_pane_right = "ctrl+l"
             label: "prefix+g".into(),
             command,
             action: crate::config::CustomCommandAction::Pane,
+            description: None,
         }];
 
         app.handle_key(TerminalKey::new(

@@ -192,7 +192,7 @@ for agents outside the built-in list, hako still works as a terminal multiplexer
 
 ### direct integrations
 
-the built-in pi, omp, claude code, codex, opencode, and hermes integrations forward semantic state to hako over the socket api. install with:
+the built-in pi, omp, claude code, codex, opencode, hermes, and qodercli integrations forward semantic state to hako over the socket api. install with:
 
 ```bash
 hako integration install pi
@@ -201,6 +201,7 @@ hako integration install claude
 hako integration install codex
 hako integration install opencode
 hako integration install hermes
+hako integration install qodercli
 ```
 
 see the [integrations docs](https://hako.masakiro.com/docs/integrations/) for setup details.
@@ -222,12 +223,15 @@ press `ctrl+b` to enter prefix mode. default actions are prefix-first and tmux-l
 | `prefix+h/j/k/l` | focus pane |
 | `prefix+v` / `prefix+minus` | split pane |
 | `prefix+x` | close pane |
+| `prefix+[` | copy mode |
 | `prefix+b` | toggle sidebar |
 | `prefix+z` | zoom pane |
 | `prefix+r` | resize mode |
 | `prefix+q` | detach |
 
 resize mode: `h`/`l` resize width, `j`/`k` resize height, `esc` exit.
+
+copy mode lets you scroll pane history and copy text without relying on terminal selection behavior.
 
 custom command keybindings can launch detached shell helpers or temporary panes:
 
@@ -236,6 +240,7 @@ custom command keybindings can launch detached shell helpers or temporary panes:
 key = "prefix+g"
 type = "pane" # "shell" or "pane"
 command = "lazygit"
+description = "open lazygit"
 ```
 
 if you have old custom keybindings and want the new defaults, run `hako config reset-keys`. hako backs up `config.toml`, removes only keybinding config, and uses built-in v2 defaults after restart or config reload.

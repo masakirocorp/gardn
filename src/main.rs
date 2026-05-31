@@ -175,6 +175,7 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # key = "prefix+g"
 # type = "pane"
 # command = "lazygit"
+# description = "open lazygit"
 
 # Legacy indexed shortcut config is still parsed for compatibility.
 # Prefer switch_tab, switch_workspace, switch_group, and focus_agent for new configs.
