@@ -2326,13 +2326,14 @@ mod tests {
     async fn keyboard_context_menu_split_keeps_new_runtime() {
         let mut app = app_for_mouse_test();
         app.state.default_shell = "/usr/bin/true".into();
+        app.state.shell_mode = crate::config::ShellModeConfig::NonLogin;
         let (workspace, terminal, runtime) = Workspace::new(
             std::env::current_dir().unwrap_or_else(|_| "/".into()),
             24,
             80,
             app.state.pane_scrollback_limit_bytes,
             app.state.host_terminal_theme,
-            &app.state.default_shell,
+            crate::pane::PaneShellConfig::new(&app.state.default_shell, app.state.shell_mode),
             app.event_tx.clone(),
             app.render_notify.clone(),
             app.render_dirty.clone(),

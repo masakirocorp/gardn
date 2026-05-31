@@ -95,6 +95,10 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # Empty means $SHELL, then /bin/sh.
 # default_shell = ""
 
+# Startup mode for new interactive pane shells: "auto", "login", or "non_login".
+# "auto" uses login shells on macOS and keeps the current behavior elsewhere.
+# shell_mode = "auto"
+
 # CWD policy for new panes, tabs, and workspaces when no explicit --cwd is provided.
 # Use "follow" to inherit the source pane/workspace, "home" for $HOME,
 # "current" for Hako's process directory, or a fixed path such as "~/Projects".
@@ -375,7 +379,7 @@ fn main() -> io::Result<()> {
             }
             Err(err) => {
                 eprintln!("{err}");
-                eprintln!("usage: herdr update [--handoff]");
+                eprintln!("usage: hako update [--handoff]");
                 std::process::exit(2);
             }
         };
