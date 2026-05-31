@@ -19,10 +19,15 @@ mod aggregate;
 mod git;
 mod tab;
 
+#[cfg(test)]
+use self::git::git_ahead_behind;
 pub(crate) use self::git::git_repo_root;
-use self::git::{git_ahead_behind, git_work_summary};
+use self::git::git_work_summary;
 pub use self::{
-    git::{derive_label_from_cwd, git_branch, git_space_metadata, GitSpaceMetadata},
+    git::{
+        derive_label_from_cwd, git_branch, git_space_metadata, git_status_cache_key,
+        GitSpaceMetadata, GitStatusCacheEntry,
+    },
     tab::Tab,
 };
 
@@ -55,6 +60,33 @@ pub struct GitWorkSummary {
     pub added: usize,
     pub modified: usize,
     pub deleted: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceGitStatusSnapshot {
+    pub branch: Option<String>,
+    pub ahead_behind: Option<(usize, usize)>,
+    pub space: Option<GitSpaceMetadata>,
+}
+
+impl WorkspaceGitStatusSnapshot {
+    pub fn into_workspace_status(
+        self,
+        workspace_id: String,
+        resolved_identity_cwd: PathBuf,
+        cwd_fingerprint: Vec<PathBuf>,
+    ) -> WorkspaceGitStatus {
+        let work_summary = git_work_summary(&cwd_fingerprint);
+        WorkspaceGitStatus {
+            workspace_id,
+            resolved_identity_cwd,
+            cwd_fingerprint,
+            branch: self.branch,
+            ahead_behind: self.ahead_behind,
+            work_summary,
+            space: self.space,
+        }
+    }
 }
 
 static NEXT_WORKSPACE_ID: AtomicU64 = AtomicU64::new(1);
@@ -787,20 +819,11 @@ impl Workspace {
         cwds
     }
 
-    pub fn git_status_for_cwd(
-        workspace_id: String,
-        resolved_identity_cwd: PathBuf,
-        cwd_fingerprint: Vec<PathBuf>,
-    ) -> WorkspaceGitStatus {
-        WorkspaceGitStatus {
-            branch: git_branch(&resolved_identity_cwd),
-            ahead_behind: git_ahead_behind(&resolved_identity_cwd),
-            work_summary: git_work_summary(&cwd_fingerprint),
-            space: git_space_metadata(&resolved_identity_cwd),
-            workspace_id,
-            resolved_identity_cwd,
-            cwd_fingerprint,
-        }
+    pub fn git_status_snapshot_for_cwd_with_cache(
+        resolved_identity_cwd: &std::path::Path,
+        cached: Option<&GitStatusCacheEntry>,
+    ) -> (WorkspaceGitStatusSnapshot, Option<GitStatusCacheEntry>) {
+        self::git::git_status_snapshot_for_cwd(resolved_identity_cwd, cached)
     }
 
     pub fn find_tab_index_for_pane(&self, pane_id: PaneId) -> Option<usize> {

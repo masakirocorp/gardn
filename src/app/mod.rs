@@ -100,6 +100,8 @@ pub struct App {
     pub(crate) copy_feedback_deadline: Option<Instant>,
     pub(crate) last_git_remote_status_refresh: Instant,
     pub(crate) git_refresh_in_flight: bool,
+    pub(crate) git_refresh_due_after_in_flight: bool,
+    pub(crate) git_status_cache: HashMap<std::path::PathBuf, crate::workspace::GitStatusCacheEntry>,
     pub(crate) last_sidebar_divider_click: Option<Instant>,
     pub(crate) last_pane_click: Option<PaneClickState>,
     pub(crate) next_resize_poll: Instant,
@@ -709,6 +711,8 @@ impl App {
             event_rx,
             last_git_remote_status_refresh: Instant::now() - GIT_REMOTE_STATUS_REFRESH_INTERVAL,
             git_refresh_in_flight: false,
+            git_refresh_due_after_in_flight: false,
+            git_status_cache: HashMap::new(),
             last_sidebar_divider_click: None,
             last_pane_click: None,
             next_resize_poll: Instant::now() + RESIZE_POLL_INTERVAL,
@@ -1636,6 +1640,7 @@ mod tests {
 
         app.handle_internal_event(AppEvent::GitStatusRefreshed {
             results: Vec::new(),
+            cache_updates: Vec::new(),
         });
 
         assert!(!app.git_refresh_in_flight);
@@ -1665,6 +1670,7 @@ mod tests {
                 }),
                 space: None,
             }],
+            cache_updates: Vec::new(),
         });
 
         assert!(app.render_dirty.load(Ordering::Acquire));
@@ -3280,7 +3286,7 @@ mod tests {
         app.next_auto_update_check = Some(now + Duration::from_secs(6));
 
         assert_eq!(
-            app.next_headless_loop_deadline(now, false),
+            app.next_headless_loop_deadline_with_git_refresh(now, false, true),
             app.session_save_deadline
         );
     }
@@ -3297,7 +3303,10 @@ mod tests {
         app.session_save_deadline = None;
         app.state.workspaces.clear();
 
-        assert_eq!(app.next_headless_loop_deadline(now, false), None);
+        assert_eq!(
+            app.next_headless_loop_deadline_with_git_refresh(now, false, true),
+            None
+        );
     }
 
     #[test]

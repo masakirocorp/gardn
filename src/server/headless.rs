@@ -329,7 +329,11 @@ impl HeadlessServer {
             // 8. Wait for next event.
             let next_deadline = self
                 .app
-                .next_headless_loop_deadline(now, needs_render)
+                .next_headless_loop_deadline_with_git_refresh(
+                    now,
+                    needs_render,
+                    self.has_app_client(),
+                )
                 .map(|deadline| deadline.min(now + CLIENT_ACCEPT_POLL_INTERVAL))
                 .or(Some(now + CLIENT_ACCEPT_POLL_INTERVAL));
             let event = {
@@ -811,13 +815,26 @@ impl HeadlessServer {
         changed
     }
 
+    fn app_client_count(&self) -> usize {
+        self.clients
+            .values()
+            .filter(|client| client.is_full_app_client() && client.writer.is_some())
+            .count()
+    }
+
+    fn has_app_client(&self) -> bool {
+        self.app_client_count() > 0
+    }
+
     fn remove_client(&mut self, client_id: u64) -> bool {
         let was_foreground = self.foreground_client_id == Some(client_id);
         self.send_client_graphics_cleanup(client_id);
         let removed = self.clients.remove(&client_id);
+        let mut removed_terminal_attach = false;
         if let Some(removed) = removed {
             crate::server::clipboard_image::remove_files(removed.staged_clipboard_files);
             if let ClientConnectionMode::TerminalAttach { terminal_id } = removed.mode {
+                removed_terminal_attach = true;
                 self.terminal_attach_owners.remove(&terminal_id);
                 if let Some(terminal_id) = self.terminal_id_by_string(&terminal_id) {
                     self.app
@@ -827,11 +844,15 @@ impl HeadlessServer {
                 }
             }
         }
-        if was_foreground {
+        let foreground_changed = if was_foreground {
             self.promote_latest_remaining_client()
         } else {
             false
+        };
+        if removed_terminal_attach {
+            self.resize_shared_runtime_to_effective_size();
         }
+        foreground_changed
     }
 
     fn send_client_graphics_cleanup(&mut self, client_id: u64) {
@@ -1469,6 +1490,7 @@ impl HeadlessServer {
         client.mode = ClientConnectionMode::TerminalAttach {
             terminal_id: terminal_id.clone(),
         };
+        client.pending_terminal_attach = false;
         client.render_state.reset_baseline();
         client.last_activity = stamp;
         let was_foreground = self.foreground_client_id == Some(client_id);
@@ -1505,6 +1527,7 @@ impl HeadlessServer {
                 keybindings,
                 writer,
                 render_encoding,
+                direct_attach_requested,
             } => {
                 if self.handoff_in_progress {
                     if let Ok(message) =
@@ -1519,6 +1542,7 @@ impl HeadlessServer {
                     }
                     return false;
                 }
+                let first_app_client = !direct_attach_requested && self.app_client_count() == 0;
                 info!(
                     client_id,
                     cols,
@@ -1543,10 +1567,16 @@ impl HeadlessServer {
                         None,
                         last_activity,
                         render_encoding,
+                        direct_attach_requested,
                         Some(writer),
                     ),
                 );
-                self.foreground_client_id = Some(client_id);
+                if !direct_attach_requested {
+                    self.foreground_client_id = Some(client_id);
+                }
+                if first_app_client {
+                    self.app.mark_git_status_refresh_due(Instant::now());
+                }
                 self.sync_foreground_client_state();
                 self.resize_shared_runtime_to_effective_size();
                 self.nudge_handoff_panes_on_first_client_attach();
@@ -2024,7 +2054,7 @@ impl HeadlessServer {
 
         let mut broken_clients: Vec<u64> = Vec::new();
         for (&client_id, client) in &mut self.clients {
-            if !matches!(client.mode, ClientConnectionMode::App) {
+            if !client.is_full_app_client() {
                 continue;
             }
             if client.host_mouse_capture_active == Some(enabled) {
@@ -2341,7 +2371,9 @@ impl HeadlessServer {
 
         changed |= self.app.clear_due_selection_highlight(now);
 
-        self.app.start_git_status_refresh_if_due(now);
+        if self.has_app_client() {
+            self.app.start_git_status_refresh_if_due(now);
+        }
 
         if self
             .app
@@ -2887,6 +2919,7 @@ new_tab = "prefix+t"
             cell_height_px: 0,
             render_encoding: RenderEncoding::SemanticFrame,
             keybindings: Some(Box::new(local_keybindings)),
+            direct_attach_requested: false,
             writer: writer_a,
         }));
         assert_eq!(
@@ -2910,6 +2943,7 @@ new_tab = "prefix+t"
             cell_height_px: 0,
             render_encoding: RenderEncoding::SemanticFrame,
             keybindings: None,
+            direct_attach_requested: false,
             writer: writer_b,
         }));
         assert_eq!(
@@ -2949,6 +2983,7 @@ new_tab = "prefix+t"
             cell_height_px: 0,
             render_encoding: RenderEncoding::SemanticFrame,
             keybindings: Some(Box::new(local_keybindings)),
+            direct_attach_requested: false,
             writer: writer_a,
         }));
         assert_eq!(server.app.state.config_diagnostic, without_keybindings);
@@ -2961,6 +2996,7 @@ new_tab = "prefix+t"
             cell_height_px: 0,
             render_encoding: RenderEncoding::SemanticFrame,
             keybindings: None,
+            direct_attach_requested: false,
             writer: writer_b,
         }));
         assert_eq!(
@@ -3003,6 +3039,7 @@ next_tab = ""
             cell_height_px: 0,
             render_encoding: RenderEncoding::SemanticFrame,
             keybindings: Some(Box::new(local_keybindings)),
+            direct_attach_requested: false,
             writer,
         }));
         server.app.state.mode = crate::app::Mode::Settings;
@@ -3080,6 +3117,7 @@ next_tab = ""
             cell_height_px: 0,
             render_encoding: RenderEncoding::SemanticFrame,
             keybindings: Some(Box::new(local_config.live_keybinds().unwrap())),
+            direct_attach_requested: false,
             writer: writer_a,
         }));
         server.app.state.mode = crate::app::Mode::Settings;
@@ -3099,6 +3137,7 @@ next_tab = ""
             cell_height_px: 0,
             render_encoding: RenderEncoding::SemanticFrame,
             keybindings: None,
+            direct_attach_requested: false,
             writer: writer_b,
         }));
         assert_eq!(
@@ -3131,6 +3170,7 @@ next_tab = ""
             cell_height_px: 0,
             render_encoding: RenderEncoding::TerminalAnsi,
             keybindings: None,
+            direct_attach_requested: true,
             writer,
         }));
         assert!(server.clients.contains_key(&7));
@@ -3148,6 +3188,119 @@ next_tab = ""
             reason,
             Some("terminal attach failed: terminal term_missing not found".to_owned())
         );
+    }
+
+    fn app_client_marks_git_refresh_due_on_first_attach(render_encoding: RenderEncoding) {
+        let mut server = test_headless_server();
+        server
+            .app
+            .state
+            .workspaces
+            .push(crate::workspace::Workspace::test_new("test"));
+        let future = Instant::now() + Duration::from_secs(60);
+        server.app.last_git_remote_status_refresh = future;
+        let (writer, _control_rx, _render_rx) = test_client_writer();
+
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 7,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding,
+            keybindings: None,
+            direct_attach_requested: false,
+            writer,
+        }));
+
+        assert!(server.has_app_client());
+        assert!(server
+            .app
+            .git_refresh_deadline()
+            .is_some_and(|deadline| deadline <= Instant::now()));
+    }
+
+    #[test]
+    fn terminal_ansi_app_client_enables_headless_git_refresh() {
+        app_client_marks_git_refresh_due_on_first_attach(RenderEncoding::TerminalAnsi);
+    }
+
+    #[test]
+    fn pending_terminal_attach_client_does_not_enable_headless_git_refresh() {
+        let mut server = test_headless_server();
+        server
+            .app
+            .state
+            .workspaces
+            .push(crate::workspace::Workspace::test_new("test"));
+        let now = Instant::now();
+        server.app.next_command_scan = now + Duration::from_secs(30);
+        let (writer, _control_rx, _render_rx) = test_client_writer();
+
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 7,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::TerminalAnsi,
+            keybindings: None,
+            direct_attach_requested: true,
+            writer,
+        }));
+
+        assert!(!server.has_app_client());
+        assert_eq!(
+            server.app.next_headless_loop_deadline_with_git_refresh(
+                now,
+                false,
+                server.has_app_client()
+            ),
+            Some(server.app.next_command_scan)
+        );
+    }
+
+    #[test]
+    fn writerless_app_client_does_not_enable_headless_git_refresh() {
+        let mut server = test_headless_server();
+        server
+            .app
+            .state
+            .workspaces
+            .push(crate::workspace::Workspace::test_new("test"));
+        let now = Instant::now();
+        server.app.next_command_scan = now + Duration::from_secs(30);
+        let (writer, _control_rx, _render_rx) = test_client_writer();
+
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 7,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: None,
+            direct_attach_requested: false,
+            writer,
+        }));
+        assert!(server.has_app_client());
+
+        server.clients.get_mut(&7).expect("client").writer = None;
+
+        assert!(!server.has_app_client());
+        assert_eq!(
+            server.app.next_headless_loop_deadline_with_git_refresh(
+                now,
+                false,
+                server.has_app_client()
+            ),
+            Some(server.app.next_command_scan)
+        );
+    }
+
+    #[test]
+    fn semantic_app_client_marks_git_refresh_due_on_first_attach() {
+        app_client_marks_git_refresh_due_on_first_attach(RenderEncoding::SemanticFrame);
     }
 
     #[test]
@@ -3172,6 +3325,7 @@ next_tab = ""
             cell_height_px: 0,
             render_encoding: RenderEncoding::TerminalAnsi,
             keybindings: None,
+            direct_attach_requested: true,
             writer,
         }));
         assert!(
@@ -3905,6 +4059,106 @@ next_tab = ""
                 .current_size(),
             expected
         );
+    }
+
+    #[test]
+    fn terminal_attach_disconnect_restores_app_pane_size() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime");
+        let _runtime_guard = rt.enter();
+        let mut server = test_headless_server();
+        let workspace = crate::workspace::Workspace::test_new("test");
+        let pane_id = workspace.tabs[0].root_pane;
+        let terminal_id = workspace.terminal_id(pane_id).expect("terminal id").clone();
+        let terminal_id_string = terminal_id.to_string();
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.ensure_test_terminals();
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.terminal_runtimes.insert(
+            terminal_id.clone(),
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b""),
+        );
+        server.clients.insert(
+            1,
+            ClientConnection::new(
+                (120, 40),
+                crate::kitty_graphics::HostCellSize::default(),
+                crate::terminal_theme::TerminalTheme::default(),
+                None,
+                1,
+                RenderEncoding::SemanticFrame,
+                None,
+            ),
+        );
+        server.foreground_client_id = Some(1);
+        server.sync_foreground_client_state();
+        server.resize_shared_runtime_to_effective_size();
+        let expected_app_size = server
+            .app
+            .terminal_runtimes
+            .get(&terminal_id)
+            .expect("runtime")
+            .current_size();
+        assert_ne!(expected_app_size, (24, 80));
+
+        let (writer, _control_rx, _render_rx) = test_client_writer();
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 2,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::TerminalAnsi,
+            keybindings: None,
+            direct_attach_requested: true,
+            writer,
+        }));
+        assert!(
+            server.handle_server_event(ServerEvent::ClientAttachTerminal {
+                client_id: 2,
+                terminal_id: terminal_id_string.clone(),
+                takeover: false,
+            })
+        );
+        assert_eq!(server.foreground_client_id, Some(1));
+        assert!(server
+            .app
+            .state
+            .direct_attach_resize_locks
+            .contains(&terminal_id));
+        assert_eq!(
+            server
+                .app
+                .terminal_runtimes
+                .get(&terminal_id)
+                .expect("runtime")
+                .current_size(),
+            (24, 80)
+        );
+
+        assert!(server.handle_server_event(ServerEvent::ClientDisconnected { client_id: 2 }));
+
+        assert!(!server
+            .app
+            .state
+            .direct_attach_resize_locks
+            .contains(&terminal_id));
+        assert_eq!(
+            server
+                .app
+                .terminal_runtimes
+                .get(&terminal_id)
+                .expect("runtime")
+                .current_size(),
+            expected_app_size
+        );
+        drop(server);
+        drop(_runtime_guard);
+        rt.shutdown_timeout(Duration::from_millis(100));
     }
 
     #[test]

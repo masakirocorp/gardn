@@ -31,8 +31,9 @@ use tracing::{debug, info, warn};
 
 use crate::protocol::render_ansi;
 use crate::protocol::{
-    self, ClientKeybindings, ClientMessage, NotifyKind, RenderEncoding, ServerMessage,
-    MAX_CLIPBOARD_IMAGE_PAYLOAD, MAX_FRAME_SIZE, MAX_GRAPHICS_FRAME_SIZE, PROTOCOL_VERSION,
+    self, ClientKeybindings, ClientLaunchMode, ClientMessage, NotifyKind, RenderEncoding,
+    ServerMessage, MAX_CLIPBOARD_IMAGE_PAYLOAD, MAX_FRAME_SIZE, MAX_GRAPHICS_FRAME_SIZE,
+    PROTOCOL_VERSION,
 };
 use crate::server::socket_paths::client_socket_path;
 
@@ -337,6 +338,7 @@ fn do_handshake(
     cell_width_px: u32,
     cell_height_px: u32,
     requested_encoding: RenderEncoding,
+    direct_attach_requested: bool,
 ) -> Result<RenderEncoding, ClientError> {
     stream
         .set_nonblocking(false)
@@ -351,6 +353,11 @@ fn do_handshake(
         cell_height_px,
         requested_encoding,
         keybindings: requested_keybindings(),
+        launch_mode: if direct_attach_requested {
+            ClientLaunchMode::TerminalAttach
+        } else {
+            ClientLaunchMode::App
+        },
     };
     protocol::write_message(stream, &hello)
         .map_err(|e| ClientError::ConnectionFailed(io::Error::other(e.to_string())))?;
@@ -465,6 +472,7 @@ fn run_client_with_mode(
         cell_width_px,
         cell_height_px,
         requested_encoding,
+        direct_attach_requested,
     ) {
         Ok(encoding) => encoding,
         Err(err) => {
