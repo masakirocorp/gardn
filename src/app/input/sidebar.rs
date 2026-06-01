@@ -1074,7 +1074,8 @@ mod tests {
     use super::super::{app_for_mouse_test, capture_snapshot, mouse, unique_temp_path};
     use crate::{
         app::state::{
-            AgentPanelScope, CommandPanelAction, ContextMenuKind, DragTarget, Group, Mode,
+            AgentPanelScope, CommandPanelAction, ContextMenuKind, DragTarget, Group,
+            GroupThemeOverride, Mode,
         },
         detect::{Agent, AgentState},
         workspace::Workspace,
@@ -1106,7 +1107,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme_name: None,
+            theme: GroupThemeOverride::default(),
         });
         app.state.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
         app.state.workspaces[1].group_id = "work".into();
@@ -1141,7 +1142,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme_name: None,
+            theme: GroupThemeOverride::default(),
         });
         app.state.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
         app.state.workspaces[1].group_id = "work".into();
@@ -1174,7 +1175,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme_name: None,
+            theme: GroupThemeOverride::default(),
         });
         app.state.workspaces = vec![
             Workspace::test_new("a"),
@@ -3204,7 +3205,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme_name: None,
+            theme: GroupThemeOverride::default(),
         });
         app.state.workspaces = vec![Workspace::test_new("a")];
         app.state.active = Some(0);
@@ -3237,7 +3238,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme_name: None,
+            theme: GroupThemeOverride::default(),
         });
         app.state.workspaces = vec![
             Workspace::test_new("a"),
@@ -3289,7 +3290,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme_name: None,
+            theme: GroupThemeOverride::default(),
         });
         app.state.workspaces = vec![
             Workspace::test_new("a"),
@@ -3341,7 +3342,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme_name: None,
+            theme: GroupThemeOverride::default(),
         });
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
         app.state.workspaces[1].group_id = "work".into();
@@ -3372,7 +3373,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme_name: None,
+            theme: GroupThemeOverride::default(),
         });
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
         app.state.workspaces[1].group_id = "work".into();
@@ -3397,7 +3398,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme_name: None,
+            theme: GroupThemeOverride::default(),
         });
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
         app.state.workspaces[1].group_id = "work".into();

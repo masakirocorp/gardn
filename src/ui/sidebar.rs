@@ -3094,7 +3094,11 @@ fn render_right_sidebar_toggle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{app::state::Group, detect::Agent, workspace::Workspace};
+    use crate::{
+        app::state::{Group, GroupThemeOverride},
+        detect::Agent,
+        workspace::Workspace,
+    };
     use ratatui::{backend::TestBackend, buffer::Buffer, layout::Direction, Terminal};
 
     #[test]
@@ -3162,7 +3166,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme_name: None,
+            theme: GroupThemeOverride::default(),
         });
         app.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
         app.workspaces[1].group_id = "work".into();
@@ -3194,7 +3198,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme_name: None,
+            theme: GroupThemeOverride::default(),
         });
         app.collapsed_workspace_groups.push("work".into());
         app.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
@@ -3226,7 +3230,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme_name: None,
+            theme: GroupThemeOverride::default(),
         });
         app.workspaces = vec![Workspace::test_new("home")];
         let area = Rect::new(0, 0, 32, 14);

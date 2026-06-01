@@ -57,12 +57,28 @@ pub(crate) fn generate_group_id() -> String {
     format!("g{micros:x}{counter:x}")
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GroupThemeOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<ThemeMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub light_theme_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dark_theme_name: Option<String>,
+}
+
+impl GroupThemeOverride {
+    pub fn is_empty(&self) -> bool {
+        self.mode.is_none() && self.light_theme_name.is_none() && self.dark_theme_name.is_none()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Group {
     pub id: String,
     pub name: String,
     pub icon: String,
-    pub theme_name: Option<String>,
+    pub theme: GroupThemeOverride,
 }
 
 impl Group {
@@ -71,7 +87,7 @@ impl Group {
             id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
             name: "group 1".to_string(),
             icon: DEFAULT_GROUP_ICON.to_string(),
-            theme_name: None,
+            theme: GroupThemeOverride::default(),
         }
     }
 }
@@ -2267,10 +2283,6 @@ impl AppState {
             self.theme_appearance_for_mode(mode),
             self.host_terminal_theme,
         )
-    }
-
-    pub fn palette_for_theme(&self, theme_name: &str) -> Option<Palette> {
-        self.palette_for_theme_mode(theme_name, self.global_theme_mode)
     }
 
     pub fn configured_global_palette(&self, theme_name: &str, mode: ThemeMode) -> Option<Palette> {

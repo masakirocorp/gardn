@@ -282,6 +282,22 @@ fn resolve_palette_with_legacy_accent(
     palette
 }
 
+fn legacy_group_theme_override(theme_name: &str) -> state::GroupThemeOverride {
+    state::GroupThemeOverride {
+        mode: None,
+        light_theme_name: state::theme_name_for_appearance(
+            theme_name,
+            crate::terminal_theme::ThemeAppearance::Light,
+        )
+        .map(str::to_string),
+        dark_theme_name: state::theme_name_for_appearance(
+            theme_name,
+            crate::terminal_theme::ThemeAppearance::Dark,
+        )
+        .map(str::to_string),
+    }
+}
+
 fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Group> {
     if snap.groups.is_empty() {
         return vec![state::Group::default_group()];
@@ -293,7 +309,13 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             id: group.id.clone(),
             name: group.name.clone(),
             icon: state::normalize_group_icon(&group.icon),
-            theme_name: group.theme_name.clone(),
+            theme: group.theme.clone().unwrap_or_else(|| {
+                group
+                    .theme_name
+                    .as_deref()
+                    .map(legacy_group_theme_override)
+                    .unwrap_or_default()
+            }),
         })
         .collect()
 }
@@ -1612,6 +1634,40 @@ mod tests {
                 .as_nanos()
         );
         std::env::temp_dir().join(unique).join("config.toml")
+    }
+
+    #[test]
+    fn legacy_group_theme_names_restore_as_light_dark_overrides() {
+        let snap = crate::persist::SessionSnapshot {
+            version: 0,
+            groups: vec![crate::persist::GroupSnapshot {
+                id: "work".to_string(),
+                name: "Work".to_string(),
+                icon: "■".to_string(),
+                theme: None,
+                theme_name: Some("gruvbox".to_string()),
+            }],
+            active_group: 0,
+            workspaces: Vec::new(),
+            active: None,
+            selected: 0,
+            agent_panel_scope: state::AgentPanelScope::CurrentWorkspace,
+            sidebar_width: None,
+            sidebar_collapsed: false,
+            sidebar_section_split: None,
+            right_sidebar_width: None,
+            right_sidebar_collapsed: false,
+        };
+
+        let groups = groups_from_snapshot(&snap);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].theme.mode, None);
+        assert_eq!(
+            groups[0].theme.light_theme_name.as_deref(),
+            Some("gruvbox-light")
+        );
+        assert_eq!(groups[0].theme.dark_theme_name.as_deref(), Some("gruvbox"));
     }
 
     fn restore_xdg_state_home(original: Option<std::ffi::OsString>) {

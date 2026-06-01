@@ -16,9 +16,7 @@ use super::widgets::{
 };
 use crate::{
     app::{
-        state::{
-            normalize_theme_name, theme_names_for_appearance, Palette, SettingsSection, THEME_NAMES,
-        },
+        state::{normalize_theme_name, theme_names_for_appearance, Palette, SettingsSection},
         AppState,
     },
     config::{NewTerminalCwdConfig, ThemeMode, ToastDelivery},
@@ -193,7 +191,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
 
 fn render_group_theme_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     let p = &app.palette;
-    let Some(popup) = centered_popup_rect(area, 56, 20) else {
+    let Some(popup) = centered_popup_rect(area, 76, 22) else {
         return;
     };
 
@@ -515,7 +513,7 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
         && normalize_theme_name(pending_light_theme) == "system"
         && normalize_theme_name(pending_dark_theme) == "system";
     let description = if app.settings.group_theme_target.is_some() {
-        "choose a theme override for this group"
+        "override this group; selections matching global settings inherit global changes"
     } else if system_source {
         "follow terminal colors directly"
     } else {
@@ -534,7 +532,6 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
     );
 
     let mut items: Vec<ListItem> = Vec::new();
-    let mut selected_row = app.settings.list.selected;
     let list_width = list_area.width as usize;
     let option_item = |label: &str, marker: &str, selected: bool, indent: &str| {
         if selected {
@@ -551,162 +548,136 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
         }
     };
 
-    if app.settings.group_theme_target.is_some() {
-        let pending_group_theme_name = app.settings.pending_theme_name.as_deref();
-        let selected = app.settings.list.selected == 0;
-        let marker = if pending_group_theme_name.is_none() {
-            " ✓"
-        } else {
-            ""
-        };
-        items.push(option_item(
-            &format!("default ({})", theme_display_name(&app.global_theme_name)),
-            marker,
-            selected,
-            " ",
-        ));
-
-        items.extend(THEME_NAMES.iter().enumerate().map(|(idx, name)| {
-            let selected = app.settings.list.selected == idx + 1;
-            let marker = if pending_group_theme_name == Some(*name) {
-                " ✓"
-            } else {
-                ""
-            };
-            option_item(theme_display_name(name), marker, selected, " ")
-        }));
+    let selected_row = if app.settings.list.selected < 2 {
+        app.settings.list.selected + 1
+    } else if system_source {
+        1
+    } else if app.settings.list.selected < 2 + ThemeMode::ALL.len() {
+        app.settings.list.selected - 2 + 5
     } else {
-        selected_row = if app.settings.list.selected < 2 {
-            app.settings.list.selected + 1
-        } else if system_source {
-            1
-        } else if app.settings.list.selected < 2 + ThemeMode::ALL.len() {
-            app.settings.list.selected - 2 + 5
-        } else {
-            let theme_idx = app.settings.list.selected - 2 - ThemeMode::ALL.len();
-            match mode {
-                ThemeMode::System => {
-                    let light_len = theme_names_for_appearance(ThemeAppearance::Light).len();
-                    if theme_idx < light_len {
-                        theme_idx + 10
-                    } else {
-                        theme_idx + 12
-                    }
+        let theme_idx = app.settings.list.selected - 2 - ThemeMode::ALL.len();
+        match mode {
+            ThemeMode::System => {
+                let light_len = theme_names_for_appearance(ThemeAppearance::Light).len();
+                if theme_idx < light_len {
+                    theme_idx + 10
+                } else {
+                    theme_idx + 12
                 }
-                ThemeMode::Light | ThemeMode::Dark => theme_idx + 10,
             }
-        };
+            ThemeMode::Light | ThemeMode::Dark => theme_idx + 10,
+        }
+    };
 
+    items.push(ListItem::new(Line::from(Span::styled(
+        " colors",
+        modal_section_heading_style(p),
+    ))));
+    let selected = selected_row == items.len();
+    let marker = if system_source { " ✓" } else { "" };
+    items.push(option_item("terminal", marker, selected, "  "));
+    let selected = selected_row == items.len();
+    let marker = if !system_source { " ✓" } else { "" };
+    items.push(option_item("palettes", marker, selected, "  "));
+
+    if !system_source {
+        items.push(ListItem::new(Line::from("")));
         items.push(ListItem::new(Line::from(Span::styled(
-            " colors",
+            " appearance",
             modal_section_heading_style(p),
         ))));
-        let selected = selected_row == items.len();
-        let marker = if system_source { " ✓" } else { "" };
-        items.push(option_item("terminal", marker, selected, "  "));
-        let selected = selected_row == items.len();
-        let marker = if !system_source { " ✓" } else { "" };
-        items.push(option_item("palettes", marker, selected, "  "));
+        for candidate in ThemeMode::ALL {
+            let selected = selected_row == items.len();
+            let marker = if mode == *candidate { " ✓" } else { "" };
+            items.push(option_item(
+                theme_mode_display_name(*candidate),
+                marker,
+                selected,
+                "  ",
+            ));
+        }
 
-        if !system_source {
-            items.push(ListItem::new(Line::from("")));
-            items.push(ListItem::new(Line::from(Span::styled(
-                " appearance",
-                modal_section_heading_style(p),
-            ))));
-            for candidate in ThemeMode::ALL {
-                let selected = selected_row == items.len();
-                let marker = if mode == *candidate { " ✓" } else { "" };
-                items.push(option_item(
-                    theme_mode_display_name(*candidate),
-                    marker,
-                    selected,
-                    "  ",
-                ));
+        items.push(ListItem::new(Line::from("")));
+        match mode {
+            ThemeMode::System => {
+                let light_names = theme_names_for_appearance(ThemeAppearance::Light);
+                items.push(ListItem::new(Line::from(Span::styled(
+                    " light appearance",
+                    modal_section_heading_style(p),
+                ))));
+                for name in light_names {
+                    let selected = selected_row == items.len();
+                    let marker = if pending_light_theme == *name {
+                        " ✓"
+                    } else {
+                        ""
+                    };
+                    items.push(option_item(
+                        theme_display_name(name),
+                        marker,
+                        selected,
+                        "  ",
+                    ));
+                }
+
+                items.push(ListItem::new(Line::from("")));
+                items.push(ListItem::new(Line::from(Span::styled(
+                    " dark appearance",
+                    modal_section_heading_style(p),
+                ))));
+                for name in theme_names_for_appearance(ThemeAppearance::Dark) {
+                    let selected = selected_row == items.len();
+                    let marker = if pending_dark_theme == *name {
+                        " ✓"
+                    } else {
+                        ""
+                    };
+                    items.push(option_item(
+                        theme_display_name(name),
+                        marker,
+                        selected,
+                        "  ",
+                    ));
+                }
             }
-
-            items.push(ListItem::new(Line::from("")));
-            match mode {
-                ThemeMode::System => {
-                    let light_names = theme_names_for_appearance(ThemeAppearance::Light);
-                    items.push(ListItem::new(Line::from(Span::styled(
-                        " light appearance",
-                        modal_section_heading_style(p),
-                    ))));
-                    for name in light_names {
-                        let selected = selected_row == items.len();
-                        let marker = if pending_light_theme == *name {
-                            " ✓"
-                        } else {
-                            ""
-                        };
-                        items.push(option_item(
-                            theme_display_name(name),
-                            marker,
-                            selected,
-                            "  ",
-                        ));
-                    }
-
-                    items.push(ListItem::new(Line::from("")));
-                    items.push(ListItem::new(Line::from(Span::styled(
-                        " dark appearance",
-                        modal_section_heading_style(p),
-                    ))));
-                    for name in theme_names_for_appearance(ThemeAppearance::Dark) {
-                        let selected = selected_row == items.len();
-                        let marker = if pending_dark_theme == *name {
-                            " ✓"
-                        } else {
-                            ""
-                        };
-                        items.push(option_item(
-                            theme_display_name(name),
-                            marker,
-                            selected,
-                            "  ",
-                        ));
-                    }
+            ThemeMode::Light => {
+                items.push(ListItem::new(Line::from(Span::styled(
+                    " light appearance",
+                    modal_section_heading_style(p),
+                ))));
+                for name in theme_names_for_appearance(ThemeAppearance::Light) {
+                    let selected = selected_row == items.len();
+                    let marker = if pending_light_theme == *name {
+                        " ✓"
+                    } else {
+                        ""
+                    };
+                    items.push(option_item(
+                        theme_display_name(name),
+                        marker,
+                        selected,
+                        "  ",
+                    ));
                 }
-                ThemeMode::Light => {
-                    items.push(ListItem::new(Line::from(Span::styled(
-                        " light appearance",
-                        modal_section_heading_style(p),
-                    ))));
-                    for name in theme_names_for_appearance(ThemeAppearance::Light) {
-                        let selected = selected_row == items.len();
-                        let marker = if pending_light_theme == *name {
-                            " ✓"
-                        } else {
-                            ""
-                        };
-                        items.push(option_item(
-                            theme_display_name(name),
-                            marker,
-                            selected,
-                            "  ",
-                        ));
-                    }
-                }
-                ThemeMode::Dark => {
-                    items.push(ListItem::new(Line::from(Span::styled(
-                        " dark appearance",
-                        modal_section_heading_style(p),
-                    ))));
-                    for name in theme_names_for_appearance(ThemeAppearance::Dark) {
-                        let selected = selected_row == items.len();
-                        let marker = if pending_dark_theme == *name {
-                            " ✓"
-                        } else {
-                            ""
-                        };
-                        items.push(option_item(
-                            theme_display_name(name),
-                            marker,
-                            selected,
-                            "  ",
-                        ));
-                    }
+            }
+            ThemeMode::Dark => {
+                items.push(ListItem::new(Line::from(Span::styled(
+                    " dark appearance",
+                    modal_section_heading_style(p),
+                ))));
+                for name in theme_names_for_appearance(ThemeAppearance::Dark) {
+                    let selected = selected_row == items.len();
+                    let marker = if pending_dark_theme == *name {
+                        " ✓"
+                    } else {
+                        ""
+                    };
+                    items.push(option_item(
+                        theme_display_name(name),
+                        marker,
+                        selected,
+                        "  ",
+                    ));
                 }
             }
         }

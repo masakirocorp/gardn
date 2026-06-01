@@ -77,6 +77,8 @@ pub struct GroupSnapshot {
     #[serde(default = "default_group_icon")]
     pub icon: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<crate::app::state::GroupThemeOverride>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_name: Option<String>,
 }
 
@@ -93,6 +95,7 @@ fn default_groups() -> Vec<GroupSnapshot> {
         id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
         name: "group 1".to_string(),
         icon: default_group_icon(),
+        theme: None,
         theme_name: None,
     }]
 }
@@ -334,7 +337,8 @@ fn capture_group(group: &crate::app::state::Group) -> GroupSnapshot {
         id: group.id.clone(),
         name: group.name.clone(),
         icon: group.icon.clone(),
-        theme_name: group.theme_name.clone(),
+        theme: (!group.theme.is_empty()).then(|| group.theme.clone()),
+        theme_name: None,
     }
 }
 
@@ -663,7 +667,11 @@ mod tests {
             id: group_id.clone(),
             name: "Side".to_string(),
             icon: "◆".to_string(),
-            theme_name: Some("nord".to_string()),
+            theme: crate::app::state::GroupThemeOverride {
+                mode: Some(crate::config::ThemeMode::Dark),
+                light_theme_name: Some("gruvbox-light".to_string()),
+                dark_theme_name: Some("nord".to_string()),
+            },
         });
         state.active_group = 1;
         state.workspaces[1].group_id = group_id.clone();
@@ -674,7 +682,11 @@ mod tests {
         assert_eq!(restored.groups.len(), 2);
         assert_eq!(restored.groups[1].name, "Side");
         assert_eq!(restored.groups[1].icon, "◆");
-        assert_eq!(restored.groups[1].theme_name.as_deref(), Some("nord"));
+        let theme = restored.groups[1].theme.as_ref().expect("group theme");
+        assert_eq!(theme.mode, Some(crate::config::ThemeMode::Dark));
+        assert_eq!(theme.light_theme_name.as_deref(), Some("gruvbox-light"));
+        assert_eq!(theme.dark_theme_name.as_deref(), Some("nord"));
+        assert_eq!(restored.groups[1].theme_name, None);
         assert_eq!(restored.active_group, 1);
         assert_eq!(restored.workspaces[1].group_id, group_id);
     }

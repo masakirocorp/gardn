@@ -363,8 +363,8 @@ impl App {
                         self.save_toast_delivery(toast_delivery);
                         self.save_agent_border_labels(agent_border_labels);
                     }
-                    SettingsAction::SaveGroupTheme { group_idx, name } => {
-                        self.state.set_group_theme(group_idx, name);
+                    SettingsAction::SaveGroupTheme { group_idx, theme } => {
+                        self.state.set_group_theme(group_idx, theme);
                         self.query_host_terminal_theme();
                     }
                     SettingsAction::SavePaneHistory(enabled) => {

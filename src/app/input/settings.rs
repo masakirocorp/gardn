@@ -5,7 +5,7 @@ use crate::{
     app::{
         state::{
             normalize_theme_name, theme_names_for_appearance, AppState, DragState, DragTarget,
-            SettingsSection, THEME_NAMES,
+            GroupThemeOverride, SettingsSection, THEME_NAMES,
         },
         App, Mode,
     },
@@ -39,7 +39,7 @@ pub(super) enum SettingsAction {
     SaveResumeAgentsOnRestore(bool),
     SaveGroupTheme {
         group_idx: usize,
-        name: Option<String>,
+        theme: GroupThemeOverride,
     },
     InstallRecommendedIntegrations,
     InstallIntegration(crate::api::schema::IntegrationTarget),
@@ -80,8 +80,8 @@ impl App {
                     self.save_toast_delivery(toast_delivery);
                     self.save_agent_border_labels(agent_border_labels);
                 }
-                SettingsAction::SaveGroupTheme { group_idx, name } => {
-                    self.state.set_group_theme(group_idx, name);
+                SettingsAction::SaveGroupTheme { group_idx, theme } => {
+                    self.state.set_group_theme(group_idx, theme);
                     self.query_host_terminal_theme();
                 }
                 SettingsAction::SavePaneHistory(enabled) => {
@@ -123,14 +123,6 @@ enum ThemeSettingsChoice {
     SourceCustom,
     Mode(ThemeMode),
     Theme(ThemeChoice),
-}
-
-fn current_theme_index(theme_name: &str) -> usize {
-    let normalized = normalize_theme_name(theme_name);
-    THEME_NAMES
-        .iter()
-        .position(|name| normalize_theme_name(name) == normalized)
-        .unwrap_or(0)
 }
 
 fn pending_uses_system_theme_source(state: &AppState) -> bool {
@@ -221,11 +213,7 @@ fn theme_settings_choices(state: &AppState) -> Vec<ThemeSettingsChoice> {
 }
 
 fn theme_choice_len(state: &AppState) -> usize {
-    if state.settings.group_theme_target.is_some() {
-        THEME_NAMES.len() + 1
-    } else {
-        theme_settings_choices(state).len()
-    }
+    theme_settings_choices(state).len()
 }
 
 fn theme_visual_len(state: &AppState) -> usize {
@@ -246,9 +234,6 @@ fn theme_visual_len(state: &AppState) -> usize {
 }
 
 fn theme_visual_row_for_selection(state: &AppState, selected: usize) -> usize {
-    if state.settings.group_theme_target.is_some() {
-        return selected;
-    }
     if selected < 2 {
         return selected + 1;
     }
@@ -277,10 +262,6 @@ fn theme_visual_row_for_selection(state: &AppState, selected: usize) -> usize {
 }
 
 fn theme_selection_for_visual_row(state: &AppState, row: usize) -> Option<usize> {
-    if state.settings.group_theme_target.is_some() {
-        return (row < theme_choice_len(state)).then_some(row);
-    }
-
     if row == 1 {
         return Some(0);
     }
@@ -332,11 +313,7 @@ fn settings_theme_list_rect(area: Rect) -> Rect {
 }
 
 fn theme_scroll_len(state: &AppState) -> usize {
-    if state.settings.group_theme_target.is_some() {
-        theme_choice_len(state)
-    } else {
-        theme_visual_len(state)
-    }
+    theme_visual_len(state)
 }
 
 fn settings_theme_max_scroll(state: &AppState) -> usize {
@@ -364,15 +341,25 @@ fn set_settings_theme_offset_from_bottom(state: &mut AppState, offset_from_botto
         settings_theme_viewport(state).scroll_from_offset_from_bottom(offset_from_bottom);
 }
 
-fn selected_group_theme_name(state: &AppState) -> Option<String> {
-    if state.settings.group_theme_target.is_some() {
-        if state.settings.list.selected == 0 {
-            None
-        } else {
-            Some(THEME_NAMES[state.settings.list.selected - 1].to_string())
-        }
-    } else {
-        None
+fn selected_group_theme_override(state: &AppState) -> GroupThemeOverride {
+    if state.settings.group_theme_target.is_none() {
+        return GroupThemeOverride::default();
+    }
+
+    let mode = pending_theme_mode(state);
+    if mode == state.global_theme_mode
+        && pending_light_theme_name(state) == state.global_light_theme_name
+        && pending_dark_theme_name(state) == state.global_dark_theme_name
+    {
+        return GroupThemeOverride::default();
+    }
+
+    GroupThemeOverride {
+        mode: (mode != state.global_theme_mode).then_some(mode),
+        light_theme_name: (pending_light_theme_name(state) != state.global_light_theme_name)
+            .then(|| pending_light_theme_name(state)),
+        dark_theme_name: (pending_dark_theme_name(state) != state.global_dark_theme_name)
+            .then(|| pending_dark_theme_name(state)),
     }
 }
 
@@ -481,15 +468,6 @@ fn selected_global_theme_name_for_mode(state: &AppState) -> String {
 }
 
 fn target_theme_index(state: &AppState) -> usize {
-    if let Some(group_idx) = state.settings.group_theme_target {
-        return state
-            .groups
-            .get(group_idx)
-            .and_then(|group| group.theme_name.as_deref())
-            .map(|theme_name| current_theme_index(theme_name) + 1)
-            .unwrap_or(0);
-    }
-
     if pending_uses_system_theme_source(state) {
         0
     } else {
@@ -505,13 +483,6 @@ fn current_theme_mode_index(mode: ThemeMode) -> usize {
 }
 
 fn preview_selected_theme(state: &mut AppState) {
-    if let Some(name) = selected_group_theme_name(state) {
-        state.settings.pending_theme_name = Some(name.clone());
-        let mode = pending_theme_mode(state);
-        state.preview_theme_with_mode(&name, mode);
-        return;
-    }
-
     let Some(choice) = selected_theme_settings_choice(state) else {
         return;
     };
@@ -568,14 +539,9 @@ fn pending_theme_mode(state: &AppState) -> ThemeMode {
 }
 
 fn preview_group_theme(state: &mut AppState) {
-    if let Some(name) = selected_group_theme_name(state) {
-        state.preview_theme(&name);
-    } else {
-        let theme_name = state
-            .global_theme_name_for_mode(state.global_theme_mode)
-            .to_string();
-        state.preview_theme(&theme_name);
-    }
+    let mode = pending_theme_mode(state);
+    let name = selected_global_theme_name_for_mode(state);
+    state.preview_theme_with_mode(&name, mode);
 }
 
 fn cancel_settings(state: &mut AppState) {
@@ -670,10 +636,10 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
     let sidebar_max_width = pending_sidebar_max_width(state);
     let worktree_directory = state.settings.pending_worktree_directory.clone();
     let agent_border_labels = pending_agent_border_labels(state);
-    let group_theme_name = state
+    let group_theme = state
         .settings
         .group_theme_target
-        .and_then(|_| selected_group_theme_name(state));
+        .map(|_| selected_group_theme_override(state));
     let group_theme_target = state.settings.group_theme_target.take();
 
     state.settings.original_palette = None;
@@ -681,11 +647,8 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
     clear_settings_pending(state);
     super::modal::leave_modal(state);
 
-    if let Some(group_idx) = group_theme_target {
-        return Some(SettingsAction::SaveGroupTheme {
-            group_idx,
-            name: group_theme_name,
-        });
+    if let (Some(group_idx), Some(theme)) = (group_theme_target, group_theme) {
+        return Some(SettingsAction::SaveGroupTheme { group_idx, theme });
     }
 
     Some(SettingsAction::SaveSettings {
@@ -1003,7 +966,8 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 state.settings.section = SettingsSection::Theme;
-                state.settings.list.selected = current_theme_index(&state.theme_name);
+                state.settings.list.selected = target_theme_index(state);
+                ensure_settings_selection_visible(state);
             }
             _ => {
                 if let Some(super::modal::ModalAction::Close) =
@@ -1093,9 +1057,21 @@ pub(crate) fn open_group_theme_settings(state: &mut AppState, group_idx: usize) 
     state.settings.original_palette = Some(state.palette.clone());
     state.settings.original_theme = Some(state.theme_name.clone());
     state.settings.pending_theme_name = None;
-    state.settings.pending_theme_mode = None;
-    state.settings.pending_light_theme_name = None;
-    state.settings.pending_dark_theme_name = None;
+    state.settings.pending_theme_mode = Some(group.theme.mode.unwrap_or(state.global_theme_mode));
+    state.settings.pending_light_theme_name = Some(
+        group
+            .theme
+            .light_theme_name
+            .clone()
+            .unwrap_or_else(|| state.global_light_theme_name.clone()),
+    );
+    state.settings.pending_dark_theme_name = Some(
+        group
+            .theme
+            .dark_theme_name
+            .clone()
+            .unwrap_or_else(|| state.global_dark_theme_name.clone()),
+    );
     state.settings.pending_sound_enabled = None;
     state.settings.pending_toast_delivery = None;
     state.settings.pending_confirm_close = None;
@@ -1110,26 +1086,15 @@ pub(crate) fn open_group_theme_settings(state: &mut AppState, group_idx: usize) 
     state.settings.pending_resume_agents_on_restore = None;
     state.settings.group_theme_target = Some(group_idx);
     state.settings.section = SettingsSection::Theme;
-
-    let theme_name = group.theme_name.clone();
-    state.settings.list.selected = theme_name
-        .as_deref()
-        .map(|name| current_theme_index(name) + 1)
-        .unwrap_or(0);
+    state.settings.list.selected = target_theme_index(state);
     state.settings.scroll = 0;
     ensure_settings_selection_visible(state);
     preview_group_theme(state);
     state.mode = Mode::Settings;
 }
-
 impl AppState {
     fn settings_popup_rect(&self) -> Rect {
-        let (width, height) = if self.settings.group_theme_target.is_some() {
-            (56, 20)
-        } else {
-            (76, 22)
-        };
-        crate::ui::centered_popup_rect(self.screen_rect(), width, height).unwrap_or_default()
+        crate::ui::centered_popup_rect(self.screen_rect(), 76, 22).unwrap_or_default()
     }
 
     fn settings_inner_rect(&self) -> Rect {
@@ -1472,7 +1437,6 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
-        let theme_name = state.theme_name.clone();
         let action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
@@ -1482,7 +1446,11 @@ mod tests {
             action,
             Some(SettingsAction::SaveGroupTheme {
                 group_idx,
-                name: Some(theme_name),
+                theme: GroupThemeOverride {
+                    mode: Some(ThemeMode::Light),
+                    light_theme_name: None,
+                    dark_theme_name: None,
+                },
             })
         );
         assert_eq!(state.settings.group_theme_target, None);
@@ -1494,7 +1462,7 @@ mod tests {
         let group_idx = state.create_group("Side".to_string());
 
         open_group_theme_settings(&mut state, group_idx);
-        assert_eq!(state.settings.list.selected, 0);
+        assert_eq!(state.settings.list.selected, 2);
         let action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
@@ -1504,7 +1472,7 @@ mod tests {
             action,
             Some(SettingsAction::SaveGroupTheme {
                 group_idx,
-                name: None,
+                theme: GroupThemeOverride::default(),
             })
         );
     }
@@ -1525,7 +1493,7 @@ mod tests {
     }
 
     #[test]
-    fn group_theme_settings_uses_smaller_theme_only_modal() {
+    fn group_theme_settings_uses_full_theme_modal() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
         state.view.terminal_area = Rect::new(0, 0, 100, 40);
@@ -1536,10 +1504,7 @@ mod tests {
         open_settings(&mut state);
         let settings_rect = state.settings_popup_rect();
 
-        assert_eq!(group_rect.width, 56);
-        assert_eq!(group_rect.height, 20);
-        assert!(group_rect.width < settings_rect.width);
-        assert!(group_rect.height < settings_rect.height);
+        assert_eq!(group_rect, settings_rect);
     }
 
     #[test]
@@ -1563,10 +1528,7 @@ mod tests {
             apply.y,
         ));
 
-        assert_eq!(
-            app.state.groups[group_idx].theme_name.as_deref(),
-            Some("system")
-        );
+        assert!(app.state.groups[group_idx].theme.is_empty());
     }
 
     #[test]

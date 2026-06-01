@@ -14,8 +14,8 @@ use crate::workspace::WorkspaceGitStatus;
 use unicode_width::UnicodeWidthChar;
 
 use super::state::{
-    AppState, Group, Mode, NavigatorRow, NavigatorStateFilter, NavigatorTarget, PaneFocusTarget,
-    ToastKind, ToastNotification, ToastTarget, ViewLayout,
+    AppState, Group, GroupThemeOverride, Mode, NavigatorRow, NavigatorStateFilter, NavigatorTarget,
+    PaneFocusTarget, ToastKind, ToastNotification, ToastTarget, ViewLayout,
 };
 
 fn hunk_diff_project_command(root: std::path::PathBuf) -> crate::commands::ProjectCommand {
@@ -1047,27 +1047,37 @@ impl AppState {
     }
 
     pub fn apply_effective_theme(&mut self) {
-        let Some(theme_name) = self
-            .groups
-            .get(self.active_group)
-            .and_then(|group| group.theme_name.as_deref())
-        else {
+        let Some(group_theme) = self.groups.get(self.active_group).map(|group| &group.theme) else {
             self.palette = self.global_palette.clone();
             self.theme_name = self.global_theme_name.clone();
             return;
         };
+        if group_theme.is_empty() {
+            self.palette = self.global_palette.clone();
+            self.theme_name = self.global_theme_name.clone();
+            return;
+        }
 
-        if let Some(palette) = self.palette_for_theme(theme_name) {
+        let mode = group_theme.mode.unwrap_or(self.global_theme_mode);
+        let appearance = self.theme_appearance_for_mode(mode);
+        let theme_name = match appearance {
+            crate::terminal_theme::ThemeAppearance::Light => group_theme
+                .light_theme_name
+                .as_deref()
+                .unwrap_or(&self.global_light_theme_name),
+            crate::terminal_theme::ThemeAppearance::Dark => group_theme
+                .dark_theme_name
+                .as_deref()
+                .unwrap_or(&self.global_dark_theme_name),
+        };
+
+        if let Some(palette) = self.palette_for_theme_mode(theme_name, mode) {
             self.palette = palette;
             self.theme_name = theme_name.to_string();
         } else {
             self.palette = self.global_palette.clone();
             self.theme_name = self.global_theme_name.clone();
         }
-    }
-
-    pub fn preview_theme(&mut self, theme_name: &str) -> bool {
-        self.preview_theme_with_mode(theme_name, self.global_theme_mode)
     }
 
     pub fn preview_theme_with_mode(
@@ -1083,11 +1093,11 @@ impl AppState {
         true
     }
 
-    pub fn set_group_theme(&mut self, group_idx: usize, theme_name: Option<String>) -> bool {
+    pub fn set_group_theme(&mut self, group_idx: usize, theme: GroupThemeOverride) -> bool {
         let Some(group) = self.groups.get_mut(group_idx) else {
             return false;
         };
-        group.theme_name = theme_name;
+        group.theme = theme;
         self.mark_session_dirty();
         self.apply_effective_theme();
         true
@@ -1162,7 +1172,7 @@ impl AppState {
             id: super::state::generate_group_id(),
             name,
             icon: super::state::normalize_group_icon(&icon),
-            theme_name: None,
+            theme: GroupThemeOverride::default(),
         });
         self.mark_session_dirty();
         self.groups.len() - 1
@@ -3685,7 +3695,14 @@ mod tests {
         let mut state = app_with_workspaces(&["one", "two"]);
         let side_group = state.create_group("Side".to_string());
         state.move_workspace_to_group(1, side_group);
-        state.set_group_theme(side_group, Some("nord".to_string()));
+        state.set_group_theme(
+            side_group,
+            GroupThemeOverride {
+                mode: Some(ThemeMode::Dark),
+                light_theme_name: None,
+                dark_theme_name: Some("nord".to_string()),
+            },
+        );
         state.switch_group(0);
 
         assert_eq!(state.theme_name, state.global_theme_name);
@@ -3697,17 +3714,24 @@ mod tests {
     }
 
     #[test]
-    fn group_theme_override_inherits_global_light_mode() {
+    fn group_theme_override_can_pin_dark_mode() {
         let mut state = app_with_workspaces(&["one", "two"]);
         state.global_theme_mode = ThemeMode::Light;
         let side_group = state.create_group("Side".to_string());
         state.move_workspace_to_group(1, side_group);
-        state.set_group_theme(side_group, Some("gruvbox".to_string()));
+        state.set_group_theme(
+            side_group,
+            GroupThemeOverride {
+                mode: Some(ThemeMode::Dark),
+                light_theme_name: Some("gruvbox-light".to_string()),
+                dark_theme_name: Some("gruvbox".to_string()),
+            },
+        );
 
         state.switch_group(side_group);
 
         assert_eq!(state.theme_name, "gruvbox");
-        assert_eq!(state.palette.panel_bg, Palette::gruvbox_light().panel_bg);
+        assert_eq!(state.palette.panel_bg, Palette::gruvbox().panel_bg);
     }
 
     #[test]
@@ -3737,12 +3761,19 @@ mod tests {
         let mut state = app_with_workspaces(&["one", "two"]);
         let side_group = state.create_group("Side".to_string());
         state.move_workspace_to_group(1, side_group);
-        state.set_group_theme(side_group, Some("nord".to_string()));
+        state.set_group_theme(
+            side_group,
+            GroupThemeOverride {
+                mode: Some(ThemeMode::Dark),
+                light_theme_name: None,
+                dark_theme_name: Some("nord".to_string()),
+            },
+        );
         state.switch_group(side_group);
 
         state.global_palette = Palette::dracula();
         state.global_theme_name = "dracula".to_string();
-        state.set_group_theme(side_group, None);
+        state.set_group_theme(side_group, GroupThemeOverride::default());
 
         assert_eq!(state.theme_name, "dracula");
         assert_eq!(state.palette.accent, Palette::dracula().accent);
