@@ -382,7 +382,9 @@ fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
         CommandPaletteAction::SplitHorizontal => app
             .state
             .split_pane(&mut app.terminal_runtimes, Direction::Vertical),
-        CommandPaletteAction::ClosePane => app.state.close_pane(),
+        CommandPaletteAction::ClosePane => {
+            app.state.close_pane();
+        }
         CommandPaletteAction::RenamePane => {
             if let Some(pane_id) = app
                 .state

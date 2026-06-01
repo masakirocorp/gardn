@@ -46,8 +46,9 @@ rustPlatform.buildRustPackage {
     );
   };
 
-  cargoHash = "sha256-yRT31RnfjSQy5bxFXVvM9zRM59WAPrBozu3S2tag6s8=";
-  cargoDepsName = "hako";
+  cargoLock = {
+    lockFile = ../Cargo.lock;
+  };
 
   nativeBuildInputs = [
     git

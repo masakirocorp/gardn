@@ -1020,6 +1020,16 @@ mod tests {
         workspace::Workspace,
     };
 
+    fn mark_worktree_space_member(state: &mut AppState, ws_idx: usize, key: &str) {
+        state.workspaces[ws_idx].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
+            key: key.into(),
+            label: "hako".into(),
+            repo_root: "/repo/hako".into(),
+            checkout_path: format!("/repo/hako-{ws_idx}").into(),
+            is_linked_worktree: ws_idx != 0,
+        });
+    }
+
     #[test]
     fn custom_rename_key_enters_rename_mode() {
         let mut state = state_with_workspaces(&["test"]);
@@ -1769,7 +1779,6 @@ navigate_pane_right = "ctrl+l"
         assert!(state.workspaces.is_empty());
     }
 
-
     #[test]
     fn closing_linked_worktree_closes_workspace_without_removing_checkout() {
         let mut state = state_with_workspaces(&["main", "issue"]);
@@ -1787,7 +1796,6 @@ navigate_pane_right = "ctrl+l"
 
         execute_navigate_action(&mut state, NavigateAction::CloseWorkspace);
 
-        assert_eq!(state.request_remove_linked_worktree, None);
         assert_eq!(state.workspaces.len(), 1);
         assert_eq!(state.workspaces[0].display_name(), "main");
         assert_eq!(state.mode, Mode::Terminal);

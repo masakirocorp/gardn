@@ -14,8 +14,8 @@ use crate::workspace::WorkspaceGitStatus;
 use unicode_width::UnicodeWidthChar;
 
 use super::state::{
-    text_matches_query, AppState, Group, Mode, NavigatorRow, NavigatorStateFilter, NavigatorTarget,
-    PaneFocusTarget, ToastKind, ToastNotification, ToastTarget, ViewLayout,
+    AppState, Group, Mode, NavigatorRow, NavigatorStateFilter, NavigatorTarget, PaneFocusTarget,
+    ToastKind, ToastNotification, ToastTarget, ViewLayout,
 };
 
 fn hunk_diff_project_command(root: std::path::PathBuf) -> crate::commands::ProjectCommand {
@@ -580,6 +580,14 @@ fn navigator_state_filter_matches(
         NavigatorStateFilter::Idle => state == AgentState::Idle && seen,
         NavigatorStateFilter::Done => state == AgentState::Idle && !seen,
     }
+}
+
+fn text_matches_query(query: &str, text: &str) -> bool {
+    let haystack = text.to_lowercase();
+    query
+        .to_lowercase()
+        .split_whitespace()
+        .all(|needle| haystack.contains(needle))
 }
 
 fn navigator_matches(query: &str, text: &str) -> bool {
@@ -1791,11 +1799,35 @@ impl AppState {
         self.selection = None;
         self.selection_autoscroll = None;
         self.mark_session_dirty();
-        let closed_idx = self.selected;
-        let terminal_ids = self.terminal_ids_for_workspace(self.selected);
-        let workspace_id = self.workspaces[self.selected].id.clone();
-        crate::logging::workspace_closed(&workspace_id);
-        self.workspaces.remove(self.selected);
+        let close_indices = self
+            .workspaces
+            .get(self.selected)
+            .and_then(|ws| ws.worktree_space())
+            .filter(|space| !space.is_linked_worktree)
+            .map(|space| {
+                self.workspaces
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, ws)| {
+                        ws.worktree_space()
+                            .is_some_and(|member| member.key == space.key)
+                            .then_some(idx)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .filter(|indices| indices.len() >= 2)
+            .unwrap_or_else(|| vec![self.selected]);
+
+        let mut terminal_ids = Vec::new();
+        for idx in &close_indices {
+            terminal_ids.extend(self.terminal_ids_for_workspace(*idx));
+            if let Some(workspace_id) = self.workspaces.get(*idx).map(|ws| ws.id.clone()) {
+                crate::logging::workspace_closed(&workspace_id);
+            }
+        }
+        for idx in close_indices.iter().rev() {
+            self.workspaces.remove(*idx);
+        }
         self.remove_unattached_terminal_ids(terminal_ids);
         if self.workspaces.is_empty() {
             self.active = None;
@@ -1804,20 +1836,16 @@ impl AppState {
             self.tab_scroll = 0;
             self.tab_scroll_follow_active = true;
         } else {
-            let visible = self.visible_workspace_indices();
-            let target = visible
-                .iter()
-                .copied()
-                .find(|idx| *idx >= closed_idx)
-                .or_else(|| visible.last().copied());
-            self.active = target;
-            self.selected = target.unwrap_or(0);
-            if self.active.is_none() && self.mode == Mode::Terminal {
-                self.mode = Mode::Navigate;
+            if self.selected >= self.workspaces.len() {
+                self.selected = self.workspaces.len() - 1;
             }
+            self.active = Some(self.selected);
+            self.workspace_scroll = self
+                .workspace_scroll
+                .min(self.workspaces.len().saturating_sub(1));
+            self.ensure_workspace_visible(self.selected);
             self.tab_scroll_follow_active = true;
             self.refresh_tab_bar_view();
-            self.ensure_workspace_visible(self.selected);
         }
     }
 
@@ -2974,10 +3002,20 @@ mod tests {
     fn mark_parent_worktree(state: &mut AppState, ws_idx: usize) {
         state.workspaces[ws_idx].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
-            checkout_path: "/repo/herdr".into(),
+            label: "hako".into(),
+            repo_root: "/repo/hako".into(),
+            checkout_path: "/repo/hako".into(),
             is_linked_worktree: false,
+        });
+    }
+
+    fn mark_linked_worktree(state: &mut AppState, ws_idx: usize) {
+        state.workspaces[ws_idx].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
+            key: "repo-key".into(),
+            label: "hako".into(),
+            repo_root: "/repo/hako".into(),
+            checkout_path: "/repo/hako-linked".into(),
+            is_linked_worktree: true,
         });
     }
 
@@ -4868,6 +4906,7 @@ mod tests {
             .unwrap();
         state.active = Some(1);
         state.selected = 0;
+        state.confirm_close = false;
 
         state.close_pane();
 
@@ -4898,10 +4937,10 @@ mod tests {
         mark_linked_worktree(&mut state, 1);
         state.active = Some(1);
         state.selected = 0;
+        state.confirm_close = false;
 
         state.close_tab();
 
-        assert_eq!(state.request_remove_linked_worktree, None);
         assert_eq!(state.workspaces.len(), 1);
         assert_eq!(state.workspaces[0].display_name(), "selected");
     }
@@ -4931,7 +4970,6 @@ mod tests {
 
         state.close_pane();
 
-        assert_eq!(state.request_remove_linked_worktree, None);
         assert_eq!(state.workspaces.len(), 1);
         assert_eq!(state.workspaces[0].display_name(), "selected");
     }

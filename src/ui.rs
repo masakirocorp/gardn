@@ -61,11 +61,7 @@ use self::widgets::fill_rect;
 pub(crate) use self::{
     dialogs::{
         confirm_close_button_rects, confirm_close_popup_rect, group_icon_button_rect,
-        group_icon_picker_rects, new_linked_worktree_button_rects, new_linked_worktree_inner_rect,
-        open_existing_worktree_button_rects, open_existing_worktree_inner_rect,
-        open_existing_worktree_max_visible_rows, open_existing_worktree_visible_start,
-        remove_worktree_button_rects, remove_worktree_popup_rect, rename_button_rects,
-        rename_modal_size,
+        group_icon_picker_rects, rename_button_rects, rename_modal_size,
     },
     settings::{settings_button_rects, settings_show_primary_action},
     sidebar::{

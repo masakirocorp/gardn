@@ -143,6 +143,31 @@ def append_unique(items: list[str], item: str) -> None:
         items.append(item)
 
 
+def upstream_port_status(base: str, upstream: str) -> tuple[int, str]:
+    ledger = Path("upstream-port-map.json")
+    script = Path("scripts/upstream_status.py")
+    if not ledger.exists() or not script.exists():
+        return 0, "upstream port ledger not configured\n"
+    completed = subprocess.run(
+        [
+            "python3",
+            str(script),
+            "--base",
+            base,
+            "--upstream",
+            upstream,
+            "--ledger",
+            str(ledger),
+            "--check",
+        ],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return completed.returncode, completed.stdout + completed.stderr
+
+
 def build_markdown_report(report: dict[str, object]) -> str:
     failures = report["failures"]
     review_required = report["review_required"]
@@ -169,6 +194,13 @@ def build_markdown_report(report: dict[str, object]) -> str:
         lines.extend(f"- {item}" for item in review_required)  # type: ignore[union-attr]
     else:
         lines.append("- none")
+
+    lines.extend(["", "## upstream port status"])
+    port_status = report.get("upstream_port_status")
+    if port_status:
+        lines.append(str(port_status).rstrip())
+    else:
+        lines.append("- not checked")
 
     return "\n".join(lines) + "\n"
 
@@ -239,12 +271,19 @@ def main() -> int:
             if token in text and path not in ATTRIBUTION_ALLOWED:
                 failures.append(f"possible runtime identity regression in {path}: {token}")
 
+    port_status_code = 0
+    port_status = ""
+    if not failures:
+        port_status_code, port_status = upstream_port_status(args.base, args.upstream)
+        if port_status_code != 0:
+            failures.append("upstream port ledger has unclassified or pending commits")
     report: dict[str, object] = {
         "base": args.base,
         "upstream": args.upstream,
         "head": args.head,
         "changed": changed,
         "review_required": review_required,
+        "upstream_port_status": port_status,
         "failures": failures,
     }
     Path(args.report_json).write_text(json.dumps(report, indent=2) + "\n")

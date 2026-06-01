@@ -1,0 +1,658 @@
+{
+  "upstream": "ogulcancelik/herdr",
+  "base": "origin/master",
+  "entries": [
+    {
+      "upstream": "1bab1d2ce21507747ea1f506fb891fe7cd5a13c9",
+      "subject": "ci: cache nix workflow",
+      "status": "ported",
+      "local": [
+        "80dba8a55f7f8327f488244594c0b568003d5425"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "db67e9d74ffafc9c63bdf78fcf712419359f634b",
+      "subject": "feat: restore agent sessions",
+      "status": "ported",
+      "local": [
+        "21ea6751a228c6a899c4e6c1daeeab12ac9dfe7f"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "45e88fd0b530f918c2ca6a59177f8cd32c2ff43a",
+      "subject": "ci: cap ci job runtime",
+      "status": "superseded",
+      "reason": "Hako CI/test/build shape is maintained separately or already has an equivalent adaptation."
+    },
+    {
+      "upstream": "c359edee19f7c5bb1a18f2b378d2ae631f9666f7",
+      "subject": "test: skip short-lived restore fallback pty test on macos",
+      "status": "superseded",
+      "reason": "Hako CI/test/build shape is maintained separately or already has an equivalent adaptation."
+    },
+    {
+      "upstream": "a132a7c3b9ade3ad4636e03b1f0930b5fa711766",
+      "subject": "test: make restore wrapper test portable",
+      "status": "superseded",
+      "reason": "Hako CI/test/build shape is maintained separately or already has an equivalent adaptation."
+    },
+    {
+      "upstream": "80a314a9089b28c1bfdc2cdf5196e9a2eb9f11ba",
+      "subject": "feat: add session navigator",
+      "status": "ported",
+      "local": [
+        "952e5f23b01a926614615267ec4531381baf5b52"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "c5b3997f3b7d334bd2f35c7aee5216236b58193e",
+      "subject": "docs: normalize readme casing",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "26205a2ac5e21053bd94a0925efcfca44c6f549b",
+      "subject": "feat: make navigate movement keybinds configurable",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "5ce738cf5397d0d8a50ed1aa6335297073cc0f0f",
+      "subject": "fix: avoid app event queue stalls",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "43c6ca3a5dbdcefc6c6dc29be9ce81d990baf39e",
+      "subject": "feat: persist pane history across restarts (#248)",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "420925d141c8805e610eb0d62d49d8b9b483d961",
+      "subject": "fix: support scrolling direct agent attaches",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "a1543f3e248f8f5266322014ccd853e478b1dcd6",
+      "subject": "fix: avoid pane history replay during agent restore",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "d4a5e02e8433db156b9dabe2b81ddd1d2aca9ea6",
+      "subject": "feat: hand off ptys during updates",
+      "status": "ported",
+      "local": [
+        "17bfde325360d2308c39cde169d5ce4ea6167f51"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "eb8e9f1af8e876859b307bbd1ec418f66ee70edf",
+      "subject": "test: shorten update test socket paths on macos",
+      "status": "superseded",
+      "reason": "Hako CI/test/build shape is maintained separately or already has an equivalent adaptation."
+    },
+    {
+      "upstream": "490510c12956048c5658564f69e64393a9f79693",
+      "subject": "fix: spawn restored agents directly",
+      "status": "ported",
+      "local": [
+        "203a3f1384eabc36948cd7ee4296e1b96c2f540a"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "97f12279f63e3eeaf86e202b5faa61d1e35ce8a9",
+      "subject": "chore: add herdr worktree continuation extension",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "669a110da6c64de8c43bcfa9721cc485555043ad",
+      "subject": "chore: approve contributor chenrui333",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "82902e638b2fb7d991b92c573cc541840c451ec0",
+      "subject": "build: skip unused libghostty-vt xcframework (#286)",
+      "status": "superseded",
+      "reason": "Hako CI/test/build shape is maintained separately or already has an equivalent adaptation."
+    },
+    {
+      "upstream": "b12e2e39e96e2b4194f384cb658d9dd5232c4234",
+      "subject": "ci: use kangal bot for contributor approval workflows",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "ac9dac0263ba2336710e8fc350600ff8674ebf99",
+      "subject": "docs: add homebrew install notes (#289)",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "58bcd76bfdb76ecbb8cfee868dabe60b43f16cc6",
+      "subject": "feat: make focus-gain redraw configurable",
+      "status": "ported",
+      "local": [
+        "5de33677650809227ac46bc5bea9f424754dc6f9"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "2ea4878bae8fb2bdd04f07d93aa919be6cfa0142",
+      "subject": "feat: gate live handoff behind explicit flag",
+      "status": "ported",
+      "local": [
+        "4701f9562e7e36d8a7a98eedb1eb89aaf5873bb3"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "986218c4485d808459377875499c7aa56b213ca7",
+      "subject": "docs: document homebrew install",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "1e0d95f05e77ff084fad1eceb61bafe66fa2e777",
+      "subject": "fix: avoid aplay for linux mp3 sounds",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "33e71ed2f50e5ca8950029f89f41e0ec135b87c0",
+      "subject": "fix: emit matching agent status subscriptions (#295)",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "6c4a947244b7be05496f9d3bd5ad2d00a69cca03",
+      "subject": "Add tmux-style double-click word copy (#296)",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "843653c0f56390373ba018f5f380011e3af3c14b",
+      "subject": "fix: detect codex background terminal waits",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "62b9795771b22e36b1464c235745990eaa8921e6",
+      "subject": "fix: skip bot comments in contributor approval workflow",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "9eec3029e13b791b8a4954e38d5bb7db6e2ff68f",
+      "subject": "fix: reduce idle agent checker CPU",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "57c880f0ebaa5011abc90f4e2fd4f84fc072ce35",
+      "subject": "feat: add global last-pane navigation",
+      "status": "ported"
+    },
+    {
+      "upstream": "1b980eaa9d4cbc050b6b81525e4b6b72ae853be5",
+      "subject": "feat: show clipboard copy feedback",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "3750e0bae21c54da3947d337584f180a21d0bc67",
+      "subject": "feat: add pane metadata reporting",
+      "status": "ported"
+    },
+    {
+      "upstream": "af399094f5d24f157e35aaa657ed5ad5c44e5325",
+      "subject": "feat: open pane links with ctrl-click",
+      "status": "ported"
+    },
+    {
+      "upstream": "5210b08e7db000d619b365fbcb8ec08104b0fcaa",
+      "subject": "chore: approve contributor wayneleelwc",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "31e973502af205666cb4a48e3f9e10328f65cd4e",
+      "subject": "fix: buffer split host color replies (#310)",
+      "status": "ported"
+    },
+    {
+      "upstream": "427c2606d8f62558e3949d2f44173175e96bed49",
+      "subject": "fix: deliver agent status subscriptions from event hub",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "eac2314e6ccb4ba91b7272523e68110035167279",
+      "subject": "fix: handle package-manager remote updates",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "cfffe6599e4f82f89af4f9b36487793226f54dfe",
+      "subject": "docs: clarify dual licensing",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "61bec49572358259f7e98e37c2f8cdfda423ed5d",
+      "subject": "feat: refactor website homepage",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "7dbe2c796404e68365b9fc46e4750d206de7b0c4",
+      "subject": "fix: harden session stop socket handling",
+      "status": "ported"
+    },
+    {
+      "upstream": "5fbc85a07e4ea643a87680e26842e77518e34d0c",
+      "subject": "fix: update website og card",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "9a89e3dc181bdf35101c2066bea114394afb93e2",
+      "subject": "fix: update website social links",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "858c36974bad616e9e6c1897882b8c9a97396bec",
+      "subject": "feat: configure mobile width threshold (#317)",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "bfb9e756a01a8ddf4e20d2451c8316ab33454bb4",
+      "subject": "feat: add Qoder CLI integration (#309)",
+      "status": "ported"
+    },
+    {
+      "upstream": "d205725449a33947cd57fddc1a749e753aa55767",
+      "subject": "docs: add qoder support docs",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "b56eeb991eb1246acec7fe8f57e0e3aaa0fd5a82",
+      "subject": "fix: release opencode integration on dispose",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "61ee25e89e86c726d8c95a03a718e036d0c16e22",
+      "subject": "docs: finalize next release docs",
+      "status": "ported",
+      "local": [
+        "bb7b1c00fe6babfc0701480436bdbb4c2443ef2e",
+        "50ae83a92d76e19789e49260ac73f99dd918b610"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "8d8eac3f85f52dd1900f3f266ff05ba4e6732518",
+      "subject": "release: v0.6.3",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "4ec4d56fcf985e4464bce6b76e3578e9c941ad50",
+      "subject": "docs: update website manifest for v0.6.3",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "7ebc72f3f5de24a293db144cd1745cea52c3e717",
+      "subject": "feat: add website release notes",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "3325304f89d56990f3134a3d01749e5de498725d",
+      "subject": "ci: fix build checks and mobile nav",
+      "status": "ported",
+      "local": [
+        "4b32862d90411020c83f5e273db750b99d437036"
+      ]
+    },
+    {
+      "upstream": "8e7317e223bcfe38281a71fb121b0b65aaab1a43",
+      "subject": "fix: raise macos server fd limit",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "8180d76b30ca4281bdf2b43ff0316406f284413e",
+      "subject": "release: v0.6.4",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "1e7095b4a9b143a84b40902b294545d727683699",
+      "subject": "docs: update website manifest for v0.6.4",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "5ee6235bced76a961e9013bd56161525b4032c6b",
+      "subject": "fix: gate releases on nix flake checks",
+      "status": "ported",
+      "local": [
+        "533deb3e7e17d8752ed1aa8e1165781e16f6d6f3"
+      ]
+    },
+    {
+      "upstream": "789738cada5afaa20bbd77a0d479fb689c455bfe",
+      "subject": "docs: mark live handoff experimental",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "bf9cc201244946496b4d950046bf7edcc4892994",
+      "subject": "fix: preserve live handoff terminal state",
+      "status": "ported",
+      "local": [
+        "e113451a152dceca7d28e110b6507723fa23cd49"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "67e48c0cc9aa1c18b743e3be54a69a4edab90680",
+      "subject": "fix: route terminal replies outside pane input",
+      "status": "ported",
+      "local": [
+        "476d9d1773245a9dc14f3ec023e3671359a88647"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "37bdff5bbe7f6b50dce2d8920a08bdaafd4fecda",
+      "subject": "fix: seed workspace rename from live cwd",
+      "status": "ported",
+      "local": [
+        "435b38fc0dfe529498c8e07445d056888c577280"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "986e4a17767a3d4838e340b92cb2db9e6012acc4",
+      "subject": "fix: clamp session socket timeouts",
+      "status": "ported",
+      "local": [
+        "169f20936d49bf1db2e11736d0fe3b6f8e5b1833"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "2d8b4e2db4642dede084801c03516046f205626b",
+      "subject": "feat: expose agent session refs in api",
+      "status": "ported",
+      "local": [
+        "4e714f694c909c3cf600f2841b00532ad548aa67"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "a90c90aa4aa92142e4684a81dcb7c2cab9aaac6b",
+      "subject": "docs: align qodercli naming and surface Qoder CLI brand on homepage (#331)",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "28222b20890a1f6cd36fd477de8e9bc6e5537ff5",
+      "subject": "fix: use live workspace labels in notifications",
+      "status": "ported",
+      "local": [
+        "72e41fb493876dcb184bfc01de0be83a237a14e2"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "7626a9adc84d6757042670f9816a583dcd717823",
+      "subject": "feat: add pane copy mode",
+      "status": "ported",
+      "local": [
+        "45094686b4d0af427e84a09214db892a7071bf0f"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "f4f17803c6c5b413ef6b43308cb6e0cfcb68224e",
+      "subject": "fix: prefer osc52 clipboard writes in wsl",
+      "status": "ported",
+      "local": [
+        "2f228e752b5ba7dfdc20ded87f40dc4c62f2ba20"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "1bb2676388a3541360ca106354075d67376a6843",
+      "subject": "fix: clarify gh star prompt",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "324e625c60658ab0de46928be300fc1804af48df",
+      "subject": "fix: wrap update preview copy",
+      "status": "ported",
+      "local": [
+        "f117cffd6df9152925142446111560b52e661317"
+      ]
+    },
+    {
+      "upstream": "77242943ba65a80cbc1180258dd64f06635233f9",
+      "subject": "fix: keep split host color replies out of panes",
+      "status": "ported"
+    },
+    {
+      "upstream": "9e302984ccb13a65e3e504fa7692b223f546ff84",
+      "subject": "feat: expose foreground cwd in pane info",
+      "status": "ported"
+    },
+    {
+      "upstream": "1f2b0f71b54467a9749b0d3b6945b5322d0aa42a",
+      "subject": "fix: keep restored agent panes after exit",
+      "status": "ported"
+    },
+    {
+      "upstream": "8c6a9e1f6594ddbc8f2a327d05985f7eb8722d9b",
+      "subject": "fix: cfg linux-only api test helpers",
+      "status": "ported",
+      "reason": "equivalent Linux-only API test cfg is already present in Hako tests."
+    },
+    {
+      "upstream": "faaddfe18d571ce5f7abb942655c686a9cfdfe99",
+      "subject": "docs: finalize release docs",
+      "status": "ported",
+      "local": [
+        "43afaab582fd5e1428c51ecdbf6770d8e3917de6"
+      ],
+      "reason": "same subject exists in Hako history."
+    },
+    {
+      "upstream": "20e26271c92be01aa726bc6827d93ad8512483c9",
+      "subject": "release: v0.6.5",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "4219aec638cdd81efae6460c6fba28418925c37c",
+      "subject": "fix: update nix release hash",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "6d4c04fa509cd8f1a13907e260ca69179ca301c4",
+      "subject": "docs: update website manifest for v0.6.5",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "6b9b092228a6fa0c06451233dec0e90e8a6740b0",
+      "subject": "fix: preserve opencode working state",
+      "status": "ported"
+    },
+    {
+      "upstream": "817a1562db9156e34f13487344ea147618f9070b",
+      "subject": "docs: clarify readme first-use concepts",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "8df1639048529b383358000879b5ee078a90b9f9",
+      "subject": "fix: use login shells for macos panes",
+      "status": "ported"
+    },
+    {
+      "upstream": "d477341e6af816ff4396042b084a0378ef437b4a",
+      "subject": "refactor: split agent detection by agent",
+      "status": "superseded",
+      "reason": "reviewed during upstream port; Hako already has equivalent product behavior or intentionally different product semantics."
+    },
+    {
+      "upstream": "fc4e1bbf6b0fa2ec37445a5b72356514c7c6be6a",
+      "subject": "perf: reduce sidebar git polling overhead",
+      "status": "ported",
+      "local": [
+        "561396588090e8843effe0e358dd78eba82f9a3d"
+      ]
+    },
+    {
+      "upstream": "bdc189e32e7c9dd61811fe17e50ac171ca94c647",
+      "subject": "feat: support custom command descriptions",
+      "status": "ported"
+    },
+    {
+      "upstream": "9586ee9c3fe080efbb43e6874911fd974290d7fb",
+      "subject": "test: harden ci flake diagnostics (#365)",
+      "status": "superseded",
+      "reason": "Hako CI/test/build shape is maintained separately or already has an equivalent adaptation."
+    },
+    {
+      "upstream": "4e1fbf410b844749dcddae775806e1cce01ef442",
+      "subject": "chore: approve merged contributor ogulcancelik",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "3acd499ffb1119e8032bbcba3f1f46d4ff5f3da9",
+      "subject": "fix: keep codex visible approval review working",
+      "status": "ported",
+      "reason": "ported in Hako agent/API upstream batch."
+    },
+    {
+      "upstream": "77819797385c5538f624a8881208921342911db0",
+      "subject": "fix: clarify update restart guidance",
+      "status": "superseded",
+      "reason": "Hako already carries product-specific update restart guidance and Hako wording; upstream Herdr copy/docs not applied directly."
+    },
+    {
+      "upstream": "b778162a9f57b64ce9a067386b7de27d4cbcbafc",
+      "subject": "refactor: centralize pty fd ownership",
+      "status": "ported",
+      "local": [
+        "0bc4f45d419c42fb774484c1418de978b07ce29d"
+      ]
+    },
+    {
+      "upstream": "d6c358d18b658c2768cad4d65a3a723402014d88",
+      "subject": "fix: normalize pane split cwd assertion",
+      "status": "ported",
+      "local": [
+        "d2e3baac52619d5449f41d47aa03cc7b3dd889ac"
+      ]
+    },
+    {
+      "upstream": "a85df72ef1986190af18128112cbe11388b05887",
+      "subject": "fix: use portable true path in restore test",
+      "status": "ported",
+      "local": [
+        "bd1002ddb4ea32f9004b82bb304a4b625c0b85ee"
+      ]
+    },
+    {
+      "upstream": "859185b491c5a80e888ba8f9dd213d2c35baa034",
+      "subject": "fix: avoid false pane shutdown warnings",
+      "status": "ported",
+      "local": [
+        "3445db7998cf44d0ad9ea6204451486edb6253b3"
+      ]
+    },
+    {
+      "upstream": "8cf0e9b35b00f9dd91270fcd3931015d61ffd8a0",
+      "subject": "fix: confirm implicit worktree group close",
+      "status": "ported",
+      "local": [
+        "1a7bc639574e7c701d0c31fb811eb715e3b03e79"
+      ]
+    },
+    {
+      "upstream": "e91b8abfcc5ca2bb61353e840e5f7bfcb0c913d9",
+      "subject": "fix: update website sitemap discovery",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "018cbfb84ad9516be3121d2264c61d9a4a3aebc1",
+      "subject": "chore: finalize release docs and harden release flow",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "8a667f99d5a025106690c10858b5b71af15a47fc",
+      "subject": "fix: use cargo lock for nix packaging",
+      "status": "ported",
+      "reason": "ported by switching Hako Nix packaging to Cargo.lock; upstream release docs/script churn not needed."
+    },
+    {
+      "upstream": "0016a8a088c12cd4b6187487fe799ac42e52cc15",
+      "subject": "release: v0.6.6",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "b9b81a6ebea3043fcbb90e1df914ae666dba8d83",
+      "subject": "docs: update website manifest for v0.6.6",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "9fa32f9212ecacc85dbc2be6c02bb77af2b461dd",
+      "subject": "chore: approve contributor reobin",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "8307f2f712293970d80f624594d51e693d711cfb",
+      "subject": "chore: approve contributor wardpeet",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "472e2b8453160affd05760b22a483b3c9ee100be",
+      "subject": "chore: route feature intake to discussions",
+      "status": "skipped",
+      "reason": "Hako-owned docs/site/release/repository-process surface."
+    },
+    {
+      "upstream": "0a949e0ebccc54a0c0212191a2c788bbad9539ce",
+      "subject": "fix: request missing issue environment details",
+      "status": "skipped",
+      "reason": "upstream issue-gate workflow is Herdr repository process, not Hako runtime/product behavior."
+    }
+  ]
+}

@@ -1230,7 +1230,7 @@ mod tests {
         let repo = create_committed_repo("api-worktree-open-source-repo");
         let event_hub = crate::api::EventHub::default();
         let mut app = test_app_with_event_hub(event_hub.clone());
-        app.state.default_shell = "/bin/true".into();
+        app.state.default_shell = "/usr/bin/true".into();
         app.state.shell_mode = crate::config::ShellModeConfig::NonLogin;
 
         let response = app.handle_api_request(Request {

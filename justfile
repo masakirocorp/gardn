@@ -33,6 +33,10 @@ build-libghostty-vt:
 sync-upstream:
     python3 scripts/sync_upstream.py
 
+# Report upstream Herdr commits as ported, skipped, superseded, or pending
+upstream-status:
+    python3 scripts/upstream_status.py --check
+
 # Bump version, commit, tag, push, and trigger the GitHub Release workflow (usage: just release 0.1.1)
 release version:
     @if [ -n "$(git status --porcelain)" ]; then \

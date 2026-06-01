@@ -216,32 +216,6 @@ impl AppState {
             && mouse.row < right_sidebar.y + right_sidebar.height;
         let in_chrome = in_sidebar || in_right_sidebar;
 
-        if self.mode == Mode::OpenExistingWorktree {
-            match mouse.kind {
-                MouseEventKind::ScrollUp => {
-                    if let Some(open) = &mut self.worktree_open {
-                        open.select_previous_filtered();
-                    }
-                    return None;
-                }
-                MouseEventKind::ScrollDown => {
-                    if let Some(open) = &mut self.worktree_open {
-                        open.select_next_filtered();
-                    }
-                    return None;
-                }
-                _ => {}
-            }
-        }
-
-        if matches!(
-            self.mode,
-            Mode::NewLinkedWorktree | Mode::OpenExistingWorktree | Mode::ConfirmRemoveWorktree
-        ) && !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
-        {
-            return None;
-        }
-
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.selection = None;
@@ -314,109 +288,6 @@ impl AppState {
                         apply_worktree_directory_action(self, action);
                     } else if !rect_contains(inner, mouse.column, mouse.row) {
                         apply_worktree_directory_action(self, ModalAction::Cancel);
-                    }
-                    return None;
-                }
-
-                if self.mode == Mode::OpenExistingWorktree {
-                    if let Some(open) = self.worktree_open.as_ref() {
-                        if let Some(inner) = crate::ui::open_existing_worktree_inner_rect(
-                            self.screen_rect(),
-                            open.entries.len(),
-                        ) {
-                            let filtered = open.filtered_indices();
-                            let max_rows =
-                                crate::ui::open_existing_worktree_max_visible_rows(inner);
-                            let start =
-                                crate::ui::open_existing_worktree_visible_start(open, max_rows);
-                            if mouse.row == inner.y.saturating_add(1)
-                                && mouse.column >= inner.x
-                                && mouse.column < inner.x.saturating_add(inner.width)
-                            {
-                                if let Some(open) = &mut self.worktree_open {
-                                    open.search_focused = true;
-                                }
-                                return None;
-                            }
-                            let row_idx = if rect_contains(inner, mouse.column, mouse.row) {
-                                mouse
-                                    .row
-                                    .checked_sub(inner.y.saturating_add(3))
-                                    .map(usize::from)
-                                    .map(|row| row / 2)
-                                    .filter(|row| *row < max_rows)
-                                    .and_then(|row| filtered.get(start + row).copied())
-                            } else {
-                                None
-                            };
-                            if let Some(entry_idx) = row_idx {
-                                if let Some(open) = &mut self.worktree_open {
-                                    open.selected = entry_idx;
-                                }
-                                self.request_submit_worktree_open = true;
-                                return None;
-                            }
-
-                            let (open_button, cancel) =
-                                crate::ui::open_existing_worktree_button_rects(inner);
-                            match modal_action_from_buttons(
-                                mouse.column,
-                                mouse.row,
-                                &[
-                                    (open_button, ModalAction::Confirm),
-                                    (cancel, ModalAction::Cancel),
-                                ],
-                            ) {
-                                Some(ModalAction::Confirm) => {
-                                    self.request_submit_worktree_open = true;
-                                }
-                                Some(ModalAction::Cancel) => {
-                                    self.worktree_open = None;
-                                    leave_modal(self);
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                    return None;
-                }
-
-                if self.mode == Mode::ConfirmRemoveWorktree {
-                    if let Some(popup) = crate::ui::remove_worktree_popup_rect(self.screen_rect()) {
-                        let inner = Rect::new(
-                            popup.x + 1,
-                            popup.y + 1,
-                            popup.width.saturating_sub(2),
-                            popup.height.saturating_sub(2),
-                        );
-                        let force_confirmation = self
-                            .worktree_remove
-                            .as_ref()
-                            .is_some_and(|remove| remove.force_confirmation);
-                        let (remove, cancel) =
-                            crate::ui::remove_worktree_button_rects(inner, force_confirmation);
-                        match modal_action_from_buttons(
-                            mouse.column,
-                            mouse.row,
-                            &[
-                                (remove, ModalAction::Confirm),
-                                (cancel, ModalAction::Cancel),
-                            ],
-                        ) {
-                            Some(ModalAction::Confirm) => {
-                                self.request_submit_worktree_remove = true;
-                            }
-                            Some(ModalAction::Cancel)
-                                if !self
-                                    .worktree_remove
-                                    .as_ref()
-                                    .is_some_and(|remove| remove.removing) =>
-                            {
-                                self.worktree_remove = None;
-                                leave_modal(self);
-                            }
-                            _ => {}
-                        }
                     }
                     return None;
                 }
@@ -2000,34 +1871,6 @@ mod tests {
         assert_eq!(metrics.offset_from_bottom, 7);
     }
 
-    fn sample_worktree_open_state() -> crate::app::state::WorktreeOpenState {
-        crate::app::state::WorktreeOpenState {
-            source_workspace_id: "source".into(),
-            source_existing_membership: None,
-            source_checkout_path: "/repo/hako".into(),
-            source_repo_root: "/repo/hako".into(),
-            repo_key: "repo-key".into(),
-            repo_name: "hako".into(),
-            entries: vec![
-                crate::app::state::WorktreeOpenEntry {
-                    path: "/repo/hako".into(),
-                    branch: Some("main".into()),
-                    is_linked_worktree: false,
-                    already_open_ws_idx: Some(0),
-                },
-                crate::app::state::WorktreeOpenEntry {
-                    path: "/repo/hako-issue".into(),
-                    branch: Some("worktree/issue".into()),
-                    is_linked_worktree: true,
-                    already_open_ws_idx: None,
-                },
-            ],
-            selected: 0,
-            query: String::new(),
-            search_focused: false,
-            error: None,
-        }
-    }
     #[test]
     fn hovering_context_menu_updates_highlight() {
         let mut app = app_for_mouse_test();

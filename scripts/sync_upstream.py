@@ -66,6 +66,16 @@ def upstream_commits(base_ref: str, upstream_ref: str) -> list[str]:
 def write_pr_body(path: Path, branch: str, base_ref: str, upstream_ref: str, commits: list[str]) -> None:
     guard = Path("sync-report.md")
     guard_text = guard.read_text() if guard.exists() else "guard report not generated\n"
+    status = run(
+        "python3",
+        "scripts/upstream_status.py",
+        "--base",
+        base_ref,
+        "--upstream",
+        upstream_ref,
+        check=False,
+    )
+    status_text = status.stdout if status.stdout else status.stderr
     body = [
         "## Summary",
         f"- Merge `{upstream_ref}` into Hako on `{branch}`.",
@@ -80,10 +90,14 @@ def write_pr_body(path: Path, branch: str, base_ref: str, upstream_ref: str, com
             "",
             "## Verification",
             "- `python3 scripts/guard_upstream_sync.py --base " + base_ref + " --upstream " + upstream_ref + " --head HEAD`",
+            "- `python3 scripts/upstream_status.py --base " + base_ref + " --upstream " + upstream_ref + " --check`",
             "- `just check` before merge",
             "",
             "## Guard report",
             guard_text,
+            "",
+            "## Upstream port status",
+            status_text,
         ]
     )
     path.write_text("\n".join(body) + "\n")

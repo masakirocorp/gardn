@@ -357,7 +357,7 @@ fn wait_for_replacement_server_pid(runtime_dir: &Path, old_pid: u32, timeout: Du
 
 #[cfg(target_os = "macos")]
 fn wait_for_replacement_server_pid(_runtime_dir: &Path, old_pid: u32, timeout: Duration) -> u32 {
-    let handoff_socket_pattern = format!("herdr-handoff-{old_pid}.sock");
+    let handoff_socket_pattern = format!("hako-handoff-{old_pid}.sock");
     let deadline = Instant::now() + timeout;
     let mut last_stdout = String::new();
     while Instant::now() < deadline {
@@ -432,7 +432,7 @@ fn live_server_holds_one_pty_master_fd_per_pane() {
         .child
         .process_id()
         .expect("test server should expose pid");
-    wait_for_server_ptmx_fd_count(server_pid, 0, Duration::from_secs(5));
+    let initial_ptmx_count = server_ptmx_fd_count(server_pid);
 
     let created = request(
         &api_socket,
@@ -446,7 +446,7 @@ fn live_server_holds_one_pty_master_fd_per_pane() {
         .as_str()
         .unwrap()
         .to_string();
-    wait_for_server_ptmx_fd_count(server_pid, 1, Duration::from_secs(5));
+    wait_for_server_ptmx_fd_count(server_pid, initial_ptmx_count + 1, Duration::from_secs(5));
 
     let second = request(
         &api_socket,
@@ -465,7 +465,7 @@ fn live_server_holds_one_pty_master_fd_per_pane() {
         .as_str()
         .unwrap()
         .to_string();
-    wait_for_server_ptmx_fd_count(server_pid, 2, Duration::from_secs(5));
+    wait_for_server_ptmx_fd_count(server_pid, initial_ptmx_count + 2, Duration::from_secs(5));
 
     assert_ok(request(
         &api_socket,
@@ -479,7 +479,7 @@ fn live_server_holds_one_pty_master_fd_per_pane() {
             }
         }),
     ));
-    wait_for_server_ptmx_fd_count(server_pid, 3, Duration::from_secs(5));
+    wait_for_server_ptmx_fd_count(server_pid, initial_ptmx_count + 3, Duration::from_secs(5));
 
     assert_ok(request(
         &api_socket,
@@ -488,7 +488,11 @@ fn live_server_holds_one_pty_master_fd_per_pane() {
     let replacement_pid =
         wait_for_replacement_server_pid(&runtime_dir, server_pid, Duration::from_secs(10));
     wait_for_api(&api_socket, Duration::from_secs(10));
-    wait_for_server_ptmx_fd_count(replacement_pid, 3, Duration::from_secs(5));
+    wait_for_server_ptmx_fd_count(
+        replacement_pid,
+        initial_ptmx_count + 3,
+        Duration::from_secs(5),
+    );
 
     let _ = request(
         &api_socket,
