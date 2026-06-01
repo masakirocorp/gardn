@@ -136,12 +136,46 @@ pub fn api_socket_path_for(name: Option<&str>) -> PathBuf {
     data_dir_for(name).join("hako.sock")
 }
 
+fn socket_path_app_dir(path: &Path) -> Option<&str> {
+    if path.file_name()?.to_str()? != "hako.sock" {
+        return None;
+    }
+
+    let dir = path.parent()?;
+    if dir
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        == Some("sessions")
+    {
+        return dir
+            .parent()?
+            .parent()?
+            .file_name()
+            .and_then(|name| name.to_str());
+    }
+
+    dir.file_name().and_then(|name| name.to_str())
+}
+
+fn socket_path_matches_current_app(path: &Path) -> bool {
+    match socket_path_app_dir(path) {
+        Some("hako" | "hako-dev") => {
+            socket_path_app_dir(path) == Some(crate::config::app_dir_name())
+        }
+        _ => true,
+    }
+}
+
 pub fn active_api_socket_path() -> PathBuf {
     if explicit_session_requested() {
         return api_socket_path_for(active_name().as_deref());
     }
     if let Ok(path) = std::env::var(crate::api::SOCKET_PATH_ENV_VAR) {
-        return PathBuf::from(path);
+        let path = PathBuf::from(path);
+        if socket_path_matches_current_app(&path) {
+            return path;
+        }
     }
     api_socket_path_for(active_name().as_deref())
 }
@@ -724,6 +758,53 @@ mod tests {
         std::env::remove_var("XDG_CONFIG_HOME");
         std::env::remove_var(SESSION_ENV_VAR);
         clear_explicit_session_for_test();
+        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+    }
+
+    #[test]
+    fn inherited_release_socket_is_ignored_by_dev_binary() {
+        let _guard = env_lock().lock().unwrap();
+        let config_home = std::env::temp_dir().join(format!(
+            "hako-session-app-precedence-{}",
+            std::process::id()
+        ));
+        std::env::set_var("XDG_CONFIG_HOME", &config_home);
+        std::env::remove_var(SESSION_ENV_VAR);
+        clear_explicit_session_for_test();
+        std::env::set_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            config_home.join("hako").join("hako.sock"),
+        );
+
+        assert_eq!(
+            active_api_socket_path(),
+            config_home
+                .join(crate::config::app_dir_name())
+                .join("hako.sock")
+        );
+
+        std::env::remove_var("XDG_CONFIG_HOME");
+        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+    }
+
+    #[test]
+    fn inherited_socket_for_same_app_is_used() {
+        let _guard = env_lock().lock().unwrap();
+        let config_home =
+            std::env::temp_dir().join(format!("hako-session-same-app-{}", std::process::id()));
+        let socket_path = config_home
+            .join(crate::config::app_dir_name())
+            .join("sessions")
+            .join("work")
+            .join("hako.sock");
+        std::env::set_var("XDG_CONFIG_HOME", &config_home);
+        std::env::remove_var(SESSION_ENV_VAR);
+        clear_explicit_session_for_test();
+        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, &socket_path);
+
+        assert_eq!(active_api_socket_path(), socket_path);
+
+        std::env::remove_var("XDG_CONFIG_HOME");
         std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
     }
 
