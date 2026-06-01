@@ -329,6 +329,15 @@ Hako uses a hosted manifest for update checks and release metadata.
 - First-run onboarding introduces the core workflow in-app.
 - Update-ready previews can show release notes and the install command before the update is applied.
 
+## Fork maintenance
+
+Hako tracks upstream Herdr commits with an explicit port ledger.
+
+- **Upstream port ledger** — `upstream-port-map.json` records each upstream commit as ported, superseded, skipped, or pending.
+- **Ledger check** — `just upstream-status` reports upstream status and fails when commits are unclassified or still pending.
+- **Sync guard integration** — upstream-sync reports include the ledger status so product-specific skips and superseded changes stay visible.
+- **Hako-owned surfaces** — docs, website, release, and repository-process commits can be skipped with explicit reasons instead of silently reintroducing upstream identity.
+
 ## Experimental features
 
 Experimental options currently include:
