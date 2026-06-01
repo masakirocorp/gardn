@@ -545,7 +545,6 @@ fn control_string(buffer: &[u8]) -> Option<ControlString> {
         None => ControlString::Incomplete { family },
     })
 }
-}
 
 fn first_complete_utf8_char_len(buffer: &[u8]) -> Option<usize> {
     let width = utf8_char_width(*buffer.first()?)?;

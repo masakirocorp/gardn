@@ -791,20 +791,64 @@ impl AppState {
         let (root, ws_idx) = self
             .git_diff_target(terminal_runtimes)
             .ok_or_else(|| "no git repo for current space".to_string())?;
-        let appearance = self.theme_appearance_for_mode(self.global_theme_mode);
-        // The settings UI calls the host-color source "terminal"; internally the
-        // effective theme is "system" when Hako follows the host terminal colors.
-        let passthrough_terminal = hunk_uses_terminal_color_passthrough(&self.theme_name);
+        let (palette, appearance, passthrough_terminal) =
+            self.hunk_diff_theme_for_workspace(ws_idx);
         self.run_project_command_entry(
             terminal_runtimes,
             hunk_diff_project_command(
                 root,
-                &self.palette,
+                &palette,
                 appearance,
                 self.host_terminal_theme,
                 passthrough_terminal,
             ),
             ws_idx,
+        )
+    }
+
+    fn hunk_diff_theme_for_workspace(
+        &self,
+        ws_idx: usize,
+    ) -> (
+        crate::app::state::Palette,
+        crate::terminal_theme::ThemeAppearance,
+        bool,
+    ) {
+        let group_theme = self
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| self.group_index_for_id(&workspace.group_id))
+            .and_then(|group_idx| self.groups.get(group_idx))
+            .map(|group| &group.theme);
+
+        if let Some(group_theme) = group_theme.filter(|theme| !theme.is_empty()) {
+            let mode = group_theme.mode.unwrap_or(self.global_theme_mode);
+            let appearance = self.theme_appearance_for_mode(mode);
+            let theme_name = match appearance {
+                crate::terminal_theme::ThemeAppearance::Light => group_theme
+                    .light_theme_name
+                    .as_deref()
+                    .unwrap_or(&self.global_light_theme_name),
+                crate::terminal_theme::ThemeAppearance::Dark => group_theme
+                    .dark_theme_name
+                    .as_deref()
+                    .unwrap_or(&self.global_dark_theme_name),
+            };
+
+            if let Some(palette) = self.palette_for_theme_mode(theme_name, mode) {
+                return (
+                    palette,
+                    appearance,
+                    hunk_uses_terminal_color_passthrough(theme_name),
+                );
+            }
+        }
+
+        let appearance = self.theme_appearance_for_mode(self.global_theme_mode);
+        (
+            self.global_palette.clone(),
+            appearance,
+            hunk_uses_terminal_color_passthrough(&self.global_theme_name),
         )
     }
 
@@ -3004,6 +3048,48 @@ mod tests {
         assert!(hunk_uses_terminal_color_passthrough("system"));
         assert!(hunk_uses_terminal_color_passthrough("terminal"));
         assert!(!hunk_uses_terminal_color_passthrough("tokyo-night"));
+    }
+
+    #[test]
+    fn hunk_theme_uses_target_workspace_group_override() {
+        let mut state = app_with_workspaces(&["main", "docs"]);
+        let docs_group = state.create_group("Docs".to_string());
+        state.move_workspace_to_group(1, docs_group);
+        state.set_group_theme(
+            docs_group,
+            GroupThemeOverride {
+                mode: Some(ThemeMode::Light),
+                light_theme_name: Some("flexoki-light".to_string()),
+                dark_theme_name: None,
+            },
+        );
+
+        let (palette, appearance, passthrough_terminal) = state.hunk_diff_theme_for_workspace(1);
+
+        assert_eq!(appearance, crate::terminal_theme::ThemeAppearance::Light);
+        assert!(!passthrough_terminal);
+        assert_eq!(palette.accent, Palette::flexoki_light().accent);
+    }
+
+    #[test]
+    fn hunk_theme_uses_terminal_passthrough_for_group_system_theme() {
+        let mut state = app_with_workspaces(&["main", "docs"]);
+        let docs_group = state.create_group("Docs".to_string());
+        state.move_workspace_to_group(1, docs_group);
+        state.set_group_theme(
+            docs_group,
+            GroupThemeOverride {
+                mode: Some(ThemeMode::Light),
+                light_theme_name: Some("system".to_string()),
+                dark_theme_name: None,
+            },
+        );
+
+        let (palette, appearance, passthrough_terminal) = state.hunk_diff_theme_for_workspace(1);
+
+        assert_eq!(appearance, crate::terminal_theme::ThemeAppearance::Light);
+        assert!(passthrough_terminal);
+        assert_eq!(palette.panel_bg, ratatui::style::Color::Reset);
     }
 
     fn temp_project(name: &str) -> std::path::PathBuf {

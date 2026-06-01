@@ -164,7 +164,7 @@ Hako can discover and run project commands. The command palette is also a genera
 - Command status sections include running, failed, unknown, and stopped commands.
 - Custom keybindings can launch shell helpers or pane commands.
 - **Panel actions** — command rows can run, focus, expand, or stop commands from the right sidebar.
-- **Git diff command** — the command palette can open a Git diff panel when the current context is inside a Git repository. When Hunk 0.14 or newer is installed, Hako launches it with a generated custom theme based on the active Hako theme.
+- **Git diff command** — the command palette can open a Git diff panel when the current context is inside a Git repository. When Hunk 0.14 or newer is installed, Hako launches it with a generated custom theme based on the target workspace/group theme.
 - **Command discovery** — Hako discovers VS Code tasks, package scripts, just recipes, Make targets, and defaults for common Cargo, Go, Java, Python, .NET, PHP, and Ruby projects.
 - **Managed reruns** — rerunning a managed command focuses an existing run or restarts a stopped/failed run in the same pane instead of spawning duplicates.
 

@@ -483,7 +483,7 @@ mod tests {
         assert!(command.contains("label = \"Hako\""));
         assert!(command.contains("base = \"graphite\""));
         assert!(command.contains("accent = \"#7aa2f7\""));
-        assert!(command.contains("text = \"#c0caf5\""));
+        assert!(command.contains("text = \"#a9b1d6\""));
         assert!(command.contains("XDG_CONFIG_HOME=\"$config_dir\" hunk diff --watch"));
         assert!(command.contains("exec hunk diff --watch --theme graphite"));
         assert!(command.contains("brew install modem-dev/tap/hunk"));
