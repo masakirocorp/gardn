@@ -18,6 +18,8 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Deserializer, Serialize};
 
 const UPDATE_MANIFEST_URL: &str = "https://hako.masakiro.com/latest.json";
+const GITHUB_LATEST_RELEASE_API_URL: &str =
+    "https://api.github.com/repos/masakirocorp/hako/releases/latest";
 const HOMEBREW_FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula/hako.json";
 const HAKO_UPDATE_COMMAND: &str = "hako update";
 const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade hako";
@@ -122,6 +124,19 @@ struct HomebrewFormulaVersions {
     stable: String,
 }
 
+#[derive(Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    body: Option<String>,
+    assets: Vec<GitHubReleaseAsset>,
+}
+
+#[derive(Deserialize)]
+struct GitHubReleaseAsset {
+    name: String,
+    browser_download_url: String,
+}
+
 impl UpdateManifest {
     fn download_url_for(&self, os: &str, arch: &str) -> Option<String> {
         self.assets.get(&format!("{os}-{arch}")).cloned()
@@ -163,27 +178,68 @@ struct ReleaseInfo {
     notes_body: String,
 }
 
-fn fetch_update_manifest() -> Result<UpdateManifest, String> {
+fn fetch_url(url: &str, label: &str) -> Result<Vec<u8>, String> {
     let output = Command::new("curl")
         .args([
-            "-sfL",
+            "-sSL",
             "--retry",
             "3",
             "--connect-timeout",
             "10",
             "--max-time",
             "20",
-            UPDATE_MANIFEST_URL,
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-H",
+            "User-Agent: hako-updater",
+            "-w",
+            "\n%{http_code}",
+            url,
         ])
         .output()
-        .map_err(|e| format!("curl failed: {e}"))?;
+        .map_err(|e| format!("curl failed while fetching {label}: {e}"))?;
 
     if !output.status.success() {
-        return Err("failed to fetch update manifest".into());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim();
+        if detail.is_empty() {
+            return Err(format!("failed to fetch {label} from {url}"));
+        }
+        return Err(format!("failed to fetch {label} from {url}: {detail}"));
     }
 
-    serde_json::from_slice(&output.stdout)
-        .map_err(|e| format!("failed to parse update manifest JSON: {e}"))
+    let Some(split_at) = output.stdout.iter().rposition(|byte| *byte == b'\n') else {
+        return Err(format!(
+            "failed to read HTTP status while fetching {label} from {url}"
+        ));
+    };
+    let (body, status) = output.stdout.split_at(split_at);
+    let status = std::str::from_utf8(&status[1..])
+        .map_err(|e| format!("invalid HTTP status while fetching {label} from {url}: {e}"))?;
+    let status = status
+        .parse::<u16>()
+        .map_err(|e| format!("invalid HTTP status while fetching {label} from {url}: {e}"))?;
+    if !(200..300).contains(&status) {
+        if url == GITHUB_LATEST_RELEASE_API_URL && status == 404 {
+            return Err("no published GitHub releases found for masakirocorp/hako".to_string());
+        }
+        return Err(format!("failed to fetch {label} from {url}: HTTP {status}"));
+    }
+
+    Ok(body.to_vec())
+}
+
+fn fetch_update_manifest() -> Result<UpdateManifest, String> {
+    let bytes = fetch_url(UPDATE_MANIFEST_URL, "update manifest")?;
+
+    serde_json::from_slice(&bytes).map_err(|e| format!("failed to parse update manifest JSON: {e}"))
+}
+
+fn fetch_github_latest_release() -> Result<GitHubRelease, String> {
+    let bytes = fetch_url(GITHUB_LATEST_RELEASE_API_URL, "latest GitHub release")?;
+
+    serde_json::from_slice(&bytes)
+        .map_err(|e| format!("failed to parse latest GitHub release JSON: {e}"))
 }
 
 fn handle_manifest_announcement(version: &str, value: Option<&serde_json::Value>) {
@@ -238,19 +294,70 @@ fn release_info_from_manifest(manifest: &UpdateManifest) -> Result<Option<Releas
     }))
 }
 
-/// Check the hosted update manifest for the latest release. Returns release info if newer.
+fn release_info_from_github_release(
+    release: &GitHubRelease,
+) -> Result<Option<ReleaseInfo>, String> {
+    let current = Version::current();
+    let latest = Version::parse(&release.tag_name).ok_or_else(|| {
+        format!(
+            "invalid version in latest GitHub release: {}",
+            release.tag_name
+        )
+    })?;
+
+    if latest <= current {
+        return Ok(None);
+    }
+
+    let (os, arch) = platform_target();
+    let asset_name = format!("hako-{os}-{arch}");
+    let download_url = release
+        .assets
+        .iter()
+        .find(|asset| asset.name == asset_name)
+        .map(|asset| asset.browser_download_url.clone())
+        .ok_or_else(|| format!("no binary asset named {asset_name} in latest GitHub release"))?;
+    let notes_body = release
+        .body
+        .as_deref()
+        .map(str::trim)
+        .filter(|body| !body.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("Hako v{latest}"));
+
+    Ok(Some(ReleaseInfo {
+        version: latest,
+        target_protocol: None,
+        download_url,
+        notes_body,
+    }))
+}
+/// Check the hosted update manifest for the latest release. Falls back to
+/// GitHub Releases so `hako update` still works if the hosted manifest is not
+/// deployed.
 fn check_latest() -> Result<Option<ReleaseInfo>, String> {
-    let manifest = fetch_update_manifest()?;
-    let release = release_info_from_manifest(&manifest)?;
-    if let Some(release) = &release {
-        if let Some(metadata) = manifest.metadata_for_version(&release.version) {
-            handle_manifest_announcement(
-                &release.version.to_string(),
-                metadata.announcement.as_ref(),
-            );
+    match fetch_update_manifest() {
+        Ok(manifest) => {
+            let release = release_info_from_manifest(&manifest)?;
+            if let Some(release) = &release {
+                if let Some(metadata) = manifest.metadata_for_version(&release.version) {
+                    handle_manifest_announcement(
+                        &release.version.to_string(),
+                        metadata.announcement.as_ref(),
+                    );
+                }
+            }
+            Ok(release)
+        }
+        Err(manifest_err) => {
+            let github_release = fetch_github_latest_release().map_err(|github_err| {
+                format!(
+                    "{manifest_err}; also failed to fetch GitHub release metadata: {github_err}"
+                )
+            })?;
+            release_info_from_github_release(&github_release)
         }
     }
-    Ok(release)
 }
 
 fn parse_homebrew_formula_stable_version(input: &[u8]) -> Result<Version, String> {
@@ -2815,6 +2922,47 @@ mod tests {
                 .and_then(serde_json::Value::as_str),
             Some("root")
         );
+    }
+
+    #[test]
+    fn github_release_maps_asset_for_current_platform() {
+        let (os, arch) = platform_target();
+        let release = GitHubRelease {
+            tag_name: "99.99.99".to_string(),
+            body: Some("### Changed\n- GitHub release".to_string()),
+            assets: vec![
+                GitHubReleaseAsset {
+                    name: "hako-linux-x86_64".to_string(),
+                    browser_download_url: "https://example.com/wrong".to_string(),
+                },
+                GitHubReleaseAsset {
+                    name: format!("hako-{os}-{arch}"),
+                    browser_download_url: "https://example.com/hako".to_string(),
+                },
+            ],
+        };
+
+        let info = release_info_from_github_release(&release)
+            .unwrap()
+            .expect("release info");
+
+        assert_eq!(info.version, Version::parse("99.99.99").unwrap());
+        assert_eq!(info.download_url, "https://example.com/hako");
+        assert_eq!(info.notes_body, "### Changed\n- GitHub release");
+        assert_eq!(info.target_protocol, None);
+    }
+
+    #[test]
+    fn github_release_requires_platform_asset() {
+        let release = GitHubRelease {
+            tag_name: "99.99.99".to_string(),
+            body: Some("notes".to_string()),
+            assets: Vec::new(),
+        };
+
+        let err = release_info_from_github_release(&release).expect_err("missing asset");
+
+        assert!(err.contains("no binary asset named hako-"), "{err}");
     }
 
     #[test]
