@@ -2932,7 +2932,7 @@ mod tests {
             body: Some("### Changed\n- GitHub release".to_string()),
             assets: vec![
                 GitHubReleaseAsset {
-                    name: "hako-linux-x86_64".to_string(),
+                    name: "hako-plan9-riscv128".to_string(),
                     browser_download_url: "https://example.com/wrong".to_string(),
                 },
                 GitHubReleaseAsset {
