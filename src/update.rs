@@ -1,12 +1,11 @@
 //! Self-update mechanism.
 //!
-//! Checks the hosted hako.masakiro.com update manifest for newer versions.
+//! Checks GitHub Releases for newer versions.
 //! Manual `hako update` downloads and installs the binary.
 //! Background checks only surface availability and release notes.
 //! Uses `curl` as a subprocess for HTTP — no additional Rust HTTP dependencies.
 //! JSON parsing uses serde_json (already in deps for persistence).
 
-use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io::{self, BufRead, BufReader, IsTerminal, Write};
@@ -15,9 +14,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
-const UPDATE_MANIFEST_URL: &str = "https://hako.masakiro.com/latest.json";
 const GITHUB_LATEST_RELEASE_API_URL: &str =
     "https://api.github.com/repos/masakirocorp/hako/releases/latest";
 const HOMEBREW_FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula/hako.json";
@@ -80,39 +78,8 @@ impl std::fmt::Display for Version {
 }
 
 // ---------------------------------------------------------------------------
-// Update manifest
+// Release sources
 // ---------------------------------------------------------------------------
-
-#[derive(Deserialize)]
-struct UpdateManifest {
-    version: String,
-    /// Thin-client protocol spoken by this release, when advertised by the manifest.
-    protocol: Option<u32>,
-    notes: String,
-    assets: BTreeMap<String, String>,
-    announcement: Option<serde_json::Value>,
-    #[serde(default, deserialize_with = "deserialize_manifest_releases")]
-    releases: BTreeMap<String, serde_json::Value>,
-}
-
-fn deserialize_manifest_releases<'de, D>(
-    deserializer: D,
-) -> Result<BTreeMap<String, serde_json::Value>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(match value {
-        Some(serde_json::Value::Object(object)) => object.into_iter().collect(),
-        _ => BTreeMap::new(),
-    })
-}
-
-#[derive(Deserialize)]
-struct ManifestReleaseMetadata {
-    notes: String,
-    announcement: Option<serde_json::Value>,
-}
 
 #[derive(Deserialize)]
 struct HomebrewFormula {
@@ -135,34 +102,6 @@ struct GitHubRelease {
 struct GitHubReleaseAsset {
     name: String,
     browser_download_url: String,
-}
-
-impl UpdateManifest {
-    fn download_url_for(&self, os: &str, arch: &str) -> Option<String> {
-        self.assets.get(&format!("{os}-{arch}")).cloned()
-    }
-
-    fn metadata_for_version(&self, version: &Version) -> Option<ManifestReleaseMetadata> {
-        let version = version.to_string();
-        if self.version.trim_start_matches('v') == version {
-            return Some(ManifestReleaseMetadata {
-                notes: self.notes.clone(),
-                announcement: self.announcement.clone(),
-            });
-        }
-
-        self.releases.get(&version).and_then(|release| {
-            let metadata =
-                serde_json::from_value::<ManifestReleaseMetadata>(release.clone()).ok()?;
-            (!metadata.notes_body().is_empty()).then_some(metadata)
-        })
-    }
-}
-
-impl ManifestReleaseMetadata {
-    fn notes_body(&self) -> String {
-        self.notes.trim().to_string()
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -229,69 +168,11 @@ fn fetch_url(url: &str, label: &str) -> Result<Vec<u8>, String> {
     Ok(body.to_vec())
 }
 
-fn fetch_update_manifest() -> Result<UpdateManifest, String> {
-    let bytes = fetch_url(UPDATE_MANIFEST_URL, "update manifest")?;
-
-    serde_json::from_slice(&bytes).map_err(|e| format!("failed to parse update manifest JSON: {e}"))
-}
-
 fn fetch_github_latest_release() -> Result<GitHubRelease, String> {
     let bytes = fetch_url(GITHUB_LATEST_RELEASE_API_URL, "latest GitHub release")?;
 
     serde_json::from_slice(&bytes)
         .map_err(|e| format!("failed to parse latest GitHub release JSON: {e}"))
-}
-
-fn handle_manifest_announcement(version: &str, value: Option<&serde_json::Value>) {
-    let announcement = match value {
-        Some(value) => match serde_json::from_value::<
-            crate::product_announcements::ManifestAnnouncement,
-        >(value.clone())
-        {
-            Ok(announcement) => Some(announcement),
-            Err(err) => {
-                tracing::warn!("skipping invalid product announcement in update manifest: {err}");
-                None
-            }
-        },
-        None => None,
-    };
-
-    if let Err(err) =
-        crate::product_announcements::save_manifest_announcement(version, announcement.as_ref())
-    {
-        tracing::warn!("failed to save product announcement: {err}");
-    }
-}
-
-fn release_info_from_manifest(manifest: &UpdateManifest) -> Result<Option<ReleaseInfo>, String> {
-    let current = Version::current();
-    let latest = Version::parse(&manifest.version)
-        .ok_or_else(|| format!("invalid version in update manifest: {}", manifest.version))?;
-
-    if latest <= current {
-        return Ok(None); // up to date
-    }
-
-    let metadata = manifest
-        .metadata_for_version(&latest)
-        .ok_or_else(|| format!("missing release metadata for v{latest}"))?;
-    let notes_body = metadata.notes_body();
-    if notes_body.is_empty() {
-        return Err("update manifest notes are empty".into());
-    }
-
-    let (os, arch) = platform_target();
-    let download_url = manifest
-        .download_url_for(os, arch)
-        .ok_or_else(|| format!("no binary for {os}-{arch} in update manifest"))?;
-
-    Ok(Some(ReleaseInfo {
-        version: latest,
-        target_protocol: manifest.protocol,
-        download_url,
-        notes_body,
-    }))
 }
 
 fn release_info_from_github_release(
@@ -332,32 +213,10 @@ fn release_info_from_github_release(
         notes_body,
     }))
 }
-/// Check the hosted update manifest for the latest release. Falls back to
-/// GitHub Releases so `hako update` still works if the hosted manifest is not
-/// deployed.
+/// Check GitHub Releases for the latest release. Returns release info if newer.
 fn check_latest() -> Result<Option<ReleaseInfo>, String> {
-    match fetch_update_manifest() {
-        Ok(manifest) => {
-            let release = release_info_from_manifest(&manifest)?;
-            if let Some(release) = &release {
-                if let Some(metadata) = manifest.metadata_for_version(&release.version) {
-                    handle_manifest_announcement(
-                        &release.version.to_string(),
-                        metadata.announcement.as_ref(),
-                    );
-                }
-            }
-            Ok(release)
-        }
-        Err(manifest_err) => {
-            let github_release = fetch_github_latest_release().map_err(|github_err| {
-                format!(
-                    "{manifest_err}; also failed to fetch GitHub release metadata: {github_err}"
-                )
-            })?;
-            release_info_from_github_release(&github_release)
-        }
-    }
+    let github_release = fetch_github_latest_release()?;
+    release_info_from_github_release(&github_release)
 }
 
 fn parse_homebrew_formula_stable_version(input: &[u8]) -> Result<Version, String> {
@@ -1997,16 +1856,6 @@ fn auto_update_homebrew(events: tokio::sync::mpsc::Sender<crate::events::AppEven
 }
 
 fn homebrew_release_notes_body(version: &Version) -> String {
-    if let Ok(manifest) = fetch_update_manifest() {
-        if let Some(metadata) = manifest.metadata_for_version(version) {
-            let notes_body = metadata.notes_body();
-            if !notes_body.is_empty() {
-                handle_manifest_announcement(&version.to_string(), metadata.announcement.as_ref());
-                return notes_body;
-            }
-        }
-    }
-
     format!("### Changed\n- v{version} is available through Homebrew.")
 }
 
@@ -2809,122 +2658,6 @@ mod tests {
     }
 
     #[test]
-    fn update_manifest_deserializes() {
-        let json = "{\n\
-            \"version\": \"0.2.0\",\n\
-            \"protocol\": 4,\n\
-            \"notes\": \"### Changed\\n- One\",\n\
-            \"announcement\": {\n\
-                \"id\": \"keymap-v2\",\n\
-                \"title\": \"Keymap changes\",\n\
-                \"body\": \"### Heads up\\n- Defaults changed\"\n\
-            },\n\
-            \"assets\": {\n\
-                \"linux-x86_64\": \"https://example.com/hako-linux-x86_64\",\n\
-                \"macos-aarch64\": \"https://example.com/hako-macos-aarch64\"\n\
-            }\n\
-        }";
-        let manifest: UpdateManifest = serde_json::from_str(json).unwrap();
-        assert_eq!(manifest.version, "0.2.0");
-        assert_eq!(manifest.protocol, Some(4));
-        assert_eq!(manifest.assets.len(), 2);
-        assert_eq!(
-            manifest
-                .metadata_for_version(&Version::parse("0.2.0").unwrap())
-                .expect("metadata")
-                .notes_body(),
-            "### Changed\n- One"
-        );
-        assert_eq!(
-            manifest
-                .announcement
-                .as_ref()
-                .and_then(|announcement| announcement.get("id"))
-                .and_then(serde_json::Value::as_str),
-            Some("keymap-v2")
-        );
-        assert_eq!(
-            manifest.download_url_for("linux", "x86_64").as_deref(),
-            Some("https://example.com/hako-linux-x86_64")
-        );
-    }
-
-    #[test]
-    fn update_manifest_reads_archived_release_metadata() {
-        let json = r####"{
-            "version": "0.3.0",
-            "protocol": 4,
-            "notes": "### Changed\n- Three",
-            "assets": {
-                "linux_x86_64": "https://example.com/unused"
-            },
-            "releases": {
-                "0.2.0": {
-                    "notes": "### Changed\n- Two",
-                    "announcement": {
-                        "id": "two",
-                        "title": "Two",
-                        "body": "### Two"
-                    }
-                }
-            }
-        }"####;
-        let manifest: UpdateManifest = serde_json::from_str(json).unwrap();
-        let version = Version::parse("0.2.0").unwrap();
-        let metadata = manifest.metadata_for_version(&version).expect("metadata");
-
-        assert_eq!(metadata.notes_body(), "### Changed\n- Two");
-        assert_eq!(
-            metadata
-                .announcement
-                .as_ref()
-                .and_then(|announcement| announcement.get("id"))
-                .and_then(serde_json::Value::as_str),
-            Some("two")
-        );
-    }
-
-    #[test]
-    fn update_manifest_root_metadata_wins_for_latest_version() {
-        let json = r####"{
-            "version": "0.3.0",
-            "protocol": 4,
-            "notes": "### Changed\n- Root",
-            "announcement": {
-                "id": "root",
-                "title": "Root",
-                "body": "### Root"
-            },
-            "assets": {
-                "linux_x86_64": "https://example.com/unused"
-            },
-            "releases": {
-                "0.3.0": {
-                    "notes": "### Changed\n- Stale",
-                    "announcement": {
-                        "id": "stale",
-                        "title": "Stale",
-                        "body": "### Stale"
-                    }
-                }
-            }
-        }"####;
-        let manifest: UpdateManifest = serde_json::from_str(json).unwrap();
-        let version = Version::parse("0.3.0").unwrap();
-        let metadata = manifest.metadata_for_version(&version).expect("metadata");
-
-        assert_eq!(metadata.notes_body(), "### Changed\n- Root");
-        assert_eq!(
-            metadata
-                .announcement
-                .as_ref()
-                .and_then(|announcement| announcement.get("id"))
-                .and_then(serde_json::Value::as_str),
-            Some("root")
-        );
-    }
-
-    #[test]
     fn github_release_maps_asset_for_current_platform() {
         let (os, arch) = platform_target();
         let release = GitHubRelease {
@@ -2963,70 +2696,5 @@ mod tests {
         let err = release_info_from_github_release(&release).expect_err("missing asset");
 
         assert!(err.contains("no binary asset named hako-"), "{err}");
-    }
-
-    #[test]
-    fn update_manifest_ignores_malformed_releases_container() {
-        let json = r####"{
-            "version": "0.3.0",
-            "protocol": 4,
-            "notes": "### Changed\n- Root",
-            "assets": {
-                "linux_x86_64": "https://example.com/unused"
-            },
-            "releases": []
-        }"####;
-        let manifest: UpdateManifest = serde_json::from_str(json).unwrap();
-
-        assert!(manifest.releases.is_empty());
-        assert_eq!(
-            manifest
-                .metadata_for_version(&Version::parse("0.3.0").unwrap())
-                .expect("metadata")
-                .notes_body(),
-            "### Changed\n- Root"
-        );
-    }
-
-    #[test]
-    fn update_manifest_requires_notes_field() {
-        let json = r#"{
-            "version": "0.2.0",
-            "assets": {
-                "linux-x86_64": "https://example.com/hako-linux-x86_64"
-            }
-        }"#;
-
-        assert!(serde_json::from_str::<UpdateManifest>(json).is_err());
-    }
-
-    #[test]
-    fn invalid_manifest_announcement_does_not_block_release_info() {
-        let (os, arch) = platform_target();
-        let asset_key = format!("{os}-{arch}");
-        let json = format!(
-            r####"{{
-                "version": "99.99.99",
-                "protocol": 4,
-                "notes": "### Changed\n- One",
-                "announcement": {{
-                    "id": 123,
-                    "title": "Keymap changes",
-                    "body": "### Heads up\n- Defaults changed"
-                }},
-                "assets": {{
-                    "{asset_key}": "https://example.com/hako"
-                }}
-            }}"####
-        );
-
-        let manifest: UpdateManifest = serde_json::from_str(&json).unwrap();
-        handle_manifest_announcement(&manifest.version, manifest.announcement.as_ref());
-        let release = release_info_from_manifest(&manifest)
-            .unwrap()
-            .expect("release info");
-
-        assert_eq!(release.version, Version::parse("99.99.99").unwrap());
-        assert_eq!(release.download_url, "https://example.com/hako");
     }
 }

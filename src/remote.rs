@@ -1,6 +1,5 @@
 //! Remote thin-client launcher over SSH command stdio.
 
-use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{self, IsTerminal, Write as _};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -21,7 +20,8 @@ const REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(5);
 const REMOTE_SERVER_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const CURRENT_PROTOCOL: u32 = crate::protocol::PROTOCOL_VERSION;
-const UPDATE_MANIFEST_URL: &str = "https://hako.masakiro.com/latest.json";
+const GITHUB_LATEST_RELEASE_API_URL: &str =
+    "https://api.github.com/repos/masakirocorp/hako/releases/latest";
 const REMOTE_BINARY_ENV_VAR: &str = "HAKO_REMOTE_BINARY";
 pub(crate) const REATTACH_COMMAND_ENV_VAR: &str = "HAKO_REATTACH_COMMAND";
 
@@ -298,9 +298,15 @@ impl RemoteHako {
 }
 
 #[derive(Deserialize)]
-struct RemoteUpdateManifest {
-    version: String,
-    assets: BTreeMap<String, String>,
+struct RemoteGitHubRelease {
+    tag_name: String,
+    assets: Vec<RemoteGitHubReleaseAsset>,
+}
+
+#[derive(Deserialize)]
+struct RemoteGitHubReleaseAsset {
+    name: String,
+    browser_download_url: String,
 }
 
 struct InstallSource {
@@ -954,7 +960,7 @@ fn warn_if_remote_bin_not_on_path(target: &str) -> io::Result<()> {
 }
 
 fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource> {
-    let manifest_output = Command::new("curl")
+    let release_output = Command::new("curl")
         .args([
             "-sfL",
             "--retry",
@@ -963,33 +969,45 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
             "10",
             "--max-time",
             "20",
-            UPDATE_MANIFEST_URL,
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-H",
+            "User-Agent: hako-remote-installer",
+            GITHUB_LATEST_RELEASE_API_URL,
         ])
         .output()
         .map_err(|err| io::Error::new(err.kind(), format!("curl failed: {err}")))?;
-    if !manifest_output.status.success() {
+    if !release_output.status.success() {
         return Err(command_failed(
-            "failed to fetch update manifest",
-            &manifest_output,
+            "failed to fetch latest GitHub release",
+            &release_output,
         ));
     }
 
-    let manifest: RemoteUpdateManifest = serde_json::from_slice(&manifest_output.stdout)
-        .map_err(|err| io::Error::other(format!("failed to parse update manifest JSON: {err}")))?;
-    if manifest.version.trim_start_matches('v') != CURRENT_VERSION {
+    let release: RemoteGitHubRelease =
+        serde_json::from_slice(&release_output.stdout).map_err(|err| {
+            io::Error::other(format!("failed to parse latest GitHub release JSON: {err}"))
+        })?;
+    if release.tag_name.trim_start_matches('v') != CURRENT_VERSION {
         return Err(io::Error::other(format!(
-            "remote host is {}, but this local hako is {CURRENT_VERSION} and the latest release manifest is {}; build hako for the remote platform or install it there manually",
+            "remote host is {}, but this local hako is {CURRENT_VERSION} and the latest GitHub release is {}; build hako for the remote platform or install it there manually",
             platform.asset_key(),
-            manifest.version
+            release.tag_name
         )));
     }
 
     let asset_key = platform.asset_key();
-    let url = manifest.assets.get(&asset_key).ok_or_else(|| {
-        io::Error::other(format!(
-            "no {asset_key} binary in the release manifest for hako {CURRENT_VERSION}"
-        ))
-    })?;
+    let asset_name = format!("hako-{asset_key}");
+    let url = release
+        .assets
+        .iter()
+        .find(|asset| asset.name == asset_name)
+        .map(|asset| asset.browser_download_url.as_str())
+        .ok_or_else(|| {
+            io::Error::other(format!(
+                "no {asset_name} binary in the latest GitHub release for hako {CURRENT_VERSION}"
+            ))
+        })?;
 
     let dir = private_download_dir(&asset_key)?;
     let path = dir.join("hako.tmp");

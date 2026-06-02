@@ -1845,15 +1845,15 @@ mod tests {
 
         crate::release_notes::save_pending(env!("CARGO_PKG_VERSION"), "### Changed\n- One")
             .unwrap();
-        crate::product_announcements::save_manifest_announcement(
-            env!("CARGO_PKG_VERSION"),
-            Some(&crate::product_announcements::ManifestAnnouncement {
-                id: "startup-announcement".into(),
-                title: Some("Startup announcement".into()),
-                body: "### Announcement\n- One".into(),
-            }),
-        )
-        .unwrap();
+        std::env::set_var(
+            "HAKO_FAKE_PRODUCT_ANNOUNCEMENT_BODY",
+            "### Announcement\n- One",
+        );
+        std::env::set_var(
+            "HAKO_FAKE_PRODUCT_ANNOUNCEMENT_TITLE",
+            "Startup announcement",
+        );
+        std::env::set_var("HAKO_FAKE_PRODUCT_ANNOUNCEMENT_ID", "startup-announcement");
 
         let config = Config {
             onboarding: Some(false),
@@ -1873,6 +1873,9 @@ mod tests {
         );
         assert!(app.state.release_notes.is_none());
 
+        std::env::remove_var("HAKO_FAKE_PRODUCT_ANNOUNCEMENT_BODY");
+        std::env::remove_var("HAKO_FAKE_PRODUCT_ANNOUNCEMENT_TITLE");
+        std::env::remove_var("HAKO_FAKE_PRODUCT_ANNOUNCEMENT_ID");
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         restore_xdg_state_home(original_xdg_state_home);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());

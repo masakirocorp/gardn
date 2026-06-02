@@ -317,7 +317,7 @@ Configurable areas include:
 
 ## Updates and release notes
 
-Hako uses a hosted manifest for update checks and release metadata, with GitHub Releases as a fallback for binary downloads.
+Hako uses GitHub Releases for update checks, release metadata, and binary downloads.
 
 - The app can notify when a new release is available.
 - `hako update` downloads and swaps supported binary installs.
