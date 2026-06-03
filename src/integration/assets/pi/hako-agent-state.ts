@@ -2,7 +2,7 @@
 // managed by hako; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=pi
-// HAKO_INTEGRATION_VERSION=4
+// HAKO_INTEGRATION_VERSION=5
 // @ts-nocheck
 
 import { createConnection } from "node:net";

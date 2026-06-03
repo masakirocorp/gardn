@@ -1109,8 +1109,8 @@ fn integration_commands_run_locally_when_server_is_missing() {
     register_runtime_dir(&runtime_dir);
     let missing_socket = runtime_dir.join("missing.sock");
 
-    let expected_extension = extensions_dir.join("hako-agent-state.ts");
-    let expected_omp_extension = omp_extensions_dir.join("hako-agent-state.ts");
+    let expected_extension = extensions_dir.join("hako-pi-agent-state.ts");
+    let expected_omp_extension = omp_extensions_dir.join("hako-omp-agent-state.ts");
     assert!(
         !expected_extension.exists(),
         "test setup should start without extension file"
@@ -1149,7 +1149,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
     );
     let omp_content = fs::read_to_string(&expected_omp_extension).unwrap();
     assert!(omp_content.contains("HAKO_INTEGRATION_ID=omp"));
-    assert!(omp_content.contains("HAKO_INTEGRATION_VERSION=4"));
+    assert!(omp_content.contains("HAKO_INTEGRATION_VERSION=5"));
     assert!(omp_content.contains("agent: \"omp\""));
 
     let integration_status = Command::new(env!("CARGO_BIN_EXE_hako"))
@@ -1160,9 +1160,9 @@ fn integration_commands_run_locally_when_server_is_missing() {
         .unwrap();
     assert_eq!(integration_status.status.code(), Some(0));
     let status_stdout = String::from_utf8_lossy(&integration_status.stdout);
-    assert!(status_stdout.contains("pi: current (v4)"));
+    assert!(status_stdout.contains("pi: current (v5)"));
     assert!(status_stdout.contains("claude: not installed"));
-    assert!(status_stdout.contains("omp: current (v4)"));
+    assert!(status_stdout.contains("omp: current (v5)"));
 
     let integration_uninstall = Command::new(env!("CARGO_BIN_EXE_hako"))
         .args(["integration", "uninstall", "pi"])
@@ -1174,6 +1174,10 @@ fn integration_commands_run_locally_when_server_is_missing() {
     assert!(
         !expected_extension.exists(),
         "integration uninstall should remove local files without a server"
+    );
+    assert!(
+        expected_omp_extension.exists(),
+        "uninstalling pi must not remove the separate omp integration"
     );
 
     let omp_integration_uninstall = Command::new(env!("CARGO_BIN_EXE_hako"))
@@ -1198,8 +1202,8 @@ fn integration_status_outdated_only_prints_action_for_legacy_install() {
     let extensions_dir = home_dir.join(".pi/agent/extensions");
     fs::create_dir_all(&extensions_dir).unwrap();
     fs::write(
-        extensions_dir.join("hako-agent-state.ts"),
-        "// legacy hako integration\n",
+        extensions_dir.join("hako-pi-agent-state.ts"),
+        "// installed by hako\n// HAKO_INTEGRATION_ID=pi\n// HAKO_INTEGRATION_VERSION=1\n",
     )
     .unwrap();
 
