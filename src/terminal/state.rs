@@ -1046,6 +1046,24 @@ mod tests {
     }
 
     #[test]
+    fn omp_hook_authority_overrides_omp_fallback_for_same_agent() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::OhMyPi), AgentState::Idle);
+        terminal.set_hook_authority(
+            "hako:omp".into(),
+            "omp".into(),
+            AgentState::Working,
+            None,
+            None,
+        );
+
+        assert_eq!(terminal.detected_agent, Some(Agent::OhMyPi));
+        assert_eq!(terminal.fallback_state, AgentState::Idle);
+        assert_eq!(terminal.effective_agent_label(), Some("omp"));
+        assert_eq!(terminal.state, AgentState::Working);
+    }
+
+    #[test]
     fn hook_authority_can_override_with_unknown_agent_label() {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);

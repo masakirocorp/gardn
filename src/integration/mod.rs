@@ -15,7 +15,7 @@ const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/hako-agent-state.ts");
 const PI_INTEGRATION_VERSION: u32 = 3;
 const OMP_EXTENSION_INSTALL_NAME: &str = PI_EXTENSION_INSTALL_NAME;
 const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/hako-agent-state.ts");
-const OMP_INTEGRATION_VERSION: u32 = 2;
+const OMP_INTEGRATION_VERSION: u32 = 3;
 const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
 const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
 const CLAUDE_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
@@ -2016,6 +2016,10 @@ mod tests {
         assert_eq!(installed.extension_paths, vec![extension_path]);
         assert!(installed.removed_legacy_pi_extensions.is_empty());
         assert_eq!(content, OMP_EXTENSION_ASSET);
+        assert!(content.contains("HAKO_INTEGRATION_ID=omp"));
+        assert!(content.contains("HAKO_INTEGRATION_VERSION=3"));
+        assert!(content.contains("agent: \"omp\""));
+        assert!(!content.contains("agent: \"pi\""));
 
         std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
