@@ -26,6 +26,7 @@ pub(super) enum DefaultColorEvent {
     Query(DefaultColorQuery),
     Set(DefaultColorQuery),
     Reset(DefaultColorQuery),
+    PaletteQuery(u8),
 }
 
 #[derive(Debug, Default)]
@@ -240,8 +241,23 @@ fn parse_default_color_event(body: &[u8]) -> Option<DefaultColorEvent> {
         b"11;?" => Some(DefaultColorEvent::Query(DefaultColorQuery::Background)),
         b"110" | b"110;" => Some(DefaultColorEvent::Reset(DefaultColorQuery::Foreground)),
         b"111" | b"111;" => Some(DefaultColorEvent::Reset(DefaultColorQuery::Background)),
-        _ => parse_default_color_set_event(body),
+        _ => parse_palette_color_query(body).or_else(|| parse_default_color_set_event(body)),
     }
+}
+
+fn parse_palette_color_query(body: &[u8]) -> Option<DefaultColorEvent> {
+    let index = body.strip_prefix(b"4;")?.strip_suffix(b";?")?;
+    if index.is_empty() || index.len() > 3 || !index.iter().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+
+    let mut value: u16 = 0;
+    for &digit in index {
+        value = value * 10 + u16::from(digit - b'0');
+    }
+    u8::try_from(value)
+        .ok()
+        .map(DefaultColorEvent::PaletteQuery)
 }
 
 fn parse_default_color_set_event(body: &[u8]) -> Option<DefaultColorEvent> {
@@ -501,31 +517,12 @@ fn reply_to_color_query(body: &[u8], colors: OscColorSnapshot) -> Vec<Vec<u8>> {
     };
     let mut parts = body.split(';');
     match parts.next() {
-        Some("4") => palette_query_replies(parts, colors),
+        Some("4") => Vec::new(),
         Some(command) => special_color_query_reply(command, parts, colors)
             .into_iter()
             .collect(),
         None => Vec::new(),
     }
-}
-
-fn palette_query_replies<'a>(
-    mut parts: impl Iterator<Item = &'a str>,
-    colors: OscColorSnapshot,
-) -> Vec<Vec<u8>> {
-    let mut replies = Vec::new();
-    while let (Some(index), Some(value)) = (parts.next(), parts.next()) {
-        if value != "?" {
-            continue;
-        }
-        let Ok(index) = index.parse::<u8>() else {
-            continue;
-        };
-        if let Some(color) = palette_color(colors, index) {
-            replies.push(format_color_reply(&format!("4;{index}"), color));
-        }
-    }
-    replies
 }
 
 fn special_color_query_reply<'a>(
@@ -543,16 +540,6 @@ fn special_color_query_reply<'a>(
         _ => return None,
     };
     Some(format_color_reply(command, color))
-}
-
-fn palette_color(colors: OscColorSnapshot, index: u8) -> Option<crate::terminal_theme::RgbColor> {
-    colors
-        .theme
-        .palette
-        .get(index as usize)
-        .copied()
-        .flatten()
-        .or_else(|| XTERM_ANSI_16.get(index as usize).copied())
 }
 
 fn foreground_color(colors: OscColorSnapshot) -> crate::terminal_theme::RgbColor {
@@ -818,7 +805,7 @@ mod tests {
     }
 
     #[test]
-    fn osc_color_query_responder_answers_palette_and_auxiliary_special_queries() {
+    fn osc_color_query_responder_answers_auxiliary_special_queries() {
         let mut responder = OscColorQueryResponder::default();
 
         let replies = responder.observe(
@@ -826,23 +813,17 @@ mod tests {
             color_snapshot(),
         );
 
-        assert_eq!(
-            replies,
-            vec![
-                b"\x1b]4;0;rgb:01/02/03\x1b\\".to_vec(),
-                b"\x1b]12;rgb:0a/0b/0c\x1b\\".to_vec(),
-            ]
-        );
+        assert_eq!(replies, vec![b"\x1b]12;rgb:0a/0b/0c\x1b\\".to_vec()]);
     }
 
     #[test]
-    fn osc_color_query_responder_handles_split_queries() {
+    fn osc_color_query_responder_ignores_split_palette_queries() {
         let mut responder = OscColorQueryResponder::default();
 
         assert!(responder.observe(b"\x1b]4;0", color_snapshot()).is_empty());
         let replies = responder.observe(b";?\x07", color_snapshot());
 
-        assert_eq!(replies, vec![b"\x1b]4;0;rgb:01/02/03\x1b\\".to_vec()]);
+        assert!(replies.is_empty());
     }
 
     #[test]
@@ -887,13 +868,16 @@ mod tests {
     fn default_color_event_tracker_detects_queries_sets_and_resets() {
         let mut tracker = DefaultColorEventTracker::default();
 
-        tracker.observe(b"\x1b]10;?\x07\x1b]11;?\x1b\\\x1b]10;rgb:11/22/33\x07\x1b]111\x07");
+        tracker.observe(
+            b"\x1b]10;?\x07\x1b]11;?\x1b\\\x1b]4;0;?\x07\x1b]10;rgb:11/22/33\x07\x1b]111\x07",
+        );
 
         assert_eq!(
             tracker.drain_pending(),
             vec![
                 DefaultColorEvent::Query(DefaultColorQuery::Foreground),
                 DefaultColorEvent::Query(DefaultColorQuery::Background),
+                DefaultColorEvent::PaletteQuery(0),
                 DefaultColorEvent::Set(DefaultColorQuery::Foreground),
                 DefaultColorEvent::Reset(DefaultColorQuery::Background),
             ]
@@ -901,7 +885,7 @@ mod tests {
     }
 
     #[test]
-    fn default_color_event_tracker_handles_split_queries() {
+    fn default_color_event_tracker_handles_split_default_color_queries() {
         let mut tracker = DefaultColorEventTracker::default();
 
         tracker.observe(b"\x1b]11");
@@ -913,6 +897,39 @@ mod tests {
         assert_eq!(
             tracker.drain_pending(),
             vec![DefaultColorEvent::Query(DefaultColorQuery::Background)]
+        );
+    }
+
+    #[test]
+    fn default_color_event_tracker_handles_split_palette_color_queries() {
+        let mut tracker = DefaultColorEventTracker::default();
+
+        tracker.observe(b"\x1b]4;25");
+        assert!(tracker.drain_pending().is_empty());
+        tracker.observe(b"5;?\x1b");
+        assert!(tracker.drain_pending().is_empty());
+        tracker.observe(b"\\");
+
+        assert_eq!(
+            tracker.drain_pending(),
+            vec![DefaultColorEvent::PaletteQuery(255)]
+        );
+    }
+
+    #[test]
+    fn default_color_event_tracker_rejects_malformed_palette_color_queries() {
+        let mut tracker = DefaultColorEventTracker::default();
+
+        tracker.observe(b"\x1b]4;;?\x07");
+        tracker.observe(b"\x1b]4;-1;?\x07");
+        tracker.observe(b"\x1b]4;256;?\x07");
+        tracker.observe(b"\x1b]4;0;?;1;?\x07");
+        tracker.observe(b"\x1b]4;0;rgb:1111/2222/3333\x07");
+        tracker.observe(b"\x1b]4;0;?\x07");
+
+        assert_eq!(
+            tracker.drain_pending(),
+            vec![DefaultColorEvent::PaletteQuery(0)]
         );
     }
 
