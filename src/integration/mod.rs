@@ -1763,8 +1763,9 @@ fn omp_extension_dir() -> io::Result<PathBuf> {
 }
 
 fn omp_install_extension_dirs() -> io::Result<Vec<PathBuf>> {
+    let mut explicit_extension_dirs = Vec::new();
     if std::env::var_os(PI_CODING_AGENT_DIR_ENV_VAR).is_some_and(|value| !value.is_empty()) {
-        return Ok(vec![omp_extension_dir()?]);
+        explicit_extension_dirs.push(omp_extension_dir()?);
     }
 
     let home = home_dir()?;
@@ -1793,13 +1794,13 @@ fn omp_install_extension_dirs() -> io::Result<Vec<PathBuf>> {
     config_dirs.sort();
     config_dirs.dedup();
 
-    let extension_dirs = config_dirs
-        .into_iter()
-        .filter_map(|config_dir| {
-            let agent_dir = config_dir.join("agent");
-            agent_dir.is_dir().then(|| agent_dir.join("extensions"))
-        })
-        .collect::<Vec<_>>();
+    let mut extension_dirs = explicit_extension_dirs;
+    extension_dirs.extend(config_dirs.into_iter().filter_map(|config_dir| {
+        let agent_dir = config_dir.join("agent");
+        agent_dir.is_dir().then(|| agent_dir.join("extensions"))
+    }));
+    extension_dirs.sort();
+    extension_dirs.dedup();
 
     if extension_dirs.is_empty() {
         Ok(vec![omp_extension_dir()?])
@@ -2083,9 +2084,12 @@ mod tests {
     fn install_pi_and_omp_write_distinct_files_in_same_extension_dir() {
         let _lock = integration_env_lock();
         let base = unique_base();
+        let home = base.join("home");
         let agent_dir = base.join("shared-agent");
         let ext_dir = agent_dir.join("extensions");
         fs::create_dir_all(&ext_dir).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        std::env::set_var("HOME", &home);
         std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
 
         let pi_path = install_pi().unwrap();
@@ -2098,6 +2102,7 @@ mod tests {
         assert_eq!(fs::read_to_string(omp_path).unwrap(), OMP_EXTENSION_ASSET);
         assert!(!ext_dir.join(LEGACY_PI_OMP_EXTENSION_INSTALL_NAME).exists());
 
+        std::env::remove_var("HOME");
         clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
@@ -2162,20 +2167,35 @@ mod tests {
     }
 
     #[test]
-    fn install_omp_uses_pi_coding_agent_dir_env() {
+    fn install_omp_includes_pi_coding_agent_dir_env_without_skipping_existing_omp_profiles() {
         let _lock = integration_env_lock();
         let base = unique_base();
-        let agent_dir = base.join("custom-omp-agent");
-        let ext_dir = agent_dir.join("extensions");
-        fs::create_dir_all(&ext_dir).unwrap();
-        std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
+        let home = base.join("home");
+        let env_agent_dir = base.join("custom-omp-agent");
+        let env_ext_dir = env_agent_dir.join("extensions");
+        let home_agent_dir = home.join(".omp/agent");
+        let home_ext_dir = home_agent_dir.join("extensions");
+        fs::create_dir_all(&env_ext_dir).unwrap();
+        fs::create_dir_all(&home_agent_dir).unwrap();
+        std::env::set_var("HOME", &home);
+        std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &env_agent_dir);
 
         let installed = install_omp().unwrap();
-        let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
+        let mut actual = installed.extension_paths;
+        actual.sort();
+        let mut expected = vec![
+            env_ext_dir.join(OMP_EXTENSION_INSTALL_NAME),
+            home_ext_dir.join(OMP_EXTENSION_INSTALL_NAME),
+        ];
+        expected.sort();
 
-        assert_eq!(installed.extension_paths, vec![extension_path]);
+        assert_eq!(actual, expected);
         assert!(installed.removed_legacy_pi_extensions.is_empty());
+        for path in actual {
+            assert_eq!(fs::read_to_string(path).unwrap(), OMP_EXTENSION_ASSET);
+        }
 
+        std::env::remove_var("HOME");
         clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
@@ -2321,9 +2341,12 @@ mod tests {
     fn uninstall_pi_does_not_remove_distinct_omp_asset() {
         let _lock = integration_env_lock();
         let base = unique_base();
+        let home = base.join("home");
         let agent_dir = base.join("shared-agent");
         let ext_dir = agent_dir.join("extensions");
         fs::create_dir_all(&ext_dir).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        std::env::set_var("HOME", &home);
         std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
         let pi_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
         let omp_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
@@ -2336,6 +2359,7 @@ mod tests {
         assert!(!pi_path.exists());
         assert_eq!(fs::read_to_string(&omp_path).unwrap(), OMP_EXTENSION_ASSET);
 
+        std::env::remove_var("HOME");
         clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
@@ -2344,9 +2368,12 @@ mod tests {
     fn uninstall_omp_does_not_remove_distinct_pi_asset() {
         let _lock = integration_env_lock();
         let base = unique_base();
+        let home = base.join("home");
         let agent_dir = base.join("shared-agent");
         let ext_dir = agent_dir.join("extensions");
         fs::create_dir_all(&ext_dir).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        std::env::set_var("HOME", &home);
         std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
         let pi_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
         let omp_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
@@ -2359,6 +2386,7 @@ mod tests {
         assert!(!omp_path.exists());
         assert_eq!(fs::read_to_string(&pi_path).unwrap(), PI_EXTENSION_ASSET);
 
+        std::env::remove_var("HOME");
         clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
