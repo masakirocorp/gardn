@@ -2,7 +2,7 @@
 // managed by hako; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=opencode
-// HAKO_INTEGRATION_VERSION=3
+// HAKO_INTEGRATION_VERSION=4
 
 import net from "node:net";
 
@@ -10,7 +10,7 @@ const SOURCE = "hako:opencode";
 let reportSeq = Date.now() * 1000;
 
 function nextReportSeq() {
-  reportSeq += 1;
+  reportSeq = Math.max(reportSeq + 1, Date.now() * 1000);
   return reportSeq;
 }
 
@@ -38,6 +38,7 @@ function reportState(action, sessionID) {
           source: SOURCE,
           agent: "opencode",
           seq: nextReportSeq(),
+          ...(sessionID ? { agent_session_id: sessionID } : {}),
         }
       : {
           pane_id: paneId,

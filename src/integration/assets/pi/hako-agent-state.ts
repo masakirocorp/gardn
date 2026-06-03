@@ -2,7 +2,7 @@
 // managed by hako; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=pi
-// HAKO_INTEGRATION_VERSION=3
+// HAKO_INTEGRATION_VERSION=4
 // @ts-nocheck
 
 import { createConnection } from "node:net";
@@ -57,7 +57,7 @@ let currentAgentSessionId: string | undefined;
 let currentAgentSessionPath: string | undefined;
 
 function nextReportSeq(): number {
-  reportSeq += 1;
+  reportSeq = Math.max(reportSeq + 1, Date.now() * 1000);
   return reportSeq;
 }
 
@@ -173,12 +173,12 @@ function releaseAgent(): Promise<void> {
   return sendRequest({
     id: `${source}:release:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     method: "pane.release_agent",
-    params: {
+    params: withSessionRef({
       pane_id: paneId,
       source,
       agent: "pi",
       seq: nextReportSeq(),
-    },
+    }),
   });
 }
 

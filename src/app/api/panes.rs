@@ -321,10 +321,17 @@ impl App {
         let Some(agent_label) = normalize_reported_agent_label(&params.agent) else {
             return invalid_agent(id);
         };
+        let session_ref = crate::agent_resume::session_ref_from_report(
+            &params.source,
+            &agent_label,
+            params.agent_session_id,
+            params.agent_session_path,
+        );
         self.handle_internal_event(crate::events::AppEvent::HookAgentReleased {
             pane_id,
             source: params.source,
             known_agent: crate::detect::parse_agent_label(&agent_label),
+            session_ref,
             agent_label,
             seq: params.seq,
         });

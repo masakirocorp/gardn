@@ -428,8 +428,9 @@ impl TerminalState {
         seq: Option<u64>,
         now: Instant,
     ) -> Option<TerminalStateMutation> {
-        self.reset_hook_sequence_for_new_session(&source, session_ref.as_ref());
-        if !self.accept_hook_report(&source, seq) {
+        let reset_sequence =
+            self.should_reset_hook_sequence_for_new_session(&source, session_ref.as_ref());
+        if !self.hook_sequence_allows(&source, seq, reset_sequence) {
             return None;
         }
 
@@ -441,6 +442,7 @@ impl TerminalState {
         if self.known_agent_label_conflicts_with_detected_agent(&agent_label) {
             return None;
         }
+        self.commit_hook_sequence(&source, seq, reset_sequence);
         self.persisted_agent_session = None;
         self.hook_authority = Some(HookAuthority {
             source,
@@ -562,20 +564,19 @@ impl TerminalState {
         crate::detect::parse_agent_label(agent_label)
             .is_some_and(|hook_agent| hook_agent != detected_agent)
     }
-
-    fn reset_hook_sequence_for_new_session(
-        &mut self,
+    fn should_reset_hook_sequence_for_new_session(
+        &self,
         source: &str,
         session_ref: Option<&crate::agent_resume::AgentSessionRef>,
-    ) {
+    ) -> bool {
         let Some(session_ref) = session_ref else {
-            return;
+            return false;
         };
 
         if self.hook_authority.as_ref().is_some_and(|authority| {
             authority.source == source && authority.state == AgentState::Working
         }) {
-            return;
+            return false;
         }
 
         let current_ref = self.hook_authority.as_ref().and_then(|authority| {
@@ -588,29 +589,30 @@ impl TerminalState {
             .as_ref()
             .and_then(|session| (session.source == source).then_some(&session.session_ref));
 
-        if current_ref
+        current_ref
             .or(persisted_ref)
             .is_some_and(|current| current != session_ref)
-        {
-            self.hook_report_sequences.remove(source);
-        }
     }
 
-    fn accept_hook_report(&mut self, source: &str, seq: Option<u64>) -> bool {
+    fn hook_sequence_allows(&self, source: &str, seq: Option<u64>, reset_sequence: bool) -> bool {
         let Some(seq) = seq else {
-            return !self.hook_report_sequences.contains_key(source);
+            return reset_sequence || !self.hook_report_sequences.contains_key(source);
         };
 
-        if self
-            .hook_report_sequences
-            .get(source)
-            .is_some_and(|last_seq| seq <= *last_seq)
-        {
-            return false;
-        }
+        reset_sequence
+            || self
+                .hook_report_sequences
+                .get(source)
+                .is_none_or(|last_seq| seq > *last_seq)
+    }
 
-        self.hook_report_sequences.insert(source.to_string(), seq);
-        true
+    fn commit_hook_sequence(&mut self, source: &str, seq: Option<u64>, reset_sequence: bool) {
+        if reset_sequence {
+            self.hook_report_sequences.remove(source);
+        }
+        if let Some(seq) = seq {
+            self.hook_report_sequences.insert(source.to_string(), seq);
+        }
     }
 
     #[cfg(test)]
@@ -633,8 +635,15 @@ impl TerminalState {
                 .as_ref()
                 .map(|authority| authority.source.clone())
         });
+        let should_clear = self
+            .hook_authority
+            .as_ref()
+            .is_some_and(|authority| source.is_none_or(|source| authority.source == source));
+        if !should_clear {
+            return None;
+        }
         if let Some(source) = sequence_source.as_deref() {
-            if !self.accept_hook_report(source, seq) {
+            if !self.hook_sequence_allows(source, seq, false) {
                 return None;
             }
         }
@@ -645,12 +654,8 @@ impl TerminalState {
         let previous_state = self.state;
         let previous_presentation = self.effective_presentation_for_state_at(previous_state, now);
         let previous_session = self.current_session_identity_for_persistence();
-        let should_clear = self
-            .hook_authority
-            .as_ref()
-            .is_some_and(|authority| source.is_none_or(|source| authority.source == source));
-        if !should_clear {
-            return None;
+        if let Some(source) = sequence_source.as_deref() {
+            self.commit_hook_sequence(source, seq, false);
         }
         self.hook_authority = None;
         self.stale_hook_idle_since = None;
@@ -666,7 +671,6 @@ impl TerminalState {
             session_ref_changed: previous_session.is_some(),
         })
     }
-
     #[cfg(test)]
     pub fn release_agent(
         &mut self,
@@ -674,7 +678,7 @@ impl TerminalState {
         agent_label: &str,
         seq: Option<u64>,
     ) -> Option<EffectiveStateChange> {
-        self.release_agent_with_mutation(source, agent_label, seq)
+        self.release_agent_with_mutation(source, agent_label, None, seq)
             .and_then(|mutation| mutation.effective_state_change)
     }
 
@@ -682,12 +686,9 @@ impl TerminalState {
         &mut self,
         source: &str,
         agent_label: &str,
+        session_ref: Option<crate::agent_resume::AgentSessionRef>,
         seq: Option<u64>,
     ) -> Option<TerminalStateMutation> {
-        if !self.accept_hook_report(source, seq) {
-            return None;
-        }
-
         if self.hook_authority.as_ref().is_some_and(|authority| {
             authority.agent_label != agent_label || authority.source != source
         }) {
@@ -699,6 +700,12 @@ impl TerminalState {
         if !matches_current_agent && !matches_persisted_session {
             return None;
         }
+        if !self.release_session_matches(source, session_ref.as_ref()) {
+            return None;
+        }
+        if !self.hook_sequence_allows(source, seq, false) {
+            return None;
+        }
 
         let now = Instant::now();
         let previous_agent_label = self.effective_agent_label().map(str::to_string);
@@ -706,6 +713,7 @@ impl TerminalState {
         let previous_state = self.state;
         let previous_presentation = self.effective_presentation_for_state_at(previous_state, now);
         let previous_session = self.current_session_identity_for_persistence();
+        self.commit_hook_sequence(source, seq, false);
         self.detected_agent = None;
         self.fallback_state = AgentState::Unknown;
         self.fallback_visible_blocker = false;
@@ -725,6 +733,26 @@ impl TerminalState {
             ),
             session_ref_changed: previous_session.is_some(),
         })
+    }
+
+    fn release_session_matches(
+        &self,
+        source: &str,
+        session_ref: Option<&crate::agent_resume::AgentSessionRef>,
+    ) -> bool {
+        let current_ref = self.hook_authority.as_ref().and_then(|authority| {
+            (authority.source == source)
+                .then_some(authority.session_ref.as_ref())
+                .flatten()
+        });
+        let persisted_ref = self
+            .persisted_agent_session
+            .as_ref()
+            .and_then(|session| (session.source == source).then_some(&session.session_ref));
+
+        current_ref
+            .or(persisted_ref)
+            .is_none_or(|current| session_ref.is_some_and(|release_ref| release_ref == current))
     }
 
     pub fn effective_agent_label(&self) -> Option<&str> {
@@ -1134,6 +1162,38 @@ mod tests {
             .expect("new session should reset stale sequence");
 
         assert!(mutation.session_ref_changed);
+        assert_eq!(terminal.state, AgentState::Working);
+    }
+
+    #[test]
+    fn invalid_agent_report_does_not_poison_sequence() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
+
+        let rejected = terminal.set_hook_authority_with_session_ref(
+            "hako:omp".into(),
+            "omp".into(),
+            AgentState::Working,
+            None,
+            None,
+            crate::agent_resume::AgentSessionRef::path("/tmp/omp.jsonl"),
+            Some(10_000),
+        );
+        assert!(rejected.is_none());
+
+        let accepted = terminal
+            .set_hook_authority_with_session_ref(
+                "hako:pi".into(),
+                "pi".into(),
+                AgentState::Working,
+                None,
+                None,
+                crate::agent_resume::AgentSessionRef::path("/tmp/pi.jsonl"),
+                Some(1),
+            )
+            .expect("invalid report must not advance another source sequence");
+
+        assert!(accepted.effective_state_change.is_some());
         assert_eq!(terminal.state, AgentState::Working);
     }
 
@@ -1985,7 +2045,12 @@ mod tests {
         );
 
         let mutation = terminal
-            .release_agent_with_mutation("hako:pi", "pi", Some(21))
+            .release_agent_with_mutation(
+                "hako:pi",
+                "pi",
+                crate::agent_resume::AgentSessionRef::path("/tmp/pi.jsonl"),
+                Some(21),
+            )
             .expect("accepted release");
 
         assert!(mutation.session_ref_changed);
@@ -2002,12 +2067,52 @@ mod tests {
         });
 
         let mutation = terminal
-            .release_agent_with_mutation("hako:hermes", "hermes", Some(21))
+            .release_agent_with_mutation(
+                "hako:hermes",
+                "hermes",
+                crate::agent_resume::AgentSessionRef::id("hermes-session"),
+                Some(21),
+            )
             .expect("accepted release");
 
         assert!(mutation.session_ref_changed);
         assert!(mutation.effective_state_change.is_none());
         assert!(terminal.persisted_agent_session.is_none());
+    }
+
+    #[test]
+    fn mismatched_session_release_cannot_clear_active_working_authority() {
+        let mut terminal = test_terminal();
+        terminal
+            .set_hook_authority_with_session_ref(
+                "hako:omp".into(),
+                "omp".into(),
+                AgentState::Working,
+                None,
+                None,
+                crate::agent_resume::AgentSessionRef::path("/tmp/current.jsonl"),
+                Some(20),
+            )
+            .expect("current session should establish authority");
+
+        let stale_release = terminal.release_agent_with_mutation(
+            "hako:omp",
+            "omp",
+            crate::agent_resume::AgentSessionRef::path("/tmp/old.jsonl"),
+            Some(21),
+        );
+        assert!(stale_release.is_none());
+        assert_eq!(terminal.state, AgentState::Working);
+        assert!(terminal.hook_authority.is_some());
+
+        let matching_release = terminal.release_agent_with_mutation(
+            "hako:omp",
+            "omp",
+            crate::agent_resume::AgentSessionRef::path("/tmp/current.jsonl"),
+            Some(22),
+        );
+        assert!(matching_release.is_some());
+        assert!(terminal.hook_authority.is_none());
     }
 
     #[test]

@@ -2801,11 +2801,12 @@ impl AppState {
                 pane_id,
                 source,
                 agent_label,
+                session_ref,
                 seq,
                 ..
             } => self
                 .update_terminal_state(pane_id, |terminal| {
-                    terminal.release_agent_with_mutation(&source, &agent_label, seq)
+                    terminal.release_agent_with_mutation(&source, &agent_label, session_ref, seq)
                 })
                 .into_iter()
                 .collect(),

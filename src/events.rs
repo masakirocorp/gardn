@@ -69,6 +69,7 @@ pub enum AppEvent {
         source: String,
         agent_label: String,
         known_agent: Option<Agent>,
+        session_ref: Option<crate::agent_resume::AgentSessionRef>,
         seq: Option<u64>,
     },
     /// A new version is available through the active installation manager.

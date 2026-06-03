@@ -432,6 +432,10 @@ pub struct PaneReleaseAgentParams {
     pub source: String,
     pub agent: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_session_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seq: Option<u64>,
 }
 
@@ -1171,6 +1175,8 @@ mod tests {
                 pane_id: "1-1".into(),
                 source: "hako:pi".into(),
                 agent: "pi".into(),
+                agent_session_id: Some("session-1".into()),
+                agent_session_path: None,
                 seq: Some(42),
             }),
         };

@@ -12,34 +12,35 @@ use crate::layout::PaneId;
 pub(crate) const HAKO_PANE_ID_ENV_VAR: &str = "HAKO_PANE_ID";
 const PI_EXTENSION_INSTALL_NAME: &str = "hako-agent-state.ts";
 const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/hako-agent-state.ts");
-const PI_INTEGRATION_VERSION: u32 = 3;
+const PI_INTEGRATION_VERSION: u32 = 4;
 const OMP_EXTENSION_INSTALL_NAME: &str = PI_EXTENSION_INSTALL_NAME;
 const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/hako-agent-state.ts");
-const OMP_INTEGRATION_VERSION: u32 = 3;
+const OMP_INTEGRATION_VERSION: u32 = 4;
 const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
 const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
 const CLAUDE_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const CLAUDE_HOOK_ASSET: &str = include_str!("assets/claude/hako-agent-state.sh");
-const CLAUDE_INTEGRATION_VERSION: u32 = 5;
+const CLAUDE_INTEGRATION_VERSION: u32 = 6;
 const CLAUDE_CONFIG_DIR_ENV_VAR: &str = "CLAUDE_CONFIG_DIR";
 const CODEX_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const CODEX_HOOK_ASSET: &str = include_str!("assets/codex/hako-agent-state.sh");
-const CODEX_INTEGRATION_VERSION: u32 = 5;
+const CODEX_INTEGRATION_VERSION: u32 = 6;
 const CODEX_HOME_ENV_VAR: &str = "CODEX_HOME";
 const OPENCODE_PLUGIN_INSTALL_NAME: &str = "hako-agent-state.js";
 const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/hako-agent-state.js");
-const OPENCODE_INTEGRATION_VERSION: u32 = 3;
+const OPENCODE_INTEGRATION_VERSION: u32 = 4;
 const HERMES_PLUGIN_INSTALL_NAME: &str = "hako-agent-state";
 const HERMES_PLUGIN_MANIFEST_INSTALL_NAME: &str = "plugin.yaml";
 const HERMES_PLUGIN_INIT_INSTALL_NAME: &str = "__init__.py";
 const HERMES_PLUGIN_MANIFEST_ASSET: &str = include_str!("assets/hermes/plugin.yaml");
 const HERMES_PLUGIN_INIT_ASSET: &str = include_str!("assets/hermes/__init__.py");
-const HERMES_INTEGRATION_VERSION: u32 = 2;
+const HERMES_INTEGRATION_VERSION: u32 = 3;
 const QODERCLI_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const QODERCLI_HOOK_ASSET: &str = include_str!("assets/qodercli/hako-agent-state.sh");
-const QODERCLI_INTEGRATION_VERSION: u32 = 1;
+const QODERCLI_INTEGRATION_VERSION: u32 = 2;
 const QODERCLI_CONFIG_DIR_ENV_VAR: &str = "QODER_CONFIG_DIR";
 const INTEGRATION_VERSION_MARKER: &str = "HAKO_INTEGRATION_VERSION=";
+const INTEGRATION_ID_MARKER: &str = "HAKO_INTEGRATION_ID=";
 
 #[derive(Debug)]
 pub(crate) struct ClaudeInstallPaths {
@@ -625,10 +626,15 @@ fn integration_status_at(
         };
     }
 
-    let installed_version = fs::read_to_string(&path)
-        .ok()
-        .and_then(|content| parse_integration_version(&content));
-    let state = if installed_version.is_some_and(|version| version >= expected_version) {
+    let content = fs::read_to_string(&path).ok();
+    let installed_version = content.as_deref().and_then(parse_integration_version);
+    let installed_id_matches = content
+        .as_deref()
+        .and_then(parse_integration_id)
+        .is_some_and(|id| id == integration_target_label(target));
+    let state = if installed_id_matches
+        && installed_version.is_some_and(|version| version >= expected_version)
+    {
         IntegrationStatusKind::Current
     } else {
         IntegrationStatusKind::Outdated
@@ -643,18 +649,24 @@ fn integration_status_at(
     }
 }
 
+fn parse_integration_id(content: &str) -> Option<&str> {
+    parse_integration_marker(content, INTEGRATION_ID_MARKER)
+}
+
 fn parse_integration_version(content: &str) -> Option<u32> {
+    parse_integration_marker(content, INTEGRATION_VERSION_MARKER)?
+        .parse()
+        .ok()
+}
+
+fn parse_integration_marker<'a>(content: &'a str, marker: &str) -> Option<&'a str> {
     content.lines().find_map(|line| {
         let marker_line = line
             .trim()
             .trim_start_matches('/')
             .trim_start_matches('#')
             .trim();
-        marker_line
-            .strip_prefix(INTEGRATION_VERSION_MARKER)?
-            .trim()
-            .parse()
-            .ok()
+        Some(marker_line.strip_prefix(marker)?.trim())
     })
 }
 
@@ -964,7 +976,7 @@ pub(crate) fn install_hermes() -> io::Result<HermesInstallPaths> {
 
 pub(crate) fn uninstall_pi() -> io::Result<PiUninstallResult> {
     let extension_path = pi_extension_dir()?.join(PI_EXTENSION_INSTALL_NAME);
-    let removed_extension = remove_file_if_exists(&extension_path)?;
+    let removed_extension = remove_matching_integration_file(&extension_path, "pi")?;
 
     Ok(PiUninstallResult {
         extension_path,
@@ -978,7 +990,7 @@ pub(crate) fn uninstall_omp() -> io::Result<OmpUninstallResult> {
 
     for dir in omp_install_extension_dirs()? {
         let extension_path = dir.join(OMP_EXTENSION_INSTALL_NAME);
-        if remove_file_if_exists(&extension_path)? {
+        if remove_matching_integration_file(&extension_path, "omp")? {
             removed_extension_paths.push(extension_path.clone());
         }
         extension_paths.push(extension_path);
@@ -1471,6 +1483,19 @@ fn is_matching_command_hook(hook: &Value, command: &str) -> bool {
         && hook.get("command").and_then(Value::as_str) == Some(command)
 }
 
+fn remove_matching_integration_file(path: &Path, expected_id: &str) -> io::Result<bool> {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(err) => return Err(err),
+    };
+    if parse_integration_id(&content) != Some(expected_id) {
+        return Ok(false);
+    }
+    fs::remove_file(path)?;
+    Ok(true)
+}
+
 fn remove_file_if_exists(path: &Path) -> io::Result<bool> {
     match fs::remove_file(path) {
         Ok(()) => Ok(true),
@@ -1959,6 +1984,8 @@ mod tests {
 
         assert_eq!(path, ext_dir.join(PI_EXTENSION_INSTALL_NAME));
         assert_eq!(content, PI_EXTENSION_ASSET);
+        assert!(content.contains("HAKO_INTEGRATION_VERSION=4"));
+        assert!(content.contains("Math.max(reportSeq + 1, Date.now() * 1000)"));
 
         std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
@@ -2017,7 +2044,7 @@ mod tests {
         assert!(installed.removed_legacy_pi_extensions.is_empty());
         assert_eq!(content, OMP_EXTENSION_ASSET);
         assert!(content.contains("HAKO_INTEGRATION_ID=omp"));
-        assert!(content.contains("HAKO_INTEGRATION_VERSION=3"));
+        assert!(content.contains("HAKO_INTEGRATION_VERSION=4"));
         assert!(content.contains("agent: \"omp\""));
         assert!(!content.contains("agent: \"pi\""));
 
@@ -2232,6 +2259,81 @@ mod tests {
         assert!(outdated_installed_integrations().is_empty());
 
         std::env::remove_var("HOME");
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn integration_status_requires_matching_id_marker() {
+        let _lock = integration_env_lock();
+        let base = unique_base();
+        let agent_dir = base.join("shared-agent");
+        let ext_dir = agent_dir.join("extensions");
+        fs::create_dir_all(&ext_dir).unwrap();
+        std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
+        let extension_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
+        fs::write(&extension_path, OMP_EXTENSION_ASSET).unwrap();
+
+        let pi_status = integration_status_at(
+            crate::api::schema::IntegrationTarget::Pi,
+            extension_path.clone(),
+            PI_INTEGRATION_VERSION,
+        );
+        let omp_status = integration_status_at(
+            crate::api::schema::IntegrationTarget::Omp,
+            extension_path,
+            OMP_INTEGRATION_VERSION,
+        );
+
+        assert_eq!(pi_status.state, IntegrationStatusKind::Outdated);
+        assert_eq!(omp_status.state, IntegrationStatusKind::Current);
+
+        clear_integration_path_env();
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn uninstall_pi_does_not_remove_omp_asset_at_shared_path() {
+        let _lock = integration_env_lock();
+        let base = unique_base();
+        let agent_dir = base.join("shared-agent");
+        let ext_dir = agent_dir.join("extensions");
+        fs::create_dir_all(&ext_dir).unwrap();
+        std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
+        let extension_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
+        fs::write(&extension_path, OMP_EXTENSION_ASSET).unwrap();
+
+        let result = uninstall_pi().unwrap();
+
+        assert!(!result.removed_extension);
+        assert_eq!(
+            fs::read_to_string(&extension_path).unwrap(),
+            OMP_EXTENSION_ASSET
+        );
+
+        clear_integration_path_env();
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn uninstall_omp_does_not_remove_pi_asset_at_shared_path() {
+        let _lock = integration_env_lock();
+        let base = unique_base();
+        let agent_dir = base.join("shared-agent");
+        let ext_dir = agent_dir.join("extensions");
+        fs::create_dir_all(&ext_dir).unwrap();
+        std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
+        let extension_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
+        fs::write(&extension_path, PI_EXTENSION_ASSET).unwrap();
+
+        let result = uninstall_omp().unwrap();
+
+        assert!(result.removed_extension_paths.is_empty());
+        assert_eq!(
+            fs::read_to_string(&extension_path).unwrap(),
+            PI_EXTENSION_ASSET
+        );
+
+        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
 
@@ -2453,7 +2555,7 @@ mod tests {
 
         assert_eq!(claude.path, hook_path);
         assert_eq!(claude.installed_version, Some(1));
-        assert_eq!(claude.expected_version, 5);
+        assert_eq!(claude.expected_version, CLAUDE_INTEGRATION_VERSION);
         assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
         std::env::remove_var("HOME");
@@ -2483,7 +2585,7 @@ mod tests {
 
         assert_eq!(claude.path, hook_path);
         assert_eq!(claude.installed_version, Some(2));
-        assert_eq!(claude.expected_version, 5);
+        assert_eq!(claude.expected_version, CLAUDE_INTEGRATION_VERSION);
         assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
         std::env::remove_var("HOME");
@@ -2587,7 +2689,7 @@ mod tests {
 
         assert_eq!(codex.path, hook_path);
         assert_eq!(codex.installed_version, Some(2));
-        assert_eq!(codex.expected_version, 5);
+        assert_eq!(codex.expected_version, CODEX_INTEGRATION_VERSION);
         assert_eq!(codex.state, IntegrationStatusKind::Outdated);
 
         std::env::remove_var("HOME");
@@ -2827,6 +2929,8 @@ mod tests {
                 .join(OPENCODE_PLUGIN_INSTALL_NAME)
         );
         assert_eq!(plugin_content, OPENCODE_PLUGIN_ASSET);
+        assert!(plugin_content.contains("HAKO_INTEGRATION_VERSION=4"));
+        assert!(plugin_content.contains("Math.max(reportSeq + 1, Date.now() * 1000)"));
 
         std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);

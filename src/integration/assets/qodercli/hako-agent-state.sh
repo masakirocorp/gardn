@@ -3,7 +3,7 @@
 # managed by hako; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HAKO_INTEGRATION_ID=qodercli
-# HAKO_INTEGRATION_VERSION=1
+# HAKO_INTEGRATION_VERSION=2
 #
 # Reports qodercli agent state changes to hako. Registered as a Command hook
 # in ~/.qoder/settings.json by `hako integration install qodercli` and
@@ -96,8 +96,8 @@ else:
             "seq": report_seq,
         },
     }
-    if agent_session_id:
-        request["params"]["agent_session_id"] = agent_session_id
+if agent_session_id:
+    request["params"]["agent_session_id"] = agent_session_id
 
 try:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

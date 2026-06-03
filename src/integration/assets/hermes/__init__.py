@@ -1,7 +1,7 @@
 """Hermes plugin installed by Hako to report agent lifecycle state."""
 
 # HAKO_INTEGRATION_ID=hermes
-# HAKO_INTEGRATION_VERSION=2
+# HAKO_INTEGRATION_VERSION=3
 
 from __future__ import annotations
 
@@ -71,8 +71,12 @@ def _report(state: str, **kwargs) -> None:
     _send("pane.report_agent", params)
 
 
-def _release() -> None:
-    _send("pane.release_agent", {})
+def _release(**kwargs) -> None:
+    params = {}
+    session_id = _session_id(kwargs)
+    if session_id:
+        params["agent_session_id"] = session_id
+    _send("pane.release_agent", params)
 
 
 def _working(**kwargs) -> None:
@@ -86,10 +90,8 @@ def _blocked(**kwargs) -> None:
 def _idle(**kwargs) -> None:
     _report("idle", **kwargs)
 
-
 def _finalize(**kwargs) -> None:
-    del kwargs
-    _release()
+    _release(**kwargs)
 
 
 def register(ctx):

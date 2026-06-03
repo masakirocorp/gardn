@@ -3,7 +3,7 @@
 # managed by hako; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HAKO_INTEGRATION_ID=claude
-# HAKO_INTEGRATION_VERSION=5
+# HAKO_INTEGRATION_VERSION=6
 
 set -eu
 
@@ -86,8 +86,8 @@ else:
             "seq": report_seq,
         },
     }
-    if agent_session_id:
-        request["params"]["agent_session_id"] = agent_session_id
+if agent_session_id:
+    request["params"]["agent_session_id"] = agent_session_id
 
 try:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
