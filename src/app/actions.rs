@@ -1152,6 +1152,25 @@ impl AppState {
         true
     }
 
+    pub fn preview_theme_with_mode_and_terminal_accent(
+        &mut self,
+        theme_name: &str,
+        mode: crate::config::ThemeMode,
+        terminal_accent: crate::config::TerminalAccent,
+    ) -> bool {
+        let Some(palette) = self.palette_for_theme_mode_with_terminal_accents(
+            theme_name,
+            mode,
+            terminal_accent,
+            terminal_accent,
+        ) else {
+            return false;
+        };
+        self.palette = palette;
+        self.theme_name = theme_name.to_string();
+        true
+    }
+
     pub fn set_group_theme(&mut self, group_idx: usize, theme: GroupThemeOverride) -> bool {
         let Some(group) = self.groups.get_mut(group_idx) else {
             return false;

@@ -10,17 +10,20 @@ use super::scrollbar::render_scrollbar;
 use super::widgets::{
     action_button_row_rects, centered_popup_rect, modal_close_button_rect,
     modal_section_heading_style, modal_stack_areas, panel_contrast_fg, primary_action_style,
-    render_action_button, render_modal_choice_list, render_modal_description, render_modal_divider,
-    render_modal_header_bar, render_modal_hint_line, render_modal_scroll_hints,
-    render_modal_subtitle, render_panel_shell, secondary_action_style, ActionButtonSpec,
+    render_action_button, render_modal_description, render_modal_divider, render_modal_header_bar,
+    render_modal_hint_line, render_modal_scroll_hints, render_modal_subtitle, render_panel_shell,
+    secondary_action_style, ActionButtonSpec,
 };
 use crate::{
     app::{
-        state::{normalize_theme_name, theme_names_for_appearance, Palette, SettingsSection},
+        state::{normalize_theme_name, Palette, SettingsSection},
         AppState,
     },
-    config::{NewTerminalCwdConfig, ThemeMode, ToastDelivery},
-    terminal_theme::ThemeAppearance,
+    config::ThemeMode,
+    settings_rows::{
+        rows_for_section, selected_visual_row, visual_row_count, SettingsListRow,
+        SettingsMarkerTone,
+    },
 };
 
 pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -57,11 +60,9 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
 
     let tab_labels = SettingsSection::ALL.iter().map(|section| {
         if app.settings_section_has_badge(*section) {
+            let badge_style = settings_tab_badge_style(p, app.settings.section == *section);
             Line::from(vec![
-                Span::styled(
-                    "● ",
-                    Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
-                ),
+                Span::styled("● ", badge_style),
                 Span::raw(section.label()),
             ])
         } else {
@@ -97,38 +98,8 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         SettingsSection::Layout => {
             render_settings_layout(app, frame, content_area);
         }
-        SettingsSection::Sound => {
-            render_settings_toggle(
-                frame,
-                content_area,
-                p,
-                "sound alerts",
-                "play sounds when agents change state in background",
-                app.settings
-                    .pending_sound_enabled
-                    .unwrap_or_else(|| app.sound_enabled()),
-                app.settings.list.selected,
-            );
-        }
-        SettingsSection::Toast => {
-            render_modal_choice_list(
-                frame,
-                content_area,
-                "notification popups",
-                "choose where background popup notifications should appear",
-                &[
-                    ("off", ToastDelivery::Off),
-                    ("inside hako", ToastDelivery::Hako),
-                    ("via terminal", ToastDelivery::Terminal),
-                    ("via system", ToastDelivery::System),
-                ],
-                app.settings
-                    .pending_toast_delivery
-                    .unwrap_or_else(|| app.toast_delivery()),
-                app.settings.list.selected,
-                p,
-                1,
-            );
+        SettingsSection::Sound | SettingsSection::Toast => {
+            render_settings_sectioned_toggle_list(app, frame, content_area);
         }
         SettingsSection::PaneLabels => {
             render_settings_behavior(app, frame, content_area);
@@ -328,30 +299,28 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
         rows[1],
     );
 
+    let model_rows = rows_for_section(app, SettingsSection::Integrations).unwrap_or_default();
     let mut lines = Vec::new();
-    for (idx, item) in app.integration_recommendations.iter().enumerate() {
-        let selected = app.settings.list.selected == idx;
-        let selected_style = modal_option_style(p, selected);
-        let marker = match item.state {
-            crate::integration::IntegrationStatusKind::Current => "✓",
-            crate::integration::IntegrationStatusKind::Outdated => "↻",
-            crate::integration::IntegrationStatusKind::NotInstalled if item.available => "+",
-            crate::integration::IntegrationStatusKind::NotInstalled => "–",
+    for row in &model_rows {
+        let SettingsListRow::StatusChoice {
+            index,
+            marker,
+            label,
+            tone,
+        } = row
+        else {
+            continue;
         };
+        let selected = app.settings.list.selected == *index;
+        let selected_style = modal_option_style(p, selected);
         let marker_style = if selected {
             selected_style
         } else {
-            match item.state {
-                crate::integration::IntegrationStatusKind::Current => Style::default().fg(p.green),
-                crate::integration::IntegrationStatusKind::Outdated => {
-                    Style::default().fg(p.yellow)
-                }
-                crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
-                    Style::default().fg(p.accent)
-                }
-                crate::integration::IntegrationStatusKind::NotInstalled => {
-                    Style::default().fg(p.overlay0)
-                }
+            match tone {
+                SettingsMarkerTone::Good => Style::default().fg(p.green),
+                SettingsMarkerTone::Warning => Style::default().fg(p.yellow),
+                SettingsMarkerTone::Accent => Style::default().fg(p.accent),
+                SettingsMarkerTone::Disabled => Style::default().fg(p.overlay0),
             }
         };
         let label_style = if selected {
@@ -359,13 +328,8 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
         } else {
             Style::default().fg(p.subtext0)
         };
-        let status_style = if selected {
-            selected_style
-        } else {
-            Style::default().fg(p.overlay1)
-        };
         if selected {
-            let text = format!(" {marker} {:<9}{}", item.label, item.status_label());
+            let text = format!(" {marker} {label}");
             lines.push(Line::from(Span::styled(
                 format!("{text:<width$}", width = rows[3].width as usize),
                 selected_style,
@@ -373,8 +337,7 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
         } else {
             lines.push(Line::from(vec![
                 Span::styled(format!(" {marker} "), marker_style),
-                Span::styled(format!("{:<9}", item.label), label_style),
-                Span::styled(item.status_label(), status_style),
+                Span::styled(label.as_ref(), label_style),
             ]));
         }
     }
@@ -437,53 +400,6 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(lines), rows[3]);
 }
 
-fn theme_display_name(name: &str) -> &str {
-    match name {
-        "catppuccin-latte" => "catppuccin latte",
-        "catppuccin" => "catppuccin mocha",
-        "catppuccin-frappe" => "catppuccin frappe",
-        "catppuccin-macchiato" => "catppuccin macchiato",
-        "tokyo-night-day" => "tokyo night day",
-        "gruvbox-light" => "gruvbox",
-        "one-light" => "one",
-        "solarized-light" => "solarized",
-        "kanagawa-lotus" => "kanagawa lotus",
-        "rose-pine-dawn" => "rose pine dawn",
-        "tokyo-night" => "tokyo night",
-        "one-dark" => "one dark",
-        "rose-pine" => "rose pine",
-        "monokai-pro" => "monokai pro",
-        "monokai-pro-light" => "monokai pro light",
-        "monokai-pro-light-sun" => "monokai pro sun",
-        "monokai-pro-spectrum" => "monokai pro spectrum",
-        "monokai-pro-ristretto" => "monokai pro ristretto",
-        "monokai-pro-octagon" => "monokai pro octagon",
-        "monokai-pro-machine" => "monokai pro machine",
-        "monokai-classic" => "monokai classic",
-        "ethereal" => "ethereal",
-        "everforest" => "everforest",
-        "flexoki-light" => "flexoki light",
-        "hackerman" => "hackerman",
-        "last-horizon" => "last horizon",
-        "lumon" => "lumon",
-        "matte-black" => "matte black",
-        "miasma" => "miasma",
-        "osaka-jade" => "osaka jade",
-        "retro-82" => "retro 82",
-        "solitude" => "solitude",
-        "vantablack" => "vantablack",
-        "white" => "white",
-        other => other,
-    }
-}
-fn theme_mode_display_name(mode: ThemeMode) -> &'static str {
-    match mode {
-        ThemeMode::System => "automatic",
-        ThemeMode::Light => "light",
-        ThemeMode::Dark => "dark",
-    }
-}
-
 fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
     let p = &app.palette;
     let [desc_area, _, list_area] = Layout::vertical([
@@ -512,6 +428,7 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
     let system_source = mode == ThemeMode::System
         && normalize_theme_name(pending_light_theme) == "system"
         && normalize_theme_name(pending_dark_theme) == "system";
+
     let description = if app.settings.group_theme_target.is_some() {
         "override this group; selections matching global settings inherit global changes"
     } else if system_source {
@@ -531,159 +448,44 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
         Style::default().fg(p.overlay1),
     );
 
-    let mut items: Vec<ListItem> = Vec::new();
+    let Some(model_rows) = rows_for_section(app, SettingsSection::Theme) else {
+        return;
+    };
+    let selected_row = selected_visual_row(&model_rows, app.settings.list.selected).unwrap_or(0);
+    let mut items: Vec<ListItem> = Vec::with_capacity(model_rows.len());
     let list_width = list_area.width as usize;
-    let option_item = |label: &str, marker: &str, selected: bool, indent: &str| {
-        if selected {
-            let text = format!("{indent}{label}{marker}");
-            ListItem::new(Line::from(Span::styled(
-                format!("{text:<list_width$}"),
-                modal_option_style(p, true),
-            )))
-        } else {
-            ListItem::new(Line::from(vec![
-                Span::styled(format!("{indent}{label}"), modal_option_style(p, false)),
-                Span::styled(marker.to_string(), modal_option_marker_style(p, false)),
-            ]))
-        }
-    };
 
-    let selected_row = if app.settings.list.selected < 2 {
-        app.settings.list.selected + 1
-    } else if system_source {
-        1
-    } else if app.settings.list.selected < 2 + ThemeMode::ALL.len() {
-        app.settings.list.selected - 2 + 5
-    } else {
-        let theme_idx = app.settings.list.selected - 2 - ThemeMode::ALL.len();
-        match mode {
-            ThemeMode::System => {
-                let light_len = theme_names_for_appearance(ThemeAppearance::Light).len();
-                if theme_idx < light_len {
-                    theme_idx + 10
+    for row in &model_rows {
+        match row {
+            SettingsListRow::Header(title) => {
+                items.push(ListItem::new(Line::from(Span::styled(
+                    format!(" {title}"),
+                    modal_section_heading_style(p),
+                ))));
+            }
+            SettingsListRow::Spacer => items.push(ListItem::new(Line::from(""))),
+            SettingsListRow::Choice { label, checked, .. } => {
+                let selected = selected_row == items.len();
+                let marker = if *checked { " ✓" } else { "" };
+                if selected {
+                    let text = format!("  {label}{marker}");
+                    items.push(ListItem::new(Line::from(Span::styled(
+                        format!("{text:<list_width$}"),
+                        modal_option_style(p, true),
+                    ))));
                 } else {
-                    theme_idx + 12
+                    items.push(ListItem::new(Line::from(vec![
+                        Span::styled(format!("  {label}"), modal_option_style(p, false)),
+                        Span::styled(marker.to_string(), modal_option_marker_style(p, false)),
+                    ])));
                 }
             }
-            ThemeMode::Light | ThemeMode::Dark => theme_idx + 10,
-        }
-    };
-
-    items.push(ListItem::new(Line::from(Span::styled(
-        " colors",
-        modal_section_heading_style(p),
-    ))));
-    let selected = selected_row == items.len();
-    let marker = if system_source { " ✓" } else { "" };
-    items.push(option_item("terminal", marker, selected, "  "));
-    let selected = selected_row == items.len();
-    let marker = if !system_source { " ✓" } else { "" };
-    items.push(option_item("palettes", marker, selected, "  "));
-
-    if !system_source {
-        items.push(ListItem::new(Line::from("")));
-        items.push(ListItem::new(Line::from(Span::styled(
-            " appearance",
-            modal_section_heading_style(p),
-        ))));
-        for candidate in ThemeMode::ALL {
-            let selected = selected_row == items.len();
-            let marker = if mode == *candidate { " ✓" } else { "" };
-            items.push(option_item(
-                theme_mode_display_name(*candidate),
-                marker,
-                selected,
-                "  ",
-            ));
-        }
-
-        items.push(ListItem::new(Line::from("")));
-        match mode {
-            ThemeMode::System => {
-                let light_names = theme_names_for_appearance(ThemeAppearance::Light);
-                items.push(ListItem::new(Line::from(Span::styled(
-                    " light appearance",
-                    modal_section_heading_style(p),
-                ))));
-                for name in light_names {
-                    let selected = selected_row == items.len();
-                    let marker = if pending_light_theme == *name {
-                        " ✓"
-                    } else {
-                        ""
-                    };
-                    items.push(option_item(
-                        theme_display_name(name),
-                        marker,
-                        selected,
-                        "  ",
-                    ));
-                }
-
-                items.push(ListItem::new(Line::from("")));
-                items.push(ListItem::new(Line::from(Span::styled(
-                    " dark appearance",
-                    modal_section_heading_style(p),
-                ))));
-                for name in theme_names_for_appearance(ThemeAppearance::Dark) {
-                    let selected = selected_row == items.len();
-                    let marker = if pending_dark_theme == *name {
-                        " ✓"
-                    } else {
-                        ""
-                    };
-                    items.push(option_item(
-                        theme_display_name(name),
-                        marker,
-                        selected,
-                        "  ",
-                    ));
-                }
-            }
-            ThemeMode::Light => {
-                items.push(ListItem::new(Line::from(Span::styled(
-                    " light appearance",
-                    modal_section_heading_style(p),
-                ))));
-                for name in theme_names_for_appearance(ThemeAppearance::Light) {
-                    let selected = selected_row == items.len();
-                    let marker = if pending_light_theme == *name {
-                        " ✓"
-                    } else {
-                        ""
-                    };
-                    items.push(option_item(
-                        theme_display_name(name),
-                        marker,
-                        selected,
-                        "  ",
-                    ));
-                }
-            }
-            ThemeMode::Dark => {
-                items.push(ListItem::new(Line::from(Span::styled(
-                    " dark appearance",
-                    modal_section_heading_style(p),
-                ))));
-                for name in theme_names_for_appearance(ThemeAppearance::Dark) {
-                    let selected = selected_row == items.len();
-                    let marker = if pending_dark_theme == *name {
-                        " ✓"
-                    } else {
-                        ""
-                    };
-                    items.push(option_item(
-                        theme_display_name(name),
-                        marker,
-                        selected,
-                        "  ",
-                    ));
-                }
-            }
+            SettingsListRow::Option { .. } => {}
+            SettingsListRow::StatusChoice { .. } => {}
         }
     }
 
-    let total_items = items.len();
+    let total_items = visual_row_count(&model_rows);
     let list = List::new(items)
         .highlight_style(
             Style::default()
@@ -714,155 +516,114 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
     }
 }
 
-fn render_settings_toggle(
-    frame: &mut Frame,
-    area: Rect,
-    p: &Palette,
-    title: &str,
-    description: &str,
-    current_value: bool,
-    selected_idx: usize,
-) {
-    render_modal_choice_list(
-        frame,
-        area,
-        title,
-        description,
-        &[("on", true), ("off", false)],
-        current_value,
-        selected_idx,
-        p,
-        1,
-    );
-}
-
-fn new_terminal_cwd_label(policy: &NewTerminalCwdConfig) -> String {
-    match policy {
-        NewTerminalCwdConfig::Follow => "follow focused pane".to_string(),
-        NewTerminalCwdConfig::Home => "home directory".to_string(),
-        NewTerminalCwdConfig::Current => "hako process directory".to_string(),
-        NewTerminalCwdConfig::Path(path) => format!("custom path: {path}"),
-    }
-}
-
 fn render_settings_layout(app: &AppState, frame: &mut Frame, area: Rect) {
-    let width = app
-        .settings
-        .pending_sidebar_width
-        .unwrap_or(app.default_sidebar_width);
-    let min = app
-        .settings
-        .pending_sidebar_min_width
-        .unwrap_or(app.sidebar_min_width);
-    let max = app
-        .settings
-        .pending_sidebar_max_width
-        .unwrap_or(app.sidebar_max_width);
-    let width_label = format!("{width} columns");
-    let min_label = format!("{min} columns");
-    let max_label = format!("{max} columns");
-    let worktree_directory = app
-        .settings
-        .pending_worktree_directory
-        .clone()
-        .unwrap_or_else(|| app.worktree_directory.display().to_string());
-    let options = [
-        ("default sidebar width", width_label.as_str(), true),
-        ("minimum sidebar width", min_label.as_str(), true),
-        ("maximum sidebar width", max_label.as_str(), true),
-        ("worktree directory", worktree_directory.as_str(), true),
-    ];
-    render_settings_toggle_list(app, frame, area, &options);
-}
-fn render_settings_behavior(app: &AppState, frame: &mut Frame, area: Rect) {
-    let cwd_label = new_terminal_cwd_label(
-        &app.settings
-            .pending_new_terminal_cwd
-            .clone()
-            .unwrap_or_else(|| app.new_terminal_cwd.clone()),
-    );
-    let scroll_label = format!(
-        "{} lines per wheel notch",
-        app.settings
-            .pending_mouse_scroll_lines
-            .unwrap_or(app.mouse_scroll_lines)
-    );
-    let options = [
-        (
-            "confirm before closing workspaces",
-            "ask before closing a workspace or its last tab",
-            app.settings
-                .pending_confirm_close
-                .unwrap_or_else(|| app.confirm_close_enabled()),
-        ),
-        (
-            "name new tabs",
-            "ask for a tab name before creating a new tab",
-            app.settings
-                .pending_prompt_new_tab_name
-                .unwrap_or_else(|| app.prompt_new_tab_name_enabled()),
-        ),
-        ("new terminal cwd", cwd_label.as_str(), true),
-        ("mouse wheel speed", scroll_label.as_str(), true),
-        (
-            "agent border labels",
-            "show detected agent names in split pane borders",
-            app.settings
-                .pending_agent_border_labels
-                .unwrap_or_else(|| app.agent_border_labels_enabled()),
-        ),
-    ];
-    render_settings_toggle_list(app, frame, area, &options);
+    render_settings_sectioned_toggle_list(app, frame, area);
 }
 
-fn render_settings_toggle_list(
-    app: &AppState,
-    frame: &mut Frame,
-    area: Rect,
-    options: &[(&str, &str, bool)],
-) {
+fn render_settings_behavior(app: &AppState, frame: &mut Frame, area: Rect) {
+    render_settings_sectioned_toggle_list(app, frame, area);
+}
+
+fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area: Rect) {
     let p = &app.palette;
-    let rows: Vec<ListItem<'_>> = options
-        .iter()
-        .enumerate()
-        .map(|(idx, (title, description, enabled))| {
-            let selected = app.settings.list.selected == idx;
-            let marker = if *enabled { "●" } else { "○" };
-            let marker_style = if *enabled {
-                Style::default().fg(p.green)
-            } else {
-                Style::default().fg(p.overlay0)
-            };
-            ListItem::new(vec![
-                Line::from(vec![
-                    Span::styled(marker, marker_style),
-                    Span::raw(" "),
-                    Span::styled(*title, Style::default().fg(p.text)),
-                ]),
-                Line::from(Span::styled(*description, Style::default().fg(p.subtext0))),
-            ])
-            .style(modal_option_style(p, selected))
-        })
-        .collect();
+    let selected_style = modal_option_style(p, true);
+    let list_width = area.width as usize;
+    let mut selected_row = None;
+    let mut rows = Vec::new();
+
+    let Some(model_rows) = rows_for_section(app, app.settings.section) else {
+        return;
+    };
+
+    for row in &model_rows {
+        match row {
+            SettingsListRow::Header(title) => {
+                rows.push(ListItem::new(Line::from(Span::styled(
+                    format!(" {title}"),
+                    modal_section_heading_style(p),
+                ))));
+            }
+            SettingsListRow::Spacer => rows.push(ListItem::new(Line::from(""))),
+            SettingsListRow::Option {
+                index,
+                title,
+                description,
+                enabled,
+            } => {
+                let selected = app.settings.list.selected == *index;
+                if selected {
+                    selected_row = Some(rows.len());
+                }
+                let marker = if *enabled { "●" } else { "○" };
+                let marker_style = settings_toggle_marker_style(p, *enabled, selected);
+
+                let item = if selected {
+                    ListItem::new(vec![
+                        Line::from(vec![
+                            Span::styled(marker, marker_style),
+                            Span::styled(" ", selected_style),
+                            Span::styled(
+                                format!("{title:<width$}", width = list_width.saturating_sub(2)),
+                                selected_style,
+                            ),
+                        ]),
+                        Line::from(Span::styled(
+                            format!(
+                                "  {description:<width$}",
+                                width = list_width.saturating_sub(2)
+                            ),
+                            selected_style,
+                        )),
+                    ])
+                } else {
+                    ListItem::new(vec![
+                        Line::from(vec![
+                            Span::styled(marker, marker_style),
+                            Span::raw(" "),
+                            Span::styled(title.as_ref(), Style::default().fg(p.text)),
+                        ]),
+                        Line::from(Span::styled(
+                            description.as_ref(),
+                            Style::default().fg(p.subtext0),
+                        )),
+                    ])
+                };
+                rows.push(item);
+            }
+            SettingsListRow::Choice {
+                index,
+                label,
+                checked,
+            } => {
+                let selected = app.settings.list.selected == *index;
+                if selected {
+                    selected_row = Some(rows.len());
+                }
+                let marker = if *checked { " ✓" } else { "" };
+                if selected {
+                    let text = format!("  {label}{marker}");
+                    rows.push(ListItem::new(Line::from(Span::styled(
+                        format!("{text:<list_width$}"),
+                        selected_style,
+                    ))));
+                } else {
+                    rows.push(ListItem::new(Line::from(vec![
+                        Span::styled(format!("  {label}"), modal_option_style(p, false)),
+                        Span::styled(marker.to_string(), modal_option_marker_style(p, false)),
+                    ])));
+                }
+            }
+            SettingsListRow::StatusChoice { .. } => {}
+        }
+    }
+
     let list = List::new(rows).highlight_symbol(" ");
-    let mut state = ListState::default().with_selected(Some(app.settings.list.selected));
+    let mut state = ListState::default().with_selected(selected_row);
     frame.render_stateful_widget(list, area, &mut state);
 }
 
 fn render_settings_experiments(app: &AppState, frame: &mut Frame, area: Rect) {
-    let options = [
-        (
-            "resume agent sessions",
-            "restart supported agents in their native session after restore",
-            app.resume_agents_on_restore_enabled(),
-        ),
-        (
-            "pane screen history",
-            "save recent pane output across server restarts",
-            app.pane_history_persistence_enabled(),
-        ),
-    ];
-    render_settings_toggle_list(app, frame, area, &options);
+    render_settings_sectioned_toggle_list(app, frame, area);
 }
 
 fn modal_option_style(p: &Palette, selected: bool) -> Style {
@@ -873,6 +634,30 @@ fn modal_option_style(p: &Palette, selected: bool) -> Style {
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(p.text)
+    }
+}
+
+fn settings_tab_badge_style(p: &Palette, selected: bool) -> Style {
+    if selected {
+        Style::default()
+            .fg(panel_contrast_fg(p))
+            .bg(p.accent)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
+    }
+}
+
+fn settings_toggle_marker_style(p: &Palette, enabled: bool, selected: bool) -> Style {
+    if selected {
+        Style::default()
+            .fg(panel_contrast_fg(p))
+            .bg(p.accent)
+            .add_modifier(Modifier::BOLD)
+    } else if enabled {
+        Style::default().fg(p.green)
+    } else {
+        Style::default().fg(p.overlay0)
     }
 }
 
@@ -893,6 +678,11 @@ mod tests {
 
     use super::*;
     use crate::app::state::{AppState, SettingsSection};
+    use crate::{
+        app::state::theme_names_for_appearance,
+        config::{TerminalAccent, ToastDelivery},
+        terminal_theme::ThemeAppearance,
+    };
 
     #[test]
     fn group_theme_overlay_uses_focused_title_without_settings_tabs() {
@@ -977,6 +767,9 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), 100, 50);
         assert!(text.contains("terminal ✓"));
         assert!(text.contains("palettes"));
+        assert!(text.contains("accent"));
+        assert!(text.contains("blue ✓"));
+        assert!(text.contains("magenta"));
         assert!(text.contains("colors"));
         assert!(!text.contains("light appearance"));
         assert!(!text.contains("dark appearance"));
@@ -1088,6 +881,51 @@ mod tests {
             Some(app.palette.accent)
         );
     }
+
+    #[test]
+    fn terminal_dark_accent_highlight_starts_on_first_option() {
+        let mut app = AppState::test_new();
+        app.global_theme_mode = ThemeMode::System;
+        app.settings.section = SettingsSection::Theme;
+        app.settings.pending_theme_mode = Some(ThemeMode::System);
+        app.settings.pending_light_theme_name = Some("system".to_string());
+        app.settings.pending_dark_theme_name = Some("system".to_string());
+        app.settings.list.selected = 2 + TerminalAccent::ALL.len();
+
+        let area = Rect::new(0, 0, 100, 50);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_theme(&app, frame, area))
+            .expect("render theme settings");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        let dark_heading_y = text
+            .lines()
+            .position(|line| line.contains("dark accent"))
+            .expect("dark accent heading") as u16;
+        let dark_blue_y = text
+            .lines()
+            .enumerate()
+            .skip(dark_heading_y as usize + 1)
+            .find_map(|(y, line)| line.contains("blue").then_some(y as u16))
+            .expect("dark blue option");
+        let selected_row_end = area.x + area.width.saturating_sub(1);
+
+        assert_ne!(
+            terminal.backend().buffer()[(selected_row_end, dark_heading_y)]
+                .style()
+                .bg,
+            Some(app.palette.accent)
+        );
+        assert_eq!(
+            terminal.backend().buffer()[(selected_row_end, dark_blue_y)]
+                .style()
+                .bg,
+            Some(app.palette.accent)
+        );
+    }
+
     #[test]
     fn theme_settings_selected_row_does_not_shift_text() {
         let mut app = AppState::test_new();
@@ -1122,21 +960,33 @@ mod tests {
             .draw(|frame| render_settings_overlay(&app, frame, area))
             .expect("render settings overlay");
 
-        let popup = centered_popup_rect(area, 76, 22).expect("popup");
-        let inner = Rect::new(
-            popup.x + 1,
-            popup.y + 1,
-            popup.width.saturating_sub(2),
-            popup.height.saturating_sub(2),
-        );
-        let content = modal_stack_areas(inner, 3, 2, 0, 1).content;
-        let list_y = content.y + 3;
-        let buffer = terminal.backend().buffer();
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        let lines: Vec<&str> = text.lines().collect();
+        let header_row = lines
+            .iter()
+            .position(|line| line.contains("notification popups"))
+            .expect("notification header row");
+        let off_row = lines
+            .iter()
+            .position(|line| line.contains("off ✓"))
+            .expect("off choice row");
+        let hako_row = lines
+            .iter()
+            .position(|line| line.contains("inside hako"))
+            .expect("hako choice row");
+        let terminal_row = lines
+            .iter()
+            .position(|line| line.contains("via terminal"))
+            .expect("terminal choice row");
+        let system_row = lines
+            .iter()
+            .position(|line| line.contains("via system"))
+            .expect("system choice row");
 
-        assert_eq!(buffer[(content.x + 1, list_y)].symbol(), "o");
-        assert_eq!(buffer[(content.x + 1, list_y + 1)].symbol(), "i");
-        assert_eq!(buffer[(content.x + 1, list_y + 2)].symbol(), "v");
-        assert_eq!(buffer[(content.x + 1, list_y + 3)].symbol(), "v");
+        assert_eq!(off_row, header_row + 1);
+        assert_eq!(hako_row, off_row + 1);
+        assert_eq!(terminal_row, hako_row + 1);
+        assert_eq!(system_row, terminal_row + 1);
     }
 
     #[test]
@@ -1189,6 +1039,8 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("sidebar"));
+        assert!(text.contains("worktrees"));
         assert!(text.contains("● default sidebar width"));
         assert!(text.contains("26 columns"));
         assert!(text.contains("● minimum sidebar width"));
@@ -1198,6 +1050,37 @@ mod tests {
         assert!(text.contains("● worktree directory"));
         assert!(text.contains("/tmp/hako-worktrees"));
     }
+    #[test]
+    fn sectioned_settings_selected_text_uses_selected_foreground() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Layout;
+        app.settings.list.selected = 0;
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        let (selected_y, selected_x) = text
+            .lines()
+            .enumerate()
+            .find_map(|(y, line)| {
+                line.find("default sidebar width")
+                    .map(|x| (y as u16, x as u16))
+            })
+            .expect("selected layout row");
+
+        assert_eq!(
+            terminal.backend().buffer()[(selected_x, selected_y)]
+                .style()
+                .fg,
+            Some(panel_contrast_fg(&app.palette))
+        );
+    }
+
     #[test]
     fn behavior_settings_render_close_prompt_and_agent_labels() {
         let mut app = AppState::test_new();
@@ -1215,6 +1098,8 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("workspace"));
+        assert!(text.contains("terminal"));
         assert!(text.contains("● confirm before closing workspaces"));
         assert!(text.contains("● name new tabs"));
         assert!(text.contains("● new terminal cwd"));
@@ -1222,6 +1107,94 @@ mod tests {
         assert!(text.contains("● mouse wheel speed"));
         assert!(text.contains("3 lines per wheel notch"));
         assert!(text.contains("○ agent border labels"));
+    }
+
+    #[test]
+    fn selected_section_markers_use_selected_foreground() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Layout;
+        app.settings.list.selected = 0;
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        let (selected_y, marker_x) =
+            find_text_cell(&text, "● default sidebar width").expect("selected layout row");
+
+        assert_eq!(
+            terminal.backend().buffer()[(marker_x, selected_y)].symbol(),
+            "●"
+        );
+        assert_eq!(
+            terminal.backend().buffer()[(marker_x, selected_y)]
+                .style()
+                .fg,
+            Some(panel_contrast_fg(&app.palette))
+        );
+    }
+
+    #[test]
+    fn selected_disabled_section_markers_use_selected_foreground() {
+        let mut app = AppState::test_new();
+        app.resume_agents_on_restore = false;
+        app.settings.section = SettingsSection::Experiments;
+        app.settings.list.selected = 0;
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        let (selected_y, marker_x) =
+            find_text_cell(&text, "○ resume agent sessions").expect("selected experiment row");
+
+        assert_eq!(
+            terminal.backend().buffer()[(marker_x, selected_y)].symbol(),
+            "○"
+        );
+        assert_eq!(
+            terminal.backend().buffer()[(marker_x, selected_y)]
+                .style()
+                .fg,
+            Some(panel_contrast_fg(&app.palette))
+        );
+    }
+
+    #[test]
+    fn selected_settings_tab_badge_uses_selected_foreground() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Integrations;
+        app.integration_recommendations = vec![crate::integration::IntegrationRecommendation {
+            target: crate::api::schema::IntegrationTarget::Omp,
+            label: "omp",
+            command: "omp",
+            available: true,
+            path: std::path::PathBuf::from("/tmp/hako-test-omp"),
+            state: crate::integration::IntegrationStatusKind::Outdated,
+        }];
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        let (badge_y, badge_x) =
+            find_text_cell(&text, "● integrations").expect("selected integrations badge");
+        assert_eq!(
+            terminal.backend().buffer()[(badge_x, badge_y)].style().fg,
+            Some(panel_contrast_fg(&app.palette))
+        );
     }
     #[test]
     fn integrations_selected_row_highlight_extends_to_row_end() {
@@ -1285,6 +1258,8 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("restore"));
+        assert!(text.contains("history"));
         assert!(text.contains("● resume agent sessions"));
         assert!(text.contains("○ pane screen history"));
     }
@@ -1326,6 +1301,14 @@ mod tests {
             );
         }
     }
+    fn find_text_cell(text: &str, needle: &str) -> Option<(u16, u16)> {
+        text.lines().enumerate().find_map(|(y, line)| {
+            let byte_x = line.find(needle)?;
+            let cell_x = line[..byte_x].chars().count();
+            Some((y as u16, cell_x as u16))
+        })
+    }
+
     fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {
         let mut text = String::new();
         for y in 0..height {

@@ -1,6 +1,6 @@
 use crate::config::{
-    CustomThemeColors, Keybinds, NewTerminalCwdConfig, SoundConfig, ThemeConfig, ThemeMode,
-    ToastConfig, ToastDelivery,
+    CustomThemeColors, Keybinds, NewTerminalCwdConfig, SoundConfig, TerminalAccent, ThemeConfig,
+    ThemeMode, ToastConfig, ToastDelivery,
 };
 use crate::detect::AgentState;
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -280,6 +280,7 @@ impl Palette {
     pub fn system(
         host_theme: TerminalTheme,
         appearance: crate::terminal_theme::ThemeAppearance,
+        accent: TerminalAccent,
     ) -> Self {
         let host_fg = host_theme.foreground.map(Self::terminal_color);
         let host_bg = host_theme.background.map(Self::terminal_color);
@@ -290,7 +291,11 @@ impl Palette {
         let subtext0 = Self::neutral_from_foreground(host_fg, host_bg, appearance, 0.35);
 
         Self {
-            accent: Self::terminal_palette_color(host_theme, 4, Color::Blue),
+            accent: Self::terminal_palette_color(
+                host_theme,
+                accent.ansi_index(),
+                accent.fallback_color(),
+            ),
             panel_bg: Color::Reset,
             surface0: host_bg
                 .map(|color| Self::surface_from_background(color, appearance, 0.08))
@@ -1318,16 +1323,25 @@ impl Palette {
         Self::from_theme_with_terminal(name, appearance, TerminalTheme::default())
     }
 
+    pub fn from_theme_with_terminal_accent(
+        name: &str,
+        appearance: crate::terminal_theme::ThemeAppearance,
+        host_theme: TerminalTheme,
+        terminal_accent: TerminalAccent,
+    ) -> Option<Self> {
+        let theme_name = theme_name_for_appearance(name, appearance)?;
+        if theme_name == "system" {
+            return Some(Self::system(host_theme, appearance, terminal_accent));
+        }
+        Self::from_name(theme_name)
+    }
+
     pub fn from_theme_with_terminal(
         name: &str,
         appearance: crate::terminal_theme::ThemeAppearance,
         host_theme: TerminalTheme,
     ) -> Option<Self> {
-        let theme_name = theme_name_for_appearance(name, appearance)?;
-        if theme_name == "system" {
-            return Some(Self::system(host_theme, appearance));
-        }
-        Self::from_name(theme_name)
+        Self::from_theme_with_terminal_accent(name, appearance, host_theme, TerminalAccent::Blue)
     }
 
     /// Apply custom color overrides on top of this palette.
@@ -1864,6 +1878,10 @@ pub struct SettingsState {
     pub pending_light_theme_name: Option<String>,
     /// Pending dark theme while settings is open.
     pub pending_dark_theme_name: Option<String>,
+    /// Pending terminal light accent while settings is open.
+    pub pending_terminal_light_accent: Option<TerminalAccent>,
+    /// Pending terminal dark accent while settings is open.
+    pub pending_terminal_dark_accent: Option<TerminalAccent>,
     /// Pending sound setting while settings is open.
     pub pending_sound_enabled: Option<bool>,
     /// Pending toast delivery while settings is open.
@@ -2238,6 +2256,10 @@ pub struct AppState {
     pub global_light_theme_name: String,
     /// Default app dark theme from config.
     pub global_dark_theme_name: String,
+    /// ANSI color used for the app accent when terminal colors resolve light.
+    pub global_terminal_light_accent: TerminalAccent,
+    /// ANSI color used for the app accent when terminal colors resolve dark.
+    pub global_terminal_dark_accent: TerminalAccent,
     /// Custom color overrides from config, applied only to the global fallback theme.
     pub global_theme_custom: Option<CustomThemeColors>,
     /// Whether legacy `ui.accent` should override the global theme accent.
@@ -2279,10 +2301,38 @@ impl AppState {
     }
 
     pub fn palette_for_theme_mode(&self, theme_name: &str, mode: ThemeMode) -> Option<Palette> {
-        Palette::from_theme_with_terminal(
+        self.palette_for_theme_mode_with_terminal_accents(
             theme_name,
-            self.theme_appearance_for_mode(mode),
+            mode,
+            self.global_terminal_light_accent,
+            self.global_terminal_dark_accent,
+        )
+    }
+
+    pub fn terminal_accent_for_mode(&self, mode: ThemeMode) -> TerminalAccent {
+        match self.theme_appearance_for_mode(mode) {
+            crate::terminal_theme::ThemeAppearance::Light => self.global_terminal_light_accent,
+            crate::terminal_theme::ThemeAppearance::Dark => self.global_terminal_dark_accent,
+        }
+    }
+
+    pub fn palette_for_theme_mode_with_terminal_accents(
+        &self,
+        theme_name: &str,
+        mode: ThemeMode,
+        terminal_light_accent: TerminalAccent,
+        terminal_dark_accent: TerminalAccent,
+    ) -> Option<Palette> {
+        let appearance = self.theme_appearance_for_mode(mode);
+        let accent = match appearance {
+            crate::terminal_theme::ThemeAppearance::Light => terminal_light_accent,
+            crate::terminal_theme::ThemeAppearance::Dark => terminal_dark_accent,
+        };
+        Palette::from_theme_with_terminal_accent(
+            theme_name,
+            appearance,
             self.host_terminal_theme,
+            accent,
         )
     }
 
@@ -2791,6 +2841,8 @@ impl AppState {
             global_theme_mode: ThemeMode::System,
             global_light_theme_name: DEFAULT_LIGHT_THEME_NAME.to_string(),
             global_dark_theme_name: DEFAULT_DARK_THEME_NAME.to_string(),
+            global_terminal_light_accent: TerminalAccent::Blue,
+            global_terminal_dark_accent: TerminalAccent::Blue,
             global_theme_custom: None,
             global_theme_use_legacy_ui_accent: false,
             settings: SettingsState {
@@ -2803,6 +2855,8 @@ impl AppState {
                 pending_theme_mode: None,
                 pending_light_theme_name: None,
                 pending_dark_theme_name: None,
+                pending_terminal_light_accent: None,
+                pending_terminal_dark_accent: None,
                 pending_sound_enabled: None,
                 pending_toast_delivery: None,
                 pending_confirm_close: None,
@@ -3101,6 +3155,27 @@ mod tests {
         assert_eq!(palette.mauve, Color::Rgb(160, 90, 200));
         assert_ne!(palette.accent, palette.text);
         assert_ne!(palette.surface0, Palette::catppuccin().surface0);
+    }
+
+    #[test]
+    fn system_theme_uses_selected_terminal_accent() {
+        let mut host_theme = TerminalTheme::default();
+        host_theme.palette[5] = Some(crate::terminal_theme::RgbColor {
+            r: 160,
+            g: 90,
+            b: 200,
+        });
+
+        let palette = Palette::from_theme_with_terminal_accent(
+            "system",
+            ThemeAppearance::Dark,
+            host_theme,
+            crate::config::TerminalAccent::Magenta,
+        )
+        .expect("system theme resolves");
+
+        assert_eq!(palette.accent, Color::Rgb(160, 90, 200));
+        assert_eq!(palette.blue, Color::Blue);
     }
 
     #[test]

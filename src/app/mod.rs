@@ -250,16 +250,27 @@ fn resolve_palette_with_legacy_accent(
         crate::terminal_theme::ThemeAppearance::Light => &light_theme_name,
         crate::terminal_theme::ThemeAppearance::Dark => &dark_theme_name,
     };
-    let mut palette = state::Palette::from_theme_with_terminal(base_name, appearance, host_theme)
-        .unwrap_or_else(|| {
-            tracing::warn!(
-                theme = base_name,
-                "unknown theme, falling back to default appearance theme"
-            );
-            let fallback = state::default_theme_name_for_appearance(appearance);
-            state::Palette::from_theme(fallback, appearance)
-                .unwrap_or_else(state::Palette::catppuccin)
-        });
+    let mut palette = state::Palette::from_theme_with_terminal_accent(
+        base_name,
+        appearance,
+        host_theme,
+        match appearance {
+            crate::terminal_theme::ThemeAppearance::Light => {
+                config.theme.resolved_terminal_light_accent()
+            }
+            crate::terminal_theme::ThemeAppearance::Dark => {
+                config.theme.resolved_terminal_dark_accent()
+            }
+        },
+    )
+    .unwrap_or_else(|| {
+        tracing::warn!(
+            theme = base_name,
+            "unknown theme, falling back to default appearance theme"
+        );
+        let fallback = state::default_theme_name_for_appearance(appearance);
+        state::Palette::from_theme(fallback, appearance).unwrap_or_else(state::Palette::catppuccin)
+    });
 
     // Apply custom overrides if present
     if let Some(custom) = &config.theme.custom {
@@ -646,6 +657,8 @@ impl App {
             global_theme_mode,
             global_light_theme_name,
             global_dark_theme_name,
+            global_terminal_light_accent: config.theme.resolved_terminal_light_accent(),
+            global_terminal_dark_accent: config.theme.resolved_terminal_dark_accent(),
             global_theme_custom: config.theme.custom.clone(),
             global_theme_use_legacy_ui_accent: config.ui.accent != "cyan"
                 && config
@@ -664,6 +677,8 @@ impl App {
                 pending_theme_mode: None,
                 pending_light_theme_name: None,
                 pending_dark_theme_name: None,
+                pending_terminal_light_accent: None,
+                pending_terminal_dark_accent: None,
                 pending_sound_enabled: None,
                 pending_toast_delivery: None,
                 pending_confirm_close: None,
@@ -1347,6 +1362,8 @@ impl App {
                 .state
                 .global_theme_name_for_mode(self.state.global_theme_mode)
                 .to_string();
+            self.state.global_terminal_light_accent = config.theme.resolved_terminal_light_accent();
+            self.state.global_terminal_dark_accent = config.theme.resolved_terminal_dark_accent();
             self.state.global_theme_custom = config.theme.custom.clone();
             self.state.global_theme_use_legacy_ui_accent = !invalid_section("ui")
                 && config.ui.accent != "cyan"
@@ -2258,6 +2275,8 @@ mod tests {
             "solarized-light",
             "rose-pine",
             crate::config::ThemeMode::System,
+            crate::config::TerminalAccent::Blue,
+            crate::config::TerminalAccent::Magenta,
         );
 
         assert_eq!(app.state.global_light_theme_name, "solarized-light");
@@ -2266,11 +2285,21 @@ mod tests {
             app.state.global_theme_mode,
             crate::config::ThemeMode::System
         );
+        assert_eq!(
+            app.state.global_terminal_light_accent,
+            crate::config::TerminalAccent::Blue
+        );
+        assert_eq!(
+            app.state.global_terminal_dark_accent,
+            crate::config::TerminalAccent::Magenta
+        );
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(!content.contains("name = \""));
         assert!(content.contains("light = \"solarized-light\""));
         assert!(content.contains("dark = \"rose-pine\""));
         assert!(content.contains("mode = \"system\""));
+        assert!(content.contains("terminal_light_accent = \"blue\""));
+        assert!(content.contains("terminal_dark_accent = \"magenta\""));
         assert_eq!(app.host_terminal_theme_query_count.get(), 1);
     }
 

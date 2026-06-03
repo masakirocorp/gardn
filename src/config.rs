@@ -23,7 +23,7 @@ pub use self::{
         ToastDelivery,
     },
     sound::SoundConfig,
-    theme::{parse_color, CustomThemeColors, ThemeConfig, ThemeMode},
+    theme::{parse_color, CustomThemeColors, TerminalAccent, ThemeConfig, ThemeMode},
 };
 
 pub(crate) use self::io::upsert_top_level_bool;

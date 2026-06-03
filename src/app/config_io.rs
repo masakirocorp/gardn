@@ -41,7 +41,14 @@ impl App {
         });
     }
 
-    pub(super) fn save_theme(&mut self, light: &str, dark: &str, mode: crate::config::ThemeMode) {
+    pub(super) fn save_theme(
+        &mut self,
+        light: &str,
+        dark: &str,
+        mode: crate::config::ThemeMode,
+        terminal_light_accent: crate::config::TerminalAccent,
+        terminal_dark_accent: crate::config::TerminalAccent,
+    ) {
         if self.update_config_file("theme", |content| {
             let content = crate::config::remove_section_key(content, "theme", "name");
             let content = crate::config::upsert_section_value(
@@ -56,11 +63,29 @@ impl App {
                 "dark",
                 &format!("\"{dark}\""),
             );
-            crate::config::upsert_section_value(
+            let content = crate::config::upsert_section_value(
                 &content,
                 "theme",
                 "mode",
                 &format!("\"{}\"", mode.as_str()),
+            );
+            let content = crate::config::upsert_section_value(
+                &content,
+                "theme",
+                "terminal_accent",
+                &format!("\"{}\"", terminal_dark_accent.as_str()),
+            );
+            let content = crate::config::upsert_section_value(
+                &content,
+                "theme",
+                "terminal_light_accent",
+                &format!("\"{}\"", terminal_light_accent.as_str()),
+            );
+            crate::config::upsert_section_value(
+                &content,
+                "theme",
+                "terminal_dark_accent",
+                &format!("\"{}\"", terminal_dark_accent.as_str()),
             )
         }) {
             self.apply_config_from_disk(false);

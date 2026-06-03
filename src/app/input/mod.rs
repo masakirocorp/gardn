@@ -338,6 +338,8 @@ impl App {
                         light,
                         dark,
                         mode,
+                        terminal_light_accent,
+                        terminal_dark_accent,
                         sound_enabled,
                         toast_delivery,
                         confirm_close,
@@ -350,7 +352,13 @@ impl App {
                         worktree_directory,
                         agent_border_labels,
                     } => {
-                        self.save_theme(&light, &dark, mode);
+                        self.save_theme(
+                            &light,
+                            &dark,
+                            mode,
+                            terminal_light_accent,
+                            terminal_dark_accent,
+                        );
                         self.save_sound(sound_enabled);
                         self.save_confirm_close(confirm_close);
                         self.save_prompt_new_tab_name(prompt_new_tab_name);

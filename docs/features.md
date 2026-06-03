@@ -279,7 +279,7 @@ Hako supports terminal-derived colors and built-in palettes.
 - **Light and dark palette selection** — choose separate palettes when system mode is enabled.
 - **Custom token overrides** — override individual theme colors.
 - **Group theme overrides** — assign per-group appearance mode and light/dark palette overrides; values matching global settings inherit future global changes.
-- **Accent color** — configure highlight, border, and navigation accent color.
+- **Accent color** — configure highlight, border, and navigation accent color; when following terminal colors, choose separate terminal ANSI accents for light and dark appearances.
 
 ### Sound and toasts
 

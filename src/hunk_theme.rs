@@ -633,7 +633,11 @@ mod tests {
                     b: 220,
                 },
             );
-        let palette = Palette::system(host, ThemeAppearance::Light);
+        let palette = Palette::system(
+            host,
+            ThemeAppearance::Light,
+            crate::config::TerminalAccent::Blue,
+        );
         let config = config(&palette, ThemeAppearance::Light, host, true);
 
         assert!(config.contains("background = \"#f5f6f7\""));

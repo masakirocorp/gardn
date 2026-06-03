@@ -9,7 +9,11 @@ use crate::{
         },
         App, Mode,
     },
-    config::{NewTerminalCwdConfig, ThemeMode, ToastDelivery},
+    config::{NewTerminalCwdConfig, TerminalAccent, ThemeMode, ToastDelivery},
+    settings_rows::{
+        option_count, option_index_for_visual_row, rows_for_section, selected_visual_row,
+        visual_row_count,
+    },
     terminal_theme::ThemeAppearance,
 };
 
@@ -23,6 +27,8 @@ pub(super) enum SettingsAction {
         light: String,
         dark: String,
         mode: ThemeMode,
+        terminal_light_accent: TerminalAccent,
+        terminal_dark_accent: TerminalAccent,
         sound_enabled: bool,
         toast_delivery: ToastDelivery,
         confirm_close: bool,
@@ -55,6 +61,8 @@ impl App {
                     light,
                     dark,
                     mode,
+                    terminal_light_accent,
+                    terminal_dark_accent,
                     sound_enabled,
                     toast_delivery,
                     confirm_close,
@@ -67,7 +75,13 @@ impl App {
                     agent_border_labels,
                     worktree_directory,
                 } => {
-                    self.save_theme(&light, &dark, mode);
+                    self.save_theme(
+                        &light,
+                        &dark,
+                        mode,
+                        terminal_light_accent,
+                        terminal_dark_accent,
+                    );
                     self.save_sound(sound_enabled);
                     self.save_confirm_close(confirm_close);
                     self.save_prompt_new_tab_name(prompt_new_tab_name);
@@ -121,6 +135,8 @@ struct ThemeChoice {
 enum ThemeSettingsChoice {
     SourceSystem,
     SourceCustom,
+    TerminalLightAccent(TerminalAccent),
+    TerminalDarkAccent(TerminalAccent),
     Mode(ThemeMode),
     Theme(ThemeChoice),
 }
@@ -129,6 +145,10 @@ fn pending_uses_system_theme_source(state: &AppState) -> bool {
     pending_theme_mode(state) == ThemeMode::System
         && normalize_theme_name(&pending_light_theme_name(state)) == "system"
         && normalize_theme_name(&pending_dark_theme_name(state)) == "system"
+}
+
+fn pending_shows_terminal_accent(state: &AppState) -> bool {
+    state.settings.group_theme_target.is_none() && pending_uses_system_theme_source(state)
 }
 
 fn toast_delivery_index(delivery: ToastDelivery) -> usize {
@@ -196,9 +216,25 @@ fn global_theme_choices(mode: ThemeMode) -> Vec<ThemeChoice> {
 }
 
 fn theme_settings_choices(state: &AppState) -> Vec<ThemeSettingsChoice> {
-    let mut choices = Vec::with_capacity(2 + ThemeMode::ALL.len() + THEME_NAMES.len());
+    let mut choices = Vec::with_capacity(
+        2 + (TerminalAccent::ALL.len() * 2) + ThemeMode::ALL.len() + THEME_NAMES.len(),
+    );
     choices.push(ThemeSettingsChoice::SourceSystem);
     choices.push(ThemeSettingsChoice::SourceCustom);
+    if pending_shows_terminal_accent(state) {
+        choices.extend(
+            TerminalAccent::ALL
+                .iter()
+                .copied()
+                .map(ThemeSettingsChoice::TerminalLightAccent),
+        );
+        choices.extend(
+            TerminalAccent::ALL
+                .iter()
+                .copied()
+                .map(ThemeSettingsChoice::TerminalDarkAccent),
+        );
+    }
     if !pending_uses_system_theme_source(state) {
         let theme_choices = global_theme_choices(pending_theme_mode(state));
         choices.extend(
@@ -216,90 +252,34 @@ fn theme_choice_len(state: &AppState) -> usize {
     theme_settings_choices(state).len()
 }
 
-fn theme_visual_len(state: &AppState) -> usize {
-    if pending_uses_system_theme_source(state) {
-        return 3;
-    }
+fn theme_rows(state: &AppState) -> Vec<crate::settings_rows::SettingsListRow> {
+    rows_for_section(state, SettingsSection::Theme).unwrap_or_default()
+}
 
-    let theme_rows = match pending_theme_mode(state) {
-        ThemeMode::System => {
-            theme_names_for_appearance(ThemeAppearance::Light).len()
-                + theme_names_for_appearance(ThemeAppearance::Dark).len()
-                + 3
-        }
-        ThemeMode::Light => theme_names_for_appearance(ThemeAppearance::Light).len() + 1,
-        ThemeMode::Dark => theme_names_for_appearance(ThemeAppearance::Dark).len() + 1,
-    };
-    9 + theme_rows
+fn theme_visual_len(state: &AppState) -> usize {
+    visual_row_count(&theme_rows(state))
 }
 
 fn theme_visual_row_for_selection(state: &AppState, selected: usize) -> usize {
-    if selected < 2 {
-        return selected + 1;
-    }
-
-    if pending_uses_system_theme_source(state) {
-        return 1;
-    }
-
-    let mode_base = 2;
-    if selected < mode_base + ThemeMode::ALL.len() {
-        return selected - mode_base + 5;
-    }
-
-    let theme_idx = selected - mode_base - ThemeMode::ALL.len();
-    match pending_theme_mode(state) {
-        ThemeMode::System => {
-            let light_len = theme_names_for_appearance(ThemeAppearance::Light).len();
-            if theme_idx < light_len {
-                theme_idx + 10
-            } else {
-                theme_idx + 12
-            }
-        }
-        ThemeMode::Light | ThemeMode::Dark => theme_idx + 10,
-    }
+    selected_visual_row(&theme_rows(state), selected).unwrap_or(0)
 }
 
 fn theme_selection_for_visual_row(state: &AppState, row: usize) -> Option<usize> {
-    if row == 1 {
-        return Some(0);
-    }
-    if row == 2 {
-        return Some(1);
-    }
-    if pending_uses_system_theme_source(state) {
-        return None;
-    }
+    option_index_for_visual_row(&theme_rows(state), row)
+}
 
-    let mode_base = 2;
-    if row >= 5 && row < 5 + ThemeMode::ALL.len() {
-        return Some(mode_base + row - 5);
-    }
-
-    let theme_base = mode_base + ThemeMode::ALL.len();
-    match pending_theme_mode(state) {
-        ThemeMode::System => {
-            let light_len = theme_names_for_appearance(ThemeAppearance::Light).len();
-            let dark_len = theme_names_for_appearance(ThemeAppearance::Dark).len();
-            if row >= 10 && row < 10 + light_len {
-                return Some(theme_base + row - 10);
-            }
-            let dark_start = light_len + 12;
-            if row >= dark_start && row < dark_start + dark_len {
-                return Some(theme_base + light_len + row - dark_start);
-            }
-            None
-        }
-        ThemeMode::Light => {
-            let len = theme_names_for_appearance(ThemeAppearance::Light).len();
-            (row >= 10 && row < 10 + len).then_some(theme_base + row - 10)
-        }
-        ThemeMode::Dark => {
-            let len = theme_names_for_appearance(ThemeAppearance::Dark).len();
-            (row >= 10 && row < 10 + len).then_some(theme_base + row - 10)
-        }
-    }
+fn settings_section_choice_len(state: &AppState, section: SettingsSection) -> usize {
+    rows_for_section(state, section)
+        .map(|rows| option_count(&rows))
+        .unwrap_or_else(|| match section {
+            SettingsSection::Integrations => state.integration_recommendations.len(),
+            SettingsSection::Theme => theme_choice_len(state),
+            SettingsSection::Layout
+            | SettingsSection::Sound
+            | SettingsSection::Toast
+            | SettingsSection::PaneLabels
+            | SettingsSection::Experiments => 0,
+        })
 }
 
 fn settings_theme_list_rect(area: Rect) -> Rect {
@@ -377,6 +357,20 @@ fn pending_dark_theme_name(state: &AppState) -> String {
         .pending_dark_theme_name
         .clone()
         .unwrap_or_else(|| state.global_dark_theme_name.clone())
+}
+
+fn pending_terminal_light_accent(state: &AppState) -> TerminalAccent {
+    state
+        .settings
+        .pending_terminal_light_accent
+        .unwrap_or(state.global_terminal_light_accent)
+}
+
+fn pending_terminal_dark_accent(state: &AppState) -> TerminalAccent {
+    state
+        .settings
+        .pending_terminal_dark_accent
+        .unwrap_or(state.global_terminal_dark_accent)
 }
 
 fn selected_theme_settings_choice(state: &AppState) -> Option<ThemeSettingsChoice> {
@@ -466,7 +460,6 @@ fn selected_global_theme_name_for_mode(state: &AppState) -> String {
         },
     }
 }
-
 fn target_theme_index(state: &AppState) -> usize {
     if pending_uses_system_theme_source(state) {
         0
@@ -493,7 +486,17 @@ fn preview_selected_theme(state: &mut AppState) {
             state.settings.pending_dark_theme_name = Some("system".to_string());
             state.settings.list.selected = 0;
             ensure_settings_selection_visible(state);
-            state.preview_theme_with_mode("system", ThemeMode::System);
+            let mode = ThemeMode::System;
+            let accent = state.terminal_accent_for_mode(mode);
+            state.preview_theme_with_mode_and_terminal_accent("system", mode, accent);
+        }
+        ThemeSettingsChoice::TerminalLightAccent(accent) => {
+            state.settings.pending_terminal_light_accent = Some(accent);
+            state.preview_theme_with_mode_and_terminal_accent("system", ThemeMode::Light, accent);
+        }
+        ThemeSettingsChoice::TerminalDarkAccent(accent) => {
+            state.settings.pending_terminal_dark_accent = Some(accent);
+            state.preview_theme_with_mode_and_terminal_accent("system", ThemeMode::Dark, accent);
         }
         ThemeSettingsChoice::SourceCustom => {
             if normalize_theme_name(&pending_light_theme_name(state)) == "system" {
@@ -555,6 +558,8 @@ fn cancel_settings(state: &mut AppState) {
     state.settings.pending_theme_mode = None;
     state.settings.pending_light_theme_name = None;
     state.settings.pending_dark_theme_name = None;
+    state.settings.pending_terminal_light_accent = None;
+    state.settings.pending_terminal_dark_accent = None;
     state.settings.pending_sound_enabled = None;
     state.settings.pending_toast_delivery = None;
     state.settings.pending_confirm_close = None;
@@ -602,6 +607,8 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_theme_mode = None;
     state.settings.pending_light_theme_name = None;
     state.settings.pending_dark_theme_name = None;
+    state.settings.pending_terminal_light_accent = None;
+    state.settings.pending_terminal_dark_accent = None;
     state.settings.pending_sound_enabled = None;
     state.settings.pending_toast_delivery = None;
     state.settings.pending_confirm_close = None;
@@ -625,6 +632,8 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
     let light = pending_light_theme_name(state);
     let dark = pending_dark_theme_name(state);
     let theme_mode = pending_theme_mode(state);
+    let terminal_light_accent = pending_terminal_light_accent(state);
+    let terminal_dark_accent = pending_terminal_dark_accent(state);
     let sound_enabled = pending_sound_enabled(state);
     let toast_delivery = pending_toast_delivery(state);
     let confirm_close = pending_confirm_close(state);
@@ -655,6 +664,8 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
         light,
         dark,
         mode: theme_mode,
+        terminal_light_accent,
+        terminal_dark_accent,
         sound_enabled,
         toast_delivery,
         confirm_close,
@@ -869,10 +880,16 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
         },
         SettingsSection::Layout => match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
-                select_previous_setting(state, 4);
+                select_previous_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Layout),
+                );
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                select_next_setting(state, 4);
+                select_next_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Layout),
+                );
             }
             KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -892,10 +909,16 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
         },
         SettingsSection::Sound => match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
-                select_previous_setting(state, 2);
+                select_previous_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Sound),
+                );
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                select_next_setting(state, 2);
+                select_next_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Sound),
+                );
             }
             KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
@@ -913,8 +936,18 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
         },
         SettingsSection::Toast => match key.code {
-            KeyCode::Up | KeyCode::Char('k') => select_previous_setting(state, 4),
-            KeyCode::Down | KeyCode::Char('j') => select_next_setting(state, 4),
+            KeyCode::Up | KeyCode::Char('k') => {
+                select_previous_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Toast),
+                );
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                select_next_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Toast),
+                );
+            }
             KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::Sound;
@@ -932,10 +965,16 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
         },
         SettingsSection::PaneLabels => match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
-                select_previous_setting(state, 5);
+                select_previous_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::PaneLabels),
+                );
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                select_next_setting(state, 5);
+                select_next_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::PaneLabels),
+                );
             }
             KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -954,10 +993,16 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
         },
         SettingsSection::Experiments => match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
-                select_previous_setting(state, 2);
+                select_previous_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Experiments),
+                );
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                select_next_setting(state, 2);
+                select_next_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Experiments),
+                );
             }
             KeyCode::Enter | KeyCode::Char(' ') => return selected_experiment_action(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -979,10 +1024,16 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
         },
         SettingsSection::Integrations => match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
-                select_previous_setting(state, state.integration_recommendations.len());
+                select_previous_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Integrations),
+                );
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                select_next_setting(state, state.integration_recommendations.len());
+                select_next_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Integrations),
+                );
             }
             KeyCode::Enter | KeyCode::Char(' ') => return selected_integration_action(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -1015,6 +1066,8 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
     state.settings.pending_theme_mode = Some(state.global_theme_mode);
     state.settings.pending_light_theme_name = Some(state.global_light_theme_name.clone());
     state.settings.pending_dark_theme_name = Some(state.global_dark_theme_name.clone());
+    state.settings.pending_terminal_light_accent = Some(state.global_terminal_light_accent);
+    state.settings.pending_terminal_dark_accent = Some(state.global_terminal_dark_accent);
     state.settings.pending_sound_enabled = Some(state.sound_enabled());
     state.settings.pending_toast_delivery = Some(state.toast_delivery());
     state.settings.pending_confirm_close = Some(state.confirm_close_enabled());
@@ -1072,6 +1125,8 @@ pub(crate) fn open_group_theme_settings(state: &mut AppState, group_idx: usize) 
             .clone()
             .unwrap_or_else(|| state.global_dark_theme_name.clone()),
     );
+    state.settings.pending_terminal_light_accent = Some(state.global_terminal_light_accent);
+    state.settings.pending_terminal_dark_accent = Some(state.global_terminal_dark_accent);
     state.settings.pending_sound_enabled = None;
     state.settings.pending_toast_delivery = None;
     state.settings.pending_confirm_close = None;
@@ -1152,53 +1207,21 @@ impl AppState {
                     settings_theme_viewport(self).hit_visual_row(list_area, col, row)?;
                 theme_selection_for_visual_row(self, visual_row)
             }
-            SettingsSection::Layout => {
-                let list_y = area.y + 3;
-                if row >= list_y && row < list_y + 8 {
-                    Some(((row - list_y) / 2) as usize)
-                } else {
-                    None
-                }
-            }
-            SettingsSection::Sound => {
-                let list_y = area.y + 3;
-                if row >= list_y && row < list_y + 2 {
-                    Some((row - list_y) as usize)
-                } else {
-                    None
-                }
-            }
-            SettingsSection::Toast => {
-                let list_y = area.y + 3;
-                if row >= list_y && row < list_y + 4 {
-                    Some((row - list_y) as usize)
-                } else {
-                    None
-                }
-            }
-            SettingsSection::PaneLabels => {
-                let list_y = area.y + 3;
-                if row >= list_y && row < list_y + 10 {
-                    Some(((row - list_y) / 2) as usize)
-                } else {
-                    None
-                }
-            }
-            SettingsSection::Experiments => {
-                let list_y = area.y + 3;
-                if row >= list_y && row < list_y + 4 {
-                    Some(((row - list_y) / 2) as usize)
-                } else {
-                    None
-                }
+            SettingsSection::Layout
+            | SettingsSection::Sound
+            | SettingsSection::Toast
+            | SettingsSection::PaneLabels
+            | SettingsSection::Experiments => {
+                let rows = rows_for_section(self, self.settings.section)?;
+                option_index_for_visual_row(&rows, (row - area.y) as usize)
             }
             SettingsSection::Integrations => {
                 let list_y = area.y + 4;
-                if row >= list_y && row < list_y + self.integration_recommendations.len() as u16 {
-                    Some((row - list_y) as usize)
-                } else {
-                    None
+                if row < list_y {
+                    return None;
                 }
+                let rows = rows_for_section(self, self.settings.section)?;
+                option_index_for_visual_row(&rows, (row - list_y) as usize)
             }
         }
     }
@@ -1555,6 +1578,8 @@ mod tests {
                 light: "catppuccin-latte".to_string(),
                 dark: "catppuccin".to_string(),
                 mode: ThemeMode::Light,
+                terminal_light_accent: TerminalAccent::Blue,
+                terminal_dark_accent: TerminalAccent::Blue,
                 sound_enabled: false,
                 toast_delivery: ToastDelivery::Off,
                 confirm_close: true,
@@ -1569,6 +1594,86 @@ mod tests {
             })
         );
         assert_eq!(state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn terminal_theme_accent_selection_is_saved() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.global_theme_mode = ThemeMode::System;
+        state.global_light_theme_name = "system".to_string();
+        state.global_dark_theme_name = "system".to_string();
+        state.global_terminal_light_accent = TerminalAccent::Blue;
+        state.global_terminal_dark_accent = TerminalAccent::Red;
+
+        open_settings(&mut state);
+        for _ in 0..3 {
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+            );
+        }
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert!(matches!(
+            action,
+            Some(SettingsAction::SaveSettings {
+                light,
+                dark,
+                mode: ThemeMode::System,
+                terminal_light_accent: TerminalAccent::Magenta,
+                terminal_dark_accent: TerminalAccent::Red,
+                ..
+            }) if light == "system" && dark == "system"
+        ));
+    }
+
+    #[test]
+    fn dark_accent_rows_skip_heading_before_options() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.global_theme_mode = ThemeMode::System;
+        state.global_light_theme_name = "system".to_string();
+        state.global_dark_theme_name = "system".to_string();
+        open_settings(&mut state);
+
+        let dark_heading_row = 6 + TerminalAccent::ALL.len();
+        assert_eq!(
+            theme_selection_for_visual_row(&state, dark_heading_row),
+            None
+        );
+
+        let dark_blue_row = dark_heading_row + 1;
+        let selected =
+            theme_selection_for_visual_row(&state, dark_blue_row).expect("dark blue row");
+        assert_eq!(
+            theme_settings_choices(&state).get(selected),
+            Some(&ThemeSettingsChoice::TerminalDarkAccent(
+                TerminalAccent::Blue
+            ))
+        );
+        assert_eq!(
+            theme_visual_row_for_selection(&state, selected),
+            dark_blue_row
+        );
+
+        let dark_red_selected = theme_settings_choices(&state)
+            .iter()
+            .position(|choice| {
+                *choice == ThemeSettingsChoice::TerminalDarkAccent(TerminalAccent::Red)
+            })
+            .expect("dark red option");
+        let dark_red_row = theme_visual_row_for_selection(&state, dark_red_selected);
+        assert_eq!(dark_red_row + 1, theme_visual_len(&state));
+        assert_eq!(
+            theme_selection_for_visual_row(&state, dark_red_row),
+            Some(dark_red_selected)
+        );
     }
 
     #[test]
@@ -2205,7 +2310,7 @@ mod tests {
             app.state.handle_settings_mouse(mouse(
                 MouseEventKind::Down(crossterm::event::MouseButton::Left),
                 area.x + 2,
-                area.y + 3,
+                area.y + 1,
             )),
             None
         );
@@ -2215,7 +2320,7 @@ mod tests {
         app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             area.x + 2,
-            area.y + 5,
+            area.y + 3,
         ));
         assert_eq!(app.state.settings.pending_prompt_new_tab_name, Some(false));
         assert_eq!(app.state.settings.list.selected, 1);
@@ -2246,6 +2351,29 @@ mod tests {
         assert_eq!(app.state.settings.pending_agent_border_labels, Some(true));
         assert_eq!(app.state.settings.list.selected, 4);
     }
+
+    #[test]
+    fn settings_mouse_ignores_section_headers_and_separators() {
+        let mut app = app_for_mouse_test();
+        open_settings_at(&mut app.state, SettingsSection::PaneLabels);
+
+        let area = app.state.settings_content_rect();
+        app.state.settings.list.selected = 4;
+        assert_eq!(
+            app.state
+                .handle_settings_mouse(mouse(MouseEventKind::Moved, area.x + 2, area.y)),
+            None
+        );
+        assert_eq!(app.state.settings.list.selected, 4);
+
+        app.state
+            .handle_settings_mouse(mouse(MouseEventKind::Moved, area.x + 2, area.y + 5));
+        assert_eq!(app.state.settings.list.selected, 4);
+
+        app.state
+            .handle_settings_mouse(mouse(MouseEventKind::Moved, area.x + 2, area.y + 7));
+        assert_eq!(app.state.settings.list.selected, 2);
+    }
     #[test]
     fn settings_mouse_click_toggles_resume_agents_and_pane_history() {
         let mut app = app_for_mouse_test();
@@ -2257,7 +2385,7 @@ mod tests {
         let resume_action = app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             area.x + 2,
-            area.y + 3,
+            area.y + 1,
         ));
 
         assert_eq!(

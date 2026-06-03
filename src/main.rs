@@ -49,6 +49,7 @@ mod remote;
 mod selection;
 mod server;
 mod session;
+mod settings_rows;
 mod sound;
 mod terminal;
 mod terminal_notify;
@@ -83,6 +84,12 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 #                 retro-82, rose-pine, solarized, solitude, tokyo-night,
 #                 vantablack, vesper
 # name = "catppuccin"
+# mode = "system"
+# light = "system"
+# dark = "system"
+# terminal_accent = "blue"       # fallback: blue, magenta, cyan, green, yellow, red
+# terminal_light_accent = "blue"
+# terminal_dark_accent = "blue"
 
 # override individual color tokens on top of the base theme.
 # accepts: hex (#rrggbb), named colors, rgb(r,g,b), or panel_bg = "reset"

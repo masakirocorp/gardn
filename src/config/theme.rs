@@ -5,11 +5,14 @@ use tracing::warn;
 ///
 /// ```toml
 /// [theme]
-/// mode = "system"             # system, light, dark
-/// light = "catppuccin-latte"  # used in light appearance
-/// dark = "catppuccin"         # used in dark appearance
+/// mode = "system"               # system, light, dark
+/// light = "catppuccin-latte"    # used in light appearance
+/// dark = "catppuccin"           # used in dark appearance
+/// terminal_accent = "magenta"   # fallback for terminal_light_accent/dark_accent
+/// terminal_light_accent = "blue"
+/// terminal_dark_accent = "magenta"
 ///
-/// [theme.custom]              # override individual tokens on top of the base
+/// [theme.custom]                # override individual tokens on top of the base
 /// accent = "#f5c2e7"
 /// red = "#ff6188"
 /// ```
@@ -26,8 +29,23 @@ pub struct ThemeConfig {
     pub mode: ThemeMode,
     /// Custom overrides — applied on top of the selected base theme.
     pub custom: Option<CustomThemeColors>,
+    /// ANSI color used for Hako's accent when following terminal colors.
+    pub terminal_accent: TerminalAccent,
+    /// ANSI color used for Hako's accent when terminal colors resolve light.
+    pub terminal_light_accent: Option<TerminalAccent>,
+    /// ANSI color used for Hako's accent when terminal colors resolve dark.
+    pub terminal_dark_accent: Option<TerminalAccent>,
 }
 
+impl ThemeConfig {
+    pub fn resolved_terminal_light_accent(&self) -> TerminalAccent {
+        self.terminal_light_accent.unwrap_or(self.terminal_accent)
+    }
+
+    pub fn resolved_terminal_dark_accent(&self) -> TerminalAccent {
+        self.terminal_dark_accent.unwrap_or(self.terminal_accent)
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemeMode {
@@ -58,6 +76,63 @@ impl ThemeMode {
             Self::System => host_theme
                 .appearance()
                 .unwrap_or(crate::terminal_theme::ThemeAppearance::Dark),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminalAccent {
+    #[default]
+    Blue,
+    Magenta,
+    Cyan,
+    Green,
+    Yellow,
+    Red,
+}
+
+impl TerminalAccent {
+    pub const ALL: &[Self] = &[
+        Self::Blue,
+        Self::Magenta,
+        Self::Cyan,
+        Self::Green,
+        Self::Yellow,
+        Self::Red,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Blue => "blue",
+            Self::Magenta => "magenta",
+            Self::Cyan => "cyan",
+            Self::Green => "green",
+            Self::Yellow => "yellow",
+            Self::Red => "red",
+        }
+    }
+
+    pub fn ansi_index(self) -> usize {
+        match self {
+            Self::Blue => 4,
+            Self::Magenta => 5,
+            Self::Cyan => 6,
+            Self::Green => 2,
+            Self::Yellow => 3,
+            Self::Red => 1,
+        }
+    }
+
+    pub fn fallback_color(self) -> ratatui::style::Color {
+        use ratatui::style::Color;
+        match self {
+            Self::Blue => Color::Blue,
+            Self::Magenta => Color::Magenta,
+            Self::Cyan => Color::Cyan,
+            Self::Green => Color::Green,
+            Self::Yellow => Color::Yellow,
+            Self::Red => Color::LightRed,
         }
     }
 }
@@ -193,6 +268,45 @@ dark = "rose-pine"
     }
 
     #[test]
+    fn terminal_accent_parses() {
+        let toml = r#"
+[theme]
+terminal_accent = "magenta"
+terminal_light_accent = "cyan"
+terminal_dark_accent = "red"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+
+        assert_eq!(config.theme.terminal_accent, TerminalAccent::Magenta);
+        assert_eq!(
+            config.theme.resolved_terminal_light_accent(),
+            TerminalAccent::Cyan
+        );
+        assert_eq!(
+            config.theme.resolved_terminal_dark_accent(),
+            TerminalAccent::Red
+        );
+    }
+
+    #[test]
+    fn terminal_accent_falls_back_for_light_and_dark() {
+        let toml = r#"
+[theme]
+terminal_accent = "yellow"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+
+        assert_eq!(
+            config.theme.resolved_terminal_light_accent(),
+            TerminalAccent::Yellow
+        );
+        assert_eq!(
+            config.theme.resolved_terminal_dark_accent(),
+            TerminalAccent::Yellow
+        );
+    }
+
+    #[test]
     fn parse_color_accepts_reset_aliases() {
         use ratatui::style::Color;
 
@@ -227,5 +341,8 @@ red = "rgb(255, 85, 85)"
         assert!(config.theme.name.is_none());
         assert_eq!(config.theme.mode, ThemeMode::System);
         assert!(config.theme.custom.is_none());
+        assert_eq!(config.theme.terminal_accent, TerminalAccent::Blue);
+        assert_eq!(config.theme.terminal_light_accent, None);
+        assert_eq!(config.theme.terminal_dark_accent, None);
     }
 }
