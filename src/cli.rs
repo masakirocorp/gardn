@@ -2128,7 +2128,10 @@ fn integration_status(args: &[String]) -> std::io::Result<i32> {
                 format!("current ({version})")
             }
             crate::integration::IntegrationStatusKind::Outdated => {
-                format!("outdated ({version} < v{})", status.expected_version)
+                format!(
+                    "outdated ({version}; expected v{})",
+                    status.expected_version
+                )
             }
         };
         println!("{target}: {state} ({})", status.path.display());

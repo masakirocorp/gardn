@@ -2,7 +2,7 @@
 // managed by hako; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=omp
-// HAKO_INTEGRATION_VERSION=5
+// HAKO_INTEGRATION_VERSION=1
 // @ts-nocheck
 
 import { createConnection } from "node:net";
@@ -197,6 +197,7 @@ export default function (pi) {
   let lastMessage: string | undefined;
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  const blockingToolCalls = new Set<string>();
 
   function clearTimer(timer: ReturnType<typeof setTimeout> | undefined) {
     if (timer) {
@@ -285,6 +286,44 @@ export default function (pi) {
     blockedCount += 1;
     blockedMessage = data.label;
     publishState();
+  });
+
+  function isBlockingTool(event: any): boolean {
+    return event?.toolName === "ask";
+  }
+
+  function clearBlockingTool(toolCallId: unknown): boolean {
+    if (typeof toolCallId !== "string" || !blockingToolCalls.delete(toolCallId)) {
+      return false;
+    }
+
+    blockedCount = Math.max(0, blockedCount - 1);
+    if (blockedCount === 0) {
+      blockedMessage = undefined;
+    }
+    publishState();
+    return true;
+  }
+
+  pi.on("tool_execution_start", (event) => {
+    if (!isBlockingTool(event) || typeof event?.toolCallId !== "string") {
+      return;
+    }
+    if (blockingToolCalls.has(event.toolCallId)) {
+      return;
+    }
+
+    clearPendingTimers();
+    blockingToolCalls.add(event.toolCallId);
+    blockedCount += 1;
+    blockedMessage = typeof event.intent === "string" && event.intent.length > 0
+      ? event.intent
+      : "waiting for user";
+    publishState();
+  });
+
+  pi.on("tool_execution_end", (event) => {
+    clearBlockingTool(event?.toolCallId);
   });
 
   pi.on("agent_start", () => {
