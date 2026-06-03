@@ -428,6 +428,7 @@ impl TerminalState {
         seq: Option<u64>,
         now: Instant,
     ) -> Option<TerminalStateMutation> {
+        self.reset_hook_sequence_for_new_session(&source, session_ref.as_ref());
         if !self.accept_hook_report(&source, seq) {
             return None;
         }
@@ -560,6 +561,39 @@ impl TerminalState {
         };
         crate::detect::parse_agent_label(agent_label)
             .is_some_and(|hook_agent| hook_agent != detected_agent)
+    }
+
+    fn reset_hook_sequence_for_new_session(
+        &mut self,
+        source: &str,
+        session_ref: Option<&crate::agent_resume::AgentSessionRef>,
+    ) {
+        let Some(session_ref) = session_ref else {
+            return;
+        };
+
+        if self.hook_authority.as_ref().is_some_and(|authority| {
+            authority.source == source && authority.state == AgentState::Working
+        }) {
+            return;
+        }
+
+        let current_ref = self.hook_authority.as_ref().and_then(|authority| {
+            (authority.source == source)
+                .then_some(authority.session_ref.as_ref())
+                .flatten()
+        });
+        let persisted_ref = self
+            .persisted_agent_session
+            .as_ref()
+            .and_then(|session| (session.source == source).then_some(&session.session_ref));
+
+        if current_ref
+            .or(persisted_ref)
+            .is_some_and(|current| current != session_ref)
+        {
+            self.hook_report_sequences.remove(source);
+        }
     }
 
     fn accept_hook_report(&mut self, source: &str, seq: Option<u64>) -> bool {
@@ -1060,6 +1094,46 @@ mod tests {
         assert_eq!(terminal.detected_agent, Some(Agent::OhMyPi));
         assert_eq!(terminal.fallback_state, AgentState::Idle);
         assert_eq!(terminal.effective_agent_label(), Some("omp"));
+        assert_eq!(terminal.state, AgentState::Working);
+    }
+
+    #[test]
+    fn new_hook_session_ref_resets_stale_sequence_for_same_source() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::OhMyPi), AgentState::Idle);
+        let old_session = crate::agent_resume::AgentSessionRef {
+            kind: crate::agent_resume::AgentSessionRefKind::Path,
+            value: "/tmp/old-omp-session.jsonl".to_string(),
+        };
+        let new_session = crate::agent_resume::AgentSessionRef {
+            kind: crate::agent_resume::AgentSessionRefKind::Path,
+            value: "/tmp/new-omp-session.jsonl".to_string(),
+        };
+
+        terminal
+            .set_hook_authority_with_session_ref(
+                "hako:omp".into(),
+                "omp".into(),
+                AgentState::Idle,
+                None,
+                None,
+                Some(old_session),
+                Some(10_000),
+            )
+            .expect("old idle session should establish hook authority");
+        let mutation = terminal
+            .set_hook_authority_with_session_ref(
+                "hako:omp".into(),
+                "omp".into(),
+                AgentState::Working,
+                None,
+                None,
+                Some(new_session),
+                Some(1),
+            )
+            .expect("new session should reset stale sequence");
+
+        assert!(mutation.session_ref_changed);
         assert_eq!(terminal.state, AgentState::Working);
     }
 

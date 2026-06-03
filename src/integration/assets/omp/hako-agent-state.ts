@@ -57,7 +57,7 @@ let currentAgentSessionId: string | undefined;
 let currentAgentSessionPath: string | undefined;
 
 function nextReportSeq(): number {
-  reportSeq += 1;
+  reportSeq = Math.max(reportSeq + 1, Date.now() * 1000);
   return reportSeq;
 }
 
