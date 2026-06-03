@@ -314,7 +314,8 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
         return vec![state::Group::default_group()];
     }
 
-    snap.groups
+    let mut groups: Vec<state::Group> = snap
+        .groups
         .iter()
         .map(|group| state::Group {
             id: group.id.clone(),
@@ -328,7 +329,21 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
                     .unwrap_or_default()
             }),
         })
-        .collect()
+        .collect();
+
+    for workspace in &snap.workspaces {
+        if groups.iter().any(|group| group.id == workspace.group_id) {
+            continue;
+        }
+        groups.push(state::Group {
+            id: workspace.group_id.clone(),
+            name: format!("group {}", groups.len() + 1),
+            icon: state::DEFAULT_GROUP_ICON.to_string(),
+            theme: state::GroupThemeOverride::default(),
+        });
+    }
+
+    groups
 }
 
 impl App {
@@ -808,9 +823,14 @@ impl App {
         )?;
         let pane_id_aliases = crate::persist::handoff_pane_aliases(snapshot, &workspaces);
 
+        let groups = groups_from_snapshot(snapshot);
         app.no_session = false;
         app.state.detach_exits = false;
         app.state.pane_id_aliases = pane_id_aliases;
+        app.state.groups = groups;
+        app.state.active_group = snapshot
+            .active_group
+            .min(app.state.groups.len().saturating_sub(1));
         app.state.workspaces = workspaces;
         app.state.terminals = terminals;
         app.terminal_runtimes = runtimes.into();
@@ -825,9 +845,14 @@ impl App {
             app.state.sidebar_width = width;
             app.state.sidebar_width_source = state::SidebarWidthSource::Persisted;
         }
+        app.state.sidebar_collapsed = snapshot.sidebar_collapsed;
         if let Some(split) = snapshot.sidebar_section_split {
             app.state.sidebar_section_split = split;
         }
+        if let Some(width) = snapshot.right_sidebar_width {
+            app.state.right_sidebar_width = width;
+        }
+        app.state.right_sidebar_collapsed = snapshot.right_sidebar_collapsed;
         app.state.mode = if app.state.active.is_some() {
             state::Mode::Terminal
         } else {
@@ -1703,6 +1728,105 @@ mod tests {
             Some("gruvbox-light")
         );
         assert_eq!(groups[0].theme.dark_theme_name.as_deref(), Some("gruvbox"));
+    }
+
+    fn test_snapshot(
+        groups: Vec<crate::persist::GroupSnapshot>,
+        workspaces: Vec<crate::persist::WorkspaceSnapshot>,
+    ) -> crate::persist::SessionSnapshot {
+        crate::persist::SessionSnapshot {
+            version: 3,
+            groups,
+            active_group: 0,
+            workspaces,
+            active: None,
+            selected: 0,
+            agent_panel_scope: state::AgentPanelScope::CurrentWorkspace,
+            sidebar_width: None,
+            sidebar_collapsed: false,
+            sidebar_section_split: None,
+            right_sidebar_width: None,
+            right_sidebar_collapsed: false,
+        }
+    }
+
+    fn test_group_snapshot(id: &str, name: &str) -> crate::persist::GroupSnapshot {
+        crate::persist::GroupSnapshot {
+            id: id.to_string(),
+            name: name.to_string(),
+            icon: "■".to_string(),
+            theme: None,
+            theme_name: None,
+        }
+    }
+
+    fn test_workspace_snapshot(id: &str, group_id: &str) -> crate::persist::WorkspaceSnapshot {
+        crate::persist::WorkspaceSnapshot {
+            id: Some(id.to_string()),
+            custom_name: Some(id.to_string()),
+            group_id: group_id.to_string(),
+            identity_cwd: std::path::PathBuf::from("/tmp"),
+            tabs: Vec::new(),
+            active_tab: 0,
+        }
+    }
+
+    #[test]
+    fn snapshot_groups_include_orphan_workspace_groups() {
+        let snap = test_snapshot(
+            vec![test_group_snapshot(
+                crate::workspace::DEFAULT_GROUP_ID,
+                "group 1",
+            )],
+            vec![test_workspace_snapshot("work", "orphan-group")],
+        );
+
+        let groups = groups_from_snapshot(&snap);
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].id, crate::workspace::DEFAULT_GROUP_ID);
+        assert_eq!(groups[1].id, "orphan-group");
+        assert_eq!(groups[1].name, "group 2");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn handoff_restores_snapshot_groups_and_sidebar_state() {
+        let mut snap = test_snapshot(
+            vec![
+                test_group_snapshot(crate::workspace::DEFAULT_GROUP_ID, "group 1"),
+                test_group_snapshot("work", "Work"),
+            ],
+            Vec::new(),
+        );
+        snap.active_group = 1;
+        snap.sidebar_width = Some(32);
+        snap.sidebar_collapsed = true;
+        snap.sidebar_section_split = Some(0.25);
+        snap.right_sidebar_width = Some(41);
+        snap.right_sidebar_collapsed = true;
+
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut imports = std::collections::HashMap::new();
+        let app = App::new_from_handoff(
+            &Config::default(),
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+            &snap,
+            &mut imports,
+        )
+        .expect("empty handoff restores app state");
+
+        assert_eq!(app.state.groups.len(), 2);
+        assert_eq!(app.state.groups[1].id, "work");
+        assert_eq!(app.state.groups[1].name, "Work");
+        assert_eq!(app.state.active_group, 1);
+        assert_eq!(app.state.sidebar_width, 32);
+        assert_eq!(app.state.sidebar_section_split, 0.25);
+        assert!(app.state.sidebar_collapsed);
+        assert_eq!(app.state.right_sidebar_width, 41);
+        assert!(app.state.right_sidebar_collapsed);
     }
 
     fn restore_xdg_state_home(original: Option<std::ffi::OsString>) {
