@@ -7,6 +7,7 @@ use crate::terminal::TerminalId;
 /// Terminal identity, cwd, labels, and agent metadata live in TerminalState.
 pub struct PaneState {
     pub attached_terminal_id: TerminalId,
+    pub env_pane_id_raw: Option<u32>,
     #[cfg(test)]
     pub detected_agent: Option<Agent>,
     #[cfg(test)]
@@ -20,11 +21,21 @@ impl PaneState {
     pub fn new(attached_terminal_id: TerminalId) -> Self {
         Self {
             attached_terminal_id,
+            env_pane_id_raw: None,
             #[cfg(test)]
             detected_agent: None,
             #[cfg(test)]
             state: AgentState::Unknown,
             seen: true,
         }
+    }
+
+    pub fn new_with_env_pane_id(
+        attached_terminal_id: TerminalId,
+        pane_id: crate::layout::PaneId,
+    ) -> Self {
+        let mut state = Self::new(attached_terminal_id);
+        state.env_pane_id_raw = Some(pane_id.raw());
+        state
     }
 }

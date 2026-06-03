@@ -196,6 +196,8 @@ pub struct TabSnapshot {
 pub struct PaneSnapshot {
     pub cwd: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env_pane_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_name: Option<String>,
@@ -557,10 +559,8 @@ fn capture_tab(
         let cwd = tab
             .cwd_for_pane(*id, terminals, terminal_runtimes)
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| "/".into()));
-        let terminal = tab
-            .panes
-            .get(id)
-            .and_then(|pane| terminals.get(&pane.attached_terminal_id));
+        let pane = tab.panes.get(id);
+        let terminal = pane.and_then(|pane| terminals.get(&pane.attached_terminal_id));
         let label = terminal.and_then(|terminal| terminal.manual_label.clone());
         let agent_name = terminal.and_then(|terminal| terminal.agent_name.clone());
         let launch_argv = terminal.and_then(|terminal| terminal.launch_argv.clone());
@@ -585,13 +585,16 @@ fn capture_tab(
                     value: session.session_ref.value.clone(),
                 })
         });
-        let seen = tab.panes.get(id).is_none_or(|pane| pane.seen);
+        let seen = pane.is_none_or(|pane| pane.seen);
         let terminal_semantics = include_terminal_semantics
             .then(|| terminal.and_then(|terminal| terminal.capture_semantic_snapshot()))
             .flatten();
         panes.insert(
             id.raw(),
             PaneSnapshot {
+                env_pane_id: pane
+                    .and_then(|pane| pane.env_pane_id_raw)
+                    .filter(|env_pane_id| *env_pane_id != id.raw()),
                 cwd,
                 label,
                 agent_name,
@@ -787,6 +790,11 @@ mod tests {
         let root_pane = state.workspaces[0].tabs[0].root_pane;
         let terminal_id = state.workspaces[0].terminal_id(root_pane).unwrap().clone();
         state.terminals.get_mut(&terminal_id).unwrap().cwd = PathBuf::from("/hako-test/runtime");
+        state.workspaces[0].tabs[0]
+            .panes
+            .get_mut(&root_pane)
+            .unwrap()
+            .env_pane_id_raw = Some(6);
 
         let snap = capture_from_state(&state);
 
@@ -797,6 +805,10 @@ mod tests {
         assert_eq!(
             snap.workspaces[0].tabs[0].panes[&root_pane.raw()].cwd,
             PathBuf::from("/hako-test/runtime")
+        );
+        assert_eq!(
+            snap.workspaces[0].tabs[0].panes[&root_pane.raw()].env_pane_id,
+            Some(6)
         );
     }
 
@@ -974,6 +986,7 @@ mod tests {
         panes.insert(
             0,
             PaneSnapshot {
+                env_pane_id: None,
                 cwd: PathBuf::from("/home/can/Projects/hako"),
                 label: None,
                 agent_name: None,
@@ -986,6 +999,7 @@ mod tests {
         panes.insert(
             1,
             PaneSnapshot {
+                env_pane_id: None,
                 cwd: PathBuf::from("/home/can/Projects/website"),
                 label: Some("website".into()),
                 agent_name: None,
@@ -1510,6 +1524,7 @@ mod tests {
         panes.insert(
             0,
             PaneSnapshot {
+                env_pane_id: None,
                 cwd: PathBuf::from("/tmp/this-directory-does-not-exist-for-hako-test"),
                 label: None,
                 agent_name: None,
@@ -1522,6 +1537,7 @@ mod tests {
         panes.insert(
             1,
             PaneSnapshot {
+                env_pane_id: None,
                 cwd: std::env::var("HOME")
                     .map(PathBuf::from)
                     .unwrap_or_else(|_| PathBuf::from("/tmp")),

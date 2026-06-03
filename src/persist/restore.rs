@@ -133,6 +133,17 @@ pub fn handoff_pane_aliases(
                     aliases.insert(old_id, new_id);
                 }
             }
+            for old_id in collect_snapshot_pane_ids(&tab_snap.layout) {
+                if let (Some(env_raw), Some(new_id)) = (
+                    tab_snap
+                        .panes
+                        .get(&old_id)
+                        .and_then(|pane| pane.env_pane_id),
+                    old_to_new.get(&old_id).copied(),
+                ) {
+                    aliases.insert(env_raw, new_id);
+                }
+            }
         }
     }
 
@@ -400,6 +411,7 @@ fn restore_tab(
         let saved_launch_argv = saved_pane.and_then(|p| p.launch_argv.clone());
         let saved_agent_session = saved_pane.and_then(|p| p.agent_session.as_ref());
         let saved_seen = saved_pane.is_none_or(|p| p.seen);
+        let saved_env_pane_id = saved_pane.and_then(|p| p.env_pane_id).or(old_id.copied());
         let saved_terminal_semantics = saved_pane.and_then(|p| p.terminal_semantics.clone());
         let saved_history =
             old_id.and_then(|old_id| history.and_then(|history| history.panes.get(old_id)));
@@ -508,7 +520,8 @@ fn restore_tab(
                 ) {
                     terminal.set_persisted_agent_session(session);
                 }
-                let mut pane = PaneState::new(terminal_id.clone());
+                let mut pane = PaneState::new_with_env_pane_id(terminal_id.clone(), *id);
+                pane.env_pane_id_raw = saved_env_pane_id;
                 pane.seen = saved_seen;
                 panes.insert(*id, pane);
                 terminal_runtimes.insert(terminal_id, runtime);
@@ -837,7 +850,19 @@ mod tests {
                 tabs: vec![TabSnapshot {
                     custom_name: None,
                     layout: LayoutSnapshot::Pane(10),
-                    panes: HashMap::new(),
+                    panes: HashMap::from([(
+                        10,
+                        super::super::snapshot::PaneSnapshot {
+                            cwd: cwd.clone(),
+                            env_pane_id: Some(6),
+                            label: None,
+                            agent_name: None,
+                            agent_session: None,
+                            launch_argv: None,
+                            seen: true,
+                            terminal_semantics: None,
+                        },
+                    )]),
                     zoomed: false,
                     focused: Some(10),
                     root_pane: Some(10),
@@ -859,6 +884,7 @@ mod tests {
         let aliases = handoff_pane_aliases(&snapshot, &[workspace]);
 
         assert_eq!(aliases.get(&3).copied(), Some(restored_pane));
+        assert_eq!(aliases.get(&6).copied(), Some(restored_pane));
     }
 
     #[test]
@@ -1084,6 +1110,7 @@ mod tests {
                     panes: HashMap::from([(
                         0,
                         super::super::snapshot::PaneSnapshot {
+                            env_pane_id: None,
                             cwd,
                             label: None,
                             agent_name: None,
@@ -1201,6 +1228,7 @@ mod tests {
                     panes: HashMap::from([(
                         0,
                         super::super::snapshot::PaneSnapshot {
+                            env_pane_id: None,
                             cwd,
                             label: None,
                             agent_name: None,
@@ -1347,6 +1375,7 @@ mod tests {
         panes.insert(
             0,
             super::super::snapshot::PaneSnapshot {
+                env_pane_id: None,
                 cwd: cwd.clone(),
                 label: None,
                 agent_name: None,

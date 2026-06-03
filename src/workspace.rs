@@ -914,7 +914,10 @@ impl Workspace {
         let (layout, root_id) = TileLayout::new();
         let terminal_id = TerminalId::alloc();
         let mut panes = HashMap::new();
-        panes.insert(root_id, PaneState::new(terminal_id));
+        panes.insert(
+            root_id,
+            PaneState::new_with_env_pane_id(terminal_id, root_id),
+        );
         let tab = Tab {
             custom_name: None,
             number: 1,
@@ -954,8 +957,10 @@ impl Workspace {
     pub(crate) fn test_split(&mut self, direction: Direction) -> PaneId {
         let tab = self.active_tab_mut().expect("workspace must have tab");
         let new_id = tab.layout.split_focused(direction);
-        tab.panes
-            .insert(new_id, PaneState::new(TerminalId::alloc()));
+        tab.panes.insert(
+            new_id,
+            PaneState::new_with_env_pane_id(TerminalId::alloc(), new_id),
+        );
         self.register_new_pane(new_id);
         new_id
     }
@@ -966,7 +971,10 @@ impl Workspace {
         let render_dirty = Arc::new(AtomicBool::new(false));
         let (layout, root_id) = TileLayout::new();
         let mut panes = HashMap::new();
-        panes.insert(root_id, PaneState::new(TerminalId::alloc()));
+        panes.insert(
+            root_id,
+            PaneState::new_with_env_pane_id(TerminalId::alloc(), root_id),
+        );
         let tab = Tab {
             custom_name: name.map(str::to_string),
             number: self.tabs.len() + 1,
