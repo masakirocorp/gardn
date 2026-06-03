@@ -133,6 +133,7 @@ pub struct TerminalState {
     pub revision: u64,
     pub launch_argv: Option<Vec<String>>,
     pub respawn_shell_on_exit: bool,
+    pub pending_agent_resume_plan: Option<crate::agent_resume::AgentResumePlan>,
 }
 
 impl TerminalState {
@@ -158,6 +159,7 @@ impl TerminalState {
             revision: 0,
             launch_argv: None,
             respawn_shell_on_exit: false,
+            pending_agent_resume_plan: None,
         }
     }
 
@@ -244,6 +246,14 @@ impl TerminalState {
 
     pub fn with_respawn_shell_on_exit(mut self) -> Self {
         self.respawn_shell_on_exit = true;
+        self
+    }
+
+    pub fn with_pending_agent_resume_plan(
+        mut self,
+        plan: crate::agent_resume::AgentResumePlan,
+    ) -> Self {
+        self.pending_agent_resume_plan = Some(plan);
         self
     }
 
@@ -856,7 +866,9 @@ impl TerminalState {
         self.persisted_agent_session = None;
         self.agent_metadata.clear();
         self.launch_argv = None;
+        self.state = AgentState::Unknown;
         self.respawn_shell_on_exit = false;
+        self.pending_agent_resume_plan = None;
         self.clear_agent_name();
     }
 

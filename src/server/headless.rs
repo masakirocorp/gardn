@@ -258,7 +258,7 @@ impl HeadlessServer {
 
             // 6. Handle scheduled tasks.
             let now = Instant::now();
-            if self.handle_scheduled_tasks_headless(now) {
+            if self.handle_scheduled_tasks_headless(now, needs_render) {
                 needs_render = true;
             }
 
@@ -325,6 +325,14 @@ impl HeadlessServer {
             if needs_render && self.app.can_render_now(now) {
                 self.app.render_dirty.swap(false, Ordering::AcqRel);
                 self.render_and_stream();
+                self.app.sync_pending_agent_resume_deadline(now);
+                if self
+                    .app
+                    .start_pending_agent_resumes(self.app.pending_agent_resume_due(now))
+                {
+                    self.app.render_dirty.store(true, Ordering::Release);
+                    self.app.render_notify.notify_one();
+                }
                 self.app.last_render_at = Some(now);
                 needs_render = false;
                 continue;
@@ -2326,7 +2334,7 @@ impl HeadlessServer {
     ///
     /// Similar to `App::handle_scheduled_tasks` but without resize polling
     /// (the server doesn't have a terminal to resize).
-    fn handle_scheduled_tasks_headless(&mut self, now: Instant) -> bool {
+    fn handle_scheduled_tasks_headless(&mut self, now: Instant, geometry_dirty: bool) -> bool {
         let mut changed = false;
 
         self.app.sync_headless_animation_timer(now);
@@ -2439,6 +2447,15 @@ impl HeadlessServer {
             }
             self.app.sync_agent_metadata_deadline();
             changed = true;
+        }
+
+        if geometry_dirty {
+            self.app.pending_agent_resume_deadline = None;
+        } else {
+            self.app.sync_pending_agent_resume_deadline(now);
+            changed |= self
+                .app
+                .start_pending_agent_resumes(self.app.pending_agent_resume_due(now));
         }
 
         self.app.sync_headless_animation_timer(now);
@@ -2854,7 +2871,7 @@ mod tests {
         let now = Instant::now();
         server.app.next_port_scan = now;
 
-        server.handle_scheduled_tasks_headless(now);
+        server.handle_scheduled_tasks_headless(now, false);
 
         assert_eq!(server.app.next_port_scan, now + app::PORT_SCAN_INTERVAL);
     }
@@ -2917,7 +2934,7 @@ mod tests {
         let now = Instant::now();
         server.app.next_command_scan = now;
 
-        assert!(server.handle_scheduled_tasks_headless(now));
+        assert!(server.handle_scheduled_tasks_headless(now, false));
 
         assert_eq!(server.app.state.command_catalog.len(), 1);
         assert_eq!(server.app.state.command_catalog[0].name, "dev");
@@ -3466,7 +3483,7 @@ next_tab = ""
             Some("short lived")
         );
 
-        assert!(server.handle_scheduled_tasks_headless(deadline + Duration::from_millis(1)));
+        assert!(server.handle_scheduled_tasks_headless(deadline + Duration::from_millis(1), false));
 
         assert_eq!(server.app.agent_metadata_deadline, None);
         assert_eq!(

@@ -5,6 +5,7 @@
 //! - `input.rs` — key/mouse → action translation
 
 pub(crate) mod actions;
+mod agent_resume;
 mod agents;
 mod api;
 mod api_helpers;
@@ -37,6 +38,7 @@ pub(crate) const COMMAND_SCAN_INTERVAL: Duration = Duration::from_secs(5);
 const PORT_STALE_TTL: Duration = Duration::from_secs(5);
 const GIT_REMOTE_STATUS_REFRESH_INTERVAL: Duration = Duration::from_millis(1500);
 const AUTO_UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
+const PENDING_AGENT_RESUME_THEME_WAIT: Duration = Duration::from_millis(750);
 const SESSION_SAVE_DEBOUNCE: Duration = Duration::from_secs(5);
 const SIDEBAR_DOUBLE_CLICK_WINDOW: Duration = Duration::from_millis(350);
 const COPY_FEEDBACK_DURATION: Duration = Duration::from_secs(2);
@@ -110,6 +112,7 @@ pub struct App {
     pub(crate) next_animation_tick: Option<Instant>,
     pub(crate) next_auto_update_check: Option<Instant>,
     pub(crate) agent_metadata_deadline: Option<Instant>,
+    pub(crate) pending_agent_resume_deadline: Option<Instant>,
     pub(crate) selection_autoscroll_deadline: Option<Instant>,
     pub(crate) selection_highlight_clear_deadline: Option<Instant>,
     pub(crate) session_save_deadline: Option<Instant>,
@@ -775,6 +778,7 @@ impl App {
             next_auto_update_check: auto_updates_enabled(no_session)
                 .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL),
             agent_metadata_deadline: None,
+            pending_agent_resume_deadline: None,
             session_save_deadline: None,
             selection_autoscroll_deadline: None,
             selection_highlight_clear_deadline: None,
@@ -919,7 +923,7 @@ impl App {
             self.sync_session_save_schedule();
 
             let now = Instant::now();
-            if self.handle_scheduled_tasks(now) {
+            if self.handle_scheduled_tasks(now, needs_render) {
                 needs_render = true;
             }
 
@@ -1009,6 +1013,11 @@ impl App {
                         &self.terminal_runtimes,
                         cell_size,
                     )?;
+                }
+                self.sync_pending_agent_resume_deadline(now);
+                if self.start_pending_agent_resumes(self.pending_agent_resume_due(now)) {
+                    self.render_dirty.store(true, Ordering::Release);
+                    self.render_notify.notify_one();
                 }
                 self.last_render_at = Some(now);
                 needs_render = false;
@@ -2789,14 +2798,14 @@ mod tests {
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
-        assert!(!app.state.resume_agents_on_restore);
-
-        app.save_resume_agents_on_restore(true);
-
         assert!(app.state.resume_agents_on_restore);
+
+        app.save_resume_agents_on_restore(false);
+
+        assert!(!app.state.resume_agents_on_restore);
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("[session]"));
-        assert!(content.contains("resume_agents_on_restore = true"));
+        assert!(content.contains("resume_agents_on_restore = false"));
         assert!(app.state.config_diagnostic.is_none());
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
@@ -3785,7 +3794,7 @@ mod tests {
         let mut app = test_app();
         app.session_save_deadline = Some(Instant::now() - Duration::from_secs(1));
 
-        app.handle_scheduled_tasks(Instant::now());
+        app.handle_scheduled_tasks(Instant::now(), false);
 
         assert!(app.session_save_deadline.is_none());
     }

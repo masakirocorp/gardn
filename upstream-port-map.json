@@ -677,6 +677,12 @@
       "subject": "fix: preserve linewise copy selection (#389)",
       "status": "ported",
       "reason": "ported to Hako with linewise copy-mode selection state and behavioral coverage."
+    },
+    {
+      "upstream": "36a4608603a82dbf32ec8a013dd47047cf02c6a3",
+      "subject": "fix: restore agents through pane shells",
+      "status": "ported",
+      "reason": "ported to Hako with deferred shell-based agent resume and Hako session restore defaults."
     }
   ]
 }

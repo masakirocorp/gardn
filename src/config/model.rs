@@ -85,12 +85,20 @@ pub struct TerminalConfig {
     pub new_cwd: NewTerminalCwdConfig,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct SessionConfig {
     /// Resume supported AI-agent panes into their native conversation sessions
-    /// when restoring a Hako session. Default: false.
+    /// when restoring a Hako session. Default: true.
     pub resume_agents_on_restore: bool,
+}
+
+impl Default for SessionConfig {
+    fn default() -> Self {
+        Self {
+            resume_agents_on_restore: true,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -574,16 +582,16 @@ new_cwd = "~/Projects"
     }
 
     #[test]
-    fn resume_agents_on_restore_defaults_off_and_parses() {
+    fn resume_agents_on_restore_defaults_on_and_parses() {
         let default_config = Config::default();
-        assert!(!default_config.session.resume_agents_on_restore);
+        assert!(default_config.session.resume_agents_on_restore);
 
         let toml = r#"
 [session]
-resume_agents_on_restore = true
+resume_agents_on_restore = false
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert!(config.session.resume_agents_on_restore);
+        assert!(!config.session.resume_agents_on_restore);
     }
 
     #[test]

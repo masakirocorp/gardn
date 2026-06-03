@@ -105,12 +105,12 @@ Supported built-in detection includes:
 
 ### Agent session restore
 
-When `[session].resume_agents_on_restore = true`, Hako can resume supported agents into native agent sessions during session restore.
+Hako resumes supported agents into native agent sessions during session restore by default. Set `[session].resume_agents_on_restore = false` to disable it.
 
 - Supported restore sources come from installed integrations that report session references.
 - Duplicate session references are deduplicated during a restore pass.
 - Native agent restore suppresses pane-history replay so the resumed agent owns its conversation history.
-- Failed direct restored-agent spawns report pane death instead of falling back through a shell wrapper.
+- Restored agents launch through the restored pane shell, preserving pane environment setup before the native resume command runs.
 
 ## Navigation and interaction
 
