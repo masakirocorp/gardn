@@ -1730,6 +1730,7 @@ mod tests {
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
             ui: crate::persist::SessionUiSnapshot::default(),
+            pane_id_aliases: std::collections::HashMap::new(),
         };
 
         let groups = groups_from_snapshot(&snap);
@@ -1761,6 +1762,7 @@ mod tests {
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
             ui: crate::persist::SessionUiSnapshot::default(),
+            pane_id_aliases: std::collections::HashMap::new(),
         }
     }
 

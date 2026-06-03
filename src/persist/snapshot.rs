@@ -38,6 +38,8 @@ pub struct SessionSnapshot {
     pub right_sidebar_collapsed: bool,
     #[serde(default)]
     pub ui: SessionUiSnapshot,
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub pane_id_aliases: std::collections::HashMap<u32, u32>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -298,6 +300,8 @@ struct RawSessionSnapshot {
     right_sidebar_collapsed: bool,
     #[serde(default)]
     ui: SessionUiSnapshot,
+    #[serde(default)]
+    pane_id_aliases: std::collections::HashMap<u32, u32>,
 }
 
 fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> {
@@ -323,6 +327,7 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
         right_sidebar_width: raw.right_sidebar_width,
         right_sidebar_collapsed: raw.right_sidebar_collapsed,
         ui: raw.ui,
+        pane_id_aliases: raw.pane_id_aliases,
     })
 }
 
@@ -488,6 +493,7 @@ fn capture_inner(
         active,
         selected,
         ui: SessionUiSnapshot::default(),
+        pane_id_aliases: std::collections::HashMap::new(),
         agent_panel_scope,
         sidebar_width: Some(sidebar_width),
         sidebar_collapsed,
@@ -895,6 +901,7 @@ mod tests {
             right_sidebar_width: Some(28),
             right_sidebar_collapsed: false,
             ui: SessionUiSnapshot::default(),
+            pane_id_aliases: HashMap::new(),
         };
         let json = serde_json::to_string(&snap).unwrap();
         let restored = parse_snapshot(&json).unwrap();
@@ -1021,6 +1028,7 @@ mod tests {
             right_sidebar_width: Some(28),
             right_sidebar_collapsed: false,
             ui: SessionUiSnapshot::default(),
+            pane_id_aliases: HashMap::new(),
             version: SNAPSHOT_VERSION,
         };
 
@@ -1559,6 +1567,7 @@ mod tests {
             right_sidebar_width: Some(28),
             right_sidebar_collapsed: false,
             ui: SessionUiSnapshot::default(),
+            pane_id_aliases: HashMap::new(),
         };
 
         let json = serde_json::to_string(&snap).unwrap();

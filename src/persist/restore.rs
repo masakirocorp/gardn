@@ -122,15 +122,23 @@ pub fn handoff_pane_aliases(
     workspaces: &[Workspace],
 ) -> HashMap<u32, PaneId> {
     let mut aliases = HashMap::new();
+    let mut old_to_new = HashMap::new();
     for (ws_snap, workspace) in snapshot.workspaces.iter().zip(workspaces) {
         for (tab_snap, tab) in ws_snap.tabs.iter().zip(&workspace.tabs) {
             let old_ids = collect_snapshot_pane_ids(&tab_snap.layout);
             let new_ids = tab.layout.pane_ids();
             for (old_id, new_id) in old_ids.into_iter().zip(new_ids) {
+                old_to_new.insert(old_id, new_id);
                 if old_id != new_id.raw() {
                     aliases.insert(old_id, new_id);
                 }
             }
+        }
+    }
+
+    for (env_raw, current_raw) in &snapshot.pane_id_aliases {
+        if let Some(new_id) = old_to_new.get(current_raw).copied() {
+            aliases.insert(*env_raw, new_id);
         }
     }
     aliases
@@ -807,6 +815,53 @@ mod tests {
     }
 
     #[test]
+    fn handoff_pane_aliases_remap_previous_env_aliases_transitively() {
+        let workspace = crate::workspace::Workspace::test_new("space");
+        let restored_pane = workspace.tabs[0].root_pane;
+        let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
+        let snapshot = SessionSnapshot {
+            version: super::super::snapshot::SNAPSHOT_VERSION,
+            groups: vec![super::super::snapshot::GroupSnapshot {
+                id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
+                name: "group 1".to_string(),
+                icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
+                theme: None,
+                theme_name: None,
+            }],
+            active_group: 0,
+            workspaces: vec![WorkspaceSnapshot {
+                id: Some(workspace.id.clone()),
+                custom_name: None,
+                group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
+                identity_cwd: cwd.clone(),
+                tabs: vec![TabSnapshot {
+                    custom_name: None,
+                    layout: LayoutSnapshot::Pane(10),
+                    panes: HashMap::new(),
+                    zoomed: false,
+                    focused: Some(10),
+                    root_pane: Some(10),
+                }],
+                active_tab: 0,
+            }],
+            active: Some(0),
+            selected: 0,
+            agent_panel_scope: crate::app::state::AgentPanelScope::AllWorkspaces,
+            sidebar_width: None,
+            sidebar_collapsed: false,
+            sidebar_section_split: None,
+            right_sidebar_width: None,
+            right_sidebar_collapsed: false,
+            ui: crate::persist::SessionUiSnapshot::default(),
+            pane_id_aliases: HashMap::from([(3, 10)]),
+        };
+
+        let aliases = handoff_pane_aliases(&snapshot, &[workspace]);
+
+        assert_eq!(aliases.get(&3).copied(), Some(restored_pane));
+    }
+
+    #[test]
     fn prune_restored_node_collapses_missing_branch() {
         let keep = PaneId::from_raw(11);
         let missing = PaneId::from_raw(12);
@@ -1058,6 +1113,7 @@ mod tests {
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
             ui: super::super::snapshot::SessionUiSnapshot::default(),
+            pane_id_aliases: HashMap::new(),
         };
         let (events, _event_rx) = mpsc::channel(4);
 
@@ -1174,6 +1230,7 @@ mod tests {
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
             ui: super::super::snapshot::SessionUiSnapshot::default(),
+            pane_id_aliases: HashMap::new(),
         };
         let (events, _event_rx) = mpsc::channel(4);
 
@@ -1348,6 +1405,7 @@ mod tests {
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
             ui: super::super::snapshot::SessionUiSnapshot::default(),
+            pane_id_aliases: HashMap::new(),
         };
         (snapshot, history)
     }

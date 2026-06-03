@@ -549,6 +549,13 @@ impl HeadlessServer {
             self.app.state.right_sidebar_collapsed,
         );
         snapshot.ui = crate::persist::SessionUiSnapshot::from_app_state(&self.app.state);
+        snapshot.pane_id_aliases = self
+            .app
+            .state
+            .pane_id_aliases
+            .iter()
+            .map(|(old_raw, current)| (*old_raw, current.raw()))
+            .collect();
 
         let mut handoff_entries = Vec::new();
         for (terminal_id, runtime) in self.app.terminal_runtimes.iter() {
