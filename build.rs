@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn zig_target(target: &str) -> &str {
@@ -27,6 +27,93 @@ fn env_bool(name: &str) -> Option<bool> {
     }
 }
 
+fn required_zig_version(vendored_dir: &Path) -> String {
+    let zon = fs::read_to_string(vendored_dir.join("build.zig.zon"))
+        .expect("failed to read vendored libghostty-vt build.zig.zon");
+
+    for line in zon.lines() {
+        if !line.contains(".minimum_zig_version") {
+            continue;
+        }
+
+        let Some((_, quoted)) = line.split_once('"') else {
+            break;
+        };
+        let Some((version, _)) = quoted.split_once('"') else {
+            break;
+        };
+        return version.to_string();
+    }
+
+    panic!("failed to parse minimum_zig_version from vendored libghostty-vt build.zig.zon");
+}
+
+fn zig_version(zig: &str) -> Option<String> {
+    let output = Command::new(zig).arg("version").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    Some(String::from_utf8(output.stdout).ok()?.trim().to_string())
+}
+
+fn compatible_zig_version(version: &str, required_version: &str) -> bool {
+    version == required_version
+}
+
+fn homebrew_zig_formula_version(required_version: &str) -> &str {
+    required_version
+        .rsplit_once('.')
+        .map_or(required_version, |(major_minor, _)| major_minor)
+}
+
+fn resolve_zig(required_version: &str) -> String {
+    match env::var("ZIG") {
+        Ok(zig) => {
+            let version =
+                zig_version(&zig).unwrap_or_else(|| panic!("failed to execute Zig from ZIG={zig}"));
+            if !compatible_zig_version(&version, required_version) {
+                panic!(
+                    "vendored libghostty-vt requires Zig {required_version}; found Zig {version} from ZIG={zig}"
+                );
+            }
+            return zig;
+        }
+        Err(env::VarError::NotPresent) => {}
+        Err(err) => panic!("failed to read ZIG: {err}"),
+    }
+
+    let homebrew_formula_version = homebrew_zig_formula_version(required_version);
+    let candidates = [
+        "zig".to_string(),
+        format!("/opt/homebrew/opt/zig@{homebrew_formula_version}/bin/zig"),
+        format!("/usr/local/opt/zig@{homebrew_formula_version}/bin/zig"),
+    ];
+    let mut found_zig: Option<(String, String)> = None;
+
+    for candidate in candidates {
+        let Some(version) = zig_version(&candidate) else {
+            continue;
+        };
+        if compatible_zig_version(&version, required_version) {
+            return candidate;
+        }
+        if found_zig.is_none() {
+            found_zig = Some((candidate, version));
+        }
+    }
+
+    if let Some((zig, version)) = found_zig {
+        panic!(
+            "vendored libghostty-vt requires Zig {required_version}; found Zig {version} at {zig}. Install zig@{homebrew_formula_version} or set ZIG to a compatible zig binary"
+        );
+    }
+
+    panic!(
+        "vendored libghostty-vt requires Zig {required_version}; install zig@{homebrew_formula_version} or set ZIG to a compatible zig binary"
+    );
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=vendor/libghostty-vt.vendor.json");
@@ -39,6 +126,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_OPTIMIZE");
     println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_SIMD");
     println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_ZIG_SYSTEM_DIR");
+    println!("cargo:rerun-if-env-changed=PATH");
     println!("cargo:rerun-if-env-changed=ZIG");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
@@ -52,7 +140,7 @@ fn main() {
         .trim()
         .to_string();
 
-    let zig = env::var("ZIG").unwrap_or_else(|_| "zig".into());
+    let zig = resolve_zig(&required_zig_version(&vendored_dir));
     let mut command = Command::new(zig);
     command
         .arg("build")
