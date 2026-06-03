@@ -559,66 +559,55 @@ fn run_shell_hook(asset_path: &str, args: &[&str], hook_input: &str) -> Option<s
 }
 
 #[test]
-fn claude_hook_reports_subagent_working_and_blocked() {
-    let subagent_input = r#"{"hook_event_name":"Notification","agent_id":"agent-abc123","agent_type":"Explore","notification_type":"permission_prompt"}"#;
+fn claude_hook_reports_session_identity_only() {
+    assert!(
+        run_claude_hook(
+            "working",
+            r#"{"hook_event_name":"Notification","agent_id":"agent-abc123","agent_type":"Explore","notification_type":"permission_prompt"}"#,
+        )
+        .is_none(),
+        "Claude hook should not author lifecycle state"
+    );
+    assert!(
+        run_claude_hook(
+            "blocked",
+            r#"{"hook_event_name":"PermissionRequest","agent_type":"Explore"}"#,
+        )
+        .is_none(),
+        "Claude hook should not author blocked state"
+    );
 
-    let working =
-        run_claude_hook("working", subagent_input).expect("subagent working should report working");
-    assert_eq!(working["method"], "pane.report_agent");
-    assert_eq!(working["params"]["state"], "working");
-    assert!(working["params"]["seq"].as_u64().is_some());
-
-    let blocked =
-        run_claude_hook("blocked", subagent_input).expect("subagent blocked should report blocked");
-    assert_eq!(blocked["method"], "pane.report_agent");
-    assert_eq!(blocked["params"]["state"], "blocked");
-}
-
-#[test]
-fn claude_hook_ignores_subagent_completion_reports() {
-    let subagent_input =
-        r#"{"hook_event_name":"SubagentStop","agent_id":"agent-abc123","agent_type":"Explore"}"#;
-
-    assert!(run_claude_hook("working", subagent_input).is_none());
-    assert!(run_claude_hook("idle", subagent_input).is_none());
-    assert!(run_claude_hook("release", subagent_input).is_none());
-}
-
-#[test]
-fn claude_hook_keeps_parent_agent_type_only_blocked() {
     let request = run_claude_hook(
-        "blocked",
-        r#"{"hook_event_name":"PermissionRequest","agent_type":"Explore"}"#,
-    )
-    .expect("parent blocked should still report blocked");
-
-    assert_eq!(request["method"], "pane.report_agent");
-    assert_eq!(request["params"]["state"], "blocked");
-}
-
-#[test]
-fn claude_hook_reports_session_id_from_stdin() {
-    let request = run_claude_hook(
-        "idle",
+        "session",
         r#"{"hook_event_name":"SessionStart","session_id":"claude-session"}"#,
     )
-    .expect("session start should report idle");
+    .expect("session start should report session identity");
 
-    assert_eq!(request["method"], "pane.report_agent");
+    assert_eq!(request["method"], "pane.report_agent_session");
     assert_eq!(request["params"]["agent_session_id"], "claude-session");
+    assert_eq!(request["params"]["agent"], "claude");
 }
 
 #[test]
-fn codex_hook_reports_session_id_from_stdin() {
+fn codex_hook_reports_session_identity_only() {
+    assert!(
+        run_codex_hook(
+            "working",
+            r#"{"hook_event_name":"SessionStart","session_id":"codex-session"}"#,
+        )
+        .is_none(),
+        "Codex hook should ignore lifecycle-state actions"
+    );
+
     let request = run_codex_hook(
-        "working",
+        "session",
         r#"{"hook_event_name":"SessionStart","session_id":"codex-session"}"#,
     )
-    .expect("codex hook should report working");
+    .expect("codex hook should report session identity");
 
-    assert_eq!(request["method"], "pane.report_agent");
-    assert_eq!(request["params"]["state"], "working");
+    assert_eq!(request["method"], "pane.report_agent_session");
     assert_eq!(request["params"]["agent_session_id"], "codex-session");
+    assert_eq!(request["params"]["agent"], "codex");
 }
 
 #[test]

@@ -69,6 +69,13 @@ pub fn session_ref_from_report(
     agent_session_id.and_then(AgentSessionRef::id)
 }
 
+pub fn is_reserved_native_state_source(source: &str, agent: &str) -> bool {
+    matches!(
+        (source, agent),
+        ("hako:claude", "claude") | ("hako:codex", "codex")
+    )
+}
+
 pub fn session_ref_from_snapshot(
     source: &str,
     agent: &str,

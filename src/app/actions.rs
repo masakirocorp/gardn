@@ -2752,6 +2752,18 @@ impl AppState {
                 })
                 .into_iter()
                 .collect(),
+            AppEvent::HookSessionReported {
+                pane_id,
+                source,
+                agent_label,
+                seq,
+                session_ref,
+            } => self
+                .update_terminal_state(pane_id, |terminal| {
+                    terminal.set_agent_session_ref(source, agent_label, session_ref, seq)
+                })
+                .into_iter()
+                .collect(),
             AppEvent::HookMetadataReported {
                 pane_id,
                 source,
@@ -4707,32 +4719,34 @@ mod tests {
         let mut state = app_with_workspaces(&["active"]);
         let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
 
-        let first_updates = state.handle_app_event(AppEvent::HookStateReported {
+        let first_updates = state.handle_app_event(AppEvent::StateChanged {
             pane_id,
-            source: "hako:pi".into(),
-            agent_label: "pi".into(),
+            agent: Some(Agent::Pi),
             state: AgentState::Working,
-            message: None,
-            custom_status: None,
-            seq: Some(20),
-            session_ref: crate::agent_resume::AgentSessionRef::path("/tmp/one.jsonl"),
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: true,
+            process_exited: false,
+            observed_at: std::time::Instant::now(),
         });
         assert_eq!(first_updates.len(), 1);
         state.session_dirty = false;
 
-        let second_updates = state.handle_app_event(AppEvent::HookStateReported {
+        let second_updates = state.handle_app_event(AppEvent::HookSessionReported {
             pane_id,
             source: "hako:pi".into(),
             agent_label: "pi".into(),
-            state: AgentState::Working,
-            message: None,
-            custom_status: None,
             seq: Some(21),
             session_ref: crate::agent_resume::AgentSessionRef::path("/tmp/two.jsonl"),
         });
 
         assert!(second_updates.is_empty());
         assert!(state.session_dirty);
+        let terminal = state
+            .terminals
+            .get(&state.workspaces[0].terminal_id(pane_id).cloned().unwrap())
+            .unwrap();
+        assert_eq!(terminal.state, AgentState::Working);
     }
 
     #[test]

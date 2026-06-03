@@ -427,6 +427,36 @@ impl TerminalState {
         )
     }
 
+    pub fn set_agent_session_ref(
+        &mut self,
+        source: String,
+        agent_label: String,
+        session_ref: Option<crate::agent_resume::AgentSessionRef>,
+        seq: Option<u64>,
+    ) -> Option<TerminalStateMutation> {
+        let reset_sequence =
+            self.should_reset_hook_sequence_for_new_session(&source, session_ref.as_ref());
+        if !self.hook_sequence_allows(&source, seq, reset_sequence) {
+            return None;
+        }
+        let session_ref = session_ref?;
+        if self.known_agent_label_conflicts_with_detected_agent(&agent_label) {
+            return None;
+        }
+
+        let previous_session = self.current_session_identity_for_persistence();
+        self.persisted_agent_session = Some(crate::agent_resume::PersistedAgentSession {
+            source,
+            agent: agent_label,
+            session_ref,
+        });
+        let current_session = self.current_session_identity_for_persistence();
+        Some(TerminalStateMutation {
+            effective_state_change: None,
+            session_ref_changed: previous_session != current_session,
+        })
+    }
+
     pub fn set_hook_authority_with_custom_status_at(
         &mut self,
         source: String,
