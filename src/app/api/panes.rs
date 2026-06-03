@@ -3,8 +3,9 @@ use bytes::Bytes;
 use crate::api::schema::{
     EventData, EventEnvelope, EventKind, PaneClearAgentAuthorityParams, PaneListParams,
     PaneReadParams, PaneReadResult, PaneReleaseAgentParams, PaneRenameParams,
-    PaneReportAgentParams, PaneReportMetadataParams, PaneSendInputParams, PaneSendKeysParams,
-    PaneSendTextParams, PaneSplitParams, PaneTarget, ReadFormat, ReadSource, ResponseResult,
+    PaneReportAgentParams, PaneReportAgentSessionParams, PaneReportMetadataParams,
+    PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams, PaneSplitParams, PaneTarget,
+    ReadFormat, ReadSource, ResponseResult,
 };
 use crate::app::{App, Mode};
 
@@ -178,6 +179,16 @@ impl App {
         let Some(agent_label) = normalize_reported_agent_label(&params.agent) else {
             return invalid_agent(id);
         };
+        if crate::agent_resume::is_reserved_native_state_source(&params.source, &agent_label) {
+            return encode_error(
+                id,
+                "reserved_agent_state_source",
+                format!(
+                    "{} reports native session identity only; use screen detection for state",
+                    params.source
+                ),
+            );
+        }
         self.handle_internal_event(crate::events::AppEvent::HookStateReported {
             pane_id,
             session_ref: crate::agent_resume::session_ref_from_report(
@@ -191,6 +202,33 @@ impl App {
             state: detect_state_from_api(params.state),
             message: params.message,
             custom_status: normalize_custom_status(params.custom_status),
+            seq: params.seq,
+        });
+
+        encode_success(id, ResponseResult::Ok {})
+    }
+
+    pub(super) fn handle_pane_report_agent_session(
+        &mut self,
+        id: String,
+        params: PaneReportAgentSessionParams,
+    ) -> String {
+        let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some(agent_label) = normalize_reported_agent_label(&params.agent) else {
+            return invalid_agent(id);
+        };
+        self.handle_internal_event(crate::events::AppEvent::HookSessionReported {
+            pane_id,
+            session_ref: crate::agent_resume::session_ref_from_report(
+                &params.source,
+                &agent_label,
+                params.agent_session_id,
+                params.agent_session_path,
+            ),
+            source: params.source,
+            agent_label,
             seq: params.seq,
         });
 

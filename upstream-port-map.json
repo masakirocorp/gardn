@@ -653,6 +653,42 @@
       "subject": "fix: request missing issue environment details",
       "status": "skipped",
       "reason": "upstream issue-gate workflow is Herdr repository process, not Hako runtime/product behavior."
+    },
+    {
+      "upstream": "4db4ffad994bd614763641716013fa7ad41e1eb9",
+      "subject": "feat: add expanded sidebar collapse control (#291)",
+      "status": "superseded",
+      "reason": "Hako already has equivalent expanded sidebar collapse behavior from 010a9e9, adapted to Hako's footer/global-menu layout."
+    },
+    {
+      "upstream": "748c3fbb9a3d56d325b5cb802eb0707f30f2b354",
+      "subject": "fix: wake pty actor for queued input",
+      "status": "ported",
+      "reason": "ported to Hako with fd-based PTY actor wake pipe and Hako thread naming."
+    },
+    {
+      "upstream": "53e4b27165caeeaaf206907d082d3614876b2e4c",
+      "subject": "fix: answer osc 4 palette queries",
+      "status": "ported",
+      "reason": "ported to Hako with active Ghostty palette replies for OSC 4 queries."
+    },
+    {
+      "upstream": "ab649adfded619a0461e36e2eb3929dd5f9e7567",
+      "subject": "fix: preserve linewise copy selection (#389)",
+      "status": "ported",
+      "reason": "ported to Hako with linewise copy-mode selection state and behavioral coverage."
+    },
+    {
+      "upstream": "36a4608603a82dbf32ec8a013dd47047cf02c6a3",
+      "subject": "fix: restore agents through pane shells",
+      "status": "ported",
+      "reason": "ported to Hako with deferred shell-based agent resume and Hako session restore defaults."
+    },
+    {
+      "upstream": "295b09ca25edbccac65401ee84fa420dd3888aad",
+      "subject": "feat: make claude codex opencode hooks session-only",
+      "status": "superseded",
+      "reason": "Hako uses the upstream session-only API for Claude and Codex but intentionally keeps OpenCode direct state reporting until real ask/permission screens are proven fully covered by screen detection."
     }
   ]
 }

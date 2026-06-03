@@ -133,6 +133,7 @@ pub struct TerminalState {
     pub revision: u64,
     pub launch_argv: Option<Vec<String>>,
     pub respawn_shell_on_exit: bool,
+    pub pending_agent_resume_plan: Option<crate::agent_resume::AgentResumePlan>,
 }
 
 impl TerminalState {
@@ -158,6 +159,7 @@ impl TerminalState {
             revision: 0,
             launch_argv: None,
             respawn_shell_on_exit: false,
+            pending_agent_resume_plan: None,
         }
     }
 
@@ -244,6 +246,14 @@ impl TerminalState {
 
     pub fn with_respawn_shell_on_exit(mut self) -> Self {
         self.respawn_shell_on_exit = true;
+        self
+    }
+
+    pub fn with_pending_agent_resume_plan(
+        mut self,
+        plan: crate::agent_resume::AgentResumePlan,
+    ) -> Self {
+        self.pending_agent_resume_plan = Some(plan);
         self
     }
 
@@ -415,6 +425,36 @@ impl TerminalState {
             seq,
             Instant::now(),
         )
+    }
+
+    pub fn set_agent_session_ref(
+        &mut self,
+        source: String,
+        agent_label: String,
+        session_ref: Option<crate::agent_resume::AgentSessionRef>,
+        seq: Option<u64>,
+    ) -> Option<TerminalStateMutation> {
+        let reset_sequence =
+            self.should_reset_hook_sequence_for_new_session(&source, session_ref.as_ref());
+        if !self.hook_sequence_allows(&source, seq, reset_sequence) {
+            return None;
+        }
+        let session_ref = session_ref?;
+        if self.known_agent_label_conflicts_with_detected_agent(&agent_label) {
+            return None;
+        }
+
+        let previous_session = self.current_session_identity_for_persistence();
+        self.persisted_agent_session = Some(crate::agent_resume::PersistedAgentSession {
+            source,
+            agent: agent_label,
+            session_ref,
+        });
+        let current_session = self.current_session_identity_for_persistence();
+        Some(TerminalStateMutation {
+            effective_state_change: None,
+            session_ref_changed: previous_session != current_session,
+        })
     }
 
     pub fn set_hook_authority_with_custom_status_at(
@@ -856,7 +896,9 @@ impl TerminalState {
         self.persisted_agent_session = None;
         self.agent_metadata.clear();
         self.launch_argv = None;
+        self.state = AgentState::Unknown;
         self.respawn_shell_on_exit = false;
+        self.pending_agent_resume_plan = None;
         self.clear_agent_name();
     }
 

@@ -220,13 +220,15 @@ impl App {
         self.state.port_registry.endpoints() != before
     }
 
-    pub(crate) fn handle_scheduled_tasks(&mut self, now: Instant) -> bool {
+    pub(crate) fn handle_scheduled_tasks(&mut self, now: Instant, geometry_dirty: bool) -> bool {
         let mut changed = false;
+        let mut resized = false;
 
         self.sync_animation_timer(now);
 
         if now >= self.next_resize_poll {
-            changed |= self.handle_resize_poll();
+            resized = self.handle_resize_poll();
+            changed |= resized;
             self.next_resize_poll = now + RESIZE_POLL_INTERVAL;
         }
 
@@ -313,6 +315,13 @@ impl App {
             }
             self.sync_agent_metadata_deadline();
             changed = true;
+        }
+
+        if geometry_dirty || resized {
+            self.pending_agent_resume_deadline = None;
+        } else {
+            self.sync_pending_agent_resume_deadline(now);
+            changed |= self.start_pending_agent_resumes(self.pending_agent_resume_due(now));
         }
 
         self.sync_animation_timer(now);
@@ -578,6 +587,7 @@ impl App {
                 .flatten(),
             self.next_auto_update_check,
             self.agent_metadata_deadline,
+            self.pending_agent_resume_deadline,
             self.session_save_deadline,
             self.selection_autoscroll_deadline,
             self.selection_highlight_clear_deadline,

@@ -102,15 +102,16 @@ Supported built-in detection includes:
 - **Agent focus** — focus agents from the activity panel, command surfaces, CLI, or socket API.
 - **Agent labels** — manual, detected, and integration-reported labels are surfaced in lists and pane borders.
 - **State notifications** — background state changes can trigger Hako toasts, terminal toasts, system toasts, and sounds.
+- **Integration authority** — Claude Code and Codex integrations report session identity while state comes from screen detection; Pi, OMP, OpenCode, Hermes, and Qoder-style integrations can still report state directly.
 
 ### Agent session restore
 
-When `[session].resume_agents_on_restore = true`, Hako can resume supported agents into native agent sessions during session restore.
+Hako resumes supported agents into native agent sessions during session restore by default. Set `[session].resume_agents_on_restore = false` to disable it.
 
 - Supported restore sources come from installed integrations that report session references.
 - Duplicate session references are deduplicated during a restore pass.
 - Native agent restore suppresses pane-history replay so the resumed agent owns its conversation history.
-- Failed direct restored-agent spawns report pane death instead of falling back through a shell wrapper.
+- Restored agents launch through the restored pane shell, preserving pane environment setup before the native resume command runs.
 
 ## Navigation and interaction
 
@@ -198,7 +199,7 @@ The global menu exposes settings, keybinding help, config reload, update/release
 
 ## Integrations
 
-Hako ships installable integrations for agents that can report semantic state over the socket API.
+Hako ships installable integrations for agents that report semantic state, native session identity, or both over the socket API.
 
 Built-in installable integrations:
 
@@ -218,6 +219,8 @@ Integration management supports:
 - in-app integration management
 
 Integration install side effects are agent-specific: pi and OMP install extensions, Claude and Codex install/update hooks or settings, OpenCode installs a plugin, and Hermes installs/enables a plugin.
+
+Claude Code and Codex integrations report native session identity for restore; Hako reads their visible terminal UI for state. Pi, OMP, OpenCode, Hermes, and Qoder-style integrations can report state directly.
 
 Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, and `CODEX_HOME`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
 

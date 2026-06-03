@@ -266,7 +266,7 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 [session]
 # Resume supported AI-agent panes into their native conversation sessions after
 # a Hako server restart. Requires official integrations that report session refs.
-# resume_agents_on_restore = false
+# resume_agents_on_restore = true
 
 [experimental]
 # Allow launching hako from inside a hako-managed pane.

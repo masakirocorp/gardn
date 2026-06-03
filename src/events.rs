@@ -40,6 +40,14 @@ pub enum AppEvent {
         seq: Option<u64>,
         session_ref: Option<crate::agent_resume::AgentSessionRef>,
     },
+    /// Hook-reported native agent session identity without lifecycle authority.
+    HookSessionReported {
+        pane_id: PaneId,
+        source: String,
+        agent_label: String,
+        seq: Option<u64>,
+        session_ref: Option<crate::agent_resume::AgentSessionRef>,
+    },
     /// Display-only agent metadata was reported for a pane.
     HookMetadataReported {
         pane_id: PaneId,
