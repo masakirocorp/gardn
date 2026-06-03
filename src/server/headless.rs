@@ -533,7 +533,7 @@ impl HeadlessServer {
             }
         }
 
-        let snapshot = crate::persist::capture(
+        let mut snapshot = crate::persist::capture_handoff(
             &self.app.state.groups,
             self.app.state.active_group,
             &self.app.state.workspaces,
@@ -548,6 +548,7 @@ impl HeadlessServer {
             self.app.state.right_sidebar_width,
             self.app.state.right_sidebar_collapsed,
         );
+        snapshot.ui = crate::persist::SessionUiSnapshot::from_app_state(&self.app.state);
 
         let mut handoff_entries = Vec::new();
         for (terminal_id, runtime) in self.app.terminal_runtimes.iter() {

@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use crate::detect::AgentState;
 
-use super::{TerminalState, TerminalStateMutation};
+use super::{AgentMetadataSnapshot, TerminalState, TerminalStateMutation};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentMetadata {
@@ -265,6 +265,77 @@ impl TerminalState {
                     })
             })
             .min()
+    }
+
+    pub(super) fn capture_agent_metadata_snapshots_at(
+        &self,
+        now: Instant,
+    ) -> Vec<AgentMetadataSnapshot> {
+        self.agent_metadata
+            .values()
+            .filter(|metadata| self.agent_metadata_is_valid(metadata, now, true))
+            .map(|metadata| {
+                let ttl_remaining_ms = metadata.ttl.map(|ttl| {
+                    let elapsed = now.saturating_duration_since(metadata.reported_at);
+                    ttl.saturating_sub(elapsed)
+                        .as_millis()
+                        .min(u128::from(u64::MAX)) as u64
+                });
+                AgentMetadataSnapshot {
+                    source: metadata.source.clone(),
+                    agent_label: metadata.agent_label.clone(),
+                    applies_to_source: metadata.applies_to_source.clone(),
+                    title: metadata.title.clone(),
+                    display_agent: metadata.display_agent.clone(),
+                    custom_status: metadata.custom_status.clone(),
+                    state_labels: metadata.state_labels.clone(),
+                    ttl_remaining_ms,
+                }
+            })
+            .collect()
+    }
+
+    pub(super) fn restore_agent_metadata_snapshots_at(
+        &mut self,
+        snapshots: Vec<AgentMetadataSnapshot>,
+        now: Instant,
+    ) {
+        self.agent_metadata.clear();
+        for snapshot in snapshots {
+            if snapshot.ttl_remaining_ms == Some(0) {
+                continue;
+            }
+            let ttl = snapshot
+                .ttl_remaining_ms
+                .map(std::time::Duration::from_millis);
+            let title_reported_at = snapshot.title.as_ref().map(|_| now);
+            let display_agent_reported_at = snapshot.display_agent.as_ref().map(|_| now);
+            let custom_status_reported_at = snapshot.custom_status.as_ref().map(|_| now);
+            let state_label_reported_at = snapshot
+                .state_labels
+                .keys()
+                .map(|state| (state.clone(), now))
+                .collect();
+            self.agent_metadata.insert(
+                snapshot.source.clone(),
+                AgentMetadata {
+                    source: snapshot.source,
+                    agent_label: snapshot.agent_label,
+                    applies_to_source: snapshot.applies_to_source,
+                    title: snapshot.title,
+                    display_agent: snapshot.display_agent,
+                    custom_status: snapshot.custom_status,
+                    state_labels: snapshot.state_labels,
+                    reported_at: now,
+                    title_reported_at,
+                    display_agent_reported_at,
+                    custom_status_reported_at,
+                    state_label_reported_at,
+                    ttl,
+                    expiry_event_pending: ttl.is_some(),
+                },
+            );
+        }
     }
 
     pub fn expire_agent_metadata_at(

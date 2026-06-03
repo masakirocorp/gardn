@@ -4,7 +4,7 @@
 //! against known agent output patterns to determine state.
 
 /// The detected state of a terminal pane.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AgentState {
     /// Agent finished, prompt visible, nothing happening.
     Idle,
@@ -35,7 +35,7 @@ pub struct AgentDetection {
 }
 
 /// Which agent we detected running in a pane.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Agent {
     Pi,
     OhMyPi,
@@ -1150,6 +1150,11 @@ fn normalized_process_name(process: &crate::platform::ForegroundProcess) -> Stri
         {
             return wrapped_agent;
         }
+        if let Some(wrapped_agent) =
+            wrapped_agent_name_from_runtime_cmdline(&lower_effective, process.cmdline.as_deref())
+        {
+            return wrapped_agent;
+        }
     }
 
     if identify_agent(effective).is_some() {
@@ -1176,6 +1181,52 @@ fn wrapped_agent_name_from_runtime_argv(runtime: &str, argv: Option<&[String]>) 
         "tmux" => None,
         _ => None,
     }
+}
+
+fn wrapped_agent_name_from_runtime_cmdline(runtime: &str, cmdline: Option<&str>) -> Option<String> {
+    let cmdline = cmdline?;
+    let argv: Vec<&str> = cmdline.split_whitespace().collect();
+    if argv.is_empty() {
+        return None;
+    }
+    let runtime = path_basename(runtime).to_lowercase();
+    match runtime.as_str() {
+        "node" | "bun" => {
+            script_arg_agent_name_tokens(&argv, &["-e", "--eval", "-p", "--print"], &[])
+        }
+        "python" | "python3" => script_arg_agent_name_tokens(&argv, &["-c"], &["-m"]),
+        "sh" | "bash" | "zsh" | "fish" => script_arg_agent_name_tokens(&argv, &["-c"], &[]),
+        "tmux" => None,
+        _ => None,
+    }
+}
+
+fn script_arg_agent_name_tokens(
+    argv: &[&str],
+    eval_flags: &[&str],
+    module_flags: &[&str],
+) -> Option<String> {
+    let mut args = argv.iter().skip(1).copied();
+    while let Some(arg) = args.next() {
+        if arg == "--" {
+            return args.next().and_then(agent_name_from_path_token);
+        }
+
+        if flag_matches(arg, eval_flags) || flag_matches(arg, module_flags) {
+            return None;
+        }
+
+        if arg.starts_with('-') {
+            if option_takes_value(arg) {
+                let _ = args.next();
+            }
+            continue;
+        }
+
+        return agent_name_from_path_token(arg);
+    }
+
+    None
 }
 
 fn script_arg_agent_name(
@@ -1428,6 +1479,25 @@ mod tests {
         assert_eq!(
             identify_agent_in_job(&job),
             Some((Agent::Codex, "codex".to_string()))
+        );
+    }
+
+    #[test]
+    fn identify_agent_in_job_detects_bun_wrapped_omp_from_cmdline_without_argv() {
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 42,
+            processes: vec![crate::platform::ForegroundProcess {
+                pid: 42,
+                name: "bun".to_string(),
+                argv0: Some("bun".to_string()),
+                argv: None,
+                cmdline: Some("bun /Users/charlie/.bun/bin/omp".to_string()),
+            }],
+        };
+
+        assert_eq!(
+            identify_agent_in_job(&job),
+            Some((Agent::OhMyPi, "omp".to_string()))
         );
     }
 

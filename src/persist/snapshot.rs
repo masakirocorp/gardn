@@ -36,6 +36,70 @@ pub struct SessionSnapshot {
     pub right_sidebar_width: Option<u16>,
     #[serde(default)]
     pub right_sidebar_collapsed: bool,
+    #[serde(default)]
+    pub ui: SessionUiSnapshot,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SessionUiSnapshot {
+    #[serde(default)]
+    pub workspace_scroll: usize,
+    #[serde(default)]
+    pub agent_panel_scroll: usize,
+    #[serde(default)]
+    pub tab_scroll: usize,
+    #[serde(default)]
+    pub mobile_switcher_scroll: usize,
+    #[serde(default = "default_true")]
+    pub activity_agents_expanded: bool,
+    #[serde(default)]
+    pub activity_commands_expanded: bool,
+    #[serde(default)]
+    pub activity_ports_expanded: bool,
+    #[serde(default)]
+    pub collapsed_agent_sections: Vec<String>,
+    #[serde(default)]
+    pub collapsed_command_groups: Vec<String>,
+    #[serde(default)]
+    pub collapsed_command_status_groups: Vec<String>,
+    #[serde(default)]
+    pub collapsed_workspace_groups: Vec<String>,
+}
+
+impl Default for SessionUiSnapshot {
+    fn default() -> Self {
+        Self {
+            workspace_scroll: 0,
+            agent_panel_scroll: 0,
+            tab_scroll: 0,
+            mobile_switcher_scroll: 0,
+            activity_agents_expanded: true,
+            activity_commands_expanded: false,
+            activity_ports_expanded: false,
+            collapsed_agent_sections: Vec::new(),
+            collapsed_command_groups: Vec::new(),
+            collapsed_command_status_groups: Vec::new(),
+            collapsed_workspace_groups: Vec::new(),
+        }
+    }
+}
+
+impl SessionUiSnapshot {
+    pub fn from_app_state(state: &crate::app::state::AppState) -> Self {
+        Self {
+            workspace_scroll: state.workspace_scroll,
+            agent_panel_scroll: state.agent_panel_scroll,
+            tab_scroll: state.tab_scroll,
+            mobile_switcher_scroll: state.mobile_switcher_scroll,
+            activity_agents_expanded: state.activity_agents_expanded,
+            activity_commands_expanded: state.activity_commands_expanded,
+            activity_ports_expanded: state.activity_ports_expanded,
+            collapsed_agent_sections: state.collapsed_agent_sections.clone(),
+            collapsed_command_groups: state.collapsed_command_groups.clone(),
+            collapsed_command_status_groups: state.collapsed_command_status_groups.clone(),
+            collapsed_workspace_groups: state.collapsed_workspace_groups.clone(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -137,6 +201,10 @@ pub struct PaneSnapshot {
     pub agent_session: Option<PaneAgentSessionSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch_argv: Option<Vec<String>>,
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub seen: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_semantics: Option<crate::terminal::TerminalSemanticSnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,6 +213,14 @@ pub struct PaneAgentSessionSnapshot {
     pub agent: String,
     pub kind: crate::agent_resume::AgentSessionRefKind,
     pub value: String,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 #[derive(Serialize, Deserialize)]
@@ -220,6 +296,8 @@ struct RawSessionSnapshot {
     right_sidebar_width: Option<u16>,
     #[serde(default)]
     right_sidebar_collapsed: bool,
+    #[serde(default)]
+    ui: SessionUiSnapshot,
 }
 
 fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> {
@@ -244,6 +322,7 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
         sidebar_section_split: raw.sidebar_section_split,
         right_sidebar_width: raw.right_sidebar_width,
         right_sidebar_collapsed: raw.right_sidebar_collapsed,
+        ui: raw.ui,
     })
 }
 
@@ -313,16 +392,102 @@ pub fn capture(
     right_sidebar_width: u16,
     right_sidebar_collapsed: bool,
 ) -> SessionSnapshot {
+    capture_inner(
+        groups,
+        active_group,
+        workspaces,
+        terminals,
+        terminal_runtimes,
+        active,
+        selected,
+        agent_panel_scope,
+        sidebar_width,
+        sidebar_collapsed,
+        sidebar_section_split,
+        right_sidebar_width,
+        right_sidebar_collapsed,
+        false,
+    )
+}
+
+/// Capture a handoff snapshot, including live terminal semantics that should
+/// survive a server replacement but should not be treated as durable session
+/// state after a cold restart.
+#[allow(clippy::too_many_arguments)]
+pub fn capture_handoff(
+    groups: &[crate::app::state::Group],
+    active_group: usize,
+    workspaces: &[Workspace],
+    terminals: &std::collections::HashMap<
+        crate::terminal::TerminalId,
+        crate::terminal::TerminalState,
+    >,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    active: Option<usize>,
+    selected: usize,
+    agent_panel_scope: crate::app::state::AgentPanelScope,
+    sidebar_width: u16,
+    sidebar_collapsed: bool,
+    sidebar_section_split: f32,
+    right_sidebar_width: u16,
+    right_sidebar_collapsed: bool,
+) -> SessionSnapshot {
+    capture_inner(
+        groups,
+        active_group,
+        workspaces,
+        terminals,
+        terminal_runtimes,
+        active,
+        selected,
+        agent_panel_scope,
+        sidebar_width,
+        sidebar_collapsed,
+        sidebar_section_split,
+        right_sidebar_width,
+        right_sidebar_collapsed,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn capture_inner(
+    groups: &[crate::app::state::Group],
+    active_group: usize,
+    workspaces: &[Workspace],
+    terminals: &std::collections::HashMap<
+        crate::terminal::TerminalId,
+        crate::terminal::TerminalState,
+    >,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    active: Option<usize>,
+    selected: usize,
+    agent_panel_scope: crate::app::state::AgentPanelScope,
+    sidebar_width: u16,
+    sidebar_collapsed: bool,
+    sidebar_section_split: f32,
+    right_sidebar_width: u16,
+    right_sidebar_collapsed: bool,
+    include_terminal_semantics: bool,
+) -> SessionSnapshot {
     SessionSnapshot {
         version: SNAPSHOT_VERSION,
         groups: groups.iter().map(capture_group).collect(),
         active_group,
         workspaces: workspaces
             .iter()
-            .map(|workspace| capture_workspace(workspace, terminals, terminal_runtimes))
+            .map(|workspace| {
+                capture_workspace(
+                    workspace,
+                    terminals,
+                    terminal_runtimes,
+                    include_terminal_semantics,
+                )
+            })
             .collect(),
         active,
         selected,
+        ui: SessionUiSnapshot::default(),
         agent_panel_scope,
         sidebar_width: Some(sidebar_width),
         sidebar_collapsed,
@@ -349,6 +514,7 @@ fn capture_workspace(
         crate::terminal::TerminalState,
     >,
     terminal_runtimes: &TerminalRuntimeRegistry,
+    include_terminal_semantics: bool,
 ) -> WorkspaceSnapshot {
     WorkspaceSnapshot {
         id: Some(ws.id.clone()),
@@ -358,7 +524,14 @@ fn capture_workspace(
         tabs: ws
             .tabs
             .iter()
-            .map(|tab| capture_tab(tab, terminals, terminal_runtimes))
+            .map(|tab| {
+                capture_tab(
+                    tab,
+                    terminals,
+                    terminal_runtimes,
+                    include_terminal_semantics,
+                )
+            })
             .collect(),
         active_tab: ws.active_tab,
     }
@@ -371,51 +544,45 @@ fn capture_tab(
         crate::terminal::TerminalState,
     >,
     terminal_runtimes: &TerminalRuntimeRegistry,
+    include_terminal_semantics: bool,
 ) -> TabSnapshot {
     let mut panes = HashMap::new();
     for id in tab.panes.keys() {
         let cwd = tab
             .cwd_for_pane(*id, terminals, terminal_runtimes)
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| "/".into()));
-        let label = tab
+        let terminal = tab
             .panes
             .get(id)
-            .and_then(|pane| terminals.get(&pane.attached_terminal_id))
-            .and_then(|terminal| terminal.manual_label.clone());
-        let agent_name = tab
-            .panes
-            .get(id)
-            .and_then(|pane| terminals.get(&pane.attached_terminal_id))
-            .and_then(|terminal| terminal.agent_name.clone());
-        let launch_argv = tab
-            .panes
-            .get(id)
-            .and_then(|pane| terminals.get(&pane.attached_terminal_id))
-            .and_then(|terminal| terminal.launch_argv.clone());
-        let agent_session =
-            tab.panes
-                .get(id)
-                .and_then(|pane| terminals.get(&pane.attached_terminal_id))
-                .and_then(|terminal| {
-                    if let Some(authority) = terminal.hook_authority.as_ref() {
-                        if let Some(session_ref) = authority.session_ref.as_ref() {
-                            return Some(PaneAgentSessionSnapshot {
-                                source: authority.source.clone(),
-                                agent: authority.agent_label.clone(),
-                                kind: session_ref.kind,
-                                value: session_ref.value.clone(),
-                            });
-                        }
-                    }
-                    terminal.persisted_agent_session.as_ref().map(|session| {
-                        PaneAgentSessionSnapshot {
-                            source: session.source.clone(),
-                            agent: session.agent.clone(),
-                            kind: session.session_ref.kind,
-                            value: session.session_ref.value.clone(),
-                        }
-                    })
-                });
+            .and_then(|pane| terminals.get(&pane.attached_terminal_id));
+        let label = terminal.and_then(|terminal| terminal.manual_label.clone());
+        let agent_name = terminal.and_then(|terminal| terminal.agent_name.clone());
+        let launch_argv = terminal.and_then(|terminal| terminal.launch_argv.clone());
+        let agent_session = terminal.and_then(|terminal| {
+            if let Some(authority) = terminal.hook_authority.as_ref() {
+                if let Some(session_ref) = authority.session_ref.as_ref() {
+                    return Some(PaneAgentSessionSnapshot {
+                        source: authority.source.clone(),
+                        agent: authority.agent_label.clone(),
+                        kind: session_ref.kind,
+                        value: session_ref.value.clone(),
+                    });
+                }
+            }
+            terminal
+                .persisted_agent_session
+                .as_ref()
+                .map(|session| PaneAgentSessionSnapshot {
+                    source: session.source.clone(),
+                    agent: session.agent.clone(),
+                    kind: session.session_ref.kind,
+                    value: session.session_ref.value.clone(),
+                })
+        });
+        let seen = tab.panes.get(id).is_none_or(|pane| pane.seen);
+        let terminal_semantics = include_terminal_semantics
+            .then(|| terminal.and_then(|terminal| terminal.capture_semantic_snapshot()))
+            .flatten();
         panes.insert(
             id.raw(),
             PaneSnapshot {
@@ -424,6 +591,8 @@ fn capture_tab(
                 agent_name,
                 agent_session,
                 launch_argv,
+                seen,
+                terminal_semantics,
             },
         );
     }
@@ -625,6 +794,84 @@ mod tests {
         );
     }
 
+    #[test]
+    fn capture_handoff_keeps_terminal_semantics_out_of_durable_snapshot() {
+        let mut state = state_with_workspaces(&["space"]);
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.workspaces[0].terminal_id(root_pane).unwrap().clone();
+        let terminal = state.terminals.get_mut(&terminal_id).unwrap();
+        let _ = terminal.set_hook_authority_with_session_ref(
+            "hako:omp".to_string(),
+            "omp".to_string(),
+            crate::detect::AgentState::Working,
+            Some("processing".to_string()),
+            Some("reading".to_string()),
+            Some(crate::agent_resume::AgentSessionRef {
+                kind: crate::agent_resume::AgentSessionRefKind::Id,
+                value: "session-1".to_string(),
+            }),
+            Some(7),
+        );
+        let _ = terminal.set_agent_metadata(crate::terminal::AgentMetadataReport {
+            source: "hako:omp:metadata".to_string(),
+            agent_label: Some("omp".to_string()),
+            applies_to_source: Some("hako:omp".to_string()),
+            title: Some("Oracle".to_string()),
+            display_agent: Some("OMP".to_string()),
+            custom_status: Some("thinking".to_string()),
+            state_labels: HashMap::from([("working".to_string(), "busy".to_string())]),
+            clear_title: false,
+            clear_display_agent: false,
+            clear_custom_status: false,
+            clear_state_labels: false,
+            ttl: None,
+            seq: Some(9),
+        });
+        state.workspaces[0].tabs[0]
+            .panes
+            .get_mut(&root_pane)
+            .unwrap()
+            .seen = false;
+
+        let durable = capture_from_state(&state);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let handoff = capture_handoff(
+            &state.groups,
+            state.active_group,
+            &state.workspaces,
+            &state.terminals,
+            &terminal_runtimes,
+            state.active,
+            state.selected,
+            state.agent_panel_scope,
+            state.sidebar_width,
+            state.sidebar_collapsed,
+            state.sidebar_section_split,
+            state.right_sidebar_width,
+            state.right_sidebar_collapsed,
+        );
+        let durable_pane = &durable.workspaces[0].tabs[0].panes[&root_pane.raw()];
+        let handoff_pane = &handoff.workspaces[0].tabs[0].panes[&root_pane.raw()];
+
+        assert!(!durable_pane.seen);
+        assert!(durable_pane.terminal_semantics.is_none());
+        let semantics = handoff_pane
+            .terminal_semantics
+            .as_ref()
+            .expect("handoff should include live terminal semantics");
+        assert_eq!(
+            semantics
+                .hook_authority
+                .as_ref()
+                .map(|authority| authority.agent_label.as_str()),
+            Some("omp")
+        );
+        assert_eq!(semantics.state, crate::detect::AgentState::Working);
+        assert_eq!(semantics.agent_metadata.len(), 1);
+        assert_eq!(semantics.hook_report_sequences["hako:omp"], 7);
+        assert_eq!(semantics.metadata_report_sequences["hako:omp:metadata"], 9);
+    }
+
     fn root_split_ratio(tab: &TabSnapshot) -> Option<f32> {
         match &tab.layout {
             LayoutSnapshot::Split { ratio, .. } => Some(*ratio),
@@ -647,6 +894,7 @@ mod tests {
             sidebar_section_split: Some(0.5),
             right_sidebar_width: Some(28),
             right_sidebar_collapsed: false,
+            ui: SessionUiSnapshot::default(),
         };
         let json = serde_json::to_string(&snap).unwrap();
         let restored = parse_snapshot(&json).unwrap();
@@ -724,6 +972,8 @@ mod tests {
                 agent_name: None,
                 agent_session: None,
                 launch_argv: None,
+                seen: true,
+                terminal_semantics: None,
             },
         );
         panes.insert(
@@ -734,6 +984,8 @@ mod tests {
                 agent_name: None,
                 agent_session: None,
                 launch_argv: None,
+                seen: true,
+                terminal_semantics: None,
             },
         );
 
@@ -768,6 +1020,7 @@ mod tests {
             sidebar_section_split: Some(0.5),
             right_sidebar_width: Some(28),
             right_sidebar_collapsed: false,
+            ui: SessionUiSnapshot::default(),
             version: SNAPSHOT_VERSION,
         };
 
@@ -1254,6 +1507,8 @@ mod tests {
                 agent_name: None,
                 agent_session: None,
                 launch_argv: None,
+                seen: true,
+                terminal_semantics: None,
             },
         );
         panes.insert(
@@ -1266,6 +1521,8 @@ mod tests {
                 agent_name: None,
                 agent_session: None,
                 launch_argv: None,
+                seen: true,
+                terminal_semantics: None,
             },
         );
 
@@ -1301,6 +1558,7 @@ mod tests {
             sidebar_section_split: Some(0.5),
             right_sidebar_width: Some(28),
             right_sidebar_collapsed: false,
+            ui: SessionUiSnapshot::default(),
         };
 
         let json = serde_json::to_string(&snap).unwrap();

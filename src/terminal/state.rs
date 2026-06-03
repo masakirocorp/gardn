@@ -30,6 +30,65 @@ pub struct HookAuthority {
     pub session_ref: Option<crate::agent_resume::AgentSessionRef>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct HookAuthoritySnapshot {
+    pub source: String,
+    pub agent_label: String,
+    pub state: AgentState,
+    pub message: Option<String>,
+    pub custom_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_ref: Option<AgentSessionRefSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AgentSessionRefSnapshot {
+    pub kind: crate::agent_resume::AgentSessionRefKind,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AgentMetadataSnapshot {
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applies_to_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_status: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub state_labels: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl_remaining_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TerminalSemanticSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detected_agent: Option<Agent>,
+    pub fallback_state: AgentState,
+    #[serde(default)]
+    pub fallback_visible_blocker: bool,
+    #[serde(default)]
+    pub fallback_visible_idle: bool,
+    #[serde(default)]
+    pub fallback_visible_working: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook_authority: Option<HookAuthoritySnapshot>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_metadata: Vec<AgentMetadataSnapshot>,
+    pub state: AgentState,
+    pub revision: u64,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub hook_report_sequences: HashMap<String, u64>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata_report_sequences: HashMap<String, u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectiveStateChange {
     pub previous_agent_label: Option<String>,
@@ -100,6 +159,82 @@ impl TerminalState {
             launch_argv: None,
             respawn_shell_on_exit: false,
         }
+    }
+
+    pub fn capture_semantic_snapshot(&self) -> Option<TerminalSemanticSnapshot> {
+        let now = Instant::now();
+        let agent_metadata = self.capture_agent_metadata_snapshots_at(now);
+        let carries_semantics = self.detected_agent.is_some()
+            || self.fallback_state != AgentState::Unknown
+            || self.hook_authority.is_some()
+            || !agent_metadata.is_empty()
+            || self.state != AgentState::Unknown
+            || !self.hook_report_sequences.is_empty()
+            || !self.metadata_report_sequences.is_empty();
+
+        carries_semantics.then(|| TerminalSemanticSnapshot {
+            detected_agent: self.detected_agent,
+            fallback_state: self.fallback_state,
+            fallback_visible_blocker: self.fallback_visible_blocker,
+            fallback_visible_idle: self.fallback_visible_idle,
+            fallback_visible_working: self.fallback_visible_working,
+            hook_authority: self
+                .hook_authority
+                .as_ref()
+                .map(|authority| HookAuthoritySnapshot {
+                    source: authority.source.clone(),
+                    agent_label: authority.agent_label.clone(),
+                    state: authority.state,
+                    message: authority.message.clone(),
+                    custom_status: authority.custom_status.clone(),
+                    session_ref: authority.session_ref.as_ref().map(|session_ref| {
+                        AgentSessionRefSnapshot {
+                            kind: session_ref.kind,
+                            value: session_ref.value.clone(),
+                        }
+                    }),
+                }),
+            agent_metadata,
+            state: self.state,
+            revision: self.revision,
+            hook_report_sequences: self.hook_report_sequences.clone(),
+            metadata_report_sequences: self.metadata_report_sequences.clone(),
+        })
+    }
+
+    pub fn restore_semantic_snapshot(&mut self, snapshot: TerminalSemanticSnapshot) {
+        let now = Instant::now();
+        self.detected_agent = snapshot.detected_agent;
+        self.fallback_state = snapshot.fallback_state;
+        self.fallback_visible_blocker =
+            snapshot.fallback_visible_blocker && snapshot.fallback_state == AgentState::Blocked;
+        self.fallback_visible_idle =
+            snapshot.fallback_visible_idle && snapshot.fallback_state == AgentState::Idle;
+        self.fallback_visible_working =
+            snapshot.fallback_visible_working && snapshot.fallback_state == AgentState::Working;
+        self.fallback_observed_at = (snapshot.detected_agent.is_some()
+            || snapshot.fallback_state != AgentState::Unknown)
+            .then_some(now);
+        self.stale_hook_idle_since = None;
+        self.hook_authority = snapshot.hook_authority.map(|authority| HookAuthority {
+            source: authority.source,
+            agent_label: authority.agent_label,
+            state: authority.state,
+            message: authority.message,
+            custom_status: authority.custom_status,
+            reported_at: now,
+            session_ref: authority.session_ref.map(|session_ref| {
+                crate::agent_resume::AgentSessionRef {
+                    kind: session_ref.kind,
+                    value: session_ref.value,
+                }
+            }),
+        });
+        self.restore_agent_metadata_snapshots_at(snapshot.agent_metadata, now);
+        self.state = snapshot.state;
+        self.revision = snapshot.revision;
+        self.hook_report_sequences = snapshot.hook_report_sequences;
+        self.metadata_report_sequences = snapshot.metadata_report_sequences;
     }
 
     pub fn with_launch_argv(mut self, argv: Vec<String>) -> Self {

@@ -391,6 +391,8 @@ fn restore_tab(
         let saved_agent_name = saved_pane.and_then(|p| p.agent_name.clone());
         let saved_launch_argv = saved_pane.and_then(|p| p.launch_argv.clone());
         let saved_agent_session = saved_pane.and_then(|p| p.agent_session.as_ref());
+        let saved_seen = saved_pane.is_none_or(|p| p.seen);
+        let saved_terminal_semantics = saved_pane.and_then(|p| p.terminal_semantics.clone());
         let saved_history =
             old_id.and_then(|old_id| history.and_then(|history| history.panes.get(old_id)));
         let startup = {
@@ -471,12 +473,22 @@ fn restore_tab(
                 if let Some(agent_name) = saved_agent_name {
                     terminal.set_agent_name(agent_name);
                 }
-                if let Some(agent) = initial_restore_agent {
+                if let Some(semantics) = saved_terminal_semantics {
+                    terminal.restore_semantic_snapshot(semantics);
+                } else if let Some(agent) = initial_restore_agent.or_else(|| {
+                    was_imported
+                        .then(|| {
+                            saved_agent_session.and_then(|session| {
+                                crate::detect::parse_agent_label(&session.agent)
+                            })
+                        })
+                        .flatten()
+                }) {
                     let _ = terminal.set_detected_state_with_screen_signals_at(
                         Some(agent),
                         AgentState::Idle,
                         false,
-                        false,
+                        true,
                         false,
                         false,
                         std::time::Instant::now(),
@@ -488,7 +500,9 @@ fn restore_tab(
                 ) {
                     terminal.set_persisted_agent_session(session);
                 }
-                panes.insert(*id, PaneState::new(terminal_id.clone()));
+                let mut pane = PaneState::new(terminal_id.clone());
+                pane.seen = saved_seen;
+                panes.insert(*id, pane);
                 terminal_runtimes.insert(terminal_id, runtime);
                 terminals.push(terminal);
             }
@@ -1025,6 +1039,8 @@ mod tests {
                                 value: "opencode-session".into(),
                             }),
                             launch_argv: None,
+                            seen: true,
+                            terminal_semantics: None,
                         },
                     )]),
                     zoomed: false,
@@ -1041,6 +1057,7 @@ mod tests {
             sidebar_section_split: None,
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
+            ui: super::super::snapshot::SessionUiSnapshot::default(),
         };
         let (events, _event_rx) = mpsc::channel(4);
 
@@ -1138,6 +1155,8 @@ mod tests {
                                 value: "codex-session".into(),
                             }),
                             launch_argv: None,
+                            seen: true,
+                            terminal_semantics: None,
                         },
                     )]),
                     zoomed: false,
@@ -1154,6 +1173,7 @@ mod tests {
             sidebar_section_split: None,
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
+            ui: super::super::snapshot::SessionUiSnapshot::default(),
         };
         let (events, _event_rx) = mpsc::channel(4);
 
@@ -1275,6 +1295,8 @@ mod tests {
                 agent_name: None,
                 agent_session: None,
                 launch_argv: None,
+                seen: true,
+                terminal_semantics: None,
             },
         );
         let history = SessionHistorySnapshot {
@@ -1325,6 +1347,7 @@ mod tests {
             sidebar_collapsed: false,
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
+            ui: super::super::snapshot::SessionUiSnapshot::default(),
         };
         (snapshot, history)
     }

@@ -853,6 +853,18 @@ impl App {
             app.state.right_sidebar_width = width;
         }
         app.state.right_sidebar_collapsed = snapshot.right_sidebar_collapsed;
+        app.state.workspace_scroll = snapshot.ui.workspace_scroll;
+        app.state.agent_panel_scroll = snapshot.ui.agent_panel_scroll;
+        app.state.tab_scroll = snapshot.ui.tab_scroll;
+        app.state.mobile_switcher_scroll = snapshot.ui.mobile_switcher_scroll;
+        app.state.activity_agents_expanded = snapshot.ui.activity_agents_expanded;
+        app.state.activity_commands_expanded = snapshot.ui.activity_commands_expanded;
+        app.state.activity_ports_expanded = snapshot.ui.activity_ports_expanded;
+        app.state.collapsed_agent_sections = snapshot.ui.collapsed_agent_sections.clone();
+        app.state.collapsed_command_groups = snapshot.ui.collapsed_command_groups.clone();
+        app.state.collapsed_command_status_groups =
+            snapshot.ui.collapsed_command_status_groups.clone();
+        app.state.collapsed_workspace_groups = snapshot.ui.collapsed_workspace_groups.clone();
         app.state.mode = if app.state.active.is_some() {
             state::Mode::Terminal
         } else {
@@ -1717,6 +1729,7 @@ mod tests {
             sidebar_section_split: None,
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
+            ui: crate::persist::SessionUiSnapshot::default(),
         };
 
         let groups = groups_from_snapshot(&snap);
@@ -1747,6 +1760,7 @@ mod tests {
             sidebar_section_split: None,
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
+            ui: crate::persist::SessionUiSnapshot::default(),
         }
     }
 
@@ -1827,6 +1841,188 @@ mod tests {
         assert!(app.state.sidebar_collapsed);
         assert_eq!(app.state.right_sidebar_width, 41);
         assert!(app.state.right_sidebar_collapsed);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn handoff_restores_agent_panel_semantics_before_hooks_report_again() {
+        let mut state = state::AppState::test_new();
+        state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        state.ensure_test_terminals();
+        state.active = Some(0);
+        state.selected = 0;
+        state.mode = Mode::Terminal;
+        state.agent_panel_scope = state::AgentPanelScope::AllWorkspaces;
+        state.workspace_scroll = 3;
+        state.agent_panel_scroll = 4;
+        state.tab_scroll = 2;
+        state.mobile_switcher_scroll = 5;
+        state.activity_agents_expanded = false;
+        state.activity_commands_expanded = true;
+        state.activity_ports_expanded = true;
+        state.collapsed_agent_sections = vec!["Work".to_string()];
+        state.collapsed_command_groups = vec!["build".to_string()];
+        state.collapsed_command_status_groups = vec!["running".to_string()];
+        state.collapsed_workspace_groups = vec!["g1".to_string()];
+
+        seed_handoff_agent(
+            &mut state,
+            0,
+            AgentState::Working,
+            true,
+            7,
+            Some("thinking"),
+            Some("busy"),
+        );
+        let _second_pane = seed_handoff_agent(
+            &mut state,
+            1,
+            AgentState::Idle,
+            false,
+            11,
+            Some("idle custom"),
+            Some("done label"),
+        );
+
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let mut snap = crate::persist::capture_handoff(
+            &state.groups,
+            state.active_group,
+            &state.workspaces,
+            &state.terminals,
+            &terminal_runtimes,
+            state.active,
+            state.selected,
+            state.agent_panel_scope,
+            state.sidebar_width,
+            state.sidebar_collapsed,
+            state.sidebar_section_split,
+            state.right_sidebar_width,
+            state.right_sidebar_collapsed,
+        );
+        snap.ui = crate::persist::SessionUiSnapshot::from_app_state(&state);
+
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut imports = std::collections::HashMap::new();
+        let mut app = App::new_from_handoff(
+            &Config::default(),
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+            &snap,
+            &mut imports,
+        )
+        .expect("handoff should restore semantic agent state");
+
+        let agents = app.collect_agent_infos();
+        assert_eq!(agents.len(), 2);
+        assert!(agents.iter().any(|agent| {
+            agent.workspace_id == app.state.workspaces[0].id
+                && agent.agent_status == crate::api::schema::AgentStatus::Working
+                && agent.custom_status.as_deref() == Some("thinking")
+                && agent.state_labels.get("working").map(String::as_str) == Some("busy")
+        }));
+        assert!(agents.iter().any(|agent| {
+            agent.workspace_id == app.state.workspaces[1].id
+                && agent.agent_status == crate::api::schema::AgentStatus::Done
+                && agent.custom_status.as_deref() == Some("idle custom")
+                && agent.state_labels.get("idle").map(String::as_str) == Some("done label")
+        }));
+        assert_eq!(app.state.workspace_scroll, 3);
+        assert_eq!(app.state.agent_panel_scroll, 4);
+        assert_eq!(app.state.tab_scroll, 2);
+        assert_eq!(app.state.mobile_switcher_scroll, 5);
+        assert!(!app.state.activity_agents_expanded);
+        assert!(app.state.activity_commands_expanded);
+        assert!(app.state.activity_ports_expanded);
+        assert_eq!(app.state.collapsed_agent_sections, vec!["Work"]);
+        assert_eq!(app.state.collapsed_command_groups, vec!["build"]);
+        assert_eq!(app.state.collapsed_command_status_groups, vec!["running"]);
+        assert_eq!(app.state.collapsed_workspace_groups, vec!["g1"]);
+
+        let restored_first_pane = app.state.workspaces[0].tabs[0].root_pane;
+        app.handle_internal_event(AppEvent::HookStateReported {
+            pane_id: restored_first_pane,
+            source: "hako:omp".to_string(),
+            agent_label: "omp".to_string(),
+            state: AgentState::Idle,
+            message: None,
+            custom_status: None,
+            seq: Some(6),
+            session_ref: None,
+        });
+        let agents = app.collect_agent_infos();
+        assert!(agents.iter().any(|agent| {
+            agent.workspace_id == app.state.workspaces[0].id
+                && agent.agent_status == crate::api::schema::AgentStatus::Working
+                && agent.custom_status.as_deref() == Some("thinking")
+        }));
+    }
+
+    #[cfg(unix)]
+    fn seed_handoff_agent(
+        state: &mut state::AppState,
+        ws_idx: usize,
+        agent_state: AgentState,
+        seen: bool,
+        seq: u64,
+        custom_status: Option<&str>,
+        state_label: Option<&str>,
+    ) -> crate::layout::PaneId {
+        let pane_id = state.workspaces[ws_idx].tabs[0].root_pane;
+        let terminal_id = state.workspaces[ws_idx]
+            .terminal_id(pane_id)
+            .expect("test pane should have terminal")
+            .clone();
+        let terminal = state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("test terminal should exist");
+        let _ = terminal.set_hook_authority_with_session_ref(
+            "hako:omp".to_string(),
+            "omp".to_string(),
+            agent_state,
+            Some("reported".to_string()),
+            custom_status.map(str::to_string),
+            Some(crate::agent_resume::AgentSessionRef {
+                kind: crate::agent_resume::AgentSessionRefKind::Id,
+                value: format!("session-{ws_idx}"),
+            }),
+            Some(seq),
+        );
+        let _ = terminal.set_agent_metadata(crate::terminal::AgentMetadataReport {
+            source: format!("hako:omp:metadata:{ws_idx}"),
+            agent_label: Some("omp".to_string()),
+            applies_to_source: Some("hako:omp".to_string()),
+            title: None,
+            display_agent: Some("OMP".to_string()),
+            custom_status: custom_status.map(str::to_string),
+            state_labels: state_label
+                .map(|label| {
+                    std::collections::HashMap::from([(
+                        match agent_state {
+                            AgentState::Idle => "idle".to_string(),
+                            AgentState::Working => "working".to_string(),
+                            AgentState::Blocked => "blocked".to_string(),
+                            AgentState::Unknown => "unknown".to_string(),
+                        },
+                        label.to_string(),
+                    )])
+                })
+                .unwrap_or_default(),
+            clear_title: false,
+            clear_display_agent: false,
+            clear_custom_status: false,
+            clear_state_labels: false,
+            ttl: None,
+            seq: Some(seq),
+        });
+        state.workspaces[ws_idx].tabs[0]
+            .panes
+            .get_mut(&pane_id)
+            .expect("test pane should exist")
+            .seen = seen;
+        pane_id
     }
 
     fn restore_xdg_state_home(original: Option<std::ffi::OsString>) {

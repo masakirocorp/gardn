@@ -219,6 +219,7 @@ mod tests {
             sidebar_section_split: Some(0.5),
             right_sidebar_width: Some(28),
             right_sidebar_collapsed: false,
+            ui: crate::persist::snapshot::SessionUiSnapshot::default(),
         }
     }
 
