@@ -2,7 +2,7 @@
 // managed by hako; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=opencode
-// HAKO_INTEGRATION_VERSION=4
+// HAKO_INTEGRATION_VERSION=1
 
 import net from "node:net";
 

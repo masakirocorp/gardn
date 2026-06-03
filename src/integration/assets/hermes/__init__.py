@@ -1,7 +1,7 @@
 """Hermes plugin installed by Hako to report agent lifecycle state."""
 
 # HAKO_INTEGRATION_ID=hermes
-# HAKO_INTEGRATION_VERSION=3
+# HAKO_INTEGRATION_VERSION=1
 
 from __future__ import annotations
 
