@@ -143,6 +143,7 @@ Mouse capture is enabled by default.
 - Drag workspace rows to reorder.
 - Scroll lists, panes, modals, and scrollbars.
 - Right-click where context menus are available.
+- Configure `ui.right_click_passthrough_modifier` to send modified right-click hold/drag gestures to mouse-reporting pane apps while normal right-click keeps Hako menus.
 - Select pane text for copy workflows.
 - **Mobile layout** — narrow terminals use a compact header and scrollable switcher for spaces, tabs, agents, and global menu actions.
 

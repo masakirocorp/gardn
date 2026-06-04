@@ -689,6 +689,12 @@
       "subject": "feat: make claude codex opencode hooks session-only",
       "status": "ported",
       "reason": "ported to Hako with session-only Claude, Codex, and OpenCode hooks; Pi and OMP keep direct tool lifecycle reporting."
+    },
+    {
+      "upstream": "2fcf9b678d0f154b2d41aa5fafa25aaa73ec7f17",
+      "subject": "feat: add configurable right-click passthrough",
+      "status": "ported",
+      "reason": "ported to Hako as opt-in ui.right_click_passthrough_modifier while preserving normal right-click Hako menus by default."
     }
   ]
 }

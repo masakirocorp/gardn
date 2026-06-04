@@ -136,7 +136,7 @@ not a gui window, not a web dashboard, not electron. hako runs inside whatever t
 - **workspaces** — organized around git repos or folder names, each with its own tabs and panes
 - **groups** — Arc-style sidebar filters for sets of workspaces inside one session
 - **tabs** — first-class in the socket api and cli
-- **mouse-native** — click panes/tabs/workspaces/agents, drag borders, select text to copy, right-click menus; not keyboard-only
+- **mouse-native** — click panes/tabs/workspaces/agents, drag borders, select text to copy, right-click menus, and optionally pass modified right-click gestures through to pane apps; not keyboard-only
 - **notifications** — sounds and toasts for background events; tab-aware suppression
 - **built-in light and dark themes** — choose separate palettes for system light/dark, or force a light-only or dark-only theme list
 - **session persistence** — pane processes survive client detach; sessions restore after full restart

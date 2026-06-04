@@ -216,6 +216,11 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # Pane apps like lazygit and btop can still receive mouse when they request it.
 # mouse_capture = true
 
+# Optional modifier that forwards right-click hold/drag gestures to pane apps instead of opening Hako's pane menu.
+# Empty/off disables this. Shift is intentionally unsupported because terminals commonly reserve Shift+mouse.
+# Supported values include "ctrl", "alt", "cmd", "super", "meta", "hyper", and + combinations such as "cmd+alt".
+# right_click_passthrough_modifier = ""
+
 # Force a full redraw when the outer terminal regains focus.
 # Set false to reduce visible flashing when switching back to Hako.
 # Trade-off: rare host terminal surface corruption may persist until the next full redraw.

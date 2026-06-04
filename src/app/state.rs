@@ -38,6 +38,12 @@ pub(crate) struct SelectionAutoscroll {
     pub last_mouse_screen_row: u16,
     pub inner_rect: Rect,
 }
+
+#[derive(Clone)]
+pub(crate) struct RightClickPassthroughGesture {
+    pub pane_info: PaneInfo,
+    pub modifiers: KeyModifiers,
+}
 use crate::workspace::Workspace;
 
 static NEXT_GROUP_ID: AtomicU64 = AtomicU64::new(1);
@@ -2218,6 +2224,8 @@ pub struct AppState {
     /// Capture mouse input for Hako's own mouse UI. When false, Hako only
     /// captures mouse while the focused pane app requests mouse reporting.
     pub mouse_capture: bool,
+    pub right_click_passthrough_modifiers: Option<KeyModifiers>,
+    pub right_click_passthrough: Option<RightClickPassthroughGesture>,
     pub redraw_on_focus_gained: bool,
     pub mouse_scroll_lines: usize,
     pub confirm_close: bool,
@@ -2812,6 +2820,8 @@ impl AppState {
             collapsed_workspace_groups: Vec::new(),
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
             mouse_capture: true,
+            right_click_passthrough_modifiers: None,
+            right_click_passthrough: None,
             redraw_on_focus_gained: true,
             mouse_scroll_lines: crate::config::DEFAULT_MOUSE_SCROLL_LINES,
             confirm_close: true,
