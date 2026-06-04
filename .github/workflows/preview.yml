@@ -291,13 +291,13 @@ jobs:
 
       - name: Commit preview manifest
         env:
-          KANGAL_GITHUB_TOKEN: ${{ secrets.KANGAL_GITHUB_TOKEN }}
+          PREVIEW_PUSH_TOKEN: ${{ secrets.KANGAL_GITHUB_TOKEN || github.token }}
         run: |
           git config user.name "kangal-bot"
           git config user.email "285672167+kangal-bot@users.noreply.github.com"
           git add preview.json
           git diff --cached --quiet || git commit -m "docs: update preview manifest"
-          git push "https://x-access-token:${KANGAL_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:master
+          git push "https://x-access-token:${PREVIEW_PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:master
 
       - name: Prune old preview prereleases
         env:
