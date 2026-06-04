@@ -91,7 +91,7 @@ fn channel_set(args: &[String]) -> std::io::Result<i32> {
     } else {
         String::new()
     };
-    if let Err(err) = content.parse::<toml::Value>() {
+    if let Err(err) = content.parse::<toml::Table>() {
         eprintln!(
             "config file at {} is invalid TOML: {err}. Fix it before changing the update channel.",
             path.display()
@@ -105,7 +105,7 @@ fn channel_set(args: &[String]) -> std::io::Result<i32> {
         "channel",
         &format!("\"{channel}\""),
     );
-    if let Err(err) = updated.parse::<toml::Value>() {
+    if let Err(err) = updated.parse::<toml::Table>() {
         eprintln!(
             "changing the update channel would make {} invalid TOML: {err}; leaving config unchanged",
             path.display()
