@@ -182,6 +182,10 @@ def build_markdown_report(report: dict[str, object]) -> str:
         "",
         f"changed paths: {len(changed)}",
         "",
+        "## port review discipline",
+        "- Treat upstream as signal, not authority: port behavior, not trust.",
+        "- For every ported change, identify the invariant, check Hako context, add or adjust Hako tests, then merge.",
+        "",
         "## failures",
     ]
     if failures:

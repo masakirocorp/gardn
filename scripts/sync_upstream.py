@@ -81,6 +81,8 @@ def write_pr_body(path: Path, branch: str, base_ref: str, upstream_ref: str, com
         f"- Merge `{upstream_ref}` into Hako on `{branch}`.",
         f"- Upstream commits: {len(commits)}.",
         "- Preserve Hako-owned identity, docs, website, release, and repo policy surfaces.",
+        "- Treat upstream as signal, not authority: port behavior, not trust.",
+        "- For each ported change: identify the invariant, check Hako context, add or adjust Hako tests, then merge.",
         "",
         "## Upstream commits",
     ]
