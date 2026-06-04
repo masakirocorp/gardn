@@ -2977,6 +2977,9 @@ mod tests {
         assert_eq!(plugin_content, OPENCODE_PLUGIN_ASSET);
         assert!(plugin_content.contains("HAKO_INTEGRATION_VERSION=1"));
         assert!(plugin_content.contains("Math.max(reportSeq + 1, Date.now() * 1000)"));
+        assert!(plugin_content.contains("pane.report_agent_session"));
+        assert!(!plugin_content.contains("pane.report_agent\""));
+        assert!(!plugin_content.contains("pane.release_agent"));
 
         std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
@@ -3147,13 +3150,10 @@ mod tests {
         assert!(CODEX_HOOK_ASSET.contains("HAKO_HOOK_INPUT_FILE"));
         assert!(CODEX_HOOK_ASSET.contains("agent_session_id"));
         assert!(OPENCODE_PLUGIN_ASSET.contains("properties?.sessionID"));
-        assert!(OPENCODE_PLUGIN_ASSET.contains("dispose: async"));
+        assert!(OPENCODE_PLUGIN_ASSET.contains("pane.report_agent_session"));
         assert!(OPENCODE_PLUGIN_ASSET.contains("agent_session_id: sessionID"));
-        assert!(
-            !OPENCODE_PLUGIN_ASSET.contains(
-                "await reportState(\"idle\", sessionID);\n          }\n          break;\n        case \"session.status\""
-            )
-        );
+        assert!(!OPENCODE_PLUGIN_ASSET.contains("pane.report_agent\""));
+        assert!(!OPENCODE_PLUGIN_ASSET.contains("pane.release_agent"));
         assert!(HERMES_PLUGIN_INIT_ASSET.contains("session_id = _session_id(kwargs)"));
         assert!(HERMES_PLUGIN_INIT_ASSET.contains("agent_session_id"));
         // Qoder hook reads the event from the stdin JSON payload (per

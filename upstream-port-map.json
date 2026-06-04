@@ -687,8 +687,8 @@
     {
       "upstream": "295b09ca25edbccac65401ee84fa420dd3888aad",
       "subject": "feat: make claude codex opencode hooks session-only",
-      "status": "superseded",
-      "reason": "Hako uses the upstream session-only API for Claude and Codex but intentionally keeps OpenCode direct state reporting until real ask/permission screens are proven fully covered by screen detection."
+      "status": "ported",
+      "reason": "ported to Hako with session-only Claude, Codex, and OpenCode hooks; Pi and OMP keep direct tool lifecycle reporting."
     }
   ]
 }
