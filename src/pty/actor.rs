@@ -498,7 +498,7 @@ impl PtyIoActorRunner {
     fn handle_data_command(&mut self, command: PtyIoDataCommand) -> bool {
         match command {
             PtyIoDataCommand::WriteUserInput(bytes) => {
-                if self.state == ActorState::Running {
+                if self.state == ActorState::Running && !bytes.is_empty() {
                     self.pending_writes.push_back(bytes);
                 }
             }
@@ -575,7 +575,7 @@ impl PtyIoActorRunner {
 
     fn drain_pre_quiesce_commands(&mut self) {
         while let Ok(PtyIoDataCommand::WriteUserInput(bytes)) = self.data_rx.try_recv() {
-            if self.state != ActorState::Released {
+            if self.state != ActorState::Released && !bytes.is_empty() {
                 self.pending_writes.push_back(bytes);
             }
         }
@@ -613,7 +613,7 @@ impl PtyIoActorRunner {
             Ok(n) => {
                 let result = (self.on_read)(&buf[..n]);
                 for response in result.terminal_responses {
-                    if self.state != ActorState::Released {
+                    if self.state != ActorState::Released && !response.is_empty() {
                         self.pending_writes.push_back(response);
                     }
                 }
@@ -624,10 +624,17 @@ impl PtyIoActorRunner {
 
     fn flush_pending_writes_once(&mut self) {
         while let Some(bytes) = self.pending_writes.front() {
+            if self.current_write_offset >= bytes.len() {
+                self.pending_writes.pop_front();
+                self.current_write_offset = 0;
+                continue;
+            }
             let chunk = &bytes[self.current_write_offset..];
             match self.file.write(chunk) {
                 Ok(0) => {
                     warn!(pane = self.pane_id, "PTY actor write returned zero bytes");
+                    self.pending_writes.clear();
+                    self.current_write_offset = 0;
                     return;
                 }
                 Ok(written) => {
@@ -843,6 +850,48 @@ mod tests {
             .recv_timeout(Duration::from_secs(1))
             .expect("actor read callback");
         assert_eq!(read, Bytes::from_static(b"from-peer"));
+        handle.shutdown();
+    }
+
+    #[test]
+    fn empty_terminal_response_does_not_block_later_user_input() {
+        let (actor_socket, mut peer) = UnixStream::pair().expect("socket pair");
+        actor_socket
+            .set_nonblocking(true)
+            .expect("actor socket nonblocking");
+        peer.set_read_timeout(Some(Duration::from_secs(1)))
+            .expect("peer timeout");
+        let owned = unsafe { OwnedFd::from_raw_fd(actor_socket.into_raw_fd()) };
+        let (read_tx, read_rx) = std_mpsc::channel();
+        let config = PtyIoActorConfig {
+            pane_id: 1,
+            master_fd: owned,
+            initially_quiesced: false,
+            on_read: Box::new(move |bytes| {
+                read_tx
+                    .send(Bytes::copy_from_slice(bytes))
+                    .expect("read callback receiver alive");
+                PtyReadResult {
+                    terminal_responses: vec![Bytes::new()],
+                }
+            }),
+            on_reader_exit: None,
+        };
+        let handle = PtyIoActor::spawn(config).expect("actor spawn");
+
+        peer.write_all(b"trigger").expect("peer write");
+        let read = read_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("actor read callback");
+        assert_eq!(read, Bytes::from_static(b"trigger"));
+
+        handle
+            .try_write_user_input(Bytes::from_static(b"hello"))
+            .expect("write command accepted");
+        let mut buf = [0u8; 5];
+        peer.read_exact(&mut buf)
+            .expect("empty response must not block user input");
+        assert_eq!(&buf, b"hello");
         handle.shutdown();
     }
 
