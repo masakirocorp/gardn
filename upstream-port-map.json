@@ -715,10 +715,388 @@
       "reason": "ported to Hako as opt-in experimental.switch_ascii_input_source_in_prefix with platform-isolated macOS input-source switching and settings coverage."
     },
     {
-      "upstream": "dde759853df9b8cb10feefc945c0c2cb0e544b5c",
+      "upstream": "dde759853df9e1aad3cc9e1e3986ceec8368941d",
       "subject": "fix: derive pane selection highlight colors",
       "status": "pending",
       "reason": "visible Hako selection color policy change deferred for visual review."
+    },
+    {
+      "upstream": "0774efdfb7565a707f1c35f2d3d66f3f2d9a164f",
+      "subject": "chore: approve contributor juliogc",
+      "status": "skipped",
+      "reason": "upstream contributor approval metadata is Herdr repository process, not Hako runtime or product behavior."
+    },
+    {
+      "upstream": "09169d59c1b5b3ebb6e4b1a584d9dfbe1839147f",
+      "subject": "chore: add discussion templates",
+      "status": "skipped",
+      "reason": "upstream discussion templates are Herdr repository process, not Hako runtime or product behavior."
+    },
+    {
+      "upstream": "3ce4212e5e77d816ae02d71912f0b1b4925d7736",
+      "subject": "chore: approve merged contributor turgaybulut",
+      "status": "skipped",
+      "reason": "upstream contributor approval metadata is Herdr repository process, not Hako runtime or product behavior."
+    },
+    {
+      "upstream": "043968dd97e8a864f4473f1651e9df9ecd6ed99d",
+      "subject": "ci: limit nix workflow triggers",
+      "status": "skipped",
+      "reason": "Hako CI trigger policy is maintained separately."
+    },
+    {
+      "upstream": "bd1d2f7cc5fece3fa91eadb55fb7e0a9f3331780",
+      "subject": "chore: approve merged contributor SunskyXH",
+      "status": "skipped",
+      "reason": "upstream contributor approval metadata is Herdr repository process, not Hako runtime or product behavior."
+    },
+    {
+      "upstream": "8ddbda2afa307f6b8b6954eaa3a3e42c2d399391",
+      "subject": "chore: approve contributor sf-jin-ku",
+      "status": "skipped",
+      "reason": "upstream contributor approval metadata is Herdr repository process, not Hako runtime or product behavior."
+    },
+    {
+      "upstream": "5bd21b7ed468b5ff4d1a5b2ed7e211f401eb138a",
+      "subject": "chore: update libghostty vendor",
+      "status": "superseded",
+      "reason": "Hako already carries the relevant Ghostty API and renderer plumbing from the vendor update."
+    },
+    {
+      "upstream": "99e097c7d3cf76ae2d53bac5e7e2b3fd88b83591",
+      "subject": "chore: approve contributor DeevsDeevs",
+      "status": "skipped",
+      "reason": "upstream contributor approval metadata is Herdr repository process, not Hako runtime or product behavior."
+    },
+    {
+      "upstream": "b144f608d682f3aa518b50deebf1e5b66adfd132",
+      "subject": "chore: approve contributor wbxl2000",
+      "status": "skipped",
+      "reason": "upstream contributor approval metadata is Herdr repository process, not Hako runtime or product behavior."
+    },
+    {
+      "upstream": "1d56cd0e18fc69a85a0889ca6f9a9f3069a4be3a",
+      "subject": "feat: detect kilo code cli",
+      "status": "pending",
+      "reason": "new agent support needs product confirmation because Hako has no Kilo config, sound, docs, or integration surface yet."
+    },
+    {
+      "upstream": "32abb3776668ee768200019c170956f67fe33a86",
+      "subject": "fix: support fish remote bootstrap",
+      "status": "ported",
+      "reason": "ported to Hako with shell-agnostic remote probes/install scripts and fish-compatible path discovery."
+    },
+    {
+      "upstream": "389b61660f11ddd8fdf19b81e720b1a17890f100",
+      "subject": "fix: unify update-ready release notes scrolling",
+      "status": "ported",
+      "reason": "ported to Hako with a single scrollable release-notes preview body and updated scrollbar hit testing."
+    },
+    {
+      "upstream": "cc527d45fe4821cb11c484372a9f25c51c02e078",
+      "subject": "perf: retain terminal render updates",
+      "status": "superseded",
+      "reason": "Hako already retains render updates through the headless render-dirty path."
+    },
+    {
+      "upstream": "1257c1e5cbb6487448ab10f2b6d153af7059e65e",
+      "subject": "fix: preserve toasts during retained renders",
+      "status": "superseded",
+      "reason": "Hako already preserves toast context during retained renders."
+    },
+    {
+      "upstream": "6b61ab6a3a37216549d59a4c929c9d6abc68ac36",
+      "subject": "fix: answer xtgettcap queries in panes",
+      "status": "ported",
+      "reason": "ported to Hako with XTGETTCAP replies for truecolor, OSC52, and underline-color capabilities."
+    },
+    {
+      "upstream": "48641e253f1aa3886b470cbebec60103247a7622",
+      "subject": "fix: resume restored agents across background panes",
+      "status": "superseded",
+      "reason": "Hako already restores agent sessions across the workspace pane tree and defers resumes until panes are visible."
+    },
+    {
+      "upstream": "9709ba6938bd720fea6d8dd15346adf9db2b7f4b",
+      "subject": "fix: detect kiro subagent approvals",
+      "status": "ported",
+      "reason": "ported to Hako detection so Kiro subagent tool approval prompts classify as blocked."
+    },
+    {
+      "upstream": "719dff6d3cefbe586403d5a8454b119df4ec3ccd",
+      "subject": "fix: detect claude arrow-glyph question prompts",
+      "status": "ported",
+      "reason": "ported to Hako detection so Claude arrow-glyph question forms classify as visible blockers."
+    },
+    {
+      "upstream": "a0b124c3822023655206aaaef5a32c37d3ac18a4",
+      "subject": "fix: resolve git branch names in reftable repos (#423)",
+      "status": "ported",
+      "reason": "ported to Hako with git-backed branch and ref identity resolution for reftable repositories."
+    },
+    {
+      "upstream": "816cb88cd9df3cba305a50842ebf78db19279dd5",
+      "subject": "fix: avoid stale claude background wait detection",
+      "status": "skipped",
+      "reason": "Hako does not carry the upstream stale background-wait heuristic this fixes."
+    },
+    {
+      "upstream": "fc82cbad21791ed58c08905469055eb9357cd350",
+      "subject": "docs: clarify integration restore and state roles",
+      "status": "skipped",
+      "reason": "upstream docs wording is Herdr-owned documentation churn with no Hako runtime effect."
+    },
+    {
+      "upstream": "aa07e507c01d455a1f221d98b0a6ed3cad7dcfee",
+      "subject": "fix: remove update star prompt",
+      "status": "superseded",
+      "reason": "Hako already has no upstream GitHub star prompt in the update flow."
+    },
+    {
+      "upstream": "6f9453a480db8f087e16b8eda008a355bf57cfb6",
+      "subject": "fix: clarify update restart prompts",
+      "status": "ported",
+      "reason": "ported to Hako with clearer install and running-pane restart prompts."
+    },
+    {
+      "upstream": "5c86f0660f538553850e2c8fb0493372a48cb511",
+      "subject": "fix: avoid claude custom status false blocked",
+      "status": "ported",
+      "reason": "ported to Hako detection so Claude prompt boxes with custom status text do not false-block."
+    },
+    {
+      "upstream": "03208d254e948e3926594647f75da44a12920af2",
+      "subject": "fix: detect claude running shell status",
+      "status": "ported",
+      "reason": "ported to Hako detection so shell/local-agent running status remains working."
+    },
+    {
+      "upstream": "0473d329fdd7566c209edd205f5ddf1dd5e9dc16",
+      "subject": "fix: detect pnpm opencode executable",
+      "status": "skipped",
+      "reason": "Windows/pnpm executable normalization is outside Hako's current platform and process-name matching scope."
+    },
+    {
+      "upstream": "bed8f1ebe9417d448837c107d92a8770f60b6d1c",
+      "subject": "fix: make darwin nix package find sdk tools (#407)",
+      "status": "ported",
+      "reason": "ported to Hako Nix packaging with Darwin SDK tool shims and SDKROOT setup."
+    },
+    {
+      "upstream": "29024330c12f0acd45fb9177908f80bbd54d719b",
+      "subject": "fix: return to bottom after copy mode exit (#410)",
+      "status": "ported",
+      "reason": "ported to Hako so exiting copy mode returns panes to the bottom when copy mode was entered at bottom."
+    },
+    {
+      "upstream": "daf636fef7fd68bcb1e30cfb155883c3b831513c",
+      "subject": "fix: preserve child argv flags after separator",
+      "status": "ported",
+      "reason": "ported to Hako so global session and remote arg parsing stops at -- and preserves child flags."
+    },
+    {
+      "upstream": "b695d7cbc0d29540993642c23b3d5798cbf9f7dc",
+      "subject": "fix: forward any-motion pane mouse events",
+      "status": "superseded",
+      "reason": "Hako already forwards any-motion pane mouse events."
+    },
+    {
+      "upstream": "b751d102f158968aab681cb663d27b4c32197f62",
+      "subject": "feat: add preview update channel",
+      "status": "pending",
+      "reason": "new preview update channel and release pipeline need product confirmation for Hako release semantics."
+    },
+    {
+      "upstream": "be69ef9eeb8f8f59b3b26fc60378a7af7ca97cdc",
+      "subject": "fix: preserve preview docs navigation",
+      "status": "skipped",
+      "reason": "preview docs navigation is Hako-owned website/docs surface."
+    },
+    {
+      "upstream": "c2ad91cc513d35abdce2c5f4f08b87f2f886b7d2",
+      "subject": "fix: accept static aarch64 preview artifact packaging",
+      "status": "skipped",
+      "reason": "preview artifact packaging belongs to the unadopted preview update channel."
+    },
+    {
+      "upstream": "27d0b4df2cca918ff06915e51995955632517089",
+      "subject": "fix: publish preview manifest with bot token",
+      "status": "skipped",
+      "reason": "preview manifest publishing belongs to the unadopted preview update channel."
+    },
+    {
+      "upstream": "cce3eacc49d281fd087ebf0d43eea3e08038033f",
+      "subject": "fix: allow preview publish after master moves",
+      "status": "skipped",
+      "reason": "preview manifest publishing belongs to the unadopted preview update channel."
+    },
+    {
+      "upstream": "f928f33a0148652f980c5528652cabdf331cbb18",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "preview manifest/docs surface belongs to the unadopted preview update channel."
+    },
+    {
+      "upstream": "8968a0a4a8e80761ae6c8dab9b912530f619479c",
+      "subject": "fix: support legacy shifted letter keybindings",
+      "status": "superseded",
+      "reason": "Hako already supports shifted letters and punctuation in terminal keybinding matching."
+    },
+    {
+      "upstream": "e584f93f367650a2b752a4e3a889603fb81b08f4",
+      "subject": "fix: reconcile update channel switches",
+      "status": "skipped",
+      "reason": "depends on the unadopted preview update channel."
+    },
+    {
+      "upstream": "58af4902fc51b6be8fec99a3cec576c98e0c6075",
+      "subject": "fix: preserve status in transcript viewers",
+      "status": "superseded",
+      "reason": "Hako already preserves terminal status metadata through transcript viewers."
+    },
+    {
+      "upstream": "22c99852298b7c5a91657f278d5b1c213b6fd6cc",
+      "subject": "fix: reduce idle process probes",
+      "status": "superseded",
+      "reason": "Hako already carries reduced agent process probe cadence and confirmation windows."
+    },
+    {
+      "upstream": "03f68b7275f07c98769bf699d2aa14805b921f8d",
+      "subject": "fix: handle mise-managed updates",
+      "status": "pending",
+      "reason": "mise-managed update support changes Hako's supported install semantics and needs product confirmation."
+    },
+    {
+      "upstream": "398f0d6302c3a058a80bd6823c525a77f2adc4c8",
+      "subject": "chore: skip ci for contributor approvals",
+      "status": "skipped",
+      "reason": "upstream contributor approval CI policy is Herdr repository process."
+    },
+    {
+      "upstream": "0da26639e9adf5ae8386140527244b5e87f09841",
+      "subject": "test: speed up ghostty scrollback limit test",
+      "status": "skipped",
+      "reason": "test-speed-only upstream change has no Hako runtime effect."
+    },
+    {
+      "upstream": "949140599c0c1586efdbc55bde8dead6f7573aca",
+      "subject": "ci: show slow nextest tests",
+      "status": "superseded",
+      "reason": "Hako CI already reports slow nextest tests."
+    },
+    {
+      "upstream": "86b5fe01e26d8592a3d8eb4fcebaeef55186fa93",
+      "subject": "ci: serialize live handoff nextest tests",
+      "status": "skipped",
+      "reason": "Hako live-handoff tests already self-serialize with their test lock."
+    },
+    {
+      "upstream": "9ddb03ff347e88558637ce490fbdab63d55a9f3e",
+      "subject": "fix: shorten handoff ownership ack wait",
+      "status": "ported",
+      "reason": "ported to Hako with a shorter handoff ownership acknowledgement timeout."
+    },
+    {
+      "upstream": "3503209b0328e86a147db1b9928fa92764ad693e",
+      "subject": "ci: skip live handoff tests on macos",
+      "status": "skipped",
+      "reason": "macOS live-handoff suppression is CI coverage policy, not a Hako runtime fix."
+    },
+    {
+      "upstream": "01fc5bc7b547464122a0e390d9cdb4ab2e20da68",
+      "subject": "fix: tolerate macos socket timeout setup failure",
+      "status": "ported",
+      "reason": "ported to Hako so stop-request socket read-timeout setup tolerates InvalidInput like write-timeout setup."
+    },
+    {
+      "upstream": "a1ba035707cfb3c83fad541ecd32ccbd7be58815",
+      "subject": "docs: clarify repo agent guidance",
+      "status": "skipped",
+      "reason": "upstream repo-agent guidance is Herdr documentation/process surface."
+    },
+    {
+      "upstream": "554dd78f56ff61cf9914be82ad5585376d43e263",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "preview manifest/docs surface belongs to the unadopted preview update channel."
+    },
+    {
+      "upstream": "5b2fce600f7688059e8ae245da7c6ffc561bb92a",
+      "subject": "docs: finalize next release docs",
+      "status": "skipped",
+      "reason": "upstream release docs are Hako-owned release/documentation surface."
+    },
+    {
+      "upstream": "854fc3c1aff525913c180543bfc8741b81253da0",
+      "subject": "release: v0.6.7",
+      "status": "skipped",
+      "reason": "upstream release metadata is not part of Hako release history."
+    },
+    {
+      "upstream": "43a15492866a6967f79e2c0aea7a59fa9ceac28e",
+      "subject": "docs: update website manifest for v0.6.7",
+      "status": "skipped",
+      "reason": "upstream website manifest is Hako-owned website/release surface."
+    },
+    {
+      "upstream": "5f849c42bbbff6dd1f5f8e7157a27129f0a9d991",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "preview manifest/docs surface belongs to the unadopted preview update channel."
+    },
+    {
+      "upstream": "903662fcd822e50d875066ecc20811e3c9945e66",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "preview manifest/docs surface belongs to the unadopted preview update channel."
+    },
+    {
+      "upstream": "3965b6fb80528fd6b48a4582cf3d35e765be132f",
+      "subject": "chore: approve contributor charliesbot",
+      "status": "skipped",
+      "reason": "upstream contributor approval metadata is Herdr repository process, not Hako runtime or product behavior."
+    },
+    {
+      "upstream": "a0afbae2e5fc4ff9191b87563c47b8b6304b1dff",
+      "subject": "ci: cache vendored zig build outputs",
+      "status": "skipped",
+      "reason": "upstream CI cache experiment was reverted and has no net Hako behavior change."
+    },
+    {
+      "upstream": "865269b45485408139f41911e413990dc155d933",
+      "subject": "ci: revert cache experiment",
+      "status": "skipped",
+      "reason": "upstream CI cache experiment revert has no Hako behavior change."
+    },
+    {
+      "upstream": "e05bd5cb2a26e3690d73ca241e1e457d3eb664cb",
+      "subject": "ci: validate cache revert",
+      "status": "skipped",
+      "reason": "upstream CI cache experiment validation has no Hako behavior change."
+    },
+    {
+      "upstream": "3cbe4ec7936745543e16d1ceb37f6db6c38d65ac",
+      "subject": "fix: avoid ghostty utf8 grapheme buffer crash",
+      "status": "ported",
+      "reason": "ported to Hako with UTF-8 grapheme buffer crash coverage on the existing Ghostty text path."
+    },
+    {
+      "upstream": "5df21bb790d59b51666e99c8a1c2858af3f39d81",
+      "subject": "docs: finalize 0.6.8 release notes",
+      "status": "skipped",
+      "reason": "upstream release docs are Hako-owned release/documentation surface."
+    },
+    {
+      "upstream": "3abda6138e165f4b2b625fea65f971a65072bc66",
+      "subject": "release: v0.6.8",
+      "status": "skipped",
+      "reason": "upstream release metadata is not part of Hako release history."
+    },
+    {
+      "upstream": "cb18fe52b55f1a627387c829074e9d24b9cefb28",
+      "subject": "docs: update website manifest for v0.6.8",
+      "status": "skipped",
+      "reason": "upstream website manifest is Hako-owned website/release surface."
     }
   ]
 }

@@ -6,8 +6,9 @@ use crate::workspace::{GitWorkSummary, WorkspaceGitStatusSnapshot};
 use super::{
     config::{read_branch_config, upstream_full_ref},
     discovery::{
-        canonicalize_best_effort_path, git_branch, git_repo_root, git_space_metadata,
-        git_worktree_info, read_ref_oid, GitWorktreeInfo,
+        canonicalize_best_effort_path, git_branch, git_ref_storage_is_reftable, git_repo_root,
+        git_rev_parse_verify, git_space_metadata, git_symbolic_head_full, git_worktree_info,
+        read_ref_oid, GitWorktreeInfo,
     },
 };
 
@@ -150,18 +151,18 @@ pub fn git_status_snapshot_for_cwd(
     cwd: &Path,
     cached: Option<&GitStatusCacheEntry>,
 ) -> (WorkspaceGitStatusSnapshot, Option<GitStatusCacheEntry>) {
-    let branch = git_branch(cwd);
     let space = git_space_metadata(cwd);
     let Some(fingerprint) = git_status_fingerprint(cwd) else {
         return (
             WorkspaceGitStatusSnapshot {
-                branch,
+                branch: git_branch(cwd),
                 ahead_behind: None,
                 space,
             },
             None,
         );
     };
+    let branch = fingerprint.branch_name().map(str::to_string);
 
     if let Some(cached) = cached.filter(|entry| entry.fingerprint == fingerprint) {
         let snapshot = WorkspaceGitStatusSnapshot {
@@ -213,6 +214,13 @@ pub(super) fn git_status_fingerprint(cwd: &Path) -> Option<GitStatusFingerprint>
 }
 
 impl GitStatusFingerprint {
+    fn branch_name(&self) -> Option<&str> {
+        match &self.head {
+            GitHeadIdentity::Branch { short_name, .. } => Some(short_name.as_str()),
+            GitHeadIdentity::Detached { .. } => None,
+        }
+    }
+
     fn head_oid(&self) -> Option<&str> {
         match &self.head {
             GitHeadIdentity::Branch { oid, .. } => oid.as_deref(),
@@ -228,6 +236,28 @@ impl GitStatusFingerprint {
 }
 
 fn read_head_identity(info: &GitWorktreeInfo) -> Option<GitHeadIdentity> {
+    if git_ref_storage_is_reftable(&info.git_common_dir) {
+        return read_head_identity_from_git(info);
+    }
+
+    read_head_identity_from_files(info)
+}
+
+fn read_head_identity_from_git(info: &GitWorktreeInfo) -> Option<GitHeadIdentity> {
+    if let Some(full_ref) = git_symbolic_head_full(&info.repo_root) {
+        let short_name = full_ref.strip_prefix("refs/heads/")?.to_string();
+        let oid = git_rev_parse_verify(&info.repo_root, &full_ref);
+        return Some(GitHeadIdentity::Branch {
+            full_ref,
+            short_name,
+            oid,
+        });
+    }
+
+    git_rev_parse_verify(&info.repo_root, "HEAD").map(|oid| GitHeadIdentity::Detached { oid })
+}
+
+fn read_head_identity_from_files(info: &GitWorktreeInfo) -> Option<GitHeadIdentity> {
     let head = std::fs::read_to_string(info.git_dir.join("HEAD")).ok()?;
     let head = head.trim();
     if let Some(full_ref) = head.strip_prefix("ref: ") {
@@ -248,7 +278,11 @@ fn read_head_identity(info: &GitWorktreeInfo) -> Option<GitHeadIdentity> {
 fn read_upstream_identity(info: &GitWorktreeInfo, branch: &str) -> Option<GitUpstreamIdentity> {
     let config = read_branch_config(info, branch)?;
     let full_ref = upstream_full_ref(&config)?;
-    let oid = read_ref_oid(&info.git_common_dir, &full_ref);
+    let oid = if git_ref_storage_is_reftable(&info.git_common_dir) {
+        git_rev_parse_verify(&info.repo_root, &full_ref)
+    } else {
+        read_ref_oid(&info.git_common_dir, &full_ref)
+    };
     Some(GitUpstreamIdentity {
         remote: config.remote,
         merge_ref: config.merge_ref,
@@ -424,6 +458,36 @@ mod tests {
 
         assert_eq!(snapshot.branch.as_deref(), Some("main"));
         assert_eq!(snapshot.ahead_behind, None);
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn git_status_fingerprint_reads_reftable_branch_identity() {
+        let root = temp_test_dir("reftable-fingerprint");
+        let root_arg = root.to_string_lossy().to_string();
+        let output = std::process::Command::new("git")
+            .args(["init", "--ref-format=reftable", "-b", "main", &root_arg])
+            .output()
+            .unwrap();
+        if !output.status.success() {
+            std::fs::remove_dir_all(root).unwrap();
+            return;
+        }
+        run_git(&root, &["config", "user.email", "hako@example.invalid"]);
+        run_git(&root, &["config", "user.name", "Hako Test"]);
+        run_git(&root, &["commit", "--allow-empty", "-m", "initial"]);
+
+        let fingerprint = git_status_fingerprint(&root).unwrap();
+
+        assert_eq!(
+            fingerprint.head,
+            GitHeadIdentity::Branch {
+                full_ref: "refs/heads/main".into(),
+                short_name: "main".into(),
+                oid: git_rev_parse_verify(&root, "HEAD"),
+            }
+        );
 
         std::fs::remove_dir_all(root).unwrap();
     }

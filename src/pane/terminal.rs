@@ -111,6 +111,7 @@ pub(crate) struct GhosttyPaneCore {
     pub child_default_background_changed: bool,
     pub osc52_forwarder: Osc52Forwarder,
     pub osc_color_query_responder: OscColorQueryResponder,
+    pub pty_response_tracker: PtyResponseTracker,
 }
 
 pub(crate) struct PaneTerminal {
@@ -333,6 +334,7 @@ impl GhosttyPaneTerminal {
                 child_default_background_changed: false,
                 osc52_forwarder: Osc52Forwarder::default(),
                 osc_color_query_responder: OscColorQueryResponder::default(),
+                pty_response_tracker: PtyResponseTracker::default(),
             }),
             key_encoder: Mutex::new(key_encoder),
             pending_pty_responses,
@@ -454,9 +456,14 @@ impl GhosttyPaneTerminal {
         core.kitty_keyboard.observe(filtered_bytes.as_ref());
         core.default_color_event_tracker
             .observe(filtered_bytes.as_ref());
-        respond_to_default_color_events(&mut core, &mut terminal_responses);
-        core.terminal.write(filtered_bytes.as_ref());
-        terminal_responses.extend(self.drain_pending_pty_responses());
+        let _ = core.default_color_event_tracker.drain_pending();
+        let ordered_events = core.pty_response_tracker.observe(filtered_bytes.as_ref());
+        self.write_pty_bytes_with_ordered_responses(
+            &mut core,
+            filtered_bytes.as_ref(),
+            ordered_events,
+            &mut terminal_responses,
+        );
 
         let has_kitty_graphics_sequence = crate::kitty_graphics::is_enabled()
             && contains_kitty_graphics_sequence(filtered_bytes.as_ref());
@@ -476,6 +483,37 @@ impl GhosttyPaneTerminal {
                 .then_some(KITTY_GRAPHICS_REDRAW_SETTLE),
             clipboard_writes,
             terminal_responses,
+        }
+    }
+
+    fn write_pty_bytes_with_ordered_responses(
+        &self,
+        core: &mut GhosttyPaneCore,
+        bytes: &[u8],
+        events: Vec<OrderedPtyResponseEvent>,
+        terminal_responses: &mut Vec<Bytes>,
+    ) {
+        let mut written = 0usize;
+        for event in events {
+            let end_offset = event.end_offset().min(bytes.len());
+            if end_offset > written {
+                core.terminal.write(&bytes[written..end_offset]);
+                terminal_responses.extend(self.drain_pending_pty_responses());
+                written = end_offset;
+            }
+            match event {
+                OrderedPtyResponseEvent::DefaultColor(event) => {
+                    respond_to_default_color_event(core, terminal_responses, event.event);
+                }
+                OrderedPtyResponseEvent::Xtgettcap(response) => {
+                    terminal_responses.push(response.bytes);
+                }
+            }
+        }
+
+        if written < bytes.len() {
+            core.terminal.write(&bytes[written..]);
+            terminal_responses.extend(self.drain_pending_pty_responses());
         }
     }
 
@@ -1329,6 +1367,9 @@ fn ghostty_cell_style(
     if let Some(bg) = bg {
         style = style.bg(bg);
     }
+    if let Some(underline_color) = style_data.underline_color.map(ghostty_cell_color) {
+        style = style.underline_color(underline_color);
+    }
 
     let mut modifiers = Modifier::empty();
     if style_data.bold {
@@ -1352,25 +1393,307 @@ fn ghostty_cell_style(
     style.add_modifier(modifiers)
 }
 
-fn respond_to_default_color_events(
+#[derive(Debug, Default)]
+pub(crate) struct PtyResponseTracker {
+    state: PtyResponseTrackerState,
+    body: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum PtyResponseTrackerState {
+    #[default]
+    Ground,
+    Escape,
+    OscBody,
+    OscEscape,
+    DcsBody,
+    DcsEscape,
+    IgnoreString,
+    IgnoreStringEscape,
+    OversizedString,
+    OversizedStringEscape,
+}
+
+#[derive(Debug)]
+struct DefaultColorTrackedEvent {
+    end_offset: usize,
+    event: DefaultColorEvent,
+}
+
+#[derive(Debug)]
+struct XtgettcapResponse {
+    end_offset: usize,
+    bytes: Bytes,
+}
+
+#[derive(Debug)]
+enum OrderedPtyResponseEvent {
+    DefaultColor(DefaultColorTrackedEvent),
+    Xtgettcap(XtgettcapResponse),
+}
+
+impl OrderedPtyResponseEvent {
+    fn end_offset(&self) -> usize {
+        match self {
+            Self::DefaultColor(event) => event.end_offset,
+            Self::Xtgettcap(response) => response.end_offset,
+        }
+    }
+}
+
+impl PtyResponseTracker {
+    fn observe(&mut self, bytes: &[u8]) -> Vec<OrderedPtyResponseEvent> {
+        let mut pending = Vec::new();
+        for (offset, &byte) in bytes.iter().enumerate() {
+            match self.state {
+                PtyResponseTrackerState::Ground => {
+                    if byte == 0x1b {
+                        self.state = PtyResponseTrackerState::Escape;
+                    }
+                }
+                PtyResponseTrackerState::Escape => match byte {
+                    b']' => {
+                        self.body.clear();
+                        self.state = PtyResponseTrackerState::OscBody;
+                    }
+                    b'P' => {
+                        self.body.clear();
+                        self.state = PtyResponseTrackerState::DcsBody;
+                    }
+                    b'_' | b'^' | b'X' => {
+                        self.body.clear();
+                        self.state = PtyResponseTrackerState::IgnoreString;
+                    }
+                    0x1b => self.state = PtyResponseTrackerState::Escape,
+                    _ => self.state = PtyResponseTrackerState::Ground,
+                },
+                PtyResponseTrackerState::OscBody => match byte {
+                    0x07 => {
+                        if let Some(event) = parse_default_color_event(&self.body) {
+                            pending.push(OrderedPtyResponseEvent::DefaultColor(
+                                DefaultColorTrackedEvent {
+                                    end_offset: offset + 1,
+                                    event,
+                                },
+                            ));
+                        }
+                        self.body.clear();
+                        self.state = PtyResponseTrackerState::Ground;
+                    }
+                    0x1b => self.state = PtyResponseTrackerState::OscEscape,
+                    _ => self.body.push(byte),
+                },
+                PtyResponseTrackerState::OscEscape => {
+                    if byte == b'\\' {
+                        if let Some(event) = parse_default_color_event(&self.body) {
+                            pending.push(OrderedPtyResponseEvent::DefaultColor(
+                                DefaultColorTrackedEvent {
+                                    end_offset: offset + 1,
+                                    event,
+                                },
+                            ));
+                        }
+                        self.body.clear();
+                        self.state = PtyResponseTrackerState::Ground;
+                    } else {
+                        self.body.push(0x1b);
+                        self.body.push(byte);
+                        self.state = PtyResponseTrackerState::OscBody;
+                    }
+                }
+                PtyResponseTrackerState::DcsBody => {
+                    if byte == 0x1b {
+                        self.state = PtyResponseTrackerState::DcsEscape;
+                    } else {
+                        self.body.push(byte);
+                    }
+                }
+                PtyResponseTrackerState::DcsEscape => {
+                    if byte == b'\\' {
+                        pending.extend(parse_xtgettcap_responses(&self.body, offset + 1));
+                        self.body.clear();
+                        self.state = PtyResponseTrackerState::Ground;
+                    } else {
+                        self.body.push(0x1b);
+                        self.body.push(byte);
+                        self.state = PtyResponseTrackerState::DcsBody;
+                    }
+                }
+                PtyResponseTrackerState::IgnoreString => {
+                    if byte == 0x1b {
+                        self.state = PtyResponseTrackerState::IgnoreStringEscape;
+                    }
+                }
+                PtyResponseTrackerState::IgnoreStringEscape => {
+                    if byte == b'\\' {
+                        self.state = PtyResponseTrackerState::Ground;
+                    } else if byte != 0x1b {
+                        self.state = PtyResponseTrackerState::IgnoreString;
+                    }
+                }
+                PtyResponseTrackerState::OversizedString => {
+                    if byte == 0x1b {
+                        self.state = PtyResponseTrackerState::OversizedStringEscape;
+                    } else if byte == 0x07 {
+                        self.state = PtyResponseTrackerState::Ground;
+                    }
+                }
+                PtyResponseTrackerState::OversizedStringEscape => {
+                    if byte == b'\\' {
+                        self.state = PtyResponseTrackerState::Ground;
+                    } else if byte != 0x1b {
+                        self.state = PtyResponseTrackerState::OversizedString;
+                    }
+                }
+            }
+
+            if self.body.len() > 1024 {
+                self.body.clear();
+                self.state = PtyResponseTrackerState::OversizedString;
+            }
+        }
+        pending
+    }
+}
+
+fn parse_default_color_event(body: &[u8]) -> Option<DefaultColorEvent> {
+    match body {
+        b"10;?" => Some(DefaultColorEvent::Query(DefaultColorQuery::Foreground)),
+        b"11;?" => Some(DefaultColorEvent::Query(DefaultColorQuery::Background)),
+        b"110" | b"110;" => Some(DefaultColorEvent::Reset(DefaultColorQuery::Foreground)),
+        b"111" | b"111;" => Some(DefaultColorEvent::Reset(DefaultColorQuery::Background)),
+        _ => parse_palette_color_query(body).or_else(|| parse_default_color_set_event(body)),
+    }
+}
+
+fn parse_palette_color_query(body: &[u8]) -> Option<DefaultColorEvent> {
+    let index = body.strip_prefix(b"4;")?.strip_suffix(b";?")?;
+    if index.is_empty() || index.len() > 3 || !index.iter().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+
+    let mut value: u16 = 0;
+    for &digit in index {
+        value = value * 10 + u16::from(digit - b'0');
+    }
+    u8::try_from(value)
+        .ok()
+        .map(DefaultColorEvent::PaletteQuery)
+}
+
+fn parse_default_color_set_event(body: &[u8]) -> Option<DefaultColorEvent> {
+    let query = match body.split(|byte| *byte == b';').next()? {
+        b"10" => DefaultColorQuery::Foreground,
+        b"11" => DefaultColorQuery::Background,
+        _ => return None,
+    };
+    (body.get(2).copied() == Some(b';') && body.len() > 3).then_some(DefaultColorEvent::Set(query))
+}
+
+fn parse_xtgettcap_responses(body: &[u8], end_offset: usize) -> Vec<OrderedPtyResponseEvent> {
+    let Some(queries) = body.strip_prefix(b"+q") else {
+        return Vec::new();
+    };
+    let mut responses = Vec::new();
+    for cap_hex in queries.split(|byte| *byte == b';') {
+        if cap_hex.is_empty() {
+            continue;
+        }
+        let Some(capability) = decode_hex_bytes(cap_hex) else {
+            continue;
+        };
+        let Some(value) = xtgettcap_value(&capability) else {
+            continue;
+        };
+        responses.push(OrderedPtyResponseEvent::Xtgettcap(XtgettcapResponse {
+            end_offset,
+            bytes: xtgettcap_response(cap_hex, value),
+        }));
+    }
+    responses
+}
+
+fn xtgettcap_value(capability: &[u8]) -> Option<Option<&'static [u8]>> {
+    match capability {
+        b"Tc" | b"Su" => Some(None),
+        b"RGB" => Some(Some(b"8")),
+        b"setrgbf" => Some(Some(b"\\E[38:2:%p1%d:%p2%d:%p3%dm")),
+        b"setrgbb" => Some(Some(b"\\E[48:2:%p1%d:%p2%d:%p3%dm")),
+        b"Ms" => Some(Some(b"\\E]52;%p1%s;%p2%s\\007")),
+        b"Setulc" => Some(Some(
+            b"\\E[58:2::%p1%{65536}%/%d:%p1%{256}%/%{255}%&%d:%p1%{255}%&%d%;m",
+        )),
+        _ => None,
+    }
+}
+
+fn xtgettcap_response(cap_hex: &[u8], value: Option<&[u8]>) -> Bytes {
+    let mut response =
+        Vec::with_capacity(8 + cap_hex.len() + value.map_or(0, |value| value.len() * 2 + 1));
+    response.extend_from_slice(b"\x1bP1+r");
+    append_upper_hex_ascii(cap_hex, &mut response);
+    if let Some(value) = value {
+        response.push(b'=');
+        append_upper_hex(value, &mut response);
+    }
+    response.extend_from_slice(b"\x1b\\");
+    Bytes::from(response)
+}
+
+fn decode_hex_bytes(input: &[u8]) -> Option<Vec<u8>> {
+    if !input.len().is_multiple_of(2) {
+        return None;
+    }
+    let mut out = Vec::with_capacity(input.len() / 2);
+    for pair in input.chunks_exact(2) {
+        let high = hex_value(pair[0])?;
+        let low = hex_value(pair[1])?;
+        out.push((high << 4) | low);
+    }
+    Some(out)
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn append_upper_hex_ascii(input: &[u8], output: &mut Vec<u8>) {
+    for &byte in input {
+        output.push(byte.to_ascii_uppercase());
+    }
+}
+
+fn append_upper_hex(bytes: &[u8], output: &mut Vec<u8>) {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    for &byte in bytes {
+        output.push(HEX[usize::from(byte >> 4)]);
+        output.push(HEX[usize::from(byte & 0x0f)]);
+    }
+}
+
+fn respond_to_default_color_event(
     core: &mut GhosttyPaneCore,
     terminal_responses: &mut Vec<Bytes>,
+    event: DefaultColorEvent,
 ) {
-    for event in core.default_color_event_tracker.drain_pending() {
-        match event {
-            DefaultColorEvent::Query(query) => {
-                if let Some(response) = default_color_query_response(query, core) {
-                    terminal_responses.push(response);
-                }
+    match event {
+        DefaultColorEvent::Query(query) => {
+            if let Some(response) = default_color_query_response(query, core) {
+                terminal_responses.push(response);
             }
-            DefaultColorEvent::PaletteQuery(index) => {
-                if let Some(response) = palette_color_query_response(index, core) {
-                    terminal_responses.push(response);
-                }
-            }
-            DefaultColorEvent::Set(query) => mark_child_default_color_changed(core, query, true),
-            DefaultColorEvent::Reset(query) => mark_child_default_color_changed(core, query, false),
         }
+        DefaultColorEvent::PaletteQuery(index) => {
+            if let Some(response) = palette_color_query_response(index, core) {
+                terminal_responses.push(response);
+            }
+        }
+        DefaultColorEvent::Set(query) => mark_child_default_color_changed(core, query, true),
+        DefaultColorEvent::Reset(query) => mark_child_default_color_changed(core, query, false),
     }
 }
 
@@ -1558,6 +1881,16 @@ mod tests {
         let g = u16::from(color.g) * 257;
         let b = u16::from(color.b) * 257;
         Bytes::from(format!("\x1b]{command};rgb:{r:04x}/{g:04x}/{b:04x}\x1b\\"))
+    }
+
+    fn expected_xtgettcap_response(cap_hex: &str, value: Option<&[u8]>) -> Bytes {
+        let mut response = format!("\x1bP1+r{cap_hex}").into_bytes();
+        if let Some(value) = value {
+            response.push(b'=');
+            append_upper_hex(value, &mut response);
+        }
+        response.extend_from_slice(b"\x1b\\");
+        Bytes::from(response)
     }
 
     #[test]
@@ -2535,6 +2868,178 @@ mod tests {
         assert_eq!(result.terminal_responses.len(), 1);
         assert!(String::from_utf8_lossy(&result.terminal_responses[0]).contains('R'));
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn process_pty_bytes_returns_xtgettcap_truecolor_query_responses_without_queuing_input() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+        let pane_id = PaneId::from_raw(1);
+
+        let result = pane.process_pty_bytes(
+            pane_id,
+            0,
+            b"\x1bP+q5463;524742;73657472676266;73657472676262\x1b\\",
+            &tx,
+        );
+
+        assert_eq!(
+            result.terminal_responses,
+            vec![
+                expected_xtgettcap_response("5463", None),
+                expected_xtgettcap_response("524742", Some(b"8")),
+                expected_xtgettcap_response("73657472676266", Some(b"\\E[38:2:%p1%d:%p2%d:%p3%dm")),
+                expected_xtgettcap_response("73657472676262", Some(b"\\E[48:2:%p1%d:%p2%d:%p3%dm")),
+            ]
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn process_pty_bytes_returns_split_xtgettcap_query_response() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+        let pane_id = PaneId::from_raw(1);
+
+        let result = pane.process_pty_bytes(pane_id, 0, b"\x1bP+q4", &tx);
+        assert!(result.terminal_responses.is_empty());
+        assert!(rx.try_recv().is_err());
+        let result = pane.process_pty_bytes(pane_id, 0, b"D73\x1b", &tx);
+        assert!(result.terminal_responses.is_empty());
+        assert!(rx.try_recv().is_err());
+        let result = pane.process_pty_bytes(pane_id, 0, b"\\", &tx);
+
+        assert_eq!(
+            result.terminal_responses,
+            vec![expected_xtgettcap_response(
+                "4D73",
+                Some(b"\\E]52;%p1%s;%p2%s\\007")
+            )]
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn process_pty_bytes_orders_device_attribute_reply_before_following_xtgettcap_reply() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+        let pane_id = PaneId::from_raw(1);
+
+        let result = pane.process_pty_bytes(pane_id, 0, b"\x1b[c\x1bP+q5463\x1b\\", &tx);
+
+        assert_eq!(result.terminal_responses.len(), 2);
+        assert!(String::from_utf8_lossy(&result.terminal_responses[0]).contains('c'));
+        assert_eq!(
+            result.terminal_responses[1],
+            expected_xtgettcap_response("5463", None)
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn process_pty_bytes_orders_xtgettcap_reply_before_following_device_attribute_reply() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+        let pane_id = PaneId::from_raw(1);
+
+        let result = pane.process_pty_bytes(pane_id, 0, b"\x1bP+q5463\x1b\\\x1b[c", &tx);
+
+        assert_eq!(result.terminal_responses.len(), 2);
+        assert_eq!(
+            result.terminal_responses[0],
+            expected_xtgettcap_response("5463", None)
+        );
+        assert!(String::from_utf8_lossy(&result.terminal_responses[1]).contains('c'));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn process_pty_bytes_orders_xtgettcap_reply_before_following_default_color_reply() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+        let pane_id = PaneId::from_raw(1);
+        pane.apply_host_terminal_theme(crate::terminal_theme::TerminalTheme {
+            foreground: None,
+            background: Some(crate::terminal_theme::RgbColor {
+                r: 0x00,
+                g: 0x2b,
+                b: 0x36,
+            }),
+            ..Default::default()
+        });
+
+        let result = pane.process_pty_bytes(pane_id, 0, b"\x1bP+q5463\x1b\\\x1b]11;?\x07", &tx);
+
+        assert_eq!(
+            result.terminal_responses,
+            vec![
+                expected_xtgettcap_response("5463", None),
+                Bytes::from_static(b"\x1b]11;rgb:0000/2b2b/3636\x1b\\"),
+            ]
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn process_pty_bytes_ignores_unknown_and_unsupported_xtgettcap_queries() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+        let pane_id = PaneId::from_raw(1);
+
+        let result =
+            pane.process_pty_bytes(pane_id, 0, b"\x1bP+q6E6F7065;536D756C78;4D7\x1b\\", &tx);
+
+        assert!(result.terminal_responses.is_empty());
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn process_pty_bytes_returns_underline_color_xtgettcap_query_responses() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+        let pane_id = PaneId::from_raw(1);
+
+        let result = pane.process_pty_bytes(pane_id, 0, b"\x1bP+q5375;536574756C63\x1b\\", &tx);
+
+        assert_eq!(
+            result.terminal_responses,
+            vec![
+                expected_xtgettcap_response("5375", None),
+                expected_xtgettcap_response(
+                    "536574756C63",
+                    Some(b"\\E[58:2::%p1%{65536}%/%d:%p1%{256}%/%{255}%&%d:%p1%{255}%&%d%;m")
+                ),
+            ]
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn render_preserves_underline_color() {
+        let (tx, _rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+        {
+            let mut core = pane.core.lock().unwrap();
+            core.terminal.write(b"\x1b[4m\x1b[58:2::17:34:51mU");
+        }
+
+        let backend = ratatui::backend::TestBackend::new(20, 5);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| pane.render(frame, Rect::new(0, 0, 20, 5), false))
+            .unwrap();
+
+        let style = terminal.backend().buffer()[(0, 0)].style();
+        assert!(style.add_modifier.contains(Modifier::UNDERLINED));
+        assert_eq!(style.underline_color, Some(Color::Rgb(17, 34, 51)));
     }
 
     #[test]

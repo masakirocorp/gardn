@@ -264,9 +264,7 @@ fn detect_claude(content: &str) -> AgentState {
         return AgentState::Idle;
     }
 
-    // --- Blocked detection (full content including prompt box) ---
-
-    if has_claude_blocked_prompt(content, &lower) {
+    if has_claude_live_blocked_form(content) {
         return AgentState::Blocked;
     }
 
@@ -274,6 +272,10 @@ fn detect_claude(content: &str) -> AgentState {
 
     if has_claude_working_chrome(content) {
         return AgentState::Working;
+    }
+
+    if !has_claude_prompt_box(content) && has_claude_blocked_prompt(content, &lower) {
+        return AgentState::Blocked;
     }
 
     AgentState::Idle
@@ -475,16 +477,11 @@ fn has_kimi_working_status(content: &str) -> bool {
 /// Kiro CLI detection.
 ///
 /// Kiro exposes reliable working and idle terminal markers. Tool approval
-/// prompts render with a stable "requires approval" line and an action menu.
+/// prompts render with stable approval wording and an action menu.
 fn detect_kiro(content: &str) -> AgentState {
     let lower = content.to_lowercase();
 
-    let has_approval_request = lower.contains("requires approval");
-    let has_approval_actions = lower.contains("yes, single permission")
-        || lower.contains("trust, always allow")
-        || lower.contains("no (tab to edit)")
-        || lower.contains("esc to close");
-    if has_approval_request && has_approval_actions {
+    if has_kiro_blocked_prompt(&lower) {
         return AgentState::Blocked;
     }
 
@@ -495,6 +492,29 @@ fn detect_kiro(content: &str) -> AgentState {
     }
 
     AgentState::Idle
+}
+
+fn has_kiro_blocked_prompt(lower_content: &str) -> bool {
+    has_kiro_tool_approval_prompt(lower_content) || has_kiro_subagent_approval_prompt(lower_content)
+}
+
+fn has_kiro_tool_approval_prompt(lower_content: &str) -> bool {
+    let has_approval_request = lower_content.contains("requires approval");
+    let has_approval_actions = lower_content.contains("yes, single permission")
+        || lower_content.contains("trust, always allow")
+        || lower_content.contains("no (tab to edit)")
+        || lower_content.contains("esc to close");
+    has_approval_request && has_approval_actions
+}
+
+fn has_kiro_subagent_approval_prompt(lower_content: &str) -> bool {
+    let has_approval_request = (lower_content.contains("tool approval")
+        || lower_content.contains("tool approvals"))
+        && lower_content.contains("pending from subagents");
+    let has_approval_actions = lower_content.contains("approve all pending")
+        || lower_content.contains("configure individually")
+        || lower_content.contains("exit (cancel subagents)");
+    has_approval_request && has_approval_actions
 }
 
 /// Droid detection.
@@ -789,10 +809,23 @@ fn has_claude_blocked_prompt(content: &str, lower_content: &str) -> bool {
         || lower_content.contains("do you want to allow this connection?")
         || lower_content.contains("tab to amend")
         || lower_content.contains("ctrl+e to explain")
-        || lower_content.contains("chat about this")
         || lower_content.contains("review your answers")
         || lower_content.contains("skip interview and plan immediately")
         || (has_selection_prompt(content) && has_claude_yes_no_choice(content))
+}
+
+fn has_claude_live_blocked_form(content: &str) -> bool {
+    let region = content_after_last_horizontal_rule(content);
+    region.lines().any(|line| {
+        let lower = line.to_lowercase();
+        lower.contains("enter to select")
+            && lower.contains("esc to cancel")
+            && (lower.contains("tab/arrow keys to navigate")
+                || lower.contains("arrow keys to navigate")
+                || lower.contains("arrows to navigate")
+                || lower.contains("↑/↓ to navigate")
+                || lower.contains("↑↓ to navigate"))
+    })
 }
 
 fn has_claude_yes_no_choice(content: &str) -> bool {
@@ -874,13 +907,14 @@ fn has_visible_blocker(agent: Agent, content: &str, state: AgentState) -> bool {
 
 fn has_claude_visible_blocker(content: &str) -> bool {
     let lower = content.to_lowercase();
-    lower.contains("do you want to proceed?")
-        && has_claude_yes_no_choice(content)
-        && (lower.contains("bash command")
-            || lower.contains("bash(")
-            || lower.contains("contains expansion")
-            || lower.contains("tab to amend")
-            || lower.contains("ctrl+e to explain"))
+    has_claude_live_blocked_form(content)
+        || lower.contains("do you want to proceed?")
+            && has_claude_yes_no_choice(content)
+            && (lower.contains("bash command")
+                || lower.contains("bash(")
+                || lower.contains("contains expansion")
+                || lower.contains("tab to amend")
+                || lower.contains("ctrl+e to explain"))
 }
 
 fn has_codex_visible_blocker(content: &str) -> bool {
@@ -1075,6 +1109,7 @@ fn has_claude_working_chrome(content: &str) -> bool {
     let above_lower = above.to_lowercase();
     above_lower.contains("esc to interrupt")
         || above_lower.contains("ctrl+c to interrupt")
+        || has_claude_running_status_line(above)
         || has_spinner_activity(above)
 }
 
@@ -1090,6 +1125,106 @@ fn content_above_prompt_box(content: &str) -> &str {
 
     // No prompt box found, return all content
     content
+}
+
+fn content_after_last_horizontal_rule(content: &str) -> &str {
+    let mut last_rule_end = 0usize;
+    let mut offset = 0usize;
+    for line in content.lines() {
+        let next_offset = offset + line.len() + 1;
+        if is_horizontal_rule(line) {
+            last_rule_end = next_offset.min(content.len());
+        }
+        offset = next_offset;
+    }
+
+    &content[last_rule_end..]
+}
+
+fn has_claude_running_status_line(content_above_prompt: &str) -> bool {
+    let Some(line) = content_above_prompt
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+    else {
+        return false;
+    };
+
+    is_claude_background_agent_wait_line(line) || is_claude_still_running_status_line(line)
+}
+
+fn is_claude_background_agent_wait_line(line: &str) -> bool {
+    let mut text = line.trim();
+    if !text.starts_with("Waiting for ") && !text.starts_with("waiting for ") {
+        let mut chars = text.chars();
+        let Some(first) = chars.next() else {
+            return false;
+        };
+        if first.is_alphanumeric() {
+            return false;
+        }
+        text = chars.as_str().trim_start();
+    }
+    let Some(rest) = text
+        .strip_prefix("Waiting for ")
+        .or_else(|| text.strip_prefix("waiting for "))
+    else {
+        return false;
+    };
+    let Some((count, rest)) = rest.split_once(' ') else {
+        return false;
+    };
+    match count.parse::<u32>() {
+        Ok(count) if count > 0 => {}
+        _ => return false,
+    }
+
+    rest.eq_ignore_ascii_case("background agent to finish")
+        || rest.eq_ignore_ascii_case("background agents to finish")
+}
+
+fn is_claude_still_running_status_line(line: &str) -> bool {
+    let mut words = line.split_whitespace();
+    while let Some(word) = words.next() {
+        let Ok(count) = word.parse::<u32>() else {
+            continue;
+        };
+        if count == 0 {
+            continue;
+        }
+
+        let mut after_count = words.clone();
+        let Some(first) = after_count.next() else {
+            continue;
+        };
+
+        if (first.eq_ignore_ascii_case("shell") || first.eq_ignore_ascii_case("shells"))
+            && after_count
+                .next()
+                .is_some_and(|word| word.eq_ignore_ascii_case("still"))
+            && after_count
+                .next()
+                .is_some_and(|word| word.eq_ignore_ascii_case("running"))
+        {
+            return true;
+        }
+
+        if first.eq_ignore_ascii_case("local")
+            && after_count.next().is_some_and(|word| {
+                word.eq_ignore_ascii_case("agent") || word.eq_ignore_ascii_case("agents")
+            })
+            && after_count
+                .next()
+                .is_some_and(|word| word.eq_ignore_ascii_case("still"))
+            && after_count
+                .next()
+                .is_some_and(|word| word.eq_ignore_ascii_case("running"))
+        {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn has_claude_prompt_box(content: &str) -> bool {
@@ -1121,7 +1256,23 @@ fn claude_prompt_box_top_border_index(lines: &[&str]) -> Option<usize> {
 
 fn is_horizontal_rule(line: &str) -> bool {
     let trimmed = line.trim();
-    !trimmed.is_empty() && trimmed.chars().all(|c| c == '─')
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let rule_chars = trimmed.chars().take_while(|&c| c == '─').count();
+    if rule_chars == 0 {
+        return false;
+    }
+
+    let rule_bytes = trimmed
+        .char_indices()
+        .nth(rule_chars)
+        .map(|(index, _)| index)
+        .unwrap_or(trimmed.len());
+    let suffix = trimmed[rule_bytes..].trim_start();
+
+    suffix.is_empty() || rule_chars >= 3
 }
 
 // ---------------------------------------------------------------------------
@@ -1821,6 +1972,16 @@ mod tests {
     }
 
     #[test]
+    fn claude_shell_still_running_status_line_is_working() {
+        let screen = "● Started. I'll tell you when it finishes.\n\n✻ Crunched for 7s · 1 shell still running\n─────────\n❯ \n─────────";
+        let detection = detect_agent(Some(Agent::Claude), screen);
+
+        assert_eq!(detection.state, AgentState::Working);
+        assert!(detection.visible_working);
+        assert!(!detection.visible_idle);
+    }
+
+    #[test]
     fn claude_waiting_do_you_want() {
         let screen = "Do you want to run this command?\n\nYes  No";
         assert_eq!(detect_claude(screen), AgentState::Blocked);
@@ -1871,6 +2032,16 @@ mod tests {
     }
 
     #[test]
+    fn claude_question_form_with_arrow_glyph_footer_is_visible_blocker() {
+        let screen = "Thought for 16s\n────────────────────────────────────────────────────────\n ☐ Test type\n\nWhich kind of test question should I ask you next?\n\n❯ 1. Single choice\n  2. Multi choice\n  3. Type something\n────────────────────────────────────────────────────────\nEnter to select · ↑/↓ to navigate · Esc to cancel";
+        let detection = detect_agent(Some(Agent::Claude), screen);
+
+        assert_eq!(detection.state, AgentState::Blocked);
+        assert!(detection.visible_blocker);
+        assert!(!detection.visible_idle);
+    }
+
+    #[test]
     fn claude_idle_hooks_menu() {
         let screen = "Hooks\n0 hooks configured\nℹ This menu is read-only. To add or modify hooks, edit settings.json directly or ask Claude. Learn more\n\n❯ 1. PreToolUse\n  2. PostToolUse\n  3. PostToolUseFailure\n\nEnter to confirm · Esc to cancel";
         assert_eq!(detect_claude(screen), AgentState::Idle);
@@ -1895,6 +2066,17 @@ mod tests {
 
         assert_eq!(detection.state, AgentState::Idle);
         assert!(detection.visible_idle);
+        assert!(!detection.visible_blocker);
+    }
+
+    #[test]
+    fn claude_prompt_box_with_status_text_and_custom_status_is_visible_idle() {
+        let screen = "──────────────────────────────────────────── ◐ medium · /effort\n❯ \n────────────────────────────────────────────\n  hako | refactor/cleanup-codebase | Opus 4.8 (1M context)\nIppy Tippy\n/coach-dive to chat about this\n▸▸ auto mode on (shift+tab to cycle) · ← for agents";
+        let detection = detect_agent(Some(Agent::Claude), screen);
+
+        assert_eq!(detection.state, AgentState::Idle);
+        assert!(detection.visible_idle);
+        assert!(!detection.visible_blocker);
     }
 
     #[test]
@@ -2601,6 +2783,12 @@ mod tests {
     #[test]
     fn kiro_blocked_on_tool_approval_prompt() {
         let screen = "↓ Shell mkdir -p /tmp/test-kiro-{a,b,c} && ls /tmp/test-kiro-*\n\n─────────────────────────────────────────────────────────────────────────────────────────\n shell requires approval\n ❯ Yes, single permission\n   Trust, always allow in this session\n   No (Tab to edit)\n─────────────────────────────────────────────────────────────────────────────────────────\n ESC to close | Tab to edit";
+        assert_eq!(detect_state(Some(Agent::Kiro), screen), AgentState::Blocked);
+    }
+
+    #[test]
+    fn kiro_blocked_on_subagent_tool_approval_prompt() {
+        let screen = "● Orchestrating (1 agent)\n  esc to cancel\n  ctrl+g open agent monitor\n  ● web-research kiro_default ⚠ tool approval needed\n\n ◐ Tasks · 1 done · 2 remaining\n────────────────────────────────────────────────────────\n Tool approvals pending from subagents\n ❯ Approve all pending\n   Configure individually\n   Exit (cancel subagents)";
         assert_eq!(detect_state(Some(Agent::Kiro), screen), AgentState::Blocked);
     }
 

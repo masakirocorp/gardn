@@ -72,6 +72,10 @@ pub(crate) fn extract_remote_args(
     let mut index = 1;
     while index < args.len() {
         let arg = &args[index];
+        if arg == "--" {
+            cleaned.extend_from_slice(&args[index..]);
+            break;
+        }
         if arg == "--handoff" {
             live_handoff = true;
             index += 1;
@@ -166,6 +170,7 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
         &remote.target,
         &prepared_remote.remote_hako,
         prepared_remote.installed_or_replaced,
+        prepared_remote.stop_after_install_approved,
         remote.live_handoff,
     )?;
 
@@ -223,10 +228,9 @@ fn ensure_remote_server_running() -> io::Result<()> {
         if status.protocol == Some(CURRENT_PROTOCOL) {
             return Ok(());
         }
-        return Err(io::Error::other(format!(
-            "remote hako server is running with protocol {}, but this bridge needs protocol {CURRENT_PROTOCOL}; rerun `hako --remote` from an interactive terminal to approve stopping it",
-            protocol_label(status.protocol)
-        )));
+        return Err(io::Error::other(
+            "remote hako server must restart before this bridge can attach; rerun `hako --remote` from an interactive terminal to approve stopping it",
+        ));
     }
 
     crate::server::autodetect::spawn_server_daemon()?;
@@ -323,6 +327,7 @@ struct InstallSource {
 struct PreparedRemoteHako {
     remote_hako: RemoteHako,
     installed_or_replaced: bool,
+    stop_after_install_approved: bool,
 }
 
 impl InstallSource {
@@ -361,26 +366,30 @@ fn prepare_remote_hako(target: &str, live_handoff_enabled: bool) -> io::Result<P
             return Ok(PreparedRemoteHako {
                 remote_hako: path_remote_hako.clone(),
                 installed_or_replaced: false,
+                stop_after_install_approved: false,
             });
         }
         if remote_binary_matches(target, &remote_hako)? {
             return Ok(PreparedRemoteHako {
                 remote_hako,
                 installed_or_replaced: false,
+                stop_after_install_approved: false,
             });
         }
     }
 
+    let mut stop_after_install_approved = false;
     if let Some(status_probe_hako) = path_remote_hako.as_ref().or_else(|| {
         remote_binary_exists(target, &remote_hako)
             .ok()
             .and_then(|exists| exists.then_some(&remote_hako))
     }) {
-        confirm_remote_install_with_running_server(
+        let approved = confirm_remote_install_with_running_server(
             target,
             status_probe_hako,
             live_handoff_enabled,
         )?;
+        stop_after_install_approved = approved;
     }
     confirm_remote_install(
         target,
@@ -403,11 +412,12 @@ fn prepare_remote_hako(target: &str, live_handoff_enabled: bool) -> io::Result<P
     Ok(PreparedRemoteHako {
         remote_hako,
         installed_or_replaced: true,
+        stop_after_install_approved,
     })
 }
 
 fn detect_remote_platform(target: &str) -> io::Result<RemotePlatform> {
-    let output = ssh_output(target, "uname -s; uname -m")?;
+    let output = ssh_sh_output(target, "uname -s\nuname -m\n")?;
     if !output.status.success() {
         return Err(command_failed("remote platform detection failed", &output));
     }
@@ -429,40 +439,16 @@ fn remote_binary_on_path_any(
     target: &str,
     remote_hako: &RemoteHako,
 ) -> io::Result<Option<RemoteHako>> {
-    let output = ssh_output(target, remote_path_probe_any_command())?;
+    let output = ssh_user_shell_output(target, "command -v hako")?;
     if !output.status.success() {
         return Ok(None);
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(remote_hako_from_path_probe_any(remote_hako, &stdout))
+    Ok(remote_hako_from_path_discovery(remote_hako, &stdout))
 }
 
-fn remote_path_probe_any_command() -> &'static str {
-    r#"path=$(command -v hako) || exit 1
-test -n "$path" || exit 1
-printf '%s\n' "$path"
-"#
-}
-
-#[cfg(test)]
-fn remote_hako_from_path_probe(remote_hako: &RemoteHako, stdout: &str) -> Option<RemoteHako> {
-    let mut lines = stdout.lines();
-    let path = lines.next()?;
-    let version = lines.next()?.trim();
-    let status = lines.next()?;
-    let protocol = parse_client_status_json(status)?.protocol;
-    if !path.starts_with('/')
-        || version != format!("hako {CURRENT_VERSION}")
-        || protocol != CURRENT_PROTOCOL
-    {
-        return None;
-    }
-
-    Some(remote_hako.clone().with_shell_path(shell_quote(path)))
-}
-
-fn remote_hako_from_path_probe_any(remote_hako: &RemoteHako, stdout: &str) -> Option<RemoteHako> {
+fn remote_hako_from_path_discovery(remote_hako: &RemoteHako, stdout: &str) -> Option<RemoteHako> {
     let mut lines = stdout.lines();
     let path = lines.next()?;
     if !path.starts_with('/') {
@@ -476,7 +462,7 @@ fn remote_binary_matches(target: &str, remote_hako: &RemoteHako) -> io::Result<b
         "test -x {0} && {0} --version && {0} status client --json",
         remote_hako.shell_path
     );
-    let output = ssh_output(target, &command)?;
+    let output = ssh_sh_output(target, &command)?;
     if !output.status.success() {
         return Ok(false);
     }
@@ -493,7 +479,7 @@ fn remote_binary_matches(target: &str, remote_hako: &RemoteHako) -> io::Result<b
 
 fn remote_binary_exists(target: &str, remote_hako: &RemoteHako) -> io::Result<bool> {
     let command = format!("test -x {}", remote_hako.shell_path);
-    Ok(ssh_output(target, &command)?.status.success())
+    Ok(ssh_sh_output(target, &command)?.status.success())
 }
 
 fn remote_binary_override_path() -> io::Result<Option<PathBuf>> {
@@ -582,6 +568,7 @@ fn ensure_remote_server_ready(
     target: &str,
     remote_hako: &RemoteHako,
     remote_binary_changed: bool,
+    stop_after_install_approved: bool,
     live_handoff_enabled: bool,
 ) -> io::Result<()> {
     let status = remote_server_status(target, remote_hako)?;
@@ -600,10 +587,7 @@ fn ensure_remote_server_ready(
         return Ok(());
     };
 
-    if live_handoff_enabled
-        && live_handoff
-        && confirm_remote_server_handoff(target, version.as_deref(), protocol, reason)?
-    {
+    if live_handoff_enabled && live_handoff {
         match live_handoff_remote_server(target, remote_hako) {
             Ok(()) => return Ok(()),
             Err(err) => {
@@ -611,6 +595,11 @@ fn ensure_remote_server_ready(
                 eprintln!("falling back to remote server restart.");
             }
         }
+    }
+
+    if stop_after_install_approved {
+        stop_remote_server(target, remote_hako)?;
+        return Ok(());
     }
 
     if confirm_remote_server_stop(target, version.as_deref(), protocol, reason)? {
@@ -640,7 +629,7 @@ fn confirm_remote_install_with_running_server(
     target: &str,
     remote_hako: &RemoteHako,
     live_handoff_enabled: bool,
-) -> io::Result<()> {
+) -> io::Result<bool> {
     let status = match remote_server_status(target, remote_hako) {
         Ok(status) => status,
         Err(err) => {
@@ -652,70 +641,75 @@ fn confirm_remote_install_with_running_server(
             eprintln!(
                 "could not inspect the running remote hako server on {target} before installing: {err}"
             );
-            eprint!("continue installing the remote hako binary? [Y/n] ");
+            eprint!("continue installing the remote hako binary? [y/N] ");
             io::stderr().flush()?;
 
             let mut answer = String::new();
             io::stdin().read_line(&mut answer)?;
             let answer = answer.trim().to_ascii_lowercase();
-            if answer == "n" || answer == "no" {
+            if answer != "y" && answer != "yes" {
                 return Err(io::Error::new(
                     io::ErrorKind::Interrupted,
                     "remote hako install cancelled",
                 ));
             }
-            return Ok(());
+            return Ok(false);
         }
     };
     let RemoteServerStatus::Running {
         version,
-        protocol,
+        protocol: _,
         live_handoff,
     } = status
     else {
-        return Ok(());
+        return Ok(false);
     };
-    if live_handoff_enabled && live_handoff {
-        return Ok(());
-    }
 
     if !io::stdin().is_terminal() {
+        if live_handoff_enabled && live_handoff {
+            return Ok(false);
+        }
         return Err(io::Error::other(format!(
-            "remote hako server on {target} is running v{} protocol {}; run from an interactive terminal to approve updating the remote binary",
-            version_label(version.as_deref()),
-            protocol_label(protocol)
+            "remote hako server on {target} is running v{}; run from an interactive terminal to approve stopping it for the update",
+            version_label(version.as_deref())
         )));
     }
 
+    if live_handoff_enabled && live_handoff {
+        eprintln!("remote hako server on {target} is currently running:");
+        eprintln!("  server: v{}", version_label(version.as_deref()));
+        eprintln!(
+            "Hako will install v{CURRENT_VERSION} and hand off live pane processes to the prepared server."
+        );
+        return Ok(false);
+    }
+
     eprintln!("remote hako server on {target} is currently running:");
+    eprintln!("  server: v{}", version_label(version.as_deref()));
     eprintln!(
-        "  server: v{} protocol {}",
-        version_label(version.as_deref()),
-        protocol_label(protocol)
+        "To complete the remote update, Hako must stop the running remote server after installing."
     );
-    eprintln!(
-        "this attach will not preserve running panes unless you pass --handoff and the remote server supports live handoff."
-    );
+    eprintln!("This stops active remote pane processes, including shells, dev servers, and tests.");
     eprintln!();
-    eprint!("continue installing the remote hako binary? [Y/n] ");
+    eprint!("Install v{CURRENT_VERSION} and stop the remote server now? [y/N] ");
     io::stderr().flush()?;
 
     let mut answer = String::new();
     io::stdin().read_line(&mut answer)?;
     let answer = answer.trim().to_ascii_lowercase();
-    if answer == "n" || answer == "no" {
+    if answer != "y" && answer != "yes" {
         return Err(io::Error::new(
             io::ErrorKind::Interrupted,
             "remote hako install cancelled",
         ));
     }
 
-    Ok(())
+    Ok(true)
 }
 
 fn remote_server_status(target: &str, remote_hako: &RemoteHako) -> io::Result<RemoteServerStatus> {
     let command = format!("{} status server --json", remote_hako.shell_path);
-    let output = ssh_output(target, &command)?;
+    let output = ssh_sh_output(target, &command)?;
     if !output.status.success() {
         return Err(command_failed("remote server status failed", &output));
     }
@@ -768,14 +762,13 @@ fn parse_remote_server_status_json(status: &str) -> io::Result<RemoteServerStatu
 fn confirm_remote_server_stop(
     target: &str,
     version: Option<&str>,
-    protocol: Option<u32>,
+    _protocol: Option<u32>,
     reason: RemoteServerRestartReason,
 ) -> io::Result<bool> {
     if !io::stdin().is_terminal() {
         if reason == RemoteServerRestartReason::ProtocolMismatch {
             return Err(io::Error::other(format!(
-                "remote hako server on {target} is running with protocol {}, but this client needs protocol {CURRENT_PROTOCOL}; run from an interactive terminal to approve stopping it",
-                protocol_label(protocol)
+                "remote hako server on {target} must stop before this client can attach; run from an interactive terminal to approve stopping it"
             )));
         }
 
@@ -787,19 +780,13 @@ fn confirm_remote_server_stop(
     }
 
     eprintln!("remote hako server on {target} is currently running:");
-    eprintln!(
-        "  server: v{} protocol {}",
-        version_label(version),
-        protocol_label(protocol)
-    );
-    eprintln!("  prepared binary: v{CURRENT_VERSION} protocol {CURRENT_PROTOCOL}");
+    eprintln!("  server: v{}", version_label(version));
+    eprintln!("  prepared binary: v{CURRENT_VERSION}");
     eprintln!();
 
     match reason {
         RemoteServerRestartReason::ProtocolMismatch => {
-            eprintln!(
-                "the remote server protocol does not match this client. the remote server must be stopped before attaching."
-            );
+            eprintln!("the remote server must stop before this client can attach.");
         }
         RemoteServerRestartReason::BinaryUpdated => {
             eprintln!(
@@ -816,7 +803,7 @@ fn confirm_remote_server_stop(
     let prompt = if reason == RemoteServerRestartReason::ProtocolMismatch {
         "stop the remote server and continue attaching? [Y/n] "
     } else {
-        "restart the remote server now? [Y/n] "
+        "restart the remote server now? [y/N] "
     };
     eprint!("{prompt}");
     io::stderr().flush()?;
@@ -824,74 +811,20 @@ fn confirm_remote_server_stop(
     let mut answer = String::new();
     io::stdin().read_line(&mut answer)?;
     let answer = answer.trim().to_ascii_lowercase();
-    if answer == "n" || answer == "no" {
-        if reason == RemoteServerRestartReason::ProtocolMismatch {
-            return Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "remote hako server stop cancelled",
-            ));
-        }
-        return Ok(false);
+    if answer == "y" || answer == "yes" {
+        return Ok(true);
+    }
+    if answer.is_empty() && reason == RemoteServerRestartReason::ProtocolMismatch {
+        return Ok(true);
+    }
+    if reason == RemoteServerRestartReason::ProtocolMismatch {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "remote hako server stop cancelled",
+        ));
     }
 
-    Ok(true)
-}
-
-fn confirm_remote_server_handoff(
-    target: &str,
-    version: Option<&str>,
-    protocol: Option<u32>,
-    reason: RemoteServerRestartReason,
-) -> io::Result<bool> {
-    if !io::stdin().is_terminal() {
-        if reason == RemoteServerRestartReason::ProtocolMismatch {
-            return Err(io::Error::other(format!(
-                "remote hako server on {target} is running with protocol {}, but this client needs protocol {CURRENT_PROTOCOL}; run from an interactive terminal to approve live handoff or stopping it",
-                protocol_label(protocol)
-            )));
-        }
-
-        eprintln!(
-            "remote hako server on {target} is still running v{}; it will use v{CURRENT_VERSION} after it restarts.",
-            version_label(version)
-        );
-        return Ok(false);
-    }
-
-    eprintln!("remote hako server on {target} is currently running:");
-    eprintln!(
-        "  server: v{} protocol {}",
-        version_label(version),
-        protocol_label(protocol)
-    );
-    eprintln!("  prepared binary: v{CURRENT_VERSION} protocol {CURRENT_PROTOCOL}");
-    eprintln!();
-
-    match reason {
-        RemoteServerRestartReason::ProtocolMismatch => {
-            eprintln!(
-                "the remote server protocol does not match this client. hako will try to hand off live pane processes to the prepared remote server before the old server exits."
-            );
-        }
-        RemoteServerRestartReason::BinaryUpdated => {
-            eprintln!(
-                "the remote hako binary was installed or replaced. hako will try to hand off live pane processes to the prepared remote server."
-            );
-        }
-        RemoteServerRestartReason::VersionMismatch => {
-            eprintln!(
-                "the remote server is still running a different hako version. hako will try to hand off live pane processes to the prepared remote server."
-            );
-        }
-    }
-
-    eprint!("live-handoff remote panes to the prepared server? [Y/n] ");
-    io::stderr().flush()?;
-
-    let mut answer = String::new();
-    io::stdin().read_line(&mut answer)?;
-    let answer = answer.trim().to_ascii_lowercase();
-    Ok(answer != "n" && answer != "no")
+    Ok(false)
 }
 
 fn live_handoff_remote_server(target: &str, remote_hako: &RemoteHako) -> io::Result<()> {
@@ -900,7 +833,7 @@ fn live_handoff_remote_server(target: &str, remote_hako: &RemoteHako) -> io::Res
         remote_hako.shell_path,
         remote_hako.shell_path
     );
-    let output = ssh_output(target, &command)?;
+    let output = ssh_sh_output(target, &command)?;
     if !output.status.success() {
         return Err(command_failed("remote server live handoff failed", &output));
     }
@@ -913,7 +846,7 @@ fn live_handoff_remote_server(target: &str, remote_hako: &RemoteHako) -> io::Res
 
 fn stop_remote_server(target: &str, remote_hako: &RemoteHako) -> io::Result<()> {
     let command = format!("{} server stop", remote_hako.shell_path);
-    let output = ssh_output(target, &command)?;
+    let output = ssh_sh_output(target, &command)?;
     if !output.status.success() {
         return Err(command_failed("remote server stop failed", &output));
     }
@@ -946,23 +879,26 @@ fn version_label(version: Option<&str>) -> &str {
     version.unwrap_or("unknown")
 }
 
-fn protocol_label(protocol: Option<u32>) -> String {
-    protocol
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "unknown".to_string())
+fn warn_if_remote_bin_not_on_path(target: &str) -> io::Result<()> {
+    let output = ssh_user_shell_output(target, "command -v hako")?;
+    if output.status.success()
+        && remote_shell_resolves_managed_install(&String::from_utf8_lossy(&output.stdout))
+    {
+        return Ok(());
+    }
+
+    eprintln!(
+        "hako: installed remote binary to ~/.local/bin/hako, but the remote shell does not resolve `hako` to that path"
+    );
+    Ok(())
 }
 
-fn warn_if_remote_bin_not_on_path(target: &str) -> io::Result<()> {
-    let output = ssh_output(
-        target,
-        "case \":$PATH:\" in *\":$HOME/.local/bin:\"*) exit 0 ;; *) exit 1 ;; esac",
-    )?;
-    if !output.status.success() {
-        eprintln!(
-            "hako: installed remote binary to ~/.local/bin/hako, but ~/.local/bin is not in the remote PATH"
-        );
-    }
-    Ok(())
+fn remote_shell_resolves_managed_install(stdout: &str) -> bool {
+    stdout
+        .lines()
+        .next()
+        .map(str::trim)
+        .is_some_and(|path| path.ends_with("/.local/bin/hako"))
 }
 
 fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource> {
@@ -1107,7 +1043,7 @@ mv "$tmp" "$dest"
     let mut child = Command::new("ssh")
         .arg("-T")
         .arg(target)
-        .arg(format!("sh -eu -c {}", shell_quote(&script)))
+        .arg(format!("/bin/sh -eu -c {}", shell_quote(&script)))
         .stdin(Stdio::piped())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -1135,7 +1071,30 @@ mv "$tmp" "$dest"
     }
 }
 
-fn ssh_output(target: &str, command: &str) -> io::Result<Output> {
+fn ssh_sh_output(target: &str, script: &str) -> io::Result<Output> {
+    let mut child = Command::new("ssh")
+        .arg("-T")
+        .arg(target)
+        .arg("/bin/sh -s")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let write_result = if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(script.as_bytes())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "ssh bootstrap stdin missing",
+        ))
+    };
+    let output = child.wait_with_output()?;
+    write_result?;
+    Ok(output)
+}
+
+fn ssh_user_shell_output(target: &str, command: &str) -> io::Result<Output> {
     Command::new("ssh")
         .arg("-T")
         .arg(target)
@@ -1660,6 +1619,27 @@ mod tests {
     }
 
     #[test]
+    fn extract_remote_args_preserves_child_remote_options_after_separator() {
+        let args = vec![
+            "hako".into(),
+            "agent".into(),
+            "start".into(),
+            "repro".into(),
+            "--".into(),
+            "child".into(),
+            "--remote".into(),
+            "dev".into(),
+            "--remote-keybindings=server".into(),
+            "--handoff".into(),
+        ];
+
+        let (cleaned, remote) = extract_remote_args(&args).unwrap();
+
+        assert_eq!(cleaned, args);
+        assert!(remote.is_none());
+    }
+
+    #[test]
     fn extract_remote_args_preserves_handoff_without_remote() {
         let args = vec!["hako".into(), "update".into(), "--handoff".into()];
 
@@ -1795,14 +1775,13 @@ mod tests {
     }
 
     #[test]
-    fn remote_path_probe_uses_path_binary_when_version_matches() {
+    fn remote_path_discovery_uses_path_binary() {
         let remote_hako = RemoteHako::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let stdout = matching_path_probe_stdout("/usr/bin/hako");
         let remote_hako =
-            remote_hako_from_path_probe(&remote_hako, &stdout).expect("matching path binary");
+            remote_hako_from_path_discovery(&remote_hako, "/usr/bin/hako\n").expect("path binary");
 
         assert_eq!(
             remote_bridge_command(&remote_hako, crate::session::DEFAULT_SESSION_NAME),
@@ -1811,14 +1790,13 @@ mod tests {
     }
 
     #[test]
-    fn remote_path_probe_quotes_discovered_binary() {
+    fn remote_path_discovery_quotes_discovered_binary() {
         let remote_hako = RemoteHako::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let stdout = matching_path_probe_stdout("/opt/hako bin/hako");
-        let remote_hako =
-            remote_hako_from_path_probe(&remote_hako, &stdout).expect("matching path binary");
+        let remote_hako = remote_hako_from_path_discovery(&remote_hako, "/opt/hako bin/hako\n")
+            .expect("path binary");
 
         assert_eq!(
             remote_bridge_command(&remote_hako, crate::session::DEFAULT_SESSION_NAME),
@@ -1827,14 +1805,13 @@ mod tests {
     }
 
     #[test]
-    fn remote_path_probe_uses_macos_path_binary_when_version_matches() {
+    fn remote_path_discovery_uses_macos_path_binary() {
         let remote_hako = RemoteHako::for_platform(RemotePlatform {
             os: "macos",
             arch: "aarch64",
         });
-        let stdout = matching_path_probe_stdout("/opt/homebrew/bin/hako");
-        let remote_hako =
-            remote_hako_from_path_probe(&remote_hako, &stdout).expect("matching path binary");
+        let remote_hako = remote_hako_from_path_discovery(&remote_hako, "/opt/homebrew/bin/hako\n")
+            .expect("path binary");
 
         assert_eq!(
             remote_bridge_command(&remote_hako, crate::session::DEFAULT_SESSION_NAME),
@@ -1844,14 +1821,13 @@ mod tests {
     }
 
     #[test]
-    fn remote_path_probe_quotes_single_quotes_in_discovered_binary() {
+    fn remote_path_discovery_quotes_single_quotes_in_discovered_binary() {
         let remote_hako = RemoteHako::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let stdout = matching_path_probe_stdout("/opt/hako's/bin/hako");
-        let remote_hako =
-            remote_hako_from_path_probe(&remote_hako, &stdout).expect("matching path binary");
+        let remote_hako = remote_hako_from_path_discovery(&remote_hako, "/opt/hako's/bin/hako\n")
+            .expect("path binary");
 
         assert_eq!(
             remote_bridge_command(&remote_hako, crate::session::DEFAULT_SESSION_NAME),
@@ -1860,41 +1836,39 @@ mod tests {
     }
 
     #[test]
-    fn remote_path_probe_ignores_version_mismatch() {
+    fn remote_path_discovery_ignores_relative_paths() {
         let remote_hako = RemoteHako::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let remote_hako = remote_hako_from_path_probe(
-            &remote_hako,
-            &format!("/usr/bin/hako\nhako 0.0.0\n{{\"protocol\":{CURRENT_PROTOCOL}}}\n"),
-        );
+        let remote_hako = remote_hako_from_path_discovery(&remote_hako, "bin/hako\n");
 
         assert!(remote_hako.is_none());
     }
 
     #[test]
-    fn remote_path_probe_ignores_relative_paths() {
+    fn remote_path_discovery_ignores_empty_output() {
         let remote_hako = RemoteHako::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let stdout = matching_path_probe_stdout("bin/hako");
-        let remote_hako = remote_hako_from_path_probe(&remote_hako, &stdout);
+        let remote_hako = remote_hako_from_path_discovery(&remote_hako, "\n");
 
         assert!(remote_hako.is_none());
     }
 
     #[test]
-    fn remote_path_probe_ignores_protocol_mismatch() {
-        let remote_hako = RemoteHako::for_platform(RemotePlatform {
-            os: "linux",
-            arch: "x86_64",
-        });
-        let stdout = format!("/usr/bin/hako\nhako {CURRENT_VERSION}\n{{\"protocol\":0}}\n");
-        let remote_hako = remote_hako_from_path_probe(&remote_hako, &stdout);
-
-        assert!(remote_hako.is_none());
+    fn remote_shell_path_warning_accepts_managed_install() {
+        assert!(remote_shell_resolves_managed_install(
+            "/home/can/.local/bin/hako\n"
+        ));
+        assert!(remote_shell_resolves_managed_install(
+            "/Users/can/.local/bin/hako\n"
+        ));
+        assert!(!remote_shell_resolves_managed_install(
+            "/usr/local/bin/hako\n"
+        ));
+        assert!(!remote_shell_resolves_managed_install(""));
     }
 
     #[test]
@@ -2006,10 +1980,6 @@ mod tests {
             .expect("override source");
         assert_eq!(source.path, PathBuf::from("/tmp/hako-aarch64"));
         assert!(source.temporary_dir.is_none());
-    }
-
-    fn matching_path_probe_stdout(path: &str) -> String {
-        format!("{path}\nhako {CURRENT_VERSION}\n{{\"protocol\":{CURRENT_PROTOCOL}}}\n")
     }
 
     fn remote_env_lock() -> &'static std::sync::Mutex<()> {

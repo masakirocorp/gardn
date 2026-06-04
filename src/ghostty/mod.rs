@@ -2661,6 +2661,29 @@ mod tests {
     }
 
     #[test]
+    fn render_cells_handle_issue_453_unicode_payload() {
+        let mut terminal = Terminal::new(80, 3, 100).unwrap();
+        terminal.write("README 👨‍👩‍👧‍👦 🧑‍💻 ✅ ⚡ 漢字 café é 🏳️‍🌈 🚀\r\n".as_bytes());
+
+        let mut render_state = RenderState::new().unwrap();
+        render_state.update(&terminal).unwrap();
+
+        let mut row_iterator = RowIterator::new().unwrap();
+        let mut rows = render_state
+            .populate_row_iterator(&mut row_iterator)
+            .unwrap();
+        let mut row_cells = RowCells::new().unwrap();
+        let mut grapheme_scratch = Vec::new();
+
+        while rows.next() {
+            let mut cells = rows.populate_cells(&mut row_cells).unwrap();
+            while cells.next() {
+                cells.graphemes_into(&mut grapheme_scratch).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn active_screen_and_cursor_visibility_contract() {
         let mut terminal = Terminal::new(12, 3, 0).unwrap();
         let mut render_state = RenderState::new().unwrap();

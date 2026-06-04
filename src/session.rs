@@ -52,6 +52,10 @@ pub fn configure_from_args(args: &[String]) -> Result<Vec<String>, String> {
     let mut index = 1;
     while index < args.len() {
         let arg = &args[index];
+        if arg == "--" {
+            cleaned.extend_from_slice(&args[index..]);
+            break;
+        }
         if arg == "--session" {
             let Some(value) = args.get(index + 1) else {
                 return Err("missing value for --session".to_string());
@@ -322,7 +326,12 @@ fn send_stop_request_inner(
     let Some(read_timeout) = socket_timeout_until(deadline) else {
         return Ok(None);
     };
-    stream.set_read_timeout(Some(read_timeout))?;
+    if let Err(err) = stream.set_read_timeout(Some(read_timeout)) {
+        if err.kind() == std::io::ErrorKind::InvalidInput {
+            return Ok(None);
+        }
+        return Err(err);
+    }
 
     let mut line = String::new();
     let bytes_read = BufReader::new(stream).read_line(&mut line)?;
@@ -435,6 +444,7 @@ mod tests {
             std::io::ErrorKind::NotConnected,
             std::io::ErrorKind::TimedOut,
             std::io::ErrorKind::WouldBlock,
+            std::io::ErrorKind::InvalidInput,
         ] {
             let err = std::io::Error::from(kind);
             assert!(stop_request_error_allows_wait(&err), "{kind:?}");
@@ -569,6 +579,51 @@ mod tests {
         assert_eq!(cleaned, vec!["hako", "server", "stop"]);
         std::env::remove_var(SESSION_ENV_VAR);
         clear_explicit_session_for_test();
+    }
+
+    #[test]
+    fn configure_from_args_preserves_child_session_option_after_separator() {
+        let _guard = env_lock().lock().unwrap();
+        std::env::remove_var(SESSION_ENV_VAR);
+        clear_explicit_session_for_test();
+        let args = vec![
+            "hako".to_string(),
+            "agent".to_string(),
+            "start".to_string(),
+            "repro".to_string(),
+            "--".to_string(),
+            "/bin/echo".to_string(),
+            "--session".to_string(),
+            "child-session".to_string(),
+        ];
+
+        let cleaned = configure_from_args(&args).unwrap();
+
+        assert_eq!(cleaned, args);
+        assert!(std::env::var(SESSION_ENV_VAR).is_err());
+        assert!(!explicit_session_requested());
+    }
+
+    #[test]
+    fn configure_from_args_preserves_child_session_equals_option_after_separator() {
+        let _guard = env_lock().lock().unwrap();
+        std::env::remove_var(SESSION_ENV_VAR);
+        clear_explicit_session_for_test();
+        let args = vec![
+            "hako".to_string(),
+            "agent".to_string(),
+            "start".to_string(),
+            "repro".to_string(),
+            "--".to_string(),
+            "/bin/echo".to_string(),
+            "--session=child-session".to_string(),
+        ];
+
+        let cleaned = configure_from_args(&args).unwrap();
+
+        assert_eq!(cleaned, args);
+        assert!(std::env::var(SESSION_ENV_VAR).is_err());
+        assert!(!explicit_session_requested());
     }
 
     #[test]
