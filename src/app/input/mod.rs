@@ -385,6 +385,9 @@ impl App {
                     SettingsAction::SaveResumeAgentsOnRestore(enabled) => {
                         self.save_resume_agents_on_restore(enabled)
                     }
+                    SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
+                        self.save_switch_ascii_input_source_in_prefix(enabled)
+                    }
                     SettingsAction::InstallRecommendedIntegrations => {
                         self.install_recommended_integrations()
                     }

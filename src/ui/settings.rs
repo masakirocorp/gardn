@@ -1243,10 +1243,11 @@ mod tests {
     }
 
     #[test]
-    fn experiments_render_agent_resume_and_pane_history() {
+    fn experiments_render_agent_resume_history_and_input_source() {
         let mut app = AppState::test_new();
         app.resume_agents_on_restore = true;
         app.pane_history_persistence = false;
+        app.switch_ascii_input_source_in_prefix = true;
         app.settings.section = SettingsSection::Experiments;
         app.settings.list.selected = 0;
 
@@ -1260,8 +1261,10 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("restore"));
         assert!(text.contains("history"));
+        assert!(text.contains("input"));
         assert!(text.contains("● resume agent sessions"));
         assert!(text.contains("○ pane screen history"));
+        assert!(text.contains("● switch to ascii input source in prefix (macOS)"));
     }
 
     #[test]

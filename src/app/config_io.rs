@@ -217,6 +217,19 @@ impl App {
         }
     }
 
+    pub(super) fn save_switch_ascii_input_source_in_prefix(&mut self, enabled: bool) {
+        if self.update_config_file("prefix ascii input source", |content| {
+            crate::config::upsert_section_bool(
+                content,
+                "experimental",
+                "switch_ascii_input_source_in_prefix",
+                enabled,
+            )
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
     pub(super) fn save_resume_agents_on_restore(&mut self, enabled: bool) {
         if self.update_config_file("agent session restore", |content| {
             crate::config::upsert_section_bool(

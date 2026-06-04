@@ -43,6 +43,7 @@ pub(super) enum SettingsAction {
     },
     SavePaneHistory(bool),
     SaveResumeAgentsOnRestore(bool),
+    SaveSwitchAsciiInputSourceInPrefix(bool),
     SaveGroupTheme {
         group_idx: usize,
         theme: GroupThemeOverride,
@@ -103,6 +104,9 @@ impl App {
                 }
                 SettingsAction::SaveResumeAgentsOnRestore(enabled) => {
                     self.save_resume_agents_on_restore(enabled)
+                }
+                SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
+                    self.save_switch_ascii_input_source_in_prefix(enabled)
                 }
                 SettingsAction::InstallRecommendedIntegrations => {
                     self.install_recommended_integrations()
@@ -573,6 +577,7 @@ fn cancel_settings(state: &mut AppState) {
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_resume_agents_on_restore = None;
     state.settings.group_theme_target = None;
+    state.settings.pending_switch_ascii_input_source_in_prefix = None;
     super::modal::leave_modal(state);
 }
 
@@ -621,6 +626,7 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_resume_agents_on_restore = None;
+    state.settings.pending_switch_ascii_input_source_in_prefix = None;
 }
 
 fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
@@ -790,6 +796,9 @@ fn selected_experiment_action(state: &mut AppState) -> Option<SettingsAction> {
         )),
         1 => Some(SettingsAction::SavePaneHistory(
             !state.pane_history_persistence_enabled(),
+        )),
+        2 => Some(SettingsAction::SaveSwitchAsciiInputSourceInPrefix(
+            !state.switch_ascii_input_source_in_prefix_enabled(),
         )),
         _ => None,
     }
@@ -1899,10 +1908,11 @@ mod tests {
     }
 
     #[test]
-    fn settings_experiments_toggles_resume_agents_and_pane_history() {
+    fn settings_experiments_toggles_resume_history_and_input_source() {
         let mut state = state_with_workspaces(&["test"]);
         state.resume_agents_on_restore = false;
         state.pane_history_persistence = false;
+        state.switch_ascii_input_source_in_prefix = false;
         open_settings_at(&mut state, SettingsSection::Experiments);
 
         let resume_action = update_settings_state(
@@ -1926,6 +1936,21 @@ mod tests {
         );
 
         assert_eq!(history_action, Some(SettingsAction::SavePaneHistory(true)));
+        assert_eq!(state.mode, Mode::Settings);
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        let input_source_action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            input_source_action,
+            Some(SettingsAction::SaveSwitchAsciiInputSourceInPrefix(true))
+        );
         assert_eq!(state.mode, Mode::Settings);
     }
 
@@ -2374,11 +2399,15 @@ mod tests {
             .handle_settings_mouse(mouse(MouseEventKind::Moved, area.x + 2, area.y + 7));
         assert_eq!(app.state.settings.list.selected, 2);
     }
+
     #[test]
-    fn settings_mouse_click_toggles_resume_agents_and_pane_history() {
+    fn settings_mouse_click_toggles_experiment_rows() {
         let mut app = app_for_mouse_test();
         app.state.resume_agents_on_restore = false;
         app.state.pane_history_persistence = false;
+        app.state.switch_ascii_input_source_in_prefix = false;
+        app.state.view.sidebar_rect = Rect::new(0, 0, 26, 30);
+        app.state.view.terminal_area = Rect::new(26, 0, 80, 30);
         open_settings_at(&mut app.state, SettingsSection::Experiments);
 
         let area = app.state.settings_content_rect();
@@ -2402,6 +2431,18 @@ mod tests {
 
         assert_eq!(history_action, Some(SettingsAction::SavePaneHistory(true)));
         assert_eq!(app.state.settings.list.selected, 1);
+
+        let input_source_action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            area.x + 2,
+            area.y + 9,
+        ));
+
+        assert_eq!(
+            input_source_action,
+            Some(SettingsAction::SaveSwitchAsciiInputSourceInPrefix(true))
+        );
+        assert_eq!(app.state.settings.list.selected, 2);
     }
 
     #[test]

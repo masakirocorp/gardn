@@ -355,6 +355,14 @@ fn experiment_rows(app: &AppState) -> Vec<SettingsListRow> {
             "save recent pane output across server restarts",
             app.pane_history_persistence_enabled(),
         ),
+        SettingsListRow::Spacer,
+        SettingsListRow::Header("input"),
+        option(
+            2,
+            "switch to ascii input source in prefix (macOS)",
+            "temporarily use an ASCII-capable layout for prefix commands",
+            app.switch_ascii_input_source_in_prefix_enabled(),
+        ),
     ]
 }
 

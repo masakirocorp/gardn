@@ -120,6 +120,8 @@ Hako resumes supported agents into native agent sessions during session restore 
 
 Hako uses a prefix key before most built-in shortcuts. The default prefix is `ctrl+b`.
 
+On macOS, `[experimental].switch_ascii_input_source_in_prefix = true` temporarily switches the host input source to an ASCII-capable layout while prefix mode is active, then restores the previous source when prefix mode exits.
+
 Default prefix actions include:
 
 - workspace navigator
@@ -353,3 +355,4 @@ Experimental options currently include:
 - CJK IME hidden-cursor anchoring
 - agent-scoped CJK IME anchoring
 - configurable CJK IME anchor cursor shape
+- macOS prefix-mode ASCII input-source switching

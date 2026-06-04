@@ -707,6 +707,18 @@
       "subject": "feat: add github copilot cli integration (#386)",
       "status": "ported",
       "reason": "ported to Hako with hako:copilot direct state hooks, install/status/uninstall support, and copilot --resume=<id> restore planning."
+    },
+    {
+      "upstream": "f5e66b251fa8ec24989bf25861bcf4e38a561470",
+      "subject": "feat: switch input source during prefix mode (#434)",
+      "status": "ported",
+      "reason": "ported to Hako as opt-in experimental.switch_ascii_input_source_in_prefix with platform-isolated macOS input-source switching and settings coverage."
+    },
+    {
+      "upstream": "dde759853df9b8cb10feefc945c0c2cb0e544b5c",
+      "subject": "fix: derive pane selection highlight colors",
+      "status": "pending",
+      "reason": "visible Hako selection color policy change deferred for visual review."
     }
   ]
 }
