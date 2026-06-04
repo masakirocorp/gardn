@@ -701,6 +701,12 @@
       "subject": "feat: keep remote bridge alive with an ssh config keepalive fallback (#355)",
       "status": "ported",
       "reason": "ported to Hako with opt-out remote.manage_ssh_config and private generated SSH keepalive fallback config."
+    },
+    {
+      "upstream": "f7d315d494b6a3d583574012526d15c1ddc82bfe",
+      "subject": "feat: add github copilot cli integration (#386)",
+      "status": "ported",
+      "reason": "ported to Hako with hako:copilot direct state hooks, install/status/uninstall support, and copilot --resume=<id> restore planning."
     }
   ]
 }

@@ -109,7 +109,7 @@ fn parse_integration_target(
     };
     if args.len() != 1 {
         eprintln!(
-            "usage: hako integration {action} <pi|omp|claude|codex|opencode|hermes|qodercli>"
+            "usage: hako integration {action} <pi|omp|claude|codex|copilot|opencode|hermes|qodercli>"
         );
         return Ok(None);
     }
@@ -119,12 +119,13 @@ fn parse_integration_target(
         "omp" => IntegrationTarget::Omp,
         "claude" => IntegrationTarget::Claude,
         "codex" => IntegrationTarget::Codex,
+        "copilot" => IntegrationTarget::Copilot,
         "opencode" => IntegrationTarget::Opencode,
         "hermes" => IntegrationTarget::Hermes,
         "qodercli" => IntegrationTarget::Qodercli,
         _ => {
             eprintln!("unknown integration target: {target}");
-            eprintln!("currently supported: pi, omp, claude, codex, opencode, hermes, qodercli");
+            eprintln!("currently supported: pi, omp, claude, codex, copilot, opencode, hermes, qodercli");
             return Ok(None);
         }
     };

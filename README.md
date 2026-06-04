@@ -194,13 +194,14 @@ for agents outside the built-in list, hako still works as a terminal multiplexer
 
 ### direct integrations
 
-the built-in pi, omp, hermes, and qodercli integrations can forward semantic state to hako over the socket api. claude code, codex, and opencode integrations report native session identity for restore while hako reads their visible terminal UI for state. install with:
+the built-in pi, omp, copilot, hermes, and qodercli integrations can forward semantic state to hako over the socket api. claude code, codex, and opencode integrations report native session identity for restore while hako reads their visible terminal UI for state. install with:
 
 ```bash
 hako integration install pi
 hako integration install omp
 hako integration install claude
 hako integration install codex
+hako integration install copilot
 hako integration install opencode
 hako integration install hermes
 hako integration install qodercli

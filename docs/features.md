@@ -103,7 +103,7 @@ Supported built-in detection includes:
 - **Agent focus** — focus agents from the activity panel, command surfaces, CLI, or socket API.
 - **Agent labels** — manual, detected, and integration-reported labels are surfaced in lists and pane borders.
 - **State notifications** — background state changes can trigger Hako toasts, terminal toasts, system toasts, and sounds.
-- **Integration authority** — Claude Code, Codex, and OpenCode integrations report session identity while state comes from screen detection; Pi, OMP, Hermes, and Qoder-style integrations can still report state directly.
+- **Integration authority** — Claude Code, Codex, and OpenCode integrations report session identity while state comes from screen detection; Pi, OMP, Copilot, Hermes, and Qoder-style integrations can still report state directly.
 
 ### Agent session restore
 

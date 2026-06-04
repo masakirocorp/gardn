@@ -499,6 +499,14 @@ fn run_codex_hook(action: &str, hook_input: &str) -> Option<serde_json::Value> {
     )
 }
 
+fn run_copilot_hook(hook_input: &str) -> Option<serde_json::Value> {
+    run_shell_hook(
+        "src/integration/assets/copilot/hako-agent-state.sh",
+        &[],
+        hook_input,
+    )
+}
+
 fn run_shell_hook(asset_path: &str, args: &[&str], hook_input: &str) -> Option<serde_json::Value> {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
@@ -608,6 +616,66 @@ fn codex_hook_reports_session_identity_only() {
     assert_eq!(request["method"], "pane.report_agent_session");
     assert_eq!(request["params"]["agent_session_id"], "codex-session");
     assert_eq!(request["params"]["agent"], "codex");
+}
+
+#[test]
+fn copilot_hook_reports_prompt_tool_and_session_state() {
+    let request = run_copilot_hook(
+        r#"{"hook_event_name":"SessionStart","session_id":"copilot-session","initial_prompt":"build this"}"#,
+    )
+    .expect("session start with an initial prompt should report working");
+    assert_eq!(request["method"], "pane.report_agent");
+    assert_eq!(request["params"]["state"], "working");
+    assert_eq!(request["params"]["agent_session_id"], "copilot-session");
+    assert_eq!(request["params"]["source"], "hako:copilot");
+
+    let request = run_copilot_hook(
+        r#"{"hook_event_name":"PreToolUse","session_id":"copilot-session","tool_name":"ask_user"}"#,
+    )
+    .expect("ask_user should report blocked");
+    assert_eq!(request["method"], "pane.report_agent");
+    assert_eq!(request["params"]["state"], "blocked");
+
+    let request = run_copilot_hook(
+        r#"{"hook_event_name":"agentStop","session_id":"copilot-session","stop_reason":"end_turn"}"#,
+    )
+    .expect("turn end should report idle");
+    assert_eq!(request["method"], "pane.report_agent");
+    assert_eq!(request["params"]["state"], "idle");
+}
+
+#[test]
+fn copilot_hook_reports_permission_notifications() {
+    let request = run_copilot_hook(
+        r#"{"hook_event_name":"notification","session_id":"copilot-session","notification_type":"permission_prompt"}"#,
+    )
+    .expect("permission prompt notification should report blocked");
+    assert_eq!(request["method"], "pane.report_agent");
+    assert_eq!(request["params"]["state"], "blocked");
+
+    let request = run_copilot_hook(
+        r#"{"hook_event_name":"notification","session_id":"copilot-session","notification_type":"agent_idle"}"#,
+    )
+    .expect("agent idle notification should report idle");
+    assert_eq!(request["method"], "pane.report_agent");
+    assert_eq!(request["params"]["state"], "idle");
+}
+
+#[test]
+fn copilot_hook_releases_on_user_exit_only() {
+    assert!(
+        run_copilot_hook(
+            r#"{"hook_event_name":"SessionEnd","session_id":"copilot-session","reason":"complete"}"#
+        )
+        .is_none(),
+        "normal Copilot turn completion should keep session ownership"
+    );
+
+    let request = run_copilot_hook(
+        r#"{"hook_event_name":"SessionEnd","session_id":"copilot-session","reason":"user_exit"}"#,
+    )
+    .expect("user exit should release session ownership");
+    assert_eq!(request["method"], "pane.release_agent");
 }
 
 #[test]

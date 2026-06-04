@@ -113,6 +113,9 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
         ("hako:codex", "codex", AgentSessionRefKind::Id) => {
             vec!["codex".into(), "resume".into(), session_ref.value.clone()]
         }
+        ("hako:copilot", "copilot", AgentSessionRefKind::Id) => {
+            vec!["copilot".into(), format!("--resume={}", session_ref.value)]
+        }
         ("hako:pi", "pi", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
             vec!["pi".into(), "--session".into(), session_ref.value.clone()]
         }
@@ -155,6 +158,7 @@ fn is_official_agent_source(source: &str, agent: &str) -> bool {
         (source, agent),
         ("hako:claude", "claude")
             | ("hako:codex", "codex")
+            | ("hako:copilot", "copilot")
             | ("hako:pi", "pi")
             | ("hako:omp", "omp")
             | ("hako:hermes", "hermes")
@@ -198,6 +202,16 @@ mod tests {
             .unwrap()
             .argv,
             vec!["codex", "resume", "codex-session"]
+        );
+        assert_eq!(
+            plan(
+                "hako:copilot",
+                "copilot",
+                &AgentSessionRef::id("copilot-session").unwrap()
+            )
+            .unwrap()
+            .argv,
+            vec!["copilot", "--resume=copilot-session"]
         );
         assert_eq!(
             plan(
@@ -311,6 +325,12 @@ mod tests {
             "hako:opencode",
             "opencode",
             &AgentSessionRef::path("/tmp/opencode-session").unwrap()
+        )
+        .is_none());
+        assert!(plan(
+            "hako:copilot",
+            "copilot",
+            &AgentSessionRef::path("/tmp/copilot-session").unwrap()
         )
         .is_none());
         assert!(session_ref_from_snapshot(
