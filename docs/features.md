@@ -335,7 +335,7 @@ Hako uses GitHub Releases for update checks, release metadata, and binary downlo
 - Post-update checks can report outdated integrations.
 - Product announcements can be shown separately from release notes and tracked as seen per version.
 - First-run onboarding introduces the core workflow in-app.
-- Update-ready previews can show release notes and the install command before the update is applied.
+- Update-ready dialogs can show release notes and the install command before the update is applied.
 
 ## Fork maintenance
 

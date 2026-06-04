@@ -903,8 +903,8 @@
     {
       "upstream": "b751d102f158968aab681cb663d27b4c32197f62",
       "subject": "feat: add preview update channel",
-      "status": "ported",
-      "reason": "ported to Hako with preview channel CLI/update behavior, preview-aware build identity, manifest parsing, workflow, and helper script."
+      "status": "skipped",
+      "reason": "Hako removed preview-channel support by product decision; stable releases remain the only update channel."
     },
     {
       "upstream": "be69ef9eeb8f8f59b3b26fc60378a7af7ca97cdc",
@@ -915,20 +915,20 @@
     {
       "upstream": "c2ad91cc513d35abdce2c5f4f08b87f2f886b7d2",
       "subject": "fix: accept static aarch64 preview artifact packaging",
-      "status": "ported",
-      "reason": "ported as part of Hako preview channel workflow packaging support."
+      "status": "skipped",
+      "reason": "preview artifact packaging belongs to removed preview-channel plumbing."
     },
     {
       "upstream": "27d0b4df2cca918ff06915e51995955632517089",
       "subject": "fix: publish preview manifest with bot token",
-      "status": "ported",
-      "reason": "ported as part of Hako preview manifest publishing workflow."
+      "status": "skipped",
+      "reason": "preview manifest publishing belongs to removed preview-channel plumbing."
     },
     {
       "upstream": "cce3eacc49d281fd087ebf0d43eea3e08038033f",
       "subject": "fix: allow preview publish after master moves",
-      "status": "ported",
-      "reason": "ported as part of Hako preview manifest publishing workflow."
+      "status": "skipped",
+      "reason": "preview manifest publishing belongs to removed preview-channel plumbing."
     },
     {
       "upstream": "f928f33a0148652f980c5528652cabdf331cbb18",
@@ -945,8 +945,8 @@
     {
       "upstream": "e584f93f367650a2b752a4e3a889603fb81b08f4",
       "subject": "fix: reconcile update channel switches",
-      "status": "ported",
-      "reason": "ported to Hako with update-channel switch reconciliation."
+      "status": "skipped",
+      "reason": "update-channel switching was removed with preview-channel support; stable releases remain the only update channel."
     },
     {
       "upstream": "58af4902fc51b6be8fec99a3cec576c98e0c6075",
