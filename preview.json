@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "channel": "preview",
+  "base_version": "0.2.9",
+  "build_id": "2026-06-04-6ab7f74a4a5b",
+  "commit": "6ab7f74a4a5b52b813573fe0e6905dfd0374d70d",
+  "built_at": "2026-06-04T19:16:50Z",
+  "protocol": 11,
+  "notes": "Preview build 2026-06-04-6ab7f74a4a5b\n\nBuilt from `6ab7f74a4a5b` on `master`.\nBase stable: v0.2.9\nCompare: https://github.com/masakirocorp/hako/compare/v0.2.9...6ab7f74a4a5b52b813573fe0e6905dfd0374d70d\n\n### Added\n- Port preview channel support\n- Switch input source during prefix\n- Add copilot integration\n- Add remote ssh keepalive fallback\n- Add right-click passthrough modifier\n\n### Fixed\n- Port upstream runtime fixes\n- Make opencode hook session-only\n- Port upstream runtime fixes\n- Report pi and omp asks as blocked\n- Autodetect compatible zig for local builds",
+  "assets": {
+    "linux-x86_64": {
+      "url": "https://github.com/masakirocorp/hako/releases/download/preview-2026-06-04-6ab7f74a4a5b/hako-linux-x86_64",
+      "sha256": "fb9cc98970b2a9dd6d78f2ffc6e7be03aa41a56f1cc2f8a8ecc143d1295b0168"
+    },
+    "linux-aarch64": {
+      "url": "https://github.com/masakirocorp/hako/releases/download/preview-2026-06-04-6ab7f74a4a5b/hako-linux-aarch64",
+      "sha256": "66d3e0e499b81afd02cf53dbb2a4a3c298c0501acfb56b340a4988da59e517fe"
+    },
+    "macos-x86_64": {
+      "url": "https://github.com/masakirocorp/hako/releases/download/preview-2026-06-04-6ab7f74a4a5b/hako-macos-x86_64",
+      "sha256": "0f353ef59d015f2e76f4818b45655daee4c188c70e15bc00659d0b5a288a4bd6"
+    },
+    "macos-aarch64": {
+      "url": "https://github.com/masakirocorp/hako/releases/download/preview-2026-06-04-6ab7f74a4a5b/hako-macos-aarch64",
+      "sha256": "8fe20ba12718d8f727b891ca433e3e81624c4a86d00ad82421ccde20bf19a59e"
+    }
+  },
+  "builds": {
+    "2026-06-04-6ab7f74a4a5b": {
+      "base_version": "0.2.9",
+      "commit": "6ab7f74a4a5b52b813573fe0e6905dfd0374d70d",
+      "built_at": "2026-06-04T19:16:50Z",
+      "protocol": 11,
+      "tag": "preview-2026-06-04-6ab7f74a4a5b",
+      "assets": {
+        "linux-x86_64": {
+          "url": "https://github.com/masakirocorp/hako/releases/download/preview-2026-06-04-6ab7f74a4a5b/hako-linux-x86_64",
+          "sha256": "fb9cc98970b2a9dd6d78f2ffc6e7be03aa41a56f1cc2f8a8ecc143d1295b0168"
+        },
+        "linux-aarch64": {
+          "url": "https://github.com/masakirocorp/hako/releases/download/preview-2026-06-04-6ab7f74a4a5b/hako-linux-aarch64",
+          "sha256": "66d3e0e499b81afd02cf53dbb2a4a3c298c0501acfb56b340a4988da59e517fe"
+        },
+        "macos-x86_64": {
+          "url": "https://github.com/masakirocorp/hako/releases/download/preview-2026-06-04-6ab7f74a4a5b/hako-macos-x86_64",
+          "sha256": "0f353ef59d015f2e76f4818b45655daee4c188c70e15bc00659d0b5a288a4bd6"
+        },
+        "macos-aarch64": {
+          "url": "https://github.com/masakirocorp/hako/releases/download/preview-2026-06-04-6ab7f74a4a5b/hako-macos-aarch64",
+          "sha256": "8fe20ba12718d8f727b891ca433e3e81624c4a86d00ad82421ccde20bf19a59e"
+        }
+      }
+    }
+  }
+}
