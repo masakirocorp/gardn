@@ -96,6 +96,7 @@ Supported built-in detection includes:
 - Amp
 - Grok CLI
 - Hermes agent
+- Kilo Code CLI
 
 ### Agent UI
 

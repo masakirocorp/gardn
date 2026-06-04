@@ -21,6 +21,8 @@ const NESTED_HAKO_MESSAGES: [&str; 6] = [
 mod agent_resume;
 mod api;
 mod app;
+mod build_info;
+mod checksum;
 mod cli;
 mod client;
 mod commands;
@@ -113,6 +115,11 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # "current" for Hako's process directory, or a fixed path such as "~/Projects".
 # new_cwd = "follow"
 
+
+[update]
+# Update channel used by background checks and `hako update`.
+# Use "stable" for normal releases or "preview" for opt-in preview builds.
+# channel = "stable"
 [keys]
 # Prefix key to enter prefix mode (default: "ctrl+b")
 # Examples: "ctrl+b", "f12", "esc", "-"
@@ -304,7 +311,7 @@ pane_history = false
 # matches one of these names. Empty means apply to any focused pane.
 # If the list contains no valid names, the reveal does not apply.
 # Accepted: pi, claude, codex, gemini, cursor, cline, opencode, copilot,
-# kimi, kiro, droid, amp, grok, hermes.
+# kimi, kiro, droid, amp, grok, hermes, kilo, qodercli, qoder.
 # cjk_ime_agents = []
 # Cursor shape rendered when reveal_hidden_cursor_for_cjk_ime is true.
 # Values: block, steady_block (default), underline, steady_underline, bar, steady_bar.
@@ -432,9 +439,11 @@ fn main() -> io::Result<()> {
         println!("       hako --remote <ssh-target> [--session <name>]");
         println!("       hako session attach <name>");
         println!("       hako update [--handoff]");
+        println!("       hako channel set <stable|preview>");
         println!("       hako server stop");
         println!("       hako server reload-config");
         println!("       hako config <subcommand> ...");
+        println!("       hako channel <subcommand> ...");
         println!("       hako workspace <subcommand> ...");
         println!("       hako worktree <subcommand> ...");
         println!("       hako tab <subcommand> ...");
@@ -453,6 +462,10 @@ fn main() -> io::Result<()> {
             ),
             ("hako update", "download and install the latest version"),
             (
+                "hako channel set <stable|preview>",
+                "choose the stable or preview update channel",
+            ),
+            (
                 "hako server stop",
                 "stop the running server via the api socket",
             ),
@@ -463,6 +476,10 @@ fn main() -> io::Result<()> {
             (
                 "hako config reset-keys",
                 "Back up config.toml and remove custom keybindings",
+            ),
+            (
+                "hako channel <subcommand>",
+                "manage the stable or preview update channel",
             ),
             (
                 "hako workspace <subcommand>",
@@ -519,7 +536,7 @@ fn main() -> io::Result<()> {
     }
 
     if args.iter().any(|a| a == "--version" || a == "-V") {
-        println!("hako {}", env!("CARGO_PKG_VERSION"));
+        println!("hako {}", crate::build_info::version());
         return Ok(());
     }
 
@@ -555,6 +572,7 @@ fn main() -> io::Result<()> {
                 "update",
                 "status",
                 "config",
+                "channel",
                 "workspace",
                 "worktree",
                 "pane",

@@ -1,11 +1,12 @@
 //! Self-update mechanism.
 //!
-//! Checks GitHub Releases for newer versions.
+//! Checks GitHub Releases and the preview update manifest for newer versions.
 //! Manual `hako update` downloads and installs the binary.
 //! Background checks only surface availability and release notes.
 //! Uses `curl` as a subprocess for HTTP — no additional Rust HTTP dependencies.
 //! JSON parsing uses serde_json (already in deps for persistence).
 
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io::{self, BufRead, BufReader, IsTerminal, Write};
@@ -14,15 +15,18 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 const GITHUB_LATEST_RELEASE_API_URL: &str =
     "https://api.github.com/repos/masakirocorp/hako/releases/latest";
+const PREVIEW_UPDATE_MANIFEST_URL: &str =
+    "https://raw.githubusercontent.com/masakirocorp/hako/master/preview.json";
 const HOMEBREW_FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula/hako.json";
 const HAKO_UPDATE_COMMAND: &str = "hako update";
 const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade hako";
+const MISE_UPDATE_COMMAND: &str = "mise upgrade hako";
 const NIX_UPDATE_COMMAND: &str = "update through Nix";
-const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const MISE_INSTALLS_DIR_ENV: &str = "MISE_INSTALLS_DIR";
 const FAKE_UPDATE_VERSION_ENV: &str = "HAKO_FAKE_UPDATE_VERSION";
 const SERVER_STOP_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 const SERVER_HANDOFF_REQUEST_TIMEOUT: Duration = Duration::from_secs(240);
@@ -62,7 +66,7 @@ impl Version {
     }
 
     pub fn current() -> Self {
-        Self::parse(CURRENT_VERSION).expect("invalid CARGO_PKG_VERSION")
+        Self::parse(crate::build_info::BASE_VERSION).expect("invalid CARGO_PKG_VERSION")
     }
 }
 
@@ -75,6 +79,68 @@ impl std::fmt::Display for Version {
 // ---------------------------------------------------------------------------
 // Release sources
 // ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpdateChannel {
+    Stable,
+    Preview,
+}
+
+impl UpdateChannel {
+    fn configured() -> Self {
+        match crate::config::Config::load().config.update.channel {
+            crate::config::UpdateChannelConfig::Stable => Self::Stable,
+            crate::config::UpdateChannelConfig::Preview => Self::Preview,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::Preview => "preview",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct AssetRef {
+    url: String,
+    sha256: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for AssetRef {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        match value {
+            serde_json::Value::String(url) if !url.trim().is_empty() => Ok(Self {
+                url: url.trim().to_string(),
+                sha256: None,
+            }),
+            serde_json::Value::Object(mut object) => {
+                let url = object
+                    .remove("url")
+                    .and_then(|value| value.as_str().map(str::to_string))
+                    .ok_or_else(|| serde::de::Error::custom("asset object is missing url"))?;
+                let sha256 = object
+                    .remove("sha256")
+                    .and_then(|value| value.as_str().map(str::to_string));
+                if url.trim().is_empty() {
+                    return Err(serde::de::Error::custom("asset url must not be empty"));
+                }
+                Ok(Self {
+                    url: url.trim().to_string(),
+                    sha256: sha256.filter(|value| !value.trim().is_empty()),
+                })
+            }
+            _ => Err(serde::de::Error::custom(
+                "asset must be a URL string or object with url",
+            )),
+        }
+    }
+}
 
 #[derive(Deserialize)]
 struct HomebrewFormula {
@@ -98,6 +164,28 @@ struct GitHubReleaseAsset {
     name: String,
     browser_download_url: String,
 }
+#[derive(Deserialize)]
+struct PreviewManifest {
+    channel: String,
+    base_version: String,
+    build_id: String,
+    commit: String,
+    built_at: String,
+    protocol: u32,
+    notes: String,
+    assets: BTreeMap<String, AssetRef>,
+    #[serde(default)]
+    builds: BTreeMap<String, PreviewBuildMetadata>,
+}
+
+#[derive(Deserialize)]
+struct PreviewBuildMetadata {
+    base_version: String,
+    commit: String,
+    built_at: String,
+    protocol: u32,
+    assets: BTreeMap<String, AssetRef>,
+}
 
 // ---------------------------------------------------------------------------
 // Release info
@@ -107,9 +195,20 @@ struct GitHubReleaseAsset {
 #[derive(Debug, Clone)]
 struct ReleaseInfo {
     version: Version,
+    identity: String,
+    channel: UpdateChannel,
+    build_id: Option<String>,
+    commit: Option<String>,
     target_protocol: Option<u32>,
     download_url: String,
+    sha256: Option<String>,
     notes_body: String,
+}
+
+impl ReleaseInfo {
+    fn label(&self) -> &str {
+        &self.identity
+    }
 }
 
 fn fetch_url(url: &str, label: &str) -> Result<Vec<u8>, String> {
@@ -170,6 +269,96 @@ fn fetch_github_latest_release() -> Result<GitHubRelease, String> {
         .map_err(|e| format!("failed to parse latest GitHub release JSON: {e}"))
 }
 
+fn fetch_preview_manifest() -> Result<PreviewManifest, String> {
+    let bytes = fetch_url(PREVIEW_UPDATE_MANIFEST_URL, "preview update manifest")?;
+
+    serde_json::from_slice(&bytes)
+        .map_err(|e| format!("failed to parse preview update manifest JSON: {e}"))
+}
+
+fn stable_channel_should_install(
+    latest: &Version,
+    current: &Version,
+    installed_is_preview: bool,
+) -> bool {
+    installed_is_preview || latest > current
+}
+
+fn preview_display_version(base_version: &str, build_id: &str) -> String {
+    format!(
+        "{}-preview.{}",
+        base_version.trim_start_matches('v'),
+        build_id
+    )
+}
+
+fn release_info_from_preview_manifest(
+    manifest: &PreviewManifest,
+) -> Result<Option<ReleaseInfo>, String> {
+    if manifest.channel != "preview" {
+        return Err(format!(
+            "invalid preview manifest channel: {}",
+            manifest.channel
+        ));
+    }
+    let build_id = manifest.build_id.trim();
+    if build_id.is_empty() {
+        return Err("preview manifest build_id is empty".into());
+    }
+    if crate::build_info::is_preview()
+        && crate::build_info::build_id().is_some_and(|current| current == build_id)
+    {
+        return Ok(None);
+    }
+
+    let version = Version::parse(&manifest.base_version).ok_or_else(|| {
+        format!(
+            "invalid base_version in preview manifest: {}",
+            manifest.base_version
+        )
+    })?;
+    let notes_body = manifest.notes.trim().to_string();
+    if notes_body.is_empty() {
+        return Err("preview manifest notes are empty".into());
+    }
+    let (os, arch) = platform_target();
+    let asset_key = format!("{os}-{arch}");
+    if let Some(archived) = manifest.builds.get(build_id) {
+        if archived.base_version != manifest.base_version
+            || archived.commit != manifest.commit
+            || archived.built_at != manifest.built_at
+            || archived.protocol != manifest.protocol
+        {
+            tracing::warn!(
+                build_id,
+                "preview manifest archived build metadata differs from top-level metadata"
+            );
+        }
+    }
+    let asset = manifest
+        .assets
+        .get(&asset_key)
+        .or_else(|| {
+            manifest
+                .builds
+                .get(build_id)
+                .and_then(|build| build.assets.get(&asset_key))
+        })
+        .ok_or_else(|| format!("no binary for {asset_key} in preview manifest"))?;
+
+    Ok(Some(ReleaseInfo {
+        identity: preview_display_version(&manifest.base_version, build_id),
+        version,
+        channel: UpdateChannel::Preview,
+        build_id: Some(build_id.to_string()),
+        commit: Some(manifest.commit.clone()),
+        target_protocol: Some(manifest.protocol),
+        download_url: asset.url.clone(),
+        sha256: asset.sha256.clone(),
+        notes_body,
+    }))
+}
+
 fn release_info_from_github_release(
     release: &GitHubRelease,
 ) -> Result<Option<ReleaseInfo>, String> {
@@ -181,7 +370,7 @@ fn release_info_from_github_release(
         )
     })?;
 
-    if latest <= current {
+    if !stable_channel_should_install(&latest, &current, crate::build_info::is_preview()) {
         return Ok(None);
     }
 
@@ -202,14 +391,23 @@ fn release_info_from_github_release(
         .unwrap_or_else(|| format!("Hako v{latest}"));
 
     Ok(Some(ReleaseInfo {
+        identity: latest.to_string(),
         version: latest,
+        channel: UpdateChannel::Stable,
+        build_id: None,
+        commit: None,
         target_protocol: None,
         download_url,
+        sha256: None,
         notes_body,
     }))
 }
-/// Check GitHub Releases for the latest release. Returns release info if newer.
+/// Check the configured channel for the latest release. Returns release info if newer.
 fn check_latest() -> Result<Option<ReleaseInfo>, String> {
+    if UpdateChannel::configured() == UpdateChannel::Preview {
+        return release_info_from_preview_manifest(&fetch_preview_manifest()?);
+    }
+
     let github_release = fetch_github_latest_release()?;
     release_info_from_github_release(&github_release)
 }
@@ -303,6 +501,16 @@ fn download_update(release: &ReleaseInfo) -> Result<DownloadedUpdate, String> {
     if !status.success() {
         let _ = fs::remove_file(&tmp_path);
         return Err("download failed".into());
+    }
+
+    if let Some(expected) = &release.sha256 {
+        if let Err(e) = crate::checksum::verify_sha256(&tmp_path, expected) {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(format!(
+                "downloaded update checksum verification failed: {e}"
+            ));
+        }
+        tracing::info!(sha256 = %expected, "downloaded update checksum verified");
     }
 
     // Make executable
@@ -661,7 +869,6 @@ fn prompt_to_stop_old_servers_before_update(
     eprintln!();
     eprintln!("If you choose no, these sessions keep using the old server until you stop them.");
     eprintln!("Stop the old server after installing? Stopping exits pane processes.");
-
     loop {
         eprint!("stop these old targets after updating? [y/N] ");
         io::stderr()
@@ -871,7 +1078,7 @@ fn runtime_matches_release(status: &crate::api::RuntimeStatus, release: &Release
     let protocol_matches = release
         .target_protocol
         .is_none_or(|protocol| status.protocol == Some(protocol));
-    let version_matches = status.version.as_deref() == Some(&release.version.to_string());
+    let version_matches = status.version.as_deref() == Some(release.label());
     protocol_matches && version_matches
 }
 
@@ -888,7 +1095,6 @@ fn classify_failed_live_handoff_state_at(
         Err(err) => FailedHandoffServerState::Unknown(err.to_string()),
     }
 }
-
 fn prompt_to_stop_old_server_after_failed_handoff(
     plan: &RunningServerUpdatePlan,
     release: &ReleaseInfo,
@@ -1098,7 +1304,7 @@ fn live_handoff_server_via_api_for_release_at(
     let params = ServerLiveHandoffParams {
         import_exe: Some(updated_exe.display().to_string()),
         expected_protocol: release.target_protocol,
-        expected_version: Some(release.version.to_string()),
+        expected_version: Some(release.label().to_string()),
     };
 
     send_server_update_method_at(
@@ -1180,7 +1386,7 @@ fn wait_for_server_handoff_at(
         socket_path,
         timeout,
         release.target_protocol,
-        Some(&release.version.to_string()),
+        Some(release.label()),
     )
 }
 
@@ -1346,6 +1552,8 @@ fn print_running_session_update_outcomes(
 pub(crate) fn update_install_command() -> &'static str {
     if is_homebrew_managed_install() {
         HOMEBREW_UPDATE_COMMAND
+    } else if is_mise_managed_install() {
+        MISE_UPDATE_COMMAND
     } else if is_nix_managed_install() {
         NIX_UPDATE_COMMAND
     } else {
@@ -1360,6 +1568,9 @@ pub(crate) fn update_install_instruction(install_command: &str) -> String {
         }
         HOMEBREW_UPDATE_COMMAND => {
             "detach, run `brew update && brew upgrade hako`, then restart this Hako session when ready".to_string()
+        }
+        MISE_UPDATE_COMMAND => {
+            "detach, run `mise upgrade hako`, then restart this Hako session when ready".to_string()
         }
         NIX_UPDATE_COMMAND => {
             "detach, update through Nix, then restart this Hako session when ready".to_string()
@@ -1396,8 +1607,141 @@ fn is_nix_managed_install() -> bool {
         .is_ok_and(|path| is_nix_store_exe_path(&path))
 }
 
+fn is_mise_managed_install() -> bool {
+    let Ok(current_exe) = env::current_exe() else {
+        return false;
+    };
+
+    is_mise_managed_exe_path_following_links(&current_exe)
+}
+
+pub(crate) fn preview_channel_rejection_for_current_install() -> Option<&'static str> {
+    let Ok(current_exe) = env::current_exe() else {
+        return None;
+    };
+
+    preview_channel_rejection_for_exe_path(&current_exe)
+}
+
+pub(crate) fn package_manager_channel_update_guidance_for_current_install() -> Option<&'static str>
+{
+    if is_homebrew_managed_install() {
+        Some("Use `brew update && brew upgrade hako` to update Homebrew installs.")
+    } else if is_mise_managed_install() {
+        Some("Use `mise upgrade hako` to update mise installs.")
+    } else if is_nix_managed_install() {
+        Some("Update through Nix to update Nix-managed Hako installs.")
+    } else {
+        None
+    }
+}
+
+fn preview_channel_rejection_for_exe_path(path: &Path) -> Option<&'static str> {
+    if is_homebrew_managed_exe_path_following_links(path) {
+        Some(
+            "preview channel is only available for direct Hako installs; Homebrew installs update through `brew update && brew upgrade hako`",
+        )
+    } else if is_mise_managed_exe_path_following_links(path) {
+        Some(
+            "preview channel is only available for direct Hako installs; mise installs update through `mise upgrade hako`",
+        )
+    } else if is_nix_store_exe_path_following_links(path) {
+        Some("preview channel is only available for direct Hako installs; Nix installs update through Nix")
+    } else {
+        None
+    }
+}
+
+fn is_homebrew_managed_exe_path_following_links(path: &Path) -> bool {
+    if is_homebrew_managed_exe_path(path) {
+        return true;
+    }
+
+    path.canonicalize()
+        .is_ok_and(|path| is_homebrew_managed_exe_path(&path))
+}
+
+fn is_nix_store_exe_path_following_links(path: &Path) -> bool {
+    if is_nix_store_exe_path(path) {
+        return true;
+    }
+
+    path.canonicalize()
+        .is_ok_and(|path| is_nix_store_exe_path(&path))
+}
+
+fn is_mise_managed_exe_path_following_links(path: &Path) -> bool {
+    if is_mise_managed_exe_path(path) {
+        return true;
+    }
+
+    path.canonicalize()
+        .is_ok_and(|path| is_mise_managed_exe_path(&path))
+}
+
 fn is_nix_store_exe_path(path: &Path) -> bool {
     path.starts_with("/nix/store")
+}
+
+fn is_mise_managed_exe_path(path: &Path) -> bool {
+    mise_install_root(path).is_some()
+}
+
+fn mise_install_root(path: &Path) -> Option<PathBuf> {
+    if let Some(root) = mise_install_root_under_configured_installs_dir(path) {
+        return Some(root);
+    }
+
+    mise_install_root_under_named_installs_dir(path)
+}
+
+fn mise_install_root_under_configured_installs_dir(path: &Path) -> Option<PathBuf> {
+    let installs_dir = env::var_os(MISE_INSTALLS_DIR_ENV)
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())?;
+    let version_dir = mise_tool_version_dir(path)?;
+    let tool_dir = version_dir.parent()?;
+    paths_match(tool_dir.parent()?, &installs_dir).then_some(version_dir.to_path_buf())
+}
+
+fn mise_install_root_under_named_installs_dir(path: &Path) -> Option<PathBuf> {
+    let version_dir = mise_tool_version_dir(path)?;
+    let tool_dir = version_dir.parent()?;
+    let installs_dir = tool_dir.parent()?;
+    if installs_dir.file_name()? != "installs" {
+        return None;
+    }
+    Some(version_dir.to_path_buf())
+}
+
+fn mise_tool_version_dir(path: &Path) -> Option<&Path> {
+    if path.file_name()? != "hako" {
+        return None;
+    }
+    let bin_dir = path.parent()?;
+    if bin_dir.file_name()? != "bin" {
+        return None;
+    }
+    let version_dir = bin_dir.parent()?;
+    let tool_dir = version_dir.parent()?;
+    if tool_dir.file_name()? != "hako" {
+        return None;
+    }
+    Some(version_dir)
+}
+
+fn paths_match(left: &Path, right: &Path) -> bool {
+    if left == right {
+        return true;
+    }
+
+    let Ok(left) = left.canonicalize() else {
+        return false;
+    };
+    let Ok(right) = right.canonicalize() else {
+        return false;
+    };
+    left == right
 }
 
 fn is_homebrew_managed_exe_path(path: &Path) -> bool {
@@ -1430,13 +1774,35 @@ fn homebrew_cellar_keg_root(path: &Path) -> Option<PathBuf> {
 
 /// Manual self-update command (`hako update`).
 pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
+    let channel = UpdateChannel::configured();
     if is_homebrew_managed_install() {
+        if channel == UpdateChannel::Preview {
+            return Err(
+                "self-update is disabled for Homebrew installs; preview is only available for direct Hako installs".into(),
+            );
+        }
         return Err(format!(
             "self-update is disabled for Homebrew installs; run `{HOMEBREW_UPDATE_COMMAND}`"
         ));
     }
 
+    if is_mise_managed_install() {
+        if channel == UpdateChannel::Preview {
+            return Err(
+                "self-update is disabled for mise installs; preview is only available for direct Hako installs".into(),
+            );
+        }
+        return Err(format!(
+            "self-update is disabled for mise installs; run `{MISE_UPDATE_COMMAND}`"
+        ));
+    }
+
     if is_nix_managed_install() {
+        if channel == UpdateChannel::Preview {
+            return Err(
+                "self-update is disabled for Nix installs; preview is only available for direct Hako installs".into(),
+            );
+        }
         return Err(
             "self-update is disabled for Nix installs; update with `nix profile upgrade` or update the flake input that provides Hako".into(),
         );
@@ -1446,14 +1812,14 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
         return Err("run `hako update` outside hako after detaching from the session".into());
     }
 
-    eprintln!("checking for updates...");
+    eprintln!("checking {} channel for updates...", channel.as_str());
 
     let current = Version::current();
 
     let release = match check_latest()? {
         Some(r) => r,
         None => {
-            eprintln!("already up to date (v{current})");
+            eprintln!("already up to date ({})", crate::build_info::version());
             return Ok(current);
         }
     };
@@ -1462,15 +1828,16 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
     let server_update_decisions =
         confirm_running_server_update_action(running_server_plans, &release, options)?;
 
-    eprintln!("downloading v{}...", release.version);
-    if let Err(e) =
-        crate::release_notes::save_pending(&release.version.to_string(), &release.notes_body)
-    {
+    if let Some(commit) = &release.commit {
+        tracing::info!(commit = %commit, build_id = ?release.build_id, "selected preview update build");
+    }
+    eprintln!("downloading {}...", release.label());
+    if let Err(e) = crate::release_notes::save_pending(release.label(), &release.notes_body) {
         tracing::warn!("failed to save pending release notes: {e}");
     }
     let downloaded_update = download_update(&release)?;
     let updated_exe = downloaded_update.current_exe.clone();
-    eprintln!("downloaded v{}", release.version);
+    eprintln!("downloaded {}", release.label());
     if !options.live_handoff
         && !prompt_to_complete_plain_update(&server_update_decisions, &release)?
     {
@@ -1479,7 +1846,7 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
         return Ok(current);
     }
     install_downloaded_update(downloaded_update)?;
-    eprintln!("installed v{}", release.version);
+    eprintln!("installed {}", release.label());
     let server_update_decisions = if options.live_handoff {
         server_update_decisions
     } else {
@@ -1529,12 +1896,28 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
         return;
     }
 
+    let configured_channel = UpdateChannel::configured();
     if is_homebrew_managed_install() {
+        if configured_channel == UpdateChannel::Preview {
+            crate::logging::update_check_failed(
+                "preview channel is not available for Homebrew installs",
+            );
+            return;
+        }
         auto_update_homebrew(events);
         return;
     }
 
+    if is_mise_managed_install() && configured_channel == UpdateChannel::Preview {
+        crate::logging::update_check_failed("preview channel is not available for mise installs");
+        return;
+    }
+
     let nix_managed_install = is_nix_managed_install();
+    if nix_managed_install && configured_channel == UpdateChannel::Preview {
+        crate::logging::update_check_failed("preview channel is not available for Nix installs");
+        return;
+    }
 
     let release = match check_latest() {
         Ok(Some(r)) => r,
@@ -1545,34 +1928,25 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
         }
     };
 
-    crate::logging::update_available(&release.version.to_string());
+    crate::logging::update_available(release.label());
     tracing::info!(
-        "new version v{} available at {}",
-        release.version,
+        "new {} build available at {}",
+        release.channel.as_str(),
         release.download_url
     );
 
-    if let Err(e) =
-        crate::release_notes::save_pending(&release.version.to_string(), &release.notes_body)
-    {
+    if let Err(e) = crate::release_notes::save_pending(release.label(), &release.notes_body) {
         tracing::warn!("failed to save pending release notes: {e}");
     }
 
     tracing::info!(
-        "auto-update check: v{} available, waiting for explicit install",
-        release.version
+        "auto-update check: {} available, waiting for explicit install",
+        release.label()
     );
 
-    // Notify the TUI — blocking_send is safe from a std::thread
-    let install_command = if nix_managed_install {
-        NIX_UPDATE_COMMAND
-    } else {
-        HAKO_UPDATE_COMMAND
-    };
-
     let _ = events.blocking_send(crate::events::AppEvent::UpdateReady {
-        version: release.version.to_string(),
-        install_command: install_command.to_string(),
+        version: release.label().to_string(),
+        install_command: update_install_command().to_string(),
     });
 }
 
@@ -1707,8 +2081,13 @@ mod tests {
     fn fake_release(version: &str, target_protocol: Option<u32>) -> ReleaseInfo {
         ReleaseInfo {
             version: Version::parse(version).unwrap(),
+            identity: version.to_string(),
+            channel: UpdateChannel::Stable,
+            build_id: None,
+            commit: None,
             target_protocol,
             download_url: "https://example.com/hako".to_string(),
+            sha256: None,
             notes_body: "### Changed\n- One".to_string(),
         }
     }
@@ -1876,9 +2255,74 @@ mod tests {
             "detach, run `brew update && brew upgrade hako`, then restart this Hako session when ready"
         );
         assert_eq!(
+            update_install_instruction(MISE_UPDATE_COMMAND),
+            "detach, run `mise upgrade hako`, then restart this Hako session when ready"
+        );
+        assert_eq!(
             update_install_instruction(NIX_UPDATE_COMMAND),
             "detach, update through Nix, then restart this Hako session when ready"
         );
+    }
+
+    #[test]
+    fn mise_install_path_is_detected() {
+        let path = Path::new("/home/user/.local/share/mise/installs/hako/0.6.6/bin/hako");
+
+        assert!(is_mise_managed_exe_path(path));
+        assert_eq!(
+            mise_install_root(path).unwrap(),
+            PathBuf::from("/home/user/.local/share/mise/installs/hako/0.6.6")
+        );
+    }
+
+    #[test]
+    fn mise_alias_install_path_is_detected() {
+        let path = Path::new("/home/user/.local/share/mise/installs/hako/latest/bin/hako");
+
+        assert!(is_mise_managed_exe_path(path));
+    }
+
+    #[test]
+    fn mise_configured_installs_dir_path_is_detected() {
+        let _guard = env_lock().lock().unwrap();
+        let previous = std::env::var_os(MISE_INSTALLS_DIR_ENV);
+        std::env::set_var(MISE_INSTALLS_DIR_ENV, "/opt/mise-tools");
+        let path = Path::new("/opt/mise-tools/hako/0.6.6/bin/hako");
+
+        assert!(is_mise_managed_exe_path(path));
+        assert_eq!(
+            mise_install_root(path).unwrap(),
+            PathBuf::from("/opt/mise-tools/hako/0.6.6")
+        );
+
+        if let Some(previous) = previous {
+            std::env::set_var(MISE_INSTALLS_DIR_ENV, previous);
+        } else {
+            std::env::remove_var(MISE_INSTALLS_DIR_ENV);
+        }
+    }
+
+    #[test]
+    fn non_mise_install_path_is_not_detected() {
+        let path = Path::new("/home/user/.local/bin/hako");
+
+        assert!(!is_mise_managed_exe_path(path));
+    }
+
+    #[test]
+    fn preview_channel_is_rejected_for_package_manager_paths() {
+        let homebrew = Path::new("/opt/homebrew/Cellar/hako/0.6.6/bin/hako");
+        let mise = Path::new("/home/user/.local/share/mise/installs/hako/0.6.6/bin/hako");
+        let nix = Path::new("/nix/store/abc123-hako-0.6.6/bin/hako");
+        let direct = Path::new("/home/user/.local/bin/hako");
+
+        assert!(preview_channel_rejection_for_exe_path(homebrew)
+            .is_some_and(|message| message.contains("Homebrew")));
+        assert!(preview_channel_rejection_for_exe_path(mise)
+            .is_some_and(|message| message.contains("mise")));
+        assert!(preview_channel_rejection_for_exe_path(nix)
+            .is_some_and(|message| message.contains("Nix")));
+        assert!(preview_channel_rejection_for_exe_path(direct).is_none());
     }
 
     #[test]
@@ -1890,8 +2334,13 @@ mod tests {
         };
         let compatible_release = ReleaseInfo {
             version: Version::parse("0.5.6").unwrap(),
+            identity: "0.5.6".to_string(),
+            channel: UpdateChannel::Stable,
+            build_id: None,
+            commit: None,
             target_protocol: Some(2),
             download_url: "https://example.com/hako".to_string(),
+            sha256: None,
             notes_body: "### Changed\n- One".to_string(),
         };
         let incompatible_release = ReleaseInfo {
@@ -2124,8 +2573,13 @@ mod tests {
         };
         let release = ReleaseInfo {
             version: Version::parse("0.5.6").unwrap(),
+            identity: "0.5.6".to_string(),
+            channel: UpdateChannel::Stable,
+            build_id: None,
+            commit: None,
             target_protocol: Some(3),
             download_url: "https://example.com/hako".to_string(),
+            sha256: None,
             notes_body: "### Changed\n- One".to_string(),
         };
         let plan = RunningServerUpdatePlan {
@@ -2254,8 +2708,13 @@ mod tests {
         });
         let release = ReleaseInfo {
             version: Version::parse("9.8.7").unwrap(),
+            identity: "9.8.7".to_string(),
+            channel: UpdateChannel::Stable,
+            build_id: None,
+            commit: None,
             target_protocol: Some(77),
             download_url: "https://example.com/hako".to_string(),
+            sha256: None,
             notes_body: "### Changed\n- One".to_string(),
         };
 
@@ -2344,6 +2803,73 @@ mod tests {
             patch: 0,
         };
         assert_eq!(v.to_string(), "0.1.0");
+    }
+
+    #[test]
+    fn stable_channel_installs_stable_asset_when_current_binary_is_preview() {
+        let latest_stable = Version::parse("0.6.6").unwrap();
+        let installed_base = Version::parse("0.6.6").unwrap();
+        assert!(stable_channel_should_install(
+            &latest_stable,
+            &installed_base,
+            true
+        ));
+        assert!(!stable_channel_should_install(
+            &latest_stable,
+            &installed_base,
+            false
+        ));
+    }
+
+    #[test]
+    fn preview_manifest_reports_update_when_build_id_differs() {
+        let (os, arch) = platform_target();
+        let asset_key = format!("{os}-{arch}");
+        let json = format!(
+            r####"{{
+                "channel": "preview",
+                "base_version": "9.9.9",
+                "build_id": "2026-06-02-abcdef123456",
+                "commit": "abcdef1234567890",
+                "built_at": "2026-06-02T03:00:00Z",
+                "protocol": 77,
+                "notes": "### Fixed\n- One",
+                "assets": {{
+                    "{asset_key}": {{
+                        "url": "https://example.com/hako-{asset_key}",
+                        "sha256": "deadbeef"
+                    }}
+                }},
+                "builds": {{
+                    "2026-06-02-abcdef123456": {{
+                        "base_version": "9.9.9",
+                        "commit": "abcdef1234567890",
+                        "built_at": "2026-06-02T03:00:00Z",
+                        "protocol": 77,
+                        "assets": {{
+                            "{asset_key}": {{
+                                "url": "https://example.com/hako-archived-{asset_key}",
+                                "sha256": "feedface"
+                            }}
+                        }}
+                    }}
+                }}
+            }}"####
+        );
+        let manifest: PreviewManifest = serde_json::from_str(&json).unwrap();
+
+        let release = release_info_from_preview_manifest(&manifest)
+            .unwrap()
+            .expect("preview update");
+
+        assert_eq!(release.channel, UpdateChannel::Preview);
+        assert_eq!(release.identity, "9.9.9-preview.2026-06-02-abcdef123456");
+        assert_eq!(release.target_protocol, Some(77));
+        assert_eq!(release.sha256.as_deref(), Some("deadbeef"));
+        assert_eq!(
+            release.download_url,
+            format!("https://example.com/hako-{asset_key}")
+        );
     }
 
     #[test]

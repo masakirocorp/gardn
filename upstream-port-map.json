@@ -717,8 +717,8 @@
     {
       "upstream": "dde759853df9e1aad3cc9e1e3986ceec8368941d",
       "subject": "fix: derive pane selection highlight colors",
-      "status": "pending",
-      "reason": "visible Hako selection color policy change deferred for visual review."
+      "status": "ported",
+      "reason": "ported to Hako with derived pane selection highlight colors while preserving copy-mode cursor styling."
     },
     {
       "upstream": "0774efdfb7565a707f1c35f2d3d66f3f2d9a164f",
@@ -777,8 +777,8 @@
     {
       "upstream": "1d56cd0e18fc69a85a0889ca6f9a9f3069a4be3a",
       "subject": "feat: detect kilo code cli",
-      "status": "pending",
-      "reason": "new agent support needs product confirmation because Hako has no Kilo config, sound, docs, or integration surface yet."
+      "status": "ported",
+      "reason": "ported to Hako with Kilo agent detection, aliases, sound override plumbing, CJK IME config support, and docs."
     },
     {
       "upstream": "32abb3776668ee768200019c170956f67fe33a86",
@@ -903,8 +903,8 @@
     {
       "upstream": "b751d102f158968aab681cb663d27b4c32197f62",
       "subject": "feat: add preview update channel",
-      "status": "pending",
-      "reason": "new preview update channel and release pipeline need product confirmation for Hako release semantics."
+      "status": "ported",
+      "reason": "ported to Hako with preview channel CLI/update behavior, preview-aware build identity, manifest parsing, workflow, and helper script."
     },
     {
       "upstream": "be69ef9eeb8f8f59b3b26fc60378a7af7ca97cdc",
@@ -915,20 +915,20 @@
     {
       "upstream": "c2ad91cc513d35abdce2c5f4f08b87f2f886b7d2",
       "subject": "fix: accept static aarch64 preview artifact packaging",
-      "status": "skipped",
-      "reason": "preview artifact packaging belongs to the unadopted preview update channel."
+      "status": "ported",
+      "reason": "ported as part of Hako preview channel workflow packaging support."
     },
     {
       "upstream": "27d0b4df2cca918ff06915e51995955632517089",
       "subject": "fix: publish preview manifest with bot token",
-      "status": "skipped",
-      "reason": "preview manifest publishing belongs to the unadopted preview update channel."
+      "status": "ported",
+      "reason": "ported as part of Hako preview manifest publishing workflow."
     },
     {
       "upstream": "cce3eacc49d281fd087ebf0d43eea3e08038033f",
       "subject": "fix: allow preview publish after master moves",
-      "status": "skipped",
-      "reason": "preview manifest publishing belongs to the unadopted preview update channel."
+      "status": "ported",
+      "reason": "ported as part of Hako preview manifest publishing workflow."
     },
     {
       "upstream": "f928f33a0148652f980c5528652cabdf331cbb18",
@@ -945,8 +945,8 @@
     {
       "upstream": "e584f93f367650a2b752a4e3a889603fb81b08f4",
       "subject": "fix: reconcile update channel switches",
-      "status": "skipped",
-      "reason": "depends on the unadopted preview update channel."
+      "status": "ported",
+      "reason": "ported to Hako with update-channel switch reconciliation."
     },
     {
       "upstream": "58af4902fc51b6be8fec99a3cec576c98e0c6075",
@@ -963,8 +963,8 @@
     {
       "upstream": "03f68b7275f07c98769bf699d2aa14805b921f8d",
       "subject": "fix: handle mise-managed updates",
-      "status": "pending",
-      "reason": "mise-managed update support changes Hako's supported install semantics and needs product confirmation."
+      "status": "ported",
+      "reason": "ported to Hako with mise-managed install detection and update guidance."
     },
     {
       "upstream": "398f0d6302c3a058a80bd6823c525a77f2adc4c8",

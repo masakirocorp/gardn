@@ -53,6 +53,7 @@ pub enum Agent {
     Amp,
     Grok,
     Hermes,
+    Kilo,
     Qodercli,
 }
 
@@ -74,6 +75,7 @@ pub fn agent_label(agent: Agent) -> &'static str {
         Agent::Amp => "amp",
         Agent::Grok => "grok",
         Agent::Hermes => "hermes",
+        Agent::Kilo => "kilo",
         Agent::Qodercli => "qodercli",
     }
 }
@@ -97,6 +99,7 @@ pub fn parse_agent_label(agent: &str) -> Option<Agent> {
         "amp" | "amp-local" => Some(Agent::Amp),
         "grok" | "grok-build" => Some(Agent::Grok),
         "hermes" | "hermes-agent" => Some(Agent::Hermes),
+        "kilo" | "kilo-code" | "kilo code" => Some(Agent::Kilo),
         "qodercli" | "qoderclicn" | "qoder" | "qodercn" => Some(Agent::Qodercli),
         _ => None,
     }
@@ -124,6 +127,7 @@ pub fn identify_agent(process_name: &str) -> Option<Agent> {
         "amp" | "amp-local" => Some(Agent::Amp),
         "grok" | "grok-build" => Some(Agent::Grok),
         "hermes" | "hermes-agent" => Some(Agent::Hermes),
+        "kilo" | "kilo-code" | "kilo code" => Some(Agent::Kilo),
         "qodercli" | "qoderclicn" | "qoder" | "qodercn" => Some(Agent::Qodercli),
         _ => None,
     }
@@ -193,6 +197,7 @@ pub fn detect_agent(agent: Option<Agent>, screen_content: &str) -> AgentDetectio
         Agent::Amp => detect_amp(screen_content),
         Agent::Grok => detect_grok(screen_content),
         Agent::Hermes => detect_hermes(screen_content),
+        Agent::Kilo => detect_kilo(screen_content),
         Agent::Qodercli => detect_qodercli(screen_content),
     };
     AgentDetection {
@@ -682,6 +687,18 @@ fn has_kiro_tool_spinner(content: &str) -> bool {
         let rest = chars.as_str().trim_start();
         rest.chars().next().is_some_and(char::is_alphabetic)
     })
+}
+
+/// Kilo Code CLI detection.
+///
+/// Kilo Code CLI shares opencode-style selection prompts for blocked/idle
+/// states and shows an `esc interrupt` footer while the model is working.
+fn detect_kilo(content: &str) -> AgentState {
+    if content.contains("esc interrupt") {
+        return AgentState::Working;
+    }
+
+    detect_opencode(content)
 }
 
 /// Qodercli detection.
@@ -1567,6 +1584,8 @@ mod tests {
         assert_eq!(identify_agent("grok-build"), Some(Agent::Grok));
         assert_eq!(identify_agent("hermes"), Some(Agent::Hermes));
         assert_eq!(identify_agent("hermes-agent"), Some(Agent::Hermes));
+        assert_eq!(identify_agent("kilo"), Some(Agent::Kilo));
+        assert_eq!(identify_agent("kilo-code"), Some(Agent::Kilo));
     }
 
     #[test]
@@ -1588,6 +1607,7 @@ mod tests {
         assert_eq!(parse_agent_label("kiro-cli"), Some(Agent::Kiro));
         assert_eq!(parse_agent_label("grok-build"), Some(Agent::Grok));
         assert_eq!(parse_agent_label("hermes-agent"), Some(Agent::Hermes));
+        assert_eq!(parse_agent_label("kilo-code"), Some(Agent::Kilo));
     }
 
     #[test]
@@ -1600,6 +1620,7 @@ mod tests {
         assert_eq!(agent_label(Agent::Kiro), "kiro");
         assert_eq!(agent_label(Agent::Grok), "grok");
         assert_eq!(agent_label(Agent::Hermes), "hermes");
+        assert_eq!(agent_label(Agent::Kilo), "kilo");
     }
 
     #[test]
@@ -2512,6 +2533,38 @@ mod tests {
     #[test]
     fn opencode_idle() {
         assert_eq!(detect_opencode("> "), AgentState::Idle);
+    }
+
+    // ---- Kilo ----
+
+    #[test]
+    fn kilo_waiting_question_prompt() {
+        assert_eq!(
+            detect_kilo(
+                "Write the following joke to ~/joke.md?\n\
+                 1. Yes, write it\n\
+                 2. No, thanks\n\
+                 3. Type your own answer\n\
+                 ↑↓ select  enter submit  esc dismiss",
+            ),
+            AgentState::Blocked
+        );
+    }
+
+    #[test]
+    fn kilo_working() {
+        assert_eq!(
+            detect_kilo("Ask · DeepSeek V4 Pro\nesc interrupt\n12.8K (1%) · $0.01"),
+            AgentState::Working
+        );
+    }
+
+    #[test]
+    fn kilo_idle() {
+        assert_eq!(
+            detect_kilo("Ask anything... \"Fix broken tests\"\nCode · DeepSeek V4 Pro"),
+            AgentState::Idle
+        );
     }
 
     // ---- GitHub Copilot ----

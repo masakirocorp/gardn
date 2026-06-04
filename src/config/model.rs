@@ -10,6 +10,37 @@ use super::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
+pub enum UpdateChannelConfig {
+    #[default]
+    Stable,
+    Preview,
+}
+
+impl UpdateChannelConfig {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::Preview => "preview",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(default)]
+pub struct UpdateConfig {
+    pub channel: UpdateChannelConfig,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            channel: UpdateChannelConfig::Stable,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum ToastDelivery {
     #[default]
     Off,
@@ -196,6 +227,7 @@ pub struct Config {
     pub theme: ThemeConfig,
     pub terminal: TerminalConfig,
     pub session: SessionConfig,
+    pub update: UpdateConfig,
     pub keys: KeysConfig,
     pub ui: UiConfig,
     pub advanced: AdvancedConfig,
@@ -457,7 +489,8 @@ pub struct ExperimentalConfig {
     /// list means apply to any focused pane. Unknown agent names are ignored;
     /// if the list contains no valid names, the reveal does not apply.
     /// Accepted names: pi, claude, codex, gemini, cursor, cline, opencode,
-    /// copilot, kimi, kiro, droid, amp, grok, hermes. Default: empty.
+    /// copilot, kimi, kiro, droid, amp, grok, hermes, kilo, qodercli, qoder.
+    /// Default: empty.
     pub cjk_ime_agents: Vec<String>,
     /// Cursor shape rendered for the IME anchor when
     /// `reveal_hidden_cursor_for_cjk_ime` is enabled. Default: "steady_block".
@@ -1041,6 +1074,20 @@ pane_history = true
         let config: Config = toml::from_str(toml).unwrap();
 
         assert!(config.experimental.pane_history);
+    }
+
+    #[test]
+    fn update_channel_defaults_stable_and_parses() {
+        let default_config = Config::default();
+        assert_eq!(default_config.update.channel, UpdateChannelConfig::Stable);
+
+        let toml = r#"
+[update]
+channel = "preview"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.update.channel, UpdateChannelConfig::Preview);
+        assert_eq!(config.update.channel.as_str(), "preview");
     }
 
     #[test]
