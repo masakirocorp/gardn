@@ -201,6 +201,7 @@ pub struct Config {
     pub advanced: AdvancedConfig,
     pub worktrees: WorktreesConfig,
     pub experimental: ExperimentalConfig,
+    pub remote: RemoteConfig,
 }
 
 #[derive(Debug)]
@@ -412,6 +413,22 @@ pub struct AdvancedConfig {
     /// Maximum scrollback buffer size in bytes retained per pane terminal. Default: 10000000.
     #[serde(alias = "scrollback_lines")]
     pub scrollback_limit_bytes: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct RemoteConfig {
+    /// Add a keepalive fallback under the user's ssh config for the `--remote`
+    /// bridge. Set false to run plain ssh unchanged. Default: true.
+    pub manage_ssh_config: bool,
+}
+
+impl Default for RemoteConfig {
+    fn default() -> Self {
+        Self {
+            manage_ssh_config: true,
+        }
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -943,6 +960,19 @@ enabled = false
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.ui.toast.delivery, ToastDelivery::Off);
+    }
+
+    #[test]
+    fn remote_manage_ssh_config_defaults_on_and_parses() {
+        let default_config = Config::default();
+        assert!(default_config.remote.manage_ssh_config);
+
+        let toml = r#"
+[remote]
+manage_ssh_config = false
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(!config.remote.manage_ssh_config);
     }
 
     #[test]

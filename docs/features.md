@@ -14,6 +14,7 @@ A session is a persistent Hako runtime with its own sockets, panes, tabs, worksp
 - **Remote attach** — `hako --remote <target>` attaches to a Hako server over SSH.
 - **Remote bootstrap** — remote attach can detect the remote platform, reuse an existing compatible binary, or install a matching Hako binary before connecting.
 - **Remote server restart flow** — remote attach checks protocol/version compatibility and can prompt to stop or restart an incompatible remote server.
+- **SSH keepalive fallback** — remote attach can add private generated SSH keepalive defaults without overriding your own SSH config.
 - **Direct terminal attach** — `hako terminal attach <terminal-id>` and `hako agent attach <target>` attach directly to a single server-owned terminal.
 - **Attach takeover** — direct attach is exclusive by default; `--takeover` can claim a terminal attachment from another client.
 - **Multiple clients** — more than one client can connect to a server; the foreground interactive client drives shared runtime size, theme, and keybindings.

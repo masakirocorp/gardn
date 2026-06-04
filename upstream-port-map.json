@@ -695,6 +695,12 @@
       "subject": "feat: add configurable right-click passthrough",
       "status": "ported",
       "reason": "ported to Hako as opt-in ui.right_click_passthrough_modifier while preserving normal right-click Hako menus by default."
+    },
+    {
+      "upstream": "250ae921628b7bbf68f33ac3f43ac90bdac10f24",
+      "subject": "feat: keep remote bridge alive with an ssh config keepalive fallback (#355)",
+      "status": "ported",
+      "reason": "ported to Hako with opt-out remote.manage_ssh_config and private generated SSH keepalive fallback config."
     }
   ]
 }

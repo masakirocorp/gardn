@@ -106,6 +106,8 @@ Host workbox
   Port 2222
 ```
 
+Remote attach reads your normal SSH config. By default Hako also uses a private generated SSH config that includes your config first and adds a keepalive fallback for idle network/NAT timeouts. Set `[remote].manage_ssh_config = false` to disable that wrapper.
+
 same session, same agents, same state.
 
 ### direct agent attach

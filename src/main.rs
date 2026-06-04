@@ -273,6 +273,15 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # a Hako server restart. Requires official integrations that report session refs.
 # resume_agents_on_restore = true
 
+[remote]
+# Whether Hako manages the ssh config used for the `hako --remote` bridge.
+# When true (default), Hako runs the bridge ssh through a generated config that
+# includes your ~/.ssh/config first and adds ServerAliveInterval/
+# ServerAliveCountMax as a fallback, so any keepalive you set yourself still
+# wins and idle network/NAT timeouts are less likely to drop the bridge.
+# Set false to run plain ssh against your ssh config unchanged.
+# manage_ssh_config = true
+
 [experimental]
 # Allow launching hako from inside a hako-managed pane.
 # allow_nested = false
