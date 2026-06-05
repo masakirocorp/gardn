@@ -534,11 +534,7 @@ pub(super) fn open_worktree_directory_editor(state: &mut AppState) {
 }
 
 pub(super) fn leave_modal(state: &mut AppState) {
-    if state.active.is_some() {
-        state.mode = Mode::Terminal;
-    } else {
-        state.mode = Mode::Navigate;
-    }
+    state.return_to_active_workspace_mode();
 }
 
 pub(super) const ONBOARDING_WELCOME_ACTIONS: &[ModalActionSpec<ModalAction>] = &[ModalActionSpec {
@@ -885,12 +881,7 @@ pub(super) fn open_confirm_delete_group(state: &mut AppState, group_idx: usize) 
 }
 
 pub(super) fn confirm_close_accept(state: &mut AppState) {
-    state.close_selected_workspace();
-    if state.workspaces.is_empty() {
-        state.mode = Mode::Navigate;
-    } else {
-        state.mode = Mode::Terminal;
-    }
+    state.close_selected_workspace_from_ui();
 }
 
 pub(super) fn confirm_close_cancel(state: &mut AppState) {
@@ -960,8 +951,7 @@ pub(super) fn apply_context_menu_action(
             if state.confirm_close {
                 open_confirm_close(state);
             } else {
-                state.close_selected_workspace();
-                state.mode = Mode::Navigate;
+                state.close_selected_workspace_from_ui();
             }
         }
         (ContextMenuKind::Tab { ws_idx, tab_idx }, Some("new tab")) => {
@@ -981,11 +971,7 @@ pub(super) fn apply_context_menu_action(
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
             if !state.close_tab() {
-                state.mode = if state.active.is_some() {
-                    Mode::Terminal
-                } else {
-                    Mode::Navigate
-                };
+                state.return_to_active_workspace_mode();
             }
         }
         (ContextMenuKind::Pane { pane_id, .. }, Some("rename pane")) => {
@@ -1019,11 +1005,7 @@ pub(super) fn apply_context_menu_action(
         }
         (ContextMenuKind::Pane { .. }, Some("close pane")) => {
             if !state.close_pane() {
-                state.mode = if state.active.is_some() {
-                    Mode::Terminal
-                } else {
-                    Mode::Navigate
-                };
+                state.return_to_active_workspace_mode();
             }
         }
         _ => leave_modal(state),
@@ -1567,7 +1549,7 @@ mod tests {
     }
 
     #[test]
-    fn closing_last_tab_from_context_menu_prompts_to_close_workspace() {
+    fn closing_last_tab_from_context_menu_empties_workspace() {
         let mut state = state_with_workspaces(&["test"]);
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let menu = ContextMenuState {
@@ -1582,8 +1564,9 @@ mod tests {
 
         apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 2);
 
-        assert_eq!(state.mode, Mode::ConfirmClose);
+        assert_eq!(state.mode, Mode::Terminal);
         assert_eq!(state.workspaces.len(), 1);
+        assert!(state.workspaces[0].tabs.is_empty());
     }
 
     #[test]

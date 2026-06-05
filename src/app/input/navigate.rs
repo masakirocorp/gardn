@@ -731,8 +731,7 @@ pub(super) fn execute_navigate_action_in_context(
                 if state.confirm_close {
                     super::modal::open_confirm_close(state);
                 } else {
-                    state.close_selected_workspace();
-                    leave_navigate_mode(state);
+                    state.close_selected_workspace_from_ui();
                 }
             }
         }
@@ -911,9 +910,7 @@ fn workspace_action_target(state: &AppState, context: ActionContext) -> Option<u
     }
 }
 fn leave_navigate_mode(state: &mut AppState) {
-    if state.active.is_some() {
-        state.mode = Mode::Terminal;
-    }
+    state.return_to_active_workspace_mode();
 }
 
 fn finish_action_context(state: &mut AppState, context: ActionContext, previous_mode: Mode) {
@@ -937,11 +934,7 @@ fn finish_custom_command_context(
 }
 
 fn leave_command_mode(state: &mut AppState) {
-    state.mode = if state.active.is_some() {
-        Mode::Terminal
-    } else {
-        Mode::Navigate
-    };
+    state.return_to_active_workspace_mode();
 }
 
 fn write_scrollback_temp_file(content: &str) -> io::Result<std::path::PathBuf> {
@@ -1107,7 +1100,7 @@ mod tests {
     }
 
     #[test]
-    fn close_tab_action_prompts_when_last_tab_would_close_workspace() {
+    fn close_tab_action_empties_workspace_when_closing_last_tab() {
         let mut state = state_with_workspaces(&["test"]);
         state.mode = Mode::Navigate;
         state.active = Some(0);
@@ -1116,8 +1109,24 @@ mod tests {
 
         execute_navigate_action(&mut state, NavigateAction::CloseTab);
 
-        assert_eq!(state.mode, Mode::ConfirmClose);
+        assert_eq!(state.mode, Mode::Terminal);
         assert_eq!(state.workspaces.len(), 1);
+        assert!(state.workspaces[0].tabs.is_empty());
+    }
+
+    #[test]
+    fn close_workspace_action_deletes_last_space_and_shows_empty_group() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.mode = Mode::Navigate;
+        state.active = Some(0);
+        state.selected = 0;
+        state.confirm_close = false;
+
+        execute_navigate_action(&mut state, NavigateAction::CloseWorkspace);
+
+        assert_eq!(state.mode, Mode::Navigate);
+        assert!(state.workspaces.is_empty());
+        assert_eq!(state.active, None);
     }
 
     #[test]

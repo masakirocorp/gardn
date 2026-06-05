@@ -298,7 +298,8 @@ fn compute_view_internal(
     let split_borders = app
         .active
         .and_then(|i| app.workspaces.get(i))
-        .map(|ws| ws.layout.splits(terminal_area))
+        .and_then(|ws| ws.active_tab())
+        .map(|tab| tab.layout.splits(terminal_area))
         .unwrap_or_default();
 
     let pane_infos = compute_pane_infos(
@@ -383,7 +384,8 @@ fn compute_mobile_view(
     let split_borders = app
         .active
         .and_then(|i| app.workspaces.get(i))
-        .map(|ws| ws.layout.splits(terminal_area))
+        .and_then(|ws| ws.active_tab())
+        .map(|tab| tab.layout.splits(terminal_area))
         .unwrap_or_default();
 
     let pane_infos = compute_pane_infos(

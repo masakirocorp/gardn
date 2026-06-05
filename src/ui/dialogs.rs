@@ -197,7 +197,7 @@ pub(super) fn render_confirm_close_overlay(app: &AppState, frame: &mut Frame, ar
     let pane_count = app
         .workspaces
         .get(app.selected)
-        .map(|ws| ws.layout.pane_count())
+        .map(|ws| ws.tabs.iter().map(|tab| tab.layout.pane_count()).sum())
         .unwrap_or(0);
 
     let pane_text = if pane_count == 1 {
@@ -363,4 +363,28 @@ pub(crate) fn confirm_close_button_rects(inner: Rect) -> (Rect, Rect) {
         2,
     );
     (rects[0], rects[1])
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{backend::TestBackend, Terminal};
+
+    use super::*;
+    use crate::workspace::Workspace;
+
+    #[test]
+    fn confirm_close_overlay_renders_empty_workspace() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("empty")];
+        app.workspaces[0].tabs.clear();
+        app.selected = 0;
+        app.active = Some(0);
+        app.mode = Mode::ConfirmClose;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_confirm_close_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
+            .unwrap();
+    }
 }

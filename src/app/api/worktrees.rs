@@ -315,7 +315,7 @@ impl App {
             });
         if still_same_linked_worktree {
             self.state.selected = ws_idx;
-            self.state.close_selected_workspace();
+            self.state.remove_selected_workspace();
             self.shutdown_detached_terminal_runtimes();
             self.emit_event(EventEnvelope {
                 event: EventKind::WorkspaceClosed,
@@ -1272,7 +1272,7 @@ mod tests {
             .any(|(_, event)| { matches!(&event.data, EventData::WorkspaceRenamed { .. }) }));
 
         app.state.selected = 0;
-        app.state.close_selected_workspace();
+        app.state.remove_selected_workspace();
         app.shutdown_detached_terminal_runtimes();
         let _ = std::fs::remove_dir_all(repo);
     }

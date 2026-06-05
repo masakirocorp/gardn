@@ -332,7 +332,33 @@ fn restore_workspace(
     }
 
     if tabs.is_empty() {
-        return (None, failed_imports);
+        return (
+            Some((
+                Workspace {
+                    id: snap
+                        .id
+                        .clone()
+                        .unwrap_or_else(crate::workspace::generate_workspace_id),
+                    custom_name: snap.custom_name.clone(),
+                    group_id: snap.group_id.clone(),
+                    identity_cwd: snap.identity_cwd.clone(),
+                    cached_git_branch: None,
+                    cached_git_ahead_behind: None,
+                    cached_git_work_summary: None,
+                    cached_git_space: None,
+                    worktree_space: None,
+                    public_pane_numbers,
+                    next_public_pane_number: 1,
+                    active_tab: 0,
+                    tabs,
+                    #[cfg(test)]
+                    test_runtimes: HashMap::new(),
+                },
+                terminals,
+                terminal_runtimes,
+            )),
+            failed_imports,
+        );
     }
 
     (
@@ -1082,6 +1108,61 @@ mod tests {
         assert!(take_restore_plan_for_snapshot(&session, true, &mut resumed).is_none());
 
         assert!(restored_terminal_agent_session(Some(&session), true).is_none());
+    }
+
+    #[test]
+    fn restore_keeps_empty_workspaces() {
+        let cwd = std::env::current_dir().unwrap();
+        let snapshot = SessionSnapshot {
+            version: super::super::snapshot::SNAPSHOT_VERSION,
+            groups: vec![super::super::snapshot::GroupSnapshot {
+                id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
+                name: "group 1".to_string(),
+                icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
+                theme: None,
+                theme_name: None,
+            }],
+            active_group: 0,
+            workspaces: vec![WorkspaceSnapshot {
+                id: Some("empty-workspace".into()),
+                custom_name: Some("empty".into()),
+                group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
+                identity_cwd: cwd,
+                tabs: Vec::new(),
+                active_tab: 0,
+            }],
+            active: Some(0),
+            selected: 0,
+            agent_panel_scope: Default::default(),
+            sidebar_width: None,
+            sidebar_collapsed: false,
+            sidebar_section_split: None,
+            right_sidebar_width: None,
+            right_sidebar_collapsed: false,
+            ui: super::super::snapshot::SessionUiSnapshot::default(),
+            pane_id_aliases: HashMap::new(),
+        };
+        let (events, _event_rx) = mpsc::channel(4);
+
+        let (workspaces, terminals, runtimes) = restore(
+            &snapshot,
+            None,
+            24,
+            80,
+            0,
+            "/usr/bin/true",
+            crate::config::ShellModeConfig::NonLogin,
+            false,
+            events,
+            Arc::new(Notify::new()),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].custom_name.as_deref(), Some("empty"));
+        assert!(workspaces[0].tabs.is_empty());
+        assert!(terminals.is_empty());
+        assert!(runtimes.is_empty());
     }
 
     #[tokio::test]

@@ -801,20 +801,35 @@ pub fn active_tcp_listeners() -> Vec<super::TcpListenerInfo> {
     super::active_tcp_listeners_from_lsof()
 }
 
+fn process_parent_id(pid: u32) -> Option<u32> {
+    let parent = process_bsdinfo(pid)?.pbi_ppid;
+    (parent > 0).then_some(parent as u32)
+}
+
 pub fn session_processes(child_pid: u32) -> Vec<u32> {
-    if child_pid == 0 {
+    if child_pid == 0 || process_parent_id(child_pid).is_none() {
         return Vec::new();
     }
 
-    let target_session = unsafe { libc::getsid(child_pid as libc::c_int) };
-    if target_session <= 0 {
-        return Vec::new();
+    let mut children_by_parent = std::collections::HashMap::<u32, Vec<u32>>::new();
+    for pid in all_pids() {
+        let Some(parent) = process_parent_id(pid) else {
+            continue;
+        };
+        children_by_parent.entry(parent).or_default().push(pid);
     }
 
-    all_pids()
-        .into_iter()
-        .filter(|pid| unsafe { libc::getsid(*pid as libc::pid_t) } == target_session)
-        .collect()
+    let mut descendants = Vec::new();
+    let mut stack = vec![child_pid];
+    while let Some(pid) = stack.pop() {
+        descendants.push(pid);
+        if let Some(children) = children_by_parent.get(&pid) {
+            stack.extend(children.iter().copied());
+        }
+    }
+    descendants.sort_unstable();
+    descendants.dedup();
+    descendants
 }
 
 fn all_pids() -> Vec<u32> {
@@ -907,6 +922,22 @@ mod tests {
             target_nofile_soft_limit(16_384, libc::RLIM_INFINITY, 8192),
             None
         );
+    }
+
+    #[test]
+    fn session_processes_are_scoped_to_child_tree() {
+        let mut child = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg("sleep 5 & wait")
+            .spawn()
+            .expect("spawn shell");
+
+        let pids = session_processes(child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert!(pids.contains(&child.id()));
+        assert!(!pids.contains(&std::process::id()));
     }
 
     fn build_procargs2(exec_path: &str, argv: &[&str], env: &[&str]) -> Vec<u8> {

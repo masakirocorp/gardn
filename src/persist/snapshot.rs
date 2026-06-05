@@ -1300,7 +1300,20 @@ mod tests {
     }
 
     #[test]
-    fn capture_contract_tracks_tab_closure() {
+    fn capture_contract_tracks_last_tab_closure_as_empty_workspace() {
+        let mut state = state_with_workspaces(&["one"]);
+
+        state.close_tab();
+
+        let snapshot = capture_from_state(&state);
+        let workspace = &snapshot.workspaces[0];
+        assert!(workspace.tabs.is_empty());
+        assert_eq!(workspace.active_tab, 0);
+        assert_eq!(snapshot.active, Some(0));
+    }
+
+    #[test]
+    fn capture_contract_tracks_non_last_tab_closure() {
         let mut state = state_with_workspaces(&["one"]);
         let second_tab = state.workspaces[0].test_add_tab(Some("logs"));
         state.switch_tab(second_tab);

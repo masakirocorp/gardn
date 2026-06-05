@@ -3843,7 +3843,7 @@ mod tests {
     }
 
     #[test]
-    fn pane_close_request_closes_workspace_when_it_removes_the_last_pane() {
+    fn pane_close_request_deletes_workspace_when_it_removes_the_last_pane() {
         let mut app = test_app();
         let workspace = Workspace::test_new("api-pane-close-last");
         app.state.workspaces = vec![workspace];
@@ -3864,6 +3864,7 @@ mod tests {
 
         assert_eq!(response["result"]["type"], "ok");
         assert!(app.state.workspaces.is_empty());
+        assert_eq!(app.state.active, None);
     }
 
     #[test]

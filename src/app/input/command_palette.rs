@@ -100,11 +100,7 @@ impl App {
 }
 
 fn leave_command_palette(state: &mut AppState) {
-    state.mode = if state.active.is_some() {
-        Mode::Terminal
-    } else {
-        Mode::Navigate
-    };
+    state.return_to_active_workspace_mode();
 }
 
 pub(super) fn close_command_palette(state: &mut AppState) {
@@ -381,7 +377,7 @@ fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
                     super::modal::open_confirm_close(&mut app.state);
                     return;
                 }
-                app.state.close_selected_workspace();
+                app.state.close_selected_workspace_from_ui();
             }
         }
         CommandPaletteAction::PreviousWorkspace => app.state.previous_workspace(),
@@ -580,6 +576,19 @@ mod tests {
 
         assert!(app.state.request_open_git_diff);
         assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn command_palette_close_last_space_deletes_space_and_shows_empty_group() {
+        let mut app = app_with_space();
+        app.state.confirm_close = false;
+        app.state.command_palette.query = "close selected space".to_string();
+
+        app.handle_command_palette_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert!(app.state.workspaces.is_empty());
+        assert_eq!(app.state.active, None);
     }
 
     #[test]

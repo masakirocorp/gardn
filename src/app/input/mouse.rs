@@ -855,8 +855,12 @@ impl AppState {
                             };
                             let ratio = ratio.clamp(0.1, 0.9);
                             let path = path.clone();
-                            if let Some(ws) = self.active.and_then(|i| self.workspaces.get_mut(i)) {
-                                ws.layout.set_ratio_at(&path, ratio);
+                            if let Some(tab) = self
+                                .active
+                                .and_then(|i| self.workspaces.get_mut(i))
+                                .and_then(|ws| ws.active_tab_mut())
+                            {
+                                tab.layout.set_ratio_at(&path, ratio);
                                 self.mark_session_dirty();
                             }
                         }
@@ -1470,9 +1474,13 @@ impl AppState {
             return;
         };
         let previous = self.current_pane_focus_target();
-        if let Some(ws) = self.workspaces.get_mut(ws_idx) {
-            if ws.layout.focused() != pane_id {
-                ws.layout.focus_pane(pane_id);
+        if let Some(tab) = self
+            .workspaces
+            .get_mut(ws_idx)
+            .and_then(|ws| ws.active_tab_mut())
+        {
+            if tab.layout.focused() != pane_id {
+                tab.layout.focus_pane(pane_id);
                 self.record_pane_focus_change(previous, ws_idx, pane_id);
                 self.mark_session_dirty();
             }
@@ -2399,6 +2407,121 @@ mod tests {
 
         assert_eq!(app.state.workspaces.len(), 1);
         assert_eq!(app.state.workspaces[0].display_name(), "a");
+    }
+
+    #[test]
+    fn clicking_confirm_close_on_last_workspace_deletes_space() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("only")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        app.state.context_menu = Some(ContextMenuState {
+            kind: ContextMenuKind::Workspace { ws_idx: 0 },
+            x: 2,
+            y: 2,
+            list: MenuListState::new(1),
+        });
+        app.state.mode = Mode::ContextMenu;
+        handle_context_menu_key(
+            &mut app.state,
+            &mut app.terminal_runtimes,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+        assert_eq!(app.state.mode, Mode::ConfirmClose);
+        assert_eq!(app.state.selected, 0);
+
+        let popup = app.state.confirm_close_rect();
+        let inner = Rect::new(
+            popup.x + 1,
+            popup.y + 1,
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
+        );
+        let (confirm, _) = crate::ui::confirm_close_button_rects(inner);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            confirm.x + 1,
+            confirm.y,
+        ));
+
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert!(app.state.workspaces.is_empty());
+        assert_eq!(app.state.active, None);
+        assert_eq!(app.state.selected, 0);
+    }
+
+    #[test]
+    fn mouse_clicking_workspace_context_close_on_last_workspace_deletes_space() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("only")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.context_menu = Some(ContextMenuState {
+            kind: ContextMenuKind::Workspace { ws_idx: 0 },
+            x: 2,
+            y: 2,
+            list: MenuListState::new(1),
+        });
+        app.state.mode = Mode::ContextMenu;
+
+        let menu = app.state.context_menu_rect().unwrap();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + 2,
+        ));
+
+        assert_eq!(app.state.mode, Mode::ConfirmClose);
+
+        let popup = app.state.confirm_close_rect();
+        let inner = Rect::new(
+            popup.x + 1,
+            popup.y + 1,
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
+        );
+        let (confirm, _) = crate::ui::confirm_close_button_rects(inner);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            confirm.x + 1,
+            confirm.y,
+        ));
+
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert!(app.state.workspaces.is_empty());
+        assert_eq!(app.state.active, None);
+    }
+
+    #[test]
+    fn mouse_clicking_workspace_context_close_without_confirmation_deletes_space() {
+        let mut app = app_for_mouse_test();
+        app.state.confirm_close = false;
+        app.state.workspaces = vec![Workspace::test_new("only")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.context_menu = Some(ContextMenuState {
+            kind: ContextMenuKind::Workspace { ws_idx: 0 },
+            x: 2,
+            y: 2,
+            list: MenuListState::new(1),
+        });
+        app.state.mode = Mode::ContextMenu;
+
+        let menu = app.state.context_menu_rect().unwrap();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + 2,
+        ));
+
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert!(app.state.workspaces.is_empty());
+        assert_eq!(app.state.active, None);
+        assert_eq!(app.state.selected, 0);
     }
 
     #[tokio::test]

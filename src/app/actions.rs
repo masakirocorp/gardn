@@ -1880,6 +1880,38 @@ impl AppState {
             .any(|run| &run.terminal_id == terminal_id)
     }
 
+    fn empty_workspace(&mut self, ws_idx: usize) {
+        let Some(ws) = self.workspaces.get_mut(ws_idx) else {
+            return;
+        };
+        while !ws.tabs.is_empty() {
+            ws.close_tab_allow_empty(0);
+        }
+        self.active = Some(ws_idx);
+        self.selected = ws_idx;
+        self.workspace_scroll = self.workspace_scroll.min(ws_idx);
+        self.tab_scroll = 0;
+        self.tab_scroll_follow_active = true;
+        self.refresh_tab_bar_view();
+    }
+
+    pub(crate) fn return_to_active_workspace_mode(&mut self) {
+        self.mode = if self.active.is_some() {
+            Mode::Terminal
+        } else {
+            Mode::Navigate
+        };
+    }
+
+    pub(crate) fn close_selected_workspace_from_ui(&mut self) {
+        self.close_selected_workspace();
+        self.return_to_active_workspace_mode();
+    }
+
+    pub(crate) fn remove_selected_workspace(&mut self) {
+        self.close_selected_workspace();
+    }
+
     pub fn close_selected_workspace(&mut self) {
         if self.workspaces.is_empty() {
             return;
@@ -2148,7 +2180,7 @@ impl AppState {
         false
     }
 
-    /// Close the active tab. Returns true when the close was deferred to confirmation.
+    /// Close the active tab while preserving the workspace, even when it was the last tab.
     pub fn close_tab(&mut self) -> bool {
         let Some(ws_idx) = self.active else {
             return false;
@@ -2156,11 +2188,9 @@ impl AppState {
         if self
             .workspaces
             .get(ws_idx)
-            .is_some_and(|ws| ws.tabs.len() <= 1)
-            && self.workspace_close_would_close_worktree_group(ws_idx)
-            && self.confirm_implicit_worktree_group_close(ws_idx)
+            .is_none_or(|ws| ws.tabs.is_empty())
         {
-            return true;
+            return false;
         }
         self.selection = None;
         self.selection_autoscroll = None;
@@ -2168,33 +2198,19 @@ impl AppState {
         let Some(ws) = self.workspaces.get(ws_idx) else {
             return false;
         };
-        let should_close_workspace = ws.tabs.len() <= 1;
-        if should_close_workspace {
-            self.selected = ws_idx;
-            if self.confirm_close {
-                self.mode = Mode::ConfirmClose;
-                return true;
-            }
-            self.close_selected_workspace();
+        let terminal_ids = self.terminal_ids_for_tab(ws_idx, ws.active_tab);
+        let workspace_id = ws.id.clone();
+        let closing_tab_id = format!("{}:{}", workspace_id, ws.active_tab + 1);
+        let Some(ws) = self.workspaces.get_mut(ws_idx) else {
+            return false;
+        };
+        if !ws.close_active_tab_allow_empty() {
             return false;
         }
-        if let Some(ws_idx) = self.active {
-            let terminal_ids = self
-                .workspaces
-                .get(ws_idx)
-                .map(|ws| self.terminal_ids_for_tab(ws_idx, ws.active_tab))
-                .unwrap_or_default();
-            let Some(ws) = self.workspaces.get_mut(ws_idx) else {
-                return false;
-            };
-            let workspace_id = ws.id.clone();
-            let closing_tab_id = format!("{}:{}", workspace_id, ws.active_tab + 1);
-            ws.close_active_tab();
-            self.remove_unattached_terminal_ids(terminal_ids);
-            crate::logging::tab_closed(&workspace_id, &closing_tab_id);
-            self.tab_scroll_follow_active = true;
-            self.refresh_tab_bar_view();
-        }
+        self.remove_unattached_terminal_ids(terminal_ids);
+        crate::logging::tab_closed(&workspace_id, &closing_tab_id);
+        self.tab_scroll_follow_active = true;
+        self.refresh_tab_bar_view();
         false
     }
 }
@@ -2989,15 +3005,12 @@ impl AppState {
         self.mark_session_dirty();
 
         if should_close_workspace {
-            self.workspaces.remove(ws_idx);
-            self.remove_unattached_terminal_ids(workspace_terminal_ids);
-            if self.workspaces.is_empty() {
-                self.active = None;
-                self.selected = 0;
-                if self.mode == Mode::Terminal {
-                    self.mode = Mode::Navigate;
-                }
+            if self.workspaces.len() == 1 {
+                self.empty_workspace(ws_idx);
+                self.remove_unattached_terminal_ids(workspace_terminal_ids);
             } else {
+                self.workspaces.remove(ws_idx);
+                self.remove_unattached_terminal_ids(workspace_terminal_ids);
                 if let Some(active) = self.active {
                     if active >= self.workspaces.len() {
                         self.active = Some(self.workspaces.len() - 1);
@@ -4292,14 +4305,18 @@ mod tests {
     }
 
     #[test]
-    fn close_last_workspace_clears_active() {
+    fn close_last_workspace_deletes_space_and_leaves_empty_group() {
         let mut state = app_with_workspaces(&["only"]);
+        let terminal_id = state
+            .terminal_id_for_pane(0, state.workspaces[0].tabs[0].root_pane)
+            .unwrap();
         state.selected = 0;
         state.close_selected_workspace();
 
         assert!(state.workspaces.is_empty());
         assert_eq!(state.active, None);
         assert_eq!(state.selected, 0);
+        assert!(!state.terminals.contains_key(&terminal_id));
     }
 
     #[test]
@@ -4316,21 +4333,27 @@ mod tests {
     }
 
     #[test]
-    fn closing_last_tab_prompts_to_close_active_workspace() {
+    fn closing_last_tab_keeps_active_workspace_empty_even_when_confirm_close_is_enabled() {
         let mut state = app_with_workspaces(&["a", "b"]);
+        let active_terminal_id = state
+            .terminal_id_for_pane(1, state.workspaces[1].tabs[0].root_pane)
+            .unwrap();
         state.active = Some(1);
         state.selected = 0;
         state.confirm_close = true;
 
         state.close_tab();
 
-        assert_eq!(state.mode, Mode::ConfirmClose);
-        assert_eq!(state.selected, 1);
+        assert_eq!(state.mode, Mode::Terminal);
+        assert_eq!(state.selected, 0);
+        assert_eq!(state.active, Some(1));
         assert_eq!(state.workspaces.len(), 2);
+        assert!(state.workspaces[1].tabs.is_empty());
+        assert!(!state.terminals.contains_key(&active_terminal_id));
     }
 
     #[test]
-    fn closing_last_tab_without_confirmation_closes_active_workspace() {
+    fn closing_last_tab_without_confirmation_keeps_active_workspace_empty() {
         let mut state = app_with_workspaces(&["a", "b"]);
         state.active = Some(1);
         state.selected = 0;
@@ -4338,8 +4361,10 @@ mod tests {
 
         state.close_tab();
 
-        assert_eq!(state.workspaces.len(), 1);
+        assert_eq!(state.workspaces.len(), 2);
         assert_eq!(state.workspaces[0].display_name(), "a");
+        assert_eq!(state.workspaces[1].display_name(), "b");
+        assert!(state.workspaces[1].tabs.is_empty());
     }
 
     #[test]
@@ -4354,15 +4379,17 @@ mod tests {
     }
 
     #[test]
-    fn pane_died_last_workspace_enters_navigate() {
+    fn pane_died_last_workspace_keeps_empty_space_active() {
         let mut state = app_with_workspaces(&["only"]);
         state.mode = Mode::Terminal;
         let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
 
         state.handle_pane_died(None, pane_id, 0, true);
 
-        assert!(state.workspaces.is_empty());
-        assert_eq!(state.mode, Mode::Navigate);
+        assert_eq!(state.workspaces.len(), 1);
+        assert_eq!(state.active, Some(0));
+        assert_eq!(state.mode, Mode::Terminal);
+        assert!(state.workspaces[0].tabs.is_empty());
     }
 
     #[test]
@@ -5039,7 +5066,7 @@ mod tests {
     }
 
     #[test]
-    fn close_tab_last_tab_closes_active_workspace_not_selected_workspace() {
+    fn close_tab_last_tab_empties_active_workspace_not_selected_workspace() {
         let mut state = app_with_workspaces(&["selected", "active"]);
         let active_terminal_id = state
             .terminal_id_for_pane(1, state.workspaces[1].tabs[0].root_pane)
@@ -5050,8 +5077,10 @@ mod tests {
 
         state.close_tab();
 
-        assert_eq!(state.workspaces.len(), 1);
+        assert_eq!(state.workspaces.len(), 2);
         assert_eq!(state.workspaces[0].display_name(), "selected");
+        assert_eq!(state.workspaces[1].display_name(), "active");
+        assert!(state.workspaces[1].tabs.is_empty());
         assert!(!state.terminals.contains_key(&active_terminal_id));
     }
 
@@ -5089,7 +5118,7 @@ mod tests {
     }
 
     #[test]
-    fn close_tab_in_linked_worktree_closes_workspace_only() {
+    fn close_tab_in_linked_worktree_empties_workspace_only() {
         let mut state = app_with_workspaces(&["selected", "active"]);
         mark_linked_worktree(&mut state, 1);
         state.active = Some(1);
@@ -5098,12 +5127,14 @@ mod tests {
 
         state.close_tab();
 
-        assert_eq!(state.workspaces.len(), 1);
+        assert_eq!(state.workspaces.len(), 2);
         assert_eq!(state.workspaces[0].display_name(), "selected");
+        assert_eq!(state.workspaces[1].display_name(), "active");
+        assert!(state.workspaces[1].tabs.is_empty());
     }
 
     #[test]
-    fn close_tab_last_tab_in_parent_worktree_group_prompts() {
+    fn close_tab_last_tab_in_parent_worktree_group_empties_workspace_without_prompt() {
         let mut state = app_with_workspaces(&["parent", "child"]);
         mark_parent_worktree(&mut state, 0);
         mark_linked_worktree(&mut state, 1);
@@ -5112,10 +5143,11 @@ mod tests {
 
         let deferred = state.close_tab();
 
-        assert!(deferred);
-        assert_eq!(state.mode, Mode::ConfirmClose);
-        assert_eq!(state.selected, 0);
+        assert!(!deferred);
+        assert_eq!(state.mode, Mode::Terminal);
+        assert_eq!(state.selected, 1);
         assert_eq!(state.workspaces.len(), 2);
+        assert!(state.workspaces[0].tabs.is_empty());
     }
 
     #[test]

@@ -76,19 +76,26 @@ impl App {
         let default_shell = self.state.default_shell.clone();
         let scrollback_limit_bytes = self.state.pane_scrollback_limit_bytes;
         let host_terminal_theme = self.state.host_terminal_theme;
+        let shell_mode = self.state.shell_mode;
+        let event_tx = self.event_tx.clone();
+        let render_notify = self.render_notify.clone();
+        let render_dirty = self.render_dirty.clone();
         let result = self
             .state
             .workspaces
             .get_mut(ws_idx)
             .ok_or_else(|| std::io::Error::other("workspace disappeared"))
             .and_then(|ws| {
-                ws.create_tab(
+                ws.create_tab_with_handles(
                     rows,
                     cols,
                     cwd,
                     scrollback_limit_bytes,
                     host_terminal_theme,
-                    crate::pane::PaneShellConfig::new(&default_shell, self.state.shell_mode),
+                    crate::pane::PaneShellConfig::new(&default_shell, shell_mode),
+                    event_tx,
+                    render_notify,
+                    render_dirty,
                 )
             });
         match result {
@@ -194,14 +201,8 @@ impl App {
         let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
             return tab_not_found(id, &target.tab_id);
         };
-        if ws.tabs.len() <= 1 {
-            return encode_error(
-                id,
-                "tab_close_failed",
-                "cannot close the last tab in a workspace",
-            );
-        }
-        if !ws.close_tab(tab_idx) {
+        let workspace_id = ws.id.clone();
+        if !ws.close_tab_allow_empty(tab_idx) {
             return encode_error(
                 id,
                 "tab_close_failed",
@@ -215,7 +216,7 @@ impl App {
             event: EventKind::TabClosed,
             data: EventData::TabClosed {
                 tab_id: target.tab_id,
-                workspace_id: self.public_workspace_id(ws_idx),
+                workspace_id,
             },
         });
 

@@ -166,12 +166,15 @@ pub(super) fn compute_pane_infos(
     let Some(ws) = app.workspaces.get(ws_idx) else {
         return Vec::new();
     };
+    let Some(tab) = ws.active_tab() else {
+        return Vec::new();
+    };
 
-    let multi_pane = ws.layout.pane_count() > 1;
+    let multi_pane = tab.layout.pane_count() > 1;
     let terminal_active = app.mode == Mode::Terminal;
 
-    if ws.zoomed {
-        let focused_id = ws.layout.focused();
+    if tab.zoomed {
+        let focused_id = tab.layout.focused();
         let pane_inner = pane_inner_rect(area, multi_pane);
         let mut inner_rect = pane_inner;
         let mut scrollbar_rect = None;
@@ -199,7 +202,7 @@ pub(super) fn compute_pane_infos(
         }];
     }
 
-    let mut pane_infos = ws.layout.panes(area);
+    let mut pane_infos = tab.layout.panes(area);
 
     for info in &mut pane_infos {
         let pane_inner = if multi_pane {
@@ -255,8 +258,12 @@ pub(super) fn render_panes(
         render_empty(app, frame, area);
         return;
     };
+    let Some(tab) = ws.active_tab() else {
+        render_empty(app, frame, area);
+        return;
+    };
 
-    let multi_pane = ws.layout.pane_count() > 1;
+    let multi_pane = tab.layout.pane_count() > 1;
     let terminal_active = app.mode == Mode::Terminal;
 
     for info in &app.view.pane_infos {
@@ -478,23 +485,49 @@ fn color_to_rgb(color: Color) -> Option<Rgb> {
 
 fn render_empty(app: &AppState, frame: &mut Frame, area: Rect) {
     let p = &app.palette;
-    let (title, detail, context) = if app.workspaces.is_empty() {
+    let active_workspace_has_no_tabs = app
+        .active
+        .and_then(|idx| app.workspaces.get(idx))
+        .is_some_and(|ws| ws.tabs.is_empty());
+    let (title, detail, context, action_label) = if active_workspace_has_no_tabs {
+        (
+            "  no tabs in this space",
+            "  the space is still here.",
+            "  create a tab to keep working in this context.",
+            app.keybinds
+                .new_tab
+                .label()
+                .unwrap_or_else(|| "unset".to_string()),
+        )
+    } else if app.workspaces.is_empty() {
         (
             "  no spaces yet",
             "  a space is one project context.",
             "  its root pane sets the default repo or folder name.",
+            app.keybinds
+                .new_workspace
+                .label()
+                .unwrap_or_else(|| "unset".to_string()),
         )
     } else if app.group_filter_enabled {
         (
             "  no spaces in this group",
             "  switch groups or create one here.",
             "  hidden spaces stay in the group menu.",
+            app.keybinds
+                .new_workspace
+                .label()
+                .unwrap_or_else(|| "unset".to_string()),
         )
     } else {
         (
             "  no active space",
             "  select a space from the sidebar.",
             "  create one if you want a fresh context.",
+            app.keybinds
+                .new_workspace
+                .label()
+                .unwrap_or_else(|| "unset".to_string()),
         )
     };
     let lines = vec![
@@ -508,10 +541,7 @@ fn render_empty(app: &AppState, frame: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("  press ", Style::default().fg(p.overlay0)),
             Span::styled(
-                app.keybinds
-                    .new_workspace
-                    .label()
-                    .unwrap_or_else(|| "unset".to_string()),
+                action_label,
                 Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
             ),
             Span::styled(" to create one", Style::default().fg(p.overlay0)),
@@ -545,6 +575,26 @@ mod tests {
         assert_eq!(pane_border_title("", 20), None);
         assert_eq!(pane_border_title("abcdef", 8).as_deref(), Some(" abc… "));
         assert_eq!(pane_border_title("abcdef", 4), None);
+    }
+
+    #[test]
+    fn main_empty_state_mentions_empty_active_workspace() {
+        let mut app = AppState::test_new();
+        let mut workspace = Workspace::test_new("empty");
+        workspace.tabs.clear();
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+
+        let backend = TestBackend::new(72, 14);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_empty(&app, frame, Rect::new(0, 0, 72, 14)))
+            .expect("render empty pane");
+
+        let text = buffer_text(terminal.backend().buffer(), 72, 14);
+        assert!(text.contains("no tabs in this space"));
+        assert!(text.contains("the space is still here"));
+        assert!(text.contains("create a tab to keep working"));
     }
 
     #[test]

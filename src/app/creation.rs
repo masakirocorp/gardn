@@ -157,15 +157,25 @@ impl App {
             return self.create_workspace_with_options(initial_cwd, focus);
         };
         let (rows, cols) = self.state.estimate_pane_size();
+        let scrollback_limit_bytes = self.state.pane_scrollback_limit_bytes;
+        let host_terminal_theme = self.state.host_terminal_theme;
+        let default_shell = self.state.default_shell.clone();
+        let shell_mode = self.state.shell_mode;
+        let event_tx = self.event_tx.clone();
+        let render_notify = self.render_notify.clone();
+        let render_dirty = self.render_dirty.clone();
         let (idx, terminal, runtime, root_pane) = {
             let ws = &mut self.state.workspaces[ws_idx];
-            let (idx, terminal, runtime) = ws.create_tab(
+            let (idx, terminal, runtime) = ws.create_tab_with_handles(
                 rows,
                 cols,
                 initial_cwd,
-                self.state.pane_scrollback_limit_bytes,
-                self.state.host_terminal_theme,
-                crate::pane::PaneShellConfig::new(&self.state.default_shell, self.state.shell_mode),
+                scrollback_limit_bytes,
+                host_terminal_theme,
+                crate::pane::PaneShellConfig::new(&default_shell, shell_mode),
+                event_tx,
+                render_notify,
+                render_dirty,
             )?;
             let root_pane = ws.tabs[idx].root_pane;
             (idx, terminal, runtime, root_pane)

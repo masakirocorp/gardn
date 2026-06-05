@@ -296,7 +296,8 @@ impl Workspace {
         }
     }
 
-    pub fn create_tab(
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_tab_with_handles(
         &mut self,
         rows: u16,
         cols: u16,
@@ -304,6 +305,9 @@ impl Workspace {
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
         shell_config: crate::pane::PaneShellConfig<'_>,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<AtomicBool>,
     ) -> std::io::Result<(usize, TerminalState, TerminalRuntime)> {
         self.create_tab_with_runtime(
             rows,
@@ -314,6 +318,9 @@ impl Workspace {
             shell_config,
             None,
             None,
+            Some(events),
+            Some(render_notify),
+            Some(render_dirty),
         )
     }
 
@@ -337,9 +344,13 @@ impl Workspace {
             crate::pane::PaneShellConfig::new("", crate::config::ShellModeConfig::NonLogin),
             Some(NewWorkspaceTabCommand::Shell { command, extra_env }),
             None,
+            None,
+            None,
+            None,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_tab_with_runtime(
         &mut self,
         rows: u16,
@@ -350,20 +361,32 @@ impl Workspace {
         shell_config: crate::pane::PaneShellConfig<'_>,
         command: Option<NewWorkspaceTabCommand<'_>>,
         argv: Option<&[String]>,
+        fallback_events: Option<mpsc::Sender<AppEvent>>,
+        fallback_render_notify: Option<Arc<Notify>>,
+        fallback_render_dirty: Option<Arc<AtomicBool>>,
     ) -> std::io::Result<(usize, TerminalState, TerminalRuntime)> {
         let number = self.tabs.len() + 1;
-        let events = self
+        let Some((events, render_notify, render_dirty)) = self
             .active_tab()
-            .map(|tab| tab.events.clone())
-            .expect("workspace must always have at least one tab");
-        let render_notify = self
-            .active_tab()
-            .map(|tab| tab.render_notify.clone())
-            .expect("workspace must always have at least one tab");
-        let render_dirty = self
-            .active_tab()
-            .map(|tab| tab.render_dirty.clone())
-            .expect("workspace must always have at least one tab");
+            .map(|tab| {
+                (
+                    tab.events.clone(),
+                    tab.render_notify.clone(),
+                    tab.render_dirty.clone(),
+                )
+            })
+            .or_else(|| {
+                Some((
+                    fallback_events?,
+                    fallback_render_notify?,
+                    fallback_render_dirty?,
+                ))
+            })
+        else {
+            return Err(std::io::Error::other(
+                "cannot create tab in empty workspace without runtime handles",
+            ));
+        };
 
         let (tab, terminal, runtime) =
             if let Some(NewWorkspaceTabCommand::Shell { command, extra_env }) = command {
@@ -416,12 +439,21 @@ impl Workspace {
         if self.tabs.len() <= 1 || idx >= self.tabs.len() {
             return false;
         }
+        self.close_tab_allow_empty(idx)
+    }
+
+    pub fn close_tab_allow_empty(&mut self, idx: usize) -> bool {
+        if idx >= self.tabs.len() {
+            return false;
+        }
         let tab = self.tabs.remove(idx);
         for pane_id in tab.panes.keys() {
             self.unregister_pane(*pane_id);
         }
         self.renumber_tabs();
-        if self.active_tab >= self.tabs.len() {
+        if self.tabs.is_empty() {
+            self.active_tab = 0;
+        } else if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len() - 1;
         } else if idx <= self.active_tab && self.active_tab > 0 {
             self.active_tab -= 1;
@@ -457,6 +489,10 @@ impl Workspace {
 
     pub fn close_active_tab(&mut self) -> bool {
         self.close_tab(self.active_tab)
+    }
+
+    pub fn close_active_tab_allow_empty(&mut self) -> bool {
+        self.close_tab_allow_empty(self.active_tab)
     }
 
     pub fn split_focused(
@@ -1088,5 +1124,36 @@ mod tests {
         assert!(ws.tabs[2].custom_name.is_none());
         assert_eq!(ws.tabs[2].root_pane, moved_root);
         assert_eq!(ws.tabs[ws.active_tab].root_pane, active_root);
+    }
+
+    #[tokio::test]
+    async fn workspace_can_create_tab_after_all_tabs_are_closed() {
+        let mut ws = Workspace::test_new("test");
+        assert!(ws.close_tab_allow_empty(0));
+        assert!(ws.tabs.is_empty());
+
+        let (events, _) = mpsc::channel(64);
+        let render_notify = Arc::new(Notify::new());
+        let render_dirty = Arc::new(AtomicBool::new(false));
+        let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
+
+        let (tab_idx, _terminal, _runtime) = ws
+            .create_tab_with_handles(
+                24,
+                80,
+                cwd,
+                0,
+                crate::terminal_theme::TerminalTheme::default(),
+                crate::pane::PaneShellConfig::new("", crate::config::ShellModeConfig::NonLogin),
+                events,
+                render_notify,
+                render_dirty,
+            )
+            .expect("empty workspace creates new tab");
+
+        assert_eq!(tab_idx, 0);
+        assert_eq!(ws.tabs.len(), 1);
+        assert_eq!(ws.active_tab, 0);
+        assert_eq!(ws.tabs[0].number, 1);
     }
 }

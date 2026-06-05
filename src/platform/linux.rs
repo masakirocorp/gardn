@@ -110,28 +110,29 @@ pub fn active_tcp_listeners() -> Vec<super::TcpListenerInfo> {
 }
 
 pub fn session_processes(child_pid: u32) -> Vec<u32> {
-    let Some(session_id) = process_session_id(child_pid) else {
+    if child_pid == 0 || process_parent_id(child_pid).is_none() {
         return Vec::new();
-    };
+    }
 
-    let mut pids = Vec::new();
-    for entry in std::fs::read_dir("/proc").into_iter().flatten().flatten() {
-        let file_name = entry.file_name();
-        let Some(pid_str) = file_name.to_str() else {
+    let mut children_by_parent = std::collections::HashMap::<u32, Vec<u32>>::new();
+    for pid in all_pids() {
+        let Some(parent) = process_parent_id(pid) else {
             continue;
         };
-        if !pid_str.bytes().all(|b| b.is_ascii_digit()) {
-            continue;
-        }
+        children_by_parent.entry(parent).or_default().push(pid);
+    }
 
-        let Ok(pid) = pid_str.parse::<u32>() else {
-            continue;
-        };
-        if process_session_id(pid) == Some(session_id) {
-            pids.push(pid);
+    let mut descendants = Vec::new();
+    let mut stack = vec![child_pid];
+    while let Some(pid) = stack.pop() {
+        descendants.push(pid);
+        if let Some(children) = children_by_parent.get(&pid) {
+            stack.extend(children.iter().copied());
         }
     }
-    pids
+    descendants.sort_unstable();
+    descendants.dedup();
+    descendants
 }
 
 pub fn signal_processes(pids: &[u32], signal: Signal) {
@@ -350,11 +351,21 @@ fn run_clipboard_command(command: &ClipboardCommand, bytes: &[u8]) -> bool {
     child.wait().map(|status| status.success()).unwrap_or(false)
 }
 
-fn process_session_id(pid: u32) -> Option<i32> {
+fn all_pids() -> Vec<u32> {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
+        .collect()
+}
+
+fn process_parent_id(pid: u32) -> Option<u32> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let rest = stat.get(stat.rfind(')')? + 2..)?;
     let fields: Vec<&str> = rest.split_whitespace().collect();
-    fields.get(3)?.parse().ok()
+    fields.get(1)?.parse().ok()
 }
 
 #[cfg(test)]
@@ -365,6 +376,22 @@ mod tests {
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn session_processes_are_scoped_to_child_tree() {
+        let mut child = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg("sleep 5 & wait")
+            .spawn()
+            .expect("spawn shell");
+
+        let pids = session_processes(child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert!(pids.contains(&child.id()));
+        assert!(!pids.contains(&std::process::id()));
     }
 
     #[test]

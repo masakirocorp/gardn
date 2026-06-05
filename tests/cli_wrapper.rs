@@ -2216,7 +2216,7 @@ fn pane_close_only_removes_the_target_tab_when_other_tabs_exist() {
 }
 
 #[test]
-fn pane_close_removes_the_workspace_when_it_closes_the_last_pane() {
+fn pane_close_deletes_the_workspace_when_it_closes_the_last_pane() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
@@ -2244,10 +2244,8 @@ fn pane_close_removes_the_workspace_when_it_closes_the_last_pane() {
     let workspaces = run_cli(&socket_path, &["workspace", "list"]);
     assert!(workspaces.status.success());
     let workspaces_json: serde_json::Value = serde_json::from_slice(&workspaces.stdout).unwrap();
-    assert!(workspaces_json["result"]["workspaces"]
-        .as_array()
-        .unwrap()
-        .is_empty());
+    let workspaces = workspaces_json["result"]["workspaces"].as_array().unwrap();
+    assert!(workspaces.is_empty());
 
     cleanup_spawned_hako(hako, base);
 }

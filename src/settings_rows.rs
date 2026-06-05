@@ -310,7 +310,7 @@ fn behavior_rows(app: &AppState) -> Vec<SettingsListRow> {
         option(
             0,
             "confirm before closing workspaces",
-            "ask before closing a workspace or its last tab",
+            "ask before closing a workspace",
             app.settings
                 .pending_confirm_close
                 .unwrap_or_else(|| app.confirm_close_enabled()),

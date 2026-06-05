@@ -475,15 +475,15 @@ fn render_mobile_switcher_content(
             ),
         ]);
         let summary = ws.git_work_summary_label();
-        let detail = if summary.is_empty() {
-            format!("  tab {}/{}", ws.active_tab + 1, ws.tabs.len())
+        let tab_detail = if ws.tabs.is_empty() {
+            "no tabs".to_string()
         } else {
-            format!(
-                "  {} · tab {}/{}",
-                summary,
-                ws.active_tab + 1,
-                ws.tabs.len()
-            )
+            format!("tab {}/{}", ws.active_tab + 1, ws.tabs.len())
+        };
+        let detail = if summary.is_empty() {
+            format!("  {tab_detail}")
+        } else {
+            format!("  {summary} · {tab_detail}")
         };
         render_two_line_item(
             frame,
