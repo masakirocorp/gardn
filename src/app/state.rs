@@ -1920,6 +1920,11 @@ pub(crate) enum DragTarget {
         target_group_idx: Option<usize>,
         indicator_row: Option<u16>,
     },
+    GroupReorder {
+        source_group_idx: usize,
+        insert_idx: Option<usize>,
+        indicator_row: Option<u16>,
+    },
     TabReorder {
         ws_idx: usize,
         source_tab_idx: usize,
@@ -1967,6 +1972,12 @@ pub(crate) struct DragState {
 
 pub(crate) struct WorkspacePressState {
     pub ws_idx: usize,
+    pub start_col: u16,
+    pub start_row: u16,
+}
+
+pub(crate) struct GroupPressState {
+    pub group_idx: usize,
     pub start_col: u16,
     pub start_row: u16,
 }
@@ -2222,6 +2233,7 @@ pub struct AppState {
     pub view: ViewState,
     pub(crate) drag: Option<DragState>,
     pub(crate) workspace_press: Option<WorkspacePressState>,
+    pub(crate) group_press: Option<GroupPressState>,
     pub(crate) tab_press: Option<TabPressState>,
     pub selection: Option<Selection>,
     pub selection_autoscroll: Option<SelectionAutoscroll>,
@@ -2848,6 +2860,7 @@ impl AppState {
             },
             drag: None,
             workspace_press: None,
+            group_press: None,
             tab_press: None,
             selection: None,
             selection_autoscroll: None,

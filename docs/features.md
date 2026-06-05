@@ -29,7 +29,7 @@ A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 - **Workspace sidebar** — expanded workspace rows show the workspace name, activity state, and git/cwd summary.
 - **Workspace navigator** — search and filter workspaces, tabs, and panes by text or state.
 - **Workspace groups** — group workspaces, filter the sidebar by group, collapse groups, and assign per-group ANSI accent colors that tint group labels, tabs, menus, and related group UI.
-- **Group lifecycle** — create, rename, delete, focus, and switch groups from the TUI, CLI, or socket API.
+- **Group lifecycle** — create, rename, delete, focus, and switch groups from the TUI, CLI, or socket API; reorder groups by dragging headers in the all-groups sidebar.
 - **Group icons** — group creation and rename flows can choose from a curated set of 20 distinct icons.
 - **Move between groups** — move workspaces between groups with `hako workspace move-to-group` or the socket API.
 - **Live cwd labels** — workspace labels can follow active pane cwd unless manually renamed.

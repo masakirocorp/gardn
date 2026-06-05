@@ -12,6 +12,12 @@ pub(super) struct WorkspaceDropTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct GroupDropTarget {
+    pub insert_idx: usize,
+    pub indicator_row: Option<u16>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GroupMenuAction {
     AllSpaces,
     Group(usize),
@@ -664,6 +670,53 @@ impl AppState {
                 .then_some(header.group_idx)
         })
     }
+    pub(super) fn group_drop_target_at_row(
+        &self,
+        row: u16,
+        source_group_idx: usize,
+    ) -> Option<GroupDropTarget> {
+        if self.sidebar_collapsed || self.group_filter_enabled || self.groups.is_empty() {
+            return None;
+        }
+
+        let area = self.workspace_list_rect();
+        let footer = self.sidebar_footer_rect();
+        if area == Rect::default() || row < area.y || row >= footer.y {
+            return None;
+        }
+
+        let headers = if self.view.workspace_group_header_areas.is_empty() {
+            crate::ui::compute_workspace_group_header_areas(self, self.view.sidebar_rect)
+        } else {
+            self.view.workspace_group_header_areas.clone()
+        };
+
+        headers.iter().find_map(|header| {
+            if row < header.rect.y || row >= header.rect.y + header.rect.height {
+                return None;
+            }
+            if header.group_idx == source_group_idx {
+                return None;
+            }
+
+            let moving_down = source_group_idx < header.group_idx;
+            let insert_idx = if moving_down {
+                header.group_idx + 1
+            } else {
+                header.group_idx
+            };
+            let indicator_row = if moving_down {
+                header.rect.y + header.rect.height
+            } else {
+                header.rect.y
+            };
+
+            Some(GroupDropTarget {
+                insert_idx,
+                indicator_row: Some(indicator_row),
+            })
+        })
+    }
 
     pub(super) fn collapsed_workspace_at_row(&self, row: u16) -> Option<usize> {
         if !self.sidebar_collapsed {
@@ -1140,6 +1193,11 @@ mod tests {
             header.rect.x,
             header.rect.y,
         ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            header.rect.x,
+            header.rect.y,
+        ));
 
         assert!(app.state.workspace_group_collapsed("work"));
         assert_eq!(app.state.sidebar_visible_workspace_indices(), vec![0]);
@@ -1173,9 +1231,138 @@ mod tests {
             header.rect.x,
             header.rect.y,
         ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            header.rect.x,
+            header.rect.y,
+        ));
 
         assert!(app.state.workspace_group_collapsed("work"));
         assert_eq!(app.state.selected, 0);
+    }
+
+    #[test]
+    fn dragging_group_header_reorders_groups() {
+        let mut app = app_for_mouse_test();
+        app.state.group_filter_enabled = false;
+        let work_group = app.state.create_group("work".to_string());
+        let ops_group = app.state.create_group("ops".to_string());
+        app.state.workspaces = vec![
+            Workspace::test_new("a"),
+            Workspace::test_new("b"),
+            Workspace::test_new("c"),
+        ];
+        app.state.workspaces[1].group_id = app.state.groups[work_group].id.clone();
+        app.state.workspaces[2].group_id = app.state.groups[ops_group].id.clone();
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 24));
+        let source = app
+            .state
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .find(|header| header.group_idx == work_group)
+            .copied()
+            .expect("work group header");
+        let target = app
+            .state
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .find(|header| header.group_idx == ops_group)
+            .copied()
+            .expect("ops group header");
+        let drop_row = target.rect.y;
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            source.rect.x,
+            source.rect.y,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            source.rect.x,
+            drop_row,
+        ));
+        assert!(matches!(
+            app.state.drag.as_ref().map(|drag| &drag.target),
+            Some(DragTarget::GroupReorder {
+                source_group_idx,
+                insert_idx: Some(3),
+                ..
+            }) if *source_group_idx == work_group
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            source.rect.x,
+            drop_row,
+        ));
+
+        let names: Vec<_> = app
+            .state
+            .groups
+            .iter()
+            .map(|group| group.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["group 1", "ops", "work"]);
+        let snapshot = capture_snapshot(&app.state);
+        let captured_names: Vec<_> = snapshot
+            .groups
+            .iter()
+            .map(|group| group.name.as_str())
+            .collect();
+        assert_eq!(captured_names, vec!["group 1", "ops", "work"]);
+    }
+
+    #[test]
+    fn dragging_group_header_over_space_rows_has_no_drop_preview() {
+        let mut app = app_for_mouse_test();
+        app.state.group_filter_enabled = false;
+        let work_group = app.state.create_group("work".to_string());
+        let ops_group = app.state.create_group("ops".to_string());
+        app.state.workspaces = vec![
+            Workspace::test_new("a"),
+            Workspace::test_new("b"),
+            Workspace::test_new("c"),
+        ];
+        app.state.workspaces[1].group_id = app.state.groups[work_group].id.clone();
+        app.state.workspaces[2].group_id = app.state.groups[ops_group].id.clone();
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 24));
+        let source = app
+            .state
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .find(|header| header.group_idx == work_group)
+            .copied()
+            .expect("work group header");
+        let space_row = app
+            .state
+            .view
+            .workspace_card_areas
+            .iter()
+            .find(|card| card.ws_idx == 2)
+            .map(|card| card.rect.y)
+            .expect("ops workspace row");
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            source.rect.x,
+            source.rect.y,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            source.rect.x,
+            space_row,
+        ));
+
+        assert!(matches!(
+            app.state.drag.as_ref().map(|drag| &drag.target),
+            Some(DragTarget::GroupReorder {
+                source_group_idx,
+                insert_idx: None,
+                indicator_row: None,
+            }) if *source_group_idx == work_group
+        ));
     }
 
     #[test]
@@ -3433,12 +3620,6 @@ mod tests {
         ));
 
         assert!(!app.state.workspace_group_collapsed("work"));
-        assert_eq!(
-            app.state
-                .workspace_drop_target_at_row(header.rect.y + 1)
-                .map(|target| target.group_idx),
-            Some(Some(1))
-        );
     }
 
     #[test]

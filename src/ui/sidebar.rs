@@ -23,6 +23,12 @@ const ACTIVITY_SECTION_GAP_ROWS: u16 = 1;
 const AGENT_PANEL_HEADER_ROWS: u16 = 1;
 const COMMAND_PANEL_HEADER_ROWS: u16 = 1;
 const PORT_PANEL_HEADER_ROWS: u16 = 1;
+const SIDEBAR_GROUP_CHEVRON_COL: u16 = 0;
+const SIDEBAR_GROUP_ICON_COL: u16 = 2;
+const SIDEBAR_GROUP_NAME_COL: u16 = 4;
+const SIDEBAR_WORKSPACE_STATE_COL: u16 = 2;
+const SIDEBAR_WORKSPACE_NAME_COL: u16 = 4;
+const SIDEBAR_GROUP_COUNT_RIGHT_PAD: u16 = 1;
 
 #[derive(Clone)]
 pub(crate) struct AgentPanelEntry {
@@ -892,6 +898,7 @@ fn compute_workspace_list_areas_in_list(
         }
 
         match entry {
+            WorkspaceListEntry::GroupGap => {}
             WorkspaceListEntry::GroupHeader { group_idx } => {
                 headers.push(crate::app::state::WorkspaceGroupHeaderArea {
                     group_idx,
@@ -980,6 +987,7 @@ enum WorkspaceListEntry {
     EmptyGroup {
         group_idx: usize,
     },
+    GroupGap,
     Workspace {
         ws_idx: usize,
         group_idx: Option<usize>,
@@ -989,8 +997,7 @@ enum WorkspaceListEntry {
 impl WorkspaceListEntry {
     fn row_height(self, app: &AppState) -> u16 {
         match self {
-            Self::GroupHeader { .. } => 1,
-            Self::EmptyGroup { .. } => 1,
+            Self::GroupHeader { .. } | Self::EmptyGroup { .. } | Self::GroupGap => 1,
             Self::Workspace { ws_idx, .. } => app
                 .workspaces
                 .get(ws_idx)
@@ -1014,13 +1021,16 @@ fn workspace_list_entries(app: &AppState) -> Vec<WorkspaceListEntry> {
 
     let mut entries = Vec::new();
     for (group_idx, group) in app.groups.iter().enumerate() {
+        if group_idx > 0 {
+            entries.push(WorkspaceListEntry::GroupGap);
+        }
+        entries.push(WorkspaceListEntry::GroupHeader { group_idx });
         let group_workspaces = app
             .workspaces
             .iter()
             .enumerate()
             .filter_map(|(ws_idx, ws)| (ws.group_id == group.id).then_some(ws_idx))
             .collect::<Vec<_>>();
-        entries.push(WorkspaceListEntry::GroupHeader { group_idx });
         if !app.workspace_group_collapsed(&group.id) {
             if group_workspaces.is_empty() {
                 entries.push(WorkspaceListEntry::EmptyGroup { group_idx });
@@ -2505,10 +2515,15 @@ fn render_workspace_list_from(
         }
         _ => None,
     };
+    let dragged_group_idx = match app.drag.as_ref().map(|drag| &drag.target) {
+        Some(crate::app::state::DragTarget::GroupReorder {
+            source_group_idx, ..
+        }) => Some(*source_group_idx),
+        _ => None,
+    };
     let insertion_row = match app.drag.as_ref().map(|drag| &drag.target) {
-        Some(crate::app::state::DragTarget::WorkspaceReorder { indicator_row, .. }) => {
-            *indicator_row
-        }
+        Some(crate::app::state::DragTarget::WorkspaceReorder { indicator_row, .. })
+        | Some(crate::app::state::DragTarget::GroupReorder { indicator_row, .. }) => *indicator_row,
         _ => None,
     };
 
@@ -2582,6 +2597,7 @@ fn render_workspace_list_from(
         let Some(group) = app.groups.get(header.group_idx) else {
             continue;
         };
+        let is_dragged_group = dragged_group_idx == Some(header.group_idx);
         let count = app
             .workspaces
             .iter()
@@ -2595,20 +2611,56 @@ fn render_workspace_list_from(
         let group_style = Style::default()
             .fg(app.group_accent_color(header.group_idx))
             .add_modifier(Modifier::BOLD);
+        if is_dragged_group {
+            let buf = frame.buffer_mut();
+            for x in header.rect.x..header.rect.x + header.rect.width {
+                buf[(x, header.rect.y)].set_style(Style::default().bg(p.surface1));
+            }
+        }
         let line = Line::from(vec![
-            Span::styled(format!(" {chevron} "), Style::default().fg(p.overlay1)),
+            Span::styled(chevron.to_string(), Style::default().fg(p.overlay1)),
+            Span::styled(
+                " ".repeat(
+                    SIDEBAR_GROUP_ICON_COL.saturating_sub(SIDEBAR_GROUP_CHEVRON_COL + 1) as usize,
+                ),
+                Style::default(),
+            ),
             Span::styled(group.icon.clone(), group_style),
-            Span::styled(" ", Style::default().fg(p.overlay1)),
+            Span::styled(
+                " ".repeat(
+                    SIDEBAR_GROUP_NAME_COL.saturating_sub(SIDEBAR_GROUP_ICON_COL + 1) as usize,
+                ),
+                Style::default(),
+            ),
             Span::styled(group.name.clone(), group_style),
-            Span::styled(format!(" ({count})"), Style::default().fg(p.overlay0)),
         ]);
         frame.render_widget(Paragraph::new(line), header.rect);
+        let count_label = count.to_string();
+        let count_width = count_label.chars().count() as u16;
+        if header.rect.width > count_width + SIDEBAR_GROUP_COUNT_RIGHT_PAD {
+            frame.render_widget(
+                Paragraph::new(Span::styled(count_label, Style::default().fg(p.overlay0))),
+                Rect::new(
+                    header.rect.x
+                        + header
+                            .rect
+                            .width
+                            .saturating_sub(count_width + SIDEBAR_GROUP_COUNT_RIGHT_PAD),
+                    header.rect.y,
+                    count_width,
+                    1,
+                ),
+            );
+        }
     }
 
     for empty in empty_rows {
         frame.render_widget(
             Paragraph::new(Span::styled(
-                "   no spaces",
+                format!(
+                    "{}no spaces",
+                    " ".repeat(SIDEBAR_WORKSPACE_NAME_COL as usize)
+                ),
                 Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
             )),
             empty.rect,
@@ -2664,9 +2716,18 @@ fn render_workspace_list_from(
 
         let (icon, icon_style) = state_dot(agg_state, agg_seen, p);
         let line1 = vec![
-            Span::styled(" ", Style::default()),
+            Span::styled(
+                " ".repeat(SIDEBAR_WORKSPACE_STATE_COL as usize),
+                Style::default(),
+            ),
             Span::styled(icon, icon_style),
-            Span::styled(" ", Style::default()),
+            Span::styled(
+                " ".repeat(
+                    SIDEBAR_WORKSPACE_NAME_COL.saturating_sub(SIDEBAR_WORKSPACE_STATE_COL + 1)
+                        as usize,
+                ),
+                Style::default(),
+            ),
             Span::styled(
                 ws.display_name_from(&app.terminals, terminal_runtimes),
                 name_style,
@@ -2679,8 +2740,12 @@ fn render_workspace_list_from(
         );
 
         if row_height > 1 && row_y + 1 < list_bottom {
-            let max_summary_len = (card.rect.width as usize).saturating_sub(3);
-            let mut spans = vec![Span::styled("   ", Style::default())];
+            let max_summary_len =
+                (card.rect.width as usize).saturating_sub(SIDEBAR_WORKSPACE_NAME_COL as usize);
+            let mut spans = vec![Span::styled(
+                " ".repeat(SIDEBAR_WORKSPACE_NAME_COL as usize),
+                Style::default(),
+            )];
             spans.extend(workspace_summary_spans(ws, p, max_summary_len));
             frame.render_widget(
                 Paragraph::new(Line::from(spans)),
@@ -3235,10 +3300,42 @@ mod tests {
             .expect("render workspace list");
 
         let text = buffer_text(terminal.backend().buffer(), 32, 14);
-        assert!(text.contains("▾ ☀ group 1 (1)"));
-        assert!(text.contains("▾ ■ work (1)"));
+        assert!(text.contains("▾ ☀ group 1"));
+        assert!(text.contains("▾ ■ work"));
         assert!(text.contains("home"));
         assert!(text.contains("api"));
+
+        let buffer = terminal.backend().buffer();
+        let home_card = app
+            .view
+            .workspace_card_areas
+            .iter()
+            .find(|card| card.ws_idx == 0)
+            .expect("home card")
+            .rect;
+        let group_header = app
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .find(|header| header.group_idx == 0)
+            .expect("default group header")
+            .rect;
+        assert_eq!(
+            buffer[(group_header.x + SIDEBAR_GROUP_NAME_COL, group_header.y)].symbol(),
+            "g"
+        );
+        assert_eq!(
+            buffer[(group_header.x + group_header.width - 2, group_header.y)].symbol(),
+            "1"
+        );
+        assert_eq!(
+            buffer[(home_card.x + SIDEBAR_WORKSPACE_NAME_COL, home_card.y)].symbol(),
+            "h"
+        );
+        assert_eq!(
+            buffer[(home_card.x + SIDEBAR_WORKSPACE_NAME_COL, home_card.y + 1)].symbol(),
+            "s"
+        );
     }
 
     #[test]
@@ -3274,13 +3371,20 @@ mod tests {
             .expect("render workspace list");
 
         let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(work_header.x + 3, work_header.y)].symbol(), "■");
         assert_eq!(
-            buffer[(work_header.x + 3, work_header.y)].style().fg,
+            buffer[(work_header.x + SIDEBAR_GROUP_ICON_COL, work_header.y)].symbol(),
+            "■"
+        );
+        assert_eq!(
+            buffer[(work_header.x + SIDEBAR_GROUP_ICON_COL, work_header.y)]
+                .style()
+                .fg,
             Some(app.group_accent_color(1))
         );
         assert_eq!(
-            buffer[(work_header.x + 5, work_header.y)].style().fg,
+            buffer[(work_header.x + SIDEBAR_GROUP_NAME_COL, work_header.y)]
+                .style()
+                .fg,
             Some(app.group_accent_color(1))
         );
     }
@@ -3333,9 +3437,8 @@ mod tests {
         terminal
             .draw(|frame| render_workspace_list(&app, frame, area, false))
             .expect("render workspace list");
-
         let text = buffer_text(terminal.backend().buffer(), 32, 14);
-        assert!(text.contains("▸ ■ work (1)"));
+        assert!(text.contains("▸ ■ work"));
         assert!(text.contains("home"));
         assert!(!text.contains("api"));
     }
@@ -3365,7 +3468,7 @@ mod tests {
             .expect("render workspace list");
 
         let text = buffer_text(terminal.backend().buffer(), 32, 14);
-        assert!(text.contains("▾ ■ work (0)"));
+        assert!(text.contains("▾ ■ work"));
         assert!(text.contains("no spaces"));
     }
 

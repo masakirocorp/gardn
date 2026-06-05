@@ -5,8 +5,9 @@ use tracing::warn;
 
 use crate::{
     app::state::{
-        AppState, ContextMenuKind, ContextMenuState, DragState, DragTarget, MenuListState, Mode,
-        RightClickPassthroughGesture, TabPressState, ViewLayout, WorkspacePressState,
+        AppState, ContextMenuKind, ContextMenuState, DragState, DragTarget, GroupPressState,
+        MenuListState, Mode, RightClickPassthroughGesture, TabPressState, ViewLayout,
+        WorkspacePressState,
     },
     layout::{PaneInfo, SplitBorder},
     selection::Selection,
@@ -225,6 +226,8 @@ impl AppState {
                 self.selection = None;
                 self.selection_autoscroll = None;
                 self.workspace_press = None;
+                self.group_press = None;
+                self.tab_press = None;
 
                 if self.mode == Mode::ConfirmClose {
                     let popup = self.confirm_close_rect();
@@ -632,10 +635,11 @@ impl AppState {
                     }
 
                     if let Some(group_idx) = self.workspace_group_header_at_row(mouse.row) {
-                        self.toggle_workspace_group(group_idx);
-                        self.workspace_scroll = self
-                            .workspace_scroll
-                            .min(crate::ui::workspace_list_entry_count(self).saturating_sub(1));
+                        self.group_press = Some(GroupPressState {
+                            group_idx,
+                            start_col: mouse.column,
+                            start_row: mouse.row,
+                        });
                         return None;
                     }
 
@@ -765,6 +769,18 @@ impl AppState {
                 }
 
                 let workspace_drop_target = self.workspace_drop_target_at_row(mouse.row);
+                let group_drag_source_idx = self
+                    .group_press
+                    .as_ref()
+                    .map(|press| press.group_idx)
+                    .or_else(|| match self.drag.as_ref().map(|drag| &drag.target) {
+                        Some(DragTarget::GroupReorder {
+                            source_group_idx, ..
+                        }) => Some(*source_group_idx),
+                        _ => None,
+                    });
+                let group_drop_target = group_drag_source_idx
+                    .and_then(|source_idx| self.group_drop_target_at_row(mouse.row, source_idx));
                 let tab_drop_index = self.tab_drop_index_at(mouse.column, mouse.row);
                 if self.drag.is_none() {
                     if let Some(press) = &self.workspace_press {
@@ -779,6 +795,19 @@ impl AppState {
                                     target_group_idx: workspace_drop_target
                                         .and_then(|target| target.group_idx),
                                     indicator_row: workspace_drop_target
+                                        .and_then(|target| target.indicator_row),
+                                },
+                            });
+                        }
+                    } else if let Some(press) = &self.group_press {
+                        let delta_col = mouse.column.abs_diff(press.start_col);
+                        let delta_row = mouse.row.abs_diff(press.start_row);
+                        if delta_col.max(delta_row) >= WORKSPACE_DRAG_THRESHOLD {
+                            self.drag = Some(DragState {
+                                target: DragTarget::GroupReorder {
+                                    source_group_idx: press.group_idx,
+                                    insert_idx: group_drop_target.map(|target| target.insert_idx),
+                                    indicator_row: group_drop_target
                                         .and_then(|target| target.indicator_row),
                                 },
                             });
@@ -813,6 +842,17 @@ impl AppState {
                     *indicator_row = workspace_drop_target.and_then(|target| target.indicator_row);
                 } else if let Some(DragState {
                     target:
+                        DragTarget::GroupReorder {
+                            insert_idx,
+                            indicator_row,
+                            ..
+                        },
+                }) = &mut self.drag
+                {
+                    *insert_idx = group_drop_target.map(|target| target.insert_idx);
+                    *indicator_row = group_drop_target.and_then(|target| target.indicator_row);
+                } else if let Some(DragState {
+                    target:
                         DragTarget::TabReorder {
                             ws_idx, insert_idx, ..
                         },
@@ -823,7 +863,9 @@ impl AppState {
                     }
                 } else if let Some(drag) = &self.drag {
                     match &drag.target {
-                        DragTarget::WorkspaceReorder { .. } | DragTarget::TabReorder { .. } => {}
+                        DragTarget::WorkspaceReorder { .. }
+                        | DragTarget::GroupReorder { .. }
+                        | DragTarget::TabReorder { .. } => {}
                         DragTarget::WorkspaceListScrollbar { grab_row_offset } => {
                             if let Some(offset_from_bottom) =
                                 self.workspace_list_offset_for_drag_row(mouse.row, *grab_row_offset)
@@ -907,6 +949,7 @@ impl AppState {
                     let was_already_copied = selection.is_done();
 
                     self.workspace_press = None;
+                    self.group_press = None;
                     self.tab_press = None;
                     self.drag = None;
                     self.selection_autoscroll = None;
@@ -924,6 +967,7 @@ impl AppState {
                             self.selection = None;
                             self.selection_autoscroll = None;
                             self.workspace_press = None;
+                            self.group_press = None;
                             self.tab_press = None;
                             self.drag = None;
                             return None;
@@ -932,6 +976,7 @@ impl AppState {
                 }
 
                 let workspace_press = self.workspace_press.take();
+                let group_press = self.group_press.take();
                 let tab_press = self.tab_press.take();
                 match self.drag.take() {
                     Some(DragState {
@@ -955,6 +1000,16 @@ impl AppState {
                     }
                     Some(DragState {
                         target:
+                            DragTarget::GroupReorder {
+                                source_group_idx,
+                                insert_idx: Some(insert_idx),
+                                ..
+                            },
+                    }) => {
+                        self.move_group(source_group_idx, insert_idx);
+                    }
+                    Some(DragState {
+                        target:
                             DragTarget::TabReorder {
                                 ws_idx,
                                 source_tab_idx,
@@ -971,6 +1026,13 @@ impl AppState {
                         if let Some(press) = workspace_press {
                             self.switch_workspace(press.ws_idx);
                             self.mode = Mode::Terminal;
+                            return None;
+                        }
+                        if let Some(press) = group_press {
+                            self.toggle_workspace_group(press.group_idx);
+                            self.workspace_scroll = self
+                                .workspace_scroll
+                                .min(crate::ui::workspace_list_entry_count(self).saturating_sub(1));
                             return None;
                         }
                         if let Some(press) = tab_press {
@@ -1781,6 +1843,7 @@ impl AppState {
         self.selection = None;
         self.selection_autoscroll = None;
         self.workspace_press = None;
+        self.group_press = None;
         self.tab_press = None;
         self.drag = None;
         self.context_menu = None;

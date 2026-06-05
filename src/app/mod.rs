@@ -590,6 +590,7 @@ impl App {
             },
             drag: None,
             workspace_press: None,
+            group_press: None,
             tab_press: None,
             selection: None,
             selection_autoscroll: None,

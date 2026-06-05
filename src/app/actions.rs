@@ -1301,6 +1301,32 @@ impl AppState {
         Ok(())
     }
 
+    pub fn move_group(&mut self, source_idx: usize, insert_idx: usize) {
+        if source_idx >= self.groups.len() || insert_idx > self.groups.len() {
+            return;
+        }
+
+        let active_group_id = self
+            .groups
+            .get(self.active_group)
+            .map(|group| group.id.clone());
+
+        let group = self.groups.remove(source_idx);
+        let target_idx = if source_idx < insert_idx {
+            insert_idx.saturating_sub(1)
+        } else {
+            insert_idx
+        }
+        .min(self.groups.len());
+        self.groups.insert(target_idx, group);
+
+        self.active_group = active_group_id
+            .and_then(|id| self.groups.iter().position(|group| group.id == id))
+            .unwrap_or(0);
+        self.apply_effective_theme();
+        self.mark_session_dirty();
+    }
+
     pub fn move_workspace_to_group(&mut self, ws_idx: usize, group_idx: usize) -> bool {
         let was_active = self.active == Some(ws_idx);
         let Some(group_id) = self.groups.get(group_idx).map(|group| group.id.clone()) else {
@@ -4164,6 +4190,27 @@ mod tests {
         let mut state = app_with_workspaces(&["a"]);
         state.switch_workspace(5);
         assert_eq!(state.active, Some(0));
+    }
+    #[test]
+    fn move_group_reorders_without_changing_active_group() {
+        let mut state = app_with_workspaces(&["a", "b"]);
+        let work_group = state.create_group("work".to_string());
+        state.create_group("ops".to_string());
+        state.active_group = work_group;
+        state.set_group_accent(work_group, Some(crate::config::TerminalAccent::Red));
+        let active_group_id = state.groups[work_group].id.clone();
+        let active_accent = state.palette.accent;
+
+        state.move_group(work_group, state.groups.len());
+
+        let names: Vec<_> = state
+            .groups
+            .iter()
+            .map(|group| group.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["group 1", "ops", "work"]);
+        assert_eq!(state.groups[state.active_group].id, active_group_id);
+        assert_eq!(state.palette.accent, active_accent);
     }
 
     #[test]

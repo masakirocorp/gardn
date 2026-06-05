@@ -1060,7 +1060,7 @@ mod tests {
         let line1 = buffer_row_text(buffer, card, card.y);
         let line2 = buffer_row_text(buffer, card, card.y + 1);
 
-        assert!(line1.starts_with(" · one"));
+        assert!(line1.starts_with("  · one"));
         assert!(!line1.contains("1 one"));
         assert_eq!(line2, "");
     }
@@ -1087,16 +1087,16 @@ mod tests {
         let card = app.view.workspace_card_areas[0].rect;
         let row = card.y + 1;
 
-        assert_eq!(buffer_row_text(buffer, card, row), "   +2 ~1 -1");
+        assert_eq!(buffer_row_text(buffer, card, row), "    +2 ~1 -1");
         assert_eq!(
-            buffer[(card.x + 3, row)].style().fg,
+            buffer[(card.x + 4, row)].style().fg,
             Some(app.palette.green)
         );
         assert_eq!(
-            buffer[(card.x + 6, row)].style().fg,
+            buffer[(card.x + 7, row)].style().fg,
             Some(app.palette.yellow)
         );
-        assert_eq!(buffer[(card.x + 9, row)].style().fg, Some(app.palette.red));
+        assert_eq!(buffer[(card.x + 10, row)].style().fg, Some(app.palette.red));
     }
 
     #[test]
