@@ -803,7 +803,7 @@ pub fn active_tcp_listeners() -> Vec<super::TcpListenerInfo> {
 
 fn process_parent_id(pid: u32) -> Option<u32> {
     let parent = process_bsdinfo(pid)?.pbi_ppid;
-    (parent > 0).then_some(parent as u32)
+    (parent > 0).then_some(parent)
 }
 
 pub fn session_processes(child_pid: u32) -> Vec<u32> {
