@@ -28,9 +28,9 @@ A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 - **Workspace creation and focus** — create, focus, rename, close, list, and inspect workspaces from the TUI, CLI, or socket API.
 - **Workspace sidebar** — expanded workspace rows show the workspace name, activity state, and git/cwd summary.
 - **Workspace navigator** — search and filter workspaces, tabs, and panes by text or state.
-- **Workspace groups** — group workspaces, filter the sidebar by group, collapse groups, and assign per-group ANSI accent colors.
+- **Workspace groups** — group workspaces, filter the sidebar by group, collapse groups, and assign per-group ANSI accent colors that tint group labels, tabs, menus, and related group UI.
 - **Group lifecycle** — create, rename, delete, focus, and switch groups from the TUI, CLI, or socket API.
-- **Group icons** — group creation and rename flows can assign group icons.
+- **Group icons** — group creation and rename flows can choose from a curated set of 20 distinct icons.
 - **Move between groups** — move workspaces between groups with `hako workspace move-to-group` or the socket API.
 - **Live cwd labels** — workspace labels can follow active pane cwd unless manually renamed.
 - **Git worktrees** — list, create, open, and remove Git worktrees from the CLI and socket API.
@@ -286,7 +286,7 @@ Hako supports terminal-derived colors and built-in palettes.
 - **Appearance mode** — system, light, or dark.
 - **Light and dark palette selection** — choose separate palettes when system mode is enabled.
 - **Custom token overrides** — override individual theme colors.
-- **Group settings** — assign per-group ANSI accent colors, or inherit the global accent.
+- **Group settings** — assign per-group ANSI accent colors from the group context menu, or inherit the global accent.
 - **Accent color** — configure highlight, border, and navigation accent color; when following terminal colors, choose separate terminal ANSI accents for light and dark appearances.
 
 ### Sound and toasts
