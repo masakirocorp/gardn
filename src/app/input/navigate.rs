@@ -1006,10 +1006,7 @@ mod tests {
     use super::super::{state_with_workspaces, unique_temp_path, wait_for_file};
     use super::*;
     use crate::{
-        app::{
-            state::{Group, GroupThemeOverride},
-            App,
-        },
+        app::{state::Group, App},
         config::Config,
         input::TerminalKey,
         terminal::TerminalState,
@@ -1587,7 +1584,7 @@ navigate_pane_right = "ctrl+l"
             id: "side".into(),
             name: "side".into(),
             icon: "■".into(),
-            theme: GroupThemeOverride::default(),
+            accent: None,
         });
         state.workspaces[1].group_id = "side".into();
         state.workspaces[2].group_id = "side".into();

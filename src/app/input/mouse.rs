@@ -1090,7 +1090,7 @@ impl AppState {
             MouseEventKind::Moved if self.mode == Mode::ContextMenu => {
                 let hovered = self.context_menu_item_at(mouse.column, mouse.row);
                 if let Some(menu) = &mut self.context_menu {
-                    menu.list.hover(hovered);
+                    menu.hover(hovered);
                 }
             }
 
@@ -2213,17 +2213,17 @@ mod tests {
 
         assert!(app.state.group_icon_picker_open);
 
-        let (diamond, _) = crate::ui::group_icon_picker_rects(inner)
+        let (coffee, _) = crate::ui::group_icon_picker_rects(inner)
             .into_iter()
-            .find(|(_, icon)| *icon == "◆")
-            .expect("diamond icon should be offered");
+            .find(|(_, icon)| *icon == "☕")
+            .expect("coffee icon should be offered");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            diamond.x,
-            diamond.y,
+            coffee.x,
+            coffee.y,
         ));
 
-        assert_eq!(app.state.group_icon_input, "◆");
+        assert_eq!(app.state.group_icon_input, "☕");
         assert!(!app.state.group_icon_picker_open);
 
         app.state.name_input = "showcode".to_string();
@@ -2236,7 +2236,7 @@ mod tests {
         ));
 
         assert_eq!(app.state.groups[1].name, "showcode");
-        assert_eq!(app.state.groups[1].icon, "◆");
+        assert_eq!(app.state.groups[1].icon, "☕");
         assert_eq!(app.state.active_group, 1);
     }
 
@@ -2262,7 +2262,7 @@ mod tests {
         app.state.view.right_sidebar_rect = Rect::new(106, 0, 34, 20);
         super::super::modal::open_new_group_dialog(&mut app.state);
         app.state.name_input = "Work".to_string();
-        app.state.group_icon_input = "◆".to_string();
+        app.state.group_icon_input = "☕".to_string();
 
         let inner = app.state.rename_modal_inner().unwrap();
         let (save, _, _) = crate::ui::rename_button_rects(inner);
@@ -2273,7 +2273,7 @@ mod tests {
         ));
 
         assert_eq!(app.state.groups[1].name, "Work");
-        assert_eq!(app.state.groups[1].icon, "◆");
+        assert_eq!(app.state.groups[1].icon, "☕");
         assert_eq!(app.state.mode, Mode::Navigate);
     }
 
@@ -2335,7 +2335,7 @@ mod tests {
     fn group_icon_picker_updates_icon_for_existing_group() {
         let mut app = app_for_mouse_test();
         let group_idx = app.state.create_group("Work".to_string());
-        app.state.set_group_icon(group_idx, "●".to_string());
+        app.state.set_group_icon(group_idx, "☀".to_string());
         super::super::modal::open_rename_group_at(&mut app.state, group_idx);
 
         let inner = app.state.rename_modal_inner().unwrap();
@@ -2346,14 +2346,14 @@ mod tests {
             icon_button.y,
         ));
 
-        let (diamond, _) = crate::ui::group_icon_picker_rects(inner)
+        let (anchor, _) = crate::ui::group_icon_picker_rects(inner)
             .into_iter()
-            .find(|(_, icon)| *icon == "◆")
-            .expect("diamond icon should be offered");
+            .find(|(_, icon)| *icon == "⚓")
+            .expect("anchor icon should be offered");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            diamond.x,
-            diamond.y,
+            anchor.x,
+            anchor.y,
         ));
 
         app.state.name_input = "Work renamed".to_string();
@@ -2365,7 +2365,7 @@ mod tests {
         ));
 
         assert_eq!(app.state.groups[group_idx].name, "Work renamed");
-        assert_eq!(app.state.groups[group_idx].icon, "◆");
+        assert_eq!(app.state.groups[group_idx].icon, "⚓");
     }
 
     #[test]

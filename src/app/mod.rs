@@ -297,22 +297,6 @@ fn resolve_palette_with_legacy_accent(
     palette
 }
 
-fn legacy_group_theme_override(theme_name: &str) -> state::GroupThemeOverride {
-    state::GroupThemeOverride {
-        mode: None,
-        light_theme_name: state::theme_name_for_appearance(
-            theme_name,
-            crate::terminal_theme::ThemeAppearance::Light,
-        )
-        .map(str::to_string),
-        dark_theme_name: state::theme_name_for_appearance(
-            theme_name,
-            crate::terminal_theme::ThemeAppearance::Dark,
-        )
-        .map(str::to_string),
-    }
-}
-
 fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Group> {
     if snap.groups.is_empty() {
         return vec![state::Group::default_group()];
@@ -325,13 +309,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             id: group.id.clone(),
             name: group.name.clone(),
             icon: state::normalize_group_icon(&group.icon),
-            theme: group.theme.clone().unwrap_or_else(|| {
-                group
-                    .theme_name
-                    .as_deref()
-                    .map(legacy_group_theme_override)
-                    .unwrap_or_default()
-            }),
+            accent: group.accent,
         })
         .collect();
 
@@ -343,7 +321,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             id: workspace.group_id.clone(),
             name: format!("group {}", groups.len() + 1),
             icon: state::DEFAULT_GROUP_ICON.to_string(),
-            theme: state::GroupThemeOverride::default(),
+            accent: None,
         });
     }
 
@@ -716,7 +694,8 @@ impl App {
                 pending_agent_border_labels: None,
                 pending_resume_agents_on_restore: None,
                 pending_switch_ascii_input_source_in_prefix: None,
-                group_theme_target: None,
+                pending_group_accent_choice: None,
+                group_settings_target: None,
             },
             integration_recommendations: crate::integration::integration_recommendations(),
             integration_install_messages: Vec::new(),
@@ -1891,42 +1870,6 @@ mod tests {
         std::env::temp_dir().join(unique).join("config.toml")
     }
 
-    #[test]
-    fn legacy_group_theme_names_restore_as_light_dark_overrides() {
-        let snap = crate::persist::SessionSnapshot {
-            version: 0,
-            groups: vec![crate::persist::GroupSnapshot {
-                id: "work".to_string(),
-                name: "Work".to_string(),
-                icon: "■".to_string(),
-                theme: None,
-                theme_name: Some("gruvbox".to_string()),
-            }],
-            active_group: 0,
-            workspaces: Vec::new(),
-            active: None,
-            selected: 0,
-            agent_panel_scope: state::AgentPanelScope::CurrentWorkspace,
-            sidebar_width: None,
-            sidebar_collapsed: false,
-            sidebar_section_split: None,
-            right_sidebar_width: None,
-            right_sidebar_collapsed: false,
-            ui: crate::persist::SessionUiSnapshot::default(),
-            pane_id_aliases: std::collections::HashMap::new(),
-        };
-
-        let groups = groups_from_snapshot(&snap);
-
-        assert_eq!(groups.len(), 1);
-        assert_eq!(groups[0].theme.mode, None);
-        assert_eq!(
-            groups[0].theme.light_theme_name.as_deref(),
-            Some("gruvbox-light")
-        );
-        assert_eq!(groups[0].theme.dark_theme_name.as_deref(), Some("gruvbox"));
-    }
-
     fn test_snapshot(
         groups: Vec<crate::persist::GroupSnapshot>,
         workspaces: Vec<crate::persist::WorkspaceSnapshot>,
@@ -1954,8 +1897,7 @@ mod tests {
             id: id.to_string(),
             name: name.to_string(),
             icon: "■".to_string(),
-            theme: None,
-            theme_name: None,
+            accent: None,
         }
     }
 

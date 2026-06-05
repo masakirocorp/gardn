@@ -8,11 +8,9 @@ use ratatui::{
 
 use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    action_button_row_rects, centered_popup_rect, modal_close_button_rect,
-    modal_section_heading_style, modal_stack_areas, panel_contrast_fg, primary_action_style,
-    render_action_button, render_modal_description, render_modal_divider, render_modal_header_bar,
-    render_modal_hint_line, render_modal_scroll_hints, render_modal_subtitle, render_panel_shell,
-    secondary_action_style, ActionButtonSpec,
+    action_button_row_rects, centered_popup_rect, modal_section_heading_style, modal_stack_areas,
+    panel_contrast_fg, render_action_button, render_modal_description, render_modal_divider,
+    render_modal_header_bar, render_modal_hint_line, render_panel_shell, ActionButtonSpec,
 };
 use crate::{
     app::{
@@ -26,13 +24,26 @@ use crate::{
     },
 };
 
+fn settings_title(app: &AppState) -> &'static str {
+    if app.settings.group_settings_target.is_some() {
+        "group settings"
+    } else {
+        "settings"
+    }
+}
+
+fn settings_sections(app: &AppState) -> &'static [SettingsSection] {
+    if app.settings.group_settings_target.is_some() {
+        &[SettingsSection::Theme]
+    } else {
+        SettingsSection::ALL
+    }
+}
+
 pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     use crate::app::state::SettingsSection;
 
-    if app.settings.group_theme_target.is_some() {
-        render_group_theme_overlay(app, frame, area);
-        return;
-    }
+    let group_settings = app.settings.group_settings_target.is_some();
 
     let p = &app.palette;
     let Some(popup) = centered_popup_rect(area, 76, 22) else {
@@ -56,9 +67,9 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     ])
     .areas::<3>(stack.header);
 
-    render_modal_header_bar(frame, header_rows[0], "settings", p, false);
+    render_modal_header_bar(frame, header_rows[0], settings_title(app), p, false);
 
-    let tab_labels = SettingsSection::ALL.iter().map(|section| {
+    let tab_labels = settings_sections(app).iter().map(|section| {
         if app.settings_section_has_badge(*section) {
             let badge_style = settings_tab_badge_style(p, app.settings.section == *section);
             Line::from(vec![
@@ -71,7 +82,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     });
     let tabs = Tabs::new(tab_labels)
         .select(
-            SettingsSection::ALL
+            settings_sections(app)
                 .iter()
                 .position(|section| *section == app.settings.section)
                 .unwrap_or(0),
@@ -149,6 +160,13 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                 p,
                 &[("move", "↑↓"), ("action", "space/↵"), ("section", "tab")],
             );
+        } else if group_settings {
+            render_modal_hint_line(
+                frame,
+                footer_rows[0],
+                p,
+                &[("move", "↑↓"), ("select", "space")],
+            );
         } else {
             render_modal_hint_line(
                 frame,
@@ -157,68 +175,6 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                 &[("move", "↑↓"), ("select", "space"), ("section", "tab")],
             );
         }
-    }
-}
-
-fn render_group_theme_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
-    let p = &app.palette;
-    let Some(popup) = centered_popup_rect(area, 76, 22) else {
-        return;
-    };
-
-    super::dim_background(frame, area);
-
-    let Some(inner) = render_panel_shell(frame, popup, p.accent, p.panel_bg) else {
-        return;
-    };
-    if inner.height < 4 || inner.width < 10 {
-        return;
-    }
-
-    let stack = modal_stack_areas(inner, 3, 2, 0, 1);
-    let header_rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ])
-    .areas::<3>(stack.header);
-
-    render_modal_header_bar(frame, header_rows[0], "group theme", p, false);
-    render_action_button(
-        frame,
-        modal_close_button_rect(header_rows[0]),
-        Some("esc"),
-        "cancel",
-        secondary_action_style(p),
-    );
-
-    let group_label = app
-        .settings
-        .group_theme_target
-        .and_then(|idx| app.groups.get(idx))
-        .map(|group| format!(" {} {}", group.icon, group.name))
-        .unwrap_or_else(|| " group".to_string());
-    render_modal_subtitle(frame, header_rows[1], group_label, p);
-
-    render_modal_divider(frame, header_rows[2], p);
-
-    render_settings_theme(app, frame, stack.content);
-
-    if let Some(footer_area) = stack.footer {
-        let footer_rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)])
-            .areas::<2>(footer_area);
-        let (apply_rect, _) = settings_button_rects(inner, SettingsSection::Theme, true);
-        if let Some(apply_rect) = apply_rect {
-            render_action_button(
-                frame,
-                apply_rect,
-                Some("↵"),
-                "save",
-                primary_action_style(p),
-            );
-        }
-
-        render_modal_scroll_hints(frame, footer_rows[0], p);
     }
 }
 
@@ -429,8 +385,8 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
         && normalize_theme_name(pending_light_theme) == "system"
         && normalize_theme_name(pending_dark_theme) == "system";
 
-    let description = if app.settings.group_theme_target.is_some() {
-        "override this group; selections matching global settings inherit global changes"
+    let description = if app.settings.group_settings_target.is_some() {
+        "choose an ANSI accent for this group, or inherit the global accent"
     } else if system_source {
         "follow terminal colors directly"
     } else {
@@ -440,7 +396,16 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
             ThemeMode::Dark => "choose the palette hako uses in dark appearance",
         }
     };
-    render_modal_description(frame, title_area, "theme", modal_section_heading_style(p));
+    render_modal_description(
+        frame,
+        title_area,
+        if app.settings.group_settings_target.is_some() {
+            "accent"
+        } else {
+            "theme"
+        },
+        modal_section_heading_style(p),
+    );
     render_modal_description(
         frame,
         description_area,
@@ -685,24 +650,23 @@ mod tests {
     };
 
     #[test]
-    fn group_theme_overlay_uses_focused_title_without_settings_tabs() {
+    fn group_settings_overlay_uses_main_settings_layout_with_group_tabs() {
         let mut app = AppState::test_new();
         let group_idx = app.create_group("Work".to_string());
-        app.settings.group_theme_target = Some(group_idx);
+        app.settings.group_settings_target = Some(group_idx);
         app.settings.section = SettingsSection::Theme;
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
             .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
-            .expect("render group theme overlay");
+            .expect("render group settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), 80, 24);
-        assert!(text.contains("group theme"));
-        assert!(text.contains("Work"));
+        assert!(text.contains("group settings"));
+        assert!(text.contains("theme"));
+        assert!(text.contains("accent"));
         assert!(!text.contains("sound"));
-        assert!(!text.contains("toasts"));
-        assert!(!text.contains("pane labels"));
     }
 
     #[test]

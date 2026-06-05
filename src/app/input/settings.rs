@@ -5,7 +5,7 @@ use crate::{
     app::{
         state::{
             normalize_theme_name, theme_names_for_appearance, AppState, DragState, DragTarget,
-            GroupThemeOverride, SettingsSection, THEME_NAMES,
+            SettingsSection, THEME_NAMES,
         },
         App, Mode,
     },
@@ -44,9 +44,9 @@ pub(super) enum SettingsAction {
     SavePaneHistory(bool),
     SaveResumeAgentsOnRestore(bool),
     SaveSwitchAsciiInputSourceInPrefix(bool),
-    SaveGroupTheme {
+    SaveGroupAccent {
         group_idx: usize,
-        theme: GroupThemeOverride,
+        accent: Option<TerminalAccent>,
     },
     InstallRecommendedIntegrations,
     InstallIntegration(crate::api::schema::IntegrationTarget),
@@ -95,8 +95,8 @@ impl App {
                     self.save_toast_delivery(toast_delivery);
                     self.save_agent_border_labels(agent_border_labels);
                 }
-                SettingsAction::SaveGroupTheme { group_idx, theme } => {
-                    self.state.set_group_theme(group_idx, theme);
+                SettingsAction::SaveGroupAccent { group_idx, accent } => {
+                    self.state.set_group_accent(group_idx, accent);
                     self.query_host_terminal_theme();
                 }
                 SettingsAction::SavePaneHistory(enabled) => {
@@ -139,6 +139,7 @@ struct ThemeChoice {
 enum ThemeSettingsChoice {
     SourceSystem,
     SourceCustom,
+    GroupAccent(Option<TerminalAccent>),
     TerminalLightAccent(TerminalAccent),
     TerminalDarkAccent(TerminalAccent),
     Mode(ThemeMode),
@@ -152,7 +153,7 @@ fn pending_uses_system_theme_source(state: &AppState) -> bool {
 }
 
 fn pending_shows_terminal_accent(state: &AppState) -> bool {
-    state.settings.group_theme_target.is_none() && pending_uses_system_theme_source(state)
+    state.settings.group_settings_target.is_none() && pending_uses_system_theme_source(state)
 }
 
 fn toast_delivery_index(delivery: ToastDelivery) -> usize {
@@ -218,8 +219,19 @@ fn global_theme_choices(mode: ThemeMode) -> Vec<ThemeChoice> {
         }
     }
 }
-
 fn theme_settings_choices(state: &AppState) -> Vec<ThemeSettingsChoice> {
+    if state.settings.group_settings_target.is_some() {
+        let mut choices = Vec::with_capacity(1 + TerminalAccent::ALL.len());
+        choices.push(ThemeSettingsChoice::GroupAccent(None));
+        choices.extend(
+            TerminalAccent::ALL
+                .iter()
+                .copied()
+                .map(|accent| ThemeSettingsChoice::GroupAccent(Some(accent))),
+        );
+        return choices;
+    }
+
     let mut choices = Vec::with_capacity(
         2 + (TerminalAccent::ALL.len() * 2) + ThemeMode::ALL.len() + THEME_NAMES.len(),
     );
@@ -325,26 +337,21 @@ fn set_settings_theme_offset_from_bottom(state: &mut AppState, offset_from_botto
         settings_theme_viewport(state).scroll_from_offset_from_bottom(offset_from_bottom);
 }
 
-fn selected_group_theme_override(state: &AppState) -> GroupThemeOverride {
-    if state.settings.group_theme_target.is_none() {
-        return GroupThemeOverride::default();
-    }
+fn group_accent_choice_at_cursor(state: &AppState) -> Option<TerminalAccent> {
+    theme_settings_choices(state)
+        .get(state.settings.list.selected)
+        .and_then(|choice| match choice {
+            ThemeSettingsChoice::GroupAccent(accent) => Some(*accent),
+            _ => None,
+        })
+        .unwrap_or(None)
+}
 
-    let mode = pending_theme_mode(state);
-    if mode == state.global_theme_mode
-        && pending_light_theme_name(state) == state.global_light_theme_name
-        && pending_dark_theme_name(state) == state.global_dark_theme_name
-    {
-        return GroupThemeOverride::default();
-    }
-
-    GroupThemeOverride {
-        mode: (mode != state.global_theme_mode).then_some(mode),
-        light_theme_name: (pending_light_theme_name(state) != state.global_light_theme_name)
-            .then(|| pending_light_theme_name(state)),
-        dark_theme_name: (pending_dark_theme_name(state) != state.global_dark_theme_name)
-            .then(|| pending_dark_theme_name(state)),
-    }
+fn checked_group_accent_choice(state: &AppState) -> Option<TerminalAccent> {
+    state
+        .settings
+        .pending_group_accent_choice
+        .unwrap_or_else(|| group_accent_choice_at_cursor(state))
 }
 
 fn pending_light_theme_name(state: &AppState) -> String {
@@ -484,6 +491,10 @@ fn preview_selected_theme(state: &mut AppState) {
         return;
     };
     match choice {
+        ThemeSettingsChoice::GroupAccent(accent) => {
+            state.settings.pending_group_accent_choice = Some(accent);
+            preview_group_accent(state, accent);
+        }
         ThemeSettingsChoice::SourceSystem => {
             state.settings.pending_theme_mode = Some(ThemeMode::System);
             state.settings.pending_light_theme_name = Some("system".to_string());
@@ -545,10 +556,13 @@ fn pending_theme_mode(state: &AppState) -> ThemeMode {
         .unwrap_or(state.global_theme_mode)
 }
 
-fn preview_group_theme(state: &mut AppState) {
-    let mode = pending_theme_mode(state);
-    let name = selected_global_theme_name_for_mode(state);
-    state.preview_theme_with_mode(&name, mode);
+fn preview_group_accent(state: &mut AppState, accent: Option<TerminalAccent>) {
+    state.palette = state.global_palette.clone();
+    state.theme_name = state.global_theme_name.clone();
+    if let Some(accent) = accent {
+        state.palette.accent =
+            crate::app::state::Palette::terminal_accent_color(state.host_terminal_theme, accent);
+    }
 }
 
 fn cancel_settings(state: &mut AppState) {
@@ -576,8 +590,9 @@ fn cancel_settings(state: &mut AppState) {
     state.settings.pending_sidebar_max_width = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_resume_agents_on_restore = None;
-    state.settings.group_theme_target = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
+    state.settings.pending_group_accent_choice = None;
+    state.settings.group_settings_target = None;
     super::modal::leave_modal(state);
 }
 
@@ -627,6 +642,8 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_resume_agents_on_restore = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
+    state.settings.pending_group_accent_choice = None;
+    state.settings.group_settings_target = None;
 }
 
 fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
@@ -651,19 +668,19 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
     let sidebar_max_width = pending_sidebar_max_width(state);
     let worktree_directory = state.settings.pending_worktree_directory.clone();
     let agent_border_labels = pending_agent_border_labels(state);
-    let group_theme = state
+    let group_accent = state
         .settings
-        .group_theme_target
-        .map(|_| selected_group_theme_override(state));
-    let group_theme_target = state.settings.group_theme_target.take();
+        .group_settings_target
+        .map(|_| checked_group_accent_choice(state));
+    let group_settings_target = state.settings.group_settings_target.take();
 
     state.settings.original_palette = None;
     state.settings.original_theme = None;
     clear_settings_pending(state);
     super::modal::leave_modal(state);
 
-    if let (Some(group_idx), Some(theme)) = (group_theme_target, group_theme) {
-        return Some(SettingsAction::SaveGroupTheme { group_idx, theme });
+    if let (Some(group_idx), Some(accent)) = (group_settings_target, group_accent) {
+        return Some(SettingsAction::SaveGroupAccent { group_idx, accent });
     }
 
     Some(SettingsAction::SaveSettings {
@@ -841,7 +858,7 @@ fn handle_settings_modal_action(state: &mut AppState, key: &KeyEvent) -> Option<
 }
 
 pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Option<SettingsAction> {
-    if state.settings.group_theme_target.is_some() {
+    if state.settings.group_settings_target.is_some() {
         state.settings.section = SettingsSection::Theme;
     }
 
@@ -870,13 +887,13 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
             KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
-                if state.settings.group_theme_target.is_none() {
+                if state.settings.group_settings_target.is_none() {
                     state.settings.section = SettingsSection::Layout;
                     state.settings.list.selected = 0;
                 }
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
-                if state.settings.group_theme_target.is_none() {
+                if state.settings.group_settings_target.is_none() {
                     state.settings.section = SettingsSection::Experiments;
                     state.settings.list.selected = 0;
                 }
@@ -1090,7 +1107,7 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
     state.settings.pending_agent_border_labels = Some(state.agent_border_labels_enabled());
     state.settings.pending_resume_agents_on_restore =
         Some(state.resume_agents_on_restore_enabled());
-    state.settings.group_theme_target = None;
+    state.settings.group_settings_target = None;
     state.settings.section = section;
     state.settings.list.selected = match section {
         SettingsSection::Theme => target_theme_index(state),
@@ -1112,30 +1129,20 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
     state.mode = Mode::Settings;
 }
 
-pub(crate) fn open_group_theme_settings(state: &mut AppState, group_idx: usize) {
+pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     let Some(group) = state.groups.get(group_idx) else {
         return;
     };
+    let group_accent = group.accent;
     state.settings.original_palette = Some(state.palette.clone());
     state.settings.original_theme = Some(state.theme_name.clone());
     state.settings.pending_theme_name = None;
-    state.settings.pending_theme_mode = Some(group.theme.mode.unwrap_or(state.global_theme_mode));
-    state.settings.pending_light_theme_name = Some(
-        group
-            .theme
-            .light_theme_name
-            .clone()
-            .unwrap_or_else(|| state.global_light_theme_name.clone()),
-    );
-    state.settings.pending_dark_theme_name = Some(
-        group
-            .theme
-            .dark_theme_name
-            .clone()
-            .unwrap_or_else(|| state.global_dark_theme_name.clone()),
-    );
-    state.settings.pending_terminal_light_accent = Some(state.global_terminal_light_accent);
-    state.settings.pending_terminal_dark_accent = Some(state.global_terminal_dark_accent);
+    state.settings.pending_theme_mode = None;
+    state.settings.pending_light_theme_name = None;
+    state.settings.pending_dark_theme_name = None;
+    state.settings.pending_terminal_light_accent = None;
+    state.settings.pending_terminal_dark_accent = None;
+    state.settings.pending_group_accent_choice = None;
     state.settings.pending_sound_enabled = None;
     state.settings.pending_toast_delivery = None;
     state.settings.pending_confirm_close = None;
@@ -1148,12 +1155,20 @@ pub(crate) fn open_group_theme_settings(state: &mut AppState, group_idx: usize) 
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_resume_agents_on_restore = None;
-    state.settings.group_theme_target = Some(group_idx);
+    state.settings.pending_switch_ascii_input_source_in_prefix = None;
+    state.settings.group_settings_target = Some(group_idx);
     state.settings.section = SettingsSection::Theme;
-    state.settings.list.selected = target_theme_index(state);
+    state.settings.list.selected = group_accent
+        .and_then(|accent| {
+            TerminalAccent::ALL
+                .iter()
+                .position(|candidate| *candidate == accent)
+                .map(|idx| idx + 1)
+        })
+        .unwrap_or(0);
     state.settings.scroll = 0;
     ensure_settings_selection_visible(state);
-    preview_group_theme(state);
+    preview_group_accent(state, group_accent);
     state.mode = Mode::Settings;
 }
 impl AppState {
@@ -1172,7 +1187,7 @@ impl AppState {
     }
 
     fn settings_tab_at(&self, col: u16, row: u16) -> Option<SettingsSection> {
-        if self.settings.group_theme_target.is_some() {
+        if self.settings.group_settings_target.is_some() {
             return None;
         }
 
@@ -1456,81 +1471,122 @@ mod tests {
     }
 
     #[test]
-    fn group_theme_settings_apply_returns_group_theme_action() {
+    fn group_accent_settings_apply_returns_group_accent_action() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
 
-        open_group_theme_settings(&mut state, group_idx);
+        open_group_settings(&mut state, group_idx);
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
         );
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::SaveGroupAccent {
+                group_idx,
+                accent: Some(TerminalAccent::Blue),
+            })
+        );
+        assert_eq!(state.settings.group_settings_target, None);
+    }
+
+    #[test]
+    fn group_accent_settings_default_keeps_group_on_global_accent() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Side".to_string());
+
+        open_group_settings(&mut state, group_idx);
+        assert_eq!(state.settings.list.selected, 0);
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::SaveGroupAccent {
+                group_idx,
+                accent: None,
+            })
+        );
+    }
+
+    #[test]
+    fn group_settings_inherit_previews_global_theme_accent() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Side".to_string());
+        state.global_palette = crate::app::state::Palette::dracula();
+        state.palette = state.global_palette.clone();
+        state.active_group = group_idx;
+        assert!(state.set_group_accent(group_idx, Some(TerminalAccent::Blue)));
+        assert_ne!(state.palette.accent, state.global_palette.accent);
+
+        open_group_settings(&mut state, group_idx);
+        state.settings.list.selected = 0;
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
-        let action = update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
-        );
 
-        assert_eq!(
-            action,
-            Some(SettingsAction::SaveGroupTheme {
-                group_idx,
-                theme: GroupThemeOverride {
-                    mode: Some(ThemeMode::Light),
-                    light_theme_name: None,
-                    dark_theme_name: None,
-                },
-            })
-        );
-        assert_eq!(state.settings.group_theme_target, None);
+        assert_eq!(state.palette.accent, state.global_palette.accent);
     }
 
     #[test]
-    fn group_theme_settings_default_keeps_group_on_global_theme() {
+    fn group_accent_hover_does_not_move_checkmark() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
+        assert!(state.set_group_accent(group_idx, Some(TerminalAccent::Blue)));
 
-        open_group_theme_settings(&mut state, group_idx);
+        open_group_settings(&mut state, group_idx);
+        assert_eq!(state.settings.list.selected, 1);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+
+        let rows = rows_for_section(&state, SettingsSection::Theme).expect("theme rows");
+        let checked = rows
+            .iter()
+            .find_map(|row| match row {
+                crate::settings_rows::SettingsListRow::Choice {
+                    label,
+                    checked: true,
+                    ..
+                } => Some(label.as_ref().to_string()),
+                _ => None,
+            })
+            .expect("checked accent");
         assert_eq!(state.settings.list.selected, 2);
-        let action = update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
-        );
-
-        assert_eq!(
-            action,
-            Some(SettingsAction::SaveGroupTheme {
-                group_idx,
-                theme: GroupThemeOverride::default(),
-            })
-        );
+        assert_eq!(checked, TerminalAccent::Blue.as_str());
     }
 
     #[test]
-    fn group_theme_settings_does_not_switch_to_other_settings_sections() {
+    fn group_accent_settings_does_not_switch_to_other_settings_sections() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
 
-        open_group_theme_settings(&mut state, group_idx);
+        open_group_settings(&mut state, group_idx);
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
         );
 
         assert_eq!(state.settings.section, SettingsSection::Theme);
-        assert_eq!(state.settings.group_theme_target, Some(group_idx));
+        assert_eq!(state.settings.group_settings_target, Some(group_idx));
     }
 
     #[test]
-    fn group_theme_settings_uses_full_theme_modal() {
+    fn group_settings_uses_full_settings_modal() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
         state.view.terminal_area = Rect::new(0, 0, 100, 40);
 
-        open_group_theme_settings(&mut state, group_idx);
+        open_group_settings(&mut state, group_idx);
         let group_rect = state.settings_popup_rect();
 
         open_settings(&mut state);
@@ -1540,12 +1596,12 @@ mod tests {
     }
 
     #[test]
-    fn group_theme_apply_uses_full_screen_geometry_with_right_sidebar() {
+    fn group_accent_apply_uses_full_screen_geometry_with_right_sidebar() {
         let mut app = app_for_mouse_test();
         app.state.view.right_sidebar_rect = Rect::new(106, 0, 34, 20);
         let group_idx = app.state.create_group("Side".to_string());
 
-        open_group_theme_settings(&mut app.state, group_idx);
+        open_group_settings(&mut app.state, group_idx);
         app.state.settings.list.selected = 1;
         let inner = app.state.settings_inner_rect();
         let (apply, _) = crate::ui::settings_button_rects(
@@ -1553,14 +1609,17 @@ mod tests {
             crate::app::state::SettingsSection::Theme,
             true,
         );
-        let apply = apply.expect("group theme apply button");
+        let apply = apply.expect("group accent apply button");
         app.handle_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             apply.x,
             apply.y,
         ));
 
-        assert!(app.state.groups[group_idx].theme.is_empty());
+        assert_eq!(
+            app.state.groups[group_idx].accent,
+            Some(TerminalAccent::Blue)
+        );
     }
 
     #[test]

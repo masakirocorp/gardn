@@ -2,17 +2,115 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Clear, Paragraph},
     Frame,
 };
 
 use super::widgets::{panel_contrast_fg, render_panel_shell};
-use crate::app::AppState;
+use crate::app::{state::ContextMenuState, AppState};
 
 fn count_suffix(text: &str) -> Option<(&str, &str)> {
     let start = text.rfind(" (")?;
     text.ends_with(')')
         .then_some((&text[..start], &text[start..]))
+}
+
+fn menu_separator_bounds(width: u16) -> (u16, u16) {
+    if width <= 2 {
+        (0, width)
+    } else {
+        (1, width - 1)
+    }
+}
+
+fn render_menu_separator(frame: &mut Frame, area: Rect, row_idx: usize, style: Style) {
+    let y = area.y + row_idx as u16;
+    if y >= area.y + area.height {
+        return;
+    }
+
+    let (start, end) = menu_separator_bounds(area.width);
+    let buf = frame.buffer_mut();
+    for x in area.x + start..area.x + end {
+        buf[(x, y)].set_symbol("─").set_style(style);
+    }
+}
+
+fn render_menu_row(
+    frame: &mut Frame,
+    area: Rect,
+    row_idx: usize,
+    line: Line<'static>,
+    selected: bool,
+    selected_style: Style,
+    fallback_style: Style,
+) {
+    let y = area.y + row_idx as u16;
+    if y >= area.y + area.height {
+        return;
+    }
+
+    let rect = Rect::new(area.x, y, area.width, 1);
+    if selected {
+        let buf = frame.buffer_mut();
+        for x in rect.x..rect.x + rect.width {
+            buf[(x, y)].set_style(selected_style);
+        }
+    }
+    let style = if selected {
+        selected_style
+    } else {
+        fallback_style
+    };
+    frame.render_widget(Paragraph::new(line).style(style), rect);
+}
+
+fn group_menu_group_index(app: &AppState, row_idx: usize) -> Option<usize> {
+    let group_start = 3;
+    if (group_start..group_start + app.groups.len()).contains(&row_idx) {
+        Some(row_idx - group_start)
+    } else {
+        None
+    }
+}
+
+fn group_menu_group_line(app: &AppState, group_idx: usize, selected: bool) -> Line<'static> {
+    let Some(group) = app.groups.get(group_idx) else {
+        return Line::raw("");
+    };
+    let marker = if app.group_filter_enabled && group_idx == app.active_group {
+        "*"
+    } else {
+        " "
+    };
+    let count = app
+        .workspaces
+        .iter()
+        .filter(|workspace| workspace.group_id == group.id)
+        .count();
+    let selected_style = Style::default()
+        .fg(panel_contrast_fg(&app.palette))
+        .bg(app.palette.accent)
+        .add_modifier(Modifier::BOLD);
+    let group_style = if selected {
+        selected_style
+    } else {
+        Style::default()
+            .fg(app.group_accent_color(group_idx))
+            .add_modifier(Modifier::BOLD)
+    };
+    let count_style = if selected {
+        selected_style
+    } else {
+        Style::default().fg(app.palette.overlay0)
+    };
+    Line::from(vec![
+        Span::styled(format!("{marker} "), group_style),
+        Span::styled(group.icon.clone(), group_style),
+        Span::styled(" ", group_style),
+        Span::styled(group.name.clone(), group_style),
+        Span::styled(format!(" ({count})"), count_style),
+    ])
 }
 
 fn prefix_rhs_label(bindings: &crate::config::ActionKeybinds) -> String {
@@ -384,40 +482,66 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
         return;
     };
 
-    let items: Vec<ListItem> = app
-        .group_menu_labels()
-        .iter()
-        .enumerate()
-        .map(|(idx, item)| {
-            if app.group_menu_action_for_row(idx).is_none() {
-                if item == "---" {
-                    ListItem::new(Line::from("-".repeat(inner.width as usize)))
-                        .style(Style::default().fg(app.palette.overlay0))
-                } else {
-                    ListItem::new(Line::from(format!(" {item}")))
-                        .style(Style::default().fg(app.palette.overlay0))
-                }
-            } else if let Some((name, count)) = count_suffix(item) {
-                ListItem::new(Line::from(vec![
-                    Span::styled(name.to_string(), Style::default().fg(app.palette.text)),
-                    Span::styled(count.to_string(), Style::default().fg(app.palette.overlay0)),
-                ]))
+    let selected_style = Style::default()
+        .fg(panel_contrast_fg(&app.palette))
+        .bg(app.palette.accent)
+        .add_modifier(Modifier::BOLD);
+    let text_style = Style::default().fg(app.palette.text);
+    let dim_style = Style::default().fg(app.palette.overlay0);
+
+    for (idx, item) in app.group_menu_labels().iter().enumerate() {
+        let selected = idx == app.group_menu.highlighted;
+        if let Some(group_idx) = group_menu_group_index(app, idx) {
+            render_menu_row(
+                frame,
+                inner,
+                idx,
+                group_menu_group_line(app, group_idx, selected),
+                selected,
+                selected_style,
+                text_style,
+            );
+        } else if app.group_menu_action_for_row(idx).is_none() {
+            if item == "---" {
+                render_menu_separator(frame, inner, idx, dim_style);
             } else {
-                ListItem::new(Line::from(item.clone()))
+                render_menu_row(
+                    frame,
+                    inner,
+                    idx,
+                    Line::from(format!(" {item}")),
+                    false,
+                    selected_style,
+                    dim_style,
+                );
             }
-        })
-        .collect();
-    let list = List::new(items)
-        .style(Style::default().fg(app.palette.text))
-        .highlight_style(
-            Style::default()
-                .bg(app.palette.accent)
-                .fg(panel_contrast_fg(&app.palette))
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol(" ");
-    let mut state = ListState::default().with_selected(Some(app.group_menu.highlighted));
-    frame.render_stateful_widget(list, inner, &mut state);
+        } else if let Some((name, count)) = count_suffix(item) {
+            let line_style = if selected { selected_style } else { text_style };
+            let count_style = if selected { selected_style } else { dim_style };
+            render_menu_row(
+                frame,
+                inner,
+                idx,
+                Line::from(vec![
+                    Span::styled(name.to_string(), line_style),
+                    Span::styled(count.to_string(), count_style),
+                ]),
+                selected,
+                selected_style,
+                text_style,
+            );
+        } else {
+            render_menu_row(
+                frame,
+                inner,
+                idx,
+                Line::from(item.clone()),
+                selected,
+                selected_style,
+                text_style,
+            );
+        }
+    }
 }
 
 pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
@@ -427,37 +551,86 @@ pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
         return;
     };
 
-    let items: Vec<ListItem> = app
-        .agent_menu_labels()
-        .iter()
-        .enumerate()
-        .map(|(idx, item)| {
-            if item == "---" {
-                ListItem::new(Line::from("-".repeat(inner.width as usize)))
-                    .style(Style::default().fg(app.palette.overlay0))
-            } else if app.agent_menu_action_for_row(idx).is_none() {
-                ListItem::new(Line::from(item.clone()))
-                    .style(Style::default().fg(app.palette.overlay0))
-            } else if let Some((name, count)) = count_suffix(item) {
-                ListItem::new(Line::from(vec![
-                    Span::styled(name.to_string(), Style::default().fg(app.palette.text)),
-                    Span::styled(count.to_string(), Style::default().fg(app.palette.overlay0)),
-                ]))
+    let selected_style = Style::default()
+        .fg(panel_contrast_fg(&app.palette))
+        .bg(app.palette.accent)
+        .add_modifier(Modifier::BOLD);
+    let text_style = Style::default().fg(app.palette.text);
+    let dim_style = Style::default().fg(app.palette.overlay0);
+
+    for (idx, item) in app.agent_menu_labels().iter().enumerate() {
+        let selected = idx == app.agent_menu.highlighted;
+        if item == "---" {
+            render_menu_separator(frame, inner, idx, dim_style);
+        } else if app.agent_menu_action_for_row(idx).is_none() {
+            if idx == 5 {
+                if let Some(group_idx) = app.agent_menu_group_context_idx() {
+                    render_menu_row(
+                        frame,
+                        inner,
+                        idx,
+                        Line::from(vec![
+                            Span::styled("  ", dim_style),
+                            Span::styled(
+                                item.trim_start().to_string(),
+                                Style::default()
+                                    .fg(app.group_accent_color(group_idx))
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                        ]),
+                        false,
+                        selected_style,
+                        dim_style,
+                    );
+                } else {
+                    render_menu_row(
+                        frame,
+                        inner,
+                        idx,
+                        Line::from(item.clone()),
+                        false,
+                        selected_style,
+                        dim_style,
+                    );
+                }
             } else {
-                ListItem::new(Line::from(item.clone())).style(Style::default().fg(app.palette.text))
+                render_menu_row(
+                    frame,
+                    inner,
+                    idx,
+                    Line::from(item.clone()),
+                    false,
+                    selected_style,
+                    dim_style,
+                );
             }
-        })
-        .collect();
-    let list = List::new(items)
-        .style(Style::default().fg(app.palette.text))
-        .highlight_style(
-            Style::default()
-                .bg(app.palette.accent)
-                .fg(panel_contrast_fg(&app.palette))
-                .add_modifier(Modifier::BOLD),
-        );
-    let mut state = ListState::default().with_selected(Some(app.agent_menu.highlighted));
-    frame.render_stateful_widget(list, inner, &mut state);
+        } else if let Some((name, count)) = count_suffix(item) {
+            let line_style = if selected { selected_style } else { text_style };
+            let count_style = if selected { selected_style } else { dim_style };
+            render_menu_row(
+                frame,
+                inner,
+                idx,
+                Line::from(vec![
+                    Span::styled(name.to_string(), line_style),
+                    Span::styled(count.to_string(), count_style),
+                ]),
+                selected,
+                selected_style,
+                text_style,
+            );
+        } else {
+            render_menu_row(
+                frame,
+                inner,
+                idx,
+                Line::from(item.clone()),
+                selected,
+                selected_style,
+                text_style,
+            );
+        }
+    }
 }
 
 pub(super) fn render_resize_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -500,20 +673,87 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
         return;
     };
 
-    let items: Vec<ListItem> = menu
-        .items()
-        .iter()
-        .map(|item| ListItem::new(Line::from(*item)))
-        .collect();
-    let list = List::new(items)
-        .style(Style::default().fg(p.text))
-        .highlight_style(
-            Style::default()
-                .bg(p.accent)
-                .fg(panel_contrast_fg(p))
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol(" ");
-    let mut state = ListState::default().with_selected(Some(menu.list.highlighted));
-    frame.render_stateful_widget(list, inner, &mut state);
+    let selected_style = Style::default()
+        .bg(p.accent)
+        .fg(panel_contrast_fg(p))
+        .add_modifier(Modifier::BOLD);
+    let text_style = Style::default().fg(p.text);
+    let dim_style = Style::default().fg(p.overlay0);
+
+    for (idx, item) in menu.items().iter().enumerate() {
+        if ContextMenuState::item_is_separator(item) {
+            render_menu_separator(frame, inner, idx, dim_style);
+        } else {
+            render_menu_row(
+                frame,
+                inner,
+                idx,
+                Line::from(format!(" {item}")),
+                idx == menu.list.highlighted,
+                selected_style,
+                text_style,
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn menu_separator_bounds_inset_rule_when_roomy() {
+        assert_eq!(menu_separator_bounds(5), (1, 4));
+        assert_eq!(menu_separator_bounds(2), (0, 2));
+    }
+
+    #[test]
+    fn group_menu_group_line_uses_group_accent() {
+        let mut app = AppState::test_new();
+        let group_idx = app.create_group("work".to_string());
+        app.groups[group_idx].icon = "■".to_string();
+        app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Magenta));
+
+        let line = group_menu_group_line(&app, group_idx, false);
+
+        assert_eq!(line.spans[1].content.as_ref(), "■");
+        assert_eq!(
+            line.spans[1].style.fg,
+            Some(app.group_accent_color(group_idx))
+        );
+        assert_eq!(
+            line.spans[3].style.fg,
+            Some(app.group_accent_color(group_idx))
+        );
+    }
+
+    #[test]
+    fn agent_menu_group_detail_uses_group_accent() {
+        let mut app = AppState::test_new();
+        let group_idx = app.create_group("work".to_string());
+        app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Blue));
+        app.active_group = group_idx;
+        app.group_filter_enabled = true;
+
+        let item = app.agent_menu_labels()[5].clone();
+        let line = if let Some(group_idx) = app.agent_menu_group_context_idx() {
+            Line::from(vec![
+                Span::styled("  ", Style::default().fg(app.palette.overlay0)),
+                Span::styled(
+                    item.trim_start().to_string(),
+                    Style::default()
+                        .fg(app.group_accent_color(group_idx))
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ])
+        } else {
+            Line::raw(item)
+        };
+
+        assert_eq!(line.spans[1].content.as_ref(), "work");
+        assert_eq!(
+            line.spans[1].style.fg,
+            Some(app.group_accent_color(group_idx))
+        );
+    }
 }

@@ -126,7 +126,29 @@ pub(crate) fn option_count(rows: &[SettingsListRow]) -> usize {
         .count()
 }
 
+fn theme_settings_choices_group_accent(app: &AppState) -> Option<TerminalAccent> {
+    if let Some(pending) = app.settings.pending_group_accent_choice {
+        return pending;
+    }
+
+    app.settings
+        .group_settings_target
+        .and_then(|group_idx| app.groups.get(group_idx))
+        .and_then(|group| group.accent)
+}
+
 fn theme_rows(app: &AppState) -> Vec<SettingsListRow> {
+    if app.settings.group_settings_target.is_some() {
+        let active = theme_settings_choices_group_accent(app);
+        let mut rows = Vec::new();
+        rows.push(SettingsListRow::Header("accent"));
+        rows.push(choice(0, "inherit", active.is_none()));
+        for (offset, accent) in TerminalAccent::ALL.iter().copied().enumerate() {
+            rows.push(choice(offset + 1, accent.as_str(), active == Some(accent)));
+        }
+        return rows;
+    }
+
     let mode = app
         .settings
         .pending_theme_mode
@@ -144,7 +166,7 @@ fn theme_rows(app: &AppState) -> Vec<SettingsListRow> {
     let system_source = mode == ThemeMode::System
         && normalize_theme_name(pending_light_theme) == "system"
         && normalize_theme_name(pending_dark_theme) == "system";
-    let show_terminal_accent = app.settings.group_theme_target.is_none() && system_source;
+    let show_terminal_accent = system_source;
 
     let mut rows = Vec::new();
     rows.push(SettingsListRow::Header("colors"));

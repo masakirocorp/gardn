@@ -29,6 +29,7 @@ pub(crate) struct AgentPanelEntry {
     pub ws_idx: usize,
     pub tab_idx: usize,
     pub pane_id: crate::layout::PaneId,
+    pub primary_group_idx: Option<usize>,
     pub primary_label: String,
     pub primary_tab_label: Option<String>,
     pub agent_label: Option<String>,
@@ -176,6 +177,11 @@ fn agent_panel_group_label(app: &AppState, ws_idx: usize) -> String {
         .unwrap_or_else(|| "group 1".to_string())
 }
 
+fn agent_panel_group_idx(app: &AppState, ws_idx: usize) -> Option<usize> {
+    let ws = app.workspaces.get(ws_idx)?;
+    app.group_index_by_id(&ws.group_id)
+}
+
 fn agent_panel_workspace_context_label_from(
     app: &AppState,
     ws_idx: usize,
@@ -270,6 +276,7 @@ fn agent_panel_entries_with_runtimes(
                     ws_idx,
                     tab_idx: detail.tab_idx,
                     pane_id: detail.pane_id,
+                    primary_group_idx: None,
                     primary_label: workspace_label.clone(),
                     primary_tab_label: multi_tab.then_some(detail.tab_label),
                     agent_label: Some(detail.agent_label),
@@ -299,6 +306,7 @@ fn agent_panel_entries_with_runtimes(
                             ws_idx,
                             tab_idx: detail.tab_idx,
                             pane_id: detail.pane_id,
+                            primary_group_idx: None,
                             primary_label: workspace_label.clone(),
                             primary_tab_label: multi_tab.then_some(detail.tab_label),
                             agent_label: Some(detail.agent_label),
@@ -324,6 +332,7 @@ fn agent_panel_entries_with_runtimes(
                         ws_idx,
                         tab_idx: detail.tab_idx,
                         pane_id: detail.pane_id,
+                        primary_group_idx: agent_panel_group_idx(app, ws_idx),
                         primary_label: workspace_label.clone(),
                         primary_tab_label: multi_tab.then_some(detail.tab_label),
                         agent_label: Some(detail.agent_label),
@@ -364,6 +373,7 @@ fn agent_panel_triage_entries_from(
                     ws_idx,
                     tab_idx: detail.tab_idx,
                     pane_id: detail.pane_id,
+                    primary_group_idx: agent_panel_group_idx(app, ws_idx),
                     primary_label: context_label.clone(),
                     primary_tab_label: multi_tab.then_some(detail.tab_label),
                     agent_label: Some(detail.agent_label),
@@ -515,6 +525,37 @@ fn format_agent_panel_primary_label(entry: &AgentPanelEntry, max_width: usize) -
         separator,
         truncate_text(tab_label, tab_budget)
     )
+}
+
+fn agent_panel_primary_label_line(
+    app: &AppState,
+    entry: &AgentPanelEntry,
+    max_width: usize,
+    base_style: Style,
+) -> Line<'static> {
+    let label = format_agent_panel_primary_label(entry, max_width);
+    let Some(group_idx) = entry.primary_group_idx else {
+        return Line::from(Span::styled(label, base_style));
+    };
+    let Some(group) = app.groups.get(group_idx) else {
+        return Line::from(Span::styled(label, base_style));
+    };
+    let Some(rest) = label.strip_prefix(group.name.as_str()) else {
+        return Line::from(Span::styled(label, base_style));
+    };
+    if !rest.starts_with(" /") {
+        return Line::from(Span::styled(label, base_style));
+    }
+
+    Line::from(vec![
+        Span::styled(
+            group.name.clone(),
+            base_style
+                .fg(app.group_accent_color(group_idx))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(rest.to_string(), base_style),
+    ])
 }
 
 fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
@@ -1080,7 +1121,9 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
     if group_header != Rect::default() {
         let label = collapsed_group_label(app);
         let style = if app.group_filter_enabled {
-            Style::default().fg(p.text).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(app.group_accent_color(app.active_group))
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
         };
@@ -2481,7 +2524,12 @@ fn render_workspace_list_from(
         );
 
         if selector_rect != Rect::default() {
-            let base = Style::default().fg(p.overlay1).bg(p.surface0);
+            let group_color = if app.group_filter_enabled {
+                app.group_accent_color(app.active_group)
+            } else {
+                p.overlay1
+            };
+            let base = Style::default().fg(group_color).bg(p.surface0);
             let count = Style::default().fg(p.overlay0).bg(p.surface0);
 
             frame.render_widget(
@@ -2510,7 +2558,6 @@ fn render_workspace_list_from(
     let cards = &app.view.workspace_card_areas;
     let headers = &app.view.workspace_group_header_areas;
     let empty_rows = &app.view.workspace_group_empty_areas;
-
     if cards.is_empty()
         && headers.is_empty()
         && empty_rows.is_empty()
@@ -2545,14 +2592,17 @@ fn render_workspace_list_from(
         } else {
             "▾"
         };
-        let label = format!(" {chevron} {} {} ({count})", group.icon, group.name);
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                truncate_text(&label, header.rect.width as usize),
-                Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
-            )),
-            header.rect,
-        );
+        let group_style = Style::default()
+            .fg(app.group_accent_color(header.group_idx))
+            .add_modifier(Modifier::BOLD);
+        let line = Line::from(vec![
+            Span::styled(format!(" {chevron} "), Style::default().fg(p.overlay1)),
+            Span::styled(group.icon.clone(), group_style),
+            Span::styled(" ", Style::default().fg(p.overlay1)),
+            Span::styled(group.name.clone(), group_style),
+            Span::styled(format!(" ({count})"), Style::default().fg(p.overlay0)),
+        ]);
+        frame.render_widget(Paragraph::new(line), header.rect);
     }
 
     for empty in empty_rows {
@@ -2751,14 +2801,19 @@ fn render_agent_entry(
     };
     let agent_style = Style::default().fg(p.overlay0).add_modifier(Modifier::DIM);
 
-    let primary_label =
-        format_agent_panel_primary_label(detail, area.width.saturating_sub(3) as usize);
-    let name_line = Line::from(vec![
+    let mut primary_line = agent_panel_primary_label_line(
+        app,
+        detail,
+        area.width.saturating_sub(3) as usize,
+        name_style,
+    );
+    let mut name_spans = vec![
         Span::styled("   ", Style::default()),
         Span::styled(icon, icon_style),
         Span::styled(" ", Style::default()),
-        Span::styled(primary_label, name_style),
-    ]);
+    ];
+    name_spans.append(&mut primary_line.spans);
+    let name_line = Line::from(name_spans);
     frame.render_widget(
         Paragraph::new(name_line).style(row_style),
         Rect::new(area.x, row_y, area.width, 1),
@@ -3094,11 +3149,7 @@ fn render_right_sidebar_toggle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        app::state::{Group, GroupThemeOverride},
-        detect::Agent,
-        workspace::Workspace,
-    };
+    use crate::{app::state::Group, detect::Agent, workspace::Workspace};
     use ratatui::{backend::TestBackend, buffer::Buffer, layout::Direction, Terminal};
 
     #[test]
@@ -3166,7 +3217,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme: GroupThemeOverride::default(),
+            accent: None,
         });
         app.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
         app.workspaces[1].group_id = "work".into();
@@ -3184,10 +3235,77 @@ mod tests {
             .expect("render workspace list");
 
         let text = buffer_text(terminal.backend().buffer(), 32, 14);
-        assert!(text.contains("▾ ● group 1 (1)"));
+        assert!(text.contains("▾ ☀ group 1 (1)"));
         assert!(text.contains("▾ ■ work (1)"));
         assert!(text.contains("home"));
         assert!(text.contains("api"));
+    }
+
+    #[test]
+    fn all_spaces_group_header_uses_group_accent() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.group_filter_enabled = false;
+        app.groups.push(Group {
+            id: "work".into(),
+            name: "work".into(),
+            icon: "■".into(),
+            accent: Some(crate::config::TerminalAccent::Red),
+        });
+        app.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
+        app.workspaces[1].group_id = "work".into();
+        let area = Rect::new(0, 0, 32, 14);
+        app.view.workspace_card_areas = compute_workspace_card_areas_in_list(&app, area);
+        app.view.workspace_group_header_areas =
+            compute_workspace_group_header_areas_in_list(&app, area);
+        app.view.workspace_group_empty_areas =
+            compute_workspace_group_empty_areas_in_list(&app, area);
+        let work_header = app
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .find(|header| header.group_idx == 1)
+            .expect("work group header")
+            .rect;
+
+        let backend = TestBackend::new(32, 14);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_workspace_list(&app, frame, area, false))
+            .expect("render workspace list");
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(work_header.x + 3, work_header.y)].symbol(), "■");
+        assert_eq!(
+            buffer[(work_header.x + 3, work_header.y)].style().fg,
+            Some(app.group_accent_color(1))
+        );
+        assert_eq!(
+            buffer[(work_header.x + 5, work_header.y)].style().fg,
+            Some(app.group_accent_color(1))
+        );
+    }
+
+    #[test]
+    fn collapsed_sidebar_group_icon_uses_group_accent() {
+        let mut app = crate::app::state::AppState::test_new();
+        let group_idx = app.create_group("work".to_string());
+        app.groups[group_idx].icon = "■".to_string();
+        app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Cyan));
+        app.active_group = group_idx;
+        app.group_filter_enabled = true;
+
+        let backend = TestBackend::new(8, 8);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_sidebar_collapsed(&app, frame, Rect::new(0, 0, 8, 8)))
+            .expect("render collapsed sidebar");
+
+        let buffer = terminal.backend().buffer();
+        let (x, y) = first_cell_with_symbol(buffer, 8, 8, "■").expect("group icon");
+        assert_eq!(
+            buffer[(x, y)].style().fg,
+            Some(app.group_accent_color(group_idx))
+        );
     }
 
     #[test]
@@ -3198,7 +3316,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme: GroupThemeOverride::default(),
+            accent: None,
         });
         app.collapsed_workspace_groups.push("work".into());
         app.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
@@ -3230,7 +3348,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme: GroupThemeOverride::default(),
+            accent: None,
         });
         app.workspaces = vec![Workspace::test_new("home")];
         let area = Rect::new(0, 0, 32, 14);
@@ -3759,6 +3877,7 @@ mod tests {
                 ws_idx: 0,
                 tab_idx: 0,
                 pane_id: crate::layout::PaneId::from_raw(1),
+                primary_group_idx: None,
                 primary_label: "blocked".into(),
                 primary_tab_label: None,
                 agent_label: Some("opencode".into()),
@@ -3864,6 +3983,7 @@ mod tests {
             ws_idx: 0,
             tab_idx: 0,
             pane_id: crate::layout::PaneId::from_raw(1),
+            primary_group_idx: None,
             primary_label: "agent-browser".into(),
             primary_tab_label: Some("test-escalation".into()),
             agent_label: Some("claude".into()),
@@ -4353,6 +4473,22 @@ mod tests {
         let divider = sidebar_section_divider_rect(Rect::new(0, 0, 20, 5), 0.5);
 
         assert_eq!(divider, Rect::default());
+    }
+
+    fn first_cell_with_symbol(
+        buffer: &Buffer,
+        width: u16,
+        height: u16,
+        symbol: &str,
+    ) -> Option<(u16, u16)> {
+        for y in 0..height {
+            for x in 0..width {
+                if buffer[(x, y)].symbol() == symbol {
+                    return Some((x, y));
+                }
+            }
+        }
+        None
     }
 
     fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {

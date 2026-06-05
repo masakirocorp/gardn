@@ -48,10 +48,10 @@ use crate::workspace::Workspace;
 
 static NEXT_GROUP_ID: AtomicU64 = AtomicU64::new(1);
 
-pub const DEFAULT_GROUP_ICON: &str = "●";
+pub const DEFAULT_GROUP_ICON: &str = "☀";
 pub const GROUP_ICONS: &[&str] = &[
-    "●", "◆", "■", "▲", "○", "◇", "□", "△", "✦", "✚", "*", "#", "@", "+", "~", "=", "$", "%", "&",
-    "?",
+    "☀", "☁", "☂", "☕", "♥", "♪", "⚑", "⚙", "☎", "☄", "☘", "✉", "⚓", "✿", "✂", "✎", "✚", "⊕",
+    "▥", "⌁",
 ];
 
 pub(crate) fn generate_group_id() -> String {
@@ -63,28 +63,12 @@ pub(crate) fn generate_group_id() -> String {
     format!("g{micros:x}{counter:x}")
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct GroupThemeOverride {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mode: Option<ThemeMode>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub light_theme_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dark_theme_name: Option<String>,
-}
-
-impl GroupThemeOverride {
-    pub fn is_empty(&self) -> bool {
-        self.mode.is_none() && self.light_theme_name.is_none() && self.dark_theme_name.is_none()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Group {
     pub id: String,
     pub name: String,
     pub icon: String,
-    pub theme: GroupThemeOverride,
+    pub accent: Option<TerminalAccent>,
 }
 
 impl Group {
@@ -93,7 +77,7 @@ impl Group {
             id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
             name: "group 1".to_string(),
             icon: DEFAULT_GROUP_ICON.to_string(),
-            theme: GroupThemeOverride::default(),
+            accent: None,
         }
     }
 }
@@ -330,13 +314,15 @@ impl Palette {
         Color::Rgb(color.r, color.g, color.b)
     }
 
+    pub fn terminal_accent_color(theme: TerminalTheme, accent: TerminalAccent) -> Color {
+        Self::terminal_palette_color(theme, accent.ansi_index(), accent.fallback_color())
+    }
+
     fn terminal_palette_color(theme: TerminalTheme, index: usize, fallback: Color) -> Color {
         theme
             .palette
             .get(index)
-            .copied()
-            .flatten()
-            .map(Self::terminal_color)
+            .and_then(|color| color.map(Self::terminal_color))
             .unwrap_or(fallback)
     }
 
@@ -1921,8 +1907,10 @@ pub struct SettingsState {
     pub pending_resume_agents_on_restore: Option<bool>,
     /// Pending macOS prefix input source switching setting while settings is open.
     pub pending_switch_ascii_input_source_in_prefix: Option<bool>,
-    /// Group whose theme is being edited, if settings was opened from a group menu.
-    pub group_theme_target: Option<usize>,
+    /// Checked group accent while group settings is open; hover cursor is separate.
+    pub pending_group_accent_choice: Option<Option<TerminalAccent>>,
+    /// Group whose settings are being edited, if settings was opened from a group menu.
+    pub group_settings_target: Option<usize>,
 }
 
 pub(crate) enum DragTarget {
@@ -2022,10 +2010,10 @@ impl ContextMenuState {
         match self.kind {
             ContextMenuKind::Group {
                 can_delete: true, ..
-            } => &["rename", "theme", "delete"],
+            } => &["settings", "rename", "---", "delete"],
             ContextMenuKind::Group {
                 can_delete: false, ..
-            } => &["rename", "theme"],
+            } => &["settings", "rename"],
             ContextMenuKind::Workspace { .. } => &["rename", "close"],
             ContextMenuKind::Tab { .. } => &["new tab", "rename", "close"],
             ContextMenuKind::Pane {
@@ -2049,6 +2037,54 @@ impl ContextMenuState {
                 "zoom",
                 "close pane",
             ],
+        }
+    }
+
+    pub fn item_is_selectable(&self, idx: usize) -> bool {
+        self.items()
+            .get(idx)
+            .is_some_and(|item| !Self::item_is_separator(item))
+    }
+
+    pub fn item_is_separator(item: &str) -> bool {
+        item == "---"
+    }
+
+    pub fn move_prev(&mut self) {
+        if self.list.highlighted == 0 {
+            return;
+        }
+
+        let mut idx = self.list.highlighted - 1;
+        loop {
+            if self.item_is_selectable(idx) {
+                self.list.highlighted = idx;
+                return;
+            }
+            if idx == 0 {
+                return;
+            }
+            idx -= 1;
+        }
+    }
+
+    pub fn move_next(&mut self) {
+        let item_count = self.items().len();
+        let mut idx = self.list.highlighted.saturating_add(1);
+        while idx < item_count {
+            if self.item_is_selectable(idx) {
+                self.list.highlighted = idx;
+                return;
+            }
+            idx += 1;
+        }
+    }
+
+    pub fn hover(&mut self, idx: Option<usize>) {
+        if let Some(idx) = idx {
+            if self.item_is_selectable(idx) {
+                self.list.highlighted = idx;
+            }
         }
     }
 }
@@ -2404,6 +2440,18 @@ impl AppState {
             .get(self.active_group)
             .map(|group| group.icon.as_str())
             .unwrap_or(DEFAULT_GROUP_ICON)
+    }
+
+    pub fn group_accent_color(&self, group_idx: usize) -> Color {
+        self.groups
+            .get(group_idx)
+            .and_then(|group| group.accent)
+            .map(|accent| Palette::terminal_accent_color(self.host_terminal_theme, accent))
+            .unwrap_or(self.global_palette.accent)
+    }
+
+    pub fn group_index_by_id(&self, group_id: &str) -> Option<usize> {
+        self.groups.iter().position(|group| group.id == group_id)
     }
 
     pub fn workspace_in_active_group(&self, ws_idx: usize) -> bool {
@@ -2899,7 +2947,8 @@ impl AppState {
                 pending_agent_border_labels: None,
                 pending_resume_agents_on_restore: None,
                 pending_switch_ascii_input_source_in_prefix: None,
-                group_theme_target: None,
+                pending_group_accent_choice: None,
+                group_settings_target: None,
             },
             integration_recommendations: Vec::new(),
             integration_install_messages: Vec::new(),
@@ -2950,6 +2999,18 @@ impl AppState {
 mod tests {
     use super::*;
     use crossterm::event::KeyEvent;
+
+    #[test]
+    fn group_icons_are_fun_distinct_set() {
+        assert_eq!(
+            GROUP_ICONS,
+            &[
+                "☀", "☁", "☂", "☕", "♥", "♪", "⚑", "⚙", "☎", "☄", "☘", "✉", "⚓", "✿", "✂", "✎",
+                "✚", "⊕", "▥", "⌁",
+            ]
+        );
+        assert_eq!(DEFAULT_GROUP_ICON, GROUP_ICONS[0]);
+    }
 
     #[test]
     fn built_in_theme_names_resolve() {

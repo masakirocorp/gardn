@@ -927,6 +927,11 @@ pub(super) fn apply_context_menu_action(
     idx: usize,
 ) {
     let item = menu.items().get(idx).copied();
+    if item.is_some_and(ContextMenuState::item_is_separator) {
+        state.context_menu = Some(menu);
+        state.mode = Mode::ContextMenu;
+        return;
+    }
     match (menu.kind, item) {
         (ContextMenuKind::Workspace { ws_idx }, Some("rename")) => {
             open_rename_workspace(state, terminal_runtimes, ws_idx);
@@ -934,8 +939,8 @@ pub(super) fn apply_context_menu_action(
         (ContextMenuKind::Group { group_idx, .. }, Some("rename")) => {
             open_rename_group_at(state, group_idx);
         }
-        (ContextMenuKind::Group { group_idx, .. }, Some("theme")) => {
-            super::settings::open_group_theme_settings(state, group_idx);
+        (ContextMenuKind::Group { group_idx, .. }, Some("settings")) => {
+            super::settings::open_group_settings(state, group_idx);
         }
         (
             ContextMenuKind::Group {
@@ -1024,12 +1029,12 @@ pub(crate) fn handle_context_menu_key(
         }
         KeyCode::Up => {
             if let Some(menu) = &mut state.context_menu {
-                menu.list.move_prev();
+                menu.move_prev();
             }
         }
         KeyCode::Down => {
             if let Some(menu) = &mut state.context_menu {
-                menu.list.move_next(menu.items().len());
+                menu.move_next();
             }
         }
         KeyCode::Enter => {
@@ -1546,6 +1551,58 @@ mod tests {
             KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
         );
         assert_eq!(state.workspaces.len(), 1);
+    }
+
+    #[test]
+    fn group_context_menu_keyboard_skips_separator() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Work".to_string());
+        state.context_menu = Some(ContextMenuState {
+            kind: ContextMenuKind::Group {
+                group_idx,
+                can_delete: true,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(1),
+        });
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+
+        handle_context_menu_key(
+            &mut state,
+            &mut terminal_runtimes,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 3);
+
+        handle_context_menu_key(
+            &mut state,
+            &mut terminal_runtimes,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
+        );
+        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 1);
+    }
+
+    #[test]
+    fn group_context_menu_separator_is_not_an_action() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Work".to_string());
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let menu = ContextMenuState {
+            kind: ContextMenuKind::Group {
+                group_idx,
+                can_delete: true,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(2),
+        };
+
+        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 2);
+
+        assert_eq!(state.mode, Mode::ContextMenu);
+        assert!(state.context_menu.is_some());
+        assert_eq!(state.active_group, 0);
     }
 
     #[test]

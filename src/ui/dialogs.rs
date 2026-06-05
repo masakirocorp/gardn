@@ -265,11 +265,8 @@ pub(super) fn render_confirm_close_overlay(app: &AppState, frame: &mut Frame, ar
 
 pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     let group_idx = app.confirm_delete_group.unwrap_or(app.active_group);
-    let group_name = app
-        .groups
-        .get(group_idx)
-        .map(|group| group.name.as_str())
-        .unwrap_or("?");
+    let group = app.groups.get(group_idx);
+    let group_name = group.map(|group| group.name.as_str()).unwrap_or("?");
     let space_count = app
         .groups
         .get(group_idx)
@@ -302,7 +299,7 @@ pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Fr
         Span::styled(
             format!(" {group_name}"),
             Style::default()
-                .fg(app.palette.text)
+                .fg(app.group_accent_color(group_idx))
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(format!(" — closes {spaces}"), dim),
@@ -367,7 +364,7 @@ pub(crate) fn confirm_close_button_rects(inner: Rect) -> (Rect, Rect) {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
 
     use super::*;
     use crate::workspace::Workspace;
@@ -386,5 +383,42 @@ mod tests {
         terminal
             .draw(|frame| render_confirm_close_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
             .unwrap();
+    }
+
+    #[test]
+    fn confirm_delete_group_uses_group_accent_for_name() {
+        let mut app = AppState::test_new();
+        let group_idx = app.create_group("work".to_string());
+        app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Yellow));
+        app.confirm_delete_group = Some(group_idx);
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_confirm_delete_group_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let (x, y) = first_cell_with_symbol(buffer, 80, 24, "w").expect("group name");
+        assert_eq!(
+            buffer[(x, y)].style().fg,
+            Some(app.group_accent_color(group_idx))
+        );
+    }
+
+    fn first_cell_with_symbol(
+        buffer: &Buffer,
+        width: u16,
+        height: u16,
+        symbol: &str,
+    ) -> Option<(u16, u16)> {
+        for y in 0..height {
+            for x in 0..width {
+                if buffer[(x, y)].symbol() == symbol {
+                    return Some((x, y));
+                }
+            }
+        }
+        None
     }
 }

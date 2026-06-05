@@ -862,8 +862,7 @@ mod tests {
                 id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 name: "group 1".to_string(),
                 icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
-                theme: None,
-                theme_name: None,
+                accent: None,
             }],
             active_group: 0,
             workspaces: vec![WorkspaceSnapshot {
@@ -1119,8 +1118,7 @@ mod tests {
                 id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 name: "group 1".to_string(),
                 icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
-                theme: None,
-                theme_name: None,
+                accent: None,
             }],
             active_group: 0,
             workspaces: vec![WorkspaceSnapshot {
@@ -1174,8 +1172,7 @@ mod tests {
                 id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 name: "group 1".to_string(),
                 icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
-                theme: None,
-                theme_name: None,
+                accent: None,
             }],
             active_group: 0,
             workspaces: vec![WorkspaceSnapshot {
@@ -1266,8 +1263,7 @@ mod tests {
                     id: group.id,
                     name: group.name,
                     icon: group.icon,
-                    theme: None,
-                    theme_name: None,
+                    accent: None,
                 }]
             },
             active_group: 0,
@@ -1459,8 +1455,7 @@ mod tests {
                 id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 name: "group 1".to_string(),
                 icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
-                theme: None,
-                theme_name: None,
+                accent: None,
             }],
             active_group: 0,
             workspaces: vec![WorkspaceSnapshot {

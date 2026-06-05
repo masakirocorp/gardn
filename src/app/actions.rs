@@ -14,7 +14,7 @@ use crate::workspace::WorkspaceGitStatus;
 use unicode_width::UnicodeWidthChar;
 
 use super::state::{
-    AppState, Group, GroupThemeOverride, Mode, NavigatorRow, NavigatorStateFilter, NavigatorTarget,
+    AppState, Group, Mode, NavigatorRow, NavigatorStateFilter, NavigatorTarget, Palette,
     PaneFocusTarget, ToastKind, ToastNotification, ToastTarget, ViewLayout,
 };
 
@@ -814,39 +814,20 @@ impl AppState {
         crate::terminal_theme::ThemeAppearance,
         bool,
     ) {
-        let group_theme = self
+        let mut palette = self.global_palette.clone();
+        if let Some(accent) = self
             .workspaces
             .get(ws_idx)
             .and_then(|workspace| self.group_index_for_id(&workspace.group_id))
             .and_then(|group_idx| self.groups.get(group_idx))
-            .map(|group| &group.theme);
-
-        if let Some(group_theme) = group_theme.filter(|theme| !theme.is_empty()) {
-            let mode = group_theme.mode.unwrap_or(self.global_theme_mode);
-            let appearance = self.theme_appearance_for_mode(mode);
-            let theme_name = match appearance {
-                crate::terminal_theme::ThemeAppearance::Light => group_theme
-                    .light_theme_name
-                    .as_deref()
-                    .unwrap_or(&self.global_light_theme_name),
-                crate::terminal_theme::ThemeAppearance::Dark => group_theme
-                    .dark_theme_name
-                    .as_deref()
-                    .unwrap_or(&self.global_dark_theme_name),
-            };
-
-            if let Some(palette) = self.palette_for_theme_mode(theme_name, mode) {
-                return (
-                    palette,
-                    appearance,
-                    hunk_uses_terminal_color_passthrough(theme_name),
-                );
-            }
+            .and_then(|group| group.accent)
+        {
+            palette.accent = Palette::terminal_accent_color(self.host_terminal_theme, accent);
         }
 
         let appearance = self.theme_appearance_for_mode(self.global_theme_mode);
         (
-            self.global_palette.clone(),
+            palette,
             appearance,
             hunk_uses_terminal_color_passthrough(&self.global_theme_name),
         )
@@ -1106,37 +1087,17 @@ impl AppState {
     }
 
     pub fn apply_effective_theme(&mut self) {
-        let Some(group_theme) = self.groups.get(self.active_group).map(|group| &group.theme) else {
-            self.palette = self.global_palette.clone();
-            self.theme_name = self.global_theme_name.clone();
+        self.palette = self.global_palette.clone();
+        self.theme_name = self.global_theme_name.clone();
+
+        let Some(accent) = self
+            .groups
+            .get(self.active_group)
+            .and_then(|group| group.accent)
+        else {
             return;
         };
-        if group_theme.is_empty() {
-            self.palette = self.global_palette.clone();
-            self.theme_name = self.global_theme_name.clone();
-            return;
-        }
-
-        let mode = group_theme.mode.unwrap_or(self.global_theme_mode);
-        let appearance = self.theme_appearance_for_mode(mode);
-        let theme_name = match appearance {
-            crate::terminal_theme::ThemeAppearance::Light => group_theme
-                .light_theme_name
-                .as_deref()
-                .unwrap_or(&self.global_light_theme_name),
-            crate::terminal_theme::ThemeAppearance::Dark => group_theme
-                .dark_theme_name
-                .as_deref()
-                .unwrap_or(&self.global_dark_theme_name),
-        };
-
-        if let Some(palette) = self.palette_for_theme_mode(theme_name, mode) {
-            self.palette = palette;
-            self.theme_name = theme_name.to_string();
-        } else {
-            self.palette = self.global_palette.clone();
-            self.theme_name = self.global_theme_name.clone();
-        }
+        self.palette.accent = Palette::terminal_accent_color(self.host_terminal_theme, accent);
     }
 
     pub fn preview_theme_with_mode(
@@ -1171,11 +1132,15 @@ impl AppState {
         true
     }
 
-    pub fn set_group_theme(&mut self, group_idx: usize, theme: GroupThemeOverride) -> bool {
+    pub fn set_group_accent(
+        &mut self,
+        group_idx: usize,
+        accent: Option<crate::config::TerminalAccent>,
+    ) -> bool {
         let Some(group) = self.groups.get_mut(group_idx) else {
             return false;
         };
-        group.theme = theme;
+        group.accent = accent;
         self.mark_session_dirty();
         self.apply_effective_theme();
         true
@@ -1250,7 +1215,7 @@ impl AppState {
             id: super::state::generate_group_id(),
             name,
             icon: super::state::normalize_group_icon(&icon),
-            theme: GroupThemeOverride::default(),
+            accent: None,
         });
         self.mark_session_dirty();
         self.groups.len() - 1
@@ -1314,6 +1279,7 @@ impl AppState {
         } else if self.active_group > group_idx {
             self.active_group = self.active_group.saturating_sub(1);
         }
+        self.apply_effective_theme();
 
         self.active = active_id.and_then(|id| self.workspaces.iter().position(|ws| ws.id == id));
         self.selected = selected_id
@@ -3096,45 +3062,24 @@ mod tests {
     }
 
     #[test]
-    fn hunk_theme_uses_target_workspace_group_override() {
+    fn hunk_theme_uses_target_workspace_group_accent() {
         let mut state = app_with_workspaces(&["main", "docs"]);
         let docs_group = state.create_group("Docs".to_string());
         state.move_workspace_to_group(1, docs_group);
-        state.set_group_theme(
-            docs_group,
-            GroupThemeOverride {
-                mode: Some(ThemeMode::Light),
-                light_theme_name: Some("flexoki-light".to_string()),
-                dark_theme_name: None,
-            },
-        );
+        state.set_group_accent(docs_group, Some(crate::config::TerminalAccent::Magenta));
 
         let (palette, appearance, passthrough_terminal) = state.hunk_diff_theme_for_workspace(1);
 
-        assert_eq!(appearance, crate::terminal_theme::ThemeAppearance::Light);
-        assert!(!passthrough_terminal);
-        assert_eq!(palette.accent, Palette::flexoki_light().accent);
-    }
-
-    #[test]
-    fn hunk_theme_uses_terminal_passthrough_for_group_system_theme() {
-        let mut state = app_with_workspaces(&["main", "docs"]);
-        let docs_group = state.create_group("Docs".to_string());
-        state.move_workspace_to_group(1, docs_group);
-        state.set_group_theme(
-            docs_group,
-            GroupThemeOverride {
-                mode: Some(ThemeMode::Light),
-                light_theme_name: Some("system".to_string()),
-                dark_theme_name: None,
-            },
+        assert_eq!(
+            appearance,
+            state.theme_appearance_for_mode(state.global_theme_mode)
         );
-
-        let (palette, appearance, passthrough_terminal) = state.hunk_diff_theme_for_workspace(1);
-
-        assert_eq!(appearance, crate::terminal_theme::ThemeAppearance::Light);
-        assert!(passthrough_terminal);
-        assert_eq!(palette.panel_bg, ratatui::style::Color::Reset);
+        assert_eq!(
+            passthrough_terminal,
+            hunk_uses_terminal_color_passthrough(&state.global_theme_name)
+        );
+        assert_eq!(palette.panel_bg, state.global_palette.panel_bg);
+        assert_eq!(palette.accent, ratatui::style::Color::Magenta);
     }
 
     fn temp_project(name: &str) -> std::path::PathBuf {
@@ -3828,47 +3773,21 @@ mod tests {
     }
 
     #[test]
-    fn switching_group_applies_group_theme_override() {
+    fn switching_group_applies_group_accent_override() {
         let mut state = app_with_workspaces(&["one", "two"]);
         let side_group = state.create_group("Side".to_string());
         state.move_workspace_to_group(1, side_group);
-        state.set_group_theme(
-            side_group,
-            GroupThemeOverride {
-                mode: Some(ThemeMode::Dark),
-                light_theme_name: None,
-                dark_theme_name: Some("nord".to_string()),
-            },
-        );
+        state.set_group_accent(side_group, Some(crate::config::TerminalAccent::Red));
         state.switch_group(0);
 
         assert_eq!(state.theme_name, state.global_theme_name);
+        assert_eq!(state.palette.accent, state.global_palette.accent);
 
         state.switch_group(side_group);
 
-        assert_eq!(state.theme_name, "nord");
-        assert_eq!(state.palette.accent, Palette::nord().accent);
-    }
-
-    #[test]
-    fn group_theme_override_can_pin_dark_mode() {
-        let mut state = app_with_workspaces(&["one", "two"]);
-        state.global_theme_mode = ThemeMode::Light;
-        let side_group = state.create_group("Side".to_string());
-        state.move_workspace_to_group(1, side_group);
-        state.set_group_theme(
-            side_group,
-            GroupThemeOverride {
-                mode: Some(ThemeMode::Dark),
-                light_theme_name: Some("gruvbox-light".to_string()),
-                dark_theme_name: Some("gruvbox".to_string()),
-            },
-        );
-
-        state.switch_group(side_group);
-
-        assert_eq!(state.theme_name, "gruvbox");
-        assert_eq!(state.palette.panel_bg, Palette::gruvbox().panel_bg);
+        assert_eq!(state.theme_name, state.global_theme_name);
+        assert_eq!(state.palette.accent, ratatui::style::Color::LightRed);
+        assert_eq!(state.palette.panel_bg, state.global_palette.panel_bg);
     }
 
     #[test]
@@ -3894,23 +3813,16 @@ mod tests {
     }
 
     #[test]
-    fn clearing_group_theme_follows_global_theme() {
+    fn clearing_group_accent_follows_global_accent() {
         let mut state = app_with_workspaces(&["one", "two"]);
         let side_group = state.create_group("Side".to_string());
         state.move_workspace_to_group(1, side_group);
-        state.set_group_theme(
-            side_group,
-            GroupThemeOverride {
-                mode: Some(ThemeMode::Dark),
-                light_theme_name: None,
-                dark_theme_name: Some("nord".to_string()),
-            },
-        );
+        state.set_group_accent(side_group, Some(crate::config::TerminalAccent::Cyan));
         state.switch_group(side_group);
 
         state.global_palette = Palette::dracula();
         state.global_theme_name = "dracula".to_string();
-        state.set_group_theme(side_group, GroupThemeOverride::default());
+        state.set_group_accent(side_group, None);
 
         assert_eq!(state.theme_name, "dracula");
         assert_eq!(state.palette.accent, Palette::dracula().accent);
@@ -5063,6 +4975,24 @@ mod tests {
 
         assert!(state.terminals.contains_key(&kept_terminal_id));
         assert!(!state.terminals.contains_key(&dropped_terminal_id));
+    }
+
+    #[test]
+    fn delete_active_group_reapplies_surviving_group_accent() {
+        let mut state = app_with_workspaces(&["keep", "drop"]);
+        let group_idx = state.create_group("work".into());
+        state.move_workspace_to_group(1, group_idx);
+        state.active_group = 0;
+        state.set_group_accent(0, Some(crate::config::TerminalAccent::Blue));
+        let kept_accent = state.palette.accent;
+        state.active_group = group_idx;
+        state.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Red));
+        assert_ne!(state.palette.accent, kept_accent);
+
+        state.delete_group(group_idx).unwrap();
+
+        assert_eq!(state.active_group, 0);
+        assert_eq!(state.palette.accent, kept_accent);
     }
 
     #[test]

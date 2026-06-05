@@ -28,7 +28,7 @@ A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 - **Workspace creation and focus** — create, focus, rename, close, list, and inspect workspaces from the TUI, CLI, or socket API.
 - **Workspace sidebar** — expanded workspace rows show the workspace name, activity state, and git/cwd summary.
 - **Workspace navigator** — search and filter workspaces, tabs, and panes by text or state.
-- **Workspace groups** — group workspaces, filter the sidebar by group, collapse groups, and assign group theme overrides for mode plus light/dark palettes.
+- **Workspace groups** — group workspaces, filter the sidebar by group, collapse groups, and assign per-group ANSI accent colors.
 - **Group lifecycle** — create, rename, delete, focus, and switch groups from the TUI, CLI, or socket API.
 - **Group icons** — group creation and rename flows can assign group icons.
 - **Move between groups** — move workspaces between groups with `hako workspace move-to-group` or the socket API.
@@ -170,7 +170,7 @@ Hako can discover and run project commands. The command palette is also a genera
 - Command status sections include running, failed, unknown, and stopped commands.
 - Custom keybindings can launch shell helpers or pane commands.
 - **Panel actions** — command rows can run, focus, expand, or stop commands from the right sidebar.
-- **Git diff command** — the command palette can open a Git diff panel when the current context is inside a Git repository. When Hunk 0.14 or newer is installed, Hako launches it with a generated custom theme based on the target workspace/group theme.
+- **Git diff command** — the command palette can open a Git diff panel when the current context is inside a Git repository. When Hunk 0.14 or newer is installed, Hako launches it with a generated custom theme based on the target workspace/group accent.
 - **Command discovery** — Hako discovers VS Code tasks, package scripts, just recipes, Make targets, and defaults for common Cargo, Go, Java, Python, .NET, PHP, and Ruby projects.
 - **Managed reruns** — rerunning a managed command focuses an existing run or restarts a stopped/failed run in the same pane instead of spawning duplicates.
 
@@ -286,7 +286,7 @@ Hako supports terminal-derived colors and built-in palettes.
 - **Appearance mode** — system, light, or dark.
 - **Light and dark palette selection** — choose separate palettes when system mode is enabled.
 - **Custom token overrides** — override individual theme colors.
-- **Group theme overrides** — assign per-group appearance mode and light/dark palette overrides; values matching global settings inherit future global changes.
+- **Group settings** — assign per-group ANSI accent colors, or inherit the global accent.
 - **Accent color** — configure highlight, border, and navigation accent color; when following terminal colors, choose separate terminal ANSI accents for light and dark appearances.
 
 ### Sound and toasts

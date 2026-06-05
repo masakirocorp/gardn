@@ -429,6 +429,18 @@ impl AppState {
             .unwrap_or_else(|| "no space".to_string())
     }
 
+    pub(crate) fn agent_menu_group_context_idx(&self) -> Option<usize> {
+        if let Some(group_id) = self
+            .agent_menu_current_workspace_idx()
+            .and_then(|idx| self.workspaces.get(idx))
+            .map(|ws| ws.group_id.as_str())
+        {
+            return self.group_index_by_id(group_id);
+        }
+
+        Some(self.active_group)
+    }
+
     fn agent_menu_group_context_label(&self) -> String {
         if let Some(group_id) = self
             .agent_menu_current_workspace_idx()
@@ -1074,8 +1086,7 @@ mod tests {
     use super::super::{app_for_mouse_test, capture_snapshot, mouse, unique_temp_path};
     use crate::{
         app::state::{
-            AgentPanelScope, CommandPanelAction, ContextMenuKind, DragTarget, Group,
-            GroupThemeOverride, Mode,
+            AgentPanelScope, CommandPanelAction, ContextMenuKind, DragTarget, Group, Mode,
         },
         detect::{Agent, AgentState},
         workspace::Workspace,
@@ -1107,7 +1118,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme: GroupThemeOverride::default(),
+            accent: None,
         });
         app.state.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
         app.state.workspaces[1].group_id = "work".into();
@@ -1142,7 +1153,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme: GroupThemeOverride::default(),
+            accent: None,
         });
         app.state.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
         app.state.workspaces[1].group_id = "work".into();
@@ -1175,7 +1186,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme: GroupThemeOverride::default(),
+            accent: None,
         });
         app.state.workspaces = vec![
             Workspace::test_new("a"),
@@ -1356,7 +1367,7 @@ mod tests {
 
         assert_eq!(app.state.mode, Mode::ContextMenu);
         let context = app.state.context_menu.as_ref().unwrap();
-        assert_eq!(context.items(), &["rename", "theme", "delete"]);
+        assert_eq!(context.items(), &["settings", "rename", "---", "delete"]);
         assert_eq!(
             context.kind,
             ContextMenuKind::Group {
@@ -1378,7 +1389,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: crate::app::state::MenuListState::new(0),
+            list: crate::app::state::MenuListState::new(1),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -1386,7 +1397,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 1,
+            menu.y + 2,
         ));
 
         assert_eq!(app.state.mode, Mode::RenameGroup);
@@ -1407,7 +1418,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: crate::app::state::MenuListState::new(2),
+            list: crate::app::state::MenuListState::new(3),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -1415,7 +1426,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 3,
+            menu.y + 4,
         ));
 
         assert_eq!(app.state.mode, Mode::ConfirmDeleteGroup);
@@ -1424,7 +1435,7 @@ mod tests {
     }
 
     #[test]
-    fn group_context_menu_theme_opens_theme_picker_for_target_group() {
+    fn group_context_menu_settings_opens_settings_for_target_group() {
         let mut app = app_for_mouse_test();
         let work_group = app.state.create_group("Work".to_string());
         app.state.active_group = 0;
@@ -1435,7 +1446,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: crate::app::state::MenuListState::new(1),
+            list: crate::app::state::MenuListState::new(0),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -1443,11 +1454,11 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 2,
+            menu.y + 1,
         ));
 
         assert_eq!(app.state.mode, Mode::Settings);
-        assert_eq!(app.state.settings.group_theme_target, Some(work_group));
+        assert_eq!(app.state.settings.group_settings_target, Some(work_group));
         assert_eq!(app.state.active_group, 0);
     }
 
@@ -3205,7 +3216,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme: GroupThemeOverride::default(),
+            accent: None,
         });
         app.state.workspaces = vec![Workspace::test_new("a")];
         app.state.active = Some(0);
@@ -3238,7 +3249,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme: GroupThemeOverride::default(),
+            accent: None,
         });
         app.state.workspaces = vec![
             Workspace::test_new("a"),
@@ -3290,7 +3301,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme: GroupThemeOverride::default(),
+            accent: None,
         });
         app.state.workspaces = vec![
             Workspace::test_new("a"),
@@ -3342,7 +3353,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme: GroupThemeOverride::default(),
+            accent: None,
         });
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
         app.state.workspaces[1].group_id = "work".into();
@@ -3373,7 +3384,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme: GroupThemeOverride::default(),
+            accent: None,
         });
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
         app.state.workspaces[1].group_id = "work".into();
@@ -3398,7 +3409,7 @@ mod tests {
             id: "work".into(),
             name: "work".into(),
             icon: "■".into(),
-            theme: GroupThemeOverride::default(),
+            accent: None,
         });
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
         app.state.workspaces[1].group_id = "work".into();

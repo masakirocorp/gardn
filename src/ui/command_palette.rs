@@ -7,7 +7,9 @@ use ratatui::{
 };
 
 use crate::app::{
-    command_palette::{command_palette_filtered_commands, CommandPaletteCommand},
+    command_palette::{
+        command_palette_filtered_commands, CommandPaletteAction, CommandPaletteCommand,
+    },
     AppState,
 };
 
@@ -133,14 +135,29 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
                         .fg(app.palette.mauve)
                         .add_modifier(Modifier::BOLD)
                 };
-                command_palette_command_line(
-                    &command.title,
-                    command.key_label.as_deref(),
-                    list_width,
-                    title_style,
-                    row_style,
-                    key_style,
-                )
+                match &command.action {
+                    CommandPaletteAction::SwitchGroup(group_idx) => {
+                        command_palette_group_command_line(
+                            app,
+                            *group_idx,
+                            &command.title,
+                            command.key_label.as_deref(),
+                            list_width,
+                            title_style,
+                            row_style,
+                            key_style,
+                            selected,
+                        )
+                    }
+                    _ => command_palette_command_line(
+                        &command.title,
+                        command.key_label.as_deref(),
+                        list_width,
+                        title_style,
+                        row_style,
+                        key_style,
+                    ),
+                }
             }
         })
         .collect::<Vec<_>>();
@@ -210,6 +227,93 @@ fn command_palette_command_line<'a>(
     ])
 }
 
+fn command_palette_group_command_line<'a>(
+    app: &AppState,
+    group_idx: usize,
+    title: &str,
+    key_label: Option<&str>,
+    width: usize,
+    title_style: Style,
+    row_style: Style,
+    key_style: Style,
+    selected: bool,
+) -> Line<'a> {
+    let Some(group) = app.groups.get(group_idx) else {
+        return command_palette_command_line(
+            title,
+            key_label,
+            width,
+            title_style,
+            row_style,
+            key_style,
+        );
+    };
+    let prefix = "  switch to group: ";
+    let group_label = format!("{} {}", group.icon, group.name);
+    if title != format!("switch to group: {group_label}") {
+        return command_palette_command_line(
+            title,
+            key_label,
+            width,
+            title_style,
+            row_style,
+            key_style,
+        );
+    }
+
+    let full_len = prefix.chars().count() + group_label.chars().count();
+    let Some(key_label) = key_label else {
+        if full_len >= width {
+            return command_palette_command_line(
+                title,
+                None,
+                width,
+                title_style,
+                row_style,
+                key_style,
+            );
+        }
+        let group_style = if selected {
+            title_style
+        } else {
+            title_style
+                .fg(app.group_accent_color(group_idx))
+                .add_modifier(Modifier::BOLD)
+        };
+        return Line::from(vec![
+            Span::styled(prefix.to_string(), title_style),
+            Span::styled(group_label, group_style),
+            Span::styled(" ".repeat(width - full_len), title_style),
+        ]);
+    };
+
+    let key_len = key_label.chars().count();
+    if full_len + key_len + 1 >= width {
+        return command_palette_command_line(
+            title,
+            Some(key_label),
+            width,
+            title_style,
+            row_style,
+            key_style,
+        );
+    }
+    let group_style = if selected {
+        title_style
+    } else {
+        title_style
+            .fg(app.group_accent_color(group_idx))
+            .add_modifier(Modifier::BOLD)
+    };
+    let gap = width - full_len - key_len;
+    Line::from(vec![
+        Span::styled(prefix.to_string(), title_style),
+        Span::styled(group_label, group_style),
+        Span::styled(" ".repeat(gap), row_style),
+        Span::styled(key_label.to_string(), key_style),
+    ])
+}
+
 fn pad_right(text: String, width: usize) -> String {
     let len = text.chars().count();
     if len >= width {
@@ -253,6 +357,44 @@ mod tests {
         assert!(buffer_row_text(terminal.backend().buffer(), inner, gap_y)
             .trim()
             .is_empty());
+    }
+
+    #[test]
+    fn command_palette_group_command_uses_group_accent() {
+        let mut app = AppState::test_new();
+        let group_idx = app.create_group("work".to_string());
+        app.groups[group_idx].icon = "■".to_string();
+        app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Green));
+        app.command_palette.query = "switch group".to_string();
+
+        let backend = TestBackend::new(100, 24);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_command_palette_overlay(&app, frame))
+            .expect("render command palette");
+
+        let buffer = terminal.backend().buffer();
+        let (x, y) = first_cell_with_symbol(buffer, 100, 24, "■").expect("group icon");
+        assert_eq!(
+            buffer[(x, y)].style().fg,
+            Some(app.group_accent_color(group_idx))
+        );
+    }
+
+    fn first_cell_with_symbol(
+        buffer: &Buffer,
+        width: u16,
+        height: u16,
+        symbol: &str,
+    ) -> Option<(u16, u16)> {
+        for y in 0..height {
+            for x in 0..width {
+                if buffer[(x, y)].symbol() == symbol {
+                    return Some((x, y));
+                }
+            }
+        }
+        None
     }
 
     fn buffer_row_text(buffer: &Buffer, area: Rect, y: u16) -> String {
