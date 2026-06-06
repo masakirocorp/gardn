@@ -1524,7 +1524,10 @@ mod tests {
         state.palette = state.global_palette.clone();
         state.active_group = group_idx;
         assert!(state.set_group_accent(group_idx, Some(TerminalAccent::Blue)));
-        assert_ne!(state.palette.accent, state.global_palette.accent);
+        assert_ne!(
+            state.group_accent_color(group_idx),
+            state.global_palette.accent
+        );
 
         open_group_settings(&mut state, group_idx);
         state.settings.list.selected = 0;

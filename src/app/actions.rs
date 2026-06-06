@@ -1089,17 +1089,7 @@ impl AppState {
     pub fn apply_effective_theme(&mut self) {
         self.palette = self.global_palette.clone();
         self.theme_name = self.global_theme_name.clone();
-
-        let Some(accent) = self
-            .groups
-            .get(self.active_group)
-            .and_then(|group| group.accent)
-        else {
-            return;
-        };
-        self.palette.accent = Palette::terminal_accent_color(self.host_terminal_theme, accent);
     }
-
     pub fn preview_theme_with_mode(
         &mut self,
         theme_name: &str,
@@ -1154,6 +1144,7 @@ impl AppState {
             self.active = self.first_visible_workspace();
             self.selected = self.active.unwrap_or(0);
         }
+        self.apply_effective_theme();
         self.mark_session_dirty();
         self.ensure_workspace_visible(self.selected);
     }
@@ -1340,6 +1331,7 @@ impl AppState {
         if was_active && !self.workspace_in_active_group(ws_idx) {
             self.select_first_visible_workspace();
         }
+
         true
     }
 
@@ -1419,6 +1411,7 @@ impl AppState {
             self.selection_autoscroll = None;
             self.active = Some(idx);
             self.selected = idx;
+
             let workspace_id = self.workspaces[idx].id.clone();
             crate::logging::workspace_focused(&workspace_id);
             self.mark_session_dirty();
@@ -3812,8 +3805,40 @@ mod tests {
         state.switch_group(side_group);
 
         assert_eq!(state.theme_name, state.global_theme_name);
-        assert_eq!(state.palette.accent, ratatui::style::Color::LightRed);
+        assert_eq!(state.palette.accent, state.global_palette.accent);
+        assert_eq!(
+            state.active_workspace_accent_color(),
+            ratatui::style::Color::LightRed
+        );
         assert_eq!(state.palette.panel_bg, state.global_palette.panel_bg);
+    }
+
+    #[test]
+    fn all_spaces_theme_accent_follows_active_workspace_group() {
+        let mut state = app_with_workspaces(&["one", "two"]);
+        let side_group = state.create_group("Side".to_string());
+        state.move_workspace_to_group(1, side_group);
+        state.set_group_accent(0, Some(crate::config::TerminalAccent::Blue));
+        state.set_group_accent(side_group, Some(crate::config::TerminalAccent::Red));
+        state.group_filter_enabled = false;
+        state.active_group = 0;
+        state.active = Some(1);
+
+        state.apply_effective_theme();
+
+        assert_eq!(state.palette.accent, state.global_palette.accent);
+        assert_eq!(
+            state.active_workspace_accent_color(),
+            ratatui::style::Color::LightRed
+        );
+
+        state.switch_workspace(0);
+
+        assert_eq!(state.palette.accent, state.global_palette.accent);
+        assert_eq!(
+            state.active_workspace_accent_color(),
+            state.group_accent_color(0)
+        );
     }
 
     #[test]
@@ -4199,7 +4224,7 @@ mod tests {
         state.active_group = work_group;
         state.set_group_accent(work_group, Some(crate::config::TerminalAccent::Red));
         let active_group_id = state.groups[work_group].id.clone();
-        let active_accent = state.palette.accent;
+        let active_accent = state.active_workspace_accent_color();
 
         state.move_group(work_group, state.groups.len());
 
@@ -4210,7 +4235,7 @@ mod tests {
             .collect();
         assert_eq!(names, vec!["group 1", "ops", "work"]);
         assert_eq!(state.groups[state.active_group].id, active_group_id);
-        assert_eq!(state.palette.accent, active_accent);
+        assert_eq!(state.active_workspace_accent_color(), active_accent);
     }
 
     #[test]
@@ -5031,15 +5056,15 @@ mod tests {
         state.move_workspace_to_group(1, group_idx);
         state.active_group = 0;
         state.set_group_accent(0, Some(crate::config::TerminalAccent::Blue));
-        let kept_accent = state.palette.accent;
+        let kept_accent = state.active_workspace_accent_color();
         state.active_group = group_idx;
         state.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Red));
-        assert_ne!(state.palette.accent, kept_accent);
+        assert_ne!(state.active_workspace_accent_color(), kept_accent);
 
         state.delete_group(group_idx).unwrap();
 
         assert_eq!(state.active_group, 0);
-        assert_eq!(state.palette.accent, kept_accent);
+        assert_eq!(state.active_workspace_accent_color(), kept_accent);
     }
 
     #[test]

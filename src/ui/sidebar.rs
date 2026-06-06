@@ -1204,7 +1204,9 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
     let p = &app.palette;
     fill_rect(frame, area, Style::default().bg(p.panel_bg));
     let sep_style = if is_navigating {
-        Style::default().fg(p.accent).bg(p.panel_bg)
+        Style::default()
+            .fg(app.active_workspace_accent_color())
+            .bg(p.panel_bg)
     } else {
         Style::default().fg(p.overlay0).bg(p.panel_bg)
     };
@@ -1224,7 +1226,9 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
                 .fg(app.group_accent_color(app.active_group))
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(app.active_workspace_accent_color())
+                .add_modifier(Modifier::BOLD)
         };
         frame.render_widget(
             Paragraph::new(Span::styled(label, style)).alignment(Alignment::Center),
@@ -1370,7 +1374,9 @@ pub(super) fn render_sidebar(
     fill_rect(frame, area, Style::default().bg(p.panel_bg));
     let is_navigating = matches!(app.mode, Mode::Navigate);
     let sep_style = if is_navigating {
-        Style::default().fg(p.accent).bg(p.panel_bg)
+        Style::default()
+            .fg(app.active_workspace_accent_color())
+            .bg(p.panel_bg)
     } else {
         Style::default().fg(p.overlay0).bg(p.panel_bg)
     };
@@ -1401,7 +1407,9 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
     fill_rect(frame, area, Style::default().bg(p.panel_bg));
     let has_active_workspace = app.active.and_then(|idx| app.workspaces.get(idx)).is_some();
     let sep_style = if !has_active_workspace && matches!(app.mode, Mode::Navigate) {
-        Style::default().fg(p.accent).bg(p.panel_bg)
+        Style::default()
+            .fg(app.active_workspace_accent_color())
+            .bg(p.panel_bg)
     } else {
         Style::default().fg(p.overlay0).bg(p.panel_bg)
     };
@@ -2630,7 +2638,7 @@ fn render_workspace_list_from(
             let group_color = if app.group_filter_enabled {
                 app.group_accent_color(app.active_group)
             } else {
-                p.overlay1
+                app.active_workspace_accent_color()
             };
             let base = Style::default().fg(group_color).bg(p.surface0);
             let count = Style::default().fg(p.overlay0).bg(p.surface0);
@@ -2792,7 +2800,8 @@ fn render_workspace_list_from(
                     break;
                 }
                 buf[(card.rect.x, y)].set_symbol("▌");
-                buf[(card.rect.x, y)].set_style(Style::default().fg(p.accent));
+                buf[(card.rect.x, y)]
+                    .set_style(Style::default().fg(app.active_workspace_accent_color()));
             }
         }
 
@@ -2862,7 +2871,7 @@ fn render_workspace_list_from(
         let buf = frame.buffer_mut();
         for x in area.x..indicator_right {
             buf[(x, y)].set_symbol("─");
-            buf[(x, y)].set_style(Style::default().fg(p.accent));
+            buf[(x, y)].set_style(Style::default().fg(app.active_workspace_accent_color()));
         }
     }
 

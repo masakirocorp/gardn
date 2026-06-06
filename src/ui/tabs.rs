@@ -245,6 +245,7 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
     };
 
     let p = &app.palette;
+    let active_accent = app.active_workspace_accent_color();
 
     frame.render_widget(
         Paragraph::new(" ".repeat(area.width as usize)).style(Style::default().bg(p.panel_bg)),
@@ -309,7 +310,7 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         }
         let active = idx == ws.active_tab;
         let style = if active {
-            let base = Style::default().fg(panel_contrast_fg(p)).bg(p.accent);
+            let base = Style::default().fg(panel_contrast_fg(p)).bg(active_accent);
             if tab.is_auto_named() {
                 base.add_modifier(Modifier::DIM)
             } else {
@@ -342,7 +343,7 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
             if let Some(x) = tab_drop_indicator_x(app, ws, *insert_idx) {
                 frame.buffer_mut()[(x.min(area.x + area.width.saturating_sub(1)), area.y)]
                     .set_symbol("│")
-                    .set_style(Style::default().fg(p.accent));
+                    .set_style(Style::default().fg(active_accent));
             }
         }
     }

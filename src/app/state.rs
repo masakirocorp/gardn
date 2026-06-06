@@ -2462,6 +2462,20 @@ impl AppState {
             .unwrap_or(self.global_palette.accent)
     }
 
+    pub fn active_workspace_accent_color(&self) -> Color {
+        if !self.group_filter_enabled {
+            if let Some(group_idx) = self
+                .active
+                .and_then(|ws_idx| self.workspaces.get(ws_idx))
+                .and_then(|workspace| self.group_index_by_id(&workspace.group_id))
+            {
+                return self.group_accent_color(group_idx);
+            }
+        }
+
+        self.group_accent_color(self.active_group)
+    }
+
     pub fn group_index_by_id(&self, group_id: &str) -> Option<usize> {
         self.groups.iter().position(|group| group.id == group_id)
     }

@@ -264,6 +264,7 @@ pub(super) fn render_panes(
     };
 
     let multi_pane = tab.layout.pane_count() > 1;
+    let active_accent = app.active_workspace_accent_color();
     let terminal_active = app.mode == Mode::Terminal;
 
     for info in &app.view.pane_infos {
@@ -271,12 +272,12 @@ pub(super) fn render_panes(
             if multi_pane {
                 let (border_style, border_set) = if info.is_focused && terminal_active {
                     (
-                        Style::default().fg(app.palette.accent),
+                        Style::default().fg(active_accent),
                         ratatui::symbols::border::THICK,
                     )
                 } else if info.is_focused {
                     (
-                        Style::default().fg(app.palette.accent),
+                        Style::default().fg(active_accent),
                         ratatui::symbols::border::PLAIN,
                     )
                 } else {
@@ -358,7 +359,7 @@ fn render_copy_mode_cursor(app: &AppState, frame: &mut Frame, info: &PaneInfo) {
     cell.set_style(
         Style::default()
             .fg(panel_contrast_fg(&app.palette))
-            .bg(app.palette.accent)
+            .bg(app.active_workspace_accent_color())
             .add_modifier(Modifier::BOLD),
     );
 }
