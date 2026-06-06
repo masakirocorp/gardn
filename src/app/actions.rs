@@ -3966,7 +3966,7 @@ mod tests {
         assert!(changed);
         assert_eq!(state.workspaces[0].branch(), None);
         assert_eq!(state.workspaces[0].git_ahead_behind(), None);
-        assert_eq!(state.workspaces[0].git_work_summary_label(), "shell");
+        assert_eq!(state.workspaces[0].git_work_summary_label(), "");
     }
 
     #[test]
