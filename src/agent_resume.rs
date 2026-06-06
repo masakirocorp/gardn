@@ -146,6 +146,24 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
     })
 }
 
+pub fn plan_with_launch_argv(
+    source: &str,
+    agent: &str,
+    session_ref: &AgentSessionRef,
+    launch_argv: Option<&[String]>,
+) -> Option<AgentResumePlan> {
+    let mut plan = plan(source, agent, session_ref)?;
+    if let Some(command) = launch_argv
+        .and_then(|argv| argv.first())
+        .filter(|command| valid_launch_command(command))
+    {
+        if let Some(planned_command) = plan.argv.first_mut() {
+            *planned_command = command.clone();
+        }
+    }
+    Some(plan)
+}
+
 pub fn dedupe_key(source: &str, agent: &str, session_ref: &AgentSessionRef) -> String {
     format!(
         "{source}\u{0}{agent}\u{0}{:?}\u{0}{}",
@@ -175,6 +193,10 @@ fn valid_session_path(value: &str) -> bool {
         && value.len() <= MAX_SESSION_PATH_LEN
         && !value.chars().any(char::is_control)
         && Path::new(value).is_absolute()
+}
+
+fn valid_launch_command(value: &str) -> bool {
+    !value.is_empty() && !value.chars().any(char::is_control)
 }
 
 #[cfg(test)]
@@ -252,6 +274,30 @@ mod tests {
             .unwrap()
             .argv,
             vec!["opencode", "--session", "opencode-session"]
+        );
+    }
+
+    #[test]
+    fn planner_preserves_launch_command_alias_for_resume() {
+        let opencode_ref = AgentSessionRef::id("opencode-session").unwrap();
+        assert_eq!(
+            plan_with_launch_argv(
+                "hako:opencode",
+                "opencode",
+                &opencode_ref,
+                Some(&["oc-frs".to_string()])
+            )
+            .unwrap()
+            .argv,
+            vec!["oc-frs", "--session", "opencode-session"]
+        );
+
+        let omp_ref = AgentSessionRef::path("/tmp/omp-session.jsonl").unwrap();
+        assert_eq!(
+            plan_with_launch_argv("hako:omp", "omp", &omp_ref, Some(&["omp-mk".to_string()]))
+                .unwrap()
+                .argv,
+            vec!["omp-mk", "--session", "/tmp/omp-session.jsonl"]
         );
     }
 
