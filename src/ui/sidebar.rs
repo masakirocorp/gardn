@@ -661,6 +661,30 @@ fn agent_panel_section_header_style(section: &AgentPanelSection, p: &Palette) ->
     };
     Style::default().fg(color).add_modifier(Modifier::BOLD)
 }
+fn right_entry_primary_prefix(icon: &'static str, icon_style: Style) -> Vec<Span<'static>> {
+    vec![
+        Span::styled(" ".repeat(RIGHT_ENTRY_ICON_COL as usize), Style::default()),
+        Span::styled(icon, icon_style),
+        Span::styled(
+            " ".repeat(RIGHT_ENTRY_PRIMARY_COL.saturating_sub(RIGHT_ENTRY_ICON_COL + 1) as usize),
+            Style::default(),
+        ),
+    ]
+}
+
+fn right_entry_detail_prefix(p: &Palette) -> Vec<Span<'static>> {
+    vec![
+        Span::styled(" ".repeat(RIGHT_ENTRY_ICON_COL as usize), Style::default()),
+        Span::styled(
+            "│",
+            Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+        ),
+        Span::styled(
+            " ".repeat(RIGHT_ENTRY_PRIMARY_COL.saturating_sub(RIGHT_ENTRY_ICON_COL + 1) as usize),
+            Style::default(),
+        ),
+    ]
+}
 
 fn workspace_row_height(_ws: &crate::workspace::Workspace) -> u16 {
     2
@@ -1969,10 +1993,7 @@ fn port_icon(entry: &PortPanelEntry, p: &Palette) -> (&'static str, Style) {
 }
 
 fn port_secondary_line(entry: &PortPanelEntry, p: &Palette, width: u16) -> Line<'static> {
-    let mut spans = vec![Span::styled(
-        " ".repeat(RIGHT_ENTRY_PRIMARY_COL as usize),
-        Style::default(),
-    )];
+    let mut spans = right_entry_detail_prefix(p);
 
     spans.push(Span::styled(
         entry.exposure_label,
@@ -2176,26 +2197,24 @@ fn render_command_entry(
     let label_style = match entry.status {
         Some(CommandRunStatus::Running) => Style::default().fg(p.text).add_modifier(Modifier::BOLD),
         Some(CommandRunStatus::Failed) => Style::default().fg(p.red).add_modifier(Modifier::BOLD),
-        _ => Style::default().fg(p.subtext0).add_modifier(Modifier::BOLD),
+        _ => Style::default().fg(p.subtext0),
     };
-    let primary = truncate_text(&entry.command.name, area.width.saturating_sub(4) as usize);
+    let primary = truncate_text(
+        &entry.command.name,
+        area.width.saturating_sub(RIGHT_ENTRY_PRIMARY_COL) as usize,
+    );
+    let mut primary_spans = right_entry_primary_prefix(icon, icon_style);
+    primary_spans.push(Span::styled(primary, label_style));
     frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("   ", Style::default()),
-            Span::styled(icon, icon_style),
-            Span::styled(" ", Style::default()),
-            Span::styled(primary, label_style),
-        ])),
+        Paragraph::new(Line::from(primary_spans)),
         Rect::new(area.x, row_y, area.width, 1),
     );
 
-    let mut spans = vec![
-        Span::styled("     ", Style::default()),
-        Span::styled(
-            entry.command.source.label(),
-            Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
-        ),
-    ];
+    let mut spans = right_entry_detail_prefix(p);
+    spans.push(Span::styled(
+        entry.command.source.label(),
+        Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+    ));
     if let Some(label) = command_status_label(entry.status) {
         spans.push(Span::styled(" · ", Style::default().fg(p.overlay0)));
         spans.push(Span::styled(label, command_status_style(entry.status, p)));
@@ -2412,19 +2431,10 @@ fn render_port_entry(
         area.width.saturating_sub(RIGHT_ENTRY_PRIMARY_COL) as usize,
     );
 
+    let mut primary_spans = right_entry_primary_prefix(icon, icon_style);
+    primary_spans.push(Span::styled(primary_label, label_style));
     frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(" ".repeat(RIGHT_ENTRY_ICON_COL as usize), Style::default()),
-            Span::styled(icon, icon_style),
-            Span::styled(
-                " ".repeat(
-                    RIGHT_ENTRY_PRIMARY_COL.saturating_sub(RIGHT_ENTRY_ICON_COL + 1) as usize,
-                ),
-                Style::default(),
-            ),
-            Span::styled(primary_label, label_style),
-        ]))
-        .style(row_style),
+        Paragraph::new(Line::from(primary_spans)).style(row_style),
         Rect::new(area.x, row_y, area.width, 1),
     );
     frame.render_widget(
@@ -2820,10 +2830,23 @@ fn render_workspace_list_from(
         if row_height > 1 && row_y + 1 < list_bottom {
             let max_summary_len =
                 (card.rect.width as usize).saturating_sub(SIDEBAR_WORKSPACE_NAME_COL as usize);
-            let mut spans = vec![Span::styled(
-                " ".repeat(SIDEBAR_WORKSPACE_NAME_COL as usize),
-                Style::default(),
-            )];
+            let mut spans = vec![
+                Span::styled(
+                    " ".repeat(SIDEBAR_WORKSPACE_STATE_COL as usize),
+                    Style::default(),
+                ),
+                Span::styled(
+                    "│",
+                    Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+                ),
+                Span::styled(
+                    " ".repeat(
+                        SIDEBAR_WORKSPACE_NAME_COL.saturating_sub(SIDEBAR_WORKSPACE_STATE_COL + 1)
+                            as usize,
+                    ),
+                    Style::default(),
+                ),
+            ];
             spans.extend(workspace_summary_spans(ws, p, max_summary_len));
             frame.render_widget(
                 Paragraph::new(Line::from(spans)),
@@ -2950,25 +2973,14 @@ fn render_agent_entry(
         area.width.saturating_sub(RIGHT_ENTRY_PRIMARY_COL) as usize,
         name_style,
     );
-    let mut name_spans = vec![
-        Span::styled(" ".repeat(RIGHT_ENTRY_ICON_COL as usize), Style::default()),
-        Span::styled(icon, icon_style),
-        Span::styled(
-            " ".repeat(RIGHT_ENTRY_PRIMARY_COL.saturating_sub(RIGHT_ENTRY_ICON_COL + 1) as usize),
-            Style::default(),
-        ),
-    ];
+    let mut name_spans = right_entry_primary_prefix(icon, icon_style);
     name_spans.append(&mut primary_line.spans);
-    let name_line = Line::from(name_spans);
     frame.render_widget(
-        Paragraph::new(name_line).style(row_style),
+        Paragraph::new(Line::from(name_spans)).style(row_style),
         Rect::new(area.x, row_y, area.width, 1),
     );
 
-    let mut status_spans = vec![Span::styled(
-        " ".repeat(RIGHT_ENTRY_PRIMARY_COL as usize),
-        Style::default(),
-    )];
+    let mut status_spans = right_entry_detail_prefix(p);
     if let Some(agent_label) = &detail.agent_label {
         status_spans.push(Span::styled(agent_label.clone(), agent_style));
     }
@@ -3448,6 +3460,10 @@ mod tests {
         assert_eq!(
             buffer[(home_card.x + SIDEBAR_WORKSPACE_NAME_COL, home_card.y)].symbol(),
             "h"
+        );
+        assert_eq!(
+            buffer[(home_card.x + SIDEBAR_WORKSPACE_STATE_COL, home_card.y + 1)].symbol(),
+            "│"
         );
         assert_eq!(
             buffer[(home_card.x + SIDEBAR_WORKSPACE_NAME_COL, home_card.y + 1)].symbol(),
@@ -4107,6 +4123,10 @@ mod tests {
             buffer[(body.x + RIGHT_ENTRY_PRIMARY_COL, body.y + 1)].symbol(),
             "d"
         );
+        assert_eq!(
+            buffer[(body.x + RIGHT_ENTRY_ICON_COL, body.y + 2)].symbol(),
+            "│"
+        );
         assert!(!buffer[(body.x + RIGHT_ENTRY_PRIMARY_COL, body.y + 1)]
             .style()
             .add_modifier
@@ -4435,6 +4455,7 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), 36, 14);
         assert!(text.contains("running"));
+        assert!(text.contains("│"));
     }
 
     #[test]
@@ -4491,6 +4512,10 @@ mod tests {
         assert_eq!(
             buffer[(port_area.x + RIGHT_ENTRY_PRIMARY_COL, port_area.y + 1)].symbol(),
             ":"
+        );
+        assert_eq!(
+            buffer[(port_area.x + RIGHT_ENTRY_ICON_COL, port_area.y + 2)].symbol(),
+            "│"
         );
         assert_eq!(
             buffer[(port_area.x + RIGHT_ENTRY_PRIMARY_COL, port_area.y + 2)].symbol(),
