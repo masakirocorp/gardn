@@ -180,31 +180,36 @@ pub fn detect_agent(agent: Option<Agent>, screen_content: &str) -> AgentDetectio
             visible_working: false,
         };
     };
-    let state = match agent {
-        Agent::Pi => detect_pi(screen_content),
-        Agent::OhMyPi => detect_oh_my_pi(screen_content),
-        Agent::Claude => detect_claude(screen_content),
-        Agent::Codex => detect_codex(screen_content),
-        Agent::Gemini => detect_gemini(screen_content),
-        Agent::Cursor => detect_cursor(screen_content),
-        Agent::Antigravity => detect_antigravity(screen_content),
-        Agent::Cline => detect_cline(screen_content),
-        Agent::OpenCode => detect_opencode(screen_content),
-        Agent::GithubCopilot => detect_github_copilot(screen_content),
-        Agent::Kimi => detect_kimi(screen_content),
-        Agent::Kiro => detect_kiro(screen_content),
-        Agent::Droid => detect_droid(screen_content),
-        Agent::Amp => detect_amp(screen_content),
-        Agent::Grok => detect_grok(screen_content),
-        Agent::Hermes => detect_hermes(screen_content),
-        Agent::Kilo => detect_kilo(screen_content),
-        Agent::Qodercli => detect_qodercli(screen_content),
+    let compaction_visible = has_agent_compaction_status(agent, screen_content);
+    let state = if compaction_visible {
+        AgentState::Working
+    } else {
+        match agent {
+            Agent::Pi => detect_pi(screen_content),
+            Agent::OhMyPi => detect_oh_my_pi(screen_content),
+            Agent::Claude => detect_claude(screen_content),
+            Agent::Codex => detect_codex(screen_content),
+            Agent::Gemini => detect_gemini(screen_content),
+            Agent::Cursor => detect_cursor(screen_content),
+            Agent::Antigravity => detect_antigravity(screen_content),
+            Agent::Cline => detect_cline(screen_content),
+            Agent::OpenCode => detect_opencode(screen_content),
+            Agent::GithubCopilot => detect_github_copilot(screen_content),
+            Agent::Kimi => detect_kimi(screen_content),
+            Agent::Kiro => detect_kiro(screen_content),
+            Agent::Droid => detect_droid(screen_content),
+            Agent::Amp => detect_amp(screen_content),
+            Agent::Grok => detect_grok(screen_content),
+            Agent::Hermes => detect_hermes(screen_content),
+            Agent::Kilo => detect_kilo(screen_content),
+            Agent::Qodercli => detect_qodercli(screen_content),
+        }
     };
     AgentDetection {
         state,
         visible_blocker: has_visible_blocker(agent, screen_content, state),
         visible_idle: has_visible_idle(agent, screen_content, state),
-        visible_working: has_visible_working(agent, screen_content, state),
+        visible_working: compaction_visible || has_visible_working(agent, screen_content, state),
     }
 }
 
@@ -231,7 +236,7 @@ fn detect_oh_my_pi(content: &str) -> AgentState {
         return pi_state;
     }
 
-    if has_interrupt_pattern(&lower) {
+    if has_agent_compaction_status(Agent::OhMyPi, content) || has_interrupt_pattern(&lower) {
         return AgentState::Working;
     }
 
@@ -244,6 +249,79 @@ fn has_oh_my_pi_blocked_prompt(lower_content: &str) -> bool {
         && lower_content.contains("esc cancel"))
         || (lower_content.contains("enter submit") && lower_content.contains("esc cancel"))
         || (lower_content.contains("ctrl+enter submit") && lower_content.contains("esc cancel"))
+}
+
+fn has_agent_compaction_status(agent: Agent, content: &str) -> bool {
+    has_shared_compaction_status(content)
+        || match agent {
+            Agent::OhMyPi => has_oh_my_pi_compaction_status(content),
+            Agent::Gemini => has_gemini_compaction_status(content),
+            Agent::Kimi => has_kimi_compaction_status(content),
+            Agent::Droid => has_droid_compaction_status(content),
+            Agent::Amp => has_amp_compaction_status(content),
+            Agent::Grok => has_grok_compaction_status(content),
+            _ => false,
+        }
+}
+
+fn has_shared_compaction_status(content: &str) -> bool {
+    content.lines().any(|line| {
+        let line = line.trim_start();
+        line.contains("context-full maintenance")
+            || line.contains("Context-full maintenance")
+            || line.contains("context full maintenance")
+            || line.contains("Context full maintenance")
+            || line.contains("Compacting conversation")
+            || line.contains("compacting conversation")
+    })
+}
+
+fn has_oh_my_pi_compaction_status(content: &str) -> bool {
+    content.lines().any(|line| {
+        let line = line.trim_start();
+        line.contains("Compacting context")
+            || line.contains("compacting context")
+            || line.contains("Auto-compacting context")
+            || line.contains("auto-compacting context")
+    })
+}
+
+fn has_gemini_compaction_status(content: &str) -> bool {
+    content.lines().any(|line| {
+        let line = line.trim_start();
+        line.contains("Compressing chat history") || line.contains("compressing chat history")
+    })
+}
+
+fn has_kimi_compaction_status(content: &str) -> bool {
+    content.lines().any(|line| {
+        let line = line.trim_start();
+        line.contains("Compacting...") || line.contains("compacting...")
+    })
+}
+
+fn has_droid_compaction_status(content: &str) -> bool {
+    content.lines().any(|line| {
+        let line = line.trim_start();
+        line.contains("Compressing history") || line.contains("compressing history")
+    })
+}
+
+fn has_amp_compaction_status(content: &str) -> bool {
+    content.lines().any(|line| {
+        let line = line.trim_start();
+        line.contains("Auto-compacting") || line.contains("auto-compacting")
+    })
+}
+
+fn has_grok_compaction_status(content: &str) -> bool {
+    content.lines().any(|line| {
+        let line = line.trim_start();
+        line.contains("Running: Compacting")
+            || line.contains("running: compacting")
+            || line.contains("Auto-compact")
+            || line.contains("auto-compact")
+    })
 }
 
 /// Claude Code detection. The most complex — it has a structured prompt box UI.
@@ -402,7 +480,8 @@ fn detect_opencode(content: &str) -> AgentState {
     }
 
     // Working
-    if has_interrupt_pattern(&content.to_lowercase()) {
+    let lower = content.to_lowercase();
+    if has_agent_compaction_status(Agent::OpenCode, content) || has_interrupt_pattern(&lower) {
         return AgentState::Working;
     }
 
@@ -1916,6 +1995,86 @@ mod tests {
     }
 
     #[test]
+    fn context_full_maintenance_is_working_for_all_known_agents() {
+        for agent in [
+            Agent::Pi,
+            Agent::OhMyPi,
+            Agent::Claude,
+            Agent::Codex,
+            Agent::Gemini,
+            Agent::Cursor,
+            Agent::Antigravity,
+            Agent::Cline,
+            Agent::OpenCode,
+            Agent::GithubCopilot,
+            Agent::Kimi,
+            Agent::Kiro,
+            Agent::Droid,
+            Agent::Amp,
+            Agent::Grok,
+            Agent::Hermes,
+            Agent::Kilo,
+            Agent::Qodercli,
+        ] {
+            let detection = detect_agent(Some(agent), "Auto context-full maintenance…");
+            assert_eq!(detection.state, AgentState::Working, "{agent:?}");
+            assert!(detection.visible_working, "{agent:?}");
+        }
+    }
+
+    #[test]
+    fn compacting_conversation_is_working_for_all_known_agents() {
+        for agent in [
+            Agent::Pi,
+            Agent::OhMyPi,
+            Agent::Claude,
+            Agent::Codex,
+            Agent::Gemini,
+            Agent::Cursor,
+            Agent::Antigravity,
+            Agent::Cline,
+            Agent::OpenCode,
+            Agent::GithubCopilot,
+            Agent::Kimi,
+            Agent::Kiro,
+            Agent::Droid,
+            Agent::Amp,
+            Agent::Grok,
+            Agent::Hermes,
+            Agent::Kilo,
+            Agent::Qodercli,
+        ] {
+            let detection = detect_agent(
+                Some(agent),
+                "❯ /compact\n\n· Compacting conversation…\n  ▰▰▰▱ 7%\n────────────\n❯\n────────────",
+            );
+            assert_eq!(detection.state, AgentState::Working, "{agent:?}");
+            assert!(detection.visible_working, "{agent:?}");
+            assert!(!detection.visible_idle, "{agent:?}");
+        }
+    }
+
+    #[test]
+    fn source_backed_agent_compaction_statuses_are_working() {
+        let cases = [
+            (Agent::OhMyPi, "Auto-compacting context... (esc to cancel)"),
+            (Agent::OhMyPi, "Compacting context... (esc to cancel)"),
+            (Agent::Gemini, "Compressing chat history"),
+            (Agent::Kimi, "🎈 Compacting..."),
+            (Agent::Droid, "Compressing history..."),
+            (Agent::Amp, "Auto-compacting"),
+            (Agent::Grok, "Running: Compacting"),
+        ];
+
+        for (agent, screen) in cases {
+            let detection = detect_agent(Some(agent), screen);
+            assert_eq!(detection.state, AgentState::Working, "{agent:?}");
+            assert!(detection.visible_working, "{agent:?}");
+            assert!(!detection.visible_idle, "{agent:?}");
+        }
+    }
+
+    #[test]
     fn pi_idle_no_working_text() {
         assert_eq!(detect_pi("some output\n\n> ready"), AgentState::Idle);
     }
@@ -1927,6 +2086,14 @@ mod tests {
                 Some(Agent::OhMyPi),
                 "some output\nWorking… (esc to interrupt)"
             ),
+            AgentState::Working
+        );
+    }
+
+    #[test]
+    fn oh_my_pi_context_full_maintenance_is_working() {
+        assert_eq!(
+            detect_state(Some(Agent::OhMyPi), "Auto context-full maintenance…"),
             AgentState::Working
         );
     }
@@ -2504,6 +2671,14 @@ mod tests {
     fn opencode_working() {
         assert_eq!(
             detect_opencode("running tool\nesc to interrupt"),
+            AgentState::Working
+        );
+    }
+
+    #[test]
+    fn opencode_context_full_maintenance_is_working() {
+        assert_eq!(
+            detect_opencode("Auto context-full maintenance…"),
             AgentState::Working
         );
     }
