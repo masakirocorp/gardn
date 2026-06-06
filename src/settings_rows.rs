@@ -362,25 +362,9 @@ fn behavior_rows(app: &AppState) -> Vec<SettingsListRow> {
 
 fn experiment_rows(app: &AppState) -> Vec<SettingsListRow> {
     vec![
-        SettingsListRow::Header("restore"),
-        option(
-            0,
-            "resume agent sessions",
-            "restart supported agents in their native session after restore",
-            app.resume_agents_on_restore_enabled(),
-        ),
-        SettingsListRow::Spacer,
-        SettingsListRow::Header("history"),
-        option(
-            1,
-            "pane screen history",
-            "save recent pane output across server restarts",
-            app.pane_history_persistence_enabled(),
-        ),
-        SettingsListRow::Spacer,
         SettingsListRow::Header("input"),
         option(
-            2,
+            0,
             "switch to ascii input source in prefix (macOS)",
             "temporarily use an ASCII-capable layout for prefix commands",
             app.switch_ascii_input_source_in_prefix_enabled(),

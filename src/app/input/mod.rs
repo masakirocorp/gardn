@@ -379,12 +379,6 @@ impl App {
                         self.state.set_group_accent(group_idx, accent);
                         self.query_host_terminal_theme();
                     }
-                    SettingsAction::SavePaneHistory(enabled) => {
-                        self.save_pane_history_persistence(enabled)
-                    }
-                    SettingsAction::SaveResumeAgentsOnRestore(enabled) => {
-                        self.save_resume_agents_on_restore(enabled)
-                    }
                     SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                         self.save_switch_ascii_input_source_in_prefix(enabled)
                     }

@@ -1105,7 +1105,7 @@ mod tests {
     #[test]
     fn selected_disabled_section_markers_use_selected_foreground() {
         let mut app = AppState::test_new();
-        app.resume_agents_on_restore = false;
+        app.switch_ascii_input_source_in_prefix = false;
         app.settings.section = SettingsSection::Experiments;
         app.settings.list.selected = 0;
 
@@ -1118,7 +1118,8 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         let (selected_y, marker_x) =
-            find_text_cell(&text, "○ resume agent sessions").expect("selected experiment row");
+            find_text_cell(&text, "○ switch to ascii input source in prefix (macOS)")
+                .expect("selected experiment row");
 
         assert_eq!(
             terminal.backend().buffer()[(marker_x, selected_y)].symbol(),
@@ -1207,10 +1208,8 @@ mod tests {
     }
 
     #[test]
-    fn experiments_render_agent_resume_history_and_input_source() {
+    fn experiments_render_input_source_only() {
         let mut app = AppState::test_new();
-        app.resume_agents_on_restore = true;
-        app.pane_history_persistence = false;
         app.switch_ascii_input_source_in_prefix = true;
         app.settings.section = SettingsSection::Experiments;
         app.settings.list.selected = 0;
@@ -1223,32 +1222,12 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("restore"));
-        assert!(text.contains("history"));
+        assert!(!text.contains("restore"));
+        assert!(!text.contains("history"));
+        assert!(!text.contains("resume agent sessions"));
+        assert!(!text.contains("pane screen history"));
         assert!(text.contains("input"));
-        assert!(text.contains("● resume agent sessions"));
-        assert!(text.contains("○ pane screen history"));
         assert!(text.contains("● switch to ascii input source in prefix (macOS)"));
-    }
-
-    #[test]
-    fn experiments_pane_history_uses_enabled_marker() {
-        let mut app = AppState::test_new();
-        app.resume_agents_on_restore = false;
-        app.pane_history_persistence = true;
-        app.settings.section = SettingsSection::Experiments;
-        app.settings.list.selected = 1;
-
-        let area = Rect::new(0, 0, 100, 30);
-        let backend = TestBackend::new(area.width, area.height);
-        let mut terminal = Terminal::new(backend).expect("test backend");
-        terminal
-            .draw(|frame| render_settings_overlay(&app, frame, area))
-            .expect("render settings overlay");
-
-        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("○ resume agent sessions"));
-        assert!(text.contains("● pane screen history"));
     }
     fn assert_no_option_line(text: &str, option: &str) {
         let mut in_appearance_section = false;

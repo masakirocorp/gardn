@@ -431,14 +431,14 @@ impl Default for RemoteConfig {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct ExperimentalConfig {
     /// Allow launching hako inside an existing hako pane. Default: false.
     pub allow_nested: bool,
     /// Experimental local Kitty graphics rendering for attached clients. Default: false.
     pub kitty_graphics: bool,
-    /// Persist pane screen history to session-history.json. Default: false.
+    /// Persist pane screen history to session-history.json. Default: true.
     pub pane_history: bool,
     /// Expose the focused pane's cursor anchor to the outer terminal even when
     /// the pane requested `?25l`, so macOS native input methods keep tracking
@@ -469,6 +469,20 @@ pub struct ExperimentalConfig {
     /// source when prefix mode exits. macOS only; a no-op elsewhere and a
     /// best-effort no-op if the switch fails. Default: false.
     pub switch_ascii_input_source_in_prefix: bool,
+}
+
+impl Default for ExperimentalConfig {
+    fn default() -> Self {
+        Self {
+            allow_nested: false,
+            kitty_graphics: false,
+            pane_history: true,
+            reveal_hidden_cursor_for_cjk_ime: false,
+            cjk_ime_agents: Vec::new(),
+            cjk_ime_cursor_shape: ImeCursorShape::default(),
+            switch_ascii_input_source_in_prefix: false,
+        }
+    }
 }
 
 impl Default for KeysConfig {
@@ -1032,16 +1046,16 @@ delivery = "terminal"
     }
 
     #[test]
-    fn pane_history_persistence_is_opt_in() {
-        assert!(!Config::default().experimental.pane_history);
+    fn pane_history_persistence_defaults_on_and_parses_off() {
+        assert!(Config::default().experimental.pane_history);
 
         let toml = r#"
 [experimental]
-pane_history = true
+pane_history = false
 "#;
         let config: Config = toml::from_str(toml).unwrap();
 
-        assert!(config.experimental.pane_history);
+        assert!(!config.experimental.pane_history);
     }
 
     #[test]

@@ -41,8 +41,6 @@ pub(super) enum SettingsAction {
         worktree_directory: Option<String>,
         agent_border_labels: bool,
     },
-    SavePaneHistory(bool),
-    SaveResumeAgentsOnRestore(bool),
     SaveSwitchAsciiInputSourceInPrefix(bool),
     SaveGroupAccent {
         group_idx: usize,
@@ -98,12 +96,6 @@ impl App {
                 SettingsAction::SaveGroupAccent { group_idx, accent } => {
                     self.state.set_group_accent(group_idx, accent);
                     self.query_host_terminal_theme();
-                }
-                SettingsAction::SavePaneHistory(enabled) => {
-                    self.save_pane_history_persistence(enabled)
-                }
-                SettingsAction::SaveResumeAgentsOnRestore(enabled) => {
-                    self.save_resume_agents_on_restore(enabled)
                 }
                 SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                     self.save_switch_ascii_input_source_in_prefix(enabled)
@@ -589,7 +581,6 @@ fn cancel_settings(state: &mut AppState) {
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
     state.settings.pending_agent_border_labels = None;
-    state.settings.pending_resume_agents_on_restore = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.pending_group_accent_choice = None;
     state.settings.group_settings_target = None;
@@ -640,7 +631,6 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_sidebar_max_width = None;
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
-    state.settings.pending_resume_agents_on_restore = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.pending_group_accent_choice = None;
     state.settings.group_settings_target = None;
@@ -808,13 +798,7 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
 
 fn selected_experiment_action(state: &mut AppState) -> Option<SettingsAction> {
     match state.settings.list.selected {
-        0 => Some(SettingsAction::SaveResumeAgentsOnRestore(
-            !state.resume_agents_on_restore_enabled(),
-        )),
-        1 => Some(SettingsAction::SavePaneHistory(
-            !state.pane_history_persistence_enabled(),
-        )),
-        2 => Some(SettingsAction::SaveSwitchAsciiInputSourceInPrefix(
+        0 => Some(SettingsAction::SaveSwitchAsciiInputSourceInPrefix(
             !state.switch_ascii_input_source_in_prefix_enabled(),
         )),
         _ => None,
@@ -1105,8 +1089,6 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
     state.settings.pending_sidebar_max_width = Some(state.sidebar_max_width);
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = Some(state.agent_border_labels_enabled());
-    state.settings.pending_resume_agents_on_restore =
-        Some(state.resume_agents_on_restore_enabled());
     state.settings.group_settings_target = None;
     state.settings.section = section;
     state.settings.list.selected = match section {
@@ -1154,7 +1136,6 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_sidebar_max_width = None;
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
-    state.settings.pending_resume_agents_on_restore = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.group_settings_target = Some(group_idx);
     state.settings.section = SettingsSection::Theme;
@@ -1970,40 +1951,11 @@ mod tests {
     }
 
     #[test]
-    fn settings_experiments_toggles_resume_history_and_input_source() {
+    fn settings_experiments_toggles_input_source() {
         let mut state = state_with_workspaces(&["test"]);
-        state.resume_agents_on_restore = false;
-        state.pane_history_persistence = false;
         state.switch_ascii_input_source_in_prefix = false;
         open_settings_at(&mut state, SettingsSection::Experiments);
 
-        let resume_action = update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
-        );
-
-        assert_eq!(
-            resume_action,
-            Some(SettingsAction::SaveResumeAgentsOnRestore(true))
-        );
-        assert_eq!(state.mode, Mode::Settings);
-
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-        );
-        let history_action = update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
-        );
-
-        assert_eq!(history_action, Some(SettingsAction::SavePaneHistory(true)));
-        assert_eq!(state.mode, Mode::Settings);
-
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-        );
         let input_source_action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
@@ -2465,46 +2417,23 @@ mod tests {
     #[test]
     fn settings_mouse_click_toggles_experiment_rows() {
         let mut app = app_for_mouse_test();
-        app.state.resume_agents_on_restore = false;
-        app.state.pane_history_persistence = false;
         app.state.switch_ascii_input_source_in_prefix = false;
         app.state.view.sidebar_rect = Rect::new(0, 0, 26, 30);
         app.state.view.terminal_area = Rect::new(26, 0, 80, 30);
         open_settings_at(&mut app.state, SettingsSection::Experiments);
 
         let area = app.state.settings_content_rect();
-        let resume_action = app.state.handle_settings_mouse(mouse(
+        let input_source_action = app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             area.x + 2,
             area.y + 1,
         ));
 
         assert_eq!(
-            resume_action,
-            Some(SettingsAction::SaveResumeAgentsOnRestore(true))
-        );
-        assert_eq!(app.state.settings.list.selected, 0);
-
-        let history_action = app.state.handle_settings_mouse(mouse(
-            MouseEventKind::Down(crossterm::event::MouseButton::Left),
-            area.x + 2,
-            area.y + 5,
-        ));
-
-        assert_eq!(history_action, Some(SettingsAction::SavePaneHistory(true)));
-        assert_eq!(app.state.settings.list.selected, 1);
-
-        let input_source_action = app.state.handle_settings_mouse(mouse(
-            MouseEventKind::Down(crossterm::event::MouseButton::Left),
-            area.x + 2,
-            area.y + 9,
-        ));
-
-        assert_eq!(
             input_source_action,
             Some(SettingsAction::SaveSwitchAsciiInputSourceInPrefix(true))
         );
-        assert_eq!(app.state.settings.list.selected, 2);
+        assert_eq!(app.state.settings.list.selected, 0);
     }
 
     #[test]

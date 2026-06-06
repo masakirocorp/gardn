@@ -56,7 +56,7 @@ A pane is a terminal runtime inside a tab layout.
 - **Pane labels** — set manual pane labels; optionally show detected agent labels on pane borders.
 - **Pane close** — close panes with confirmation where configured.
 - **Scrollback** — scroll panes, edit scrollback in `$EDITOR`, and read visible/recent output through the API.
-- **Optional pane history** — persist screen history to `session-history.json` when `[experimental].pane_history` is enabled.
+- **Pane history** — persist recent screen history to `session-history.json` by default.
 - **Terminal identity** — panes advertise Hako's terminal layer instead of leaking the outer terminal identity.
 - **Snapshot restore** — saved sessions restore groups, active selections, sidebar layout, tabs, pane layouts, focus, zoom, cwd, labels, and agent session references.
 - **Selection copy** — drag-selected pane text copies on mouse-up and keeps the highlight until the next click or keypress.
@@ -352,7 +352,6 @@ Experimental options currently include:
 
 - nested Hako sessions
 - local Kitty graphics rendering for attached clients
-- pane history persistence
 - CJK IME hidden-cursor anchoring
 - agent-scoped CJK IME anchoring
 - configurable CJK IME anchor cursor shape

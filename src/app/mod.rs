@@ -693,7 +693,6 @@ impl App {
                 pending_sidebar_max_width: None,
                 pending_worktree_directory: None,
                 pending_agent_border_labels: None,
-                pending_resume_agents_on_restore: None,
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,
                 group_settings_target: None,
@@ -2879,54 +2878,6 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("confirm_close = false"));
         assert!(content.contains("prompt_new_tab_name = false"));
-        assert!(app.state.config_diagnostic.is_none());
-
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
-        let _ = std::fs::remove_dir_all(path.parent().unwrap());
-    }
-
-    #[test]
-    fn settings_save_pane_history_persists_then_applies_live_config() {
-        let _guard = config_env_lock().lock().unwrap();
-        let path = temp_config_path("settings-save-pane-history");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, "onboarding = false\n").unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
-
-        let mut app = test_app();
-        assert!(!app.persist_pane_history);
-        assert!(!app.state.pane_history_persistence);
-
-        app.save_pane_history_persistence(true);
-
-        assert!(app.persist_pane_history);
-        assert!(app.state.pane_history_persistence);
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("[experimental]"));
-        assert!(content.contains("pane_history = true"));
-        assert!(app.state.config_diagnostic.is_none());
-
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
-        let _ = std::fs::remove_dir_all(path.parent().unwrap());
-    }
-
-    #[test]
-    fn settings_save_resume_agents_persists_then_applies_live_config() {
-        let _guard = config_env_lock().lock().unwrap();
-        let path = temp_config_path("settings-save-resume-agents");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, "onboarding = false\n").unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
-
-        let mut app = test_app();
-        assert!(app.state.resume_agents_on_restore);
-
-        app.save_resume_agents_on_restore(false);
-
-        assert!(!app.state.resume_agents_on_restore);
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("[session]"));
-        assert!(content.contains("resume_agents_on_restore = false"));
         assert!(app.state.config_diagnostic.is_none());
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
