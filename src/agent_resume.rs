@@ -156,12 +156,55 @@ pub fn plan_with_launch_argv(
     if let Some(command) = launch_argv
         .and_then(|argv| argv.first())
         .filter(|command| valid_launch_command(command))
+        .cloned()
+        .or_else(|| inferred_launch_command(source, agent, session_ref))
     {
         if let Some(planned_command) = plan.argv.first_mut() {
-            *planned_command = command.clone();
+            *planned_command = command;
         }
     }
     Some(plan)
+}
+
+fn inferred_launch_command(
+    source: &str,
+    agent: &str,
+    session_ref: &AgentSessionRef,
+) -> Option<String> {
+    if !matches!(
+        (source, agent, session_ref.kind),
+        ("hako:omp", "omp", AgentSessionRefKind::Path)
+    ) {
+        return None;
+    }
+
+    let home = home_dir()?;
+    let prefix = Path::new(&home);
+    if !Path::new(&session_ref.value).starts_with(prefix) {
+        return None;
+    }
+
+    let profile_dir = Path::new(&session_ref.value)
+        .strip_prefix(prefix)
+        .ok()?
+        .components()
+        .next()?
+        .as_os_str()
+        .to_str()?;
+    let suffix = profile_dir.strip_prefix(".omp")?;
+    if suffix.is_empty() {
+        return Some("omp".to_string());
+    }
+    if suffix.starts_with('-')
+        && suffix.len() > 1
+        && suffix[1..]
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        return Some(format!("omp{suffix}"));
+    }
+
+    None
 }
 
 pub fn dedupe_key(source: &str, agent: &str, session_ref: &AgentSessionRef) -> String {
@@ -182,6 +225,10 @@ fn is_official_agent_source(source: &str, agent: &str) -> bool {
             | ("hako:hermes", "hermes")
             | ("hako:opencode", "opencode")
     )
+}
+
+fn home_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").map(std::path::PathBuf::from)
 }
 
 fn valid_session_id(value: &str) -> bool {
@@ -298,6 +345,20 @@ mod tests {
                 .unwrap()
                 .argv,
             vec!["omp-mk", "--session", "/tmp/omp-session.jsonl"]
+        );
+    }
+
+    #[test]
+    fn planner_infers_omp_profile_command_from_session_path() {
+        let home = std::env::var("HOME").expect("HOME should be set in tests");
+        let session_path = format!("{home}/.omp-mk/agent/sessions/project/session.jsonl");
+        let omp_profile_ref = AgentSessionRef::path(session_path.clone()).unwrap();
+
+        assert_eq!(
+            plan_with_launch_argv("hako:omp", "omp", &omp_profile_ref, None)
+                .unwrap()
+                .argv,
+            vec!["omp-mk".to_string(), "--session".to_string(), session_path]
         );
     }
 
