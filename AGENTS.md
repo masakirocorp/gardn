@@ -15,23 +15,17 @@ Terminal workspace manager for AI coding agents. Rust + ratatui.
 
 Read-only investigation can happen in the shared checkout.
 
-Small changes or small tasks are fine in the default main worktree. If you find unrelated implementation changes already in progress in the main worktree, use a dedicated worktree instead. Use a dedicated worktree for bigger features too.
+Small linear changes are fine in the default main worktree when the working tree is clean and no unrelated implementation is in progress. Use a dedicated task worktree for bigger features, risky refactors, parallel edits, or whenever the main worktree already contains unrelated changes.
 
-Use this layout:
+Use this layout for task worktrees:
 
 - shared integration checkout: `../hako`
 - task worktrees: `../hako-worktrees/<task-slug>`
 - task branches: `<tracker-key>-<slug>` when a tracker ticket exists
 
-Do all code edits, tests, and validation inside the task worktree.
-
-Commit on the task branch in that worktree.
-
-When the change is ready, fast-forward the shared checkout at `../hako` to the task branch commit, then push `origin/master` from `../hako`. Do not treat the task branch as the final landing branch.
+When using a task worktree, do all code edits, tests, and validation inside that worktree. Commit on the task branch, fast-forward the shared checkout at `../hako` to the task branch commit, then push `origin/master` from `../hako`. Do not treat the task branch as the final landing branch.
 
 If the current session is already inside an isolated task worktree, keep using it. Do not create nested worktrees.
-
-Before committing, propose the commit message and get alignment.
 
 After the change is integrated, remove the task worktree and delete the task branch locally and remotely.
 
@@ -64,32 +58,31 @@ This repo is a long-lived Masakiro product fork of `ogulcancelik/herdr`, branded
 
 ## Testing
 
-Use `just` recipes by default for tests and checks instead of invoking cargo or scripts directly.
+Use `just` recipes by default for full tests and checks.
 
 ```bash
 just test               # cargo nextest + maintenance script tests
-just check              # formatting check + cargo nextest + maintenance script tests
+just check              # formatting check + clippy + cargo nextest + maintenance script tests
 ```
 
-CI intentionally splits formatting, clippy, Rust tests, and maintenance tests into separate steps. Keep that shape; it makes platform hangs diagnosable. Rust tests use the `ci` nextest profile, which reports slow tests and times out hung tests.
+During development, focused `cargo test --locked <test-name>` runs are fine for tight iteration. Before committing non-trivial changes, run `just check` unless Can explicitly accepts a narrower validation for that commit.
 
-Default flow: run `just check` before committing. Do not commit until `just check` passes locally unless Can explicitly accepts a narrower validation for that commit.
+CI intentionally splits formatting, clippy, Rust tests, and maintenance tests into separate steps. Keep that shape; it makes platform hangs diagnosable. Rust tests use the `ci` nextest profile, which reports slow tests and times out hung tests.
 
 Unit tests live next to the code (`#[cfg(test)] mod tests`). If you add behavior to `AppState` or `Workspace`, it should be testable with `AppState::test_new()` and `Workspace::test_new()` — no PTYs.
 
 ## Conventions
 
-- Conventional commits, lowercase, no emojis.
+- Agents choose concise conventional commit messages, lowercase, no emojis. Do not ask for commit-message approval unless the user explicitly requests it.
 - `docs/` and `website/` are Hako-owned. Do not reintroduce upstream Herdr docs/site content or generated website output unless explicitly requested.
 - Put local PRDs, planning notes, and exploratory specs under `.prd/`; that directory is ignored and locally controlled.
 - When work maps to an external tracker ticket, follow the team's tracker-linking convention for commit messages and PR descriptions. Do not assume GitHub issue references are in use.
 - Rust: no `unwrap()` in production code. `tracing` for logging. `#[allow]` only with a comment explaining why.
 - Don't bypass checks. If tests fail, fix them before committing.
 - Don't add dependencies without a reason. Check if the existing deps cover it first.
+- For user-facing behavior changes, update `docs/features.md` or explicitly call out why docs were not changed before release.
 
 ## Releases
-
-Before cutting the first public Hako release, define the release notes flow. The current release recipe only bumps the version, runs checks, commits, tags, and lets GitHub Actions build release artifacts.
 
 Default release flow:
 
@@ -97,9 +90,12 @@ Default release flow:
 just check
 just release 0.x.y
 ```
+
 Hako release history is independent of upstream Herdr. Ignore inherited upstream `v*` tags; Hako's release line starts at `v0.1.0`.
 
 `just release 0.x.y` bumps `Cargo.toml`, runs tests, commits, tags, and pushes. GitHub Actions builds the binaries after the tag is pushed, creates the GitHub release, and uploads all four binary assets.
+
+After cutting a release, wait for GitHub CI, Nix, and Release workflows to pass. Verify the GitHub release exists and contains all expected assets.
 
 The release workflow must publish these four assets:
 
@@ -108,6 +104,7 @@ The release workflow must publish these four assets:
 - `hako-macos-x86_64`
 - `hako-macos-aarch64`
 
+When updating local binaries, build release and debug binaries, copy them to `~/.local/bin/hako` and `~/.local/bin/hako-dev`, codesign both on macOS, and stop the `hako-dev` server so the next launch uses the new binary. Run `cargo clean` after installing local binaries to avoid accumulating large debug build artifacts.
 
 When changing the server/client wire protocol, compare `src/server/protocol.rs::PROTOCOL_VERSION` against the latest released tag. Bump it only if the current source protocol is not already greater than the latest released protocol. Multiple unreleased wire changes in the same release cycle must share the same single protocol bump; Hako supports tagged releases, not arbitrary `master` client/server compatibility. When a bump is required, update all hardcoded protocol expectations and manual protocol fixtures in tests. Keep protocol test expectations intentionally explicit so compatibility changes are reviewed instead of silently following the constant.
 
