@@ -42,7 +42,7 @@ pub(crate) struct AgentPanelEntry {
     pub ws_idx: usize,
     pub tab_idx: usize,
     pub pane_id: crate::layout::PaneId,
-    pub primary_group_idx: Option<usize>,
+    pub group_context_idx: Option<usize>,
     pub primary_label: String,
     pub primary_tab_label: Option<String>,
     pub agent_label: Option<String>,
@@ -181,40 +181,20 @@ fn commands_visible_in_activity_scope(app: &AppState) -> bool {
     matches!(app.agent_panel_scope, AgentPanelScope::CurrentWorkspace)
 }
 
-fn agent_panel_group_label(app: &AppState, ws_idx: usize) -> String {
-    let Some(ws) = app.workspaces.get(ws_idx) else {
-        return "group 1".to_string();
-    };
-    app.groups
-        .iter()
-        .find(|group| group.id == ws.group_id)
-        .map(|group| group.name.clone())
-        .unwrap_or_else(|| "group 1".to_string())
-}
-
 fn agent_panel_group_idx(app: &AppState, ws_idx: usize) -> Option<usize> {
     let ws = app.workspaces.get(ws_idx)?;
     app.group_index_by_id(&ws.group_id)
 }
 
-fn agent_panel_workspace_context_label_from(
+fn agent_panel_workspace_label_from(
     app: &AppState,
     ws_idx: usize,
     terminal_runtimes: &TerminalRuntimeRegistry,
 ) -> String {
-    let Some(ws) = app.workspaces.get(ws_idx) else {
-        return String::new();
-    };
-    let workspace_label = ws.display_name_from(&app.terminals, terminal_runtimes);
-    if agent_panel_has_multiple_groups(app) {
-        format!(
-            "{} / {}",
-            agent_panel_group_label(app, ws_idx),
-            workspace_label
-        )
-    } else {
-        workspace_label
-    }
+    app.workspaces
+        .get(ws_idx)
+        .map(|ws| ws.display_name_from(&app.terminals, terminal_runtimes))
+        .unwrap_or_default()
 }
 
 fn agent_panel_has_multiple_groups(app: &AppState) -> bool {
@@ -291,7 +271,7 @@ fn agent_panel_entries_with_runtimes(
                     ws_idx,
                     tab_idx: detail.tab_idx,
                     pane_id: detail.pane_id,
-                    primary_group_idx: None,
+                    group_context_idx: None,
                     primary_label: workspace_label.clone(),
                     primary_tab_label: multi_tab.then_some(detail.tab_label),
                     agent_label: Some(detail.agent_label),
@@ -323,7 +303,7 @@ fn agent_panel_entries_with_runtimes(
                             ws_idx,
                             tab_idx: detail.tab_idx,
                             pane_id: detail.pane_id,
-                            primary_group_idx: None,
+                            group_context_idx: None,
                             primary_label: workspace_label.clone(),
                             primary_tab_label: multi_tab.then_some(detail.tab_label),
                             agent_label: Some(detail.agent_label),
@@ -346,14 +326,16 @@ fn agent_panel_entries_with_runtimes(
             .flat_map(|(ws_idx, ws)| {
                 let multi_tab = ws.tabs.len() > 1;
                 let workspace_label =
-                    agent_panel_workspace_context_label_from(app, ws_idx, terminal_runtimes);
+                    agent_panel_workspace_label_from(app, ws_idx, terminal_runtimes);
                 ws.pane_details(&app.terminals)
                     .into_iter()
                     .map(move |detail| AgentPanelEntry {
                         ws_idx,
                         tab_idx: detail.tab_idx,
                         pane_id: detail.pane_id,
-                        primary_group_idx: agent_panel_group_idx(app, ws_idx),
+                        group_context_idx: agent_panel_has_multiple_groups(app)
+                            .then(|| agent_panel_group_idx(app, ws_idx))
+                            .flatten(),
                         primary_label: workspace_label.clone(),
                         primary_tab_label: multi_tab.then_some(detail.tab_label),
                         agent_label: Some(detail.agent_label),
@@ -389,16 +371,17 @@ fn agent_panel_triage_entries_from(
         .enumerate()
         .flat_map(|(ws_idx, ws)| {
             let multi_tab = ws.tabs.len() > 1;
-            let context_label =
-                agent_panel_workspace_context_label_from(app, ws_idx, terminal_runtimes);
+            let workspace_label = agent_panel_workspace_label_from(app, ws_idx, terminal_runtimes);
             ws.pane_details(&app.terminals)
                 .into_iter()
                 .map(move |detail| AgentPanelEntry {
                     ws_idx,
                     tab_idx: detail.tab_idx,
                     pane_id: detail.pane_id,
-                    primary_group_idx: agent_panel_group_idx(app, ws_idx),
-                    primary_label: context_label.clone(),
+                    group_context_idx: agent_panel_has_multiple_groups(app)
+                        .then(|| agent_panel_group_idx(app, ws_idx))
+                        .flatten(),
+                    primary_label: workspace_label.clone(),
                     primary_tab_label: multi_tab.then_some(detail.tab_label),
                     agent_label: Some(detail.agent_label),
                     state: detail.state,
@@ -630,51 +613,31 @@ fn format_agent_activity_age(
     let age = now.saturating_duration_since(last_activity_at);
     let seconds = age.as_secs();
     if seconds < 60 {
-        return Some("just now".to_string());
+        return Some("now".to_string());
     }
 
     let minutes = seconds / 60;
     if minutes < 60 {
-        return Some(format!("{minutes}m ago"));
+        return Some(format!("{minutes}m"));
     }
 
     let hours = minutes / 60;
     if hours < 24 {
-        return Some(format!("{hours}h ago"));
+        return Some(format!("{hours}h"));
     }
 
-    Some(format!("{}d ago", hours / 24))
+    Some(format!("{}d", hours / 24))
 }
 
 fn agent_panel_primary_label_line(
-    app: &AppState,
     entry: &AgentPanelEntry,
     max_width: usize,
     base_style: Style,
 ) -> Line<'static> {
-    let label = format_agent_panel_primary_label(entry, max_width);
-    let Some(group_idx) = entry.primary_group_idx else {
-        return Line::from(Span::styled(label, base_style));
-    };
-    let Some(group) = app.groups.get(group_idx) else {
-        return Line::from(Span::styled(label, base_style));
-    };
-    let Some(rest) = label.strip_prefix(group.name.as_str()) else {
-        return Line::from(Span::styled(label, base_style));
-    };
-    if !rest.starts_with(" /") {
-        return Line::from(Span::styled(label, base_style));
-    }
-
-    Line::from(vec![
-        Span::styled(
-            group.name.clone(),
-            base_style
-                .fg(app.group_accent_color(group_idx))
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(rest.to_string(), base_style),
-    ])
+    Line::from(Span::styled(
+        format_agent_panel_primary_label(entry, max_width),
+        base_style,
+    ))
 }
 
 fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
@@ -3021,7 +2984,6 @@ fn render_agent_entry(
     let agent_style = Style::default().fg(p.overlay0).add_modifier(Modifier::DIM);
 
     let mut primary_line = agent_panel_primary_label_line(
-        app,
         detail,
         area.width.saturating_sub(RIGHT_ENTRY_PRIMARY_COL) as usize,
         name_style,
@@ -3049,11 +3011,28 @@ fn render_agent_entry(
         }
         status_spans.push(Span::styled(custom_status.clone(), agent_style));
     }
+    if let Some(group_idx) = detail.group_context_idx {
+        if let Some(group) = app.groups.get(group_idx) {
+            if show_status || detail.agent_label.is_some() || detail.custom_status.is_some() {
+                status_spans.push(Span::styled(" · ", agent_style));
+            }
+            status_spans.push(Span::styled(
+                group.name.clone(),
+                Style::default()
+                    .fg(app.group_accent_color(group_idx))
+                    .add_modifier(Modifier::DIM),
+            ));
+        }
+    }
     if let Some(age_label) = format_agent_activity_age(
         detail.last_meaningful_agent_activity_at,
         std::time::Instant::now(),
     ) {
-        if show_status || detail.agent_label.is_some() || detail.custom_status.is_some() {
+        if show_status
+            || detail.agent_label.is_some()
+            || detail.custom_status.is_some()
+            || detail.group_context_idx.is_some()
+        {
             status_spans.push(Span::styled(" · ", agent_style));
         }
         status_spans.push(Span::styled(age_label, agent_style));
@@ -3795,6 +3774,42 @@ mod tests {
     }
 
     #[test]
+    fn all_spaces_agent_rows_move_group_context_to_secondary_line() {
+        let mut app = crate::app::state::AppState::test_new();
+        let work_group = app.create_group("Work".to_string());
+
+        let other = Workspace::test_new("other");
+
+        let mut workspace = Workspace::test_new("agent");
+        workspace.group_id = app.groups[work_group].id.clone();
+        let tab_idx = workspace.test_add_tab(Some("logs"));
+        let pane = workspace.tabs[tab_idx].root_pane;
+        let pane_state = workspace.tabs[tab_idx].panes.get_mut(&pane).unwrap();
+        pane_state.detected_agent = Some(Agent::OpenCode);
+        pane_state.state = AgentState::Idle;
+        pane_state.seen = true;
+
+        app.workspaces = vec![other, workspace];
+        app.active = Some(1);
+        app.selected = 1;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        let backend = TestBackend::new(40, 8);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_agent_detail(&app, frame, Rect::new(0, 0, 40, 8), false))
+            .expect("render agent panel");
+
+        let text = buffer_text(terminal.backend().buffer(), 40, 8);
+        let rows = text.lines().collect::<Vec<_>>();
+        let idle_row = rows.iter().position(|row| row.contains("idle")).unwrap();
+
+        assert!(rows[idle_row + 1].contains("agent · logs"));
+        assert!(!rows[idle_row + 1].contains("Work / agent"));
+        assert!(rows[idle_row + 2].contains("opencode · Work"));
+    }
+
+    #[test]
     fn agent_secondary_line_shows_relative_activity_age() {
         let mut app = crate::app::state::AppState::test_new();
         let workspace = Workspace::test_new("agent");
@@ -3824,7 +3839,7 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), 40, 8);
 
-        assert!(text.contains("codex · 2m ago"));
+        assert!(text.contains("codex · 2m"));
     }
 
     #[test]
@@ -3833,19 +3848,19 @@ mod tests {
 
         assert_eq!(
             format_agent_activity_age(Some(now - std::time::Duration::from_secs(59)), now),
-            Some("just now".to_string())
+            Some("now".to_string())
         );
         assert_eq!(
             format_agent_activity_age(Some(now - std::time::Duration::from_secs(60)), now),
-            Some("1m ago".to_string())
+            Some("1m".to_string())
         );
         assert_eq!(
             format_agent_activity_age(Some(now - std::time::Duration::from_secs(7200)), now),
-            Some("2h ago".to_string())
+            Some("2h".to_string())
         );
         assert_eq!(
             format_agent_activity_age(Some(now - std::time::Duration::from_secs(172800)), now),
-            Some("2d ago".to_string())
+            Some("2d".to_string())
         );
     }
 
@@ -4047,8 +4062,10 @@ mod tests {
         let entries = agent_panel_entries(&app);
 
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].primary_label, "group 1 / one");
-        assert_eq!(entries[1].primary_label, "Work / two");
+        assert_eq!(entries[0].primary_label, "one");
+        assert_eq!(entries[0].group_context_idx, Some(0));
+        assert_eq!(entries[1].primary_label, "two");
+        assert_eq!(entries[1].group_context_idx, Some(hidden_group));
     }
 
     #[test]
@@ -4128,8 +4145,10 @@ mod tests {
         let entries = agent_panel_triage_entries(&app);
 
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].primary_label, "group 1 / done");
-        assert_eq!(entries[1].primary_label, "Work / blocked");
+        assert_eq!(entries[0].primary_label, "done");
+        assert_eq!(entries[0].group_context_idx, Some(0));
+        assert_eq!(entries[1].primary_label, "blocked");
+        assert_eq!(entries[1].group_context_idx, Some(work_group));
     }
 
     #[test]
@@ -4415,7 +4434,7 @@ mod tests {
                 ws_idx: 0,
                 tab_idx: 0,
                 pane_id: crate::layout::PaneId::from_raw(1),
-                primary_group_idx: None,
+                group_context_idx: None,
                 primary_label: "blocked".into(),
                 primary_tab_label: None,
                 agent_label: Some("opencode".into()),
@@ -4523,7 +4542,7 @@ mod tests {
             ws_idx: 0,
             tab_idx: 0,
             pane_id: crate::layout::PaneId::from_raw(1),
-            primary_group_idx: None,
+            group_context_idx: None,
             primary_label: "agent-browser".into(),
             primary_tab_label: Some("test-escalation".into()),
             agent_label: Some("claude".into()),
