@@ -544,6 +544,7 @@ impl HeadlessServer {
         let mut snapshot = crate::persist::capture_handoff(
             &self.app.state.groups,
             self.app.state.active_group,
+            self.app.state.group_filter_enabled,
             &self.app.state.workspaces,
             &self.app.state.terminals,
             &self.app.terminal_runtimes,

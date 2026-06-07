@@ -877,6 +877,7 @@ mod tests {
                 accent: None,
             }],
             active_group: 0,
+            group_filter_enabled: true,
             workspaces: vec![WorkspaceSnapshot {
                 id: Some(workspace.id.clone()),
                 custom_name: None,
@@ -1155,6 +1156,7 @@ mod tests {
                 accent: None,
             }],
             active_group: 0,
+            group_filter_enabled: true,
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("empty-workspace".into()),
                 custom_name: Some("empty".into()),
@@ -1209,6 +1211,7 @@ mod tests {
                 accent: None,
             }],
             active_group: 0,
+            group_filter_enabled: true,
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("workspace".into()),
                 custom_name: None,
@@ -1301,6 +1304,7 @@ mod tests {
                 }]
             },
             active_group: 0,
+            group_filter_enabled: true,
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("workspace".into()),
                 custom_name: None,
@@ -1492,6 +1496,7 @@ mod tests {
                 accent: None,
             }],
             active_group: 0,
+            group_filter_enabled: true,
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("workspace".into()),
                 custom_name: None,

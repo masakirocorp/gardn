@@ -21,6 +21,8 @@ pub struct SessionSnapshot {
     pub groups: Vec<GroupSnapshot>,
     #[serde(default)]
     pub active_group: usize,
+    #[serde(default = "default_true")]
+    pub group_filter_enabled: bool,
     pub workspaces: Vec<WorkspaceSnapshot>,
     pub active: Option<usize>,
     pub selected: usize,
@@ -279,6 +281,8 @@ struct RawSessionSnapshot {
     groups: Vec<GroupSnapshot>,
     #[serde(default)]
     active_group: usize,
+    #[serde(default = "default_true")]
+    group_filter_enabled: bool,
     #[serde(default)]
     workspaces: Vec<serde_json::Value>,
     #[serde(default)]
@@ -312,6 +316,7 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
             raw.groups
         },
         active_group: raw.active_group,
+        group_filter_enabled: raw.group_filter_enabled,
         workspaces: raw
             .workspaces
             .into_iter()
@@ -381,6 +386,7 @@ fn first_pane_id_in_layout(layout: &LayoutSnapshot) -> Option<u32> {
 pub fn capture(
     groups: &[crate::app::state::Group],
     active_group: usize,
+    group_filter_enabled: bool,
     workspaces: &[Workspace],
     terminals: &std::collections::HashMap<
         crate::terminal::TerminalId,
@@ -399,6 +405,7 @@ pub fn capture(
     capture_inner(
         groups,
         active_group,
+        group_filter_enabled,
         workspaces,
         terminals,
         terminal_runtimes,
@@ -421,6 +428,7 @@ pub fn capture(
 pub fn capture_handoff(
     groups: &[crate::app::state::Group],
     active_group: usize,
+    group_filter_enabled: bool,
     workspaces: &[Workspace],
     terminals: &std::collections::HashMap<
         crate::terminal::TerminalId,
@@ -439,6 +447,7 @@ pub fn capture_handoff(
     capture_inner(
         groups,
         active_group,
+        group_filter_enabled,
         workspaces,
         terminals,
         terminal_runtimes,
@@ -458,6 +467,7 @@ pub fn capture_handoff(
 fn capture_inner(
     groups: &[crate::app::state::Group],
     active_group: usize,
+    group_filter_enabled: bool,
     workspaces: &[Workspace],
     terminals: &std::collections::HashMap<
         crate::terminal::TerminalId,
@@ -478,6 +488,7 @@ fn capture_inner(
         version: SNAPSHOT_VERSION,
         groups: groups.iter().map(capture_group).collect(),
         active_group,
+        group_filter_enabled,
         workspaces: workspaces
             .iter()
             .map(|workspace| {
@@ -757,6 +768,7 @@ mod tests {
         capture(
             &state.groups,
             state.active_group,
+            state.group_filter_enabled,
             &state.workspaces,
             &state.terminals,
             terminal_runtimes,
@@ -852,6 +864,7 @@ mod tests {
         let handoff = capture_handoff(
             &state.groups,
             state.active_group,
+            state.group_filter_enabled,
             &state.workspaces,
             &state.terminals,
             &terminal_runtimes,
@@ -899,6 +912,7 @@ mod tests {
             version: SNAPSHOT_VERSION,
             groups: default_groups(),
             active_group: 0,
+            group_filter_enabled: true,
             workspaces: vec![],
             active: None,
             selected: 0,
@@ -933,6 +947,7 @@ mod tests {
             accent: Some(crate::config::TerminalAccent::Cyan),
         });
         state.active_group = 1;
+        state.group_filter_enabled = false;
         state.workspaces[1].group_id = group_id.clone();
 
         let json = serde_json::to_string(&capture_from_state(&state)).unwrap();
@@ -946,6 +961,7 @@ mod tests {
             Some(crate::config::TerminalAccent::Cyan)
         );
         assert_eq!(restored.active_group, 1);
+        assert!(!restored.group_filter_enabled);
         assert_eq!(restored.workspaces[1].group_id, group_id);
     }
 
@@ -1004,6 +1020,7 @@ mod tests {
         let snap = SessionSnapshot {
             groups: default_groups(),
             active_group: 0,
+            group_filter_enabled: true,
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("wproj".to_string()),
                 custom_name: Some("pi-mono".to_string()),
@@ -1558,6 +1575,7 @@ mod tests {
             version: SNAPSHOT_VERSION,
             groups: default_groups(),
             active_group: 0,
+            group_filter_enabled: true,
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("test-ws".to_string()),
                 custom_name: Some("fallback test".to_string()),

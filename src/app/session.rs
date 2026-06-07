@@ -35,6 +35,7 @@ impl App {
             let snap = crate::persist::capture(
                 &self.state.groups,
                 self.state.active_group,
+                self.state.group_filter_enabled,
                 &self.state.workspaces,
                 &self.state.terminals,
                 &self.terminal_runtimes,
@@ -63,6 +64,7 @@ impl super::AppState {
             && !self.right_sidebar_collapsed
             && self.right_sidebar_width == 28
             && (self.sidebar_section_split - 0.5).abs() < f32::EPSILON
+            && self.group_filter_enabled
             && self.sidebar_width == self.default_sidebar_width
     }
 }

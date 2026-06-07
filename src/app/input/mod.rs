@@ -684,6 +684,7 @@ fn capture_snapshot(state: &AppState) -> crate::persist::SessionSnapshot {
     crate::persist::capture(
         &state.groups,
         state.active_group,
+        state.group_filter_enabled,
         &state.workspaces,
         &state.terminals,
         &terminal_runtimes,

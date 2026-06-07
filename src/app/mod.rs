@@ -348,6 +348,7 @@ impl App {
         let (
             groups,
             active_group,
+            group_filter_enabled,
             workspaces,
             active,
             selected,
@@ -362,6 +363,7 @@ impl App {
             (
                 vec![state::Group::default_group()],
                 0,
+                true,
                 Vec::new(),
                 None,
                 0,
@@ -399,6 +401,7 @@ impl App {
                 (
                     groups_from_snapshot(&snap),
                     snap.active_group,
+                    snap.group_filter_enabled,
                     Vec::new(),
                     None,
                     0,
@@ -421,6 +424,7 @@ impl App {
                 (
                     groups_from_snapshot(&snap),
                     snap.active_group,
+                    snap.group_filter_enabled,
                     ws,
                     active,
                     selected,
@@ -441,6 +445,7 @@ impl App {
             (
                 vec![state::Group::default_group()],
                 0,
+                true,
                 Vec::new(),
                 None,
                 0,
@@ -512,7 +517,7 @@ impl App {
         let mut state = AppState {
             groups,
             active_group,
-            group_filter_enabled: true,
+            group_filter_enabled,
             terminals: std::collections::HashMap::new(),
             next_agent_activity_seq: 0,
             direct_attach_resize_locks: std::collections::HashSet::new(),
@@ -719,9 +724,10 @@ impl App {
                 cwd.as_deref().and_then(crate::workspace::git_branch);
         }
 
-        if state
-            .active
-            .is_some_and(|idx| !state.workspace_in_active_group(idx))
+        if state.group_filter_enabled
+            && state
+                .active
+                .is_some_and(|idx| !state.workspace_in_active_group(idx))
         {
             state.active = state.first_visible_workspace();
             state.selected = state.active.unwrap_or(0);
@@ -825,6 +831,7 @@ impl App {
         app.state.active_group = snapshot
             .active_group
             .min(app.state.groups.len().saturating_sub(1));
+        app.state.group_filter_enabled = snapshot.group_filter_enabled;
         app.state.workspaces = workspaces;
         app.state.terminals = terminals;
         app.terminal_runtimes = runtimes.into();
@@ -1881,6 +1888,7 @@ mod tests {
             version: 3,
             groups,
             active_group: 0,
+            group_filter_enabled: true,
             workspaces,
             active: None,
             selected: 0,
@@ -1944,6 +1952,7 @@ mod tests {
             Vec::new(),
         );
         snap.active_group = 1;
+        snap.group_filter_enabled = false;
         snap.sidebar_width = Some(32);
         snap.sidebar_collapsed = true;
         snap.sidebar_section_split = Some(0.25);
@@ -1966,6 +1975,7 @@ mod tests {
         assert_eq!(app.state.groups[1].id, "work");
         assert_eq!(app.state.groups[1].name, "Work");
         assert_eq!(app.state.active_group, 1);
+        assert!(!app.state.group_filter_enabled);
         assert_eq!(app.state.sidebar_width, 32);
         assert_eq!(app.state.sidebar_section_split, 0.25);
         assert!(app.state.sidebar_collapsed);
@@ -2018,6 +2028,7 @@ mod tests {
         let mut snap = crate::persist::capture_handoff(
             &state.groups,
             state.active_group,
+            state.group_filter_enabled,
             &state.workspaces,
             &state.terminals,
             &terminal_runtimes,

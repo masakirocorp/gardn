@@ -209,6 +209,7 @@ mod tests {
                 accent: None,
             }],
             active_group: 0,
+            group_filter_enabled: true,
             workspaces: vec![],
             active: None,
             selected: 0,
