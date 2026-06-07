@@ -171,9 +171,9 @@ fn agent_panel_current_workspace_idx(app: &AppState) -> Option<usize> {
 
 fn agent_panel_toggle_label(scope: AgentPanelScope) -> &'static str {
     match scope {
-        AgentPanelScope::CurrentWorkspace => "this space",
-        AgentPanelScope::CurrentGroup => "this group",
-        AgentPanelScope::AllWorkspaces => "all spaces",
+        AgentPanelScope::CurrentWorkspace => "follow space",
+        AgentPanelScope::CurrentGroup => "follow group",
+        AgentPanelScope::AllWorkspaces => "all",
     }
 }
 
@@ -3406,15 +3406,15 @@ mod tests {
     fn agent_panel_toggle_labels_match_control_center_scope() {
         assert_eq!(
             agent_panel_toggle_label(AgentPanelScope::CurrentWorkspace),
-            "this space"
+            "follow space"
         );
         assert_eq!(
             agent_panel_toggle_label(AgentPanelScope::CurrentGroup),
-            "this group"
+            "follow group"
         );
         assert_eq!(
             agent_panel_toggle_label(AgentPanelScope::AllWorkspaces),
-            "all spaces"
+            "all"
         );
     }
 

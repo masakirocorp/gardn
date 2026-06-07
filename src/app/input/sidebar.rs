@@ -395,9 +395,9 @@ impl AppState {
         vec![
             "all".to_string(),
             "---".to_string(),
-            "this space".to_string(),
+            "follow space".to_string(),
             format!("  {}", self.agent_menu_space_context_label()),
-            "this group".to_string(),
+            "follow group".to_string(),
             format!("  {}", self.agent_menu_group_context_label()),
         ]
     }
@@ -2397,9 +2397,9 @@ mod tests {
             vec![
                 "all",
                 "---",
-                "this space",
+                "follow space",
                 "  triage",
-                "this group",
+                "follow group",
                 "  group 1",
             ]
         );
