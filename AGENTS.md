@@ -21,7 +21,7 @@ Use this layout:
 
 - shared integration checkout: `../hako`
 - task worktrees: `../hako-worktrees/<task-slug>`
-- task branches: `issue/<id>-<slug>` when an issue exists
+- task branches: `<tracker-key>-<slug>` when a tracker ticket exists
 
 Do all code edits, tests, and validation inside the task worktree.
 
@@ -82,13 +82,7 @@ Unit tests live next to the code (`#[cfg(test)] mod tests`). If you add behavior
 - Conventional commits, lowercase, no emojis.
 - `docs/` and `website/` are Hako-owned. Do not reintroduce upstream Herdr docs/site content or generated website output unless explicitly requested.
 - Put local PRDs, planning notes, and exploratory specs under `.prd/`; that directory is ignored and locally controlled.
-- When a normal feature or fix commit relates to a GitHub issue, add a commit body line `refs #<issue-number>` after the subject. Use this shape:
-  ```text
-  fix: handle pane focus
-
-  refs #82
-  ```
-  Do not use GitHub closing keywords like `fixes #<issue-number>`, `closes #<issue-number>`, or `resolves #<issue-number>` in normal commits unless you intentionally want GitHub to close the issue when the commit lands on the default branch.
+- When work maps to an external tracker ticket, follow the team's tracker-linking convention for commit messages and PR descriptions. Do not assume GitHub issue references are in use.
 - Rust: no `unwrap()` in production code. `tracing` for logging. `#[allow]` only with a comment explaining why.
 - Don't bypass checks. If tests fail, fix them before committing.
 - Don't add dependencies without a reason. Check if the existing deps cover it first.
