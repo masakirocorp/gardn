@@ -1371,6 +1371,11 @@ impl AppState {
                     .get_mut(&terminal_id)?
                     .expire_agent_metadata_at(scheduled_deadline, now)?;
                 let change = mutation.effective_state_change?;
+                let seq = self.next_agent_activity_seq();
+                if let Some(terminal) = self.terminals.get_mut(&terminal_id) {
+                    terminal.mark_meaningful_agent_activity(seq, now);
+                }
+
                 let update = PaneStateUpdate {
                     pane_id,
                     ws_idx,
@@ -1959,6 +1964,7 @@ impl AppState {
         let Some(ws) = self.active.and_then(|idx| self.workspaces.get(idx)) else {
             self.tab_scroll = 0;
             self.view.tab_hit_areas.clear();
+            self.view.tab_close_hit_areas.clear();
             self.view.tab_scroll_left_hit_area = ratatui::layout::Rect::default();
             self.view.tab_scroll_right_hit_area = ratatui::layout::Rect::default();
             self.view.new_tab_hit_area = ratatui::layout::Rect::default();
@@ -1971,9 +1977,11 @@ impl AppState {
             self.tab_scroll,
             self.tab_scroll_follow_active,
             self.mouse_capture,
+            self.hovered_tab,
         );
         self.tab_scroll = layout.scroll;
         self.view.tab_hit_areas = layout.tab_hit_areas;
+        self.view.tab_close_hit_areas = layout.tab_close_hit_areas;
         self.view.tab_scroll_left_hit_area = layout.scroll_left_hit_area;
         self.view.tab_scroll_right_hit_area = layout.scroll_right_hit_area;
         self.view.new_tab_hit_area = layout.new_tab_hit_area;
@@ -2177,23 +2185,39 @@ impl AppState {
         {
             return false;
         }
+        self.close_tab_at(self.workspaces[ws_idx].active_tab)
+    }
+
+    /// Close a tab by index while preserving the workspace, even when it was the last tab.
+    pub fn close_tab_at(&mut self, tab_idx: usize) -> bool {
+        let Some(ws_idx) = self.active else {
+            return false;
+        };
+        if self
+            .workspaces
+            .get(ws_idx)
+            .is_none_or(|ws| ws.tabs.get(tab_idx).is_none())
+        {
+            return false;
+        }
         self.selection = None;
         self.selection_autoscroll = None;
-        self.mark_session_dirty();
         let Some(ws) = self.workspaces.get(ws_idx) else {
             return false;
         };
-        let terminal_ids = self.terminal_ids_for_tab(ws_idx, ws.active_tab);
+        let terminal_ids = self.terminal_ids_for_tab(ws_idx, tab_idx);
         let workspace_id = ws.id.clone();
-        let closing_tab_id = format!("{}:{}", workspace_id, ws.active_tab + 1);
+        let closing_tab_id = format!("{}:{}", workspace_id, tab_idx + 1);
         let Some(ws) = self.workspaces.get_mut(ws_idx) else {
             return false;
         };
-        if !ws.close_active_tab_allow_empty() {
+        if !ws.close_tab_allow_empty(tab_idx) {
             return false;
         }
         self.remove_unattached_terminal_ids(terminal_ids);
         crate::logging::tab_closed(&workspace_id, &closing_tab_id);
+        self.mark_session_dirty();
+        self.hovered_tab = None;
         self.tab_scroll_follow_active = true;
         self.refresh_tab_bar_view();
         false
@@ -2717,7 +2741,7 @@ impl AppState {
                 process_exited,
                 observed_at,
             } => self
-                .update_terminal_state(pane_id, |terminal| {
+                .update_terminal_state_at(pane_id, observed_at, |terminal| {
                     Some(terminal.set_detected_state_with_screen_signals_at(
                         agent,
                         state,
@@ -2841,6 +2865,18 @@ impl AppState {
     where
         F: FnOnce(&mut crate::terminal::TerminalState) -> Option<TerminalStateMutation>,
     {
+        self.update_terminal_state_at(pane_id, std::time::Instant::now(), update)
+    }
+
+    fn update_terminal_state_at<F>(
+        &mut self,
+        pane_id: PaneId,
+        activity_at: std::time::Instant,
+        update: F,
+    ) -> Option<PaneStateUpdate>
+    where
+        F: FnOnce(&mut crate::terminal::TerminalState) -> Option<TerminalStateMutation>,
+    {
         let ws_idx = self
             .workspaces
             .iter()
@@ -2855,6 +2891,12 @@ impl AppState {
         };
         if mutation.session_ref_changed {
             self.mark_session_dirty();
+        }
+        if mutation.effective_state_change.is_some() {
+            let seq = self.next_agent_activity_seq();
+            if let Some(terminal) = self.terminals.get_mut(&terminal_id) {
+                terminal.mark_meaningful_agent_activity(seq, activity_at);
+            }
         }
         let change = mutation.effective_state_change?;
         let update = PaneStateUpdate {

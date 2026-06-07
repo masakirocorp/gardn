@@ -945,6 +945,8 @@ mod tests {
             seen: true,
             custom_status: None,
             state_labels: std::collections::HashMap::new(),
+            last_meaningful_agent_activity_seq: 0,
+            last_meaningful_agent_activity_at: None,
         }
     }
 

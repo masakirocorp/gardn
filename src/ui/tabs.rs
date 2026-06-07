@@ -16,6 +16,7 @@ const TAB_SCROLL_BUTTON_WIDTH: u16 = 3;
 pub(crate) struct TabBarView {
     pub scroll: usize,
     pub tab_hit_areas: Vec<Rect>,
+    pub tab_close_hit_areas: Vec<Rect>,
     pub scroll_left_hit_area: Rect,
     pub scroll_right_hit_area: Rect,
     pub new_tab_hit_area: Rect,
@@ -43,6 +44,27 @@ fn layout_tab_hit_areas(ws: &crate::workspace::Workspace, area: Rect, scroll: us
         *rect = Rect::new(x, area.y, width, 1);
         x = x.saturating_add(width + 1);
     }
+    rects
+}
+
+fn layout_tab_close_hit_areas(tab_hit_areas: &[Rect], hovered_tab: Option<usize>) -> Vec<Rect> {
+    let mut rects = vec![Rect::default(); tab_hit_areas.len()];
+    let Some(idx) = hovered_tab else {
+        return rects;
+    };
+    let Some(tab_rect) = tab_hit_areas.get(idx).copied() else {
+        return rects;
+    };
+    if tab_rect.width == 0 {
+        return rects;
+    }
+
+    rects[idx] = Rect::new(
+        tab_rect.x + tab_rect.width.saturating_sub(1),
+        tab_rect.y,
+        1,
+        1,
+    );
     rects
 }
 
@@ -99,6 +121,7 @@ pub(crate) fn compute_tab_bar_view(
     current_scroll: usize,
     follow_active: bool,
     mouse_chrome: bool,
+    hovered_tab: Option<usize>,
 ) -> TabBarView {
     if area.width == 0 || area.height == 0 {
         return TabBarView::default();
@@ -111,9 +134,11 @@ pub(crate) fn compute_tab_bar_view(
         } else {
             current_scroll.min(max_scroll)
         };
+        let tab_hit_areas = layout_tab_hit_areas(ws, area, scroll);
         return TabBarView {
             scroll,
-            tab_hit_areas: layout_tab_hit_areas(ws, area, scroll),
+            tab_close_hit_areas: layout_tab_close_hit_areas(&tab_hit_areas, None),
+            tab_hit_areas,
             scroll_left_hit_area: Rect::default(),
             scroll_right_hit_area: Rect::default(),
             new_tab_hit_area: Rect::default(),
@@ -137,8 +162,11 @@ pub(crate) fn compute_tab_bar_view(
             area_right.saturating_sub(new_tab_x).min(NEW_TAB_WIDTH),
             1,
         );
+        let hovered_tab =
+            hovered_tab.filter(|idx| all_tabs.get(*idx).is_some_and(|rect| rect.width > 0));
         return TabBarView {
             scroll: 0,
+            tab_close_hit_areas: layout_tab_close_hit_areas(&all_tabs, hovered_tab),
             tab_hit_areas: all_tabs,
             scroll_left_hit_area: Rect::default(),
             scroll_right_hit_area: Rect::default(),
@@ -181,8 +209,11 @@ pub(crate) fn compute_tab_bar_view(
         1,
     );
 
+    let hovered_tab =
+        hovered_tab.filter(|idx| tab_hit_areas.get(*idx).is_some_and(|rect| rect.width > 0));
     TabBarView {
         scroll,
+        tab_close_hit_areas: layout_tab_close_hit_areas(&tab_hit_areas, hovered_tab),
         tab_hit_areas,
         scroll_left_hit_area: left_hit_area,
         scroll_right_hit_area: right_hit_area,
@@ -231,6 +262,33 @@ fn tab_drop_indicator_x(
     }
 
     None
+}
+
+fn fit_tab_label(name: &str, width: u16) -> String {
+    let width = width as usize;
+    if width == 0 {
+        return String::new();
+    }
+
+    let mut text = String::with_capacity(width);
+    text.push(' ');
+    let max_name_chars = width.saturating_sub(1);
+    for ch in name.chars().take(max_name_chars) {
+        text.push(ch);
+    }
+    let current_width = text.chars().count();
+    for _ in current_width..width {
+        text.push(' ');
+    }
+    text
+}
+
+fn close_tab_label(width: u16) -> &'static str {
+    if width == 0 {
+        ""
+    } else {
+        "✕"
+    }
 }
 
 pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -324,10 +382,28 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         } else {
             Style::default().fg(p.overlay1).bg(p.surface0)
         };
-        let width = rect.width as usize;
         let name = tab.display_name();
-        let text = format!(" {:width$}", name, width = width.saturating_sub(1));
-        frame.render_widget(Paragraph::new(text).style(style), rect);
+        let close_rect = app
+            .view
+            .tab_close_hit_areas
+            .get(idx)
+            .copied()
+            .unwrap_or_default();
+        let show_close = app.mouse_capture && close_rect.width > 0;
+        let label_width = rect
+            .width
+            .saturating_sub(if show_close { close_rect.width } else { 0 });
+        frame.render_widget(
+            Paragraph::new(fit_tab_label(&name, label_width)).style(style),
+            rect,
+        );
+        if show_close {
+            frame.render_widget(
+                Paragraph::new(close_tab_label(close_rect.width))
+                    .style(style.add_modifier(Modifier::BOLD)),
+                close_rect,
+            );
+        }
     }
 
     if let Some(crate::app::state::DragState {

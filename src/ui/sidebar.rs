@@ -50,6 +50,8 @@ pub(crate) struct AgentPanelEntry {
     pub seen: bool,
     pub custom_status: Option<String>,
     pub state_labels: std::collections::HashMap<String, String>,
+    pub last_meaningful_agent_activity_seq: u64,
+    pub last_meaningful_agent_activity_at: Option<std::time::Instant>,
 }
 
 pub(crate) struct AgentPanelSection {
@@ -297,6 +299,8 @@ fn agent_panel_entries_with_runtimes(
                     seen: detail.seen,
                     custom_status: detail.custom_status,
                     state_labels: detail.state_labels,
+                    last_meaningful_agent_activity_seq: detail.last_meaningful_agent_activity_seq,
+                    last_meaningful_agent_activity_at: detail.last_meaningful_agent_activity_at,
                 })
                 .collect()
         }
@@ -327,6 +331,10 @@ fn agent_panel_entries_with_runtimes(
                             seen: detail.seen,
                             custom_status: detail.custom_status,
                             state_labels: detail.state_labels,
+                            last_meaningful_agent_activity_seq: detail
+                                .last_meaningful_agent_activity_seq,
+                            last_meaningful_agent_activity_at: detail
+                                .last_meaningful_agent_activity_at,
                         })
                 })
                 .collect()
@@ -353,6 +361,9 @@ fn agent_panel_entries_with_runtimes(
                         seen: detail.seen,
                         custom_status: detail.custom_status,
                         state_labels: detail.state_labels,
+                        last_meaningful_agent_activity_seq: detail
+                            .last_meaningful_agent_activity_seq,
+                        last_meaningful_agent_activity_at: detail.last_meaningful_agent_activity_at,
                     })
             })
             .collect(),
@@ -394,10 +405,20 @@ fn agent_panel_triage_entries_from(
                     seen: detail.seen,
                     custom_status: detail.custom_status,
                     state_labels: detail.state_labels,
+                    last_meaningful_agent_activity_seq: detail.last_meaningful_agent_activity_seq,
+                    last_meaningful_agent_activity_at: detail.last_meaningful_agent_activity_at,
                 })
         })
         .filter(agent_panel_entry_needs_triage)
         .collect()
+}
+
+fn sort_agent_panel_entries_by_recent_activity(entries: &mut [AgentPanelEntry]) {
+    entries.sort_by(|left, right| {
+        right
+            .last_meaningful_agent_activity_seq
+            .cmp(&left.last_meaningful_agent_activity_seq)
+    });
 }
 
 pub(crate) fn agent_panel_sections(app: &AppState) -> Vec<AgentPanelSection> {
@@ -412,7 +433,8 @@ fn agent_panel_sections_from(
     let scoped_entries = agent_panel_entries_from(app, terminal_runtimes);
     let mut sections = Vec::new();
 
-    let triage = agent_panel_triage_entries_from(app, terminal_runtimes);
+    let mut triage = agent_panel_triage_entries_from(app, terminal_runtimes);
+    sort_agent_panel_entries_by_recent_activity(&mut triage);
     if !triage.is_empty() {
         sections.push(AgentPanelSection {
             label: "triage",
@@ -420,11 +442,12 @@ fn agent_panel_sections_from(
         });
     }
 
-    let working: Vec<_> = scoped_entries
+    let mut working: Vec<_> = scoped_entries
         .iter()
         .filter(|entry| entry.state == AgentState::Working)
         .cloned()
         .collect();
+    sort_agent_panel_entries_by_recent_activity(&mut working);
     if !working.is_empty() {
         sections.push(AgentPanelSection {
             label: "working",
@@ -432,12 +455,13 @@ fn agent_panel_sections_from(
         });
     }
 
-    let idle: Vec<_> = scoped_entries
+    let mut idle: Vec<_> = scoped_entries
         .into_iter()
         .filter(|entry| {
             entry.state != AgentState::Working && !agent_panel_entry_needs_triage(entry)
         })
         .collect();
+    sort_agent_panel_entries_by_recent_activity(&mut idle);
     if !idle.is_empty() {
         sections.push(AgentPanelSection {
             label: "idle",
@@ -596,6 +620,30 @@ fn format_agent_panel_primary_label(entry: &AgentPanelEntry, max_width: usize) -
         separator,
         truncate_text(tab_label, tab_budget)
     )
+}
+
+fn format_agent_activity_age(
+    last_activity_at: Option<std::time::Instant>,
+    now: std::time::Instant,
+) -> Option<String> {
+    let last_activity_at = last_activity_at?;
+    let age = now.saturating_duration_since(last_activity_at);
+    let seconds = age.as_secs();
+    if seconds < 60 {
+        return Some("just now".to_string());
+    }
+
+    let minutes = seconds / 60;
+    if minutes < 60 {
+        return Some(format!("{minutes}m ago"));
+    }
+
+    let hours = minutes / 60;
+    if hours < 24 {
+        return Some(format!("{hours}h ago"));
+    }
+
+    Some(format!("{}d ago", hours / 24))
 }
 
 fn agent_panel_primary_label_line(
@@ -3005,6 +3053,15 @@ fn render_agent_entry(
         }
         status_spans.push(Span::styled(custom_status.clone(), agent_style));
     }
+    if let Some(age_label) = format_agent_activity_age(
+        detail.last_meaningful_agent_activity_at,
+        std::time::Instant::now(),
+    ) {
+        if show_status || detail.agent_label.is_some() || detail.custom_status.is_some() {
+            status_spans.push(Span::styled(" · ", agent_style));
+        }
+        status_spans.push(Span::styled(age_label, agent_style));
+    }
     frame.render_widget(
         Paragraph::new(Line::from(status_spans)).style(row_style),
         Rect::new(area.x, row_y + 1, area.width, 1),
@@ -3742,6 +3799,61 @@ mod tests {
     }
 
     #[test]
+    fn agent_secondary_line_shows_relative_activity_age() {
+        let mut app = crate::app::state::AppState::test_new();
+        let workspace = Workspace::test_new("agent");
+        let pane = workspace.tabs[0].root_pane;
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+
+        app.handle_app_event(crate::events::AppEvent::StateChanged {
+            pane_id: pane,
+            agent: Some(Agent::Codex),
+            state: AgentState::Idle,
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: false,
+            process_exited: false,
+            observed_at: std::time::Instant::now() - std::time::Duration::from_secs(125),
+        });
+
+        let backend = TestBackend::new(40, 8);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_agent_detail(&app, frame, Rect::new(0, 0, 40, 8), false))
+            .expect("render agent panel");
+
+        let text = buffer_text(terminal.backend().buffer(), 40, 8);
+
+        assert!(text.contains("codex · 2m ago"));
+    }
+
+    #[test]
+    fn activity_age_label_uses_compact_units() {
+        let now = std::time::Instant::now();
+
+        assert_eq!(
+            format_agent_activity_age(Some(now - std::time::Duration::from_secs(59)), now),
+            Some("just now".to_string())
+        );
+        assert_eq!(
+            format_agent_activity_age(Some(now - std::time::Duration::from_secs(60)), now),
+            Some("1m ago".to_string())
+        );
+        assert_eq!(
+            format_agent_activity_age(Some(now - std::time::Duration::from_secs(7200)), now),
+            Some("2h ago".to_string())
+        );
+        assert_eq!(
+            format_agent_activity_age(Some(now - std::time::Duration::from_secs(172800)), now),
+            Some("2d ago".to_string())
+        );
+    }
+
+    #[test]
     fn agent_secondary_status_only_repeats_in_triage_section() {
         let mut app = crate::app::state::AppState::test_new();
         let mut done = Workspace::test_new("done");
@@ -4065,6 +4177,159 @@ mod tests {
     }
 
     #[test]
+    fn agent_panel_sections_order_entries_newest_activity_first() {
+        let mut app = crate::app::state::AppState::test_new();
+        let old = Workspace::test_new("old");
+        let old_pane = old.tabs[0].root_pane;
+        let new = Workspace::test_new("new");
+        let new_pane = new.tabs[0].root_pane;
+        app.workspaces = vec![old, new];
+        app.ensure_test_terminals();
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        let now = std::time::Instant::now();
+        app.handle_app_event(crate::events::AppEvent::StateChanged {
+            pane_id: old_pane,
+            agent: Some(Agent::Codex),
+            state: AgentState::Idle,
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: false,
+            process_exited: false,
+            observed_at: now,
+        });
+        app.handle_app_event(crate::events::AppEvent::StateChanged {
+            pane_id: new_pane,
+            agent: Some(Agent::Claude),
+            state: AgentState::Idle,
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: false,
+            process_exited: false,
+            observed_at: now + std::time::Duration::from_millis(1),
+        });
+
+        let sections = agent_panel_sections(&app);
+        let idle = sections
+            .iter()
+            .find(|section| section.label == "idle")
+            .expect("idle section");
+
+        assert_eq!(idle.entries[0].primary_label, "new");
+        assert_eq!(idle.entries[1].primary_label, "old");
+    }
+
+    #[test]
+    fn stable_visible_refresh_does_not_make_agent_newest() {
+        let mut app = crate::app::state::AppState::test_new();
+        let first = Workspace::test_new("first");
+        let first_pane = first.tabs[0].root_pane;
+        let second = Workspace::test_new("second");
+        let second_pane = second.tabs[0].root_pane;
+        app.workspaces = vec![first, second];
+        app.ensure_test_terminals();
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        let now = std::time::Instant::now();
+        app.handle_app_event(crate::events::AppEvent::StateChanged {
+            pane_id: first_pane,
+            agent: Some(Agent::Codex),
+            state: AgentState::Working,
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: true,
+            process_exited: false,
+            observed_at: now,
+        });
+        app.handle_app_event(crate::events::AppEvent::StateChanged {
+            pane_id: second_pane,
+            agent: Some(Agent::Claude),
+            state: AgentState::Working,
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: true,
+            process_exited: false,
+            observed_at: now + std::time::Duration::from_millis(1),
+        });
+        app.handle_app_event(crate::events::AppEvent::StateChanged {
+            pane_id: first_pane,
+            agent: Some(Agent::Codex),
+            state: AgentState::Working,
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: true,
+            process_exited: false,
+            observed_at: now + std::time::Duration::from_secs(1),
+        });
+
+        let sections = agent_panel_sections(&app);
+        let working = sections
+            .iter()
+            .find(|section| section.label == "working")
+            .expect("working section");
+
+        assert_eq!(working.entries[0].primary_label, "second");
+        assert_eq!(working.entries[1].primary_label, "first");
+    }
+
+    #[test]
+    fn agent_rename_does_not_count_as_activity() {
+        let mut app = crate::app::state::AppState::test_new();
+        let old = Workspace::test_new("old");
+        let old_pane = old.tabs[0].root_pane;
+        let new = Workspace::test_new("new");
+        let new_pane = new.tabs[0].root_pane;
+        app.workspaces = vec![old, new];
+        app.ensure_test_terminals();
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        let now = std::time::Instant::now();
+        app.handle_app_event(crate::events::AppEvent::StateChanged {
+            pane_id: old_pane,
+            agent: Some(Agent::Codex),
+            state: AgentState::Idle,
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: false,
+            process_exited: false,
+            observed_at: now,
+        });
+        app.handle_app_event(crate::events::AppEvent::StateChanged {
+            pane_id: new_pane,
+            agent: Some(Agent::Claude),
+            state: AgentState::Idle,
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: false,
+            process_exited: false,
+            observed_at: now + std::time::Duration::from_millis(1),
+        });
+        let old_terminal_id = app.workspaces[0].tabs[0].panes[&old_pane]
+            .attached_terminal_id
+            .clone();
+        app.terminals
+            .get_mut(&old_terminal_id)
+            .expect("old terminal")
+            .set_agent_name("renamed".into());
+
+        let sections = agent_panel_sections(&app);
+        let idle = sections
+            .iter()
+            .find(|section| section.label == "idle")
+            .expect("idle section");
+
+        assert_eq!(idle.entries[0].primary_label, "new");
+        assert_eq!(idle.entries[1].primary_label, "old");
+        assert_eq!(idle.entries[1].agent_label.as_deref(), Some("renamed"));
+    }
+
+    #[test]
     fn non_triage_agent_rows_omit_redundant_status() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("worker");
@@ -4162,6 +4427,8 @@ mod tests {
                 seen: false,
                 custom_status: None,
                 state_labels: std::collections::HashMap::new(),
+                last_meaningful_agent_activity_seq: 0,
+                last_meaningful_agent_activity_at: None,
             }],
         };
         let p = crate::app::state::Palette::catppuccin();
@@ -4268,6 +4535,8 @@ mod tests {
             seen: true,
             custom_status: None,
             state_labels: std::collections::HashMap::new(),
+            last_meaningful_agent_activity_seq: 0,
+            last_meaningful_agent_activity_at: None,
         };
 
         let label = format_agent_panel_primary_label(&entry, 18);

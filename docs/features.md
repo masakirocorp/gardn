@@ -42,7 +42,7 @@ A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 A tab belongs to one workspace and contains one or more panes.
 
 - **Tab lifecycle** — create, focus, rename, close, list, and inspect tabs.
-- **Tab bar** — click tabs, use overflow scrolling, and switch with keybindings.
+- **Tab bar** — click tabs, close hovered tabs with the inline close button, use overflow scrolling, and switch with keybindings.
 - **Tab drag reorder** — reorder tabs in the tab bar by dragging, with a drop indicator.
 - **Tab-aware state** — workspace and agent UI can include tab context for agents and notifications.
 
@@ -100,7 +100,7 @@ Supported built-in detection includes:
 
 ### Agent UI
 
-- **Activity sidebar** — shows agents grouped by state across the current workspace, current group, or all workspaces.
+- **Activity sidebar** — shows agents grouped by state across the current workspace, current group, or all workspaces; entries sort newest activity first and show compact relative activity age.
 - **Agent focus** — focus agents from the activity panel, command surfaces, CLI, or socket API.
 - **Agent labels** — manual, detected, and integration-reported labels are surfaced in lists and pane borders.
 - **State notifications** — background state changes can trigger Hako toasts, terminal toasts, system toasts, and sounds.

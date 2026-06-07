@@ -514,6 +514,7 @@ impl App {
             active_group,
             group_filter_enabled: true,
             terminals: std::collections::HashMap::new(),
+            next_agent_activity_seq: 0,
             direct_attach_resize_locks: std::collections::HashSet::new(),
             pane_id_aliases: std::collections::HashMap::new(),
             workspaces,
@@ -568,6 +569,7 @@ impl App {
             agent_panel_scroll: 0,
             tab_scroll: 0,
             tab_scroll_follow_active: true,
+            hovered_tab: None,
             mobile_switcher_scroll: 0,
             view: state::ViewState {
                 layout: state::ViewLayout::Desktop,
@@ -578,6 +580,7 @@ impl App {
                 workspace_group_empty_areas: Vec::new(),
                 tab_bar_rect: Rect::default(),
                 tab_hit_areas: Vec::new(),
+                tab_close_hit_areas: Vec::new(),
                 tab_scroll_left_hit_area: Rect::default(),
                 tab_scroll_right_hit_area: Rect::default(),
                 new_tab_hit_area: Rect::default(),

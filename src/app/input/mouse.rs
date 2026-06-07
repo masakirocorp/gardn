@@ -221,6 +221,17 @@ impl AppState {
             return None;
         }
 
+        if matches!(mouse.kind, MouseEventKind::Moved) {
+            self.hovered_tab = if self.mouse_capture && self.on_tab_bar(mouse.column, mouse.row) {
+                self.tab_at(mouse.column, mouse.row)
+            } else {
+                None
+            };
+            if self.on_tab_bar(mouse.column, mouse.row) {
+                return None;
+            }
+        }
+
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.selection = None;
@@ -422,6 +433,11 @@ impl AppState {
                         }
                         return None;
                     }
+                }
+
+                if let Some(tab_idx) = self.tab_close_button_at(mouse.column, mouse.row) {
+                    self.close_tab_at(tab_idx);
+                    return None;
                 }
 
                 if self.on_tab_scroll_left_button(mouse.column, mouse.row) {
@@ -1416,6 +1432,21 @@ impl AppState {
             && row < area.y + area.height
             && col >= area.x
             && col < area.x + area.width
+    }
+
+    pub(super) fn tab_close_button_at(&self, col: u16, row: u16) -> Option<usize> {
+        self.view
+            .tab_close_hit_areas
+            .iter()
+            .enumerate()
+            .find_map(|(idx, area)| {
+                (area.width > 0
+                    && row >= area.y
+                    && row < area.y + area.height
+                    && col >= area.x
+                    && col < area.x + area.width)
+                    .then_some(idx)
+            })
     }
 
     pub(super) fn tab_drop_index_at(&self, col: u16, row: u16) -> Option<usize> {
@@ -3207,6 +3238,40 @@ mod tests {
             tab_bar.y,
         ));
         assert_eq!(app.state.workspaces[0].active_tab, 0);
+    }
+
+    #[test]
+    fn clicking_hovered_tab_close_icon_closes_that_tab() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("one");
+        ws.test_add_tab(Some("two"));
+        ws.test_add_tab(Some("three"));
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let second_tab = app.state.view.tab_hit_areas[1];
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            second_tab.x + second_tab.width.saturating_sub(1),
+            second_tab.y,
+        ));
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let close = app.state.view.tab_close_hit_areas[1];
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            close.x,
+            close.y,
+        ));
+
+        assert_eq!(app.state.workspaces[0].tabs.len(), 2);
+        assert_eq!(app.state.workspaces[0].tabs[0].display_name(), "1");
+        assert_eq!(app.state.workspaces[0].tabs[1].display_name(), "three");
+        assert_eq!(app.state.workspaces[0].active_tab, 0);
+        assert!(app.state.session_dirty);
     }
 
     #[test]

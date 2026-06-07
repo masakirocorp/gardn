@@ -491,10 +491,6 @@ impl Workspace {
         self.close_tab(self.active_tab)
     }
 
-    pub fn close_active_tab_allow_empty(&mut self) -> bool {
-        self.close_tab_allow_empty(self.active_tab)
-    }
-
     pub fn split_focused(
         &mut self,
         direction: Direction,

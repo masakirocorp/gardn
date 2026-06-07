@@ -1433,6 +1433,7 @@ pub struct ViewState {
     pub workspace_group_empty_areas: Vec<WorkspaceGroupEmptyArea>,
     pub tab_bar_rect: Rect,
     pub tab_hit_areas: Vec<Rect>,
+    pub tab_close_hit_areas: Vec<Rect>,
     pub tab_scroll_left_hit_area: Rect,
     pub tab_scroll_right_hit_area: Rect,
     pub new_tab_hit_area: Rect,
@@ -2177,6 +2178,7 @@ pub struct AppState {
     pub group_filter_enabled: bool,
     pub terminals:
         std::collections::HashMap<crate::terminal::TerminalId, crate::terminal::TerminalState>,
+    pub(crate) next_agent_activity_seq: u64,
     /// Terminal ids whose size is currently owned by a direct attach client.
     pub direct_attach_resize_locks: std::collections::HashSet<crate::terminal::TerminalId>,
     pub(crate) pane_id_aliases: std::collections::HashMap<u32, PaneId>,
@@ -2226,6 +2228,7 @@ pub struct AppState {
     pub agent_panel_scroll: usize,
     pub tab_scroll: usize,
     pub tab_scroll_follow_active: bool,
+    pub hovered_tab: Option<usize>,
     pub mobile_switcher_scroll: usize,
     // View geometry (computed before render, consumed by render + mouse)
     pub view: ViewState,
@@ -2354,6 +2357,11 @@ pub struct AppState {
 }
 
 impl AppState {
+    pub(crate) fn next_agent_activity_seq(&mut self) -> u64 {
+        self.next_agent_activity_seq = self.next_agent_activity_seq.saturating_add(1);
+        self.next_agent_activity_seq
+    }
+
     pub fn theme_appearance_for_mode(&self, mode: ThemeMode) -> ThemeAppearance {
         mode.resolve(self.host_terminal_theme)
     }
@@ -2797,6 +2805,7 @@ impl AppState {
             active_group: 0,
             group_filter_enabled: true,
             terminals: std::collections::HashMap::new(),
+            next_agent_activity_seq: 0,
             direct_attach_resize_locks: std::collections::HashSet::new(),
             pane_id_aliases: std::collections::HashMap::new(),
             workspaces: Vec::new(),
@@ -2842,6 +2851,7 @@ impl AppState {
             agent_panel_scroll: 0,
             tab_scroll: 0,
             tab_scroll_follow_active: true,
+            hovered_tab: None,
             mobile_switcher_scroll: 0,
             view: ViewState {
                 layout: ViewLayout::Desktop,
@@ -2852,6 +2862,7 @@ impl AppState {
                 workspace_group_empty_areas: Vec::new(),
                 tab_bar_rect: Rect::default(),
                 tab_hit_areas: Vec::new(),
+                tab_close_hit_areas: Vec::new(),
                 tab_scroll_left_hit_area: Rect::default(),
                 tab_scroll_right_hit_area: Rect::default(),
                 new_tab_hit_area: Rect::default(),

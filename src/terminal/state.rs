@@ -134,6 +134,8 @@ pub struct TerminalState {
     pub launch_argv: Option<Vec<String>>,
     pub respawn_shell_on_exit: bool,
     pub pending_agent_resume_plan: Option<crate::agent_resume::AgentResumePlan>,
+    last_meaningful_agent_activity_seq: u64,
+    last_meaningful_agent_activity_at: Option<Instant>,
 }
 
 impl TerminalState {
@@ -160,6 +162,8 @@ impl TerminalState {
             launch_argv: None,
             respawn_shell_on_exit: false,
             pending_agent_resume_plan: None,
+            last_meaningful_agent_activity_seq: 0,
+            last_meaningful_agent_activity_at: None,
         }
     }
 
@@ -237,6 +241,19 @@ impl TerminalState {
         self.revision = snapshot.revision;
         self.hook_report_sequences = snapshot.hook_report_sequences;
         self.metadata_report_sequences = snapshot.metadata_report_sequences;
+    }
+
+    pub fn last_meaningful_agent_activity_seq(&self) -> u64 {
+        self.last_meaningful_agent_activity_seq
+    }
+
+    pub fn last_meaningful_agent_activity_at(&self) -> Option<Instant> {
+        self.last_meaningful_agent_activity_at
+    }
+
+    pub fn mark_meaningful_agent_activity(&mut self, seq: u64, observed_at: Instant) {
+        self.last_meaningful_agent_activity_seq = seq;
+        self.last_meaningful_agent_activity_at = Some(observed_at);
     }
 
     pub fn with_launch_argv(mut self, argv: Vec<String>) -> Self {

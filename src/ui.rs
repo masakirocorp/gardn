@@ -290,6 +290,7 @@ fn compute_view_internal(
                 app.tab_scroll,
                 app.tab_scroll_follow_active,
                 app.mouse_capture,
+                app.hovered_tab,
             )
         })
         .unwrap_or_default();
@@ -333,6 +334,7 @@ fn compute_view_internal(
         workspace_group_empty_areas,
         tab_bar_rect,
         tab_hit_areas: tab_bar_view.tab_hit_areas,
+        tab_close_hit_areas: tab_bar_view.tab_close_hit_areas,
         tab_scroll_left_hit_area: tab_bar_view.scroll_left_hit_area,
         tab_scroll_right_hit_area: tab_bar_view.scroll_right_hit_area,
         new_tab_hit_area: tab_bar_view.new_tab_hit_area,
@@ -420,6 +422,7 @@ fn compute_mobile_view(
         workspace_group_empty_areas: Vec::new(),
         tab_bar_rect: Rect::default(),
         tab_hit_areas: Vec::new(),
+        tab_close_hit_areas: Vec::new(),
         tab_scroll_left_hit_area: Rect::default(),
         tab_scroll_right_hit_area: Rect::default(),
         new_tab_hit_area: Rect::default(),
@@ -1155,6 +1158,82 @@ mod tests {
         assert_eq!(custom_style.bg, Some(app.palette.accent));
         assert_eq!(custom_style.fg, Some(app.palette.surface_dim));
         assert!(custom_style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn tab_bar_shows_close_icon_only_for_hovered_tab() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut ws = Workspace::test_new("test");
+        ws.test_add_tab(Some("logs"));
+
+        app.workspaces = vec![ws];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        compute_view(&mut app, Rect::new(0, 0, 80, 20));
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let tab_row = app.view.tab_bar_rect.y;
+        assert!(!buffer_row_text(buffer, app.view.tab_bar_rect, tab_row).contains('×'));
+        assert!(app
+            .view
+            .tab_close_hit_areas
+            .iter()
+            .all(|rect| rect.width == 0));
+
+        app.hovered_tab = Some(1);
+        compute_view(&mut app, Rect::new(0, 0, 80, 20));
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let close_rect = app.view.tab_close_hit_areas[1];
+
+        assert_eq!(close_rect.width, 1);
+        assert_eq!(buffer[(close_rect.x, close_rect.y)].symbol(), "✕");
+        assert_eq!(
+            buffer[(
+                app.view.tab_hit_areas[0].x + app.view.tab_hit_areas[0].width - 1,
+                tab_row
+            )]
+                .symbol(),
+            " "
+        );
+    }
+
+    #[test]
+    fn hovered_tab_truncates_label_to_keep_close_icon_visible() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut ws = Workspace::test_new("test");
+        ws.tabs[0].set_custom_name("very-long-tab-name".into());
+
+        app.workspaces = vec![ws];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+        app.hovered_tab = Some(0);
+
+        compute_view(&mut app, Rect::new(0, 0, 80, 20));
+        let original_tab_rect = app.view.tab_hit_areas[0];
+        app.view.tab_hit_areas[0] = Rect::new(original_tab_rect.x, original_tab_rect.y, 2, 1);
+        app.view.tab_close_hit_areas[0] =
+            Rect::new(original_tab_rect.x + 1, original_tab_rect.y, 1, 1);
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let tab_rect = app.view.tab_hit_areas[0];
+        let close_rect = app.view.tab_close_hit_areas[0];
+
+        assert_eq!(close_rect.x + close_rect.width, tab_rect.x + tab_rect.width);
+        assert_eq!(buffer[(close_rect.x, close_rect.y)].symbol(), "✕");
+        assert_ne!(
+            buffer[(close_rect.x.saturating_sub(1), close_rect.y)].symbol(),
+            "✕"
+        );
     }
 
     #[test]
