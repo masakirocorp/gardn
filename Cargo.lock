@@ -505,7 +505,7 @@ dependencies = [
 
 [[package]]
 name = "hako"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "base64",
  "bincode",
