@@ -693,11 +693,7 @@ fn agent_panel_section_display_label(section_label: &str) -> &str {
 }
 
 fn agent_panel_entry_status_label(entry: &AgentPanelEntry) -> &'static str {
-    if entry.state == AgentState::Idle && !entry.seen {
-        "needs review"
-    } else {
-        state_label(entry.state, entry.seen)
-    }
+    state_label(entry.state, entry.seen)
 }
 
 fn agent_panel_section_header_style(section: &AgentPanelSection, p: &Palette) -> Style {
@@ -3887,7 +3883,7 @@ mod tests {
         let idle_row = rows.iter().position(|row| row.contains("idle")).unwrap();
 
         assert!(rows[triage_row].contains("triage · all spaces"));
-        assert!(rows[triage_row + 2].contains("claude · needs review"));
+        assert!(rows[triage_row + 2].contains("claude · done"));
         assert!(!rows[idle_row + 2].contains("idle"));
     }
 
@@ -4375,7 +4371,7 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), 34, 12);
         assert!(text.contains("triage · all spaces"));
-        assert!(text.contains("claude · needs review"));
+        assert!(text.contains("claude · done"));
         assert!(!text.contains("done · claude"));
         let (agent_area, _) = right_sidebar_panel_rects(&app, Rect::new(0, 0, 34, 12));
         let body = agent_panel_body_rect(agent_area, false, false);
