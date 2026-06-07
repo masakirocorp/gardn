@@ -305,7 +305,7 @@ impl AppState {
     pub(crate) fn group_menu_labels(&self) -> Vec<String> {
         let all_marker = if self.group_filter_enabled { " " } else { "*" };
         let mut labels = vec![
-            format!("{all_marker} all ({})", self.workspaces.len()),
+            format!("{all_marker} all {}", self.workspaces.len()),
             "---".to_string(),
             "groups".to_string(),
         ];
@@ -320,11 +320,12 @@ impl AppState {
                 .iter()
                 .filter(|ws| ws.group_id == group.id)
                 .count();
-            format!("{marker} {} {} ({count})", group.icon, group.name)
+            format!("{marker} {} {} {count}", group.icon, group.name)
         }));
         labels.push("---".to_string());
-        labels.push("+ new space".to_string());
-        labels.push("+ new group".to_string());
+        labels.push("create".to_string());
+        labels.push("  + space".to_string());
+        labels.push("  + group".to_string());
         labels
     }
 
@@ -351,7 +352,12 @@ impl AppState {
             return None;
         }
 
-        let new_workspace_idx = separator_idx + 1;
+        let create_idx = separator_idx + 1;
+        if row_idx == create_idx {
+            return None;
+        }
+
+        let new_workspace_idx = create_idx + 1;
         if row_idx == new_workspace_idx {
             return Some(GroupMenuAction::NewWorkspace);
         }
@@ -1432,14 +1438,15 @@ mod tests {
 
         let labels = app.state.group_menu_labels();
 
-        assert!(labels[0].contains("all (2)"));
+        assert!(labels[0].contains("all 2"));
         assert_eq!(labels[1], "---");
         assert_eq!(labels[2], "groups");
-        assert!(labels[3].contains("group 1 (1)"));
-        assert!(labels[4].contains("Work (1)"));
+        assert!(labels[3].contains("group 1 1"));
+        assert!(labels[4].contains("Work 1"));
         assert_eq!(labels[5], "---");
-        assert_eq!(labels[6], "+ new space");
-        assert_eq!(labels[7], "+ new group");
+        assert_eq!(labels[6], "create");
+        assert_eq!(labels[7], "  + space");
+        assert_eq!(labels[8], "  + group");
     }
 
     #[test]
@@ -1485,7 +1492,7 @@ mod tests {
             .state
             .group_menu_labels()
             .iter()
-            .position(|label| label.contains("new group"))
+            .position(|label| label == "  + group")
             .unwrap() as u16;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
@@ -1513,7 +1520,7 @@ mod tests {
             .state
             .group_menu_labels()
             .iter()
-            .position(|label| label.contains("new space"))
+            .position(|label| label == "  + space")
             .unwrap() as u16;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
@@ -1692,7 +1699,7 @@ mod tests {
             .state
             .group_menu_labels()
             .iter()
-            .position(|label| label.contains("new group"))
+            .position(|label| label == "  + group")
             .unwrap() as u16;
         app.handle_mouse(mouse(
             MouseEventKind::Moved,

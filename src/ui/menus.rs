@@ -74,7 +74,49 @@ fn group_menu_group_index(app: &AppState, row_idx: usize) -> Option<usize> {
     }
 }
 
-fn group_menu_group_line(app: &AppState, group_idx: usize, selected: bool) -> Line<'static> {
+fn right_aligned_count_gap(width: u16, left_width: usize, count_width: usize) -> String {
+    let target_width = (width as usize).saturating_sub(1);
+    let gap = target_width
+        .saturating_sub(left_width.saturating_add(count_width))
+        .max(1);
+    " ".repeat(gap)
+}
+
+fn group_menu_all_line(app: &AppState, selected: bool, width: u16) -> Line<'static> {
+    let marker = if app.group_filter_enabled { " " } else { "*" };
+    let count = app.workspaces.len().to_string();
+    let left = format!("{marker} all");
+    let selected_style = Style::default()
+        .fg(panel_contrast_fg(&app.palette))
+        .bg(app.palette.accent)
+        .add_modifier(Modifier::BOLD);
+    let text_style = if selected {
+        selected_style
+    } else {
+        Style::default().fg(app.palette.text)
+    };
+    let count_style = if selected {
+        selected_style
+    } else {
+        Style::default().fg(app.palette.overlay0)
+    };
+
+    Line::from(vec![
+        Span::styled(left.clone(), text_style),
+        Span::styled(
+            right_aligned_count_gap(width, left.chars().count(), count.chars().count()),
+            text_style,
+        ),
+        Span::styled(count, count_style),
+    ])
+}
+
+fn group_menu_group_line(
+    app: &AppState,
+    group_idx: usize,
+    selected: bool,
+    width: u16,
+) -> Line<'static> {
     let Some(group) = app.groups.get(group_idx) else {
         return Line::raw("");
     };
@@ -87,7 +129,8 @@ fn group_menu_group_line(app: &AppState, group_idx: usize, selected: bool) -> Li
         .workspaces
         .iter()
         .filter(|workspace| workspace.group_id == group.id)
-        .count();
+        .count()
+        .to_string();
     let selected_style = Style::default()
         .fg(panel_contrast_fg(&app.palette))
         .bg(app.palette.accent)
@@ -104,12 +147,18 @@ fn group_menu_group_line(app: &AppState, group_idx: usize, selected: bool) -> Li
     } else {
         Style::default().fg(app.palette.overlay0)
     };
+    let left_width =
+        marker.chars().count() + 1 + group.icon.chars().count() + 1 + group.name.chars().count();
     Line::from(vec![
         Span::styled(format!("{marker} "), group_style),
         Span::styled(group.icon.clone(), group_style),
         Span::styled(" ", group_style),
         Span::styled(group.name.clone(), group_style),
-        Span::styled(format!(" ({count})"), count_style),
+        Span::styled(
+            right_aligned_count_gap(width, left_width, count.chars().count()),
+            group_style,
+        ),
+        Span::styled(count, count_style),
     ])
 }
 
@@ -491,12 +540,24 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
 
     for (idx, item) in app.group_menu_labels().iter().enumerate() {
         let selected = idx == app.group_menu.highlighted;
+        if idx == 0 {
+            render_menu_row(
+                frame,
+                inner,
+                idx,
+                group_menu_all_line(app, selected, inner.width),
+                selected,
+                selected_style,
+                text_style,
+            );
+            continue;
+        }
         if let Some(group_idx) = group_menu_group_index(app, idx) {
             render_menu_row(
                 frame,
                 inner,
                 idx,
-                group_menu_group_line(app, group_idx, selected),
+                group_menu_group_line(app, group_idx, selected, inner.width),
                 selected,
                 selected_style,
                 text_style,
@@ -714,7 +775,7 @@ mod tests {
         app.groups[group_idx].icon = "■".to_string();
         app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Magenta));
 
-        let line = group_menu_group_line(&app, group_idx, false);
+        let line = group_menu_group_line(&app, group_idx, false, 18);
 
         assert_eq!(line.spans[1].content.as_ref(), "■");
         assert_eq!(
@@ -725,6 +786,24 @@ mod tests {
             line.spans[3].style.fg,
             Some(app.group_accent_color(group_idx))
         );
+        assert_eq!(line.spans[5].content.as_ref(), "0");
+    }
+
+    #[test]
+    fn group_menu_count_lines_right_align_counts() {
+        let mut app = AppState::test_new();
+        let group_idx = app.create_group("work".to_string());
+        app.groups[group_idx].icon = "■".to_string();
+        app.workspaces = vec![crate::workspace::Workspace::test_new("a")];
+        app.workspaces[0].group_id = app.groups[group_idx].id.clone();
+
+        let all = group_menu_all_line(&app, false, 12);
+        assert_eq!(all.spans[1].content.as_ref(), "     ");
+        assert_eq!(all.spans[2].content.as_ref(), "1");
+
+        let group = group_menu_group_line(&app, group_idx, false, 12);
+        assert_eq!(group.spans[4].content.as_ref(), "  ");
+        assert_eq!(group.spans[5].content.as_ref(), "1");
     }
 
     #[test]
