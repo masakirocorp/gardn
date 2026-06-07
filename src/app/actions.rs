@@ -605,6 +605,25 @@ fn launch_label(argv: Option<&Vec<String>>) -> Option<String> {
         .or_else(|| Some(command.clone()))
 }
 
+fn unix_secs_for_activity_instant(activity_at: std::time::Instant) -> u64 {
+    let now_instant = std::time::Instant::now();
+    let now_system = std::time::SystemTime::now();
+    let activity_system = if activity_at <= now_instant {
+        now_system
+            .checked_sub(now_instant.duration_since(activity_at))
+            .unwrap_or(now_system)
+    } else {
+        now_system
+            .checked_add(activity_at.duration_since(now_instant))
+            .unwrap_or(now_system)
+    };
+
+    activity_system
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
+}
+
 fn state_label_text(state: AgentState, seen: bool) -> &'static str {
     match (state, seen) {
         (AgentState::Blocked, _) => "blocked",
@@ -1372,8 +1391,9 @@ impl AppState {
                     .expire_agent_metadata_at(scheduled_deadline, now)?;
                 let change = mutation.effective_state_change?;
                 let seq = self.next_agent_activity_seq();
+                let unix_secs = unix_secs_for_activity_instant(now);
                 if let Some(terminal) = self.terminals.get_mut(&terminal_id) {
-                    terminal.mark_meaningful_agent_activity(seq, now);
+                    terminal.mark_meaningful_agent_activity(seq, unix_secs);
                 }
 
                 let update = PaneStateUpdate {
@@ -2894,8 +2914,9 @@ impl AppState {
         }
         if mutation.effective_state_change.is_some() {
             let seq = self.next_agent_activity_seq();
+            let unix_secs = unix_secs_for_activity_instant(activity_at);
             if let Some(terminal) = self.terminals.get_mut(&terminal_id) {
-                terminal.mark_meaningful_agent_activity(seq, activity_at);
+                terminal.mark_meaningful_agent_activity(seq, unix_secs);
             }
         }
         let change = mutation.effective_state_change?;

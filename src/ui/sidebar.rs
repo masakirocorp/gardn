@@ -51,7 +51,7 @@ pub(crate) struct AgentPanelEntry {
     pub custom_status: Option<String>,
     pub state_labels: std::collections::HashMap<String, String>,
     pub last_meaningful_agent_activity_seq: u64,
-    pub last_meaningful_agent_activity_at: Option<std::time::Instant>,
+    pub last_meaningful_agent_activity_unix_secs: Option<u64>,
 }
 
 pub(crate) struct AgentPanelSection {
@@ -280,7 +280,8 @@ fn agent_panel_entries_with_runtimes(
                     custom_status: detail.custom_status,
                     state_labels: detail.state_labels,
                     last_meaningful_agent_activity_seq: detail.last_meaningful_agent_activity_seq,
-                    last_meaningful_agent_activity_at: detail.last_meaningful_agent_activity_at,
+                    last_meaningful_agent_activity_unix_secs: detail
+                        .last_meaningful_agent_activity_unix_secs,
                 })
                 .collect()
         }
@@ -313,8 +314,8 @@ fn agent_panel_entries_with_runtimes(
                             state_labels: detail.state_labels,
                             last_meaningful_agent_activity_seq: detail
                                 .last_meaningful_agent_activity_seq,
-                            last_meaningful_agent_activity_at: detail
-                                .last_meaningful_agent_activity_at,
+                            last_meaningful_agent_activity_unix_secs: detail
+                                .last_meaningful_agent_activity_unix_secs,
                         })
                 })
                 .collect()
@@ -345,7 +346,8 @@ fn agent_panel_entries_with_runtimes(
                         state_labels: detail.state_labels,
                         last_meaningful_agent_activity_seq: detail
                             .last_meaningful_agent_activity_seq,
-                        last_meaningful_agent_activity_at: detail.last_meaningful_agent_activity_at,
+                        last_meaningful_agent_activity_unix_secs: detail
+                            .last_meaningful_agent_activity_unix_secs,
                     })
             })
             .collect(),
@@ -389,7 +391,8 @@ fn agent_panel_triage_entries_from(
                     custom_status: detail.custom_status,
                     state_labels: detail.state_labels,
                     last_meaningful_agent_activity_seq: detail.last_meaningful_agent_activity_seq,
-                    last_meaningful_agent_activity_at: detail.last_meaningful_agent_activity_at,
+                    last_meaningful_agent_activity_unix_secs: detail
+                        .last_meaningful_agent_activity_unix_secs,
                 })
         })
         .filter(agent_panel_entry_needs_triage)
@@ -399,8 +402,13 @@ fn agent_panel_triage_entries_from(
 fn sort_agent_panel_entries_by_recent_activity(entries: &mut [AgentPanelEntry]) {
     entries.sort_by(|left, right| {
         right
-            .last_meaningful_agent_activity_seq
-            .cmp(&left.last_meaningful_agent_activity_seq)
+            .last_meaningful_agent_activity_unix_secs
+            .cmp(&left.last_meaningful_agent_activity_unix_secs)
+            .then_with(|| {
+                right
+                    .last_meaningful_agent_activity_seq
+                    .cmp(&left.last_meaningful_agent_activity_seq)
+            })
     });
 }
 
@@ -605,13 +613,19 @@ fn format_agent_panel_primary_label(entry: &AgentPanelEntry, max_width: usize) -
     )
 }
 
+fn current_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
+}
+
 fn format_agent_activity_age(
-    last_activity_at: Option<std::time::Instant>,
-    now: std::time::Instant,
+    last_activity_unix_secs: Option<u64>,
+    now_unix_secs: u64,
 ) -> Option<String> {
-    let last_activity_at = last_activity_at?;
-    let age = now.saturating_duration_since(last_activity_at);
-    let seconds = age.as_secs();
+    let last_activity_unix_secs = last_activity_unix_secs?;
+    let seconds = now_unix_secs.saturating_sub(last_activity_unix_secs);
     if seconds < 60 {
         return Some("now".to_string());
     }
@@ -2996,43 +3010,44 @@ fn render_agent_entry(
     );
 
     let mut status_spans = right_entry_detail_prefix(p);
-    if let Some(agent_label) = &detail.agent_label {
-        status_spans.push(Span::styled(agent_label.clone(), agent_style));
-    }
-    if show_status {
-        if detail.agent_label.is_some() {
-            status_spans.push(Span::styled(" · ", agent_style));
-        }
-        status_spans.push(Span::styled(label, status_style));
-    }
-    if let Some(custom_status) = &detail.custom_status {
-        if show_status || detail.agent_label.is_some() {
-            status_spans.push(Span::styled(" · ", agent_style));
-        }
-        status_spans.push(Span::styled(custom_status.clone(), agent_style));
-    }
+    let mut has_secondary_detail = false;
     if let Some(group_idx) = detail.group_context_idx {
         if let Some(group) = app.groups.get(group_idx) {
-            if show_status || detail.agent_label.is_some() || detail.custom_status.is_some() {
-                status_spans.push(Span::styled(" · ", agent_style));
-            }
             status_spans.push(Span::styled(
                 group.name.clone(),
                 Style::default()
                     .fg(app.group_accent_color(group_idx))
                     .add_modifier(Modifier::DIM),
             ));
+            has_secondary_detail = true;
         }
     }
+    if let Some(agent_label) = &detail.agent_label {
+        if has_secondary_detail {
+            status_spans.push(Span::styled(" · ", agent_style));
+        }
+        status_spans.push(Span::styled(agent_label.clone(), agent_style));
+        has_secondary_detail = true;
+    }
+    if show_status {
+        if has_secondary_detail {
+            status_spans.push(Span::styled(" · ", agent_style));
+        }
+        status_spans.push(Span::styled(label, status_style));
+        has_secondary_detail = true;
+    }
+    if let Some(custom_status) = &detail.custom_status {
+        if has_secondary_detail {
+            status_spans.push(Span::styled(" · ", agent_style));
+        }
+        status_spans.push(Span::styled(custom_status.clone(), agent_style));
+        has_secondary_detail = true;
+    }
     if let Some(age_label) = format_agent_activity_age(
-        detail.last_meaningful_agent_activity_at,
-        std::time::Instant::now(),
+        detail.last_meaningful_agent_activity_unix_secs,
+        current_unix_secs(),
     ) {
-        if show_status
-            || detail.agent_label.is_some()
-            || detail.custom_status.is_some()
-            || detail.group_context_idx.is_some()
-        {
+        if has_secondary_detail {
             status_spans.push(Span::styled(" · ", agent_style));
         }
         status_spans.push(Span::styled(age_label, agent_style));
@@ -3806,7 +3821,7 @@ mod tests {
 
         assert!(rows[idle_row + 1].contains("agent · logs"));
         assert!(!rows[idle_row + 1].contains("Work / agent"));
-        assert!(rows[idle_row + 2].contains("opencode · Work"));
+        assert!(rows[idle_row + 2].contains("Work · opencode"));
     }
 
     #[test]
@@ -3844,22 +3859,22 @@ mod tests {
 
     #[test]
     fn activity_age_label_uses_compact_units() {
-        let now = std::time::Instant::now();
+        let now = 1_000_000;
 
         assert_eq!(
-            format_agent_activity_age(Some(now - std::time::Duration::from_secs(59)), now),
+            format_agent_activity_age(Some(now - 59), now),
             Some("now".to_string())
         );
         assert_eq!(
-            format_agent_activity_age(Some(now - std::time::Duration::from_secs(60)), now),
+            format_agent_activity_age(Some(now - 60), now),
             Some("1m".to_string())
         );
         assert_eq!(
-            format_agent_activity_age(Some(now - std::time::Duration::from_secs(7200)), now),
+            format_agent_activity_age(Some(now - 7200), now),
             Some("2h".to_string())
         );
         assert_eq!(
-            format_agent_activity_age(Some(now - std::time::Duration::from_secs(172800)), now),
+            format_agent_activity_age(Some(now - 172800), now),
             Some("2d".to_string())
         );
     }
@@ -4443,7 +4458,7 @@ mod tests {
                 custom_status: None,
                 state_labels: std::collections::HashMap::new(),
                 last_meaningful_agent_activity_seq: 0,
-                last_meaningful_agent_activity_at: None,
+                last_meaningful_agent_activity_unix_secs: None,
             }],
         };
         let p = crate::app::state::Palette::catppuccin();
@@ -4551,7 +4566,7 @@ mod tests {
             custom_status: None,
             state_labels: std::collections::HashMap::new(),
             last_meaningful_agent_activity_seq: 0,
-            last_meaningful_agent_activity_at: None,
+            last_meaningful_agent_activity_unix_secs: None,
         };
 
         let label = format_agent_panel_primary_label(&entry, 18);

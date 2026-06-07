@@ -20,7 +20,7 @@ pub struct PaneDetail {
     pub custom_status: Option<String>,
     pub state_labels: HashMap<String, String>,
     pub last_meaningful_agent_activity_seq: u64,
-    pub last_meaningful_agent_activity_at: Option<std::time::Instant>,
+    pub last_meaningful_agent_activity_unix_secs: Option<u64>,
 }
 
 impl Tab {
@@ -125,8 +125,8 @@ impl Tab {
                     last_meaningful_agent_activity_seq: terminal
                         .map(TerminalState::last_meaningful_agent_activity_seq)
                         .unwrap_or_default(),
-                    last_meaningful_agent_activity_at: terminal
-                        .and_then(TerminalState::last_meaningful_agent_activity_at),
+                    last_meaningful_agent_activity_unix_secs: terminal
+                        .and_then(TerminalState::last_meaningful_agent_activity_unix_secs),
                 })
             })
             .collect()

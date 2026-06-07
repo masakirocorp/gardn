@@ -87,6 +87,8 @@ pub struct TerminalSemanticSnapshot {
     pub hook_report_sequences: HashMap<String, u64>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata_report_sequences: HashMap<String, u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_meaningful_agent_activity_unix_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,7 +137,7 @@ pub struct TerminalState {
     pub respawn_shell_on_exit: bool,
     pub pending_agent_resume_plan: Option<crate::agent_resume::AgentResumePlan>,
     last_meaningful_agent_activity_seq: u64,
-    last_meaningful_agent_activity_at: Option<Instant>,
+    last_meaningful_agent_activity_unix_secs: Option<u64>,
 }
 
 impl TerminalState {
@@ -163,7 +165,7 @@ impl TerminalState {
             respawn_shell_on_exit: false,
             pending_agent_resume_plan: None,
             last_meaningful_agent_activity_seq: 0,
-            last_meaningful_agent_activity_at: None,
+            last_meaningful_agent_activity_unix_secs: None,
         }
     }
 
@@ -176,6 +178,7 @@ impl TerminalState {
             || !agent_metadata.is_empty()
             || self.state != AgentState::Unknown
             || !self.hook_report_sequences.is_empty()
+            || self.last_meaningful_agent_activity_unix_secs.is_some()
             || !self.metadata_report_sequences.is_empty();
 
         carries_semantics.then(|| TerminalSemanticSnapshot {
@@ -205,6 +208,7 @@ impl TerminalState {
             revision: self.revision,
             hook_report_sequences: self.hook_report_sequences.clone(),
             metadata_report_sequences: self.metadata_report_sequences.clone(),
+            last_meaningful_agent_activity_unix_secs: self.last_meaningful_agent_activity_unix_secs,
         })
     }
 
@@ -241,19 +245,21 @@ impl TerminalState {
         self.revision = snapshot.revision;
         self.hook_report_sequences = snapshot.hook_report_sequences;
         self.metadata_report_sequences = snapshot.metadata_report_sequences;
+        self.last_meaningful_agent_activity_unix_secs =
+            snapshot.last_meaningful_agent_activity_unix_secs;
     }
 
     pub fn last_meaningful_agent_activity_seq(&self) -> u64 {
         self.last_meaningful_agent_activity_seq
     }
 
-    pub fn last_meaningful_agent_activity_at(&self) -> Option<Instant> {
-        self.last_meaningful_agent_activity_at
+    pub fn last_meaningful_agent_activity_unix_secs(&self) -> Option<u64> {
+        self.last_meaningful_agent_activity_unix_secs
     }
 
-    pub fn mark_meaningful_agent_activity(&mut self, seq: u64, observed_at: Instant) {
+    pub fn mark_meaningful_agent_activity(&mut self, seq: u64, unix_secs: u64) {
         self.last_meaningful_agent_activity_seq = seq;
-        self.last_meaningful_agent_activity_at = Some(observed_at);
+        self.last_meaningful_agent_activity_unix_secs = Some(unix_secs);
     }
 
     pub fn with_launch_argv(mut self, argv: Vec<String>) -> Self {
@@ -1146,6 +1152,28 @@ mod tests {
             &mut last_working,
         );
         assert_eq!(state, AgentState::Idle);
+    }
+
+    #[test]
+    fn semantic_snapshot_preserves_meaningful_activity_time() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::Codex), AgentState::Idle);
+        terminal.mark_meaningful_agent_activity(42, 1_700_000_000);
+
+        let snapshot = terminal.capture_semantic_snapshot().expect("snapshot");
+        assert_eq!(
+            snapshot.last_meaningful_agent_activity_unix_secs,
+            Some(1_700_000_000)
+        );
+
+        let mut restored = test_terminal();
+        restored.restore_semantic_snapshot(snapshot);
+
+        assert_eq!(
+            restored.last_meaningful_agent_activity_unix_secs(),
+            Some(1_700_000_000)
+        );
+        assert_eq!(restored.last_meaningful_agent_activity_seq(), 0);
     }
 
     #[test]
