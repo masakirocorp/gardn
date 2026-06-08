@@ -626,7 +626,7 @@ fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area
                     selected_row = Some(rows.len());
                 }
                 let selected_style = if selected && *tone == SettingsMarkerTone::Danger {
-                    settings_marker_style(p, *tone)
+                    settings_danger_selected_style(p)
                 } else {
                     modal_option_style(p, selected)
                 };
@@ -634,6 +634,11 @@ fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area
                     selected_style
                 } else {
                     settings_marker_style(p, *tone)
+                };
+                let label_style = if *tone == SettingsMarkerTone::Danger {
+                    marker_style
+                } else {
+                    Style::default().fg(p.text)
                 };
                 if selected {
                     let text = format!(" {marker} {label}");
@@ -644,7 +649,7 @@ fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area
                 } else {
                     rows.push(ListItem::new(Line::from(vec![
                         Span::styled(format!(" {marker} "), marker_style),
-                        Span::styled(label.as_ref(), Style::default().fg(p.text)),
+                        Span::styled(label.as_ref(), label_style),
                     ])));
                 }
             }
@@ -681,6 +686,12 @@ fn settings_marker_style(p: &Palette, tone: SettingsMarkerTone) -> Style {
     }
 }
 
+fn settings_danger_selected_style(p: &Palette) -> Style {
+    Style::default()
+        .fg(panel_contrast_fg(p))
+        .bg(p.red)
+        .add_modifier(Modifier::BOLD)
+}
 fn settings_tab_badge_style(p: &Palette, selected: bool) -> Style {
     if selected {
         Style::default()
@@ -773,12 +784,11 @@ mod tests {
     }
 
     #[test]
-    fn group_general_delete_action_stays_red_when_selected() {
+    fn group_general_delete_action_uses_red_text_and_hover_background() {
         let mut app = AppState::test_new();
         let group_idx = app.create_group("Work".to_string());
         app.settings.group_settings_target = Some(group_idx);
         app.settings.section = SettingsSection::GroupGeneral;
-        app.settings.list.selected = 1;
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("test backend");
@@ -791,6 +801,22 @@ mod tests {
         let (y, x) = find_text_cell(&text, "! delete group").expect("delete action row");
         assert_eq!(buffer[(x, y)].style().fg, Some(app.palette.red));
         assert_eq!(buffer[(x + 2, y)].style().fg, Some(app.palette.red));
+        assert_ne!(buffer[(x, y)].style().bg, Some(app.palette.red));
+
+        app.settings.list.selected = 1;
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
+            .expect("render group settings overlay");
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, 80, 24);
+        let (y, x) = find_text_cell(&text, "! delete group").expect("delete action row");
+        assert_eq!(buffer[(x, y)].style().bg, Some(app.palette.red));
+        assert_eq!(buffer[(x + 2, y)].style().bg, Some(app.palette.red));
+        assert_eq!(
+            buffer[(x, y)].style().fg,
+            Some(panel_contrast_fg(&app.palette))
+        );
     }
 
     #[test]
