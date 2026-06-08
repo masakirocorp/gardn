@@ -104,6 +104,10 @@ _Avoid_: History, handoff snapshot
 Optional saved terminal scrollback used to restore pane contents when a fresh runtime is spawned.
 _Avoid_: Session snapshot, terminal semantics
 
+**Live Handoff**:
+A server replacement flow that transfers live pane runtimes and session state to a new Hako server so pane processes can survive the server swap.
+_Avoid_: Restart, cold restore
+
 **Handoff Snapshot**:
 The `SessionSnapshot` produced by `capture_handoff` for live server replacement. Unlike a normal save, it may populate per-pane terminal semantics so the replacement server can preserve live agent presentation.
 _Avoid_: Normal save, history
