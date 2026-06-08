@@ -32,6 +32,10 @@ _Avoid_: Group order, ranking
 A per-group promotion of a global agent profile. Favorite profiles appear before non-favorites for that group, with both sections sorted by the global agent profile order.
 _Avoid_: Visibility, permission, policy, priority
 
+**New Agent**:
+A launch surface for starting an agent profile in a new tab for a specific workspace or group context. New Agent uses group favorites to organize profiles but does not edit the profile catalog.
+_Avoid_: Run command, start bot
+
 **Workspace**:
 A named working area that groups related tabs, panes, and terminal sessions for one project or task.
 _Avoid_: Project, folder, session
@@ -67,3 +71,11 @@ _Avoid_: Hook, report, source of truth
 **Host Platform**:
 The operating system environment Hako runs on, such as macOS or Linux. Host platform behavior covers process inspection, clipboard, URL opening, notifications, and host input source integration.
 _Avoid_: Runtime, terminal
+
+**Wire Protocol**:
+The binary server/client message contract used by Hako clients to attach to a running Hako server. The wire protocol is separate from the public API socket, though public API status/ping reports its protocol version.
+_Avoid_: API, command protocol
+
+**Protocol Version**:
+The numeric compatibility marker for the wire protocol. Hako currently treats protocol compatibility as an exact match between client and server protocol values.
+_Avoid_: App version, release version

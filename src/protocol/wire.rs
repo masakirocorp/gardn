@@ -12,7 +12,11 @@ use serde::{Deserialize, Serialize};
 // Protocol constants
 // ---------------------------------------------------------------------------
 
-/// Current protocol version. Bumped when wire format changes incompatibly.
+/// Current server/client wire protocol compatibility marker.
+///
+/// Bump once per Hako release cycle when source becomes incompatible with the
+/// latest Hako release protocol; multiple unreleased incompatible changes share
+/// the same bump.
 pub const PROTOCOL_VERSION: u32 = 11;
 
 /// Maximum allowed frame payload size (2 MB). Frames larger than this are
@@ -586,7 +590,7 @@ pub enum VersionCheck {
 ///
 /// Current rules:
 /// - Version 0 (pre-persistence client) is always rejected.
-/// - Matching major versions are accepted.
+/// - Only the exact current protocol version is accepted.
 /// - A client with a newer version than the server is rejected.
 /// - A client with an older version than the server is rejected
 ///   (backward compatibility is not yet supported).
