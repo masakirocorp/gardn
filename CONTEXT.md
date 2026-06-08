@@ -111,3 +111,11 @@ _Avoid_: Server, app instance
 **Semantic Input**:
 Decoded key, mouse, paste, outer-focus, and host terminal color/theme reply events interpreted in the context of Hako's current mode, foreground client, and keybindings.
 _Avoid_: Terminal bytes, stdin chunk
+
+**Direct Terminal Attach**:
+A thin-client mode that attaches to one terminal runtime and sends raw input bytes directly to it, bypassing normal app semantic input.
+_Avoid_: App client, pane attach
+
+**Attach Owner**:
+The single direct terminal attach connection currently admitted as writable for a terminal runtime. A later attach request must request takeover to replace the owner.
+_Avoid_: Foreground client, observer

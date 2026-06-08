@@ -12,3 +12,4 @@ ADRs record current architectural decisions that future maintainers and agents s
 - [0008 — Treat upstream as signal in the product fork](0008-treat-upstream-as-signal.md): upstream Herdr changes are candidate input that Hako ports by invariant while preserving Hako product identity.
 - [0009 — Separate session snapshot, history, and handoff state](0009-separate-session-snapshot-history-and-handoff.md): durable layout/launch state, optional scrollback history, and handoff-only terminal semantics stay on separate persistence paths.
 - [0010 — Keep client input byte-framed and server-decoded](0010-keep-client-input-byte-framed.md): thin clients frame input bytes while the server owns normal app input semantics and routing.
+- [0011 — Make direct terminal attach exclusive by default](0011-make-direct-terminal-attach-exclusive.md): one direct attach client owns writable access to a terminal unless another client explicitly takes over.
