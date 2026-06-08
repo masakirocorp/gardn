@@ -988,6 +988,29 @@ mod tests {
             vec!["omp", "--session", "/tmp/omp-session.jsonl"]
         );
 
+        let home = std::env::var("HOME").expect("HOME should be set in tests");
+        let child_session_path = format!(
+            "{home}/.omp-mk/agent/sessions/-projects-masakiro-hako/2026-06-03T17-52-01-399Z_019e8e9d-1b77-7000-875f-206076643bdf/RightSidebarHierarchyReview.jsonl"
+        );
+        let project_session_dir = format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako");
+        let child_omp_session = super::super::snapshot::PaneAgentSessionSnapshot {
+            source: "hako:omp".into(),
+            agent: "omp".into(),
+            kind: crate::agent_resume::AgentSessionRefKind::Path,
+            value: child_session_path.clone(),
+        };
+        assert_eq!(
+            restore_plan_for_snapshot(&child_omp_session, true, Some(&["omp-mk".to_string()]))
+                .unwrap()
+                .argv,
+            vec![
+                "omp-mk".to_string(),
+                "--session".to_string(),
+                child_session_path,
+                "--session-dir".to_string(),
+                project_session_dir,
+            ]
+        );
         let unsupported_path = super::super::snapshot::PaneAgentSessionSnapshot {
             source: "hako:claude".into(),
             agent: "claude".into(),

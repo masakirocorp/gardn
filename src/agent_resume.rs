@@ -117,10 +117,10 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
             vec!["copilot".into(), format!("--resume={}", session_ref.value)]
         }
         ("hako:pi", "pi", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
-            vec!["pi".into(), "--session".into(), session_ref.value.clone()]
+            path_agent_resume_argv("pi", session_ref)
         }
         ("hako:omp", "omp", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
-            vec!["omp".into(), "--session".into(), session_ref.value.clone()]
+            path_agent_resume_argv("omp", session_ref)
         }
         ("hako:hermes", "hermes", AgentSessionRefKind::Id) => {
             vec![
@@ -144,6 +144,40 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
         argv,
         dedupe_key: dedupe_key(source, agent, session_ref),
     })
+}
+
+fn path_agent_resume_argv(command: &str, session_ref: &AgentSessionRef) -> Vec<String> {
+    let mut argv = vec![
+        command.to_string(),
+        "--session".to_string(),
+        session_ref.value.clone(),
+    ];
+    if session_ref.kind == AgentSessionRefKind::Path {
+        if let Some(session_dir) = canonical_project_session_dir(&session_ref.value) {
+            argv.push("--session-dir".to_string());
+            argv.push(session_dir);
+        }
+    }
+    argv
+}
+
+fn canonical_project_session_dir(session_path: &str) -> Option<String> {
+    let path = Path::new(session_path);
+    let components = path.components().collect::<Vec<_>>();
+    let sessions_idx = components.windows(2).position(|window| {
+        window[0].as_os_str() == std::ffi::OsStr::new("agent")
+            && window[1].as_os_str() == std::ffi::OsStr::new("sessions")
+    })? + 1;
+    let project_idx = sessions_idx + 1;
+    if components.len() <= project_idx + 1 {
+        return None;
+    }
+
+    let mut session_dir = std::path::PathBuf::new();
+    for component in components.iter().take(project_idx + 1) {
+        session_dir.push(component.as_os_str());
+    }
+    session_dir.to_str().map(str::to_string)
 }
 
 pub fn plan_with_launch_argv(
@@ -352,13 +386,43 @@ mod tests {
     fn planner_infers_omp_profile_command_from_session_path() {
         let home = std::env::var("HOME").expect("HOME should be set in tests");
         let session_path = format!("{home}/.omp-mk/agent/sessions/project/session.jsonl");
+        let session_dir = format!("{home}/.omp-mk/agent/sessions/project");
         let omp_profile_ref = AgentSessionRef::path(session_path.clone()).unwrap();
 
         assert_eq!(
             plan_with_launch_argv("hako:omp", "omp", &omp_profile_ref, None)
                 .unwrap()
                 .argv,
-            vec!["omp-mk".to_string(), "--session".to_string(), session_path]
+            vec![
+                "omp-mk".to_string(),
+                "--session".to_string(),
+                session_path,
+                "--session-dir".to_string(),
+                session_dir,
+            ]
+        );
+    }
+
+    #[test]
+    fn omp_child_session_restore_keeps_project_session_dir() {
+        let home = std::env::var("HOME").expect("HOME should be set in tests");
+        let session_path = format!(
+            "{home}/.omp-mk/agent/sessions/-projects-masakiro-hako/2026-06-03T17-52-01-399Z_019e8e9d-1b77-7000-875f-206076643bdf/RightSidebarHierarchyReview.jsonl"
+        );
+        let project_session_dir = format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako");
+        let omp_ref = AgentSessionRef::path(session_path.clone()).unwrap();
+
+        assert_eq!(
+            plan_with_launch_argv("hako:omp", "omp", &omp_ref, Some(&["omp-mk".to_string()]))
+                .unwrap()
+                .argv,
+            vec![
+                "omp-mk".to_string(),
+                "--session".to_string(),
+                session_path,
+                "--session-dir".to_string(),
+                project_session_dir,
+            ]
         );
     }
 
