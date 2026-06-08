@@ -379,6 +379,12 @@ impl App {
                         self.state.set_group_accent(group_idx, accent);
                         self.query_host_terminal_theme();
                     }
+                    SettingsAction::RenameGroup(group_idx) => {
+                        modal::open_rename_group_at(&mut self.state, group_idx);
+                    }
+                    SettingsAction::DeleteGroup(group_idx) => {
+                        modal::open_confirm_delete_group(&mut self.state, group_idx);
+                    }
                     SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                         self.save_switch_ascii_input_source_in_prefix(enabled)
                     }

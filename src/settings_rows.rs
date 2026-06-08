@@ -76,6 +76,7 @@ pub(crate) fn rows_for_section(
         SettingsSection::PaneLabels => Some(behavior_rows(app)),
         SettingsSection::Experiments => Some(experiment_rows(app)),
         SettingsSection::Integrations => Some(integration_rows(app)),
+        SettingsSection::GroupGeneral => Some(group_general_rows(app)),
     }
 }
 
@@ -281,6 +282,28 @@ fn theme_rows(app: &AppState) -> Vec<SettingsListRow> {
     }
 
     rows
+}
+
+fn group_general_rows(app: &AppState) -> Vec<SettingsListRow> {
+    let group_name = app
+        .settings
+        .group_settings_target
+        .and_then(|group_idx| app.groups.get(group_idx))
+        .map(|group| group.name.clone())
+        .unwrap_or_else(|| "group".to_string());
+
+    vec![
+        SettingsListRow::Header("name"),
+        choice(0, format!("rename {group_name}"), false),
+        SettingsListRow::Spacer,
+        SettingsListRow::Header("danger zone"),
+        SettingsListRow::StatusChoice {
+            index: 1,
+            marker: "!".into(),
+            label: "delete group".into(),
+            tone: SettingsMarkerTone::Warning,
+        },
+    ]
 }
 
 fn layout_rows(app: &AppState) -> Vec<SettingsListRow> {

@@ -23,6 +23,8 @@ use crate::{
         SettingsMarkerTone,
     },
 };
+const GROUP_SETTINGS_SECTIONS: &[SettingsSection] =
+    &[SettingsSection::Theme, SettingsSection::GroupGeneral];
 
 fn settings_title(app: &AppState) -> &'static str {
     if app.settings.group_settings_target.is_some() {
@@ -34,9 +36,17 @@ fn settings_title(app: &AppState) -> &'static str {
 
 fn settings_sections(app: &AppState) -> &'static [SettingsSection] {
     if app.settings.group_settings_target.is_some() {
-        &[SettingsSection::Theme]
+        GROUP_SETTINGS_SECTIONS
     } else {
         SettingsSection::ALL
+    }
+}
+
+fn settings_section_label(app: &AppState, section: SettingsSection) -> &'static str {
+    if app.settings.group_settings_target.is_some() && section == SettingsSection::Theme {
+        "appearance"
+    } else {
+        section.label()
     }
 }
 
@@ -70,14 +80,12 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     render_modal_header_bar(frame, header_rows[0], settings_title(app), p, false);
 
     let tab_labels = settings_sections(app).iter().map(|section| {
+        let label = settings_section_label(app, *section);
         if app.settings_section_has_badge(*section) {
             let badge_style = settings_tab_badge_style(p, app.settings.section == *section);
-            Line::from(vec![
-                Span::styled("● ", badge_style),
-                Span::raw(section.label()),
-            ])
+            Line::from(vec![Span::styled("● ", badge_style), Span::raw(label)])
         } else {
-            Line::from(section.label())
+            Line::from(label)
         }
     });
     let tabs = Tabs::new(tab_labels)
@@ -117,6 +125,9 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         }
         SettingsSection::Experiments => {
             render_settings_experiments(app, frame, content_area);
+        }
+        SettingsSection::GroupGeneral => {
+            render_settings_sectioned_toggle_list(app, frame, content_area);
         }
         SettingsSection::Integrations => {
             render_settings_integrations(app, frame, content_area);
@@ -188,6 +199,9 @@ pub(crate) fn settings_primary_button_label(
 }
 
 pub(crate) fn settings_show_primary_action(app: &AppState) -> bool {
+    if app.settings.section == crate::app::state::SettingsSection::GroupGeneral {
+        return false;
+    }
     app.settings.section != crate::app::state::SettingsSection::Integrations
         || app
             .integration_recommendations
@@ -272,12 +286,7 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
         let marker_style = if selected {
             selected_style
         } else {
-            match tone {
-                SettingsMarkerTone::Good => Style::default().fg(p.green),
-                SettingsMarkerTone::Warning => Style::default().fg(p.yellow),
-                SettingsMarkerTone::Accent => Style::default().fg(p.accent),
-                SettingsMarkerTone::Disabled => Style::default().fg(p.overlay0),
-            }
+            settings_marker_style(p, *tone)
         };
         let label_style = if selected {
             selected_style
@@ -578,7 +587,35 @@ fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area
                     ])));
                 }
             }
-            SettingsListRow::StatusChoice { .. } => {}
+            SettingsListRow::StatusChoice {
+                index,
+                marker,
+                label,
+                tone,
+            } => {
+                let selected = app.settings.list.selected == *index;
+                if selected {
+                    selected_row = Some(rows.len());
+                }
+                let selected_style = modal_option_style(p, selected);
+                let marker_style = if selected {
+                    selected_style
+                } else {
+                    settings_marker_style(p, *tone)
+                };
+                if selected {
+                    let text = format!(" {marker} {label}");
+                    rows.push(ListItem::new(Line::from(Span::styled(
+                        format!("{text:<list_width$}"),
+                        selected_style,
+                    ))));
+                } else {
+                    rows.push(ListItem::new(Line::from(vec![
+                        Span::styled(format!(" {marker} "), marker_style),
+                        Span::styled(label.as_ref(), Style::default().fg(p.text)),
+                    ])));
+                }
+            }
         }
     }
 
@@ -599,6 +636,15 @@ fn modal_option_style(p: &Palette, selected: bool) -> Style {
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(p.text)
+    }
+}
+
+fn settings_marker_style(p: &Palette, tone: SettingsMarkerTone) -> Style {
+    match tone {
+        SettingsMarkerTone::Good => Style::default().fg(p.green),
+        SettingsMarkerTone::Warning => Style::default().fg(p.yellow),
+        SettingsMarkerTone::Accent => Style::default().fg(p.accent),
+        SettingsMarkerTone::Disabled => Style::default().fg(p.overlay0),
     }
 }
 
@@ -664,9 +710,30 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), 80, 24);
         assert!(text.contains("group settings"));
-        assert!(text.contains("theme"));
+        assert!(text.contains("appearance"));
+        assert!(text.contains("general"));
         assert!(text.contains("accent"));
         assert!(!text.contains("sound"));
+    }
+
+    #[test]
+    fn group_general_settings_lists_name_and_danger_actions() {
+        let mut app = AppState::test_new();
+        let group_idx = app.create_group("Work".to_string());
+        app.settings.group_settings_target = Some(group_idx);
+        app.settings.section = SettingsSection::GroupGeneral;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
+            .expect("render group settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), 80, 24);
+        assert!(text.contains("name"));
+        assert!(text.contains("rename Work"));
+        assert!(text.contains("danger zone"));
+        assert!(text.contains("! delete group"));
     }
 
     #[test]

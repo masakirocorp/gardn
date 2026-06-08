@@ -46,6 +46,8 @@ pub(super) enum SettingsAction {
         group_idx: usize,
         accent: Option<TerminalAccent>,
     },
+    RenameGroup(usize),
+    DeleteGroup(usize),
     InstallRecommendedIntegrations,
     InstallIntegration(crate::api::schema::IntegrationTarget),
     UninstallIntegration(crate::api::schema::IntegrationTarget),
@@ -96,6 +98,12 @@ impl App {
                 SettingsAction::SaveGroupAccent { group_idx, accent } => {
                     self.state.set_group_accent(group_idx, accent);
                     self.query_host_terminal_theme();
+                }
+                SettingsAction::RenameGroup(group_idx) => {
+                    super::modal::open_rename_group_at(&mut self.state, group_idx);
+                }
+                SettingsAction::DeleteGroup(group_idx) => {
+                    super::modal::open_confirm_delete_group(&mut self.state, group_idx);
                 }
                 SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                     self.save_switch_ascii_input_source_in_prefix(enabled)
@@ -286,7 +294,8 @@ fn settings_section_choice_len(state: &AppState, section: SettingsSection) -> us
             | SettingsSection::Sound
             | SettingsSection::Toast
             | SettingsSection::PaneLabels
-            | SettingsSection::Experiments => 0,
+            | SettingsSection::Experiments
+            | SettingsSection::GroupGeneral => 0,
         })
 }
 
@@ -337,6 +346,27 @@ fn group_accent_choice_at_cursor(state: &AppState) -> Option<TerminalAccent> {
             _ => None,
         })
         .unwrap_or(None)
+}
+
+fn group_accent_selection_index(state: &AppState) -> usize {
+    let accent = state
+        .settings
+        .pending_group_accent_choice
+        .unwrap_or_else(|| {
+            state
+                .settings
+                .group_settings_target
+                .and_then(|group_idx| state.groups.get(group_idx))
+                .and_then(|group| group.accent)
+        });
+    accent
+        .and_then(|accent| {
+            TerminalAccent::ALL
+                .iter()
+                .position(|candidate| *candidate == accent)
+                .map(|idx| idx + 1)
+        })
+        .unwrap_or(0)
 }
 
 fn checked_group_accent_choice(state: &AppState) -> Option<TerminalAccent> {
@@ -613,6 +643,17 @@ fn selected_integration_action(state: &AppState) -> Option<SettingsAction> {
     }
 }
 
+fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction> {
+    let group_idx = state.settings.group_settings_target?;
+    let selected = state.settings.list.selected;
+    cancel_settings(state);
+    match selected {
+        0 => Some(SettingsAction::RenameGroup(group_idx)),
+        1 => Some(SettingsAction::DeleteGroup(group_idx)),
+        _ => None,
+    }
+}
+
 fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_theme_name = None;
     state.settings.pending_theme_mode = None;
@@ -640,6 +681,9 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
     if state.settings.section == SettingsSection::Integrations {
         return integrations_need_install(state)
             .then_some(SettingsAction::InstallRecommendedIntegrations);
+    }
+    if state.settings.section == SettingsSection::GroupGeneral {
+        return None;
     }
 
     let light = pending_light_theme_name(state);
@@ -793,6 +837,7 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
         }
         SettingsSection::Experiments => selected_experiment_action(state),
         SettingsSection::Integrations => selected_integration_action(state),
+        SettingsSection::GroupGeneral => selected_group_general_action(state),
     }
 }
 
@@ -842,10 +887,14 @@ fn handle_settings_modal_action(state: &mut AppState, key: &KeyEvent) -> Option<
 }
 
 pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Option<SettingsAction> {
-    if state.settings.group_settings_target.is_some() {
+    if state.settings.group_settings_target.is_some()
+        && !matches!(
+            state.settings.section,
+            SettingsSection::Theme | SettingsSection::GroupGeneral
+        )
+    {
         state.settings.section = SettingsSection::Theme;
     }
-
     match state.settings.section {
         SettingsSection::Theme => match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
@@ -871,13 +920,19 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
             KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
-                if state.settings.group_settings_target.is_none() {
+                if state.settings.group_settings_target.is_some() {
+                    state.settings.section = SettingsSection::GroupGeneral;
+                    state.settings.list.selected = 0;
+                } else {
                     state.settings.section = SettingsSection::Layout;
                     state.settings.list.selected = 0;
                 }
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
-                if state.settings.group_settings_target.is_none() {
+                if state.settings.group_settings_target.is_some() {
+                    state.settings.section = SettingsSection::GroupGeneral;
+                    state.settings.list.selected = 0;
+                } else {
                     state.settings.section = SettingsSection::Experiments;
                     state.settings.list.selected = 0;
                 }
@@ -1060,6 +1115,36 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 }
             }
         },
+        SettingsSection::GroupGeneral => match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                select_previous_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::GroupGeneral),
+                );
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                select_next_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::GroupGeneral),
+                );
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => return selected_group_general_action(state),
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                state.settings.section = SettingsSection::Theme;
+                state.settings.list.selected = group_accent_selection_index(state);
+                ensure_settings_selection_visible(state);
+            }
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                state.settings.section = SettingsSection::Theme;
+                state.settings.list.selected = group_accent_selection_index(state);
+                ensure_settings_selection_visible(state);
+            }
+            _ => {
+                if let Some(action) = handle_settings_modal_action(state, &key) {
+                    return Some(action);
+                }
+            }
+        },
     }
 
     None
@@ -1099,6 +1184,7 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
         SettingsSection::PaneLabels => 0,
         SettingsSection::Experiments => 0,
         SettingsSection::Integrations => 0,
+        SettingsSection::GroupGeneral => 0,
     };
     state.settings.scroll = 0;
     ensure_settings_selection_visible(state);
@@ -1139,14 +1225,7 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.group_settings_target = Some(group_idx);
     state.settings.section = SettingsSection::Theme;
-    state.settings.list.selected = group_accent
-        .and_then(|accent| {
-            TerminalAccent::ALL
-                .iter()
-                .position(|candidate| *candidate == accent)
-                .map(|idx| idx + 1)
-        })
-        .unwrap_or(0);
+    state.settings.list.selected = group_accent_selection_index(state);
     state.settings.scroll = 0;
     ensure_settings_selection_visible(state);
     preview_group_accent(state, group_accent);
@@ -1168,9 +1247,11 @@ impl AppState {
     }
 
     fn settings_tab_at(&self, col: u16, row: u16) -> Option<SettingsSection> {
-        if self.settings.group_settings_target.is_some() {
-            return None;
-        }
+        let sections = if self.settings.group_settings_target.is_some() {
+            &[SettingsSection::Theme, SettingsSection::GroupGeneral][..]
+        } else {
+            SettingsSection::ALL
+        };
 
         let inner = self.settings_inner_rect();
         let tab_y = inner.y + 1;
@@ -1178,13 +1259,20 @@ impl AppState {
             return None;
         }
         let mut x = inner.x;
-        for section in SettingsSection::ALL {
+        for section in sections {
             let badge_width = if self.settings_section_has_badge(*section) {
                 2
             } else {
                 0
             };
-            let width = section.label().len() as u16 + 2 + badge_width;
+            let label = if self.settings.group_settings_target.is_some()
+                && *section == SettingsSection::Theme
+            {
+                "appearance"
+            } else {
+                section.label()
+            };
+            let width = label.len() as u16 + 2 + badge_width;
             if col >= x && col < x + width {
                 return Some(*section);
             }
@@ -1216,7 +1304,8 @@ impl AppState {
             | SettingsSection::Sound
             | SettingsSection::Toast
             | SettingsSection::PaneLabels
-            | SettingsSection::Experiments => {
+            | SettingsSection::Experiments
+            | SettingsSection::GroupGeneral => {
                 let rows = rows_for_section(self, self.settings.section)?;
                 option_index_for_visual_row(&rows, (row - area.y) as usize)
             }
@@ -1297,7 +1386,13 @@ impl AppState {
                 if let Some(section) = self.settings_tab_at(mouse.column, mouse.row) {
                     self.settings.section = section;
                     self.settings.list.select(match section {
-                        SettingsSection::Theme => target_theme_index(self),
+                        SettingsSection::Theme => {
+                            if self.settings.group_settings_target.is_some() {
+                                group_accent_selection_index(self)
+                            } else {
+                                target_theme_index(self)
+                            }
+                        }
                         SettingsSection::Layout => 0,
                         SettingsSection::Sound => usize::from(!pending_sound_enabled(self)),
                         SettingsSection::Toast => {
@@ -1306,6 +1401,7 @@ impl AppState {
                         SettingsSection::PaneLabels => 0,
                         SettingsSection::Experiments => 0,
                         SettingsSection::Integrations => 0,
+                        SettingsSection::GroupGeneral => 0,
                     });
                     if section == SettingsSection::Theme {
                         ensure_settings_selection_visible(self);
@@ -1325,6 +1421,7 @@ impl AppState {
                         | SettingsSection::PaneLabels => select_pending_setting(self),
                         SettingsSection::Experiments => selected_experiment_action(self),
                         SettingsSection::Integrations => None,
+                        SettingsSection::GroupGeneral => selected_group_general_action(self),
                     };
                 }
 
@@ -1550,7 +1647,7 @@ mod tests {
     }
 
     #[test]
-    fn group_accent_settings_does_not_switch_to_other_settings_sections() {
+    fn group_settings_switches_between_appearance_and_general() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
 
@@ -1560,8 +1657,44 @@ mod tests {
             KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
         );
 
+        assert_eq!(state.settings.section, SettingsSection::GroupGeneral);
+        assert_eq!(state.settings.group_settings_target, Some(group_idx));
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
+
         assert_eq!(state.settings.section, SettingsSection::Theme);
         assert_eq!(state.settings.group_settings_target, Some(group_idx));
+    }
+
+    #[test]
+    fn group_general_settings_open_rename_and_delete_actions() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Side".to_string());
+
+        open_group_settings(&mut state, group_idx);
+        state.settings.section = SettingsSection::GroupGeneral;
+        state.settings.list.selected = 0;
+        let rename_action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+        assert_eq!(rename_action, Some(SettingsAction::RenameGroup(group_idx)));
+        assert_eq!(state.mode, Mode::Terminal);
+        assert_eq!(state.settings.group_settings_target, None);
+
+        open_group_settings(&mut state, group_idx);
+        state.settings.section = SettingsSection::GroupGeneral;
+        state.settings.list.selected = 1;
+        let delete_action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+        assert_eq!(delete_action, Some(SettingsAction::DeleteGroup(group_idx)));
+        assert_eq!(state.mode, Mode::Terminal);
+        assert_eq!(state.settings.group_settings_target, None);
     }
 
     #[test]

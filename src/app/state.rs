@@ -1558,6 +1558,7 @@ pub enum SettingsSection {
     PaneLabels,
     Experiments,
     Integrations,
+    GroupGeneral,
 }
 
 impl SettingsSection {
@@ -1580,6 +1581,7 @@ impl SettingsSection {
             Self::PaneLabels => "behavior",
             Self::Experiments => "experiments",
             Self::Integrations => "integrations",
+            Self::GroupGeneral => "general",
         }
     }
 }
