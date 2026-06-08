@@ -15,3 +15,4 @@ ADRs record current architectural decisions that future maintainers and agents s
 - [0011 — Make direct terminal attach exclusive by default](0011-make-direct-terminal-attach-exclusive.md): one direct attach client owns writable access to a terminal unless another client explicitly takes over.
 - [0012 — Use GitHub Releases for direct updates](0012-use-github-releases-for-direct-updates.md): direct installs update from fixed GitHub Release binary assets, while package-managed installs defer to their manager.
 - [0013 — Split local API from client wire protocol](0013-split-local-api-from-client-wire-protocol.md): the JSON local API is Hako's control plane, while the separate binary wire protocol carries interactive client rendering and input.
+- [0014 — Vendor libghostty-vt as terminal core](0014-vendor-libghostty-vt-as-terminal-core.md): Hako builds a pinned vendored libghostty-vt source tree and keeps Hako-owned Rust glue around the terminal-emulation boundary.

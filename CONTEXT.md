@@ -52,6 +52,10 @@ _Avoid_: Terminal, process
 A running shell or agent session that Hako can display, send input to, and track. A terminal may be shown in a pane and may outlive a particular pane placement.
 _Avoid_: Pane, viewport
 
+**Terminal Core**:
+The embedded terminal-emulation engine Hako uses to turn PTY bytes into terminal state, render data, input modes, and terminal responses.
+_Avoid_: Pane, terminal runtime
+
 **Viewport**:
 The portion of terminal history currently visible in a pane. Scrolling changes the viewport without changing the terminal tail.
 _Avoid_: Screen, buffer
