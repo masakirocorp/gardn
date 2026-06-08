@@ -87,3 +87,19 @@ _Avoid_: Downstream mirror, rebrand branch
 **Upstream Signal**:
 An upstream Herdr change treated as candidate evidence for a Hako invariant. Upstream signal must be checked against Hako context before it becomes Hako behavior.
 _Avoid_: Upstream authority, automatic merge
+
+**Session Snapshot**:
+The durable saved shape of a Hako session: groups, workspaces, tabs, panes, layout, active/selected/sidebar state, pane cwd/label/seen state, launch argv/env, and resumable agent-session refs. It excludes pane scrollback and handoff-only terminal semantics.
+_Avoid_: History, handoff snapshot
+
+**Session History**:
+Optional saved terminal scrollback used to restore pane contents when a fresh runtime is spawned.
+_Avoid_: Session snapshot, terminal semantics
+
+**Handoff Snapshot**:
+The `SessionSnapshot` produced by `capture_handoff` for live server replacement. Unlike a normal save, it may populate per-pane terminal semantics so the replacement server can preserve live agent presentation.
+_Avoid_: Normal save, history
+
+**Terminal Semantics**:
+Agent-facing terminal presentation and arbitration state such as detected agent, fallback signals/state, hook authority, agent metadata snapshots, effective state/revision, hook/metadata report sequence counters, and last meaningful activity timestamp.
+_Avoid_: Scrollback, runtime, terminal bytes
