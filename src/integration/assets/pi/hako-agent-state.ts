@@ -90,14 +90,24 @@ function updateSessionRef(ctx: any): void {
   }
 }
 
+function launchEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of ["PI_CONFIG_DIR", "PI_CODING_AGENT_DIR"]) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.length > 0) {
+      env[key] = value;
+    }
+  }
+  return env;
+}
+
 function withSessionRef(params: Record<string, unknown>): Record<string, unknown> {
-  if (currentAgentSessionPath) {
-    return { ...params, agent_session_path: currentAgentSessionPath };
-  }
-  if (currentAgentSessionId) {
-    return { ...params, agent_session_id: currentAgentSessionId };
-  }
-  return params;
+  const sessionParams = currentAgentSessionPath
+    ? { ...params, agent_session_path: currentAgentSessionPath }
+    : currentAgentSessionId
+      ? { ...params, agent_session_id: currentAgentSessionId }
+      : params;
+  return { ...sessionParams, launch_env: launchEnv() };
 }
 
 function sendState(state: AgentState, message?: string, seq = nextReportSeq()): Promise<void> {

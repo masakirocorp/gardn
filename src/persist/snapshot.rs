@@ -204,6 +204,8 @@ pub struct PaneSnapshot {
     pub agent_session: Option<PaneAgentSessionSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch_argv: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub launch_env: Vec<(String, String)>,
     #[serde(default = "default_true", skip_serializing_if = "is_true")]
     pub seen: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -571,6 +573,9 @@ fn capture_tab(
         let label = terminal.and_then(|terminal| terminal.manual_label.clone());
         let agent_name = terminal.and_then(|terminal| terminal.agent_name.clone());
         let launch_argv = terminal.and_then(|terminal| terminal.launch_argv.clone());
+        let launch_env = terminal
+            .map(|terminal| terminal.launch_env.clone())
+            .unwrap_or_default();
         let agent_session = terminal.and_then(|terminal| {
             if let Some(authority) = terminal.hook_authority.as_ref() {
                 if let Some(session_ref) = authority.session_ref.as_ref() {
@@ -607,6 +612,7 @@ fn capture_tab(
                 agent_name,
                 agent_session,
                 launch_argv,
+                launch_env,
                 seen,
                 terminal_semantics,
             },
@@ -999,6 +1005,7 @@ mod tests {
                 agent_name: None,
                 agent_session: None,
                 launch_argv: None,
+                launch_env: Vec::new(),
                 seen: true,
                 terminal_semantics: None,
             },
@@ -1012,6 +1019,7 @@ mod tests {
                 agent_name: None,
                 agent_session: None,
                 launch_argv: None,
+                launch_env: Vec::new(),
                 seen: true,
                 terminal_semantics: None,
             },
@@ -1551,6 +1559,7 @@ mod tests {
                 agent_name: None,
                 agent_session: None,
                 launch_argv: None,
+                launch_env: Vec::new(),
                 seen: true,
                 terminal_semantics: None,
             },
@@ -1566,6 +1575,7 @@ mod tests {
                 agent_name: None,
                 agent_session: None,
                 launch_argv: None,
+                launch_env: Vec::new(),
                 seen: true,
                 terminal_semantics: None,
             },

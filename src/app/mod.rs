@@ -2091,6 +2091,7 @@ mod tests {
             custom_status: None,
             seq: Some(6),
             session_ref: None,
+            launch_env: Vec::new(),
         });
         let agents = app.collect_agent_infos();
         assert!(agents.iter().any(|agent| {

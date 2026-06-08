@@ -134,6 +134,7 @@ pub struct TerminalState {
     pub state: AgentState,
     pub revision: u64,
     pub launch_argv: Option<Vec<String>>,
+    pub launch_env: Vec<(String, String)>,
     pub respawn_shell_on_exit: bool,
     pub pending_agent_resume_plan: Option<crate::agent_resume::AgentResumePlan>,
     last_meaningful_agent_activity_seq: u64,
@@ -162,6 +163,7 @@ impl TerminalState {
             state: AgentState::Unknown,
             revision: 0,
             launch_argv: None,
+            launch_env: Vec::new(),
             respawn_shell_on_exit: false,
             pending_agent_resume_plan: None,
             last_meaningful_agent_activity_seq: 0,
@@ -264,6 +266,11 @@ impl TerminalState {
 
     pub fn with_launch_argv(mut self, argv: Vec<String>) -> Self {
         self.launch_argv = Some(argv);
+        self
+    }
+
+    pub fn with_launch_env(mut self, env: Vec<(String, String)>) -> Self {
+        self.launch_env = env;
         self
     }
 
@@ -919,6 +926,7 @@ impl TerminalState {
         self.persisted_agent_session = None;
         self.agent_metadata.clear();
         self.launch_argv = None;
+        self.launch_env.clear();
         self.state = AgentState::Unknown;
         self.respawn_shell_on_exit = false;
         self.pending_agent_resume_plan = None;

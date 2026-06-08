@@ -3442,6 +3442,7 @@ next_tab = ""
                 custom_status: None,
                 seq: None,
                 session_ref: None,
+                launch_env: Vec::new(),
             })
         );
         assert!(
@@ -4829,6 +4830,7 @@ next_tab = ""
                     seq: Some(19),
                     agent_session_id: None,
                     agent_session_path: None,
+                    launch_env: std::collections::BTreeMap::new(),
                 }),
             },
             respond_to,

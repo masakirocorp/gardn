@@ -63,8 +63,19 @@ def _session_id(kwargs: dict) -> str | None:
     return None
 
 
+def _launch_env() -> dict:
+    return {
+        key: value
+        for key in ("HERMES_HOME",)
+        if isinstance((value := os.environ.get(key)), str) and value
+    }
+
+
 def _report(state: str, **kwargs) -> None:
     params = {"state": state}
+    env = _launch_env()
+    if env:
+        params["launch_env"] = env
     session_id = _session_id(kwargs)
     if session_id:
         params["agent_session_id"] = session_id

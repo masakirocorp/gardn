@@ -435,6 +435,7 @@ fn restore_tab(
         let saved_label = saved_pane.and_then(|p| p.label.clone());
         let saved_agent_name = saved_pane.and_then(|p| p.agent_name.clone());
         let saved_launch_argv = saved_pane.and_then(|p| p.launch_argv.clone());
+        let saved_launch_env = saved_pane.map(|p| p.launch_env.clone()).unwrap_or_default();
         let saved_agent_session = saved_pane.and_then(|p| p.agent_session.as_ref());
         let saved_seen = saved_pane.is_none_or(|p| p.seen);
         let saved_env_pane_id = saved_pane.and_then(|p| p.env_pane_id).or(old_id.copied());
@@ -450,6 +451,7 @@ fn restore_tab(
                 saved_agent_session,
                 saved_history,
                 saved_launch_argv.as_deref(),
+                &saved_launch_env,
                 &mut agent_restore,
             )
         };
@@ -468,11 +470,15 @@ fn restore_tab(
         };
         if let Some(plan) = pending_native_agent_restore {
             let restored_launch_argv = plan.argv.first().cloned().map(|command| vec![command]);
+            let restored_launch_env = plan.env.clone();
             let terminal_id = TerminalId::alloc();
             let mut terminal = TerminalState::new(terminal_id.clone(), cwd.clone())
                 .with_pending_agent_resume_plan(plan);
             if let Some(argv) = restored_launch_argv {
                 terminal = terminal.with_launch_argv(argv);
+            }
+            if !restored_launch_env.is_empty() {
+                terminal = terminal.with_launch_env(restored_launch_env);
             }
             if let Some(label) = saved_label {
                 terminal.set_manual_label(label);
@@ -540,9 +546,11 @@ fn restore_tab(
                 let terminal_id = TerminalId::alloc();
                 let mut terminal = TerminalState::new(terminal_id.clone(), cwd.clone());
                 if was_imported {
-                    if let Some(argv) = saved_launch_argv {
-                        terminal = terminal.with_launch_argv(argv).with_respawn_shell_on_exit();
-                    }
+                    terminal = apply_imported_launch_context(
+                        terminal,
+                        saved_launch_argv,
+                        saved_launch_env,
+                    );
                 }
                 if let Some(label) = saved_label {
                     terminal.set_manual_label(label);
@@ -659,14 +667,16 @@ fn pane_restore_startup<'a>(
     session: Option<&PaneAgentSessionSnapshot>,
     history: Option<&'a PaneHistorySnapshot>,
     launch_argv: Option<&[String]>,
+    launch_env: &[(String, String)],
     agent_restore: &mut AgentRestoreState<'_>,
 ) -> PaneRestoreStartup<'a> {
     // Native agent resume owns the conversation history. If a pane has a
     // resumable agent session and resume is enabled, do not replay saved pane
     // presentation history into that terminal, even when this pane is a
     // duplicate suppressed by session de-duplication.
-    let restore_plan = session
-        .and_then(|session| restore_plan_for_snapshot(session, agent_restore.enabled, launch_argv));
+    let restore_plan = session.and_then(|session| {
+        restore_plan_for_snapshot(session, agent_restore.enabled, launch_argv, launch_env)
+    });
     let has_native_agent_restore = restore_plan.is_some();
     // Reserve before spawning so later panes in the same restore pass cannot
     // launch the same native agent session. The caller rolls this reservation
@@ -705,16 +715,18 @@ fn restore_plan_for_snapshot(
     session: &PaneAgentSessionSnapshot,
     resume_agents_on_restore: bool,
     launch_argv: Option<&[String]>,
+    launch_env: &[(String, String)],
 ) -> Option<crate::agent_resume::AgentResumePlan> {
     if !resume_agents_on_restore {
         return None;
     }
     let persisted = persisted_agent_session_from_snapshot(session)?;
-    crate::agent_resume::plan_with_launch_argv(
+    crate::agent_resume::plan_with_launch_context(
         &session.source,
         &session.agent,
         &persisted.session_ref,
         launch_argv,
+        launch_env,
     )
 }
 
@@ -727,6 +739,20 @@ fn persisted_agent_session_from_snapshot(
         session.kind,
         &session.value,
     )
+}
+
+fn apply_imported_launch_context(
+    mut terminal: TerminalState,
+    saved_launch_argv: Option<Vec<String>>,
+    saved_launch_env: Vec<(String, String)>,
+) -> TerminalState {
+    if let Some(argv) = saved_launch_argv {
+        terminal = terminal.with_launch_argv(argv).with_respawn_shell_on_exit();
+    }
+    if !saved_launch_env.is_empty() {
+        terminal = terminal.with_launch_env(saved_launch_env);
+    }
+    terminal
 }
 
 fn restored_terminal_agent_session(
@@ -745,7 +771,7 @@ fn take_restore_plan_for_snapshot(
     resume_agents_on_restore: bool,
     resumed_agent_sessions: &mut HashSet<String>,
 ) -> Option<crate::agent_resume::AgentResumePlan> {
-    restore_plan_for_snapshot(session, resume_agents_on_restore, None)
+    restore_plan_for_snapshot(session, resume_agents_on_restore, None, &[])
         .filter(|plan| resumed_agent_sessions.insert(plan.dedupe_key.clone()))
 }
 
@@ -899,6 +925,7 @@ mod tests {
                             agent_name: None,
                             agent_session: None,
                             launch_argv: None,
+                            launch_env: Vec::new(),
                             seen: true,
                             terminal_semantics: None,
                         },
@@ -971,9 +998,9 @@ mod tests {
             value: "/tmp/pi-session.jsonl".into(),
         };
 
-        assert!(restore_plan_for_snapshot(&session, false, None).is_none());
+        assert!(restore_plan_for_snapshot(&session, false, None, &[]).is_none());
         assert_eq!(
-            restore_plan_for_snapshot(&session, true, None)
+            restore_plan_for_snapshot(&session, true, None, &[])
                 .unwrap()
                 .argv,
             vec!["pi", "--session", "/tmp/pi-session.jsonl"]
@@ -986,7 +1013,7 @@ mod tests {
             value: "/tmp/omp-session.jsonl".into(),
         };
         assert_eq!(
-            restore_plan_for_snapshot(&omp_session, true, None)
+            restore_plan_for_snapshot(&omp_session, true, None, &[])
                 .unwrap()
                 .argv,
             vec!["omp", "--session", "/tmp/omp-session.jsonl"]
@@ -1005,9 +1032,14 @@ mod tests {
             value: child_session_path.clone(),
         };
         assert_eq!(
-            restore_plan_for_snapshot(&child_omp_session, true, Some(&["custom-omp".to_string()]))
-                .unwrap()
-                .argv,
+            restore_plan_for_snapshot(
+                &child_omp_session,
+                true,
+                Some(&["custom-omp".to_string()]),
+                &[]
+            )
+            .unwrap()
+            .argv,
             vec![
                 "custom-omp".to_string(),
                 "--session".to_string(),
@@ -1022,7 +1054,7 @@ mod tests {
             kind: crate::agent_resume::AgentSessionRefKind::Path,
             value: "/tmp/claude-session".into(),
         };
-        assert!(restore_plan_for_snapshot(&unsupported_path, true, None).is_none());
+        assert!(restore_plan_for_snapshot(&unsupported_path, true, None, &[]).is_none());
     }
 
     #[test]
@@ -1074,7 +1106,7 @@ mod tests {
             };
 
             assert_eq!(
-                restore_plan_for_snapshot(&session, true, Some(&[launch_command.to_string()]))
+                restore_plan_for_snapshot(&session, true, Some(&[launch_command.to_string()]), &[])
                     .unwrap()
                     .argv,
                 expected
@@ -1088,7 +1120,7 @@ mod tests {
             value: "/tmp/pi-session.jsonl".into(),
         };
         assert_eq!(
-            restore_plan_for_snapshot(&pi_session, true, Some(&["custom-pi".to_string()]))
+            restore_plan_for_snapshot(&pi_session, true, Some(&["custom-pi".to_string()]), &[])
                 .unwrap()
                 .argv,
             vec!["custom-pi", "--session", "/tmp/pi-session.jsonl"]
@@ -1101,7 +1133,7 @@ mod tests {
             value: "/tmp/omp-session.jsonl".into(),
         };
         assert_eq!(
-            restore_plan_for_snapshot(&omp_session, true, Some(&["custom-omp".to_string()]))
+            restore_plan_for_snapshot(&omp_session, true, Some(&["custom-omp".to_string()]), &[])
                 .unwrap()
                 .argv,
             vec!["custom-omp", "--session", "/tmp/omp-session.jsonl"]
@@ -1143,6 +1175,7 @@ mod tests {
                                 value: "codex-session".into(),
                             }),
                             launch_argv: Some(vec!["custom-codex".into()]),
+                            launch_env: vec![("CODEX_HOME".into(), "/profiles/codex".into())],
                             seen: true,
                             terminal_semantics: None,
                         },
@@ -1186,6 +1219,10 @@ mod tests {
 
         assert_eq!(terminal.launch_argv, Some(vec!["custom-codex".into()]));
         assert_eq!(
+            terminal.launch_env,
+            vec![("CODEX_HOME".into(), "/profiles/codex".into())]
+        );
+        assert_eq!(
             terminal
                 .pending_agent_resume_plan
                 .as_ref()
@@ -1196,10 +1233,38 @@ mod tests {
                 "codex-session".into()
             ])
         );
+        assert_eq!(
+            terminal
+                .pending_agent_resume_plan
+                .as_ref()
+                .map(|plan| plan.env.clone()),
+            Some(vec![("CODEX_HOME".into(), "/profiles/codex".into())])
+        );
 
         for (_, runtime) in runtimes.drain() {
             runtime.shutdown();
         }
+    }
+
+    #[test]
+    fn imported_restore_preserves_profile_env_without_launch_argv() {
+        let terminal = TerminalState::new(
+            TerminalId::alloc(),
+            std::env::current_dir().unwrap_or_else(|_| "/".into()),
+        );
+
+        let terminal = apply_imported_launch_context(
+            terminal,
+            None,
+            vec![("CODEX_HOME".into(), "/profiles/manual-codex".into())],
+        );
+
+        assert_eq!(terminal.launch_argv, None);
+        assert_eq!(
+            terminal.launch_env,
+            vec![("CODEX_HOME".into(), "/profiles/manual-codex".into())]
+        );
+        assert!(!terminal.respawn_shell_on_exit);
     }
 
     #[test]
@@ -1222,6 +1287,31 @@ mod tests {
     }
 
     #[test]
+    fn restore_plan_dedupe_keeps_profile_scoped_session_ids_distinct() {
+        let session = super::super::snapshot::PaneAgentSessionSnapshot {
+            source: "hako:codex".into(),
+            agent: "codex".into(),
+            kind: crate::agent_resume::AgentSessionRefKind::Id,
+            value: "same-session-id".into(),
+        };
+        let mut resumed = HashSet::new();
+        let first_env = vec![("CODEX_HOME".into(), "/profiles/one".into())];
+        let second_env = vec![("CODEX_HOME".into(), "/profiles/two".into())];
+
+        let first = restore_plan_for_snapshot(&session, true, None, &first_env)
+            .expect("first profile restore should get a plan");
+        assert!(resumed.insert(first.dedupe_key));
+
+        let second = restore_plan_for_snapshot(&session, true, None, &second_env)
+            .expect("second profile restore should get a plan");
+        assert!(resumed.insert(second.dedupe_key));
+
+        let duplicate = restore_plan_for_snapshot(&session, true, None, &first_env)
+            .expect("duplicate profile restore should get a plan before dedupe");
+        assert!(!resumed.insert(duplicate.dedupe_key));
+    }
+
+    #[test]
     fn pane_restore_startup_suppresses_history_for_native_agent_resume() {
         let session = super::super::snapshot::PaneAgentSessionSnapshot {
             source: "hako:pi".into(),
@@ -1239,8 +1329,13 @@ mod tests {
             resumed_sessions: &mut resumed,
         };
 
-        let startup =
-            pane_restore_startup(Some(&session), Some(&history), None, &mut agent_restore);
+        let startup = pane_restore_startup(
+            Some(&session),
+            Some(&history),
+            None,
+            &[],
+            &mut agent_restore,
+        );
 
         assert!(startup.restore_plan.is_some());
         assert!(startup.initial_history_ansi.is_none());
@@ -1265,9 +1360,20 @@ mod tests {
             resumed_sessions: &mut resumed,
         };
 
-        let first = pane_restore_startup(Some(&session), Some(&history), None, &mut agent_restore);
-        let duplicate =
-            pane_restore_startup(Some(&session), Some(&history), None, &mut agent_restore);
+        let first = pane_restore_startup(
+            Some(&session),
+            Some(&history),
+            None,
+            &[],
+            &mut agent_restore,
+        );
+        let duplicate = pane_restore_startup(
+            Some(&session),
+            Some(&history),
+            None,
+            &[],
+            &mut agent_restore,
+        );
 
         assert!(first.restore_plan.is_some());
         assert!(first.initial_history_ansi.is_none());
@@ -1294,8 +1400,13 @@ mod tests {
             resumed_sessions: &mut resumed,
         };
 
-        let startup =
-            pane_restore_startup(Some(&session), Some(&history), None, &mut agent_restore);
+        let startup = pane_restore_startup(
+            Some(&session),
+            Some(&history),
+            None,
+            &[],
+            &mut agent_restore,
+        );
 
         assert!(startup.restore_plan.is_none());
         assert_eq!(startup.initial_history_ansi, Some("RESTORED_HISTORY\r\n"));
@@ -1424,6 +1535,7 @@ mod tests {
                                 value: "opencode-session".into(),
                             }),
                             launch_argv: None,
+                            launch_env: Vec::new(),
                             seen: true,
                             terminal_semantics: None,
                         },
@@ -1517,6 +1629,7 @@ mod tests {
                                 value: "codex-session".into(),
                             }),
                             launch_argv: None,
+                            launch_env: Vec::new(),
                             seen: true,
                             terminal_semantics: None,
                         },
@@ -1659,6 +1772,7 @@ mod tests {
                 agent_name: None,
                 agent_session: None,
                 launch_argv: None,
+                launch_env: Vec::new(),
                 seen: true,
                 terminal_semantics: None,
             },

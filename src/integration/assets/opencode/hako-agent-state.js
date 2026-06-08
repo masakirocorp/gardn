@@ -20,6 +20,17 @@ function sessionIDFromProperties(properties) {
     : undefined;
 }
 
+function launchEnv() {
+  const env = {};
+  for (const key of ["OPENCODE_CONFIG", "XDG_DATA_HOME"]) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.length > 0) {
+      env[key] = value;
+    }
+  }
+  return env;
+}
+
 function reportSession(sessionID) {
   if (!sessionID) {
     return Promise.resolve();
@@ -44,6 +55,7 @@ function reportSession(sessionID) {
       agent: "opencode",
       seq: nextReportSeq(),
       agent_session_id: sessionID,
+      launch_env: launchEnv(),
     },
   };
 

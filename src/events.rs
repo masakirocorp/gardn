@@ -39,6 +39,7 @@ pub enum AppEvent {
         custom_status: Option<String>,
         seq: Option<u64>,
         session_ref: Option<crate::agent_resume::AgentSessionRef>,
+        launch_env: Vec<(String, String)>,
     },
     /// Hook-reported native agent session identity without lifecycle authority.
     HookSessionReported {
@@ -47,6 +48,7 @@ pub enum AppEvent {
         agent_label: String,
         seq: Option<u64>,
         session_ref: Option<crate::agent_resume::AgentSessionRef>,
+        launch_env: Vec<(String, String)>,
     },
     /// Display-only agent metadata was reported for a pane.
     HookMetadataReported {

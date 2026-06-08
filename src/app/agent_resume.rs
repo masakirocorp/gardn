@@ -139,7 +139,7 @@ impl App {
             return false;
         }
 
-        let Some(resume_command) = shell_command_from_argv(&plan.argv) else {
+        let Some(resume_command) = shell_command_from_plan(&plan) else {
             tracing::warn!(
                 pane = pane_id.raw(),
                 terminal = %terminal_id,
@@ -199,10 +199,29 @@ impl App {
                     terminal.launch_argv = Some(vec![command.clone()]);
                 }
             }
+            if terminal.launch_env.is_empty() && !plan.env.is_empty() {
+                terminal.launch_env = plan.env.clone();
+            }
             terminal.respawn_shell_on_exit = false;
         }
         true
     }
+}
+
+fn shell_command_from_plan(plan: &crate::agent_resume::AgentResumePlan) -> Option<String> {
+    let command = shell_command_from_argv(&plan.argv)?;
+    if plan.env.is_empty() {
+        return Some(command);
+    }
+
+    let mut prefixed = String::from("env");
+    for (key, value) in &plan.env {
+        prefixed.push(' ');
+        prefixed.push_str(&shell_quote(&format!("{key}={value}")));
+    }
+    prefixed.push(' ');
+    prefixed.push_str(&command);
+    Some(prefixed)
 }
 
 fn shell_command_from_argv(argv: &[String]) -> Option<String> {
@@ -319,6 +338,7 @@ mod tests {
             .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
             agent: "test-agent".into(),
             argv,
+            env: Vec::new(),
             dedupe_key: format!("test\0{}", output.display()),
         });
 
@@ -395,6 +415,78 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pending_agent_resume_executes_profile_environment() {
+        let dir = temp_restore_dir("restore-env");
+        let output = dir.join("profile-env.txt");
+        let mut app = test_app();
+        let workspace = crate::workspace::Workspace::test_new("restored");
+        let pane_id = workspace.tabs[0].root_pane;
+        let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
+        app.state.view.pane_infos = workspace.tabs[0]
+            .layout
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.ensure_test_terminals();
+        app.state.default_shell = "/bin/sh".to_string();
+        app.state.shell_mode = crate::config::ShellModeConfig::NonLogin;
+        app.state.host_terminal_theme = crate::terminal_theme::TerminalTheme {
+            foreground: Some(crate::terminal_theme::RgbColor {
+                r: 220,
+                g: 220,
+                b: 220,
+            }),
+            background: Some(crate::terminal_theme::RgbColor {
+                r: 20,
+                g: 20,
+                b: 20,
+            }),
+            ..crate::terminal_theme::TerminalTheme::default()
+        };
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("test terminal should exist")
+            .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
+            agent: "codex".into(),
+            argv: vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                format!("printf %s \"$CODEX_HOME\" > '{}'", output.display()),
+            ],
+            env: vec![("CODEX_HOME".into(), "/profiles/manual-codex".into())],
+            dedupe_key: format!("hako:codex\0codex\0Id\0{}", output.display()),
+        });
+
+        assert!(app.start_pending_agent_resumes(false));
+        for _ in 0..40 {
+            if output.exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+
+        assert_eq!(
+            std::fs::read_to_string(&output).expect("profile env should be recorded"),
+            "/profiles/manual-codex"
+        );
+        assert_eq!(
+            app.state
+                .terminals
+                .get(&terminal_id)
+                .expect("terminal should survive")
+                .launch_env,
+            vec![("CODEX_HOME".into(), "/profiles/manual-codex".into())]
+        );
+
+        for (_, runtime) in app.terminal_runtimes.drain() {
+            runtime.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[tokio::test]
     async fn pending_agent_resume_waits_for_host_theme_before_launch() {
         let mut app = test_app();
@@ -420,6 +512,7 @@ mod tests {
                 "-c".into(),
                 "printf '%s' 'restored agent: shell quoted | marker'; sleep 5".into(),
             ],
+            env: Vec::new(),
             dedupe_key: "hako:codex\0codex\0Id\0codex-session".into(),
         });
 
@@ -496,6 +589,7 @@ mod tests {
             .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
             agent: "codex".into(),
             argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
+            env: Vec::new(),
             dedupe_key: "hako:codex\0codex\0Id\0codex-session".into(),
         });
 
@@ -545,6 +639,7 @@ mod tests {
                 .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
                 agent: "codex".into(),
                 argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
+                env: Vec::new(),
                 dedupe_key: format!("hako:codex\0codex\0Id\0{terminal_id}"),
             });
         }
@@ -609,6 +704,7 @@ mod tests {
             .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
             agent: "codex".into(),
             argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
+            env: Vec::new(),
             dedupe_key: "hako:codex\0codex\0Id\0codex-session".into(),
         });
 
@@ -663,6 +759,7 @@ mod tests {
             .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
             agent: "codex".into(),
             argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
+            env: Vec::new(),
             dedupe_key: "hako:codex\0codex\0Id\0codex-session".into(),
         });
 
@@ -693,5 +790,16 @@ mod tests {
             Some("claude --resume 'session with '\\'' quote'")
         );
         assert_eq!(shell_command_from_argv(&[]), None);
+
+        let plan = crate::agent_resume::AgentResumePlan {
+            agent: "codex".into(),
+            argv: vec!["codex".into(), "resume".into(), "session".into()],
+            env: vec![("CODEX_HOME".into(), "/profiles/codex with space".into())],
+            dedupe_key: "codex".into(),
+        };
+        assert_eq!(
+            shell_command_from_plan(&plan).as_deref(),
+            Some("env 'CODEX_HOME=/profiles/codex with space' codex resume session")
+        );
     }
 }

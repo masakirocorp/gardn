@@ -197,6 +197,11 @@ impl App {
                 params.agent_session_id,
                 params.agent_session_path,
             ),
+            launch_env: crate::agent_resume::launch_env_from_report(
+                &params.source,
+                &agent_label,
+                params.launch_env,
+            ),
             source: params.source,
             agent_label,
             state: detect_state_from_api(params.state),
@@ -226,6 +231,11 @@ impl App {
                 &agent_label,
                 params.agent_session_id,
                 params.agent_session_path,
+            ),
+            launch_env: crate::agent_resume::launch_env_from_report(
+                &params.source,
+                &agent_label,
+                params.launch_env,
             ),
             source: params.source,
             agent_label,

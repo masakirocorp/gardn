@@ -52,6 +52,11 @@ request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):0
 report_seq = time.time_ns()
 session_id = hook_input.get("session_id")
 agent_session_id = session_id if isinstance(session_id, str) and session_id else None
+launch_env = {
+    key: value
+    for key in ("CODEX_HOME",)
+    if isinstance((value := os.environ.get(key)), str) and value
+}
 if agent_session_id:
     request = {
         "id": request_id,
@@ -62,6 +67,7 @@ if agent_session_id:
             "agent": "codex",
             "seq": report_seq,
             "agent_session_id": agent_session_id,
+            "launch_env": launch_env,
         },
     }
 else:

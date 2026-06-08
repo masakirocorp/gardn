@@ -13,6 +13,7 @@ CODEX_RESTORE_WRAPPER="${CODEX_RESTORE_WRAPPER:-codex}"
 echo "== hako restore command tests =="
 cargo test --locked planner_preserves_launch_command_for_every_resumable_agent
 cargo test --locked restore_plan_preserves_saved_launch_command_for_every_resumable_agent
+cargo test --locked pending_agent_resume_executes_profile_environment
 cargo test --locked pending_agent_resume_executes_every_supported_restore_argv_shape
 
 if ! command -v zsh >/dev/null 2>&1; then

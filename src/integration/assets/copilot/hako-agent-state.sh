@@ -128,8 +128,18 @@ def send(method, params):
     except Exception:
         pass
 
+def launch_env():
+    return {
+        key: value
+        for key in ("COPILOT_HOME",)
+        if isinstance((value := os.environ.get(key)), str) and value
+    }
+
 def report(state, session_id):
     params = {"state": state}
+    env = launch_env()
+    if env:
+        params["launch_env"] = env
     if session_id:
         params["agent_session_id"] = session_id
     send("pane.report_agent", params)

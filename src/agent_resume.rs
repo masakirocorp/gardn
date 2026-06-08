@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,7 @@ pub enum AgentSessionRefKind {
 pub struct AgentResumePlan {
     pub agent: String,
     pub argv: Vec<String>,
+    pub env: Vec<(String, String)>,
     pub dedupe_key: String,
 }
 
@@ -67,6 +69,36 @@ pub fn session_ref_from_report(
     }
 
     agent_session_id.and_then(AgentSessionRef::id)
+}
+
+pub fn launch_env_from_report(
+    source: &str,
+    agent: &str,
+    launch_env: BTreeMap<String, String>,
+) -> Vec<(String, String)> {
+    if !is_official_agent_source(source, agent) {
+        return Vec::new();
+    }
+
+    let allowed = match (source, agent) {
+        ("hako:claude", "claude") => &["CLAUDE_CONFIG_DIR"][..],
+        ("hako:codex", "codex") => &["CODEX_HOME"][..],
+        ("hako:copilot", "copilot") => &["COPILOT_HOME"][..],
+        ("hako:pi", "pi") | ("hako:omp", "omp") => &["PI_CONFIG_DIR", "PI_CODING_AGENT_DIR"][..],
+        ("hako:hermes", "hermes") => &["HERMES_HOME"][..],
+        ("hako:opencode", "opencode") => &["OPENCODE_CONFIG", "XDG_DATA_HOME"][..],
+        _ => &[],
+    };
+
+    allowed
+        .iter()
+        .filter_map(|key| {
+            launch_env
+                .get(*key)
+                .filter(|value| valid_launch_env_value(value))
+                .map(|value| ((*key).to_string(), value.clone()))
+        })
+        .collect()
 }
 
 pub fn is_reserved_native_state_source(source: &str, agent: &str) -> bool {
@@ -142,6 +174,7 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
     Some(AgentResumePlan {
         agent: agent.to_string(),
         argv,
+        env: Vec::new(),
         dedupe_key: dedupe_key(source, agent, session_ref),
     })
 }
@@ -180,6 +213,24 @@ fn canonical_project_session_dir(session_path: &str) -> Option<String> {
     session_dir.to_str().map(str::to_string)
 }
 
+pub fn plan_with_launch_context(
+    source: &str,
+    agent: &str,
+    session_ref: &AgentSessionRef,
+    launch_argv: Option<&[String]>,
+    launch_env: &[(String, String)],
+) -> Option<AgentResumePlan> {
+    let mut plan = plan_with_launch_argv(source, agent, session_ref, launch_argv)?;
+    plan.env = launch_env
+        .iter()
+        .filter(|(key, value)| valid_launch_env_key(key) && valid_launch_env_value(value))
+        .cloned()
+        .collect();
+    if !plan.env.is_empty() {
+        plan.dedupe_key = dedupe_key_with_env(&plan.dedupe_key, &plan.env);
+    }
+    Some(plan)
+}
 pub fn plan_with_launch_argv(
     source: &str,
     agent: &str,
@@ -248,6 +299,17 @@ pub fn dedupe_key(source: &str, agent: &str, session_ref: &AgentSessionRef) -> S
     )
 }
 
+fn dedupe_key_with_env(base: &str, env: &[(String, String)]) -> String {
+    let mut key = base.to_string();
+    for (name, value) in env {
+        key.push('\0');
+        key.push_str(name);
+        key.push('=');
+        key.push_str(value);
+    }
+    key
+}
+
 fn is_official_agent_source(source: &str, agent: &str) -> bool {
     matches!(
         (source, agent),
@@ -277,6 +339,17 @@ fn valid_session_path(value: &str) -> bool {
 }
 
 fn valid_launch_command(value: &str) -> bool {
+    !value.is_empty() && !value.chars().any(char::is_control)
+}
+
+fn valid_launch_env_key(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+}
+
+fn valid_launch_env_value(value: &str) -> bool {
     !value.is_empty() && !value.chars().any(char::is_control)
 }
 
@@ -482,6 +555,37 @@ mod tests {
                 "--session-dir".to_string(),
                 project_session_dir,
             ]
+        );
+    }
+
+    #[test]
+    fn planner_preserves_profile_environment_for_manual_starts() {
+        let session_ref = AgentSessionRef::id("codex-session").unwrap();
+        let env = vec![("CODEX_HOME".to_string(), "/profiles/codex".to_string())];
+
+        let plan =
+            plan_with_launch_context("hako:codex", "codex", &session_ref, None, &env).unwrap();
+
+        assert_eq!(plan.argv, vec!["codex", "resume", "codex-session"]);
+        assert_eq!(plan.env, env);
+        let other_env = vec![("CODEX_HOME".to_string(), "/profiles/other".to_string())];
+        let other_plan =
+            plan_with_launch_context("hako:codex", "codex", &session_ref, None, &other_env)
+                .unwrap();
+        assert_ne!(plan.dedupe_key, other_plan.dedupe_key);
+    }
+
+    #[test]
+    fn launch_env_report_keeps_only_supported_profile_vars() {
+        let env = BTreeMap::from([
+            ("CODEX_HOME".to_string(), "/profiles/codex".to_string()),
+            ("PATH".to_string(), "/bin".to_string()),
+            ("OPENCODE_CONFIG".to_string(), "/wrong/tool".to_string()),
+        ]);
+
+        assert_eq!(
+            launch_env_from_report("hako:codex", "codex", env),
+            vec![("CODEX_HOME".to_string(), "/profiles/codex".to_string())]
         );
     }
 

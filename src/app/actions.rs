@@ -2783,9 +2783,10 @@ impl AppState {
                 custom_status,
                 seq,
                 session_ref,
+                launch_env,
             } => self
                 .update_terminal_state(pane_id, |terminal| {
-                    terminal.set_hook_authority_with_session_ref(
+                    let mut mutation = terminal.set_hook_authority_with_session_ref(
                         source,
                         agent_label,
                         state,
@@ -2793,7 +2794,12 @@ impl AppState {
                         custom_status,
                         session_ref,
                         seq,
-                    )
+                    )?;
+                    if terminal.launch_env != launch_env {
+                        terminal.launch_env = launch_env;
+                        mutation.session_ref_changed = true;
+                    }
+                    Some(mutation)
                 })
                 .into_iter()
                 .collect(),
@@ -2803,9 +2809,16 @@ impl AppState {
                 agent_label,
                 seq,
                 session_ref,
+                launch_env,
             } => self
                 .update_terminal_state(pane_id, |terminal| {
-                    terminal.set_agent_session_ref(source, agent_label, session_ref, seq)
+                    let mut mutation =
+                        terminal.set_agent_session_ref(source, agent_label, session_ref, seq)?;
+                    if terminal.launch_env != launch_env {
+                        terminal.launch_env = launch_env;
+                        mutation.session_ref_changed = true;
+                    }
+                    Some(mutation)
                 })
                 .into_iter()
                 .collect(),
@@ -4680,6 +4693,7 @@ mod tests {
             custom_status: None,
             seq: None,
             session_ref: None,
+            launch_env: Vec::new(),
         });
 
         let toast = state.toast.as_ref().unwrap();
@@ -4720,6 +4734,7 @@ mod tests {
             custom_status: None,
             seq: Some(1),
             session_ref: None,
+            launch_env: Vec::new(),
         });
         state.handle_app_event(AppEvent::StateChanged {
             pane_id: bg_pane_id,
@@ -4771,6 +4786,7 @@ mod tests {
             custom_status: None,
             seq: Some(1),
             session_ref: None,
+            launch_env: Vec::new(),
         });
         state.handle_app_event(AppEvent::StateChanged {
             pane_id: bg_pane_id,
@@ -4812,6 +4828,7 @@ mod tests {
             agent_label: "pi".into(),
             seq: Some(21),
             session_ref: crate::agent_resume::AgentSessionRef::path("/tmp/two.jsonl"),
+            launch_env: vec![("PI_CONFIG_DIR".into(), ".pi-profile".into())],
         });
 
         assert!(second_updates.is_empty());
@@ -4821,6 +4838,28 @@ mod tests {
             .get(&state.workspaces[0].terminal_id(pane_id).cloned().unwrap())
             .unwrap();
         assert_eq!(terminal.state, AgentState::Working);
+        assert_eq!(
+            terminal.launch_env,
+            vec![("PI_CONFIG_DIR".into(), ".pi-profile".into())]
+        );
+
+        state.session_dirty = false;
+        let third_updates = state.handle_app_event(AppEvent::HookSessionReported {
+            pane_id,
+            source: "hako:pi".into(),
+            agent_label: "pi".into(),
+            seq: Some(22),
+            session_ref: crate::agent_resume::AgentSessionRef::path("/tmp/three.jsonl"),
+            launch_env: Vec::new(),
+        });
+
+        assert!(third_updates.is_empty());
+        assert!(state.session_dirty);
+        let terminal = state
+            .terminals
+            .get(&state.workspaces[0].terminal_id(pane_id).cloned().unwrap())
+            .unwrap();
+        assert!(terminal.launch_env.is_empty());
     }
 
     #[test]
