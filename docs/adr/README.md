@@ -9,3 +9,4 @@ ADRs record current architectural decisions that future maintainers and agents s
 - [0005 — Split app orchestration by responsibility](0005-split-app-orchestration-by-responsibility.md): app behavior is placed across state, actions, input, runtime, and focused helpers instead of accumulating in one god object.
 - [0006 — Version the wire protocol by release](0006-version-wire-protocol-by-release.md): server/client compatibility is tracked with an explicit protocol version reviewed against tagged Hako releases.
 - [0007 — Isolate multi-agent work in task worktrees](0007-isolate-multi-agent-work-in-task-worktrees.md): Worktrunk-backed task worktrees isolate bigger, risky, parallel, or dirty-shared-checkout work so the shared checkout remains safe for integration.
+- [0008 — Treat upstream as signal in the product fork](0008-treat-upstream-as-signal.md): upstream Herdr changes are candidate input that Hako ports by invariant while preserving Hako product identity.

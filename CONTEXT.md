@@ -33,7 +33,7 @@ A per-group promotion of a global agent profile. Favorite profiles appear before
 _Avoid_: Visibility, permission, policy, priority
 
 **New Agent**:
-A launch surface for starting an agent profile in a new tab for a specific workspace or group context. New Agent uses group favorites to organize profiles but does not edit the profile catalog.
+A launch surface for starting an agent profile as a new tab in a specific workspace or group context. New Agent starts the configured argv and environment directly, uses group favorites to organize profiles, and does not edit the profile catalog.
 _Avoid_: Run command, start bot
 
 **Workspace**:
@@ -79,3 +79,11 @@ _Avoid_: API, command protocol
 **Protocol Version**:
 The numeric compatibility marker for the wire protocol. Hako currently treats protocol compatibility as an exact match between client and server protocol values.
 _Avoid_: App version, release version
+
+**Product Fork**:
+A fork that has its own product identity, release line, docs, website, update channel, and repository policy. Hako is a product fork of upstream Herdr, not a mirror.
+_Avoid_: Downstream mirror, rebrand branch
+
+**Upstream Signal**:
+An upstream Herdr change treated as candidate evidence for a Hako invariant. Upstream signal must be checked against Hako context before it becomes Hako behavior.
+_Avoid_: Upstream authority, automatic merge
