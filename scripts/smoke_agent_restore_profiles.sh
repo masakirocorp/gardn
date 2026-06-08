@@ -6,6 +6,9 @@ cd "$ROOT"
 
 ZSH_LOGIN=(env TERM=xterm-256color zsh -lic)
 PI_SESSION_MANAGER_MODULE="${PI_SESSION_MANAGER_MODULE:-$HOME/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js}"
+OMP_RESTORE_WRAPPER="${OMP_RESTORE_WRAPPER:-omp}"
+OPENCODE_RESTORE_WRAPPER="${OPENCODE_RESTORE_WRAPPER:-opencode}"
+CODEX_RESTORE_WRAPPER="${CODEX_RESTORE_WRAPPER:-codex}"
 
 echo "== hako restore command tests =="
 cargo test --locked planner_preserves_launch_command_for_every_resumable_agent
@@ -13,13 +16,22 @@ cargo test --locked restore_plan_preserves_saved_launch_command_for_every_resuma
 cargo test --locked pending_agent_resume_executes_every_supported_restore_argv_shape
 
 if ! command -v zsh >/dev/null 2>&1; then
-  echo "missing zsh; cannot verify profile shell aliases" >&2
+  echo "missing zsh; cannot verify shell-visible restore wrappers" >&2
   exit 1
 fi
 
-echo "== profile wrapper availability =="
+echo "== configured restore wrapper availability =="
+OMP_RESTORE_WRAPPER="$OMP_RESTORE_WRAPPER" \
+OPENCODE_RESTORE_WRAPPER="$OPENCODE_RESTORE_WRAPPER" \
+CODEX_RESTORE_WRAPPER="$CODEX_RESTORE_WRAPPER" \
 "${ZSH_LOGIN[@]}" '
-  for cmd in omp-mk oc-mk codex-mk; do
+  run_wrapper() {
+    case "$1" in
+      *[!A-Za-z0-9_./-]*|"") echo "invalid wrapper command: $1" >&2; exit 1 ;;
+    esac
+    eval "$1 $2"
+  }
+  for cmd in "$OMP_RESTORE_WRAPPER" "$OPENCODE_RESTORE_WRAPPER" "$CODEX_RESTORE_WRAPPER"; do
     if type "$cmd" >/dev/null 2>&1; then
       echo "$cmd: available"
     else
@@ -27,19 +39,15 @@ echo "== profile wrapper availability =="
       exit 1
     fi
   done
+  echo "== configured restore wrapper CLI probes =="
+  run_wrapper "$OMP_RESTORE_WRAPPER" "--version"
+  run_wrapper "$OPENCODE_RESTORE_WRAPPER" "--version"
+  run_wrapper "$CODEX_RESTORE_WRAPPER" "--version"
+  echo "== opencode restore wrapper session scope =="
+  run_wrapper "$OPENCODE_RESTORE_WRAPPER" "session list >/dev/null"
+  echo "== codex restore wrapper resume surface =="
+  run_wrapper "$CODEX_RESTORE_WRAPPER" "resume --help >/dev/null"
 '
-
-echo "== profile wrapper CLI probes =="
-"${ZSH_LOGIN[@]}" 'omp-mk --version'
-"${ZSH_LOGIN[@]}" 'oc-mk --version'
-"${ZSH_LOGIN[@]}" 'codex-mk --version'
-
-echo "== opencode profile session scope =="
-"${ZSH_LOGIN[@]}" 'oc-mk session list >/dev/null'
-
-echo "== codex profile resume surface =="
-"${ZSH_LOGIN[@]}" 'codex-mk resume --help >/dev/null'
-
 if ! command -v bun >/dev/null 2>&1; then
   echo "bun missing; cannot verify OMP SessionManager behavior" >&2
   exit 1

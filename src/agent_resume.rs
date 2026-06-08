@@ -365,36 +365,36 @@ mod tests {
                 "hako:claude",
                 "claude",
                 "claude-session",
-                "claude-mk",
-                vec!["claude-mk", "--resume", "claude-session"],
+                "custom-claude",
+                vec!["custom-claude", "--resume", "claude-session"],
             ),
             (
                 "hako:codex",
                 "codex",
                 "codex-session",
-                "codex-mk",
-                vec!["codex-mk", "resume", "codex-session"],
+                "custom-codex",
+                vec!["custom-codex", "resume", "codex-session"],
             ),
             (
                 "hako:copilot",
                 "copilot",
                 "copilot-session",
-                "copilot-mk",
-                vec!["copilot-mk", "--resume=copilot-session"],
+                "custom-copilot",
+                vec!["custom-copilot", "--resume=copilot-session"],
             ),
             (
                 "hako:hermes",
                 "hermes",
                 "hermes-session",
-                "hermes-mk",
-                vec!["hermes-mk", "--resume", "hermes-session"],
+                "custom-hermes",
+                vec!["custom-hermes", "--resume", "hermes-session"],
             ),
             (
                 "hako:opencode",
                 "opencode",
                 "opencode-session",
-                "oc-frs",
-                vec!["oc-frs", "--session", "opencode-session"],
+                "custom-opencode",
+                vec!["custom-opencode", "--session", "opencode-session"],
             ),
         ];
 
@@ -415,26 +415,31 @@ mod tests {
 
         let pi_ref = AgentSessionRef::path("/tmp/pi-session.jsonl").unwrap();
         assert_eq!(
-            plan_with_launch_argv("hako:pi", "pi", &pi_ref, Some(&["pi-mk".to_string()]))
+            plan_with_launch_argv("hako:pi", "pi", &pi_ref, Some(&["custom-pi".to_string()]))
                 .unwrap()
                 .argv,
-            vec!["pi-mk", "--session", "/tmp/pi-session.jsonl"]
+            vec!["custom-pi", "--session", "/tmp/pi-session.jsonl"]
         );
 
         let omp_ref = AgentSessionRef::path("/tmp/omp-session.jsonl").unwrap();
         assert_eq!(
-            plan_with_launch_argv("hako:omp", "omp", &omp_ref, Some(&["omp-mk".to_string()]))
-                .unwrap()
-                .argv,
-            vec!["omp-mk", "--session", "/tmp/omp-session.jsonl"]
+            plan_with_launch_argv(
+                "hako:omp",
+                "omp",
+                &omp_ref,
+                Some(&["custom-omp".to_string()])
+            )
+            .unwrap()
+            .argv,
+            vec!["custom-omp", "--session", "/tmp/omp-session.jsonl"]
         );
     }
 
     #[test]
     fn planner_infers_omp_profile_command_from_session_path() {
         let home = std::env::var("HOME").expect("HOME should be set in tests");
-        let session_path = format!("{home}/.omp-mk/agent/sessions/project/session.jsonl");
-        let session_dir = format!("{home}/.omp-mk/agent/sessions/project");
+        let session_path = format!("{home}/.omp-profile/agent/sessions/project/session.jsonl");
+        let session_dir = format!("{home}/.omp-profile/agent/sessions/project");
         let omp_profile_ref = AgentSessionRef::path(session_path.clone()).unwrap();
 
         assert_eq!(
@@ -442,7 +447,7 @@ mod tests {
                 .unwrap()
                 .argv,
             vec![
-                "omp-mk".to_string(),
+                "omp-profile".to_string(),
                 "--session".to_string(),
                 session_path,
                 "--session-dir".to_string(),
@@ -455,17 +460,23 @@ mod tests {
     fn omp_child_session_restore_keeps_project_session_dir() {
         let home = std::env::var("HOME").expect("HOME should be set in tests");
         let session_path = format!(
-            "{home}/.omp-mk/agent/sessions/-projects-masakiro-hako/2026-06-03T17-52-01-399Z_019e8e9d-1b77-7000-875f-206076643bdf/RightSidebarHierarchyReview.jsonl"
+            "{home}/.omp-profile/agent/sessions/-projects-masakiro-hako/2026-06-03T17-52-01-399Z_019e8e9d-1b77-7000-875f-206076643bdf/RightSidebarHierarchyReview.jsonl"
         );
-        let project_session_dir = format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako");
+        let project_session_dir =
+            format!("{home}/.omp-profile/agent/sessions/-projects-masakiro-hako");
         let omp_ref = AgentSessionRef::path(session_path.clone()).unwrap();
 
         assert_eq!(
-            plan_with_launch_argv("hako:omp", "omp", &omp_ref, Some(&["omp-mk".to_string()]))
-                .unwrap()
-                .argv,
+            plan_with_launch_argv(
+                "hako:omp",
+                "omp",
+                &omp_ref,
+                Some(&["custom-omp".to_string()])
+            )
+            .unwrap()
+            .argv,
             vec![
-                "omp-mk".to_string(),
+                "custom-omp".to_string(),
                 "--session".to_string(),
                 session_path,
                 "--session-dir".to_string(),

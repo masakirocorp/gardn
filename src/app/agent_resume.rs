@@ -354,14 +354,14 @@ mod tests {
     async fn pending_agent_resume_executes_every_supported_restore_argv_shape() {
         let dir = temp_restore_dir("restore-argv");
         let cases: Vec<(&str, Vec<&str>)> = vec![
-            ("claude-mk", vec!["--resume", "claude-session"]),
-            ("codex-mk", vec!["resume", "codex-session"]),
-            ("copilot-mk", vec!["--resume=copilot-session"]),
-            ("hermes-mk", vec!["--resume", "hermes-session"]),
-            ("oc-frs", vec!["--session", "opencode-session"]),
-            ("pi-mk", vec!["--session", "/tmp/pi-session.jsonl"]),
+            ("custom-claude", vec!["--resume", "claude-session"]),
+            ("custom-codex", vec!["resume", "codex-session"]),
+            ("custom-copilot", vec!["--resume=copilot-session"]),
+            ("custom-hermes", vec!["--resume", "hermes-session"]),
+            ("custom-opencode", vec!["--session", "opencode-session"]),
+            ("custom-pi", vec!["--session", "/tmp/pi-session.jsonl"]),
             (
-                "omp-mk",
+                "custom-omp",
                 vec![
                     "--session",
                     "/tmp/parent/RightSidebarHierarchyReview.jsonl",

@@ -994,9 +994,10 @@ mod tests {
 
         let home = std::env::var("HOME").expect("HOME should be set in tests");
         let child_session_path = format!(
-            "{home}/.omp-mk/agent/sessions/-projects-masakiro-hako/2026-06-03T17-52-01-399Z_019e8e9d-1b77-7000-875f-206076643bdf/RightSidebarHierarchyReview.jsonl"
+            "{home}/.omp-profile/agent/sessions/-projects-masakiro-hako/2026-06-03T17-52-01-399Z_019e8e9d-1b77-7000-875f-206076643bdf/RightSidebarHierarchyReview.jsonl"
         );
-        let project_session_dir = format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako");
+        let project_session_dir =
+            format!("{home}/.omp-profile/agent/sessions/-projects-masakiro-hako");
         let child_omp_session = super::super::snapshot::PaneAgentSessionSnapshot {
             source: "hako:omp".into(),
             agent: "omp".into(),
@@ -1004,11 +1005,11 @@ mod tests {
             value: child_session_path.clone(),
         };
         assert_eq!(
-            restore_plan_for_snapshot(&child_omp_session, true, Some(&["omp-mk".to_string()]))
+            restore_plan_for_snapshot(&child_omp_session, true, Some(&["custom-omp".to_string()]))
                 .unwrap()
                 .argv,
             vec![
-                "omp-mk".to_string(),
+                "custom-omp".to_string(),
                 "--session".to_string(),
                 child_session_path,
                 "--session-dir".to_string(),
@@ -1031,36 +1032,36 @@ mod tests {
                 "hako:claude",
                 "claude",
                 "claude-session",
-                "claude-mk",
-                vec!["claude-mk", "--resume", "claude-session"],
+                "custom-claude",
+                vec!["custom-claude", "--resume", "claude-session"],
             ),
             (
                 "hako:codex",
                 "codex",
                 "codex-session",
-                "codex-mk",
-                vec!["codex-mk", "resume", "codex-session"],
+                "custom-codex",
+                vec!["custom-codex", "resume", "codex-session"],
             ),
             (
                 "hako:copilot",
                 "copilot",
                 "copilot-session",
-                "copilot-mk",
-                vec!["copilot-mk", "--resume=copilot-session"],
+                "custom-copilot",
+                vec!["custom-copilot", "--resume=copilot-session"],
             ),
             (
                 "hako:hermes",
                 "hermes",
                 "hermes-session",
-                "hermes-mk",
-                vec!["hermes-mk", "--resume", "hermes-session"],
+                "custom-hermes",
+                vec!["custom-hermes", "--resume", "hermes-session"],
             ),
             (
                 "hako:opencode",
                 "opencode",
                 "opencode-session",
-                "oc-mk",
-                vec!["oc-mk", "--session", "opencode-session"],
+                "custom-opencode",
+                vec!["custom-opencode", "--session", "opencode-session"],
             ),
         ];
 
@@ -1087,10 +1088,10 @@ mod tests {
             value: "/tmp/pi-session.jsonl".into(),
         };
         assert_eq!(
-            restore_plan_for_snapshot(&pi_session, true, Some(&["pi-mk".to_string()]))
+            restore_plan_for_snapshot(&pi_session, true, Some(&["custom-pi".to_string()]))
                 .unwrap()
                 .argv,
-            vec!["pi-mk", "--session", "/tmp/pi-session.jsonl"]
+            vec!["custom-pi", "--session", "/tmp/pi-session.jsonl"]
         );
 
         let omp_session = super::super::snapshot::PaneAgentSessionSnapshot {
@@ -1100,10 +1101,10 @@ mod tests {
             value: "/tmp/omp-session.jsonl".into(),
         };
         assert_eq!(
-            restore_plan_for_snapshot(&omp_session, true, Some(&["omp-mk".to_string()]))
+            restore_plan_for_snapshot(&omp_session, true, Some(&["custom-omp".to_string()]))
                 .unwrap()
                 .argv,
-            vec!["omp-mk", "--session", "/tmp/omp-session.jsonl"]
+            vec!["custom-omp", "--session", "/tmp/omp-session.jsonl"]
         );
     }
 
@@ -1141,7 +1142,7 @@ mod tests {
                                 kind: crate::agent_resume::AgentSessionRefKind::Id,
                                 value: "codex-session".into(),
                             }),
-                            launch_argv: Some(vec!["codex-mk".into()]),
+                            launch_argv: Some(vec!["custom-codex".into()]),
                             seen: true,
                             terminal_semantics: None,
                         },
@@ -1183,14 +1184,14 @@ mod tests {
             .next()
             .expect("restored pane should have terminal state");
 
-        assert_eq!(terminal.launch_argv, Some(vec!["codex-mk".into()]));
+        assert_eq!(terminal.launch_argv, Some(vec!["custom-codex".into()]));
         assert_eq!(
             terminal
                 .pending_agent_resume_plan
                 .as_ref()
                 .map(|plan| plan.argv.clone()),
             Some(vec![
-                "codex-mk".into(),
+                "custom-codex".into(),
                 "resume".into(),
                 "codex-session".into()
             ])
