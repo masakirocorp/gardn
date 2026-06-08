@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use crate::app::state::{ToastKind, ToastNotification, ToastTarget};
 use bytes::Bytes;
 
 use super::App;
@@ -146,7 +147,11 @@ impl App {
                 agent = %plan.agent,
                 "failed to start deferred agent resume with empty argv"
             );
-            return false;
+            self.notify_agent_restore_failed(pane_id, &plan, "restore command missing", None);
+            if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
+                terminal.clear_agent_runtime_identity_after_respawn();
+            }
+            return true;
         };
 
         let runtime = match crate::terminal::TerminalRuntime::spawn(
@@ -170,14 +175,21 @@ impl App {
                     err = %err,
                     "failed to start shell for deferred agent resume"
                 );
+                self.notify_agent_restore_failed(
+                    pane_id,
+                    &plan,
+                    "restore shell failed",
+                    Some(&resume_command),
+                );
                 if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
                     terminal.clear_agent_runtime_identity_after_respawn();
                 }
-                return false;
+                return true;
             }
         };
 
-        let mut input = resume_command;
+        let mut input = String::with_capacity(resume_command.len() + 1);
+        input.push_str(&resume_command);
         input.push('\r');
         if let Err(err) = runtime.try_send_bytes(Bytes::from(input)) {
             tracing::warn!(
@@ -188,7 +200,16 @@ impl App {
                 "failed to send deferred agent resume command to shell"
             );
             runtime.shutdown();
-            return false;
+            self.notify_agent_restore_failed(
+                pane_id,
+                &plan,
+                "restore command failed",
+                Some(&resume_command),
+            );
+            if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
+                terminal.clear_agent_runtime_identity_after_respawn();
+            }
+            return true;
         }
 
         self.terminal_runtimes.insert(terminal_id.clone(), runtime);
@@ -205,6 +226,25 @@ impl App {
             terminal.respawn_shell_on_exit = false;
         }
         true
+    }
+
+    fn notify_agent_restore_failed(
+        &mut self,
+        pane_id: crate::layout::PaneId,
+        plan: &crate::agent_resume::AgentResumePlan,
+        reason: &str,
+        command: Option<&str>,
+    ) {
+        let target = self.find_pane(pane_id).map(|(ws_idx, _)| ToastTarget {
+            workspace_id: self.public_workspace_id(ws_idx),
+            pane_id,
+        });
+        self.state.toast = Some(ToastNotification {
+            kind: ToastKind::NeedsAttention,
+            title: format!("couldn't restore {} session", plan.agent),
+            context: restore_failure_context(reason, command),
+            target,
+        });
     }
 }
 
@@ -233,6 +273,29 @@ fn shell_command_from_argv(argv: &[String]) -> Option<String> {
         command.push_str(&shell_quote(part));
     }
     Some(command)
+}
+
+const MAX_RESTORE_FAILURE_CONTEXT_LEN: usize = 110;
+
+fn restore_failure_context(reason: &str, command: Option<&str>) -> String {
+    let Some(command) = command else {
+        return format!("{reason}; resume manually");
+    };
+    let context = format!("{reason}; manual: {command}");
+    truncate_context(context)
+}
+
+fn truncate_context(mut context: String) -> String {
+    if context.len() <= MAX_RESTORE_FAILURE_CONTEXT_LEN {
+        return context;
+    }
+    let mut end = MAX_RESTORE_FAILURE_CONTEXT_LEN.saturating_sub(3);
+    while end > 0 && !context.is_char_boundary(end) {
+        end -= 1;
+    }
+    context.truncate(end);
+    context.push_str("...");
+    context
 }
 
 fn shell_quote(value: &str) -> String {
@@ -485,6 +548,67 @@ mod tests {
             runtime.shutdown();
         }
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn pending_agent_resume_failure_shows_manual_restore_toast() {
+        let mut app = test_app();
+        let workspace = crate::workspace::Workspace::test_new("restored");
+        let workspace_id = workspace.id.clone();
+        let pane_id = workspace.tabs[0].root_pane;
+        let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
+        app.state.view.pane_infos = workspace.tabs[0]
+            .layout
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.ensure_test_terminals();
+        app.state.host_terminal_theme = crate::terminal_theme::TerminalTheme {
+            foreground: Some(crate::terminal_theme::RgbColor {
+                r: 220,
+                g: 220,
+                b: 220,
+            }),
+            background: Some(crate::terminal_theme::RgbColor {
+                r: 20,
+                g: 20,
+                b: 20,
+            }),
+            ..crate::terminal_theme::TerminalTheme::default()
+        };
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("test terminal should exist")
+            .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
+            agent: "codex".into(),
+            argv: Vec::new(),
+            env: Vec::new(),
+            dedupe_key: "hako:codex\0codex\0Id\0codex-session".into(),
+        });
+
+        assert!(app.start_pending_agent_resumes(false));
+
+        let toast = app.state.toast.as_ref().expect("restore failure toast");
+        assert_eq!(toast.kind, ToastKind::NeedsAttention);
+        assert_eq!(toast.title, "couldn't restore codex session");
+        assert_eq!(toast.context, "restore command missing; resume manually");
+        assert_eq!(
+            toast.target,
+            Some(ToastTarget {
+                workspace_id,
+                pane_id
+            })
+        );
+        assert!(
+            app.state
+                .terminals
+                .get(&terminal_id)
+                .expect("terminal should survive")
+                .pending_agent_resume_plan
+                .is_none(),
+            "failed restore should not retry forever"
+        );
     }
 
     #[tokio::test]
