@@ -264,7 +264,7 @@ Hako exposes the same runtime model through the CLI and local Unix socket API.
 
 ### Socket API
 
-The socket API supports typed request/response calls and event subscriptions.
+The socket API supports typed request/response calls and event subscriptions. It is the local JSON control plane; interactive render streaming and terminal attach use the separate client wire-protocol socket.
 
 API-visible domains include:
 
@@ -279,10 +279,8 @@ API-visible domains include:
 - output waits
 - event subscriptions
 - workspace groups
-- terminal attach
 - integration authority reports
-- render streaming
-- protocol compatibility checks
+- protocol and capability ping
 
 ## Appearance and notifications
 

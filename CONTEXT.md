@@ -72,6 +72,10 @@ _Avoid_: Hook, report, source of truth
 The operating system environment Hako runs on, such as macOS or Linux. Host platform behavior covers process inspection, clipboard, URL opening, notifications, and host input source integration.
 _Avoid_: Runtime, terminal
 
+**Local API**:
+The newline-delimited JSON control surface exposed by a running Hako server for status, server control, workspace/pane/agent operations, waits, event subscriptions, integrations, and capability discovery.
+_Avoid_: Wire protocol, render stream
+
 **Wire Protocol**:
 The binary server/client message contract used by Hako clients to attach to a running Hako server. The wire protocol is separate from the public API socket, though public API status/ping reports its protocol version.
 _Avoid_: API, command protocol
