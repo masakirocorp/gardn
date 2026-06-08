@@ -703,6 +703,7 @@ impl App {
                 pending_agent_border_labels: None,
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,
+                pending_group_name: None,
                 group_settings_target: None,
             },
             integration_recommendations: crate::integration::integration_recommendations(),

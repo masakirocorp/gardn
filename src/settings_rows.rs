@@ -34,6 +34,7 @@ pub(crate) enum SettingsMarkerTone {
     Good,
     Warning,
     Accent,
+    Danger,
     Disabled,
 }
 
@@ -287,21 +288,26 @@ fn theme_rows(app: &AppState) -> Vec<SettingsListRow> {
 fn group_general_rows(app: &AppState) -> Vec<SettingsListRow> {
     let group_name = app
         .settings
-        .group_settings_target
-        .and_then(|group_idx| app.groups.get(group_idx))
-        .map(|group| group.name.clone())
+        .pending_group_name
+        .clone()
+        .or_else(|| {
+            app.settings
+                .group_settings_target
+                .and_then(|group_idx| app.groups.get(group_idx))
+                .map(|group| group.name.clone())
+        })
         .unwrap_or_else(|| "group".to_string());
 
     vec![
         SettingsListRow::Header("name"),
-        choice(0, format!("rename {group_name}"), false),
+        option(0, "name", group_name, true),
         SettingsListRow::Spacer,
         SettingsListRow::Header("danger zone"),
         SettingsListRow::StatusChoice {
             index: 1,
             marker: "!".into(),
             label: "delete group".into(),
-            tone: SettingsMarkerTone::Warning,
+            tone: SettingsMarkerTone::Danger,
         },
     ]
 }

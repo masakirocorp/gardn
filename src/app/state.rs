@@ -1910,6 +1910,8 @@ pub struct SettingsState {
     pub pending_switch_ascii_input_source_in_prefix: Option<bool>,
     /// Checked group accent while group settings is open; hover cursor is separate.
     pub pending_group_accent_choice: Option<Option<TerminalAccent>>,
+    /// Pending group name while group settings is open.
+    pub pending_group_name: Option<String>,
     /// Group whose settings are being edited, if settings was opened from a group menu.
     pub group_settings_target: Option<usize>,
 }
@@ -2022,10 +2024,10 @@ impl ContextMenuState {
         match self.kind {
             ContextMenuKind::Group {
                 can_delete: true, ..
-            } => &["settings", "rename", "---", "delete"],
+            } => &["settings", "---", "delete"],
             ContextMenuKind::Group {
                 can_delete: false, ..
-            } => &["settings", "rename"],
+            } => &["settings"],
             ContextMenuKind::Workspace { .. } => &["rename", "close"],
             ContextMenuKind::Tab { .. } => &["new tab", "rename", "close"],
             ContextMenuKind::Pane {
@@ -2977,6 +2979,7 @@ impl AppState {
                 pending_agent_border_labels: None,
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,
+                pending_group_name: None,
                 group_settings_target: None,
             },
             integration_recommendations: Vec::new(),

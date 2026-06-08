@@ -199,9 +199,6 @@ pub(crate) fn settings_primary_button_label(
 }
 
 pub(crate) fn settings_show_primary_action(app: &AppState) -> bool {
-    if app.settings.section == crate::app::state::SettingsSection::GroupGeneral {
-        return false;
-    }
     app.settings.section != crate::app::state::SettingsSection::Integrations
         || app
             .integration_recommendations
@@ -597,7 +594,11 @@ fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area
                 if selected {
                     selected_row = Some(rows.len());
                 }
-                let selected_style = modal_option_style(p, selected);
+                let selected_style = if selected && *tone == SettingsMarkerTone::Danger {
+                    settings_marker_style(p, *tone)
+                } else {
+                    modal_option_style(p, selected)
+                };
                 let marker_style = if selected {
                     selected_style
                 } else {
@@ -644,6 +645,7 @@ fn settings_marker_style(p: &Palette, tone: SettingsMarkerTone) -> Style {
         SettingsMarkerTone::Good => Style::default().fg(p.green),
         SettingsMarkerTone::Warning => Style::default().fg(p.yellow),
         SettingsMarkerTone::Accent => Style::default().fg(p.accent),
+        SettingsMarkerTone::Danger => Style::default().fg(p.red).add_modifier(Modifier::BOLD),
         SettingsMarkerTone::Disabled => Style::default().fg(p.overlay0),
     }
 }
@@ -731,9 +733,30 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), 80, 24);
         assert!(text.contains("name"));
-        assert!(text.contains("rename Work"));
+        assert!(text.contains("Work"));
         assert!(text.contains("danger zone"));
         assert!(text.contains("! delete group"));
+    }
+
+    #[test]
+    fn group_general_delete_action_stays_red_when_selected() {
+        let mut app = AppState::test_new();
+        let group_idx = app.create_group("Work".to_string());
+        app.settings.group_settings_target = Some(group_idx);
+        app.settings.section = SettingsSection::GroupGeneral;
+        app.settings.list.selected = 1;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
+            .expect("render group settings overlay");
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, 80, 24);
+        let (y, x) = find_text_cell(&text, "! delete group").expect("delete action row");
+        assert_eq!(buffer[(x, y)].style().fg, Some(app.palette.red));
+        assert_eq!(buffer[(x + 2, y)].style().fg, Some(app.palette.red));
     }
 
     #[test]

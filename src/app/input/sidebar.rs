@@ -1561,7 +1561,7 @@ mod tests {
 
         assert_eq!(app.state.mode, Mode::ContextMenu);
         let context = app.state.context_menu.as_ref().unwrap();
-        assert_eq!(context.items(), &["settings", "rename", "---", "delete"]);
+        assert_eq!(context.items(), &["settings", "---", "delete"]);
         assert_eq!(
             context.kind,
             ContextMenuKind::Group {
@@ -1569,35 +1569,6 @@ mod tests {
                 can_delete: true
             }
         );
-    }
-
-    #[test]
-    fn group_context_menu_renames_target_group_without_switching() {
-        let mut app = app_for_mouse_test();
-        let work_group = app.state.create_group("Work".to_string());
-        app.state.active_group = 0;
-        app.state.context_menu = Some(crate::app::state::ContextMenuState {
-            kind: ContextMenuKind::Group {
-                group_idx: work_group,
-                can_delete: true,
-            },
-            x: 2,
-            y: 2,
-            list: crate::app::state::MenuListState::new(1),
-        });
-        app.state.mode = Mode::ContextMenu;
-
-        let menu = app.state.context_menu_rect().unwrap();
-        app.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            menu.x + 2,
-            menu.y + 2,
-        ));
-
-        assert_eq!(app.state.mode, Mode::RenameGroup);
-        assert_eq!(app.state.rename_group_target, Some(work_group));
-        assert_eq!(app.state.name_input, "Work");
-        assert_eq!(app.state.active_group, 0);
     }
 
     #[test]
@@ -1612,7 +1583,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: crate::app::state::MenuListState::new(3),
+            list: crate::app::state::MenuListState::new(2),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -1620,7 +1591,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 4,
+            menu.y + 3,
         ));
 
         assert_eq!(app.state.mode, Mode::ConfirmDeleteGroup);

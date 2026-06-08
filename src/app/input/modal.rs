@@ -936,9 +936,6 @@ pub(super) fn apply_context_menu_action(
         (ContextMenuKind::Workspace { ws_idx }, Some("rename")) => {
             open_rename_workspace(state, terminal_runtimes, ws_idx);
         }
-        (ContextMenuKind::Group { group_idx, .. }, Some("rename")) => {
-            open_rename_group_at(state, group_idx);
-        }
         (ContextMenuKind::Group { group_idx, .. }, Some("settings")) => {
             super::settings::open_group_settings(state, group_idx);
         }
@@ -1564,7 +1561,7 @@ mod tests {
             },
             x: 0,
             y: 0,
-            list: MenuListState::new(1),
+            list: MenuListState::new(0),
         });
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
 
@@ -1573,14 +1570,14 @@ mod tests {
             &mut terminal_runtimes,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
         );
-        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 3);
+        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 2);
 
         handle_context_menu_key(
             &mut state,
             &mut terminal_runtimes,
             KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
         );
-        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 1);
+        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 0);
     }
 
     #[test]
@@ -1595,10 +1592,10 @@ mod tests {
             },
             x: 0,
             y: 0,
-            list: MenuListState::new(2),
+            list: MenuListState::new(1),
         };
 
-        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 2);
+        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 1);
 
         assert_eq!(state.mode, Mode::ContextMenu);
         assert!(state.context_menu.is_some());

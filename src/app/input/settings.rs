@@ -46,7 +46,10 @@ pub(super) enum SettingsAction {
         group_idx: usize,
         accent: Option<TerminalAccent>,
     },
-    RenameGroup(usize),
+    SaveGroupName {
+        group_idx: usize,
+        name: String,
+    },
     DeleteGroup(usize),
     InstallRecommendedIntegrations,
     InstallIntegration(crate::api::schema::IntegrationTarget),
@@ -99,8 +102,8 @@ impl App {
                     self.state.set_group_accent(group_idx, accent);
                     self.query_host_terminal_theme();
                 }
-                SettingsAction::RenameGroup(group_idx) => {
-                    super::modal::open_rename_group_at(&mut self.state, group_idx);
+                SettingsAction::SaveGroupName { group_idx, name } => {
+                    self.state.rename_group(group_idx, name);
                 }
                 SettingsAction::DeleteGroup(group_idx) => {
                     super::modal::open_confirm_delete_group(&mut self.state, group_idx);
@@ -376,6 +379,92 @@ fn checked_group_accent_choice(state: &AppState) -> Option<TerminalAccent> {
         .unwrap_or_else(|| group_accent_choice_at_cursor(state))
 }
 
+fn pending_group_name(state: &AppState) -> String {
+    state
+        .settings
+        .pending_group_name
+        .clone()
+        .or_else(|| {
+            state
+                .settings
+                .group_settings_target
+                .and_then(|group_idx| state.groups.get(group_idx))
+                .map(|group| group.name.clone())
+        })
+        .unwrap_or_default()
+}
+
+fn set_pending_group_name(state: &mut AppState, name: String) {
+    state.settings.pending_group_name = Some(name);
+}
+
+fn delete_pending_group_name_word(state: &mut AppState) {
+    let mut name = pending_group_name(state);
+    while name.chars().last().is_some_and(char::is_whitespace) {
+        name.pop();
+    }
+    while name.chars().last().is_some_and(|ch| !ch.is_whitespace()) {
+        name.pop();
+    }
+    set_pending_group_name(state, name);
+}
+
+fn edit_pending_group_name(state: &mut AppState, key: KeyEvent) -> bool {
+    match key.code {
+        KeyCode::Char('u')
+            if key
+                .modifiers
+                .contains(crossterm::event::KeyModifiers::CONTROL) =>
+        {
+            set_pending_group_name(state, String::new());
+            true
+        }
+        KeyCode::Backspace
+            if key
+                .modifiers
+                .contains(crossterm::event::KeyModifiers::SUPER) =>
+        {
+            set_pending_group_name(state, String::new());
+            true
+        }
+        KeyCode::Backspace
+            if key
+                .modifiers
+                .contains(crossterm::event::KeyModifiers::CONTROL)
+                || key.modifiers.contains(crossterm::event::KeyModifiers::ALT) =>
+        {
+            delete_pending_group_name_word(state);
+            true
+        }
+        KeyCode::Char('h' | 'w')
+            if key
+                .modifiers
+                .contains(crossterm::event::KeyModifiers::CONTROL) =>
+        {
+            delete_pending_group_name_word(state);
+            true
+        }
+        KeyCode::Backspace => {
+            let mut name = pending_group_name(state);
+            name.pop();
+            set_pending_group_name(state, name);
+            true
+        }
+        KeyCode::Char(c)
+            if key
+                .modifiers
+                .difference(crossterm::event::KeyModifiers::SHIFT)
+                .is_empty() =>
+        {
+            let mut name = pending_group_name(state);
+            name.push(c);
+            set_pending_group_name(state, name);
+            true
+        }
+        _ => false,
+    }
+}
+
 fn pending_light_theme_name(state: &AppState) -> String {
     state
         .settings
@@ -613,6 +702,7 @@ fn cancel_settings(state: &mut AppState) {
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.pending_group_accent_choice = None;
+    state.settings.pending_group_name = None;
     state.settings.group_settings_target = None;
     super::modal::leave_modal(state);
 }
@@ -645,11 +735,12 @@ fn selected_integration_action(state: &AppState) -> Option<SettingsAction> {
 
 fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction> {
     let group_idx = state.settings.group_settings_target?;
-    let selected = state.settings.list.selected;
-    cancel_settings(state);
-    match selected {
-        0 => Some(SettingsAction::RenameGroup(group_idx)),
-        1 => Some(SettingsAction::DeleteGroup(group_idx)),
+    match state.settings.list.selected {
+        0 => apply_settings(state),
+        1 => {
+            cancel_settings(state);
+            Some(SettingsAction::DeleteGroup(group_idx))
+        }
         _ => None,
     }
 }
@@ -674,6 +765,7 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.pending_group_accent_choice = None;
+    state.settings.pending_group_name = None;
     state.settings.group_settings_target = None;
 }
 
@@ -683,7 +775,15 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
             .then_some(SettingsAction::InstallRecommendedIntegrations);
     }
     if state.settings.section == SettingsSection::GroupGeneral {
-        return None;
+        let group_idx = state.settings.group_settings_target;
+        let name = pending_group_name(state).trim().to_string();
+        state.settings.original_palette = None;
+        state.settings.original_theme = None;
+        clear_settings_pending(state);
+        super::modal::leave_modal(state);
+        return group_idx
+            .zip((!name.is_empty()).then_some(name))
+            .map(|(group_idx, name)| SettingsAction::SaveGroupName { group_idx, name });
     }
 
     let light = pending_light_theme_name(state);
@@ -1128,7 +1228,10 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                     settings_section_choice_len(state, SettingsSection::GroupGeneral),
                 );
             }
-            KeyCode::Enter | KeyCode::Char(' ') => return selected_group_general_action(state),
+            KeyCode::Enter => return selected_group_general_action(state),
+            KeyCode::Char(' ') if state.settings.list.selected == 1 => {
+                return selected_group_general_action(state);
+            }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::Theme;
                 state.settings.list.selected = group_accent_selection_index(state);
@@ -1140,6 +1243,9 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 ensure_settings_selection_visible(state);
             }
             _ => {
+                if state.settings.list.selected == 0 && edit_pending_group_name(state, key) {
+                    return None;
+                }
                 if let Some(action) = handle_settings_modal_action(state, &key) {
                     return Some(action);
                 }
@@ -1202,6 +1308,7 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
         return;
     };
     let group_accent = group.accent;
+    let group_name = group.name.clone();
     state.settings.original_palette = Some(state.palette.clone());
     state.settings.original_theme = Some(state.theme_name.clone());
     state.settings.pending_theme_name = None;
@@ -1211,6 +1318,7 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_terminal_light_accent = None;
     state.settings.pending_terminal_dark_accent = None;
     state.settings.pending_group_accent_choice = None;
+    state.settings.pending_group_name = Some(group_name);
     state.settings.pending_sound_enabled = None;
     state.settings.pending_toast_delivery = None;
     state.settings.pending_confirm_close = None;
@@ -1670,18 +1778,34 @@ mod tests {
     }
 
     #[test]
-    fn group_general_settings_open_rename_and_delete_actions() {
+    fn group_general_settings_edits_name_inline_and_opens_delete_action() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
 
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupGeneral;
         state.settings.list.selected = 0;
+        for ch in [' ', 'A'] {
+            assert_eq!(
+                update_settings_state(
+                    &mut state,
+                    KeyEvent::new(KeyCode::Char(ch), KeyModifiers::empty()),
+                ),
+                None
+            );
+        }
+        assert_eq!(state.settings.pending_group_name.as_deref(), Some("Side A"));
         let rename_action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
         );
-        assert_eq!(rename_action, Some(SettingsAction::RenameGroup(group_idx)));
+        assert_eq!(
+            rename_action,
+            Some(SettingsAction::SaveGroupName {
+                group_idx,
+                name: "Side A".to_string(),
+            })
+        );
         assert_eq!(state.mode, Mode::Terminal);
         assert_eq!(state.settings.group_settings_target, None);
 
