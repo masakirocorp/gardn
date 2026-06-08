@@ -103,3 +103,11 @@ _Avoid_: Normal save, history
 **Terminal Semantics**:
 Agent-facing terminal presentation and arbitration state such as detected agent, fallback signals/state, hook authority, agent metadata snapshots, effective state/revision, hook/metadata report sequence counters, and last meaningful activity timestamp.
 _Avoid_: Scrollback, runtime, terminal bytes
+
+**Thin Client**:
+A Hako client process attached to a running Hako server. A thin client renders server frames and forwards framed input bytes; the server owns normal app input semantics.
+_Avoid_: Server, app instance
+
+**Semantic Input**:
+Decoded key, mouse, paste, outer-focus, and host terminal color/theme reply events interpreted in the context of Hako's current mode, foreground client, and keybindings.
+_Avoid_: Terminal bytes, stdin chunk
