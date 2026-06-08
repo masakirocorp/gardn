@@ -242,6 +242,142 @@ mod tests {
         )
     }
 
+    #[cfg(unix)]
+    fn temp_restore_dir(test_name: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("test clock should be after epoch")
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("hako-{test_name}-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp restore dir should be created");
+        dir
+    }
+
+    #[cfg(unix)]
+    fn recording_agent_script(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = dir.join(name);
+        let output = dir.join(format!("{name}.argv"));
+        let script = format!(
+            "#!/bin/sh\n{{\n  printf '%s\\n' \"$0\"\n  for arg in \"$@\"; do\n    printf '%s\\n' \"$arg\"\n  done\n}} > '{}'\n",
+            output.display()
+        );
+        std::fs::write(&path, script).expect("recording wrapper should be written");
+        let mut perms = std::fs::metadata(&path)
+            .expect("recording wrapper should have metadata")
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&path, perms).expect("recording wrapper should be executable");
+        path
+    }
+
+    #[cfg(unix)]
+    async fn run_pending_resume_and_read_recorded_argv(
+        command: std::path::PathBuf,
+        args: &[&str],
+        output: &std::path::Path,
+    ) -> Vec<String> {
+        let mut app = test_app();
+        let workspace = crate::workspace::Workspace::test_new("restored");
+        let pane_id = workspace.tabs[0].root_pane;
+        let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
+        app.state.view.pane_infos = workspace.tabs[0]
+            .layout
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.ensure_test_terminals();
+        app.state.default_shell = "/bin/sh".to_string();
+        app.state.shell_mode = crate::config::ShellModeConfig::NonLogin;
+        app.state.host_terminal_theme = crate::terminal_theme::TerminalTheme {
+            foreground: Some(crate::terminal_theme::RgbColor {
+                r: 220,
+                g: 220,
+                b: 220,
+            }),
+            background: Some(crate::terminal_theme::RgbColor {
+                r: 20,
+                g: 20,
+                b: 20,
+            }),
+            ..crate::terminal_theme::TerminalTheme::default()
+        };
+
+        let mut argv = vec![command.to_string_lossy().to_string()];
+        argv.extend(args.iter().map(|arg| (*arg).to_string()));
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("test terminal should exist")
+            .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
+            agent: "test-agent".into(),
+            argv,
+            dedupe_key: format!("test\0{}", output.display()),
+        });
+
+        assert!(app.start_pending_agent_resumes(false));
+        for _ in 0..40 {
+            if output.exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+        let recorded = std::fs::read_to_string(output).unwrap_or_else(|err| {
+            panic!(
+                "expected restored command to write argv file {}: {err}",
+                output.display()
+            )
+        });
+
+        for (_, runtime) in app.terminal_runtimes.drain() {
+            runtime.shutdown();
+        }
+        recorded.lines().map(str::to_string).collect()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pending_agent_resume_executes_every_supported_restore_argv_shape() {
+        let dir = temp_restore_dir("restore-argv");
+        let cases: Vec<(&str, Vec<&str>)> = vec![
+            ("claude-mk", vec!["--resume", "claude-session"]),
+            ("codex-mk", vec!["resume", "codex-session"]),
+            ("copilot-mk", vec!["--resume=copilot-session"]),
+            ("hermes-mk", vec!["--resume", "hermes-session"]),
+            ("oc-frs", vec!["--session", "opencode-session"]),
+            ("pi-mk", vec!["--session", "/tmp/pi-session.jsonl"]),
+            (
+                "omp-mk",
+                vec![
+                    "--session",
+                    "/tmp/parent/RightSidebarHierarchyReview.jsonl",
+                    "--session-dir",
+                    "/tmp/parent",
+                ],
+            ),
+        ];
+
+        for (command_name, expected_args) in cases {
+            let command = recording_agent_script(&dir, command_name);
+            let output = dir.join(format!("{command_name}.argv"));
+
+            let recorded =
+                run_pending_resume_and_read_recorded_argv(command.clone(), &expected_args, &output)
+                    .await;
+            let mut expected = vec![command.to_string_lossy().to_string()];
+            expected.extend(expected_args.iter().map(|arg| (*arg).to_string()));
+
+            assert_eq!(
+                recorded, expected,
+                "{command_name} restore argv should execute exactly"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[tokio::test]
     async fn pending_agent_resume_waits_for_host_theme_before_launch() {
         let mut app = test_app();
