@@ -451,8 +451,9 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
                     ])));
                 }
             }
-            SettingsListRow::Option { .. } => {}
-            SettingsListRow::StatusChoice { .. } => {}
+            SettingsListRow::Option { .. }
+            | SettingsListRow::TextInput { .. }
+            | SettingsListRow::StatusChoice { .. } => {}
         }
     }
 
@@ -560,6 +561,36 @@ fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area
                     ])
                 };
                 rows.push(item);
+            }
+            SettingsListRow::TextInput {
+                index,
+                title,
+                value,
+            } => {
+                let selected = app.settings.list.selected == *index;
+                if selected {
+                    selected_row = Some(rows.len());
+                }
+                let title_style = if selected {
+                    selected_style
+                } else {
+                    Style::default().fg(p.text).add_modifier(Modifier::BOLD)
+                };
+                let input_value = if selected {
+                    format!(" {value}█")
+                } else {
+                    format!(" {value}")
+                };
+                rows.push(ListItem::new(vec![
+                    Line::from(Span::styled(
+                        format!(" {title:<width$}", width = list_width.saturating_sub(1)),
+                        title_style,
+                    )),
+                    Line::from(Span::styled(
+                        format!("{input_value:<list_width$}"),
+                        Style::default().fg(p.text).bg(p.surface0),
+                    )),
+                ]));
             }
             SettingsListRow::Choice {
                 index,
@@ -736,6 +767,9 @@ mod tests {
         assert!(text.contains("Work"));
         assert!(text.contains("danger zone"));
         assert!(text.contains("! delete group"));
+        assert!(!text.contains("●"));
+        assert!(!text.contains("○"));
+        assert!(text.contains("Work█"));
     }
 
     #[test]

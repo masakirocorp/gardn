@@ -16,6 +16,11 @@ pub(crate) enum SettingsListRow {
         description: Cow<'static, str>,
         enabled: bool,
     },
+    TextInput {
+        index: usize,
+        title: Cow<'static, str>,
+        value: Cow<'static, str>,
+    },
     Choice {
         index: usize,
         label: Cow<'static, str>,
@@ -48,7 +53,7 @@ pub(crate) fn option_index_for_visual_row(rows: &[SettingsListRow], row: usize) 
                 }
                 visual_row += 1;
             }
-            SettingsListRow::Option { index, .. } => {
+            SettingsListRow::Option { index, .. } | SettingsListRow::TextInput { index, .. } => {
                 if row == visual_row || row == visual_row + 1 {
                     return Some(*index);
                 }
@@ -86,7 +91,7 @@ pub(crate) fn selected_visual_row(rows: &[SettingsListRow], selected: usize) -> 
     for entry in rows {
         match entry {
             SettingsListRow::Header(_) | SettingsListRow::Spacer => visual_row += 1,
-            SettingsListRow::Option { index, .. } => {
+            SettingsListRow::Option { index, .. } | SettingsListRow::TextInput { index, .. } => {
                 if *index == selected {
                     return Some(visual_row);
                 }
@@ -110,7 +115,7 @@ pub(crate) fn visual_row_count(rows: &[SettingsListRow]) -> usize {
             | SettingsListRow::Spacer
             | SettingsListRow::Choice { .. }
             | SettingsListRow::StatusChoice { .. } => 1,
-            SettingsListRow::Option { .. } => 2,
+            SettingsListRow::Option { .. } | SettingsListRow::TextInput { .. } => 2,
         })
         .sum()
 }
@@ -121,6 +126,7 @@ pub(crate) fn option_count(rows: &[SettingsListRow]) -> usize {
             matches!(
                 row,
                 SettingsListRow::Option { .. }
+                    | SettingsListRow::TextInput { .. }
                     | SettingsListRow::Choice { .. }
                     | SettingsListRow::StatusChoice { .. }
             )
@@ -299,8 +305,11 @@ fn group_general_rows(app: &AppState) -> Vec<SettingsListRow> {
         .unwrap_or_else(|| "group".to_string());
 
     vec![
-        SettingsListRow::Header("name"),
-        option(0, "name", group_name, true),
+        SettingsListRow::TextInput {
+            index: 0,
+            title: "name".into(),
+            value: group_name.into(),
+        },
         SettingsListRow::Spacer,
         SettingsListRow::Header("danger zone"),
         SettingsListRow::StatusChoice {

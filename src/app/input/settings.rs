@@ -1529,7 +1529,13 @@ impl AppState {
                         | SettingsSection::PaneLabels => select_pending_setting(self),
                         SettingsSection::Experiments => selected_experiment_action(self),
                         SettingsSection::Integrations => None,
-                        SettingsSection::GroupGeneral => selected_group_general_action(self),
+                        SettingsSection::GroupGeneral => {
+                            if idx == 1 {
+                                selected_group_general_action(self)
+                            } else {
+                                None
+                            }
+                        }
                     };
                 }
 
@@ -1819,6 +1825,28 @@ mod tests {
         assert_eq!(delete_action, Some(SettingsAction::DeleteGroup(group_idx)));
         assert_eq!(state.mode, Mode::Terminal);
         assert_eq!(state.settings.group_settings_target, None);
+    }
+
+    #[test]
+    fn group_general_mouse_focuses_name_without_saving() {
+        let mut app = app_for_mouse_test();
+        let group_idx = app.state.create_group("Side".to_string());
+        app.state.view.terminal_area = Rect::new(26, 0, 100, 30);
+        open_group_settings(&mut app.state, group_idx);
+        app.state.settings.section = SettingsSection::GroupGeneral;
+        app.state.settings.list.selected = 1;
+
+        let area = app.state.settings_content_rect();
+        let action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            area.x + 2,
+            area.y + 1,
+        ));
+
+        assert_eq!(action, None);
+        assert_eq!(app.state.settings.list.selected, 0);
+        assert_eq!(app.state.mode, Mode::Settings);
+        assert_eq!(app.state.groups[group_idx].name, "Side");
     }
 
     #[test]
