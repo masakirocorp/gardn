@@ -310,6 +310,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             name: group.name.clone(),
             icon: state::normalize_group_icon(&group.icon),
             accent: group.accent,
+            favorite_agent_profile_ids: group.favorite_agent_profile_ids.clone(),
         })
         .collect();
 
@@ -322,6 +323,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             name: format!("group {}", groups.len() + 1),
             icon: state::DEFAULT_GROUP_ICON.to_string(),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         });
     }
 
@@ -659,6 +661,9 @@ impl App {
             sound: config.ui.sound.clone(),
             local_sound_playback: true,
             toast_config: config.ui.toast.clone(),
+            agent_profiles: crate::agent_profiles::AgentProfileCatalog::from_config(
+                &config.agent_profiles,
+            ),
             keybinds: config.keybinds(),
             spinner_tick: 0,
             palette: global_palette.clone(),
@@ -1420,6 +1425,11 @@ impl App {
             self.state.pane_scrollback_limit_bytes = config.advanced.scrollback_limit_bytes;
         }
 
+        if !invalid_section("agent_profiles") {
+            self.state.agent_profiles =
+                crate::agent_profiles::AgentProfileCatalog::from_config(&config.agent_profiles);
+        }
+
         if !invalid_section("terminal") {
             self.state.default_shell = config.terminal.default_shell.clone();
             self.state.shell_mode = config.terminal.shell_mode;
@@ -1910,6 +1920,7 @@ mod tests {
             name: name.to_string(),
             icon: "■".to_string(),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         }
     }
 

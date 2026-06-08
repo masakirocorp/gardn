@@ -130,6 +130,8 @@ pub struct Workspace {
     pub(crate) test_runtimes: HashMap<PaneId, TerminalRuntime>,
 }
 
+type ArgvLaunch<'a> = (&'a [String], &'a [(String, String)]);
+
 enum NewWorkspaceTabCommand<'a> {
     Shell {
         command: &'a str,
@@ -184,6 +186,7 @@ impl Workspace {
         rows: u16,
         cols: u16,
         argv: &[String],
+        extra_env: &[(String, String)],
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
         events: mpsc::Sender<AppEvent>,
@@ -200,7 +203,7 @@ impl Workspace {
             events,
             render_notify,
             render_dirty,
-            Some(argv),
+            Some((argv, extra_env)),
         )
     }
 
@@ -215,15 +218,16 @@ impl Workspace {
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
         render_dirty: Arc<AtomicBool>,
-        argv: Option<&[String]>,
+        argv: Option<ArgvLaunch<'_>>,
     ) -> std::io::Result<(Self, TerminalState, TerminalRuntime)> {
-        let (tab, terminal, runtime) = if let Some(argv) = argv {
+        let (tab, terminal, runtime) = if let Some((argv, extra_env)) = argv {
             Tab::new_argv_command(
                 1,
                 initial_cwd.clone(),
                 rows,
                 cols,
                 argv,
+                extra_env,
                 scrollback_limit_bytes,
                 host_terminal_theme,
                 events,
@@ -351,6 +355,31 @@ impl Workspace {
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub fn create_argv_tab(
+        &mut self,
+        rows: u16,
+        cols: u16,
+        cwd: PathBuf,
+        argv: &[String],
+        extra_env: &[(String, String)],
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+    ) -> std::io::Result<(usize, TerminalState, TerminalRuntime)> {
+        self.create_tab_with_runtime(
+            rows,
+            cols,
+            cwd,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            crate::pane::PaneShellConfig::new("", crate::config::ShellModeConfig::NonLogin),
+            None,
+            Some((argv, extra_env)),
+            None,
+            None,
+            None,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
     fn create_tab_with_runtime(
         &mut self,
         rows: u16,
@@ -360,7 +389,7 @@ impl Workspace {
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
         shell_config: crate::pane::PaneShellConfig<'_>,
         command: Option<NewWorkspaceTabCommand<'_>>,
-        argv: Option<&[String]>,
+        argv: Option<ArgvLaunch<'_>>,
         fallback_events: Option<mpsc::Sender<AppEvent>>,
         fallback_render_notify: Option<Arc<Notify>>,
         fallback_render_dirty: Option<Arc<AtomicBool>>,
@@ -403,13 +432,14 @@ impl Workspace {
                     render_notify,
                     render_dirty,
                 )?
-            } else if let Some(argv) = argv {
+            } else if let Some((argv, extra_env)) = argv {
                 Tab::new_argv_command(
                     number,
                     cwd,
                     rows,
                     cols,
                     argv,
+                    extra_env,
                     scrollback_limit_bytes,
                     host_terminal_theme,
                     events,
@@ -624,6 +654,7 @@ impl Workspace {
                 cols,
                 cwd,
                 argv,
+                &[],
                 scrollback_limit_bytes,
                 host_terminal_theme,
             )

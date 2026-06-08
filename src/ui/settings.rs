@@ -23,8 +23,11 @@ use crate::{
         SettingsMarkerTone,
     },
 };
-const GROUP_SETTINGS_SECTIONS: &[SettingsSection] =
-    &[SettingsSection::Theme, SettingsSection::GroupGeneral];
+const GROUP_SETTINGS_SECTIONS: &[SettingsSection] = &[
+    SettingsSection::Theme,
+    SettingsSection::GroupGeneral,
+    SettingsSection::GroupProfiles,
+];
 
 fn settings_title(app: &AppState) -> &'static str {
     if app.settings.group_settings_target.is_some() {
@@ -126,7 +129,9 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         SettingsSection::Experiments => {
             render_settings_experiments(app, frame, content_area);
         }
-        SettingsSection::GroupGeneral => {
+        SettingsSection::Agents
+        | SettingsSection::GroupGeneral
+        | SettingsSection::GroupProfiles => {
             render_settings_sectioned_toggle_list(app, frame, content_area);
         }
         SettingsSection::Integrations => {

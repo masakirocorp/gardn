@@ -3468,6 +3468,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         });
         app.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
         app.workspaces[1].group_id = "work".into();
@@ -3536,6 +3537,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: Some(crate::config::TerminalAccent::Red),
+            favorite_agent_profile_ids: Vec::new(),
         });
         app.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
         app.workspaces[1].group_id = "work".into();
@@ -3610,6 +3612,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         });
         app.collapsed_workspace_groups.push("work".into());
         app.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
@@ -3641,6 +3644,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         });
         app.workspaces = vec![Workspace::test_new("home")];
         let area = Rect::new(0, 0, 32, 14);

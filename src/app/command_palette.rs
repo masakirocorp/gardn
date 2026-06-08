@@ -49,6 +49,7 @@ pub(crate) enum CommandPaletteAction {
     OpenNotificationTarget,
     DetachOrQuit,
     CustomCommand(usize),
+    NewAgentProfile(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -290,6 +291,22 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
         .with_key_label(indexed_keybind_label(&state.keybinds.switch_group, idx))
     }));
 
+    if state.active.is_some() {
+        let favorites = state
+            .groups
+            .get(state.active_group)
+            .map(|group| group.favorite_agent_profile_ids.as_slice())
+            .unwrap_or(&[]);
+        let (favorite, available) = state.agent_profiles.group_sections(favorites);
+        for profile in favorite.into_iter().chain(available) {
+            commands.push(CommandPaletteCommand::new(
+                format!("new agent {}", profile.name),
+                "agents",
+                CommandPaletteAction::NewAgentProfile(profile.id.clone()),
+            ));
+        }
+    }
+
     commands.extend(
         state
             .keybinds
@@ -382,6 +399,7 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
         CommandPaletteAction::SwitchWorkspace(_)
         | CommandPaletteAction::ShowAllGroups
         | CommandPaletteAction::SwitchGroup(_)
+        | CommandPaletteAction::NewAgentProfile(_)
         | CommandPaletteAction::SetAgentScope(_)
         | CommandPaletteAction::OpenGlobalMenu => None,
     }

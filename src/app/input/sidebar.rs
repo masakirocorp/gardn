@@ -1178,6 +1178,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         });
         app.state.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
         app.state.workspaces[1].group_id = "work".into();
@@ -1218,6 +1219,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         });
         app.state.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
         app.state.workspaces[1].group_id = "work".into();
@@ -1380,6 +1382,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         });
         app.state.workspaces = vec![
             Workspace::test_new("a"),
@@ -3382,6 +3385,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         });
         app.state.workspaces = vec![Workspace::test_new("a")];
         app.state.active = Some(0);
@@ -3415,6 +3419,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         });
         app.state.workspaces = vec![
             Workspace::test_new("a"),
@@ -3467,6 +3472,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         });
         app.state.workspaces = vec![
             Workspace::test_new("a"),
@@ -3519,6 +3525,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         });
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
         app.state.workspaces[1].group_id = "work".into();
@@ -3550,6 +3557,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         });
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
         app.state.workspaces[1].group_id = "work".into();
@@ -3575,6 +3583,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         });
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
         app.state.workspaces[1].group_id = "work".into();

@@ -197,6 +197,60 @@ impl App {
         Ok(idx)
     }
 
+    pub(crate) fn create_agent_profile_tab(
+        &mut self,
+        ws_idx: usize,
+        profile_id: &str,
+    ) -> std::io::Result<usize> {
+        let Some(profile) = self.state.agent_profiles.get(profile_id).cloned() else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "agent profile not found",
+            ));
+        };
+        if !profile.available() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "agent profile is not launchable",
+            ));
+        }
+        let follow_cwd = self.seed_cwd_from_workspace(ws_idx);
+        let initial_cwd = self.resolve_new_terminal_cwd(follow_cwd);
+        let (rows, cols) = self.state.estimate_pane_size();
+        let scrollback_limit_bytes = self.state.pane_scrollback_limit_bytes;
+        let host_terminal_theme = self.state.host_terminal_theme;
+        let (idx, terminal, runtime, root_pane) = {
+            let ws = &mut self.state.workspaces[ws_idx];
+            let (idx, terminal, runtime) = ws.create_argv_tab(
+                rows,
+                cols,
+                initial_cwd,
+                &profile.argv,
+                &profile.env,
+                scrollback_limit_bytes,
+                host_terminal_theme,
+            )?;
+            if let Some(tab) = ws.tabs.get_mut(idx) {
+                tab.set_custom_name(profile.name.clone());
+            }
+            let root_pane = ws.tabs[idx].root_pane;
+            (idx, terminal, runtime, root_pane)
+        };
+        self.terminal_runtimes.insert(terminal.id.clone(), runtime);
+        self.state.terminals.insert(terminal.id.clone(), terminal);
+        self.state.remove_alias_shadowed_by_new_pane(root_pane);
+        self.state.workspaces[ws_idx].switch_tab(idx);
+        self.state.active = Some(ws_idx);
+        self.state.mode = Mode::Terminal;
+        let workspace_id = self.state.workspaces[ws_idx].id.clone();
+        let tab_id = self
+            .public_tab_id(ws_idx, idx)
+            .unwrap_or_else(|| format!("{}:{}", workspace_id, idx + 1));
+        crate::logging::tab_created(&workspace_id, &tab_id, root_pane.raw());
+        self.schedule_session_save();
+        Ok(idx)
+    }
+
     pub(super) fn create_workspace_with_options(
         &mut self,
         initial_cwd: PathBuf,

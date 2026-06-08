@@ -202,6 +202,7 @@ pub struct Config {
     pub worktrees: WorktreesConfig,
     pub experimental: ExperimentalConfig,
     pub remote: RemoteConfig,
+    pub agent_profiles: crate::agent_profiles::AgentProfilesConfig,
 }
 
 #[derive(Debug)]
@@ -788,6 +789,38 @@ cjk_ime_cursor_shape = "bar"
         assert_eq!(
             config.experimental.cjk_ime_cursor_shape,
             ImeCursorShape::Bar
+        );
+    }
+
+    #[test]
+    fn agent_profiles_config_parses_custom_profiles() {
+        let toml = r#"
+[agent_profiles]
+order = ["user:omp-mk", "system:codex"]
+
+[[agent_profiles.custom]]
+id = "omp-mk"
+name = "omp mk"
+kind = "omp"
+command = "omp-mk --profile main"
+enabled = true
+
+[agent_profiles.custom.env]
+PI_CONFIG_DIR = "/Users/test/.omp-mk"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.agent_profiles.order, ["user:omp-mk", "system:codex"]);
+        assert_eq!(
+            config.agent_profiles.custom[0].kind,
+            crate::agent_profiles::AgentKind::Omp
+        );
+        assert_eq!(
+            config.agent_profiles.custom[0].command,
+            "omp-mk --profile main"
+        );
+        assert_eq!(
+            config.agent_profiles.custom[0].env["PI_CONFIG_DIR"],
+            "/Users/test/.omp-mk"
         );
     }
 

@@ -18,6 +18,7 @@ const NESTED_HAKO_MESSAGES: [&str; 6] = [
     "recursion detected. base case not found. aborting.",
 ];
 
+mod agent_profiles;
 mod agent_resume;
 mod api;
 mod app;
@@ -114,6 +115,24 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # Use "follow" to inherit the source pane/workspace, "home" for $HOME,
 # "current" for Hako's process directory, or a fixed path such as "~/Projects".
 # new_cwd = "follow"
+
+[agent_profiles]
+# Optional global order across system and custom agent profiles.
+# System ids match integration targets, e.g. system:codex, system:omp.
+# order = ["system:codex", "system:omp"]
+
+# Custom profiles model wrappers or profile-specific commands.
+# Commands are parsed into argv; shell pipes, redirects, globbing, and $VAR
+# expansion are not applied. Use env rows for profile/config directories.
+# [[agent_profiles.custom]]
+# id = "omp-mk"
+# name = "omp mk"
+# kind = "omp"
+# command = "omp-mk"
+# enabled = true
+#
+# [agent_profiles.custom.env]
+# PI_CONFIG_DIR = "/Users/me/.omp-mk"
 
 [keys]
 # Prefix key to enter prefix mode (default: "ctrl+b")

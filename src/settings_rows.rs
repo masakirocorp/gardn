@@ -81,8 +81,10 @@ pub(crate) fn rows_for_section(
         SettingsSection::Toast => Some(toast_rows(app)),
         SettingsSection::PaneLabels => Some(behavior_rows(app)),
         SettingsSection::Experiments => Some(experiment_rows(app)),
+        SettingsSection::Agents => Some(agent_profile_rows(app)),
         SettingsSection::Integrations => Some(integration_rows(app)),
         SettingsSection::GroupGeneral => Some(group_general_rows(app)),
+        SettingsSection::GroupProfiles => Some(group_profile_rows(app)),
     }
 }
 
@@ -319,6 +321,93 @@ fn group_general_rows(app: &AppState) -> Vec<SettingsListRow> {
             tone: SettingsMarkerTone::Danger,
         },
     ]
+}
+
+fn agent_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
+    let mut rows = Vec::new();
+    rows.push(SettingsListRow::Header("system profiles"));
+    let mut index = 0;
+    for profile in app.agent_profiles.profiles() {
+        if profile.is_system() {
+            rows.push(SettingsListRow::StatusChoice {
+                index,
+                marker: if profile.available() { "•" } else { "!" }.into(),
+                label: format!("{}  {}", profile.name, profile.command).into(),
+                tone: if profile.available() {
+                    SettingsMarkerTone::Accent
+                } else {
+                    SettingsMarkerTone::Warning
+                },
+            });
+            index += 1;
+        }
+    }
+    rows.push(SettingsListRow::Spacer);
+    rows.push(SettingsListRow::Header("custom profiles"));
+    let mut has_custom = false;
+    for profile in app.agent_profiles.profiles() {
+        if !profile.is_system() {
+            has_custom = true;
+            rows.push(SettingsListRow::StatusChoice {
+                index,
+                marker: if profile.available() { "•" } else { "!" }.into(),
+                label: format!("{}  {}", profile.name, profile.command).into(),
+                tone: if profile.available() {
+                    SettingsMarkerTone::Accent
+                } else {
+                    SettingsMarkerTone::Warning
+                },
+            });
+            index += 1;
+        }
+    }
+    if !has_custom {
+        rows.push(SettingsListRow::StatusChoice {
+            index,
+            marker: "+".into(),
+            label: "add profile in config.toml".into(),
+            tone: SettingsMarkerTone::Disabled,
+        });
+    }
+    rows
+}
+
+fn group_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
+    let favorites = app
+        .settings
+        .group_settings_target
+        .and_then(|idx| app.groups.get(idx))
+        .map(|group| group.favorite_agent_profile_ids.as_slice())
+        .unwrap_or(&[]);
+    let (favorite, available) = app.agent_profiles.group_sections(favorites);
+    let mut rows = Vec::new();
+    let mut index = 0;
+    rows.push(SettingsListRow::Header("favorites"));
+    if favorite.is_empty() {
+        rows.push(SettingsListRow::Header("no favorites"));
+    } else {
+        for profile in favorite {
+            rows.push(SettingsListRow::StatusChoice {
+                index,
+                marker: "◆".into(),
+                label: format!("{}  {}", profile.name, profile.kind.as_str()).into(),
+                tone: SettingsMarkerTone::Accent,
+            });
+            index += 1;
+        }
+    }
+    rows.push(SettingsListRow::Spacer);
+    rows.push(SettingsListRow::Header("available"));
+    for profile in available {
+        rows.push(SettingsListRow::StatusChoice {
+            index,
+            marker: " ".into(),
+            label: format!("{}  {}", profile.name, profile.kind.as_str()).into(),
+            tone: SettingsMarkerTone::Disabled,
+        });
+        index += 1;
+    }
+    rows
 }
 
 fn layout_rows(app: &AppState) -> Vec<SettingsListRow> {

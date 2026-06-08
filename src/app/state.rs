@@ -69,6 +69,7 @@ pub struct Group {
     pub name: String,
     pub icon: String,
     pub accent: Option<TerminalAccent>,
+    pub favorite_agent_profile_ids: Vec<String>,
 }
 
 impl Group {
@@ -78,6 +79,7 @@ impl Group {
             name: "group 1".to_string(),
             icon: DEFAULT_GROUP_ICON.to_string(),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         }
     }
 }
@@ -1557,7 +1559,9 @@ pub enum SettingsSection {
     Toast,
     PaneLabels,
     Experiments,
+    Agents,
     Integrations,
+    GroupProfiles,
     GroupGeneral,
 }
 
@@ -1568,6 +1572,7 @@ impl SettingsSection {
         Self::Sound,
         Self::Toast,
         Self::PaneLabels,
+        Self::Agents,
         Self::Integrations,
         Self::Experiments,
     ];
@@ -1575,6 +1580,7 @@ impl SettingsSection {
     pub fn label(self) -> &'static str {
         match self {
             Self::Theme => "theme",
+            Self::Agents => "agents",
             Self::Layout => "layout",
             Self::Sound => "sound",
             Self::Toast => "toasts",
@@ -1582,6 +1588,7 @@ impl SettingsSection {
             Self::Experiments => "experiments",
             Self::Integrations => "integrations",
             Self::GroupGeneral => "general",
+            Self::GroupProfiles => "profiles",
         }
     }
 }
@@ -2228,6 +2235,7 @@ pub struct AppState {
     pub command_runs: std::collections::HashMap<String, crate::commands::CommandRun>,
     pub port_registry: crate::ports::PortRegistry,
     pub copy_mode: Option<CopyModeState>,
+    pub agent_profiles: crate::agent_profiles::AgentProfileCatalog,
     pub workspace_scroll: usize,
     pub agent_panel_scroll: usize,
     pub tab_scroll: usize,
@@ -2941,6 +2949,9 @@ impl AppState {
             },
             local_sound_playback: false,
             toast_config: ToastConfig::default(),
+            agent_profiles: crate::agent_profiles::AgentProfileCatalog::from_config(
+                &crate::agent_profiles::AgentProfilesConfig::default(),
+            ),
             keybinds: Keybinds::default(),
             spinner_tick: 0,
             palette: Palette::catppuccin(),

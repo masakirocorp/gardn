@@ -207,6 +207,7 @@ mod tests {
                 name: "group 1".to_string(),
                 icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
                 accent: None,
+                favorite_agent_profile_ids: Vec::new(),
             }],
             active_group: 0,
             group_filter_enabled: true,

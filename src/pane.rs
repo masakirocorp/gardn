@@ -966,6 +966,7 @@ impl PaneRuntime {
         cols: u16,
         cwd: std::path::PathBuf,
         argv: &[String],
+        extra_env: &[(String, String)],
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
         events: mpsc::Sender<AppEvent>,
@@ -986,6 +987,9 @@ impl PaneRuntime {
         cmd.env(crate::HAKO_ENV_VAR, crate::HAKO_ENV_VALUE);
         apply_pane_terminal_env(&mut cmd);
         crate::integration::apply_pane_env(&mut cmd, pane_id);
+        for (key, value) in extra_env {
+            cmd.env(key, value);
+        }
         Self::spawn_command_builder(
             pane_id,
             rows,

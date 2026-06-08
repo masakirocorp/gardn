@@ -387,6 +387,15 @@ fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
             super::modal::open_new_tab_dialog(&mut app.state);
             return;
         }
+        CommandPaletteAction::NewAgentProfile(profile_id) => {
+            let Some(ws_idx) = app.state.active else {
+                return;
+            };
+            if let Err(err) = app.create_agent_profile_tab(ws_idx, &profile_id) {
+                tracing::warn!(profile = %profile_id, err = %err, "failed to launch agent profile");
+            }
+            return;
+        }
         CommandPaletteAction::SwitchTab(idx) => app.state.switch_tab(idx),
         CommandPaletteAction::RenameTab => {
             super::modal::open_rename_active_tab(&mut app.state, false);

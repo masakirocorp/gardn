@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Constraint, Layout, Rect};
 
 use crate::{
@@ -298,6 +298,8 @@ fn settings_section_choice_len(state: &AppState, section: SettingsSection) -> us
             | SettingsSection::Toast
             | SettingsSection::PaneLabels
             | SettingsSection::Experiments
+            | SettingsSection::Agents
+            | SettingsSection::GroupProfiles
             | SettingsSection::GroupGeneral => 0,
         })
 }
@@ -745,6 +747,31 @@ fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction>
     }
 }
 
+fn group_profile_id_for_index(state: &AppState, selected: usize) -> Option<String> {
+    let group_idx = state.settings.group_settings_target?;
+    let favorites = state
+        .groups
+        .get(group_idx)?
+        .favorite_agent_profile_ids
+        .as_slice();
+    let (favorite, available) = state.agent_profiles.group_sections(favorites);
+    favorite
+        .into_iter()
+        .chain(available)
+        .nth(selected)
+        .map(|profile| profile.id.clone())
+}
+
+fn toggle_selected_group_profile_favorite(state: &mut AppState) {
+    let Some(group_idx) = state.settings.group_settings_target else {
+        return;
+    };
+    let Some(profile_id) = group_profile_id_for_index(state, state.settings.list.selected) else {
+        return;
+    };
+    state.toggle_group_agent_profile_favorite(group_idx, &profile_id);
+}
+
 fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_theme_name = None;
     state.settings.pending_theme_mode = None;
@@ -936,8 +963,10 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
             None
         }
         SettingsSection::Experiments => selected_experiment_action(state),
+        SettingsSection::Agents => None,
         SettingsSection::Integrations => selected_integration_action(state),
         SettingsSection::GroupGeneral => selected_group_general_action(state),
+        SettingsSection::GroupProfiles => None,
     }
 }
 
@@ -990,7 +1019,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
     if state.settings.group_settings_target.is_some()
         && !matches!(
             state.settings.section,
-            SettingsSection::Theme | SettingsSection::GroupGeneral
+            SettingsSection::Theme | SettingsSection::GroupGeneral | SettingsSection::GroupProfiles
         )
     {
         state.settings.section = SettingsSection::Theme;
@@ -1030,7 +1059,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 if state.settings.group_settings_target.is_some() {
-                    state.settings.section = SettingsSection::GroupGeneral;
+                    state.settings.section = SettingsSection::GroupProfiles;
                     state.settings.list.selected = 0;
                 } else {
                     state.settings.section = SettingsSection::Experiments;
@@ -1147,6 +1176,33 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 state.settings.list.selected = toast_delivery_index(pending_toast_delivery(state));
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                state.settings.section = SettingsSection::Agents;
+                state.settings.list.selected = 0;
+            }
+            _ => {
+                if let Some(action) = handle_settings_modal_action(state, &key) {
+                    return Some(action);
+                }
+            }
+        },
+        SettingsSection::Agents => match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                select_previous_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Agents),
+                );
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                select_next_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Agents),
+                );
+            }
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                state.settings.section = SettingsSection::PaneLabels;
+                state.settings.list.selected = 0;
+            }
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 state.settings.section = SettingsSection::Integrations;
                 state.settings.list.selected = 0;
             }
@@ -1202,7 +1258,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
             KeyCode::Enter | KeyCode::Char(' ') => return selected_integration_action(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
-                state.settings.section = SettingsSection::PaneLabels;
+                state.settings.section = SettingsSection::Agents;
                 state.settings.list.selected = 0;
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
@@ -1238,14 +1294,44 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 ensure_settings_selection_visible(state);
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
-                state.settings.section = SettingsSection::Theme;
-                state.settings.list.selected = group_accent_selection_index(state);
-                ensure_settings_selection_visible(state);
+                state.settings.section = SettingsSection::GroupProfiles;
+                state.settings.list.selected = 0;
             }
             _ => {
                 if state.settings.list.selected == 0 && edit_pending_group_name(state, key) {
                     return None;
                 }
+                if let Some(action) = handle_settings_modal_action(state, &key) {
+                    return Some(action);
+                }
+            }
+        },
+        SettingsSection::GroupProfiles => match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                select_previous_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::GroupProfiles),
+                );
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                select_next_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::GroupProfiles),
+                );
+            }
+            KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                toggle_selected_group_profile_favorite(state);
+            }
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                state.settings.section = SettingsSection::GroupGeneral;
+                state.settings.list.selected = 0;
+            }
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                state.settings.section = SettingsSection::Theme;
+                state.settings.list.selected = group_accent_selection_index(state);
+                ensure_settings_selection_visible(state);
+            }
+            _ => {
                 if let Some(action) = handle_settings_modal_action(state, &key) {
                     return Some(action);
                 }
@@ -1289,8 +1375,10 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
         SettingsSection::Toast => toast_delivery_index(pending_toast_delivery(state)),
         SettingsSection::PaneLabels => 0,
         SettingsSection::Experiments => 0,
+        SettingsSection::Agents => 0,
         SettingsSection::Integrations => 0,
         SettingsSection::GroupGeneral => 0,
+        SettingsSection::GroupProfiles => 0,
     };
     state.settings.scroll = 0;
     ensure_settings_selection_visible(state);
@@ -1413,7 +1501,9 @@ impl AppState {
             | SettingsSection::Toast
             | SettingsSection::PaneLabels
             | SettingsSection::Experiments
-            | SettingsSection::GroupGeneral => {
+            | SettingsSection::Agents
+            | SettingsSection::GroupGeneral
+            | SettingsSection::GroupProfiles => {
                 let rows = rows_for_section(self, self.settings.section)?;
                 option_index_for_visual_row(&rows, (row - area.y) as usize)
             }
@@ -1508,8 +1598,10 @@ impl AppState {
                         }
                         SettingsSection::PaneLabels => 0,
                         SettingsSection::Experiments => 0,
+                        SettingsSection::Agents => 0,
                         SettingsSection::Integrations => 0,
                         SettingsSection::GroupGeneral => 0,
+                        SettingsSection::GroupProfiles => 0,
                     });
                     if section == SettingsSection::Theme {
                         ensure_settings_selection_visible(self);
@@ -1528,6 +1620,7 @@ impl AppState {
                         | SettingsSection::Toast
                         | SettingsSection::PaneLabels => select_pending_setting(self),
                         SettingsSection::Experiments => selected_experiment_action(self),
+                        SettingsSection::Agents => None,
                         SettingsSection::Integrations => None,
                         SettingsSection::GroupGeneral => {
                             if idx == 1 {
@@ -1536,6 +1629,7 @@ impl AppState {
                                 None
                             }
                         }
+                        SettingsSection::GroupProfiles => None,
                     };
                 }
 
@@ -1761,6 +1855,40 @@ mod tests {
     }
 
     #[test]
+    fn group_profiles_ctrl_f_toggles_favorite_immediately() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Side".to_string());
+
+        open_group_settings(&mut state, group_idx);
+        state.settings.section = SettingsSection::GroupProfiles;
+        state.settings.list.selected = 0;
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
+        );
+
+        assert_eq!(action, None);
+        assert_eq!(
+            state.groups[group_idx].favorite_agent_profile_ids,
+            vec!["system:pi".to_string()]
+        );
+        assert!(state.session_dirty);
+
+        state.session_dirty = false;
+        state.settings.list.selected = 0;
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
+        );
+
+        assert_eq!(action, None);
+        assert!(state.groups[group_idx]
+            .favorite_agent_profile_ids
+            .is_empty());
+        assert!(state.session_dirty);
+    }
+
+    #[test]
     fn group_settings_switches_between_appearance_and_general() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
@@ -1773,6 +1901,13 @@ mod tests {
 
         assert_eq!(state.settings.section, SettingsSection::GroupGeneral);
         assert_eq!(state.settings.group_settings_target, Some(group_idx));
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.settings.section, SettingsSection::GroupProfiles);
 
         update_settings_state(
             &mut state,
@@ -2262,6 +2397,13 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
         );
+        assert_eq!(state.settings.section, SettingsSection::Agents);
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
+
         assert_eq!(state.settings.section, SettingsSection::Integrations);
 
         update_settings_state(

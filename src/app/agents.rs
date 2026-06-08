@@ -329,6 +329,7 @@ impl App {
             rows,
             cols,
             argv,
+            &[],
             self.state.pane_scrollback_limit_bytes,
             self.state.host_terminal_theme,
             self.event_tx.clone(),

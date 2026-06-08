@@ -1226,6 +1226,7 @@ impl AppState {
             name,
             icon: super::state::normalize_group_icon(&icon),
             accent: None,
+            favorite_agent_profile_ids: Vec::new(),
         });
         self.mark_session_dirty();
         self.groups.len() - 1
@@ -1309,6 +1310,28 @@ impl AppState {
         self.refresh_tab_bar_view();
         self.mark_session_dirty();
         Ok(())
+    }
+
+    pub(crate) fn toggle_group_agent_profile_favorite(
+        &mut self,
+        group_idx: usize,
+        profile_id: &str,
+    ) {
+        let Some(group) = self.groups.get_mut(group_idx) else {
+            return;
+        };
+        if let Some(pos) = group
+            .favorite_agent_profile_ids
+            .iter()
+            .position(|id| id == profile_id)
+        {
+            group.favorite_agent_profile_ids.remove(pos);
+        } else if self.agent_profiles.get(profile_id).is_some() {
+            group
+                .favorite_agent_profile_ids
+                .push(profile_id.to_string());
+        }
+        self.mark_session_dirty();
     }
 
     pub fn move_group(&mut self, source_idx: usize, insert_idx: usize) {

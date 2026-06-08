@@ -26,6 +26,7 @@ enum SplitCommand<'a> {
     },
     Argv {
         argv: &'a [String],
+        extra_env: &'a [(String, String)],
     },
 }
 
@@ -36,6 +37,7 @@ enum NewTabCommand<'a> {
     },
     Argv {
         argv: &'a [String],
+        extra_env: &'a [(String, String)],
     },
 }
 
@@ -89,6 +91,7 @@ impl Tab {
         rows: u16,
         cols: u16,
         argv: &[String],
+        extra_env: &[(String, String)],
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
         events: mpsc::Sender<AppEvent>,
@@ -106,7 +109,7 @@ impl Tab {
             events,
             render_notify,
             render_dirty,
-            Some(NewTabCommand::Argv { argv }),
+            Some(NewTabCommand::Argv { argv, extra_env }),
         )
     }
 
@@ -154,11 +157,12 @@ impl Tab {
         command: Option<NewTabCommand<'_>>,
     ) -> std::io::Result<(Self, TerminalState, TerminalRuntime)> {
         let (layout, root_id) = TileLayout::new();
-        let launch_argv = if let Some(NewTabCommand::Argv { argv }) = &command {
-            Some((*argv).to_vec())
-        } else {
-            None
-        };
+        let (launch_argv, launch_env) =
+            if let Some(NewTabCommand::Argv { argv, extra_env }) = &command {
+                (Some((*argv).to_vec()), (*extra_env).to_vec())
+            } else {
+                (None, Vec::new())
+            };
         let runtime = match command {
             Some(NewTabCommand::Shell { command, extra_env }) => {
                 TerminalRuntime::spawn_shell_command(
@@ -175,12 +179,13 @@ impl Tab {
                     render_dirty.clone(),
                 )?
             }
-            Some(NewTabCommand::Argv { argv }) => TerminalRuntime::spawn_argv_command(
+            Some(NewTabCommand::Argv { argv, extra_env }) => TerminalRuntime::spawn_argv_command(
                 root_id,
                 rows,
                 cols,
                 initial_cwd.clone(),
                 argv,
+                extra_env,
                 scrollback_limit_bytes,
                 host_terminal_theme,
                 events.clone(),
@@ -202,12 +207,15 @@ impl Tab {
         };
 
         let terminal_id = TerminalId::alloc();
-        let terminal = match launch_argv {
+        let mut terminal = match launch_argv {
             Some(argv) => {
                 TerminalState::new(terminal_id.clone(), initial_cwd).with_launch_argv(argv)
             }
             None => TerminalState::new(terminal_id.clone(), initial_cwd),
         };
+        if !launch_env.is_empty() {
+            terminal = terminal.with_launch_env(launch_env);
+        }
         let mut panes = HashMap::new();
         panes.insert(
             root_id,
@@ -299,6 +307,7 @@ impl Tab {
         cols: u16,
         cwd: Option<PathBuf>,
         argv: &[String],
+        extra_env: &[(String, String)],
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
     ) -> std::io::Result<NewPane> {
@@ -310,7 +319,7 @@ impl Tab {
             scrollback_limit_bytes,
             host_terminal_theme,
             crate::pane::PaneShellConfig::new("", crate::config::ShellModeConfig::NonLogin),
-            Some(SplitCommand::Argv { argv }),
+            Some(SplitCommand::Argv { argv, extra_env }),
         )
     }
 
@@ -329,11 +338,12 @@ impl Tab {
         let new_id = self.layout.split_focused(direction);
         let actual_cwd =
             cwd.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| "/".into()));
-        let launch_argv = if let Some(SplitCommand::Argv { argv }) = &command {
-            Some((*argv).to_vec())
-        } else {
-            None
-        };
+        let (launch_argv, launch_env) =
+            if let Some(SplitCommand::Argv { argv, extra_env }) = &command {
+                (Some((*argv).to_vec()), (*extra_env).to_vec())
+            } else {
+                (None, Vec::new())
+            };
         let runtime = match command {
             Some(SplitCommand::Shell { command, extra_env }) => {
                 TerminalRuntime::spawn_shell_command(
@@ -350,12 +360,13 @@ impl Tab {
                     self.render_dirty.clone(),
                 )
             }
-            Some(SplitCommand::Argv { argv }) => TerminalRuntime::spawn_argv_command(
+            Some(SplitCommand::Argv { argv, extra_env }) => TerminalRuntime::spawn_argv_command(
                 new_id,
                 rows,
                 cols,
                 actual_cwd.clone(),
                 argv,
+                extra_env,
                 scrollback_limit_bytes,
                 host_terminal_theme,
                 self.events.clone(),
@@ -384,12 +395,15 @@ impl Tab {
             }
         };
         let terminal_id = TerminalId::alloc();
-        let terminal = match launch_argv {
+        let mut terminal = match launch_argv {
             Some(argv) => {
                 TerminalState::new(terminal_id.clone(), actual_cwd).with_launch_argv(argv)
             }
             None => TerminalState::new(terminal_id.clone(), actual_cwd),
         };
+        if !launch_env.is_empty() {
+            terminal = terminal.with_launch_env(launch_env);
+        }
         self.panes
             .insert(new_id, PaneState::new_with_env_pane_id(terminal_id, new_id));
         self.zoomed = false;

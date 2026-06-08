@@ -106,6 +106,14 @@ Supported built-in detection includes:
 - **State notifications** — background state changes can trigger Hako toasts, terminal toasts, system toasts, and sounds.
 - **Integration authority** — Claude Code, Codex, and OpenCode integrations report session identity while state comes from screen detection; Pi, OMP, Copilot, Hermes, and Qoder-style integrations can still report state directly.
 
+
+### Agent profiles
+
+- **System profiles** — Hako exposes one read-only system profile for each supported integration target.
+- **Custom profiles** — define profile-specific commands and optional environment in `[agent_profiles]`, such as organization-specific OMP, PI, OpenCode, or Codex wrappers.
+- **Group favorites** — group settings can promote favorite profiles; favorites appear before available profiles while both sections keep the global profile order.
+- **New agent from command palette** — launch an agent profile into a new tab in the active space from the command palette.
+
 ### Agent session restore
 
 Hako resumes supported agents into native agent sessions during session restore by default. Set `[session].resume_agents_on_restore = false` to disable it.
