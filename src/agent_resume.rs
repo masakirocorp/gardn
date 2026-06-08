@@ -359,18 +359,66 @@ mod tests {
     }
 
     #[test]
-    fn planner_preserves_launch_command_alias_for_resume() {
-        let opencode_ref = AgentSessionRef::id("opencode-session").unwrap();
-        assert_eq!(
-            plan_with_launch_argv(
+    fn planner_preserves_launch_command_for_every_resumable_agent() {
+        let id_cases = [
+            (
+                "hako:claude",
+                "claude",
+                "claude-session",
+                "claude-mk",
+                vec!["claude-mk", "--resume", "claude-session"],
+            ),
+            (
+                "hako:codex",
+                "codex",
+                "codex-session",
+                "codex-mk",
+                vec!["codex-mk", "resume", "codex-session"],
+            ),
+            (
+                "hako:copilot",
+                "copilot",
+                "copilot-session",
+                "copilot-mk",
+                vec!["copilot-mk", "--resume=copilot-session"],
+            ),
+            (
+                "hako:hermes",
+                "hermes",
+                "hermes-session",
+                "hermes-mk",
+                vec!["hermes-mk", "--resume", "hermes-session"],
+            ),
+            (
                 "hako:opencode",
                 "opencode",
-                &opencode_ref,
-                Some(&["oc-frs".to_string()])
-            )
-            .unwrap()
-            .argv,
-            vec!["oc-frs", "--session", "opencode-session"]
+                "opencode-session",
+                "oc-frs",
+                vec!["oc-frs", "--session", "opencode-session"],
+            ),
+        ];
+
+        for (source, agent, session_id, launch_command, expected) in id_cases {
+            let session_ref = AgentSessionRef::id(session_id).unwrap();
+            assert_eq!(
+                plan_with_launch_argv(
+                    source,
+                    agent,
+                    &session_ref,
+                    Some(&[launch_command.to_string()])
+                )
+                .unwrap()
+                .argv,
+                expected
+            );
+        }
+
+        let pi_ref = AgentSessionRef::path("/tmp/pi-session.jsonl").unwrap();
+        assert_eq!(
+            plan_with_launch_argv("hako:pi", "pi", &pi_ref, Some(&["pi-mk".to_string()]))
+                .unwrap()
+                .argv,
+            vec!["pi-mk", "--session", "/tmp/pi-session.jsonl"]
         );
 
         let omp_ref = AgentSessionRef::path("/tmp/omp-session.jsonl").unwrap();

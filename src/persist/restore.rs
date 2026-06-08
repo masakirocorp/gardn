@@ -1021,18 +1021,86 @@ mod tests {
     }
 
     #[test]
-    fn restore_plan_preserves_saved_launch_alias() {
-        let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:opencode".into(),
-            agent: "opencode".into(),
-            kind: crate::agent_resume::AgentSessionRefKind::Id,
-            value: "opencode-session".into(),
+    fn restore_plan_preserves_saved_launch_command_for_every_resumable_agent() {
+        let id_cases = [
+            (
+                "hako:claude",
+                "claude",
+                "claude-session",
+                "claude-mk",
+                vec!["claude-mk", "--resume", "claude-session"],
+            ),
+            (
+                "hako:codex",
+                "codex",
+                "codex-session",
+                "codex-mk",
+                vec!["codex-mk", "resume", "codex-session"],
+            ),
+            (
+                "hako:copilot",
+                "copilot",
+                "copilot-session",
+                "copilot-mk",
+                vec!["copilot-mk", "--resume=copilot-session"],
+            ),
+            (
+                "hako:hermes",
+                "hermes",
+                "hermes-session",
+                "hermes-mk",
+                vec!["hermes-mk", "--resume", "hermes-session"],
+            ),
+            (
+                "hako:opencode",
+                "opencode",
+                "opencode-session",
+                "oc-mk",
+                vec!["oc-mk", "--session", "opencode-session"],
+            ),
+        ];
+
+        for (source, agent, session_id, launch_command, expected) in id_cases {
+            let session = super::super::snapshot::PaneAgentSessionSnapshot {
+                source: source.into(),
+                agent: agent.into(),
+                kind: crate::agent_resume::AgentSessionRefKind::Id,
+                value: session_id.into(),
+            };
+
+            assert_eq!(
+                restore_plan_for_snapshot(&session, true, Some(&[launch_command.to_string()]))
+                    .unwrap()
+                    .argv,
+                expected
+            );
+        }
+
+        let pi_session = super::super::snapshot::PaneAgentSessionSnapshot {
+            source: "hako:pi".into(),
+            agent: "pi".into(),
+            kind: crate::agent_resume::AgentSessionRefKind::Path,
+            value: "/tmp/pi-session.jsonl".into(),
         };
-        let launch_argv = vec!["oc-mk".to_string()];
+        assert_eq!(
+            restore_plan_for_snapshot(&pi_session, true, Some(&["pi-mk".to_string()]))
+                .unwrap()
+                .argv,
+            vec!["pi-mk", "--session", "/tmp/pi-session.jsonl"]
+        );
 
-        let plan = restore_plan_for_snapshot(&session, true, Some(&launch_argv)).unwrap();
-
-        assert_eq!(plan.argv, vec!["oc-mk", "--session", "opencode-session"]);
+        let omp_session = super::super::snapshot::PaneAgentSessionSnapshot {
+            source: "hako:omp".into(),
+            agent: "omp".into(),
+            kind: crate::agent_resume::AgentSessionRefKind::Path,
+            value: "/tmp/omp-session.jsonl".into(),
+        };
+        assert_eq!(
+            restore_plan_for_snapshot(&omp_session, true, Some(&["omp-mk".to_string()]))
+                .unwrap()
+                .argv,
+            vec!["omp-mk", "--session", "/tmp/omp-session.jsonl"]
+        );
     }
 
     #[test]
