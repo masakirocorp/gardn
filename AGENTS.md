@@ -82,6 +82,23 @@ Unit tests live next to the code (`#[cfg(test)] mod tests`). If you add behavior
 - Don't add dependencies without a reason. Check if the existing deps cover it first.
 - For user-facing behavior changes, update `docs/features.md` or explicitly call out why docs were not changed before release.
 
+## Linear workflow
+
+Use Linear, not GitHub issues, for tracked work. The Engineering team workflow is:
+
+- `Triage` — needs shaping, clarification, or human judgment before it enters the normal queue.
+- `Backlog` — accepted work that is not pullable yet, usually blocked or deferred.
+- `Ready` — fully briefed, unblocked work an agent or human can start.
+- `Doing` — actively owned.
+- `Review` — output exists and needs human review, approval, merge, or acceptance.
+- `Done`, `Canceled`, `Duplicate` — terminal states.
+
+Agents may pick up `Ready` issues only when they are unblocked and have clear acceptance criteria and verification. Issues in `Triage` or `Review` need human attention. Use Linear labels for stable taxonomy such as `app:hako` and `kind:adr`, not for execution state.
+
+## ADRs
+
+Architecture Decision Records live in `docs/adr/` and use sequential filenames like `0001-short-slug.md`. Linear tracks ADR workflow; the repository is the source of truth for ADR content. Retroactive ADRs should record current architectural decisions that still matter, distinguish observed facts from `[INFERENCE]`, and avoid inventing historical rationale.
+
 ## Releases
 
 Default release flow:
