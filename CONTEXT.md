@@ -119,3 +119,15 @@ _Avoid_: App client, pane attach
 **Attach Owner**:
 The single direct terminal attach connection currently admitted as writable for a terminal runtime. A later attach request must request takeover to replace the owner.
 _Avoid_: Foreground client, observer
+
+**Direct Install**:
+A Hako binary installed outside a package manager and owned by Hako's own updater.
+_Avoid_: Standalone when ownership matters
+
+**Managed Install**:
+A Hako binary installed and owned by a package manager such as Homebrew, mise, or Nix.
+_Avoid_: Direct install, self-managed install
+
+**Release Asset**:
+A platform-specific Hako binary attached to a GitHub Release with the stable name Hako's updater expects for that host platform.
+_Avoid_: Artifact when referring to the user-downloadable update binary

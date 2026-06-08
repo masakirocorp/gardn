@@ -333,11 +333,11 @@ Configurable areas include:
 
 ## Updates and release notes
 
-Hako uses GitHub Releases for update checks, release metadata, and binary downloads.
+Direct installs use GitHub Releases for update checks, release metadata, and binary downloads. Homebrew-managed installs check Homebrew availability and should update through Homebrew; mise and Nix-managed installs are routed to their package manager instead of self-update.
 
-- The app can notify when a new release is available.
-- `hako update` downloads and swaps supported binary installs.
-- Homebrew and Nix-managed installs are blocked from self-update and should use their package manager.
+- The app can notify when a new release or managed-install update is available.
+- `hako update` downloads and swaps supported direct binary installs.
+- Homebrew, mise, and Nix-managed installs are blocked from self-update and should use their package manager.
 - Live handoff can preserve running pane processes during updates when both the old and new server support the handoff protocol.
 - In-app release notes can be shown after an update.
 - Post-update checks can report outdated integrations.
