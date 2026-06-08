@@ -17,17 +17,15 @@ Read-only investigation can happen in the shared checkout.
 
 Small linear changes are fine in the default main worktree when the working tree is clean and no unrelated implementation is in progress. Use a dedicated task worktree for bigger features, risky refactors, parallel edits, or whenever the main worktree already contains unrelated changes.
 
-Use this layout for task worktrees:
+Use Worktrunk (`wt`) for task worktree create/switch/list/merge/remove. Worktrunk's configured path template owns task worktree locations.
 
-- shared integration checkout: `../hako`
-- task worktrees: `../hako-worktrees/<task-slug>`
-- task branches: `<tracker-key>-<slug>` when a tracker ticket exists
+Task branches use `<tracker-key>-<slug>` when a tracker ticket exists.
 
-When using a task worktree, do all code edits, tests, and validation inside that worktree. Commit on the task branch, fast-forward the shared checkout at `../hako` to the task branch commit, then push `origin/master` from `../hako`. Do not treat the task branch as the final landing branch.
+When using a task worktree, do all code edits, tests, and validation inside that worktree. Commit on the task branch, land the final commit(s) on `origin/master` through an equivalent `wt merge` flow, and do not treat the task branch as the final landing branch.
 
 If the current session is already inside an isolated task worktree, keep using it. Do not create nested worktrees.
 
-After the change is integrated, remove the task worktree and delete the task branch locally and remotely.
+After the change is integrated, remove the task worktree and delete the task branch locally and remotely with `wt remove`.
 
 ## Long-lived fork workflow
 
