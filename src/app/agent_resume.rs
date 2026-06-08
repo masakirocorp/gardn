@@ -194,6 +194,11 @@ impl App {
         self.terminal_runtimes.insert(terminal_id.clone(), runtime);
         if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
             terminal.pending_agent_resume_plan = None;
+            if terminal.launch_argv.is_none() {
+                if let Some(command) = plan.argv.first() {
+                    terminal.launch_argv = Some(vec![command.clone()]);
+                }
+            }
             terminal.respawn_shell_on_exit = false;
         }
         true
@@ -278,7 +283,7 @@ mod tests {
         command: std::path::PathBuf,
         args: &[&str],
         output: &std::path::Path,
-    ) -> Vec<String> {
+    ) -> (Vec<String>, Option<Vec<String>>) {
         let mut app = test_app();
         let workspace = crate::workspace::Workspace::test_new("restored");
         let pane_id = workspace.tabs[0].root_pane;
@@ -330,11 +335,18 @@ mod tests {
                 output.display()
             )
         });
+        let launch_argv = app
+            .state
+            .terminals
+            .get(&terminal_id)
+            .expect("terminal should survive launch")
+            .launch_argv
+            .clone();
 
         for (_, runtime) in app.terminal_runtimes.drain() {
             runtime.shutdown();
         }
-        recorded.lines().map(str::to_string).collect()
+        (recorded.lines().map(str::to_string).collect(), launch_argv)
     }
 
     #[cfg(unix)]
@@ -363,7 +375,7 @@ mod tests {
             let command = recording_agent_script(&dir, command_name);
             let output = dir.join(format!("{command_name}.argv"));
 
-            let recorded =
+            let (recorded, launch_argv) =
                 run_pending_resume_and_read_recorded_argv(command.clone(), &expected_args, &output)
                     .await;
             let mut expected = vec![command.to_string_lossy().to_string()];
@@ -372,6 +384,11 @@ mod tests {
             assert_eq!(
                 recorded, expected,
                 "{command_name} restore argv should execute exactly"
+            );
+            assert_eq!(
+                launch_argv,
+                Some(vec![command.to_string_lossy().to_string()]),
+                "{command_name} restore command should stay persisted for later restores"
             );
         }
 

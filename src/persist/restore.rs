@@ -467,9 +467,13 @@ fn restore_tab(
             startup.restore_plan.clone()
         };
         if let Some(plan) = pending_native_agent_restore {
+            let restored_launch_argv = plan.argv.first().cloned().map(|command| vec![command]);
             let terminal_id = TerminalId::alloc();
             let mut terminal = TerminalState::new(terminal_id.clone(), cwd.clone())
                 .with_pending_agent_resume_plan(plan);
+            if let Some(argv) = restored_launch_argv {
+                terminal = terminal.with_launch_argv(argv);
+            }
             if let Some(label) = saved_label {
                 terminal.set_manual_label(label);
             }
@@ -1101,6 +1105,100 @@ mod tests {
                 .argv,
             vec!["omp-mk", "--session", "/tmp/omp-session.jsonl"]
         );
+    }
+
+    #[test]
+    fn restore_keeps_launch_command_for_later_native_agent_restores() {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
+        let snapshot = SessionSnapshot {
+            version: super::super::snapshot::SNAPSHOT_VERSION,
+            groups: vec![super::super::snapshot::GroupSnapshot {
+                id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
+                name: "group 1".to_string(),
+                icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
+                accent: None,
+            }],
+            active_group: 0,
+            group_filter_enabled: true,
+            workspaces: vec![WorkspaceSnapshot {
+                id: None,
+                custom_name: Some("restored".into()),
+                group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
+                identity_cwd: cwd.clone(),
+                tabs: vec![TabSnapshot {
+                    custom_name: None,
+                    layout: LayoutSnapshot::Pane(7),
+                    panes: HashMap::from([(
+                        7,
+                        super::super::snapshot::PaneSnapshot {
+                            cwd,
+                            env_pane_id: None,
+                            label: None,
+                            agent_name: Some("codex".into()),
+                            agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
+                                source: "hako:codex".into(),
+                                agent: "codex".into(),
+                                kind: crate::agent_resume::AgentSessionRefKind::Id,
+                                value: "codex-session".into(),
+                            }),
+                            launch_argv: Some(vec!["codex-mk".into()]),
+                            seen: true,
+                            terminal_semantics: None,
+                        },
+                    )]),
+                    zoomed: false,
+                    focused: Some(7),
+                    root_pane: Some(7),
+                }],
+                active_tab: 0,
+            }],
+            active: Some(0),
+            selected: 0,
+            agent_panel_scope: crate::app::state::AgentPanelScope::AllWorkspaces,
+            sidebar_width: None,
+            sidebar_collapsed: false,
+            sidebar_section_split: None,
+            right_sidebar_width: None,
+            right_sidebar_collapsed: false,
+            ui: crate::persist::SessionUiSnapshot::default(),
+            pane_id_aliases: HashMap::new(),
+        };
+        let (event_tx, _event_rx) = mpsc::channel(1);
+
+        let (_workspaces, terminals, mut runtimes) = restore(
+            &snapshot,
+            None,
+            24,
+            80,
+            crate::config::DEFAULT_SCROLLBACK_LIMIT_BYTES,
+            "",
+            crate::config::ShellModeConfig::Auto,
+            true,
+            event_tx,
+            Arc::new(Notify::new()),
+            Arc::new(AtomicBool::new(false)),
+        );
+        let terminal = terminals
+            .values()
+            .next()
+            .expect("restored pane should have terminal state");
+
+        assert_eq!(terminal.launch_argv, Some(vec!["codex-mk".into()]));
+        assert_eq!(
+            terminal
+                .pending_agent_resume_plan
+                .as_ref()
+                .map(|plan| plan.argv.clone()),
+            Some(vec![
+                "codex-mk".into(),
+                "resume".into(),
+                "codex-session".into()
+            ])
+        );
+
+        for (_, runtime) in runtimes.drain() {
+            runtime.shutdown();
+        }
     }
 
     #[test]
