@@ -1472,6 +1472,7 @@ pub enum Mode {
     KeybindHelp,
     Navigator,
     CommandPalette,
+    AgentProfilePicker,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1978,6 +1979,9 @@ pub(crate) enum DragTarget {
     CommandPaletteScrollbar {
         grab_row_offset: u16,
     },
+    AgentProfilePickerScrollbar {
+        grab_row_offset: u16,
+    },
     SidebarDivider,
     RightSidebarDivider,
     SidebarSectionDivider,
@@ -2168,17 +2172,17 @@ pub struct KeybindHelpState {
     pub scroll: u16,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CommandPaletteMode {
-    Commands,
-    AgentProfiles,
-}
-
 pub struct CommandPaletteState {
     pub query: String,
     pub selected: usize,
     pub scroll: usize,
-    pub mode: CommandPaletteMode,
+}
+
+pub struct AgentProfilePickerState {
+    pub ws_idx: usize,
+    pub query: String,
+    pub selected: usize,
+    pub scroll: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2251,6 +2255,7 @@ pub struct AppState {
     pub keybind_help: KeybindHelpState,
     pub navigator: NavigatorState,
     pub command_palette: CommandPaletteState,
+    pub agent_profile_picker: AgentProfilePickerState,
     pub command_catalog: Vec<crate::commands::ProjectCommand>,
     pub command_runs: std::collections::HashMap<String, crate::commands::CommandRun>,
     pub port_registry: crate::ports::PortRegistry,
@@ -2873,7 +2878,12 @@ impl AppState {
                 query: String::new(),
                 selected: 0,
                 scroll: 0,
-                mode: CommandPaletteMode::Commands,
+            },
+            agent_profile_picker: AgentProfilePickerState {
+                ws_idx: 0,
+                query: String::new(),
+                selected: 0,
+                scroll: 0,
             },
             navigator: NavigatorState::default(),
             previous_pane_focus: None,

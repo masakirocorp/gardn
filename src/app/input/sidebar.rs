@@ -426,6 +426,7 @@ impl AppState {
                 | Mode::AgentMenu
                 | Mode::KeybindHelp
                 | Mode::CommandPalette
+                | Mode::AgentProfilePicker
         ) {
             Some(self.selected)
         } else {
@@ -755,6 +756,7 @@ impl AppState {
                 | Mode::GroupMenu
                 | Mode::KeybindHelp
                 | Mode::CommandPalette
+                | Mode::AgentProfilePicker
         ) {
             Some(self.selected)
         } else {

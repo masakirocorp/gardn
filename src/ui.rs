@@ -5,6 +5,7 @@ use ratatui::{
     Frame,
 };
 
+mod agent_profile_picker;
 mod command_palette;
 mod dialogs;
 mod keybind_help;
@@ -21,7 +22,7 @@ mod status;
 mod tabs;
 mod widgets;
 
-pub(crate) use self::command_palette::command_palette_button_rects;
+use self::agent_profile_picker::render_agent_profile_picker_overlay;
 use self::command_palette::render_command_palette_overlay;
 use self::dialogs::{
     render_confirm_close_overlay, render_confirm_delete_group_overlay, render_rename_overlay,
@@ -58,6 +59,13 @@ use self::status::{
 };
 use self::tabs::render_tab_bar;
 use self::widgets::fill_rect;
+pub(crate) use self::{
+    agent_profile_picker::{
+        agent_profile_picker_button_rects, agent_profile_picker_inner_rect,
+        agent_profile_picker_list_area, agent_profile_picker_popup_rect,
+    },
+    command_palette::command_palette_button_rects,
+};
 pub(crate) use self::{
     dialogs::{
         confirm_close_button_rects, confirm_close_popup_rect, group_icon_button_rect,
@@ -509,6 +517,7 @@ pub fn render_with_runtime_registry(
         Mode::KeybindHelp => render_keybind_help_overlay(app, frame),
         Mode::Navigator => render_navigator_overlay(app, frame),
         Mode::CommandPalette => render_command_palette_overlay(app, frame),
+        Mode::AgentProfilePicker => render_agent_profile_picker_overlay(app, frame),
         Mode::Terminal => {}
     }
 }

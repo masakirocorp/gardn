@@ -596,16 +596,10 @@ fn browse_agent_profile_id_for_settings_index(state: &AppState, selected: usize)
     if selected == 0 || agent_profile_editor_open(state) {
         return None;
     }
-    let favorites = state
-        .groups
-        .get(state.active_group)
-        .map(|group| group.favorite_agent_profile_ids.as_slice())
-        .unwrap_or(&[]);
-    let (favorite, available) = state.agent_profiles.group_sections(favorites);
-    favorite
-        .into_iter()
-        .chain(available)
-        .nth(selected - 1)
+    state
+        .agent_profiles
+        .profiles()
+        .get(selected - 1)
         .map(|profile| profile.id.clone())
 }
 
@@ -616,15 +610,6 @@ fn custom_profile_id_for_settings_index(state: &AppState, selected: usize) -> Op
         .get(&profile_id)
         .is_some_and(|profile| !profile.is_system())
         .then_some(profile_id)
-}
-
-fn toggle_selected_agent_profile_favorite(state: &mut AppState) {
-    let Some(profile_id) =
-        browse_agent_profile_id_for_settings_index(state, state.settings.list.selected)
-    else {
-        return;
-    };
-    state.toggle_group_agent_profile_favorite(state.active_group, &profile_id);
 }
 
 fn open_blank_agent_profile_editor(state: &mut AppState) {
@@ -1485,9 +1470,6 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                     return selected_agent_profile_action(state);
                 }
             }
-            KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                toggle_selected_agent_profile_favorite(state);
-            }
             KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if let Some(profile_id) =
                     custom_profile_id_for_settings_index(state, state.settings.list.selected)
@@ -2289,7 +2271,7 @@ mod tests {
         assert_eq!(state.settings.list.selected, 12);
     }
     #[test]
-    fn agent_settings_ctrl_f_toggles_active_group_favorite() {
+    fn agent_settings_ctrl_f_does_not_toggle_group_favorite() {
         let mut state = state_with_workspaces(&["test"]);
         open_settings_at(&mut state, SettingsSection::Agents);
         state.settings.list.selected = 1;
@@ -2300,11 +2282,10 @@ mod tests {
         );
 
         assert_eq!(action, None);
-        assert_eq!(
-            state.groups[state.active_group].favorite_agent_profile_ids,
-            vec!["system:pi".to_string()]
-        );
-        assert!(state.session_dirty);
+        assert!(state.groups[state.active_group]
+            .favorite_agent_profile_ids
+            .is_empty());
+        assert!(!state.session_dirty);
     }
 
     #[test]
@@ -2348,10 +2329,13 @@ mod tests {
     }
 
     #[test]
-    fn agent_settings_empty_favorites_is_caption_and_system_labels_are_plain() {
+    fn agent_settings_rows_are_global_profile_management_only() {
         let state = {
             let mut state = state_with_workspaces(&["test"]);
             open_settings_at(&mut state, SettingsSection::Agents);
+            state.groups[state.active_group]
+                .favorite_agent_profile_ids
+                .push("system:pi".to_string());
             state
         };
         let rows = rows_for_section(&state, SettingsSection::Agents).expect("agent rows");
@@ -2359,8 +2343,15 @@ mod tests {
         assert!(rows.iter().any(|row| {
             matches!(
                 row,
-                crate::settings_rows::SettingsListRow::Caption(text)
-                    if text.as_ref() == "no favorites"
+                crate::settings_rows::SettingsListRow::Header(section)
+                    if *section == "profiles"
+            )
+        }));
+        assert!(!rows.iter().any(|row| {
+            matches!(
+                row,
+                crate::settings_rows::SettingsListRow::Header(section)
+                    if *section == "favorites" || *section == "available"
             )
         }));
         assert!(rows.iter().any(|row| {
@@ -2373,28 +2364,11 @@ mod tests {
         assert!(!rows.iter().any(|row| {
             matches!(
                 row,
-                crate::settings_rows::SettingsListRow::StatusChoice { label, .. }
-                    if label.contains("system") || label.contains("·")
+                crate::settings_rows::SettingsListRow::StatusChoice { label, marker, .. }
+                    if label.as_ref() == "pi" && marker.as_ref() == "◆"
             )
         }));
     }
-
-    #[test]
-    fn agent_settings_scrolls_selected_row_into_view() {
-        let mut state = state_with_workspaces(&["test"]);
-        state.view.terminal_area = Rect::new(0, 0, 80, 12);
-        open_settings_at(&mut state, SettingsSection::Agents);
-
-        for _ in 0..15 {
-            update_settings_state(
-                &mut state,
-                KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-            );
-        }
-
-        assert!(state.settings.scroll > 0);
-    }
-
     #[test]
     fn agent_settings_hover_matches_visual_rows() {
         let mut app = app_for_mouse_test();

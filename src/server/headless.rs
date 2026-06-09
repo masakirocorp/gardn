@@ -262,22 +262,9 @@ impl HeadlessServer {
                 needs_render = true;
             }
 
-            // Handle deferred requests.
-            if self.app.state.request_complete_onboarding {
-                self.app.state.request_complete_onboarding = false;
-                self.app.open_settings_from_onboarding();
-                needs_render = true;
-            }
-
-            if self.app.state.request_new_workspace {
-                self.app.state.request_new_workspace = false;
-                self.app.create_workspace();
-                needs_render = true;
-            }
-
-            if self.app.state.request_new_tab {
-                self.app.state.request_new_tab = false;
-                self.app.create_tab();
+            // Handle deferred workspace requests through the same path as the
+            // monolithic app loop so client/server mode cannot drift.
+            if self.app.process_deferred_workspace_requests() {
                 needs_render = true;
             }
 
@@ -2843,6 +2830,7 @@ mod tests {
             server_config_diagnostic: None,
             server_config_diagnostic_without_keybindings: None,
             terminal_attach_owners: HashMap::new(),
+
             next_activity_stamp: 1,
             effective_size: (MIN_COLS, MIN_ROWS),
             shutting_down: false,
@@ -2852,6 +2840,58 @@ mod tests {
             server_event_rx,
             server_event_tx,
         }
+    }
+
+    #[tokio::test]
+    async fn headless_server_processes_command_palette_agent_profile_request() {
+        let mut server = test_headless_server();
+        server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("test")];
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        server.app.state.mode = app::state::Mode::CommandPalette;
+        server.app.state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:shell-builtin".to_string()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "shell-builtin".to_string(),
+                    name: "shell builtin".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Omp,
+                    command: "cd .".to_string(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }],
+            },
+        );
+        server.app.state.command_palette.query = "new agent".to_string();
+
+        server.app.route_client_events(
+            vec![crate::raw_input::RawInputEvent::Key(
+                crossterm::event::KeyEvent::new(
+                    crossterm::event::KeyCode::Enter,
+                    crossterm::event::KeyModifiers::empty(),
+                )
+                .into(),
+            )],
+            true,
+        );
+        assert_eq!(server.app.state.mode, app::state::Mode::AgentProfilePicker);
+        assert_eq!(server.app.state.agent_profile_picker.ws_idx, 0);
+
+        server.app.route_client_events(
+            vec![crate::raw_input::RawInputEvent::Key(
+                crossterm::event::KeyEvent::new(
+                    crossterm::event::KeyCode::Enter,
+                    crossterm::event::KeyModifiers::empty(),
+                )
+                .into(),
+            )],
+            true,
+        );
+
+        assert_eq!(server.app.state.workspaces[0].tabs.len(), 1);
+        assert!(server.app.process_deferred_workspace_requests());
+        assert_eq!(server.app.state.workspaces[0].tabs.len(), 2);
+        assert!(server.app.state.request_agent_profile_tab.is_none());
     }
 
     fn read_server_message(bytes: Vec<u8>) -> ServerMessage {

@@ -1,9 +1,7 @@
 use crate::{
-    app::state::{AgentPanelScope, CommandPaletteMode},
+    app::{agent_profile_picker::workspace_agent_profile_ids, state::AgentPanelScope, AppState},
     layout::NavDirection,
 };
-
-use super::AppState;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CommandPaletteAction {
@@ -53,7 +51,6 @@ pub(crate) enum CommandPaletteAction {
     DetachOrQuit,
     CustomCommand(usize),
     NewAgent,
-    NewAgentProfile(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,59 +102,7 @@ fn command_palette_group_order(group: &str) -> usize {
     }
 }
 
-pub(crate) fn active_group_agent_profile_ids(
-    state: &AppState,
-) -> impl Iterator<Item = String> + '_ {
-    let favorites = state
-        .groups
-        .get(state.active_group)
-        .map(|group| group.favorite_agent_profile_ids.as_slice())
-        .unwrap_or(&[]);
-    let (favorite, available) = state.agent_profiles.group_sections(favorites);
-    favorite
-        .into_iter()
-        .chain(available)
-        .filter(|profile| profile.available())
-        .map(|profile| profile.id.clone())
-}
-
-fn agent_profile_commands(state: &AppState) -> Vec<CommandPaletteCommand> {
-    let favorites = state
-        .groups
-        .get(state.active_group)
-        .map(|group| group.favorite_agent_profile_ids.as_slice())
-        .unwrap_or(&[]);
-    let (favorite, available) = state.agent_profiles.group_sections(favorites);
-    favorite
-        .into_iter()
-        .filter(|profile| profile.available())
-        .map(|profile| {
-            CommandPaletteCommand::new(
-                profile.name.clone(),
-                "favorites",
-                CommandPaletteAction::NewAgentProfile(profile.id.clone()),
-            )
-        })
-        .chain(
-            available
-                .into_iter()
-                .filter(|profile| profile.available())
-                .map(|profile| {
-                    CommandPaletteCommand::new(
-                        profile.name.clone(),
-                        "available",
-                        CommandPaletteAction::NewAgentProfile(profile.id.clone()),
-                    )
-                }),
-        )
-        .collect()
-}
-
 pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCommand> {
-    if state.command_palette.mode == CommandPaletteMode::AgentProfiles {
-        return agent_profile_commands(state);
-    }
-
     let mut commands = vec![
         CommandPaletteCommand::new("new space", "spaces", CommandPaletteAction::NewWorkspace),
         CommandPaletteCommand::new(
@@ -347,7 +292,10 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
         .with_key_label(indexed_keybind_label(&state.keybinds.switch_group, idx))
     }));
 
-    if state.active.is_some() && active_group_agent_profile_ids(state).next().is_some() {
+    if state
+        .active
+        .is_some_and(|ws_idx| workspace_agent_profile_ids(state, ws_idx).next().is_some())
+    {
         commands.push(CommandPaletteCommand::new(
             "new agent",
             "agents",
@@ -448,7 +396,6 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
         | CommandPaletteAction::ShowAllGroups
         | CommandPaletteAction::SwitchGroup(_)
         | CommandPaletteAction::NewAgent
-        | CommandPaletteAction::NewAgentProfile(_)
         | CommandPaletteAction::SetAgentScope(_)
         | CommandPaletteAction::OpenGlobalMenu => None,
     }
@@ -462,8 +409,6 @@ pub(crate) fn command_palette_filtered_commands(state: &AppState) -> Vec<Command
         .filter(|(_, command)| command.matches(query))
         .collect::<Vec<_>>();
 
-    if state.command_palette.mode == CommandPaletteMode::Commands {
-        commands.sort_by_key(|(idx, command)| (command_palette_group_order(command.group), *idx));
-    }
+    commands.sort_by_key(|(idx, command)| (command_palette_group_order(command.group), *idx));
     commands.into_iter().map(|(_, command)| command).collect()
 }

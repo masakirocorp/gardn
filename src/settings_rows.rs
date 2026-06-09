@@ -339,26 +339,6 @@ fn group_general_rows(app: &AppState) -> Vec<SettingsListRow> {
     ]
 }
 
-fn active_group_favorites(app: &AppState) -> &[String] {
-    app.groups
-        .get(app.active_group)
-        .map(|group| group.favorite_agent_profile_ids.as_slice())
-        .unwrap_or(&[])
-}
-
-fn agent_profile_marker(
-    profile: &crate::agent_profiles::AgentProfile,
-    favorites: &[String],
-) -> (Cow<'static, str>, SettingsMarkerTone) {
-    if favorites.iter().any(|id| id == &profile.id) {
-        ("◆".into(), SettingsMarkerTone::Accent)
-    } else if profile.available() {
-        ("•".into(), SettingsMarkerTone::Good)
-    } else {
-        ("!".into(), SettingsMarkerTone::Warning)
-    }
-}
-
 fn agent_profile_editor_open(app: &AppState) -> bool {
     app.settings.pending_agent_profile_id.is_some()
         || app.settings.pending_agent_profile_name.is_some()
@@ -463,7 +443,6 @@ fn agent_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
 }
 
 fn agent_profile_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
-    let favorites = active_group_favorites(app);
     let mut rows = Vec::new();
     let mut index = 1;
 
@@ -475,31 +454,17 @@ fn agent_profile_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
         tone: SettingsMarkerTone::Accent,
     });
 
-    let (favorite, available) = app.agent_profiles.group_sections(favorites);
     rows.push(SettingsListRow::Spacer);
-    rows.push(SettingsListRow::Header("favorites"));
-    if favorite.is_empty() {
-        rows.push(SettingsListRow::Caption("no favorites".into()));
-    } else {
-        for profile in favorite {
-            let (marker, tone) = agent_profile_marker(profile, favorites);
-            rows.push(SettingsListRow::StatusChoice {
-                index,
-                marker,
-                label: agent_profile_browse_label(profile).into(),
-                tone,
-            });
-            index += 1;
-        }
-    }
-
-    rows.push(SettingsListRow::Spacer);
-    rows.push(SettingsListRow::Header("available"));
-    for profile in available {
-        let (marker, tone) = agent_profile_marker(profile, favorites);
+    rows.push(SettingsListRow::Header("profiles"));
+    for profile in app.agent_profiles.profiles() {
+        let tone = if profile.available() {
+            SettingsMarkerTone::Good
+        } else {
+            SettingsMarkerTone::Warning
+        };
         rows.push(SettingsListRow::StatusChoice {
             index,
-            marker,
+            marker: if profile.available() { "•" } else { "!" }.into(),
             label: agent_profile_browse_label(profile).into(),
             tone,
         });

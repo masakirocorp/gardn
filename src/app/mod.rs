@@ -5,6 +5,7 @@
 //! - `input.rs` — key/mouse → action translation
 
 pub(crate) mod actions;
+pub(crate) mod agent_profile_picker;
 mod agent_resume;
 mod agents;
 mod api;
@@ -200,7 +201,7 @@ fn settings_accepts_repeat_key(key: &crate::input::TerminalKey) -> bool {
 
 fn mode_accepts_repeat_key(mode: Mode, key: &crate::input::TerminalKey) -> bool {
     match mode {
-        Mode::CommandPalette => command_palette_accepts_repeat_key(key),
+        Mode::CommandPalette | Mode::AgentProfilePicker => command_palette_accepts_repeat_key(key),
         Mode::Settings => settings_accepts_repeat_key(key),
         _ => false,
     }
@@ -567,7 +568,12 @@ impl App {
                 query: String::new(),
                 selected: 0,
                 scroll: 0,
-                mode: state::CommandPaletteMode::Commands,
+            },
+            agent_profile_picker: state::AgentProfilePickerState {
+                ws_idx: 0,
+                query: String::new(),
+                selected: 0,
+                scroll: 0,
             },
             navigator: state::NavigatorState::default(),
             command_catalog: Vec::new(),
@@ -935,6 +941,49 @@ impl App {
     ) {
         self.prefix_input_source = source;
     }
+    pub(crate) fn process_deferred_workspace_requests(&mut self) -> bool {
+        let mut changed = false;
+
+        if self.state.request_complete_onboarding {
+            self.state.request_complete_onboarding = false;
+            self.open_settings_from_onboarding();
+            changed = true;
+        }
+
+        if self.state.request_new_workspace {
+            self.state.request_new_workspace = false;
+            self.create_workspace();
+            changed = true;
+        }
+
+        if self.state.request_new_tab {
+            self.state.request_new_tab = false;
+            self.create_tab();
+            changed = true;
+        }
+
+        changed | self.process_agent_profile_tab_request()
+    }
+
+    fn process_agent_profile_tab_request(&mut self) -> bool {
+        let Some((ws_idx, profile_id)) = self.state.request_agent_profile_tab.take() else {
+            return false;
+        };
+
+        let previous_toast = self.state.toast.clone();
+        if let Err(err) = self.create_agent_profile_tab(ws_idx, &profile_id) {
+            tracing::warn!(profile = %profile_id, err = %err, "failed to launch agent profile");
+            self.state.toast = Some(crate::app::state::ToastNotification {
+                kind: crate::app::state::ToastKind::NeedsAttention,
+                title: "agent launch failed".to_string(),
+                context: err.to_string(),
+                target: None,
+            });
+            self.sync_toast_deadline(previous_toast);
+        }
+
+        true
+    }
 
     pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
         if self.input_rx.is_none() {
@@ -966,28 +1015,7 @@ impl App {
                 needs_render = true;
             }
 
-            if self.state.request_complete_onboarding {
-                self.state.request_complete_onboarding = false;
-                self.open_settings_from_onboarding();
-                needs_render = true;
-            }
-
-            if self.state.request_new_workspace {
-                self.state.request_new_workspace = false;
-                self.create_workspace();
-                needs_render = true;
-            }
-
-            if self.state.request_new_tab {
-                self.state.request_new_tab = false;
-                self.create_tab();
-                needs_render = true;
-            }
-
-            if let Some((ws_idx, profile_id)) = self.state.request_agent_profile_tab.take() {
-                if let Err(err) = self.create_agent_profile_tab(ws_idx, &profile_id) {
-                    tracing::warn!(profile = %profile_id, err = %err, "failed to launch agent profile");
-                }
+            if self.process_deferred_workspace_requests() {
                 needs_render = true;
             }
 
@@ -1645,6 +1673,9 @@ impl App {
             }
             Mode::CommandPalette => {
                 self.handle_command_palette_key(key_event);
+            }
+            Mode::AgentProfilePicker => {
+                self.handle_agent_profile_picker_key(key_event);
             }
             Mode::GlobalMenu => {
                 input::handle_global_menu_key(&mut self.state, key_event);

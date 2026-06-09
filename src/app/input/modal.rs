@@ -936,7 +936,7 @@ pub(super) fn apply_context_menu_action(
         (ContextMenuKind::Workspace { ws_idx }, Some("new agent")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
-            super::command_palette::open_new_agent_picker_for_workspace(state, ws_idx);
+            super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
         }
         (ContextMenuKind::Group { group_idx, .. }, Some("new agent")) => {
             state.active_group = group_idx;
@@ -960,7 +960,7 @@ pub(super) fn apply_context_menu_action(
                         .position(|workspace| workspace.group_id == group_id)
                 })
             {
-                super::command_palette::open_new_agent_picker_for_workspace(state, ws_idx);
+                super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
             } else {
                 state.return_to_active_workspace_mode();
             }
@@ -969,7 +969,7 @@ pub(super) fn apply_context_menu_action(
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
-            super::command_palette::open_new_agent_picker_for_workspace(state, ws_idx);
+            super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
         }
         (ContextMenuKind::Workspace { ws_idx }, Some("new tab")) => {
             state.selected = ws_idx;
@@ -984,7 +984,7 @@ pub(super) fn apply_context_menu_action(
         (ContextMenuKind::NewTabButton { ws_idx }, Some("new agent")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
-            super::command_palette::open_new_agent_picker_for_workspace(state, ws_idx);
+            super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
         }
         (ContextMenuKind::Workspace { ws_idx }, Some("rename")) => {
             open_rename_workspace(state, terminal_runtimes, ws_idx);
@@ -1673,11 +1673,8 @@ mod tests {
 
         apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 0);
 
-        assert_eq!(state.mode, Mode::CommandPalette);
-        assert_eq!(
-            state.command_palette.mode,
-            crate::app::state::CommandPaletteMode::AgentProfiles
-        );
+        assert_eq!(state.mode, Mode::AgentProfilePicker);
+        assert_eq!(state.agent_profile_picker.ws_idx, 0);
     }
 
     #[test]

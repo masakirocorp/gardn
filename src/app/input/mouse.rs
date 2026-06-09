@@ -196,7 +196,7 @@ impl AppState {
             return None;
         }
 
-        if self.mode == Mode::CommandPalette {
+        if matches!(self.mode, Mode::CommandPalette | Mode::AgentProfilePicker) {
             return None;
         }
 
@@ -960,6 +960,7 @@ impl AppState {
                         | DragTarget::ProductAnnouncementScrollbar { .. }
                         | DragTarget::KeybindHelpScrollbar { .. }
                         | DragTarget::CommandPaletteScrollbar { .. }
+                        | DragTarget::AgentProfilePickerScrollbar { .. }
                         | DragTarget::SettingsThemeScrollbar { .. } => {}
                     }
                 }

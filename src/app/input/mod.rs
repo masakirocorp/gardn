@@ -25,6 +25,7 @@ const TAB_DRAG_THRESHOLD: u16 = 1;
 const MODAL_WHEEL_SCROLL_ROWS: i16 = 3;
 const MODAL_PAGE_SCROLL_ROWS: i16 = 8;
 
+mod agent_profile_picker;
 mod command_palette;
 mod copy_mode;
 mod modal;
@@ -104,6 +105,7 @@ impl App {
                             .await
                     }
                     Mode::CommandPalette => self.handle_command_palette_key(key_event),
+                    Mode::AgentProfilePicker => self.handle_agent_profile_picker_key(key_event),
                     Mode::Terminal => unreachable!(),
                 }
             }
@@ -293,6 +295,119 @@ impl App {
                 }
                 MouseEventKind::Moved => {
                     command_palette::hover_command_palette_selection(
+                        &mut self.state,
+                        mouse.column,
+                        mouse.row,
+                    );
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        if self.state.mode == Mode::AgentProfilePicker {
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left) => {
+                    match agent_profile_picker::agent_profile_picker_action_button_at(
+                        &self.state,
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        Some(ModalAction::Apply) => {
+                            self.handle_agent_profile_picker_key(KeyEvent::new(
+                                KeyCode::Enter,
+                                KeyModifiers::empty(),
+                            ));
+                            return;
+                        }
+                        Some(ModalAction::Close) => {
+                            agent_profile_picker::close_agent_profile_picker(&mut self.state);
+                            return;
+                        }
+                        _ => {}
+                    }
+
+                    if let Some(target) =
+                        agent_profile_picker::agent_profile_picker_scrollbar_target_at(
+                            &self.state,
+                            mouse.column,
+                            mouse.row,
+                        )
+                    {
+                        match target {
+                            ScrollbarClickTarget::Thumb { grab_row_offset } => {
+                                self.state.drag = Some(DragState {
+                                    target: DragTarget::AgentProfilePickerScrollbar {
+                                        grab_row_offset,
+                                    },
+                                });
+                            }
+                            ScrollbarClickTarget::Track { offset_from_bottom } => {
+                                agent_profile_picker::set_agent_profile_picker_offset_from_bottom(
+                                    &mut self.state,
+                                    offset_from_bottom,
+                                );
+                            }
+                        }
+                        return;
+                    }
+
+                    if agent_profile_picker::agent_profile_picker_contains_point(
+                        &self.state,
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        agent_profile_picker::hover_agent_profile_picker_selection(
+                            &mut self.state,
+                            mouse.column,
+                            mouse.row,
+                        );
+                    } else {
+                        self.state.drag = None;
+                        agent_profile_picker::close_agent_profile_picker(&mut self.state);
+                    }
+                    return;
+                }
+                MouseEventKind::Drag(MouseButton::Left) => {
+                    if let Some(DragState {
+                        target: DragTarget::AgentProfilePickerScrollbar { grab_row_offset },
+                    }) = &self.state.drag
+                    {
+                        if let Some(offset_from_bottom) =
+                            agent_profile_picker::agent_profile_picker_offset_for_drag_row(
+                                &self.state,
+                                mouse.row,
+                                *grab_row_offset,
+                            )
+                        {
+                            agent_profile_picker::set_agent_profile_picker_offset_from_bottom(
+                                &mut self.state,
+                                offset_from_bottom,
+                            );
+                        }
+                    }
+                    return;
+                }
+                MouseEventKind::Up(MouseButton::Left) => {
+                    self.state.drag = None;
+                    return;
+                }
+                MouseEventKind::ScrollDown => {
+                    agent_profile_picker::scroll_agent_profile_picker_rows(
+                        &mut self.state,
+                        MODAL_WHEEL_SCROLL_ROWS,
+                    );
+                    return;
+                }
+                MouseEventKind::ScrollUp => {
+                    agent_profile_picker::scroll_agent_profile_picker_rows(
+                        &mut self.state,
+                        -MODAL_WHEEL_SCROLL_ROWS,
+                    );
+                    return;
+                }
+                MouseEventKind::Moved => {
+                    agent_profile_picker::hover_agent_profile_picker_selection(
                         &mut self.state,
                         mouse.column,
                         mouse.row,

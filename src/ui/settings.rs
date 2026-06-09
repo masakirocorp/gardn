@@ -274,9 +274,7 @@ fn settings_section_description(app: &AppState, section: SettingsSection) -> &'s
         SettingsSection::Agents if settings_agents_editor_open(app) => {
             "name the profile and provide the command hako should launch"
         }
-        SettingsSection::Agents => {
-            "create custom agent commands and favorite profiles for this group"
-        }
+        SettingsSection::Agents => "create custom agent commands and manage global profile order",
         SettingsSection::Integrations => "install hooks so agents report state directly",
         SettingsSection::GroupGeneral => "rename this group or delete it",
         SettingsSection::GroupProfiles => {
@@ -410,8 +408,9 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
             } else {
                 &[
                     ("move", "↑↓"),
-                    ("favorite", "ctrl+f"),
                     ("edit/add", "↵"),
+                    ("delete", "ctrl+d"),
+                    ("reorder", "ctrl+↑↓"),
                     ("section", "tab"),
                 ][..]
             };
