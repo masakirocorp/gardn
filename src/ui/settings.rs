@@ -477,7 +477,6 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                     ("move", "↑↓"),
                     ("edit/add", "↵"),
                     ("delete", "ctrl+d"),
-                    ("reorder", "ctrl+↑↓"),
                     ("filter", "shift+←→"),
                     ("section", "←→/tab"),
                 ][..]

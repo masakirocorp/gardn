@@ -56,10 +56,6 @@ pub(super) enum SettingsAction {
     UninstallIntegration(crate::api::schema::IntegrationTarget),
     SaveAgentProfile(crate::agent_profiles::UserAgentProfileConfig),
     DeleteAgentProfile(String),
-    MoveAgentProfile {
-        profile_id: String,
-        up: bool,
-    },
 }
 
 impl App {
@@ -122,9 +118,6 @@ impl App {
                 SettingsAction::SaveAgentProfile(profile) => self.save_agent_profile(profile),
                 SettingsAction::DeleteAgentProfile(profile_id) => {
                     self.delete_agent_profile(&profile_id)
-                }
-                SettingsAction::MoveAgentProfile { profile_id, up } => {
-                    self.move_agent_profile(&profile_id, up)
                 }
             }
         }
@@ -1456,26 +1449,6 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
         },
         SettingsSection::Agents => match key.code {
-            KeyCode::Up if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if let Some(profile_id) =
-                    custom_profile_id_for_settings_index(state, state.settings.list.selected)
-                {
-                    return Some(SettingsAction::MoveAgentProfile {
-                        profile_id,
-                        up: true,
-                    });
-                }
-            }
-            KeyCode::Down if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if let Some(profile_id) =
-                    custom_profile_id_for_settings_index(state, state.settings.list.selected)
-                {
-                    return Some(SettingsAction::MoveAgentProfile {
-                        profile_id,
-                        up: false,
-                    });
-                }
-            }
             KeyCode::Up | KeyCode::Char('k') => {
                 select_previous_setting(
                     state,

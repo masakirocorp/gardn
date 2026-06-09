@@ -519,9 +519,6 @@ impl App {
                     SettingsAction::DeleteAgentProfile(profile_id) => {
                         self.delete_agent_profile(&profile_id)
                     }
-                    SettingsAction::MoveAgentProfile { profile_id, up } => {
-                        self.move_agent_profile(&profile_id, up)
-                    }
                 }
             }
         }

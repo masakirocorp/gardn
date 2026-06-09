@@ -287,23 +287,6 @@ impl App {
         self.save_agent_profiles_config(config);
     }
 
-    pub(super) fn move_agent_profile(&mut self, profile_id: &str, up: bool) {
-        let mut config = self.current_agent_profiles_config();
-        if let Some(idx) = config.order.iter().position(|id| id == profile_id) {
-            let next = if up {
-                idx.checked_sub(1)
-            } else if idx + 1 < config.order.len() {
-                Some(idx + 1)
-            } else {
-                None
-            };
-            if let Some(next) = next {
-                config.order.swap(idx, next);
-            }
-        }
-        self.save_agent_profiles_config(config);
-    }
-
     fn current_agent_profiles_config(&self) -> crate::agent_profiles::AgentProfilesConfig {
         let custom = self
             .state
