@@ -137,7 +137,7 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
     .areas::<13>(inner);
 
     render_modal_header_bar(frame, rows[0], "new agent", &app.palette, true);
-    render_agent_profile_picker_tabs(app, frame, rows[2]);
+    render_agent_profile_picker_filters(app, frame, rows[2]);
     render_modal_divider(frame, rows[3], &app.palette);
     render_agent_profile_picker_group_line(app, frame, rows[4]);
     render_modal_subtitle(
@@ -162,7 +162,11 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
         frame,
         rows[11],
         &app.palette,
-        &[("quick start", "alt+1..9"), ("favorite", "ctrl+f")],
+        &[
+            ("quick start", "alt+1..9"),
+            ("favorite", "ctrl+f"),
+            ("filter", "ctrl+←→"),
+        ],
     );
 
     let (start_rect, _) = agent_profile_picker_button_rects(inner);
@@ -254,9 +258,23 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
     }
 }
 
-fn render_agent_profile_picker_tabs(app: &AppState, frame: &mut Frame, row: Rect) {
+fn render_agent_profile_picker_filters(app: &AppState, frame: &mut Frame, row: Rect) {
+    let label_width = 7;
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "filter ",
+            Style::default().fg(app.palette.overlay0),
+        )),
+        row,
+    );
+    let chip_row = Rect::new(
+        row.x.saturating_add(label_width),
+        row.y,
+        row.width.saturating_sub(label_width),
+        row.height,
+    );
     let p = &app.palette;
-    let (start, end) = agent_profile_picker_visible_tab_range(app, row.width);
+    let (start, end) = agent_profile_picker_visible_tab_range(app, chip_row.width);
     let mut spans = Vec::new();
 
     if start > 0 {
@@ -289,7 +307,7 @@ fn render_agent_profile_picker_tabs(app: &AppState, frame: &mut Frame, row: Rect
         spans.push(Span::styled(" ›", Style::default().fg(p.overlay0)));
     }
 
-    frame.render_widget(Paragraph::new(Line::from(spans)), row);
+    frame.render_widget(Paragraph::new(Line::from(spans)), chip_row);
 }
 
 fn agent_profile_picker_group_idx(app: &AppState) -> Option<usize> {
@@ -455,6 +473,7 @@ mod tests {
         assert!(text.contains("choose an agent profile for this group"));
         assert!(text.contains("quick start alt+1..9"));
         assert!(text.contains("favorite ctrl+f"));
+        assert!(text.contains("filter ctrl+←→"));
         assert!(text.contains("search"));
         assert!(text.contains("shell builtin"));
         assert!(text.contains("alt+1"));

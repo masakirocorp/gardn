@@ -301,9 +301,17 @@ pub(crate) fn settings_agents_profile_list_rect(app: &AppState, area: Rect) -> R
 }
 
 pub(crate) fn settings_agents_family_tab_row(app: &AppState, area: Rect) -> Option<Rect> {
+    let label_width = 7;
     (app.settings.section == SettingsSection::Agents && !settings_agents_editor_open(app))
         .then(|| settings_section_list_rect(area))
-        .map(|body| Rect::new(body.x, body.y, body.width, 1))
+        .map(|body| {
+            Rect::new(
+                body.x.saturating_add(label_width),
+                body.y,
+                body.width.saturating_sub(label_width),
+                1,
+            )
+        })
 }
 
 pub(crate) fn settings_agents_family_tab_hit_areas(
@@ -353,8 +361,22 @@ fn settings_agents_tab_width(idx: usize) -> u16 {
 }
 
 fn render_settings_agents_family_tabs(app: &AppState, frame: &mut Frame, row: Rect) {
+    let label_width = 7;
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "filter ",
+            Style::default().fg(app.palette.overlay0),
+        )),
+        row,
+    );
+    let chip_row = Rect::new(
+        row.x.saturating_add(label_width),
+        row.y,
+        row.width.saturating_sub(label_width),
+        row.height,
+    );
     let p = &app.palette;
-    let (start, end) = settings_agents_visible_family_tab_range(app, row.width);
+    let (start, end) = settings_agents_visible_family_tab_range(app, chip_row.width);
     let mut spans = Vec::new();
 
     if start > 0 {
@@ -387,7 +409,7 @@ fn render_settings_agents_family_tabs(app: &AppState, frame: &mut Frame, row: Re
         spans.push(Span::styled(" ›", Style::default().fg(p.overlay0)));
     }
 
-    frame.render_widget(Paragraph::new(Line::from(spans)), row);
+    frame.render_widget(Paragraph::new(Line::from(spans)), chip_row);
 }
 
 pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -440,49 +462,47 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     }
 
     if let Some(footer_area) = stack.footer {
-        let footer_rows = Layout::vertical([Constraint::Length(1)]).areas::<1>(footer_area);
-
         if app.settings.section == SettingsSection::Integrations {
             render_modal_hint_line(
                 frame,
-                footer_rows[0],
+                footer_area,
                 p,
-                &[("move", "↑↓"), ("action", "space/↵"), ("section", "tab")],
+                &[("move", "↑↓"), ("action", "space/↵"), ("section", "←→/tab")],
             );
         } else if app.settings.section == SettingsSection::Agents {
             let hints = if settings_agents_editor_open(app) {
-                &[("move", "↑↓"), ("action", "↵"), ("section", "tab")][..]
+                &[("move", "↑↓"), ("action", "↵"), ("section", "←→/tab")][..]
             } else {
                 &[
                     ("move", "↑↓"),
                     ("edit/add", "↵"),
                     ("delete", "ctrl+d"),
                     ("reorder", "ctrl+↑↓"),
-                    ("family", "←→"),
-                    ("section", "tab"),
+                    ("filter", "ctrl+←→"),
+                    ("section", "←→/tab"),
                 ][..]
             };
-            render_modal_hint_line(frame, footer_rows[0], p, hints);
+            render_modal_hint_line(frame, footer_area, p, hints);
         } else if app.settings.section == SettingsSection::GroupProfiles {
             render_modal_hint_line(
                 frame,
-                footer_rows[0],
+                footer_area,
                 p,
                 &[("move", "↑↓"), ("favorite", "ctrl+f")],
             );
         } else if group_settings {
             render_modal_hint_line(
                 frame,
-                footer_rows[0],
+                footer_area,
                 p,
                 &[("move", "↑↓"), ("select", "space")],
             );
         } else {
             render_modal_hint_line(
                 frame,
-                footer_rows[0],
+                footer_area,
                 p,
-                &[("move", "↑↓"), ("select", "space"), ("section", "tab")],
+                &[("move", "↑↓"), ("select", "space"), ("section", "←→/tab")],
             );
         }
     }
@@ -1189,7 +1209,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_settings_renders_family_tabs_above_profile_rows() {
+    fn agent_settings_renders_filter_chips_above_profile_rows() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Agents;
         app.settings.agent_profile_kind_filter = Some(crate::agent_profiles::AgentKind::Omp);
@@ -1206,6 +1226,8 @@ mod tests {
         assert!(text.contains("all"));
         assert!(text.contains("omp"));
         assert!(text.contains("profiles"));
+        assert!(text.contains("filter"));
+        assert!(text.contains("filter ctrl+←→"));
     }
     #[test]
     fn agent_profile_editor_renders_numbered_steps() {

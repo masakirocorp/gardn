@@ -1518,10 +1518,16 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                     return Some(SettingsAction::DeleteAgentProfile(profile_id));
                 }
             }
-            KeyCode::Left | KeyCode::Char('h') if !agent_profile_editor_open(state) => {
+            KeyCode::Left
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !agent_profile_editor_open(state) =>
+            {
                 move_agent_settings_family_tab(state, false);
             }
-            KeyCode::Right | KeyCode::Char('l') if !agent_profile_editor_open(state) => {
+            KeyCode::Right
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !agent_profile_editor_open(state) =>
+            {
                 move_agent_settings_family_tab(state, true);
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -2468,7 +2474,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_settings_left_right_moves_family_tab_not_settings_section() {
+    fn agent_settings_left_right_moves_settings_section_not_family_filter() {
         let mut state = state_with_workspaces(&["test"]);
         open_settings_at(&mut state, SettingsSection::Agents);
 
@@ -2477,11 +2483,33 @@ mod tests {
             KeyEvent::new(KeyCode::Right, KeyModifiers::empty()),
         );
 
+        assert_eq!(state.settings.section, SettingsSection::Integrations);
+        assert_eq!(state.settings.agent_profile_kind_filter, None);
+    }
+
+    #[test]
+    fn agent_settings_ctrl_left_right_moves_family_filter() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Agents);
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL),
+        );
+
         assert_eq!(state.settings.section, SettingsSection::Agents);
         assert_eq!(
             state.settings.agent_profile_kind_filter,
             Some(crate::agent_profiles::AgentKind::Pi)
         );
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL),
+        );
+
+        assert_eq!(state.settings.section, SettingsSection::Agents);
+        assert_eq!(state.settings.agent_profile_kind_filter, None);
     }
 
     #[test]
@@ -2493,7 +2521,7 @@ mod tests {
             &app.state,
             app.state.settings_content_rect(),
         )
-        .expect("agents family tabs");
+        .expect("agents family filters");
         let (_, omp_rect) = crate::ui::settings_agents_family_tab_hit_areas(&app.state, tab_row)
             .into_iter()
             .find(|(kind, _)| *kind == Some(crate::agent_profiles::AgentKind::Omp))

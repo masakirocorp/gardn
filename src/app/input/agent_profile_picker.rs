@@ -61,10 +61,10 @@ impl App {
             KeyCode::PageDown => {
                 scroll_agent_profile_picker_rows(&mut self.state, super::MODAL_PAGE_SCROLL_ROWS)
             }
-            KeyCode::Left | KeyCode::BackTab => {
+            KeyCode::Left if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 move_agent_profile_picker_tab(&mut self.state, false);
             }
-            KeyCode::Right | KeyCode::Tab => {
+            KeyCode::Right if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 move_agent_profile_picker_tab(&mut self.state, true);
             }
             KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -383,7 +383,13 @@ fn agent_profile_picker_list_area(state: &AppState) -> Option<Rect> {
 
 fn agent_profile_picker_tab_row(state: &AppState) -> Option<Rect> {
     let inner = agent_profile_picker_inner_rect(state)?;
-    Some(Rect::new(inner.x, inner.y + 2, inner.width, 1))
+    let label_width = 7;
+    Some(Rect::new(
+        inner.x.saturating_add(label_width),
+        inner.y + 2,
+        inner.width.saturating_sub(label_width),
+        1,
+    ))
 }
 
 fn agent_profile_picker_inner_rect(state: &AppState) -> Option<Rect> {
@@ -503,11 +509,11 @@ mod tests {
     }
 
     #[test]
-    fn picker_tabs_filter_by_agent_family() {
+    fn picker_filter_shortcut_filters_by_agent_family() {
         let mut app = app_with_space();
         open_new_agent_picker_for_workspace(&mut app.state, 0);
 
-        app.handle_agent_profile_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::empty()));
+        app.handle_agent_profile_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL));
 
         assert_eq!(
             app.state.agent_profile_picker.kind_filter,
@@ -517,6 +523,16 @@ mod tests {
         assert!(entries
             .iter()
             .all(|entry| entry.kind == crate::agent_profiles::AgentKind::Pi));
+    }
+
+    #[test]
+    fn picker_unmodified_arrows_do_not_change_filter() {
+        let mut app = app_with_space();
+        open_new_agent_picker_for_workspace(&mut app.state, 0);
+
+        app.handle_agent_profile_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::empty()));
+
+        assert_eq!(app.state.agent_profile_picker.kind_filter, None);
     }
 
     #[test]
@@ -571,10 +587,9 @@ mod tests {
             Some(crate::agent_profiles::AgentKind::Qodercli);
         let tab_row = agent_profile_picker_tab_row(&app.state).expect("tab row");
         let hit_areas = crate::ui::agent_profile_picker_tab_hit_areas(&app.state, tab_row);
-        assert!(hit_areas
-            .iter()
-            .any(|(idx, _)| AGENT_PROFILE_PICKER_TABS[*idx]
-                == Some(crate::agent_profiles::AgentKind::Omp)));
+        assert!(hit_areas.iter().any(|(idx, _)| {
+            AGENT_PROFILE_PICKER_TABS[*idx] != Some(crate::agent_profiles::AgentKind::Qodercli)
+        }));
 
         for (idx, rect) in hit_areas {
             app.state.agent_profile_picker.kind_filter =
