@@ -2018,6 +2018,7 @@ pub enum ContextMenuKind {
     Group {
         group_idx: usize,
         can_delete: bool,
+        keep_group_menu_visible: bool,
     },
     Workspace {
         ws_idx: usize,

@@ -969,6 +969,7 @@ pub(super) fn apply_context_menu_action(
             ContextMenuKind::Group {
                 group_idx,
                 can_delete: true,
+                ..
             },
             Some("delete"),
         ) => {
@@ -1584,6 +1585,7 @@ mod tests {
             kind: ContextMenuKind::Group {
                 group_idx,
                 can_delete: true,
+                keep_group_menu_visible: false,
             },
             x: 0,
             y: 0,

@@ -1571,7 +1571,8 @@ mod tests {
             context.kind,
             ContextMenuKind::Group {
                 group_idx: work_group,
-                can_delete: true
+                can_delete: true,
+                keep_group_menu_visible: true,
             }
         );
     }
@@ -1613,7 +1614,8 @@ mod tests {
             context.kind,
             ContextMenuKind::Group {
                 group_idx: work_group,
-                can_delete: true
+                can_delete: true,
+                keep_group_menu_visible: false,
             }
         );
     }
@@ -1627,6 +1629,7 @@ mod tests {
             kind: ContextMenuKind::Group {
                 group_idx: work_group,
                 can_delete: true,
+                keep_group_menu_visible: false,
             },
             x: 2,
             y: 2,
@@ -1655,6 +1658,7 @@ mod tests {
             kind: ContextMenuKind::Group {
                 group_idx: work_group,
                 can_delete: true,
+                keep_group_menu_visible: false,
             },
             x: 2,
             y: 2,

@@ -129,6 +129,7 @@ impl AppState {
                             kind: ContextMenuKind::Group {
                                 group_idx,
                                 can_delete: self.groups.len() > 1,
+                                keep_group_menu_visible: true,
                             },
                             x: mouse.column,
                             y: mouse.row,
@@ -1199,6 +1200,7 @@ impl AppState {
                         kind: ContextMenuKind::Group {
                             group_idx,
                             can_delete: self.groups.len() > 1,
+                            keep_group_menu_visible: false,
                         },
                         x: mouse.column,
                         y: mouse.row,

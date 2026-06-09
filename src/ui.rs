@@ -568,9 +568,15 @@ fn render_notifications(app: &AppState, frame: &mut Frame, terminal_area: Rect) 
 }
 
 fn context_menu_keeps_group_menu_visible(app: &AppState) -> bool {
-    app.context_menu
-        .as_ref()
-        .is_some_and(|menu| matches!(menu.kind, ContextMenuKind::Group { .. }))
+    app.context_menu.as_ref().is_some_and(|menu| {
+        matches!(
+            menu.kind,
+            ContextMenuKind::Group {
+                keep_group_menu_visible: true,
+                ..
+            }
+        )
+    })
 }
 
 fn dim_background(frame: &mut Frame, area: Rect) {
@@ -1036,6 +1042,7 @@ mod tests {
             kind: ContextMenuKind::Group {
                 group_idx: 0,
                 can_delete: false,
+                keep_group_menu_visible: true,
             },
             x: 2,
             y: 2,
@@ -1043,6 +1050,18 @@ mod tests {
         });
 
         assert!(context_menu_keeps_group_menu_visible(&app));
+
+        app.context_menu = Some(ContextMenuState {
+            kind: ContextMenuKind::Group {
+                group_idx: 0,
+                can_delete: false,
+                keep_group_menu_visible: false,
+            },
+            x: 2,
+            y: 2,
+            list: MenuListState::new(0),
+        });
+        assert!(!context_menu_keeps_group_menu_visible(&app));
 
         app.context_menu = Some(ContextMenuState {
             kind: ContextMenuKind::Workspace { ws_idx: 0 },
