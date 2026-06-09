@@ -1519,13 +1519,13 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 }
             }
             KeyCode::Left
-                if key.modifiers.contains(KeyModifiers::CONTROL)
+                if key.modifiers.contains(KeyModifiers::SHIFT)
                     && !agent_profile_editor_open(state) =>
             {
                 move_agent_settings_family_tab(state, false);
             }
             KeyCode::Right
-                if key.modifiers.contains(KeyModifiers::CONTROL)
+                if key.modifiers.contains(KeyModifiers::SHIFT)
                     && !agent_profile_editor_open(state) =>
             {
                 move_agent_settings_family_tab(state, true);
@@ -2488,13 +2488,13 @@ mod tests {
     }
 
     #[test]
-    fn agent_settings_ctrl_left_right_moves_family_filter() {
+    fn agent_settings_shift_left_right_moves_family_filter() {
         let mut state = state_with_workspaces(&["test"]);
         open_settings_at(&mut state, SettingsSection::Agents);
 
         update_settings_state(
             &mut state,
-            KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL),
+            KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT),
         );
 
         assert_eq!(state.settings.section, SettingsSection::Agents);
@@ -2505,7 +2505,7 @@ mod tests {
 
         update_settings_state(
             &mut state,
-            KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL),
+            KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT),
         );
 
         assert_eq!(state.settings.section, SettingsSection::Agents);

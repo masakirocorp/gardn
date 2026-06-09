@@ -478,7 +478,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                     ("edit/add", "↵"),
                     ("delete", "ctrl+d"),
                     ("reorder", "ctrl+↑↓"),
-                    ("filter", "ctrl+←→"),
+                    ("filter", "shift+←→"),
                     ("section", "←→/tab"),
                 ][..]
             };
@@ -1227,7 +1227,7 @@ mod tests {
         assert!(text.contains("omp"));
         assert!(text.contains("profiles"));
         assert!(text.contains("filter"));
-        assert!(text.contains("filter ctrl+←→"));
+        assert!(text.contains("filter shift+←→"));
     }
     #[test]
     fn agent_profile_editor_renders_numbered_steps() {

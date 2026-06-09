@@ -61,10 +61,10 @@ impl App {
             KeyCode::PageDown => {
                 scroll_agent_profile_picker_rows(&mut self.state, super::MODAL_PAGE_SCROLL_ROWS)
             }
-            KeyCode::Left if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Left if key.modifiers.contains(KeyModifiers::SHIFT) => {
                 move_agent_profile_picker_tab(&mut self.state, false);
             }
-            KeyCode::Right if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Right if key.modifiers.contains(KeyModifiers::SHIFT) => {
                 move_agent_profile_picker_tab(&mut self.state, true);
             }
             KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -513,7 +513,7 @@ mod tests {
         let mut app = app_with_space();
         open_new_agent_picker_for_workspace(&mut app.state, 0);
 
-        app.handle_agent_profile_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL));
+        app.handle_agent_profile_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT));
 
         assert_eq!(
             app.state.agent_profile_picker.kind_filter,

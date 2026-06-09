@@ -165,7 +165,7 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
         &[
             ("quick start", "alt+1..9"),
             ("favorite", "ctrl+f"),
-            ("filter", "ctrl+←→"),
+            ("filter", "shift+←→"),
         ],
     );
 
@@ -473,7 +473,7 @@ mod tests {
         assert!(text.contains("choose an agent profile for this group"));
         assert!(text.contains("quick start alt+1..9"));
         assert!(text.contains("favorite ctrl+f"));
-        assert!(text.contains("filter ctrl+←→"));
+        assert!(text.contains("filter shift+←→"));
         assert!(text.contains("search"));
         assert!(text.contains("shell builtin"));
         assert!(text.contains("alt+1"));
