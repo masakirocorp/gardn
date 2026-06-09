@@ -319,8 +319,11 @@ fn settings_section_scroll_len(state: &AppState, section: SettingsSection) -> us
 
 fn settings_section_list_rect(state: &AppState, section: SettingsSection) -> Rect {
     let content_area = state.settings_content_rect();
-    let body_area = if section == SettingsSection::Agents {
-        crate::ui::settings_agents_profile_list_rect(state, content_area)
+    let body_area = if matches!(
+        section,
+        SettingsSection::Agents | SettingsSection::GroupProfiles
+    ) {
+        crate::ui::settings_profile_list_rect(state, content_area)
     } else {
         crate::ui::settings_section_list_rect(content_area)
     };
@@ -1020,10 +1023,12 @@ fn group_profile_id_for_index(state: &AppState, selected: usize) -> Option<Strin
         .get(group_idx)?
         .favorite_agent_profile_ids
         .as_slice();
+    let kind_filter = state.settings.agent_profile_kind_filter;
     let (favorite, available) = state.agent_profiles.group_sections(favorites);
     favorite
         .into_iter()
         .chain(available)
+        .filter(|profile| kind_filter.is_none_or(|kind| profile.kind == kind))
         .nth(selected)
         .map(|profile| profile.id.clone())
 }
@@ -1250,8 +1255,14 @@ fn select_next_setting(state: &mut AppState, item_count: usize) {
     };
 }
 
-fn move_agent_settings_family_tab(state: &mut AppState, forward: bool) {
-    if agent_profile_editor_open(state) {
+fn move_settings_profile_family_filter(state: &mut AppState, forward: bool) {
+    if state.settings.section == SettingsSection::Agents && agent_profile_editor_open(state) {
+        return;
+    }
+    if !matches!(
+        state.settings.section,
+        SettingsSection::Agents | SettingsSection::GroupProfiles
+    ) {
         return;
     }
     let current = state.settings.agent_profile_kind_filter;
@@ -1505,13 +1516,13 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 if key.modifiers.contains(KeyModifiers::SHIFT)
                     && !agent_profile_editor_open(state) =>
             {
-                move_agent_settings_family_tab(state, false);
+                move_settings_profile_family_filter(state, false);
             }
             KeyCode::Right
                 if key.modifiers.contains(KeyModifiers::SHIFT)
                     && !agent_profile_editor_open(state) =>
             {
-                move_agent_settings_family_tab(state, true);
+                move_settings_profile_family_filter(state, true);
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::PaneLabels;
@@ -1654,6 +1665,12 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                         state,
                         SettingsSection::GroupProfiles,
                     ));
+            }
+            KeyCode::Left if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                move_settings_profile_family_filter(state, false);
+            }
+            KeyCode::Right if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                move_settings_profile_family_filter(state, true);
             }
             KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 toggle_selected_group_profile_favorite(state);
@@ -1810,18 +1827,18 @@ impl AppState {
             })
     }
 
-    fn settings_agents_family_tab_at(
+    fn settings_profile_family_tab_at(
         &self,
         col: u16,
         row: u16,
     ) -> Option<Option<crate::agent_profiles::AgentKind>> {
         let tab_row =
-            crate::ui::settings_agents_family_tab_row(self, self.settings_content_rect())?;
+            crate::ui::settings_profile_family_tab_row(self, self.settings_content_rect())?;
         if row != tab_row.y {
             return None;
         }
-        crate::ui::settings_agents_family_tab_chevron_at(self, tab_row, col).or_else(|| {
-            crate::ui::settings_agents_family_tab_hit_areas(self, tab_row)
+        crate::ui::settings_profile_family_tab_chevron_at(self, tab_row, col).or_else(|| {
+            crate::ui::settings_profile_family_tab_hit_areas(self, tab_row)
                 .into_iter()
                 .find_map(|(kind, rect)| {
                     (col >= rect.x && col < rect.x.saturating_add(rect.width)).then_some(kind)
@@ -1971,7 +1988,7 @@ impl AppState {
                     return None;
                 }
 
-                if let Some(kind) = self.settings_agents_family_tab_at(mouse.column, mouse.row) {
+                if let Some(kind) = self.settings_profile_family_tab_at(mouse.column, mouse.row) {
                     self.settings.agent_profile_kind_filter = kind;
                     self.settings.list.select(0);
                     self.settings.scroll = 0;
@@ -2503,12 +2520,12 @@ mod tests {
         let mut app = app_for_mouse_test();
         app.state.view.terminal_area = Rect::new(0, 0, 100, 40);
         open_settings_at(&mut app.state, SettingsSection::Agents);
-        let tab_row = crate::ui::settings_agents_family_tab_row(
+        let tab_row = crate::ui::settings_profile_family_tab_row(
             &app.state,
             app.state.settings_content_rect(),
         )
         .expect("agents family filters");
-        let (_, omp_rect) = crate::ui::settings_agents_family_tab_hit_areas(&app.state, tab_row)
+        let (_, omp_rect) = crate::ui::settings_profile_family_tab_hit_areas(&app.state, tab_row)
             .into_iter()
             .find(|(kind, _)| *kind == Some(crate::agent_profiles::AgentKind::Omp))
             .expect("omp tab");
@@ -2720,6 +2737,58 @@ mod tests {
             vec!["system:omp".to_string()]
         );
         assert!(state.session_dirty);
+    }
+
+    #[test]
+    fn group_profiles_shift_arrows_filter_by_agent_family() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Side".to_string());
+
+        open_group_settings(&mut state, group_idx);
+        state.settings.section = SettingsSection::GroupProfiles;
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT),
+        );
+        assert_eq!(
+            state.settings.agent_profile_kind_filter,
+            Some(crate::agent_profiles::AgentKind::Pi)
+        );
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT),
+        );
+        assert_eq!(state.settings.agent_profile_kind_filter, None);
+    }
+
+    #[test]
+    fn group_profile_filter_scopes_favorite_and_default_actions() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Side".to_string());
+
+        open_group_settings(&mut state, group_idx);
+        state.settings.section = SettingsSection::GroupProfiles;
+        state.settings.agent_profile_kind_filter = Some(crate::agent_profiles::AgentKind::Omp);
+        state.settings.list.selected = 0;
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
+        );
+        assert_eq!(
+            state.groups[group_idx].favorite_agent_profile_ids,
+            vec!["system:omp".to_string()]
+        );
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
+        );
+        assert_eq!(
+            state.groups[group_idx].default_agent_profile_id.as_deref(),
+            Some("system:omp")
+        );
     }
 
     #[test]

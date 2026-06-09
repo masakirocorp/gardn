@@ -464,6 +464,13 @@ fn agent_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
     rows
 }
 
+fn profile_kind_matches_filter(
+    profile: &crate::agent_profiles::AgentProfile,
+    filter: Option<crate::agent_profiles::AgentKind>,
+) -> bool {
+    filter.is_none_or(|kind| profile.kind == kind)
+}
+
 fn agent_profile_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
     let mut rows = Vec::new();
     let mut index = 1;
@@ -479,9 +486,7 @@ fn agent_profile_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
     rows.push(SettingsListRow::Spacer);
     rows.push(SettingsListRow::Header("profiles"));
     for profile in app.agent_profiles.profiles().iter().filter(|profile| {
-        app.settings
-            .agent_profile_kind_filter
-            .is_none_or(|kind| profile.kind == kind)
+        profile_kind_matches_filter(profile, app.settings.agent_profile_kind_filter)
     }) {
         let tone = if profile.available() {
             SettingsMarkerTone::Good
@@ -508,7 +513,16 @@ fn group_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
         .map(|group| group.favorite_agent_profile_ids.as_slice())
         .unwrap_or(&[]);
     let default_profile_id = group.and_then(|group| group.default_agent_profile_id.as_deref());
+    let kind_filter = app.settings.agent_profile_kind_filter;
     let (favorite, available) = app.agent_profiles.group_sections(favorites);
+    let favorite: Vec<_> = favorite
+        .into_iter()
+        .filter(|profile| profile_kind_matches_filter(profile, kind_filter))
+        .collect();
+    let available: Vec<_> = available
+        .into_iter()
+        .filter(|profile| profile_kind_matches_filter(profile, kind_filter))
+        .collect();
     let mut rows = Vec::new();
     let mut index = 0;
     rows.push(SettingsListRow::Header("favorites"));

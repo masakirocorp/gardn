@@ -74,9 +74,9 @@ pub(crate) use self::{
         group_icon_picker_rects, rename_button_rects, rename_modal_size,
     },
     settings::{
-        settings_agents_editor_back_button_rect, settings_agents_family_tab_chevron_at,
-        settings_agents_family_tab_hit_areas, settings_agents_family_tab_row,
-        settings_agents_profile_list_rect, settings_close_button_rect, settings_section_list_rect,
+        settings_agents_editor_back_button_rect, settings_close_button_rect,
+        settings_profile_family_tab_chevron_at, settings_profile_family_tab_hit_areas,
+        settings_profile_family_tab_row, settings_profile_list_rect, settings_section_list_rect,
         settings_tab_chevron_at, settings_tab_hit_areas,
     },
     sidebar::{

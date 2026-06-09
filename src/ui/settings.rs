@@ -285,9 +285,9 @@ fn render_settings_section_intro(
     list_area
 }
 
-pub(crate) fn settings_agents_profile_list_rect(app: &AppState, area: Rect) -> Rect {
+pub(crate) fn settings_profile_list_rect(app: &AppState, area: Rect) -> Rect {
     let body = settings_section_list_rect(area);
-    if app.settings.section != SettingsSection::Agents || settings_agents_editor_open(app) {
+    if !settings_profile_filters_visible(app) {
         return body;
     }
 
@@ -300,9 +300,14 @@ pub(crate) fn settings_agents_profile_list_rect(app: &AppState, area: Rect) -> R
     list_area
 }
 
-pub(crate) fn settings_agents_family_tab_row(app: &AppState, area: Rect) -> Option<Rect> {
+fn settings_profile_filters_visible(app: &AppState) -> bool {
+    matches!(app.settings.section, SettingsSection::GroupProfiles)
+        || (app.settings.section == SettingsSection::Agents && !settings_agents_editor_open(app))
+}
+
+pub(crate) fn settings_profile_family_tab_row(app: &AppState, area: Rect) -> Option<Rect> {
     let label_width = 7;
-    (app.settings.section == SettingsSection::Agents && !settings_agents_editor_open(app))
+    settings_profile_filters_visible(app)
         .then(|| settings_section_list_rect(area))
         .map(|body| {
             Rect::new(
@@ -314,35 +319,35 @@ pub(crate) fn settings_agents_family_tab_row(app: &AppState, area: Rect) -> Opti
         })
 }
 
-pub(crate) fn settings_agents_family_tab_hit_areas(
+pub(crate) fn settings_profile_family_tab_hit_areas(
     app: &AppState,
     row: Rect,
 ) -> Vec<(Option<crate::agent_profiles::AgentKind>, Rect)> {
-    let (start, end) = settings_agents_visible_family_tab_range(app, row.width);
-    super::modal_tabs::tab_hit_areas(row, start, end, settings_agents_tab_width)
+    let (start, end) = settings_profile_visible_family_tab_range(app, row.width);
+    super::modal_tabs::tab_hit_areas(row, start, end, settings_profile_tab_width)
         .into_iter()
         .map(|(idx, rect)| (AGENT_PROFILE_PICKER_TABS[idx], rect))
         .collect()
 }
 
-pub(crate) fn settings_agents_family_tab_chevron_at(
+pub(crate) fn settings_profile_family_tab_chevron_at(
     app: &AppState,
     row: Rect,
     col: u16,
 ) -> Option<Option<crate::agent_profiles::AgentKind>> {
-    let (start, end) = settings_agents_visible_family_tab_range(app, row.width);
+    let (start, end) = settings_profile_visible_family_tab_range(app, row.width);
     super::modal_tabs::chevron_tab_at(
         AGENT_PROFILE_PICKER_TABS.len(),
         row,
         col,
         start,
         end,
-        settings_agents_tab_width,
+        settings_profile_tab_width,
     )
     .map(|idx| AGENT_PROFILE_PICKER_TABS[idx])
 }
 
-fn settings_agents_visible_family_tab_range(app: &AppState, row_width: u16) -> (usize, usize) {
+fn settings_profile_visible_family_tab_range(app: &AppState, row_width: u16) -> (usize, usize) {
     let selected = AGENT_PROFILE_PICKER_TABS
         .iter()
         .position(|tab| *tab == app.settings.agent_profile_kind_filter)
@@ -351,16 +356,16 @@ fn settings_agents_visible_family_tab_range(app: &AppState, row_width: u16) -> (
         AGENT_PROFILE_PICKER_TABS.len(),
         selected,
         row_width,
-        settings_agents_tab_width,
+        settings_profile_tab_width,
     )
 }
 
-fn settings_agents_tab_width(idx: usize) -> u16 {
+fn settings_profile_tab_width(idx: usize) -> u16 {
     (agent_profile_picker_tab_label(AGENT_PROFILE_PICKER_TABS[idx]).width() as u16)
         .saturating_add(2)
 }
 
-fn render_settings_agents_family_tabs(app: &AppState, frame: &mut Frame, row: Rect) {
+fn render_settings_profile_family_tabs(app: &AppState, frame: &mut Frame, row: Rect) {
     let label_width = 7;
     frame.render_widget(
         Paragraph::new(Span::styled(
@@ -376,7 +381,7 @@ fn render_settings_agents_family_tabs(app: &AppState, frame: &mut Frame, row: Re
         row.height,
     );
     let p = &app.palette;
-    let (start, end) = settings_agents_visible_family_tab_range(app, chip_row.width);
+    let (start, end) = settings_profile_visible_family_tab_range(app, chip_row.width);
     let mut spans = Vec::new();
 
     if start > 0 {
@@ -491,6 +496,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                     ("move", "↑↓"),
                     ("favorite", "ctrl+f"),
                     ("default", "ctrl+d"),
+                    ("filter", "shift+←→"),
                 ],
             );
         } else if group_settings {
@@ -627,14 +633,14 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
 
 fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area: Rect) {
     let body_area = render_settings_section_intro(app, frame, area, app.settings.section);
-    if app.settings.section == SettingsSection::Agents && !settings_agents_editor_open(app) {
+    if settings_profile_filters_visible(app) {
         let [tab_row, divider_row, list_area] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Min(0),
         ])
         .areas::<3>(body_area);
-        render_settings_agents_family_tabs(app, frame, tab_row);
+        render_settings_profile_family_tabs(app, frame, tab_row);
         render_modal_divider(frame, divider_row, &app.palette);
         render_settings_rows(app, frame, list_area);
     } else {
@@ -1230,6 +1236,30 @@ mod tests {
         assert!(text.contains("omp"));
         assert!(text.contains("profiles"));
         assert!(text.contains("filter"));
+        assert!(text.contains("filter shift+←→"));
+    }
+
+    #[test]
+    fn group_profile_settings_renders_filter_chips_above_profile_rows() {
+        let mut app = AppState::test_new();
+        let group_idx = app.create_group("Work".to_string());
+        app.settings.group_settings_target = Some(group_idx);
+        app.settings.section = SettingsSection::GroupProfiles;
+        app.settings.agent_profile_kind_filter = Some(crate::agent_profiles::AgentKind::Omp);
+
+        let area = Rect::new(0, 0, 100, 40);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render group profile settings");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("group settings"));
+        assert!(text.contains("all"));
+        assert!(text.contains("omp"));
+        assert!(text.contains("favorites"));
+        assert!(text.contains("available"));
         assert!(text.contains("filter shift+←→"));
     }
     #[test]
