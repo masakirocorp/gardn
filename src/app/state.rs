@@ -2020,7 +2020,6 @@ pub enum ContextMenuKind {
     Group {
         group_idx: usize,
         can_delete: bool,
-        keep_group_menu_visible: bool,
     },
     Workspace {
         ws_idx: usize,
@@ -2051,13 +2050,17 @@ impl ContextMenuState {
         match self.kind {
             ContextMenuKind::Group {
                 can_delete: true, ..
-            } => &["settings", "delete"],
+            } => &[
+                "new", " + space", " + group", "---", "manage", "settings", "---", "danger",
+                "delete",
+            ],
             ContextMenuKind::Group {
                 can_delete: false, ..
-            } => &["settings"],
-            ContextMenuKind::Workspace { .. } => &["new agent", "new tab", "rename", "close"],
-            ContextMenuKind::Tab { .. } => &["new agent", "new tab", "rename", "close"],
-            ContextMenuKind::NewTabButton { .. } => &["new tab", "new agent"],
+            } => &["new", " + space", " + group", "---", "manage", "settings"],
+            ContextMenuKind::Workspace { .. } | ContextMenuKind::Tab { .. } => &[
+                "new", " + tab", " + agent", "---", "manage", "rename", "---", "danger", "close",
+            ],
+            ContextMenuKind::NewTabButton { .. } => &["new", " + tab", " + agent"],
             ContextMenuKind::Pane {
                 has_manual_label: true,
                 ..
@@ -2083,13 +2086,17 @@ impl ContextMenuState {
     }
 
     pub fn item_is_selectable(&self, idx: usize) -> bool {
-        self.items()
-            .get(idx)
-            .is_some_and(|item| !Self::item_is_separator(item))
+        self.items().get(idx).is_some_and(|item| {
+            !Self::item_is_separator(item) && !Self::item_is_section_header(item)
+        })
     }
 
     pub fn item_is_separator(item: &str) -> bool {
         item == "---"
+    }
+
+    pub fn item_is_section_header(item: &str) -> bool {
+        matches!(item, "new" | "manage" | "danger")
     }
 
     pub fn move_prev(&mut self) {

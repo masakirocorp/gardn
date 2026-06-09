@@ -744,6 +744,16 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
     for (idx, item) in menu.items().iter().enumerate() {
         if ContextMenuState::item_is_separator(item) {
             render_menu_separator(frame, inner, idx, dim_style);
+        } else if ContextMenuState::item_is_section_header(item) {
+            render_menu_row(
+                frame,
+                inner,
+                idx,
+                Line::from(format!(" {item}")),
+                false,
+                selected_style,
+                dim_style,
+            );
         } else {
             render_menu_row(
                 frame,

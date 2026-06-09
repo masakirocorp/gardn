@@ -323,7 +323,7 @@ impl AppState {
             format!("{marker} {} {} {count}", group.icon, group.name)
         }));
         labels.push("---".to_string());
-        labels.push("create".to_string());
+        labels.push("new".to_string());
         labels.push("  + space".to_string());
         labels.push("  + group".to_string());
         labels
@@ -1452,7 +1452,7 @@ mod tests {
         assert!(labels[3].contains("group 1 1"));
         assert!(labels[4].contains("Work 1"));
         assert_eq!(labels[5], "---");
-        assert_eq!(labels[6], "create");
+        assert_eq!(labels[6], "new");
         assert_eq!(labels[7], "  + space");
         assert_eq!(labels[8], "  + group");
     }
@@ -1541,7 +1541,7 @@ mod tests {
     }
 
     #[test]
-    fn right_clicking_group_menu_item_opens_group_context_menu() {
+    fn right_clicking_group_menu_item_does_not_open_group_context_menu() {
         let mut app = app_for_mouse_test();
         let work_group = app.state.create_group("Work".to_string());
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
@@ -1567,17 +1567,8 @@ mod tests {
             menu.y + 1 + work_row,
         ));
 
-        assert_eq!(app.state.mode, Mode::ContextMenu);
-        let context = app.state.context_menu.as_ref().unwrap();
-        assert_eq!(context.items(), &["settings", "delete"]);
-        assert_eq!(
-            context.kind,
-            ContextMenuKind::Group {
-                group_idx: work_group,
-                can_delete: true,
-                keep_group_menu_visible: true,
-            }
-        );
+        assert_eq!(app.state.mode, Mode::GroupMenu);
+        assert!(app.state.context_menu.is_none());
     }
 
     #[test]
@@ -1613,13 +1604,18 @@ mod tests {
 
         assert_eq!(app.state.mode, Mode::ContextMenu);
         let context = app.state.context_menu.as_ref().unwrap();
-        assert_eq!(context.items(), &["settings", "delete"]);
+        assert_eq!(
+            context.items(),
+            &[
+                "new", " + space", " + group", "---", "manage", "settings", "---", "danger",
+                "delete"
+            ]
+        );
         assert_eq!(
             context.kind,
             ContextMenuKind::Group {
                 group_idx: work_group,
                 can_delete: true,
-                keep_group_menu_visible: false,
             }
         );
     }
@@ -1633,11 +1629,10 @@ mod tests {
             kind: ContextMenuKind::Group {
                 group_idx: work_group,
                 can_delete: true,
-                keep_group_menu_visible: false,
             },
             x: 2,
             y: 2,
-            list: crate::app::state::MenuListState::new(1),
+            list: crate::app::state::MenuListState::new(8),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -1645,7 +1640,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 2,
+            menu.y + 9,
         ));
 
         assert_eq!(app.state.mode, Mode::ConfirmDeleteGroup);
@@ -1662,11 +1657,10 @@ mod tests {
             kind: ContextMenuKind::Group {
                 group_idx: work_group,
                 can_delete: true,
-                keep_group_menu_visible: false,
             },
             x: 2,
             y: 2,
-            list: crate::app::state::MenuListState::new(0),
+            list: crate::app::state::MenuListState::new(5),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -1674,7 +1668,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 1,
+            menu.y + 6,
         ));
 
         assert_eq!(app.state.mode, Mode::Settings);

@@ -120,27 +120,6 @@ impl AppState {
         }
 
         if self.mode == Mode::GroupMenu {
-            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right)) {
-                if let Some(row_idx) = self.group_menu_row_at(mouse.column, mouse.row) {
-                    if let Some(super::sidebar::GroupMenuAction::Group(group_idx)) =
-                        self.group_menu_action_for_row(row_idx)
-                    {
-                        self.context_menu = Some(ContextMenuState {
-                            kind: ContextMenuKind::Group {
-                                group_idx,
-                                can_delete: self.groups.len() > 1,
-                                keep_group_menu_visible: true,
-                            },
-                            x: mouse.column,
-                            y: mouse.row,
-                            list: MenuListState::new(0),
-                        });
-                        self.mode = Mode::ContextMenu;
-                    }
-                }
-                return None;
-            }
-
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
                 if let Some(action) = self.group_menu_item_at(mouse.column, mouse.row) {
                     match action {
@@ -466,7 +445,7 @@ impl AppState {
                             kind: ContextMenuKind::NewTabButton { ws_idx },
                             x: mouse.column,
                             y: mouse.row,
-                            list: MenuListState::new(0),
+                            list: MenuListState::new(1),
                         });
                         self.mode = Mode::ContextMenu;
                     }
@@ -1200,11 +1179,10 @@ impl AppState {
                         kind: ContextMenuKind::Group {
                             group_idx,
                             can_delete: self.groups.len() > 1,
-                            keep_group_menu_visible: false,
                         },
                         x: mouse.column,
                         y: mouse.row,
-                        list: MenuListState::new(0),
+                        list: MenuListState::new(1),
                     });
                     self.mode = Mode::ContextMenu;
                     return None;
@@ -1215,7 +1193,7 @@ impl AppState {
                         kind: ContextMenuKind::Workspace { ws_idx: idx },
                         x: mouse.column,
                         y: mouse.row,
-                        list: MenuListState::new(0),
+                        list: MenuListState::new(1),
                     });
                     self.mode = Mode::ContextMenu;
                 }
@@ -1242,7 +1220,7 @@ impl AppState {
                         kind: ContextMenuKind::Tab { ws_idx, tab_idx },
                         x: mouse.column,
                         y: mouse.row,
-                        list: MenuListState::new(0),
+                        list: MenuListState::new(1),
                     });
                     self.mode = Mode::ContextMenu;
                 }
@@ -2498,7 +2476,7 @@ mod tests {
             kind: ContextMenuKind::Workspace { ws_idx: 1 },
             x: 2,
             y: 2,
-            list: MenuListState::new(3),
+            list: MenuListState::new(8),
         });
         app.state.mode = Mode::ContextMenu;
         handle_context_menu_key(
@@ -2539,7 +2517,7 @@ mod tests {
             kind: ContextMenuKind::Workspace { ws_idx: 0 },
             x: 2,
             y: 2,
-            list: MenuListState::new(3),
+            list: MenuListState::new(8),
         });
         app.state.mode = Mode::ContextMenu;
         handle_context_menu_key(
@@ -2581,7 +2559,7 @@ mod tests {
             kind: ContextMenuKind::Workspace { ws_idx: 0 },
             x: 2,
             y: 2,
-            list: MenuListState::new(3),
+            list: MenuListState::new(8),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -2589,7 +2567,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 4,
+            menu.y + 9,
         ));
 
         assert_eq!(app.state.mode, Mode::ConfirmClose);
@@ -2625,7 +2603,7 @@ mod tests {
             kind: ContextMenuKind::Workspace { ws_idx: 0 },
             x: 2,
             y: 2,
-            list: MenuListState::new(3),
+            list: MenuListState::new(8),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -2633,7 +2611,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 4,
+            menu.y + 9,
         ));
 
         assert_eq!(app.state.mode, Mode::Navigate);

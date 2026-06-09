@@ -927,34 +927,45 @@ pub(super) fn apply_context_menu_action(
     idx: usize,
 ) {
     let item = menu.items().get(idx).copied();
-    if item.is_some_and(ContextMenuState::item_is_separator) {
+    if item.is_some_and(|item| {
+        ContextMenuState::item_is_separator(item) || ContextMenuState::item_is_section_header(item)
+    }) {
         state.context_menu = Some(menu);
         state.mode = Mode::ContextMenu;
         return;
     }
     match (menu.kind, item) {
-        (ContextMenuKind::Workspace { ws_idx }, Some("new agent")) => {
+        (ContextMenuKind::Group { group_idx, .. }, Some(" + space")) => {
+            state.switch_group(group_idx);
+            state.request_new_workspace = true;
+            leave_modal(state);
+        }
+        (ContextMenuKind::Group { group_idx, .. }, Some(" + group")) => {
+            state.switch_group(group_idx);
+            open_new_group_dialog(state);
+        }
+        (ContextMenuKind::Workspace { ws_idx }, Some(" + agent")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
         }
-        (ContextMenuKind::Tab { ws_idx, tab_idx }, Some("new agent")) => {
+        (ContextMenuKind::Tab { ws_idx, tab_idx }, Some(" + agent")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
             super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
         }
-        (ContextMenuKind::Workspace { ws_idx }, Some("new tab")) => {
+        (ContextMenuKind::Workspace { ws_idx }, Some(" + tab")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             open_new_tab_dialog(state);
         }
-        (ContextMenuKind::NewTabButton { ws_idx }, Some("new tab")) => {
+        (ContextMenuKind::NewTabButton { ws_idx }, Some(" + tab")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             open_new_tab_dialog(state);
         }
-        (ContextMenuKind::NewTabButton { ws_idx }, Some("new agent")) => {
+        (ContextMenuKind::NewTabButton { ws_idx }, Some(" + agent")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
@@ -983,7 +994,7 @@ pub(super) fn apply_context_menu_action(
                 state.close_selected_workspace_from_ui();
             }
         }
-        (ContextMenuKind::Tab { ws_idx, tab_idx }, Some("new tab")) => {
+        (ContextMenuKind::Tab { ws_idx, tab_idx }, Some(" + tab")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
@@ -1578,18 +1589,17 @@ mod tests {
     }
 
     #[test]
-    fn group_context_menu_keyboard_moves_between_actions_without_separator() {
+    fn group_context_menu_keyboard_skips_section_headers() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Work".to_string());
         state.context_menu = Some(ContextMenuState {
             kind: ContextMenuKind::Group {
                 group_idx,
                 can_delete: true,
-                keep_group_menu_visible: false,
             },
             x: 0,
             y: 0,
-            list: MenuListState::new(0),
+            list: MenuListState::new(1),
         });
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
 
@@ -1598,14 +1608,14 @@ mod tests {
             &mut terminal_runtimes,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
         );
-        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 1);
+        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 5);
 
         handle_context_menu_key(
             &mut state,
             &mut terminal_runtimes,
             KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
         );
-        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 0);
+        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 2);
     }
 
     #[test]
@@ -1616,10 +1626,10 @@ mod tests {
             kind: ContextMenuKind::Workspace { ws_idx: 0 },
             x: 0,
             y: 0,
-            list: MenuListState::new(0),
+            list: MenuListState::new(1),
         };
 
-        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 0);
+        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 2);
 
         assert_eq!(state.mode, Mode::AgentProfilePicker);
         assert_eq!(state.agent_profile_picker.ws_idx, 0);
@@ -1636,10 +1646,10 @@ mod tests {
             },
             x: 0,
             y: 0,
-            list: MenuListState::new(3),
+            list: MenuListState::new(8),
         };
 
-        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 3);
+        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 8);
 
         assert_eq!(state.mode, Mode::Terminal);
         assert_eq!(state.workspaces.len(), 1);

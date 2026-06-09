@@ -111,7 +111,7 @@ pub(crate) use self::{
     tabs::compute_tab_bar_view,
     widgets::{centered_popup_rect, modal_scroll_metrics, modal_stack_areas, ModalListViewport},
 };
-use crate::app::state::{ContextMenuKind, ViewLayout};
+use crate::app::state::ViewLayout;
 use crate::app::{AppState, Mode};
 use crate::terminal::TerminalRuntimeRegistry;
 
@@ -503,12 +503,7 @@ pub fn render_with_runtime_registry(
         Mode::Resize => render_resize_overlay(app, frame, terminal_area),
         Mode::ConfirmClose => render_confirm_close_overlay(app, frame, terminal_area),
         Mode::ConfirmDeleteGroup => render_confirm_delete_group_overlay(app, frame, terminal_area),
-        Mode::ContextMenu => {
-            if context_menu_keeps_group_menu_visible(app) {
-                render_group_menu(app, frame);
-            }
-            render_context_menu(app, frame);
-        }
+        Mode::ContextMenu => render_context_menu(app, frame),
         Mode::Settings => render_settings_overlay(app, frame, frame.area()),
         Mode::RenameWorkspace
         | Mode::RenameGroup
@@ -565,18 +560,6 @@ fn render_notifications(app: &AppState, frame: &mut Frame, terminal_area: Rect) 
         };
         render_copy_feedback(frame, area, feedback, copy_feedback_offset, &app.palette);
     }
-}
-
-fn context_menu_keeps_group_menu_visible(app: &AppState) -> bool {
-    app.context_menu.as_ref().is_some_and(|menu| {
-        matches!(
-            menu.kind,
-            ContextMenuKind::Group {
-                keep_group_menu_visible: true,
-                ..
-            }
-        )
-    })
 }
 
 fn dim_background(frame: &mut Frame, area: Rect) {
@@ -1033,44 +1016,6 @@ mod tests {
         let active_style = buffer[(rows.x, active_row)].style();
 
         assert_eq!(active_style.bg, Some(app.palette.surface_dim));
-    }
-
-    #[test]
-    fn group_context_menu_keeps_group_menu_visible() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.context_menu = Some(ContextMenuState {
-            kind: ContextMenuKind::Group {
-                group_idx: 0,
-                can_delete: false,
-                keep_group_menu_visible: true,
-            },
-            x: 2,
-            y: 2,
-            list: MenuListState::new(0),
-        });
-
-        assert!(context_menu_keeps_group_menu_visible(&app));
-
-        app.context_menu = Some(ContextMenuState {
-            kind: ContextMenuKind::Group {
-                group_idx: 0,
-                can_delete: false,
-                keep_group_menu_visible: false,
-            },
-            x: 2,
-            y: 2,
-            list: MenuListState::new(0),
-        });
-        assert!(!context_menu_keeps_group_menu_visible(&app));
-
-        app.context_menu = Some(ContextMenuState {
-            kind: ContextMenuKind::Workspace { ws_idx: 0 },
-            x: 2,
-            y: 2,
-            list: MenuListState::new(0),
-        });
-
-        assert!(!context_menu_keeps_group_menu_visible(&app));
     }
 
     #[test]
