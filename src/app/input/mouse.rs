@@ -1341,14 +1341,25 @@ impl AppState {
         let sidebar = self.view.sidebar_rect;
         let right_sidebar = self.view.right_sidebar_rect;
         let terminal = self.view.terminal_area;
-        let x = sidebar.x.min(terminal.x).min(right_sidebar.x);
-        let y = sidebar.y.min(terminal.y).min(right_sidebar.y);
+        let mobile_header = self.view.mobile_header_rect;
+        let x = sidebar
+            .x
+            .min(terminal.x)
+            .min(right_sidebar.x)
+            .min(mobile_header.x);
+        let y = sidebar
+            .y
+            .min(terminal.y)
+            .min(right_sidebar.y)
+            .min(mobile_header.y);
         let right = (sidebar.x + sidebar.width)
             .max(terminal.x + terminal.width)
-            .max(right_sidebar.x + right_sidebar.width);
+            .max(right_sidebar.x + right_sidebar.width)
+            .max(mobile_header.x + mobile_header.width);
         let bottom = (sidebar.y + sidebar.height)
             .max(terminal.y + terminal.height)
-            .max(right_sidebar.y + right_sidebar.height);
+            .max(right_sidebar.y + right_sidebar.height)
+            .max(mobile_header.y + mobile_header.height);
         Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
     }
 

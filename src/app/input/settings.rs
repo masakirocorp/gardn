@@ -1811,7 +1811,7 @@ impl AppState {
             Constraint::Length(1),
             Constraint::Length(1),
         ])
-        .areas::<4>(crate::ui::modal_stack_areas(inner, 4, 1, 0, 1).header);
+        .areas::<4>(crate::ui::settings_stack_areas(self, inner).header);
         let tab_row = header_rows[2];
         if row != tab_row.y {
             return None;
@@ -3864,6 +3864,54 @@ mod tests {
         );
     }
 
+    #[test]
+    fn settings_tabs_are_clickable_at_mobile_width_boundary() {
+        let mut app = app_for_mouse_test();
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 119, 24));
+        open_settings_at(&mut app.state, SettingsSection::Theme);
+
+        let backend = ratatui::backend::TestBackend::new(119, 24);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render settings");
+
+        let buffer = terminal.backend().buffer();
+        let (layout_x, tab_y) = (0..24)
+            .find_map(|y| {
+                (0..113).find_map(|x| {
+                    ["l", "a", "y", "o", "u", "t"]
+                        .iter()
+                        .enumerate()
+                        .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == *ch)
+                        .then_some((x, y))
+                })
+            })
+            .expect("layout text");
+        let inner = app.state.settings_inner_rect();
+        let header_rows = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .areas::<4>(crate::ui::settings_stack_areas(&app.state, inner).header);
+        let expected_tab_row = header_rows[2];
+        let hit_areas = crate::ui::settings_tab_hit_areas(&app.state, expected_tab_row);
+        assert_eq!(
+            app.state.settings_tab_at(layout_x, tab_y),
+            Some(SettingsSection::Layout),
+            "layout text at {layout_x},{tab_y}; inner={inner:?}; tab_row={expected_tab_row:?}; hit_areas={hit_areas:?}"
+        );
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            layout_x,
+            tab_y,
+        ));
+
+        assert_eq!(app.state.settings.section, SettingsSection::Layout);
+    }
     #[test]
     fn settings_tab_chevrons_switch_to_hidden_adjacent_tabs() {
         let mut state = state_with_workspaces(&["test"]);
