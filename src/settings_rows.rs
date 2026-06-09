@@ -354,7 +354,7 @@ fn agent_profile_browse_label(profile: &crate::agent_profiles::AgentProfile) -> 
     if profile.kind.is_supported() {
         label
     } else {
-        format!("{label}  launch-only · state unknown · no native restore")
+        format!("{label}  custom · launch-only")
     }
 }
 
@@ -381,9 +381,7 @@ fn agent_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
     let editing = app.settings.pending_agent_profile_id.is_some();
 
     rows.push(SettingsListRow::Header("1. name"));
-    rows.push(SettingsListRow::Caption(
-        "enter the short label shown in menus and pickers".into(),
-    ));
+    rows.push(SettingsListRow::Caption("label shown in menus".into()));
     rows.push(SettingsListRow::TextInput {
         index: 0,
         title: "profile name".into(),
@@ -392,7 +390,7 @@ fn agent_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
     rows.push(SettingsListRow::Spacer);
     rows.push(SettingsListRow::Header("2. kind"));
     rows.push(SettingsListRow::Caption(
-        "choose a known family, or custom for unsupported launch-only CLIs".into(),
+        "supported agents get status, restore, and integrations; custom agents only launch".into(),
     ));
     for (offset, agent_kind) in crate::agent_profiles::AgentKind::ALL
         .iter()
@@ -407,25 +405,14 @@ fn agent_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
     }
     if !kind.is_supported() {
         rows.push(SettingsListRow::Spacer);
-        rows.push(SettingsListRow::Header("unsupported agent"));
+        rows.push(SettingsListRow::Header("custom agents are launch-only"));
         rows.push(SettingsListRow::Caption(
-            "hako can launch this command, but some features may not work".into(),
-        ));
-        rows.push(SettingsListRow::Caption(
-            "activity/status detection may stay unknown".into(),
-        ));
-        rows.push(SettingsListRow::Caption(
-            "native session restore is unavailable".into(),
-        ));
-        rows.push(SettingsListRow::Caption(
-            "automatic integration hook install is unavailable".into(),
+            "status, restore, and integration install are unavailable".into(),
         ));
     }
     rows.push(SettingsListRow::Spacer);
     rows.push(SettingsListRow::Header("3. command"));
-    rows.push(SettingsListRow::Caption(
-        "enter the exact shell command hako should launch".into(),
-    ));
+    rows.push(SettingsListRow::Caption("shell command to run".into()));
     let command_index = 1 + crate::agent_profiles::AgentKind::ALL.len();
     rows.push(SettingsListRow::TextInput {
         index: command_index,

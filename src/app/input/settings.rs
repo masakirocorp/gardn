@@ -2526,14 +2526,14 @@ mod tests {
             matches!(
                 row,
                 crate::settings_rows::SettingsListRow::Header(title)
-                    if *title == "unsupported agent"
+                    if *title == "custom agents are launch-only"
             )
         }));
         assert!(rows.iter().any(|row| {
             matches!(
                 row,
                 crate::settings_rows::SettingsListRow::Caption(text)
-                    if text.as_ref() == "native session restore is unavailable"
+                    if text.as_ref() == "status, restore, and integration install are unavailable"
             )
         }));
         assert!(!rows.iter().any(|row| {

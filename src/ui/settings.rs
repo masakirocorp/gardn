@@ -1225,9 +1225,9 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("← back"));
         assert!(text.contains("1. name"));
-        assert!(text.contains("enter the short label shown in menus and pickers"));
+        assert!(text.contains("label shown in menus"));
         assert!(text.contains("2. kind"));
-        assert!(text.contains("choose a known family, or custom for unsupported launch-only CLIs"));
+        assert!(text.contains("supported agents get status, restore, and integrations"));
         app.settings.scroll = 12;
         terminal
             .draw(|frame| render_settings_overlay(&app, frame, area))
@@ -1235,7 +1235,7 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("3. command"));
-        assert!(text.contains("enter the exact shell command hako should launch"));
+        assert!(text.contains("shell command to run"));
         assert!(text.contains("4. actions"));
     }
 
