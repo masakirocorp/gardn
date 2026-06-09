@@ -922,6 +922,49 @@ impl PaneRuntime {
         )
     }
 
+    // Profile commands need the same spawn context shape as normal panes plus
+    // an explicit command string and profile env.
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn_profile_command(
+        pane_id: PaneId,
+        rows: u16,
+        cols: u16,
+        cwd: std::path::PathBuf,
+        shell_config: PaneShellConfig<'_>,
+        command: &str,
+        extra_env: &[(String, String)],
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<AtomicBool>,
+    ) -> std::io::Result<Self> {
+        let shell = pane_shell(shell_config.default_shell);
+        let mut cmd = CommandBuilder::new(resolve_shell_for_login_mode(&shell)?);
+        cmd.arg("-lic");
+        cmd.arg(command);
+        cmd.cwd(cwd);
+        cmd.env(crate::HAKO_ENV_VAR, crate::HAKO_ENV_VALUE);
+        apply_pane_terminal_env(&mut cmd);
+        crate::integration::apply_pane_env(&mut cmd, pane_id);
+        for (key, value) in extra_env {
+            cmd.env(key, value);
+        }
+        Self::spawn_command_builder(
+            pane_id,
+            rows,
+            cols,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            events,
+            render_notify,
+            render_dirty,
+            cmd,
+            "failed to spawn agent profile command pane",
+            SpawnInitialState::default(),
+        )
+    }
+
     pub fn spawn_shell_command(
         pane_id: PaneId,
         rows: u16,

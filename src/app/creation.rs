@@ -219,17 +219,22 @@ impl App {
         let (rows, cols) = self.state.estimate_pane_size();
         let scrollback_limit_bytes = self.state.pane_scrollback_limit_bytes;
         let host_terminal_theme = self.state.host_terminal_theme;
+        let default_shell = self.state.default_shell.clone();
+        let shell_mode = self.state.shell_mode;
         let (idx, terminal, runtime, root_pane) = {
             let ws = &mut self.state.workspaces[ws_idx];
-            let (idx, terminal, runtime) = ws.create_argv_tab(
+            let (idx, mut terminal, runtime) = ws.create_profile_command_tab(
                 rows,
                 cols,
                 initial_cwd,
-                &profile.argv,
+                crate::pane::PaneShellConfig::new(&default_shell, shell_mode),
+                &profile.command,
                 &profile.env,
                 scrollback_limit_bytes,
                 host_terminal_theme,
             )?;
+            terminal.launch_argv = Some(profile.argv.clone());
+            terminal.launch_env = profile.env.clone();
             if let Some(tab) = ws.tabs.get_mut(idx) {
                 tab.set_custom_name(profile.name.clone());
             }

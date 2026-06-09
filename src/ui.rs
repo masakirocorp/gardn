@@ -63,7 +63,10 @@ pub(crate) use self::{
         confirm_close_button_rects, confirm_close_popup_rect, group_icon_button_rect,
         group_icon_picker_rects, rename_button_rects, rename_modal_size,
     },
-    settings::{settings_button_rects, settings_show_primary_action},
+    settings::{
+        settings_agents_editor_back_button_rect, settings_close_button_rect,
+        settings_section_list_rect, settings_tab_chevron_at, settings_tab_hit_areas,
+    },
     sidebar::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_entry_at_row,
         agent_panel_header_target_at_row, agent_panel_scroll_metrics, agent_panel_scrollbar_rect,

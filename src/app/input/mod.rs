@@ -388,12 +388,16 @@ impl App {
                     SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                         self.save_switch_ascii_input_source_in_prefix(enabled)
                     }
-                    SettingsAction::InstallRecommendedIntegrations => {
-                        self.install_recommended_integrations()
-                    }
                     SettingsAction::InstallIntegration(target) => self.install_integration(target),
                     SettingsAction::UninstallIntegration(target) => {
                         self.uninstall_integration(target)
+                    }
+                    SettingsAction::SaveAgentProfile(profile) => self.save_agent_profile(profile),
+                    SettingsAction::DeleteAgentProfile(profile_id) => {
+                        self.delete_agent_profile(&profile_id)
+                    }
+                    SettingsAction::MoveAgentProfile { profile_id, up } => {
+                        self.move_agent_profile(&profile_id, up)
                     }
                 }
             }

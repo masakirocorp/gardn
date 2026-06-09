@@ -137,6 +137,11 @@ enum NewWorkspaceTabCommand<'a> {
         command: &'a str,
         extra_env: &'a [(String, String)],
     },
+    Profile {
+        command: &'a str,
+        extra_env: &'a [(String, String)],
+        shell_config: crate::pane::PaneShellConfig<'a>,
+    },
 }
 
 impl Deref for Workspace {
@@ -355,12 +360,13 @@ impl Workspace {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn create_argv_tab(
+    pub fn create_profile_command_tab(
         &mut self,
         rows: u16,
         cols: u16,
         cwd: PathBuf,
-        argv: &[String],
+        shell_config: crate::pane::PaneShellConfig<'_>,
+        command: &str,
         extra_env: &[(String, String)],
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
@@ -372,13 +378,18 @@ impl Workspace {
             scrollback_limit_bytes,
             host_terminal_theme,
             crate::pane::PaneShellConfig::new("", crate::config::ShellModeConfig::NonLogin),
+            Some(NewWorkspaceTabCommand::Profile {
+                command,
+                extra_env,
+                shell_config,
+            }),
             None,
-            Some((argv, extra_env)),
             None,
             None,
             None,
         )
     }
+
     #[allow(clippy::too_many_arguments)]
     fn create_tab_with_runtime(
         &mut self,
@@ -417,9 +428,9 @@ impl Workspace {
             ));
         };
 
-        let (tab, terminal, runtime) =
-            if let Some(NewWorkspaceTabCommand::Shell { command, extra_env }) = command {
-                Tab::new_shell_command(
+        let (tab, terminal, runtime) = if let Some(command) = command {
+            match command {
+                NewWorkspaceTabCommand::Shell { command, extra_env } => Tab::new_shell_command(
                     number,
                     cwd,
                     rows,
@@ -431,35 +442,54 @@ impl Workspace {
                     events,
                     render_notify,
                     render_dirty,
-                )?
-            } else if let Some((argv, extra_env)) = argv {
-                Tab::new_argv_command(
+                )?,
+                NewWorkspaceTabCommand::Profile {
+                    command,
+                    extra_env,
+                    shell_config,
+                } => Tab::new_profile_command(
                     number,
                     cwd,
                     rows,
                     cols,
-                    argv,
+                    shell_config,
+                    command,
                     extra_env,
                     scrollback_limit_bytes,
                     host_terminal_theme,
                     events,
                     render_notify,
                     render_dirty,
-                )?
-            } else {
-                Tab::new(
-                    number,
-                    cwd,
-                    rows,
-                    cols,
-                    scrollback_limit_bytes,
-                    host_terminal_theme,
-                    shell_config,
-                    events,
-                    render_notify,
-                    render_dirty,
-                )?
-            };
+                )?,
+            }
+        } else if let Some((argv, extra_env)) = argv {
+            Tab::new_argv_command(
+                number,
+                cwd,
+                rows,
+                cols,
+                argv,
+                extra_env,
+                scrollback_limit_bytes,
+                host_terminal_theme,
+                events,
+                render_notify,
+                render_dirty,
+            )?
+        } else {
+            Tab::new(
+                number,
+                cwd,
+                rows,
+                cols,
+                scrollback_limit_bytes,
+                host_terminal_theme,
+                shell_config,
+                events,
+                render_notify,
+                render_dirty,
+            )?
+        };
         self.register_new_pane(tab.root_pane);
         self.tabs.push(tab);
         Ok((self.tabs.len() - 1, terminal, runtime))

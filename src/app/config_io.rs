@@ -245,4 +245,234 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
+
+    pub(super) fn save_agent_profile(
+        &mut self,
+        profile: crate::agent_profiles::UserAgentProfileConfig,
+    ) {
+        let mut config = self.current_agent_profiles_config();
+        let profile_id = format!("user:{}", profile.id.trim_start_matches("user:"));
+        if let Some(existing) = config.custom.iter_mut().find(|existing| {
+            format!("user:{}", existing.id.trim_start_matches("user:")) == profile_id
+        }) {
+            *existing = profile;
+        } else {
+            config.custom.push(profile);
+        }
+        if !config.order.iter().any(|id| id == &profile_id) {
+            config.order.push(profile_id);
+        }
+        self.save_agent_profiles_config(config);
+    }
+
+    pub(super) fn delete_agent_profile(&mut self, profile_id: &str) {
+        let mut config = self.current_agent_profiles_config();
+        config.custom.retain(|profile| {
+            format!("user:{}", profile.id.trim_start_matches("user:")) != profile_id
+        });
+        config.order.retain(|id| id != profile_id);
+        for group in &mut self.state.groups {
+            group
+                .favorite_agent_profile_ids
+                .retain(|id| id != profile_id);
+        }
+        self.state.mark_session_dirty();
+        self.state.settings.pending_agent_profile_id = None;
+        self.state.settings.pending_agent_profile_name = None;
+        self.state.settings.pending_agent_profile_kind =
+            Some(crate::agent_profiles::AgentKind::Omp);
+        self.state.settings.pending_agent_profile_command = None;
+        self.state.settings.list.selected = 0;
+        self.state.settings.scroll = 0;
+        self.save_agent_profiles_config(config);
+    }
+
+    pub(super) fn move_agent_profile(&mut self, profile_id: &str, up: bool) {
+        let mut config = self.current_agent_profiles_config();
+        if let Some(idx) = config.order.iter().position(|id| id == profile_id) {
+            let next = if up {
+                idx.checked_sub(1)
+            } else if idx + 1 < config.order.len() {
+                Some(idx + 1)
+            } else {
+                None
+            };
+            if let Some(next) = next {
+                config.order.swap(idx, next);
+            }
+        }
+        self.save_agent_profiles_config(config);
+    }
+
+    fn current_agent_profiles_config(&self) -> crate::agent_profiles::AgentProfilesConfig {
+        let custom = self
+            .state
+            .agent_profiles
+            .profiles()
+            .iter()
+            .filter(|profile| !profile.is_system())
+            .map(|profile| crate::agent_profiles::UserAgentProfileConfig {
+                id: profile.id.trim_start_matches("user:").to_string(),
+                name: profile.name.clone(),
+                kind: profile.kind,
+                command: profile.command.clone(),
+                env: profile.env.iter().cloned().collect(),
+                enabled: profile.enabled,
+            })
+            .collect();
+        let order = self
+            .state
+            .agent_profiles
+            .profiles()
+            .iter()
+            .map(|profile| profile.id.clone())
+            .collect();
+        crate::agent_profiles::AgentProfilesConfig { order, custom }
+    }
+
+    fn save_agent_profiles_config(&mut self, config: crate::agent_profiles::AgentProfilesConfig) {
+        let next_catalog = crate::agent_profiles::AgentProfileCatalog::from_config(&config);
+        if self.update_config_file("agent profiles", |content| {
+            write_agent_profiles_section(content, &config)
+        }) {
+            self.apply_config_from_disk(false);
+        } else {
+            self.state.agent_profiles = next_catalog;
+        }
+    }
+}
+
+fn write_agent_profiles_section(
+    content: &str,
+    config: &crate::agent_profiles::AgentProfilesConfig,
+) -> String {
+    let mut out = String::new();
+    let mut skipping = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(header) = toml_header_name(trimmed) {
+            skipping = header == "agent_profiles" || header.starts_with("agent_profiles.");
+        }
+        if !skipping {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    if !out.trim().is_empty() {
+        out.push('\n');
+    }
+    out.push_str("[agent_profiles]\n");
+    if !config.order.is_empty() {
+        out.push_str("order = [");
+        for (idx, id) in config.order.iter().enumerate() {
+            if idx > 0 {
+                out.push_str(", ");
+            }
+            out.push('"');
+            out.push_str(&escape_toml_string(id));
+            out.push('"');
+        }
+        out.push_str("]\n");
+    }
+    for profile in &config.custom {
+        out.push_str("\n[[agent_profiles.custom]]\n");
+        out.push_str("id = \"");
+        out.push_str(&escape_toml_string(&profile.id));
+        out.push_str("\"\nname = \"");
+        out.push_str(&escape_toml_string(&profile.name));
+        out.push_str("\"\nkind = \"");
+        out.push_str(profile.kind.as_str());
+        out.push_str("\"\ncommand = \"");
+        out.push_str(&escape_toml_string(&profile.command));
+        out.push_str("\"\n");
+        if !profile.enabled {
+            out.push_str("enabled = false\n");
+        }
+        if !profile.env.is_empty() {
+            out.push_str("\n[agent_profiles.custom.env]\n");
+            for (key, value) in &profile.env {
+                out.push_str(key);
+                out.push_str(" = \"");
+                out.push_str(&escape_toml_string(value));
+                out.push_str("\"\n");
+            }
+        }
+    }
+    out
+}
+
+fn toml_header_name(trimmed: &str) -> Option<&str> {
+    trimmed
+        .strip_prefix("[[")
+        .and_then(|value| value.strip_suffix("]]"))
+        .or_else(|| {
+            trimmed
+                .strip_prefix('[')
+                .and_then(|value| value.strip_suffix(']'))
+        })
+}
+
+fn escape_toml_string(value: &str) -> String {
+    let mut out = String::new();
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch => out.push(ch),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_app() -> App {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        )
+    }
+
+    #[test]
+    fn delete_agent_profile_closes_editor_and_updates_catalog() {
+        let mut app = test_app();
+        app.state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:omp-mk".to_string()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "omp-mk".to_string(),
+                    name: "omp mk".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Omp,
+                    command: "omp-mk".to_string(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }],
+            },
+        );
+        app.state.settings.pending_agent_profile_id = Some("user:omp-mk".to_string());
+        app.state.settings.pending_agent_profile_name = Some("omp mk".to_string());
+        app.state.settings.pending_agent_profile_command = Some("omp-mk".to_string());
+        app.state.settings.list.selected = 12;
+
+        app.delete_agent_profile("user:omp-mk");
+
+        assert!(app.state.agent_profiles.get("user:omp-mk").is_none());
+        assert_eq!(app.state.settings.pending_agent_profile_id, None);
+        assert_eq!(app.state.settings.pending_agent_profile_name, None);
+        assert_eq!(app.state.settings.pending_agent_profile_command, None);
+        assert_eq!(app.state.settings.list.selected, 0);
+        assert!(app.state.session_dirty);
+    }
 }

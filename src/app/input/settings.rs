@@ -51,9 +51,14 @@ pub(super) enum SettingsAction {
         name: String,
     },
     DeleteGroup(usize),
-    InstallRecommendedIntegrations,
     InstallIntegration(crate::api::schema::IntegrationTarget),
     UninstallIntegration(crate::api::schema::IntegrationTarget),
+    SaveAgentProfile(crate::agent_profiles::UserAgentProfileConfig),
+    DeleteAgentProfile(String),
+    MoveAgentProfile {
+        profile_id: String,
+        up: bool,
+    },
 }
 
 impl App {
@@ -111,11 +116,15 @@ impl App {
                 SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                     self.save_switch_ascii_input_source_in_prefix(enabled)
                 }
-                SettingsAction::InstallRecommendedIntegrations => {
-                    self.install_recommended_integrations()
-                }
                 SettingsAction::InstallIntegration(target) => self.install_integration(target),
                 SettingsAction::UninstallIntegration(target) => self.uninstall_integration(target),
+                SettingsAction::SaveAgentProfile(profile) => self.save_agent_profile(profile),
+                SettingsAction::DeleteAgentProfile(profile_id) => {
+                    self.delete_agent_profile(&profile_id)
+                }
+                SettingsAction::MoveAgentProfile { profile_id, up } => {
+                    self.move_agent_profile(&profile_id, up)
+                }
             }
         }
         if previous_section != SettingsSection::Integrations
@@ -304,37 +313,64 @@ fn settings_section_choice_len(state: &AppState, section: SettingsSection) -> us
         })
 }
 
-fn settings_theme_list_rect(area: Rect) -> Rect {
-    let [_, _, list_area] = Layout::vertical([
-        Constraint::Length(2),
-        Constraint::Length(1),
-        Constraint::Min(2),
-    ])
-    .areas::<3>(area);
-    list_area
+fn settings_section_scroll_len(state: &AppState, section: SettingsSection) -> usize {
+    rows_for_section(state, section)
+        .map(|rows| visual_row_count(&rows))
+        .unwrap_or_else(|| match section {
+            SettingsSection::Theme => theme_visual_len(state),
+            SettingsSection::Integrations => state.integration_recommendations.len(),
+            _ => 0,
+        })
 }
 
-fn theme_scroll_len(state: &AppState) -> usize {
-    theme_visual_len(state)
+fn settings_section_list_rect(state: &AppState, section: SettingsSection) -> Rect {
+    let body_area = crate::ui::settings_section_list_rect(state.settings_content_rect());
+    if section == SettingsSection::Integrations {
+        let [list_area, _] =
+            Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas::<2>(body_area);
+        list_area
+    } else {
+        body_area
+    }
 }
 
-fn settings_theme_max_scroll(state: &AppState) -> usize {
-    settings_theme_viewport(state).max_scroll()
-}
-
-fn settings_theme_viewport(state: &AppState) -> crate::ui::ModalListViewport {
+fn settings_section_viewport(
+    state: &AppState,
+    section: SettingsSection,
+) -> crate::ui::ModalListViewport {
     crate::ui::ModalListViewport::new(
-        theme_scroll_len(state),
-        settings_theme_list_rect(state.settings_content_rect()).height as usize,
+        settings_section_scroll_len(state, section),
+        settings_section_list_rect(state, section).height as usize,
         state.settings.scroll,
     )
 }
 
+fn settings_theme_viewport(state: &AppState) -> crate::ui::ModalListViewport {
+    settings_section_viewport(state, SettingsSection::Theme)
+}
+
+fn settings_section_max_scroll(state: &AppState, section: SettingsSection) -> usize {
+    settings_section_viewport(state, section).max_scroll()
+}
+
+fn settings_theme_max_scroll(state: &AppState) -> usize {
+    settings_section_max_scroll(state, SettingsSection::Theme)
+}
+
 fn ensure_settings_selection_visible(state: &mut AppState) {
-    let viewport = settings_theme_viewport(state);
+    let section = state.settings.section;
+    let viewport = settings_section_viewport(state, section);
     state.settings.scroll = viewport.scroll();
 
-    let selected_row = theme_visual_row_for_selection(state, state.settings.list.selected);
+    let selected_row = rows_for_section(state, section)
+        .and_then(|rows| selected_visual_row(&rows, state.settings.list.selected))
+        .unwrap_or_else(|| {
+            if section == SettingsSection::Theme {
+                theme_visual_row_for_selection(state, state.settings.list.selected)
+            } else {
+                state.settings.list.selected
+            }
+        });
     state.settings.scroll = viewport.ensure_visible(selected_row, None);
 }
 
@@ -413,36 +449,22 @@ fn delete_pending_group_name_word(state: &mut AppState) {
 
 fn edit_pending_group_name(state: &mut AppState, key: KeyEvent) -> bool {
     match key.code {
-        KeyCode::Char('u')
-            if key
-                .modifiers
-                .contains(crossterm::event::KeyModifiers::CONTROL) =>
-        {
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            set_pending_group_name(state, String::new());
+            true
+        }
+        KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => {
             set_pending_group_name(state, String::new());
             true
         }
         KeyCode::Backspace
-            if key
-                .modifiers
-                .contains(crossterm::event::KeyModifiers::SUPER) =>
-        {
-            set_pending_group_name(state, String::new());
-            true
-        }
-        KeyCode::Backspace
-            if key
-                .modifiers
-                .contains(crossterm::event::KeyModifiers::CONTROL)
-                || key.modifiers.contains(crossterm::event::KeyModifiers::ALT) =>
+            if key.modifiers.contains(KeyModifiers::CONTROL)
+                || key.modifiers.contains(KeyModifiers::ALT) =>
         {
             delete_pending_group_name_word(state);
             true
         }
-        KeyCode::Char('h' | 'w')
-            if key
-                .modifiers
-                .contains(crossterm::event::KeyModifiers::CONTROL) =>
-        {
+        KeyCode::Char('h' | 'w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             delete_pending_group_name_word(state);
             true
         }
@@ -452,12 +474,7 @@ fn edit_pending_group_name(state: &mut AppState, key: KeyEvent) -> bool {
             set_pending_group_name(state, name);
             true
         }
-        KeyCode::Char(c)
-            if key
-                .modifiers
-                .difference(crossterm::event::KeyModifiers::SHIFT)
-                .is_empty() =>
-        {
+        KeyCode::Char(c) if key.modifiers.difference(KeyModifiers::SHIFT).is_empty() => {
             let mut name = pending_group_name(state);
             name.push(c);
             set_pending_group_name(state, name);
@@ -465,6 +482,286 @@ fn edit_pending_group_name(state: &mut AppState, key: KeyEvent) -> bool {
         }
         _ => false,
     }
+}
+
+const AGENT_PROFILE_NAME_INDEX: usize = 0;
+const AGENT_PROFILE_KIND_START_INDEX: usize = 1;
+const AGENT_PROFILE_COMMAND_INDEX: usize = 9;
+const AGENT_PROFILE_SAVE_INDEX: usize = 10;
+const AGENT_PROFILE_DISCARD_INDEX: usize = 11;
+const AGENT_PROFILE_DELETE_INDEX: usize = 12;
+
+fn pending_agent_profile_name(state: &AppState) -> String {
+    state
+        .settings
+        .pending_agent_profile_name
+        .clone()
+        .unwrap_or_default()
+}
+
+fn pending_agent_profile_command(state: &AppState) -> String {
+    state
+        .settings
+        .pending_agent_profile_command
+        .clone()
+        .unwrap_or_default()
+}
+
+fn set_pending_agent_profile_field(state: &mut AppState, selected: usize, value: String) {
+    match selected {
+        AGENT_PROFILE_NAME_INDEX => state.settings.pending_agent_profile_name = Some(value),
+        AGENT_PROFILE_COMMAND_INDEX => state.settings.pending_agent_profile_command = Some(value),
+        _ => {}
+    }
+}
+
+fn delete_pending_agent_profile_word(state: &mut AppState, selected: usize) {
+    let mut value = match selected {
+        AGENT_PROFILE_NAME_INDEX => pending_agent_profile_name(state),
+        AGENT_PROFILE_COMMAND_INDEX => pending_agent_profile_command(state),
+        _ => return,
+    };
+    while value.chars().last().is_some_and(char::is_whitespace) {
+        value.pop();
+    }
+    while value.chars().last().is_some_and(|ch| !ch.is_whitespace()) {
+        value.pop();
+    }
+    set_pending_agent_profile_field(state, selected, value);
+}
+
+fn edit_pending_agent_profile_text(state: &mut AppState, key: KeyEvent) -> bool {
+    let selected = state.settings.list.selected;
+    if selected != AGENT_PROFILE_NAME_INDEX && selected != AGENT_PROFILE_COMMAND_INDEX {
+        return false;
+    }
+    match key.code {
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            set_pending_agent_profile_field(state, selected, String::new());
+            true
+        }
+        KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => {
+            set_pending_agent_profile_field(state, selected, String::new());
+            true
+        }
+        KeyCode::Backspace
+            if key.modifiers.contains(KeyModifiers::CONTROL)
+                || key.modifiers.contains(KeyModifiers::ALT) =>
+        {
+            delete_pending_agent_profile_word(state, selected);
+            true
+        }
+        KeyCode::Char('h' | 'w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            delete_pending_agent_profile_word(state, selected);
+            true
+        }
+        KeyCode::Backspace => {
+            let mut value = match selected {
+                AGENT_PROFILE_NAME_INDEX => pending_agent_profile_name(state),
+                AGENT_PROFILE_COMMAND_INDEX => pending_agent_profile_command(state),
+                _ => return false,
+            };
+            value.pop();
+            set_pending_agent_profile_field(state, selected, value);
+            true
+        }
+        KeyCode::Char(c) if key.modifiers.difference(KeyModifiers::SHIFT).is_empty() => {
+            let mut value = match selected {
+                AGENT_PROFILE_NAME_INDEX => pending_agent_profile_name(state),
+                AGENT_PROFILE_COMMAND_INDEX => pending_agent_profile_command(state),
+                _ => return false,
+            };
+            value.push(c);
+            set_pending_agent_profile_field(state, selected, value);
+            true
+        }
+        _ => false,
+    }
+}
+
+fn agent_kind_for_settings_index(index: usize) -> Option<crate::agent_profiles::AgentKind> {
+    let end = AGENT_PROFILE_KIND_START_INDEX + crate::agent_profiles::AgentKind::ALL.len();
+    (AGENT_PROFILE_KIND_START_INDEX..end)
+        .contains(&index)
+        .then(|| crate::agent_profiles::AgentKind::ALL[index - AGENT_PROFILE_KIND_START_INDEX])
+}
+
+fn agent_profile_editor_open(state: &AppState) -> bool {
+    state.settings.pending_agent_profile_id.is_some()
+        || state.settings.pending_agent_profile_name.is_some()
+        || state.settings.pending_agent_profile_command.is_some()
+}
+
+fn browse_agent_profile_id_for_settings_index(state: &AppState, selected: usize) -> Option<String> {
+    if selected == 0 || agent_profile_editor_open(state) {
+        return None;
+    }
+    let favorites = state
+        .groups
+        .get(state.active_group)
+        .map(|group| group.favorite_agent_profile_ids.as_slice())
+        .unwrap_or(&[]);
+    let (favorite, available) = state.agent_profiles.group_sections(favorites);
+    favorite
+        .into_iter()
+        .chain(available)
+        .nth(selected - 1)
+        .map(|profile| profile.id.clone())
+}
+
+fn custom_profile_id_for_settings_index(state: &AppState, selected: usize) -> Option<String> {
+    let profile_id = browse_agent_profile_id_for_settings_index(state, selected)?;
+    state
+        .agent_profiles
+        .get(&profile_id)
+        .is_some_and(|profile| !profile.is_system())
+        .then_some(profile_id)
+}
+
+fn toggle_selected_agent_profile_favorite(state: &mut AppState) {
+    let Some(profile_id) =
+        browse_agent_profile_id_for_settings_index(state, state.settings.list.selected)
+    else {
+        return;
+    };
+    state.toggle_group_agent_profile_favorite(state.active_group, &profile_id);
+}
+
+fn open_blank_agent_profile_editor(state: &mut AppState) {
+    state.settings.pending_agent_profile_id = None;
+    state.settings.pending_agent_profile_name = Some(String::new());
+    state.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Omp);
+    state.settings.pending_agent_profile_command = Some(String::new());
+    state.settings.list.selected = AGENT_PROFILE_NAME_INDEX;
+    state.settings.scroll = 0;
+}
+
+fn close_agent_profile_editor(state: &mut AppState) {
+    state.settings.pending_agent_profile_id = None;
+    state.settings.pending_agent_profile_name = None;
+    state.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Omp);
+    state.settings.pending_agent_profile_command = None;
+    state.settings.list.selected = 0;
+    state.settings.scroll = 0;
+}
+
+fn load_custom_agent_profile_editor(state: &mut AppState, profile_id: &str) -> bool {
+    let Some(profile) = state.agent_profiles.get(profile_id) else {
+        return false;
+    };
+    if profile.is_system() {
+        return false;
+    }
+    state.settings.pending_agent_profile_id = Some(profile.id.clone());
+    state.settings.pending_agent_profile_name = Some(profile.name.clone());
+    state.settings.pending_agent_profile_kind = Some(profile.kind);
+    state.settings.pending_agent_profile_command = Some(profile.command.clone());
+    state.settings.list.selected = AGENT_PROFILE_NAME_INDEX;
+    true
+}
+
+fn slugify_agent_profile_id(name: &str) -> String {
+    let mut out = String::new();
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        "custom-agent".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn next_custom_agent_profile_id(state: &AppState, name: &str) -> String {
+    let base = slugify_agent_profile_id(name);
+    let mut candidate = base.clone();
+    let mut suffix = 2;
+    while state
+        .agent_profiles
+        .get(&format!("user:{candidate}"))
+        .is_some()
+    {
+        candidate = format!("{base}-{suffix}");
+        suffix += 1;
+    }
+    candidate
+}
+
+fn save_pending_agent_profile(state: &mut AppState) -> Option<SettingsAction> {
+    let name = pending_agent_profile_name(state).trim().to_string();
+    let command = pending_agent_profile_command(state).trim().to_string();
+    if name.is_empty() || command.is_empty() {
+        return None;
+    }
+    let id = state
+        .settings
+        .pending_agent_profile_id
+        .clone()
+        .map(|id| id.trim_start_matches("user:").to_string())
+        .unwrap_or_else(|| next_custom_agent_profile_id(state, &name));
+    let kind = state
+        .settings
+        .pending_agent_profile_kind
+        .unwrap_or(crate::agent_profiles::AgentKind::Omp);
+    let existing_id = format!("user:{id}");
+    let env = state
+        .agent_profiles
+        .get(&existing_id)
+        .map(|profile| profile.env.iter().cloned().collect())
+        .unwrap_or_default();
+    state.settings.pending_agent_profile_id = None;
+    state.settings.pending_agent_profile_name = None;
+    state.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Omp);
+    state.settings.pending_agent_profile_command = None;
+    state.settings.list.selected = 0;
+    Some(SettingsAction::SaveAgentProfile(
+        crate::agent_profiles::UserAgentProfileConfig {
+            id,
+            name,
+            kind,
+            command,
+            env,
+            enabled: true,
+        },
+    ))
+}
+
+fn selected_agent_profile_action(state: &mut AppState) -> Option<SettingsAction> {
+    let selected = state.settings.list.selected;
+    if agent_profile_editor_open(state) {
+        if let Some(kind) = agent_kind_for_settings_index(selected) {
+            state.settings.pending_agent_profile_kind = Some(kind);
+            return None;
+        }
+        return match selected {
+            AGENT_PROFILE_DISCARD_INDEX => {
+                close_agent_profile_editor(state);
+                None
+            }
+            AGENT_PROFILE_SAVE_INDEX => save_pending_agent_profile(state),
+            AGENT_PROFILE_DELETE_INDEX => state
+                .settings
+                .pending_agent_profile_id
+                .clone()
+                .map(SettingsAction::DeleteAgentProfile),
+            _ => None,
+        };
+    }
+
+    if selected == 0 {
+        open_blank_agent_profile_editor(state);
+        return None;
+    }
+    let profile_id = browse_agent_profile_id_for_settings_index(state, selected)?;
+    if load_custom_agent_profile_editor(state, &profile_id) {
+        return None;
+    }
+    None
 }
 
 fn pending_light_theme_name(state: &AppState) -> String {
@@ -678,42 +975,11 @@ fn preview_group_accent(state: &mut AppState, accent: Option<TerminalAccent>) {
     }
 }
 
-fn cancel_settings(state: &mut AppState) {
-    if let Some(palette) = state.settings.original_palette.take() {
-        state.palette = palette;
-    }
-    if let Some(theme_name) = state.settings.original_theme.take() {
-        state.theme_name = theme_name;
-    }
-    state.settings.pending_theme_name = None;
-    state.settings.pending_theme_mode = None;
-    state.settings.pending_light_theme_name = None;
-    state.settings.pending_dark_theme_name = None;
-    state.settings.pending_terminal_light_accent = None;
-    state.settings.pending_terminal_dark_accent = None;
-    state.settings.pending_sound_enabled = None;
-    state.settings.pending_toast_delivery = None;
-    state.settings.pending_confirm_close = None;
-    state.settings.pending_prompt_new_tab_name = None;
-    state.settings.pending_new_terminal_cwd = None;
-    state.settings.pending_worktree_directory = None;
-    state.settings.pending_mouse_scroll_lines = None;
-    state.settings.pending_sidebar_width = None;
-    state.settings.pending_sidebar_min_width = None;
-    state.settings.pending_sidebar_max_width = None;
-    state.settings.pending_agent_border_labels = None;
-    state.settings.pending_switch_ascii_input_source_in_prefix = None;
-    state.settings.pending_group_accent_choice = None;
-    state.settings.pending_group_name = None;
-    state.settings.group_settings_target = None;
+fn close_settings(state: &mut AppState) {
+    state.settings.original_palette = None;
+    state.settings.original_theme = None;
+    clear_settings_pending(state);
     super::modal::leave_modal(state);
-}
-
-fn integrations_need_install(state: &AppState) -> bool {
-    state
-        .integration_recommendations
-        .iter()
-        .any(crate::integration::IntegrationRecommendation::needs_install)
 }
 
 fn selected_integration_action(state: &AppState) -> Option<SettingsAction> {
@@ -738,9 +1004,12 @@ fn selected_integration_action(state: &AppState) -> Option<SettingsAction> {
 fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction> {
     let group_idx = state.settings.group_settings_target?;
     match state.settings.list.selected {
-        0 => apply_settings(state),
+        0 => {
+            let name = pending_group_name(state).trim().to_string();
+            (!name.is_empty()).then_some(SettingsAction::SaveGroupName { group_idx, name })
+        }
         1 => {
-            cancel_settings(state);
+            close_settings(state);
             Some(SettingsAction::DeleteGroup(group_idx))
         }
         _ => None,
@@ -793,75 +1062,43 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.pending_group_accent_choice = None;
     state.settings.pending_group_name = None;
+    state.settings.pending_agent_profile_id = None;
+    state.settings.pending_agent_profile_name = None;
+    state.settings.pending_agent_profile_kind = None;
+    state.settings.pending_agent_profile_command = None;
     state.settings.group_settings_target = None;
 }
 
-fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
-    if state.settings.section == SettingsSection::Integrations {
-        return integrations_need_install(state)
-            .then_some(SettingsAction::InstallRecommendedIntegrations);
+fn current_settings_action(state: &AppState) -> SettingsAction {
+    SettingsAction::SaveSettings {
+        light: pending_light_theme_name(state),
+        dark: pending_dark_theme_name(state),
+        mode: pending_theme_mode(state),
+        terminal_light_accent: pending_terminal_light_accent(state),
+        terminal_dark_accent: pending_terminal_dark_accent(state),
+        sound_enabled: pending_sound_enabled(state),
+        toast_delivery: pending_toast_delivery(state),
+        confirm_close: pending_confirm_close(state),
+        prompt_new_tab_name: pending_prompt_new_tab_name(state),
+        new_terminal_cwd: pending_new_terminal_cwd(state),
+        mouse_scroll_lines: pending_mouse_scroll_lines(state),
+        sidebar_width: pending_sidebar_width(state),
+        sidebar_min_width: pending_sidebar_min_width(state),
+        sidebar_max_width: pending_sidebar_max_width(state),
+        worktree_directory: state.settings.pending_worktree_directory.clone(),
+        agent_border_labels: pending_agent_border_labels(state),
     }
-    if state.settings.section == SettingsSection::GroupGeneral {
-        let group_idx = state.settings.group_settings_target;
-        let name = pending_group_name(state).trim().to_string();
-        state.settings.original_palette = None;
-        state.settings.original_theme = None;
-        clear_settings_pending(state);
-        super::modal::leave_modal(state);
-        return group_idx
-            .zip((!name.is_empty()).then_some(name))
-            .map(|(group_idx, name)| SettingsAction::SaveGroupName { group_idx, name });
+}
+
+fn current_settings_or_group_accent_action(state: &AppState) -> SettingsAction {
+    if let Some(group_idx) = state.settings.group_settings_target {
+        SettingsAction::SaveGroupAccent {
+            group_idx,
+            accent: checked_group_accent_choice(state),
+        }
+    } else {
+        current_settings_action(state)
     }
-
-    let light = pending_light_theme_name(state);
-    let dark = pending_dark_theme_name(state);
-    let theme_mode = pending_theme_mode(state);
-    let terminal_light_accent = pending_terminal_light_accent(state);
-    let terminal_dark_accent = pending_terminal_dark_accent(state);
-    let sound_enabled = pending_sound_enabled(state);
-    let toast_delivery = pending_toast_delivery(state);
-    let confirm_close = pending_confirm_close(state);
-    let prompt_new_tab_name = pending_prompt_new_tab_name(state);
-    let new_terminal_cwd = pending_new_terminal_cwd(state);
-    let mouse_scroll_lines = pending_mouse_scroll_lines(state);
-    let sidebar_width = pending_sidebar_width(state);
-    let sidebar_min_width = pending_sidebar_min_width(state);
-    let sidebar_max_width = pending_sidebar_max_width(state);
-    let worktree_directory = state.settings.pending_worktree_directory.clone();
-    let agent_border_labels = pending_agent_border_labels(state);
-    let group_accent = state
-        .settings
-        .group_settings_target
-        .map(|_| checked_group_accent_choice(state));
-    let group_settings_target = state.settings.group_settings_target.take();
-
-    state.settings.original_palette = None;
-    state.settings.original_theme = None;
-    clear_settings_pending(state);
-    super::modal::leave_modal(state);
-
-    if let (Some(group_idx), Some(accent)) = (group_settings_target, group_accent) {
-        return Some(SettingsAction::SaveGroupAccent { group_idx, accent });
-    }
-
-    Some(SettingsAction::SaveSettings {
-        light,
-        dark,
-        mode: theme_mode,
-        terminal_light_accent,
-        terminal_dark_accent,
-        sound_enabled,
-        toast_delivery,
-        confirm_close,
-        prompt_new_tab_name,
-        new_terminal_cwd,
-        mouse_scroll_lines,
-        sidebar_width,
-        sidebar_min_width,
-        sidebar_max_width,
-        worktree_directory,
-        agent_border_labels,
-    })
 }
 
 fn next_terminal_cwd_policy(policy: NewTerminalCwdConfig) -> NewTerminalCwdConfig {
@@ -916,54 +1153,56 @@ fn select_pending_layout_setting(state: &mut AppState) {
             state.settings.pending_sidebar_max_width = Some(next);
             state.settings.pending_sidebar_width = Some(pending_sidebar_width(state).min(next));
         }
-        3 => super::modal::open_worktree_directory_editor(state),
         _ => {}
     }
 }
+
 fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
     match state.settings.section {
         SettingsSection::Theme => {
             preview_selected_theme(state);
-            None
+            Some(current_settings_or_group_accent_action(state))
         }
         SettingsSection::Layout => {
             select_pending_layout_setting(state);
-            None
+            Some(current_settings_action(state))
         }
         SettingsSection::Sound => {
             state.settings.pending_sound_enabled = Some(state.settings.list.selected == 0);
-            None
+            Some(current_settings_action(state))
         }
         SettingsSection::Toast => {
             state.settings.pending_toast_delivery =
                 Some(toast_delivery_for_index(state.settings.list.selected));
-            None
+            Some(current_settings_action(state))
         }
         SettingsSection::PaneLabels => {
+            let editing_directory = state.settings.list.selected == 2;
             match state.settings.list.selected {
                 0 => state.settings.pending_confirm_close = Some(!pending_confirm_close(state)),
                 1 => {
                     state.settings.pending_prompt_new_tab_name =
                         Some(!pending_prompt_new_tab_name(state))
                 }
-                2 => {
+                2 => super::modal::open_worktree_directory_editor(state),
+                3 => {
                     let next = next_terminal_cwd_policy(pending_new_terminal_cwd(state));
                     state.settings.pending_new_terminal_cwd = Some(next);
                 }
-                3 => {
+                4 => {
                     let next = next_mouse_scroll_lines(pending_mouse_scroll_lines(state));
                     state.settings.pending_mouse_scroll_lines = Some(next);
                 }
-                4 => {
+                5 => {
                     state.settings.pending_agent_border_labels =
                         Some(!pending_agent_border_labels(state))
                 }
                 _ => {}
             }
-            None
+            (!editing_directory).then(|| current_settings_action(state))
         }
         SettingsSection::Experiments => selected_experiment_action(state),
-        SettingsSection::Agents => None,
+        SettingsSection::Agents => selected_agent_profile_action(state),
         SettingsSection::Integrations => selected_integration_action(state),
         SettingsSection::GroupGeneral => selected_group_general_action(state),
         SettingsSection::GroupProfiles => None,
@@ -1006,9 +1245,8 @@ fn select_next_setting(state: &mut AppState, item_count: usize) {
 
 fn handle_settings_modal_action(state: &mut AppState, key: &KeyEvent) -> Option<SettingsAction> {
     match super::modal::modal_action_from_key(key, super::modal::SETTINGS_ACTIONS) {
-        Some(super::modal::ModalAction::Apply) => apply_settings(state),
         Some(super::modal::ModalAction::Close) => {
-            cancel_settings(state);
+            close_settings(state);
             None
         }
         _ => None,
@@ -1023,6 +1261,12 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
         )
     {
         state.settings.section = SettingsSection::Theme;
+    }
+    if state.settings.section == SettingsSection::Agents
+        && agent_profile_editor_open(state)
+        && edit_pending_agent_profile_text(state, key)
+    {
+        return None;
     }
     match state.settings.section {
         SettingsSection::Theme => match key.code {
@@ -1186,17 +1430,70 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
         },
         SettingsSection::Agents => match key.code {
+            KeyCode::Up if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(profile_id) =
+                    custom_profile_id_for_settings_index(state, state.settings.list.selected)
+                {
+                    return Some(SettingsAction::MoveAgentProfile {
+                        profile_id,
+                        up: true,
+                    });
+                }
+            }
+            KeyCode::Down if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(profile_id) =
+                    custom_profile_id_for_settings_index(state, state.settings.list.selected)
+                {
+                    return Some(SettingsAction::MoveAgentProfile {
+                        profile_id,
+                        up: false,
+                    });
+                }
+            }
             KeyCode::Up | KeyCode::Char('k') => {
                 select_previous_setting(
                     state,
                     settings_section_choice_len(state, SettingsSection::Agents),
                 );
+                ensure_settings_selection_visible(state);
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 select_next_setting(
                     state,
                     settings_section_choice_len(state, SettingsSection::Agents),
                 );
+                ensure_settings_selection_visible(state);
+            }
+            KeyCode::PageUp => {
+                state.settings.scroll = state
+                    .settings
+                    .scroll
+                    .saturating_sub(super::MODAL_PAGE_SCROLL_ROWS as usize);
+            }
+            KeyCode::PageDown => {
+                state.settings.scroll = state
+                    .settings
+                    .scroll
+                    .saturating_add(super::MODAL_PAGE_SCROLL_ROWS as usize)
+                    .min(settings_section_max_scroll(state, SettingsSection::Agents));
+            }
+            KeyCode::Enter => {
+                return selected_agent_profile_action(state);
+            }
+            KeyCode::Char(' ') => {
+                if agent_profile_editor_open(state) {
+                    return selected_agent_profile_action(state);
+                }
+            }
+            KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                toggle_selected_agent_profile_favorite(state);
+            }
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(profile_id) =
+                    custom_profile_id_for_settings_index(state, state.settings.list.selected)
+                {
+                    return Some(SettingsAction::DeleteAgentProfile(profile_id));
+                }
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::PaneLabels;
@@ -1239,7 +1536,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 if let Some(super::modal::ModalAction::Close) =
                     super::modal::modal_action_from_key(&key, super::modal::SETTINGS_ACTIONS)
                 {
-                    cancel_settings(state);
+                    close_settings(state);
                 }
             }
         },
@@ -1299,7 +1596,10 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
             _ => {
                 if state.settings.list.selected == 0 && edit_pending_group_name(state, key) {
-                    return None;
+                    let group_idx = state.settings.group_settings_target?;
+                    let name = pending_group_name(state).trim().to_string();
+                    return (!name.is_empty())
+                        .then_some(SettingsAction::SaveGroupName { group_idx, name });
                 }
                 if let Some(action) = handle_settings_modal_action(state, &key) {
                     return Some(action);
@@ -1312,16 +1612,35 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                     state,
                     settings_section_choice_len(state, SettingsSection::GroupProfiles),
                 );
+                ensure_settings_selection_visible(state);
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 select_next_setting(
                     state,
                     settings_section_choice_len(state, SettingsSection::GroupProfiles),
                 );
+                ensure_settings_selection_visible(state);
+            }
+            KeyCode::PageUp => {
+                state.settings.scroll = state
+                    .settings
+                    .scroll
+                    .saturating_sub(super::MODAL_PAGE_SCROLL_ROWS as usize);
+            }
+            KeyCode::PageDown => {
+                state.settings.scroll = state
+                    .settings
+                    .scroll
+                    .saturating_add(super::MODAL_PAGE_SCROLL_ROWS as usize)
+                    .min(settings_section_max_scroll(
+                        state,
+                        SettingsSection::GroupProfiles,
+                    ));
             }
             KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 toggle_selected_group_profile_favorite(state);
             }
+            KeyCode::Enter | KeyCode::Char(' ') => {}
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::GroupGeneral;
                 state.settings.list.selected = 0;
@@ -1366,6 +1685,10 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
     state.settings.pending_sidebar_max_width = Some(state.sidebar_max_width);
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = Some(state.agent_border_labels_enabled());
+    state.settings.pending_agent_profile_id = None;
+    state.settings.pending_agent_profile_name = None;
+    state.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Omp);
+    state.settings.pending_agent_profile_command = None;
     state.settings.group_settings_target = None;
     state.settings.section = section;
     state.settings.list.selected = match section {
@@ -1429,7 +1752,7 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
 }
 impl AppState {
     fn settings_popup_rect(&self) -> Rect {
-        crate::ui::centered_popup_rect(self.screen_rect(), 76, 22).unwrap_or_default()
+        crate::ui::centered_popup_rect(self.screen_rect(), 92, 26).unwrap_or_default()
     }
 
     fn settings_inner_rect(&self) -> Rect {
@@ -1443,43 +1766,40 @@ impl AppState {
     }
 
     fn settings_tab_at(&self, col: u16, row: u16) -> Option<SettingsSection> {
-        let sections = if self.settings.group_settings_target.is_some() {
-            &[SettingsSection::Theme, SettingsSection::GroupGeneral][..]
-        } else {
-            SettingsSection::ALL
-        };
-
         let inner = self.settings_inner_rect();
-        let tab_y = inner.y + 1;
-        if row != tab_y {
+        let header_rows = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .areas::<4>(crate::ui::modal_stack_areas(inner, 4, 1, 0, 1).header);
+        let tab_row = header_rows[2];
+        if row != tab_row.y {
             return None;
         }
-        let mut x = inner.x;
-        for section in sections {
-            let badge_width = if self.settings_section_has_badge(*section) {
-                2
-            } else {
-                0
-            };
-            let label = if self.settings.group_settings_target.is_some()
-                && *section == SettingsSection::Theme
-            {
-                "appearance"
-            } else {
-                section.label()
-            };
-            let width = label.len() as u16 + 2 + badge_width;
-            if col >= x && col < x + width {
-                return Some(*section);
-            }
-            x += width + 1;
+        if let Some(section) = crate::ui::settings_tab_chevron_at(self, tab_row, col) {
+            return Some(section);
         }
-        None
+
+        crate::ui::settings_tab_hit_areas(self, tab_row)
+            .into_iter()
+            .find_map(|(section, rect)| {
+                (col >= rect.x && col < rect.x + rect.width).then_some(section)
+            })
+    }
+
+    fn settings_agents_editor_back_at(&self, col: u16, row: u16) -> bool {
+        let area = self.settings_content_rect();
+        let Some(rect) = crate::ui::settings_agents_editor_back_button_rect(self, area) else {
+            return false;
+        };
+        col >= rect.x && col < rect.x + rect.width && row == rect.y
     }
 
     pub(crate) fn settings_content_rect(&self) -> Rect {
         let inner = self.settings_inner_rect();
-        crate::ui::modal_stack_areas(inner, 3, 2, 0, 1).content
+        crate::ui::modal_stack_areas(inner, 4, 1, 0, 1).content
     }
 
     fn settings_list_index_at(&self, col: u16, row: u16) -> Option<usize> {
@@ -1491,7 +1811,7 @@ impl AppState {
 
         match self.settings.section {
             SettingsSection::Theme => {
-                let list_area = settings_theme_list_rect(area);
+                let list_area = settings_section_list_rect(self, SettingsSection::Theme);
                 let visual_row =
                     settings_theme_viewport(self).hit_visual_row(list_area, col, row)?;
                 theme_selection_for_visual_row(self, visual_row)
@@ -1504,16 +1824,18 @@ impl AppState {
             | SettingsSection::Agents
             | SettingsSection::GroupGeneral
             | SettingsSection::GroupProfiles => {
+                let list_area = settings_section_list_rect(self, self.settings.section);
+                let visual_row = settings_section_viewport(self, self.settings.section)
+                    .hit_visual_row(list_area, col, row)?;
                 let rows = rows_for_section(self, self.settings.section)?;
-                option_index_for_visual_row(&rows, (row - area.y) as usize)
+                option_index_for_visual_row(&rows, visual_row)
             }
             SettingsSection::Integrations => {
-                let list_y = area.y + 4;
-                if row < list_y {
-                    return None;
-                }
+                let list_area = settings_section_list_rect(self, self.settings.section);
+                let visual_row = settings_section_viewport(self, self.settings.section)
+                    .hit_visual_row(list_area, col, row)?;
                 let rows = rows_for_section(self, self.settings.section)?;
-                option_index_for_visual_row(&rows, (row - list_y) as usize)
+                option_index_for_visual_row(&rows, visual_row)
             }
         }
     }
@@ -1526,7 +1848,7 @@ impl AppState {
         if self.settings.section != SettingsSection::Theme {
             return None;
         }
-        let list_area = settings_theme_list_rect(self.settings_content_rect());
+        let list_area = crate::ui::settings_section_list_rect(self.settings_content_rect());
         let viewport = settings_theme_viewport(self);
         let metrics = viewport.metrics();
         let track = viewport.scroll_area(list_area).track?;
@@ -1550,7 +1872,7 @@ impl AppState {
         if self.settings.section != SettingsSection::Theme {
             return None;
         }
-        let list_area = settings_theme_list_rect(self.settings_content_rect());
+        let list_area = crate::ui::settings_section_list_rect(self.settings_content_rect());
         let viewport = settings_theme_viewport(self);
         let metrics = viewport.metrics();
         let track = viewport.scroll_area(list_area).track?;
@@ -1608,6 +1930,11 @@ impl AppState {
                     }
                     return None;
                 }
+
+                if self.settings_agents_editor_back_at(mouse.column, mouse.row) {
+                    close_agent_profile_editor(self);
+                    return None;
+                }
                 if let Some(idx) = self.settings_list_index_at(mouse.column, mouse.row) {
                     self.settings.list.select(idx);
                     if self.settings.section == SettingsSection::Theme {
@@ -1620,7 +1947,7 @@ impl AppState {
                         | SettingsSection::Toast
                         | SettingsSection::PaneLabels => select_pending_setting(self),
                         SettingsSection::Experiments => selected_experiment_action(self),
-                        SettingsSection::Agents => None,
+                        SettingsSection::Agents => selected_agent_profile_action(self),
                         SettingsSection::Integrations => None,
                         SettingsSection::GroupGeneral => {
                             if idx == 1 {
@@ -1634,17 +1961,14 @@ impl AppState {
                 }
 
                 let inner = self.settings_inner_rect();
-                let show_primary = crate::ui::settings_show_primary_action(self);
-                let (apply, close) =
-                    crate::ui::settings_button_rects(inner, self.settings.section, show_primary);
-                let mut buttons = vec![(close, super::modal::ModalAction::Close)];
-                if let Some(apply) = apply {
-                    buttons.insert(0, (apply, super::modal::ModalAction::Apply));
-                }
-                match super::modal::modal_action_from_buttons(mouse.column, mouse.row, &buttons) {
-                    Some(super::modal::ModalAction::Apply) => apply_settings(self),
+                let close = crate::ui::settings_close_button_rect(inner);
+                match super::modal::modal_action_from_buttons(
+                    mouse.column,
+                    mouse.row,
+                    &[(close, super::modal::ModalAction::Close)],
+                ) {
                     Some(super::modal::ModalAction::Close) => {
-                        cancel_settings(self);
+                        close_settings(self);
                         None
                     }
                     _ => {
@@ -1656,7 +1980,7 @@ impl AppState {
                             && mouse.row >= popup.y
                             && mouse.row < popup.y + popup.height;
                         if !inside {
-                            cancel_settings(self);
+                            close_settings(self);
                         }
                         None
                     }
@@ -1686,25 +2010,23 @@ impl AppState {
             MouseEventKind::Moved => {
                 if let Some(idx) = self.settings_list_index_at(mouse.column, mouse.row) {
                     self.settings.list.select(idx);
-                    if self.settings.section == SettingsSection::Theme {
-                        ensure_settings_selection_visible(self);
-                    }
+                    ensure_settings_selection_visible(self);
                 }
                 None
             }
-            MouseEventKind::ScrollUp if self.settings.section == SettingsSection::Theme => {
+            MouseEventKind::ScrollUp => {
                 self.settings.scroll = self
                     .settings
                     .scroll
                     .saturating_sub(super::MODAL_WHEEL_SCROLL_ROWS as usize);
                 None
             }
-            MouseEventKind::ScrollDown if self.settings.section == SettingsSection::Theme => {
+            MouseEventKind::ScrollDown => {
                 self.settings.scroll = self
                     .settings
                     .scroll
                     .saturating_add(super::MODAL_WHEEL_SCROLL_ROWS as usize)
-                    .min(settings_theme_max_scroll(self));
+                    .min(settings_section_max_scroll(self, self.settings.section));
                 None
             }
             _ => None,
@@ -1720,9 +2042,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn settings_cancel_restores_previewed_theme_from_other_sections() {
+    fn settings_escape_closes_without_reverting_previewed_theme() {
         let mut state = state_with_workspaces(&["test"]);
-        let original_palette = state.palette.clone();
         let original_theme = state.theme_name.clone();
 
         open_settings(&mut state);
@@ -1735,6 +2056,7 @@ mod tests {
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
         assert_ne!(state.theme_name, original_theme);
+        let selected_theme = state.theme_name.clone();
 
         update_settings_state(
             &mut state,
@@ -1751,13 +2073,11 @@ mod tests {
         );
 
         assert_eq!(state.mode, Mode::Terminal);
-        assert_eq!(state.theme_name, original_theme);
-        assert_eq!(state.palette.accent, original_palette.accent);
-        assert_eq!(state.palette.panel_bg, original_palette.panel_bg);
+        assert_eq!(state.theme_name, selected_theme);
     }
 
     #[test]
-    fn group_accent_settings_apply_returns_group_accent_action() {
+    fn group_accent_settings_selection_returns_group_accent_action() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
 
@@ -1768,7 +2088,7 @@ mod tests {
         );
         let action = update_settings_state(
             &mut state,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
 
         assert_eq!(
@@ -1778,7 +2098,8 @@ mod tests {
                 accent: Some(TerminalAccent::Blue),
             })
         );
-        assert_eq!(state.settings.group_settings_target, None);
+        assert_eq!(state.settings.group_settings_target, Some(group_idx));
+        assert_eq!(state.mode, Mode::Settings);
     }
 
     #[test]
@@ -1790,7 +2111,7 @@ mod tests {
         assert_eq!(state.settings.list.selected, 0);
         let action = update_settings_state(
             &mut state,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
 
         assert_eq!(
@@ -1855,6 +2176,259 @@ mod tests {
     }
 
     #[test]
+    fn agent_settings_add_profile_returns_config_action() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Agents);
+        state.settings.pending_agent_profile_name = Some("omp mk".to_string());
+        state.settings.pending_agent_profile_command = Some("omp-mk --profile main".to_string());
+        state.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Omp);
+        state.settings.list.selected = 10;
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::SaveAgentProfile(
+                crate::agent_profiles::UserAgentProfileConfig {
+                    id: "omp-mk".to_string(),
+                    name: "omp mk".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Omp,
+                    command: "omp-mk --profile main".to_string(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn agent_settings_back_returns_to_profile_list() {
+        let mut app = app_for_mouse_test();
+        app.state.view.terminal_area = Rect::new(0, 0, 100, 40);
+        open_settings_at(&mut app.state, SettingsSection::Agents);
+        open_blank_agent_profile_editor(&mut app.state);
+
+        let rect = crate::ui::settings_agents_editor_back_button_rect(
+            &app.state,
+            app.state.settings_content_rect(),
+        )
+        .expect("back button");
+        let action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            rect.x,
+            rect.y,
+        ));
+        assert_eq!(action, None);
+        assert_eq!(app.state.settings.pending_agent_profile_name, None);
+        assert_eq!(app.state.settings.pending_agent_profile_command, None);
+        assert_eq!(app.state.settings.list.selected, 0);
+    }
+
+    #[test]
+    fn agent_settings_delete_custom_profile_row_returns_delete_action() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:omp-mk".to_string()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "omp-mk".to_string(),
+                    name: "omp mk".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Omp,
+                    command: "omp-mk".to_string(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }],
+            },
+        );
+        open_settings_at(&mut state, SettingsSection::Agents);
+        assert!(load_custom_agent_profile_editor(&mut state, "user:omp-mk"));
+        state.settings.list.selected = 12;
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::DeleteAgentProfile(
+                "user:omp-mk".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn agent_settings_can_navigate_to_delete_custom_profile_row() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:omp-mk".to_string()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "omp-mk".to_string(),
+                    name: "omp mk".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Omp,
+                    command: "omp-mk".to_string(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }],
+            },
+        );
+        open_settings_at(&mut state, SettingsSection::Agents);
+        assert!(load_custom_agent_profile_editor(&mut state, "user:omp-mk"));
+
+        for _ in 0..12 {
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+            );
+        }
+
+        assert_eq!(state.settings.list.selected, 12);
+    }
+    #[test]
+    fn agent_settings_ctrl_f_toggles_active_group_favorite() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Agents);
+        state.settings.list.selected = 1;
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
+        );
+
+        assert_eq!(action, None);
+        assert_eq!(
+            state.groups[state.active_group].favorite_agent_profile_ids,
+            vec!["system:pi".to_string()]
+        );
+        assert!(state.session_dirty);
+    }
+
+    #[test]
+    fn agent_settings_editor_treats_vim_motion_keys_as_text() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Agents);
+        state.settings.pending_agent_profile_name = Some(String::new());
+        state.settings.pending_agent_profile_command = Some(String::new());
+        state.settings.list.selected = 0;
+
+        for ch in "ompmk".chars() {
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::empty()),
+            );
+        }
+
+        assert_eq!(
+            state.settings.pending_agent_profile_name.as_deref(),
+            Some("ompmk")
+        );
+        assert_eq!(state.settings.list.selected, 0);
+    }
+
+    #[test]
+    fn agent_settings_space_does_not_toggle_favorite() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Agents);
+        state.settings.list.selected = 1;
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+
+        assert_eq!(action, None);
+        assert!(state.groups[state.active_group]
+            .favorite_agent_profile_ids
+            .is_empty());
+        assert!(!state.session_dirty);
+    }
+
+    #[test]
+    fn agent_settings_empty_favorites_is_caption_and_system_labels_are_plain() {
+        let state = {
+            let mut state = state_with_workspaces(&["test"]);
+            open_settings_at(&mut state, SettingsSection::Agents);
+            state
+        };
+        let rows = rows_for_section(&state, SettingsSection::Agents).expect("agent rows");
+
+        assert!(rows.iter().any(|row| {
+            matches!(
+                row,
+                crate::settings_rows::SettingsListRow::Caption(text)
+                    if text.as_ref() == "no favorites"
+            )
+        }));
+        assert!(rows.iter().any(|row| {
+            matches!(
+                row,
+                crate::settings_rows::SettingsListRow::StatusChoice { label, .. }
+                    if label.as_ref() == "pi"
+            )
+        }));
+        assert!(!rows.iter().any(|row| {
+            matches!(
+                row,
+                crate::settings_rows::SettingsListRow::StatusChoice { label, .. }
+                    if label.contains("system") || label.contains("·")
+            )
+        }));
+    }
+
+    #[test]
+    fn agent_settings_scrolls_selected_row_into_view() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.view.terminal_area = Rect::new(0, 0, 80, 12);
+        open_settings_at(&mut state, SettingsSection::Agents);
+
+        for _ in 0..15 {
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+            );
+        }
+
+        assert!(state.settings.scroll > 0);
+    }
+
+    #[test]
+    fn agent_settings_hover_matches_visual_rows() {
+        let mut app = app_for_mouse_test();
+        app.state.view.terminal_area = Rect::new(0, 0, 100, 40);
+        open_settings_at(&mut app.state, SettingsSection::Agents);
+        open_blank_agent_profile_editor(&mut app.state);
+
+        app.state.settings.list.selected = 9;
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::Agents);
+        let rows = rows_for_section(&app.state, SettingsSection::Agents).unwrap();
+        let row_for = |index| selected_visual_row(&rows, index).unwrap() as u16;
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            list_area.x + 2,
+            list_area.y + 1,
+        ));
+        assert_eq!(app.state.settings.list.selected, 9);
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            list_area.x + 2,
+            list_area.y + row_for(0),
+        ));
+        assert_eq!(app.state.settings.list.selected, 0);
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            list_area.x + 2,
+            list_area.y + row_for(1),
+        ));
+        assert_eq!(app.state.settings.list.selected, 1);
+    }
+
+    #[test]
     fn group_profiles_ctrl_f_toggles_favorite_immediately() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
@@ -1886,6 +2460,29 @@ mod tests {
             .favorite_agent_profile_ids
             .is_empty());
         assert!(state.session_dirty);
+    }
+
+    #[test]
+    fn group_profiles_enter_and_space_do_not_toggle_favorite() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Side".to_string());
+
+        open_group_settings(&mut state, group_idx);
+        state.settings.section = SettingsSection::GroupProfiles;
+        state.settings.list.selected = 0;
+        state.session_dirty = false;
+
+        for key in [KeyCode::Enter, KeyCode::Char(' ')] {
+            let action =
+                update_settings_state(&mut state, KeyEvent::new(key, KeyModifiers::empty()));
+
+            assert_eq!(action, None);
+            assert!(state.groups[group_idx]
+                .favorite_agent_profile_ids
+                .is_empty());
+            assert!(!state.session_dirty);
+            assert_eq!(state.settings.section, SettingsSection::GroupProfiles);
+        }
     }
 
     #[test]
@@ -1926,15 +2523,28 @@ mod tests {
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupGeneral;
         state.settings.list.selected = 0;
-        for ch in [' ', 'A'] {
-            assert_eq!(
-                update_settings_state(
-                    &mut state,
-                    KeyEvent::new(KeyCode::Char(ch), KeyModifiers::empty()),
-                ),
-                None
-            );
-        }
+        let first_action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        assert_eq!(
+            first_action,
+            Some(SettingsAction::SaveGroupName {
+                group_idx,
+                name: "Side".to_string(),
+            })
+        );
+        let second_action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('A'), KeyModifiers::empty()),
+        );
+        assert_eq!(
+            second_action,
+            Some(SettingsAction::SaveGroupName {
+                group_idx,
+                name: "Side A".to_string(),
+            })
+        );
         assert_eq!(state.settings.pending_group_name.as_deref(), Some("Side A"));
         let rename_action = update_settings_state(
             &mut state,
@@ -1947,8 +2557,8 @@ mod tests {
                 name: "Side A".to_string(),
             })
         );
-        assert_eq!(state.mode, Mode::Terminal);
-        assert_eq!(state.settings.group_settings_target, None);
+        assert_eq!(state.mode, Mode::Settings);
+        assert_eq!(state.settings.group_settings_target, Some(group_idx));
 
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupGeneral;
@@ -1971,11 +2581,11 @@ mod tests {
         app.state.settings.section = SettingsSection::GroupGeneral;
         app.state.settings.list.selected = 1;
 
-        let area = app.state.settings_content_rect();
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::GroupGeneral);
         let action = app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
-            area.x + 2,
-            area.y + 1,
+            list_area.x + 2,
+            list_area.y + 1,
         ));
 
         assert_eq!(action, None);
@@ -2000,30 +2610,20 @@ mod tests {
     }
 
     #[test]
-    fn group_accent_apply_uses_full_screen_geometry_with_right_sidebar() {
+    fn group_accent_selection_saves_immediately_with_right_sidebar() {
         let mut app = app_for_mouse_test();
         app.state.view.right_sidebar_rect = Rect::new(106, 0, 34, 20);
         let group_idx = app.state.create_group("Side".to_string());
 
         open_group_settings(&mut app.state, group_idx);
         app.state.settings.list.selected = 1;
-        let inner = app.state.settings_inner_rect();
-        let (apply, _) = crate::ui::settings_button_rects(
-            inner,
-            crate::app::state::SettingsSection::Theme,
-            true,
-        );
-        let apply = apply.expect("group accent apply button");
-        app.handle_mouse(mouse(
-            MouseEventKind::Down(crossterm::event::MouseButton::Left),
-            apply.x,
-            apply.y,
-        ));
+        app.handle_settings_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()));
 
         assert_eq!(
             app.state.groups[group_idx].accent,
             Some(TerminalAccent::Blue)
         );
+        assert_eq!(app.state.mode, Mode::Settings);
     }
 
     #[test]
@@ -2035,13 +2635,9 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
         );
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
-        );
         let action = update_settings_state(
             &mut state,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
 
         assert_eq!(
@@ -2065,7 +2661,7 @@ mod tests {
                 agent_border_labels: false,
             })
         );
-        assert_eq!(state.mode, Mode::Terminal);
+        assert_eq!(state.mode, Mode::Settings);
     }
 
     #[test]
@@ -2084,13 +2680,9 @@ mod tests {
                 KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
             );
         }
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
-        );
         let action = update_settings_state(
             &mut state,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
 
         assert!(matches!(
@@ -2159,7 +2751,7 @@ mod tests {
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
 
-        assert_eq!(action, None);
+        assert!(matches!(action, Some(SettingsAction::SaveSettings { .. })));
         assert_eq!(
             state.settings.pending_light_theme_name.as_deref(),
             theme_names_for_appearance(ThemeAppearance::Light)
@@ -2184,7 +2776,7 @@ mod tests {
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
 
-        assert_eq!(action, None);
+        assert!(matches!(action, Some(SettingsAction::SaveSettings { .. })));
         assert_eq!(state.settings.pending_theme_mode, Some(ThemeMode::System));
         assert_eq!(
             state.settings.pending_light_theme_name.as_deref(),
@@ -2223,7 +2815,13 @@ mod tests {
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
 
-        assert_eq!(action, None);
+        assert!(matches!(
+            action,
+            Some(SettingsAction::SaveSettings {
+                sound_enabled: true,
+                ..
+            })
+        ));
         assert_eq!(state.settings.pending_sound_enabled, Some(true));
         assert!(!state.sound.enabled);
         assert_eq!(state.mode, Mode::Settings);
@@ -2263,33 +2861,19 @@ mod tests {
         );
         assert_eq!(state.settings.pending_sidebar_max_width, Some(38));
 
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-        );
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
-        );
-        assert_eq!(state.mode, Mode::EditWorktreeDirectory);
-        assert_eq!(state.name_input, "/tmp/hako-worktrees");
-        state.mode = Mode::Settings;
-
-        let action = update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
-        );
+        let action = current_settings_action(&state);
 
         assert!(matches!(
             action,
-            Some(SettingsAction::SaveSettings {
+            SettingsAction::SaveSettings {
                 sidebar_width: 28,
                 sidebar_min_width: 20,
                 sidebar_max_width: 38,
                 ..
-            })
+            }
         ));
     }
+
     #[test]
     fn settings_behavior_toggles_close_prompt_and_border_labels() {
         let mut state = state_with_workspaces(&["test"]);
@@ -2300,13 +2884,16 @@ mod tests {
         state.mouse_scroll_lines = 3;
         open_settings_at(&mut state, SettingsSection::PaneLabels);
 
-        assert_eq!(
+        assert!(matches!(
             update_settings_state(
                 &mut state,
                 KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
             ),
-            None
-        );
+            Some(SettingsAction::SaveSettings {
+                confirm_close: false,
+                ..
+            })
+        ));
         assert_eq!(state.settings.pending_confirm_close, Some(false));
 
         update_settings_state(
@@ -2318,6 +2905,21 @@ mod tests {
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
         assert_eq!(state.settings.pending_prompt_new_tab_name, Some(false));
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+            ),
+            None
+        );
+        assert_eq!(state.mode, Mode::EditWorktreeDirectory);
+        assert_eq!(state.name_input, "/tmp/hako-worktrees");
+        state.mode = Mode::Settings;
 
         update_settings_state(
             &mut state,
@@ -2351,23 +2953,20 @@ mod tests {
         );
         assert_eq!(state.settings.pending_agent_border_labels, Some(true));
 
-        let action = update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
-        );
+        let action = current_settings_action(&state);
 
         assert!(matches!(
             action,
-            Some(SettingsAction::SaveSettings {
+            SettingsAction::SaveSettings {
                 confirm_close: false,
                 prompt_new_tab_name: false,
                 new_terminal_cwd: NewTerminalCwdConfig::Home,
                 mouse_scroll_lines: 5,
                 agent_border_labels: true,
                 ..
-            })
+            }
         ));
-        assert_eq!(state.mode, Mode::Terminal);
+        assert_eq!(state.mode, Mode::Settings);
     }
 
     #[test]
@@ -2509,7 +3108,7 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
         );
-        assert_eq!(state.settings.list.selected, 3);
+        assert_eq!(state.settings.list.selected, 2);
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
@@ -2548,7 +3147,7 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
         );
-        assert_eq!(state.settings.list.selected, 4);
+        assert_eq!(state.settings.list.selected, 5);
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
@@ -2661,12 +3260,12 @@ mod tests {
             ),
         ];
         open_settings_at(&mut app.state, SettingsSection::Integrations);
-        let area = app.state.settings_content_rect();
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::Integrations);
 
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            area.x + 2,
-            area.y + 5,
+            list_area.x + 2,
+            list_area.y + 1,
         ));
 
         assert_eq!(app.state.settings.list.selected, 1);
@@ -2679,7 +3278,7 @@ mod tests {
         app.state.settings.list.select(0);
         app.state.settings.pending_theme_mode = Some(ThemeMode::System);
 
-        let list_area = settings_theme_list_rect(app.state.settings_content_rect());
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::Theme);
         app.handle_mouse(mouse(
             MouseEventKind::Moved,
             list_area.x + 2,
@@ -2700,7 +3299,7 @@ mod tests {
         app.state.global_theme_mode = ThemeMode::System;
         app.state.settings.pending_theme_mode = Some(ThemeMode::System);
         app.state.settings.list.select(0);
-        let list_area = settings_theme_list_rect(app.state.settings_content_rect());
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::Theme);
         let track = settings_theme_viewport(&app.state)
             .scroll_area(list_area)
             .track
@@ -2737,7 +3336,7 @@ mod tests {
         app.state.global_theme_mode = ThemeMode::System;
         open_settings(&mut app.state);
 
-        let list_area = settings_theme_list_rect(app.state.settings_content_rect());
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::Theme);
         let track = settings_theme_viewport(&app.state)
             .scroll_area(list_area)
             .track
@@ -2771,51 +3370,58 @@ mod tests {
         app.state.view.terminal_area = Rect::new(26, 0, 100, 30);
         open_settings_at(&mut app.state, SettingsSection::PaneLabels);
 
-        let area = app.state.settings_content_rect();
-        assert_eq!(
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::PaneLabels);
+        let rows = rows_for_section(&app.state, SettingsSection::PaneLabels).unwrap();
+        let row_for = |index| selected_visual_row(&rows, index).unwrap() as u16;
+        assert!(matches!(
             app.state.handle_settings_mouse(mouse(
                 MouseEventKind::Down(crossterm::event::MouseButton::Left),
-                area.x + 2,
-                area.y + 1,
+                list_area.x + 2,
+                list_area.y + row_for(0),
             )),
-            None
-        );
+            Some(SettingsAction::SaveSettings {
+                confirm_close: false,
+                ..
+            })
+        ));
         assert_eq!(app.state.settings.pending_confirm_close, Some(false));
         assert_eq!(app.state.settings.list.selected, 0);
 
         app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
-            area.x + 2,
-            area.y + 3,
+            list_area.x + 2,
+            list_area.y + row_for(1),
         ));
         assert_eq!(app.state.settings.pending_prompt_new_tab_name, Some(false));
         assert_eq!(app.state.settings.list.selected, 1);
 
         app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
-            area.x + 2,
-            area.y + 7,
+            list_area.x + 2,
+            list_area.y + row_for(3),
         ));
         assert_eq!(
             app.state.settings.pending_new_terminal_cwd,
             Some(NewTerminalCwdConfig::Home)
         );
-        assert_eq!(app.state.settings.list.selected, 2);
+        assert_eq!(app.state.settings.list.selected, 3);
         app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
-            area.x + 2,
-            area.y + 9,
+            list_area.x + 2,
+            list_area.y + row_for(4),
         ));
         assert_eq!(app.state.settings.pending_mouse_scroll_lines, Some(5));
-        assert_eq!(app.state.settings.list.selected, 3);
+        assert_eq!(app.state.settings.list.selected, 4);
 
+        let scroll = row_for(5).saturating_sub(list_area.height.saturating_sub(1));
+        app.state.settings.scroll = scroll as usize;
         app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
-            area.x + 2,
-            area.y + 11,
+            list_area.x + 2,
+            list_area.y + row_for(5) - scroll,
         ));
         assert_eq!(app.state.settings.pending_agent_border_labels, Some(true));
-        assert_eq!(app.state.settings.list.selected, 4);
+        assert_eq!(app.state.settings.list.selected, 5);
     }
 
     #[test]
@@ -2823,22 +3429,30 @@ mod tests {
         let mut app = app_for_mouse_test();
         open_settings_at(&mut app.state, SettingsSection::PaneLabels);
 
-        let area = app.state.settings_content_rect();
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::PaneLabels);
         app.state.settings.list.selected = 4;
         assert_eq!(
-            app.state
-                .handle_settings_mouse(mouse(MouseEventKind::Moved, area.x + 2, area.y)),
+            app.state.handle_settings_mouse(mouse(
+                MouseEventKind::Moved,
+                list_area.x + 2,
+                list_area.y
+            )),
             None
         );
         assert_eq!(app.state.settings.list.selected, 4);
-
-        app.state
-            .handle_settings_mouse(mouse(MouseEventKind::Moved, area.x + 2, area.y + 5));
+        app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Moved,
+            list_area.x + 2,
+            list_area.y + 7,
+        ));
         assert_eq!(app.state.settings.list.selected, 4);
 
-        app.state
-            .handle_settings_mouse(mouse(MouseEventKind::Moved, area.x + 2, area.y + 7));
-        assert_eq!(app.state.settings.list.selected, 2);
+        app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Moved,
+            list_area.x + 2,
+            list_area.y + 1,
+        ));
+        assert_eq!(app.state.settings.list.selected, 0);
     }
 
     #[test]
@@ -2849,11 +3463,11 @@ mod tests {
         app.state.view.terminal_area = Rect::new(26, 0, 80, 30);
         open_settings_at(&mut app.state, SettingsSection::Experiments);
 
-        let area = app.state.settings_content_rect();
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::Experiments);
         let input_source_action = app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
-            area.x + 2,
-            area.y + 1,
+            list_area.x + 2,
+            list_area.y + 1,
         ));
 
         assert_eq!(
@@ -2894,6 +3508,7 @@ mod tests {
     #[test]
     fn settings_tab_hit_area_includes_integration_update_badge() {
         let mut state = state_with_workspaces(&["test"]);
+        state.view.terminal_area = Rect::new(0, 0, 100, 30);
         state.integration_recommendations = vec![integration_recommendation(
             crate::integration::IntegrationStatusKind::Outdated,
             true,
@@ -2901,29 +3516,56 @@ mod tests {
         open_settings(&mut state);
 
         let inner = state.settings_inner_rect();
-        let tab_y = inner.y + 1;
-        let integrations_idx = SettingsSection::ALL
-            .iter()
-            .position(|section| *section == SettingsSection::Integrations)
-            .expect("integrations section should be present");
-        let integrations_x = inner.x
-            + SettingsSection::ALL[..integrations_idx]
-                .iter()
-                .map(|section| {
-                    let badge_width = if state.settings_section_has_badge(*section) {
-                        2
-                    } else {
-                        0
-                    };
-                    section.label().len() as u16 + 3 + badge_width
-                })
-                .sum::<u16>();
-        let dotted_width = SettingsSection::Integrations.label().len() as u16 + 4;
+        let header_rows = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .areas::<4>(crate::ui::modal_stack_areas(inner, 4, 1, 0, 1).header);
+        let tab_row = header_rows[2];
+        let (_, integrations_rect) = crate::ui::settings_tab_hit_areas(&state, tab_row)
+            .into_iter()
+            .find(|(section, _)| *section == SettingsSection::Integrations)
+            .expect("integrations tab should be visible");
 
         assert_eq!(
-            state.settings_tab_at(integrations_x + dotted_width - 1, tab_y),
+            state.settings_tab_at(integrations_rect.x + integrations_rect.width - 1, tab_row.y),
             Some(SettingsSection::Integrations)
         );
+    }
+
+    #[test]
+    fn settings_tab_chevrons_switch_to_hidden_adjacent_tabs() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.view.terminal_area = Rect::new(0, 0, 60, 30);
+        open_settings_at(&mut state, SettingsSection::Theme);
+
+        let inner = state.settings_inner_rect();
+        let header_rows = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .areas::<4>(crate::ui::modal_stack_areas(inner, 4, 1, 0, 1).header);
+        let tab_row = header_rows[2];
+        let visible_tabs = crate::ui::settings_tab_hit_areas(&state, tab_row);
+        let right_chevron_x = visible_tabs
+            .last()
+            .map(|(_, rect)| rect.x + rect.width + 1)
+            .expect("visible tab");
+
+        let hidden_right = state
+            .settings_tab_at(right_chevron_x, tab_row.y)
+            .expect("right chevron target");
+        assert_eq!(hidden_right, SettingsSection::Agents);
+
+        state.settings.section = SettingsSection::Experiments;
+        let hidden_left = state
+            .settings_tab_at(tab_row.x, tab_row.y)
+            .expect("left chevron target");
+        assert_eq!(hidden_left, SettingsSection::Toast);
     }
 
     fn integration_recommendation_for(
@@ -2940,6 +3582,7 @@ mod tests {
             state,
         }
     }
+
     fn integration_recommendation(
         state: crate::integration::IntegrationStatusKind,
         available: bool,

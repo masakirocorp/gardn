@@ -35,6 +35,11 @@ enum NewTabCommand<'a> {
         command: &'a str,
         extra_env: &'a [(String, String)],
     },
+    Profile {
+        command: &'a str,
+        extra_env: &'a [(String, String)],
+        shell_config: crate::pane::PaneShellConfig<'a>,
+    },
     Argv {
         argv: &'a [String],
         extra_env: &'a [(String, String)],
@@ -143,6 +148,40 @@ impl Tab {
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub fn new_profile_command(
+        number: usize,
+        initial_cwd: PathBuf,
+        rows: u16,
+        cols: u16,
+        shell_config: crate::pane::PaneShellConfig<'_>,
+        command: &str,
+        extra_env: &[(String, String)],
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<AtomicBool>,
+    ) -> std::io::Result<(Self, TerminalState, TerminalRuntime)> {
+        Self::new_with_runtime(
+            number,
+            initial_cwd,
+            rows,
+            cols,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            crate::pane::PaneShellConfig::new("", crate::config::ShellModeConfig::NonLogin),
+            events,
+            render_notify,
+            render_dirty,
+            Some(NewTabCommand::Profile {
+                command,
+                extra_env,
+                shell_config,
+            }),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn new_with_runtime(
         number: usize,
         initial_cwd: PathBuf,
@@ -179,6 +218,24 @@ impl Tab {
                     render_dirty.clone(),
                 )?
             }
+            Some(NewTabCommand::Profile {
+                command,
+                extra_env,
+                shell_config,
+            }) => TerminalRuntime::spawn_profile_command(
+                root_id,
+                rows,
+                cols,
+                initial_cwd.clone(),
+                shell_config,
+                command,
+                extra_env,
+                scrollback_limit_bytes,
+                host_terminal_theme,
+                events.clone(),
+                render_notify.clone(),
+                render_dirty.clone(),
+            )?,
             Some(NewTabCommand::Argv { argv, extra_env }) => TerminalRuntime::spawn_argv_command(
                 root_id,
                 rows,

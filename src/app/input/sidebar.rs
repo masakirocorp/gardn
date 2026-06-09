@@ -1564,7 +1564,7 @@ mod tests {
 
         assert_eq!(app.state.mode, Mode::ContextMenu);
         let context = app.state.context_menu.as_ref().unwrap();
-        assert_eq!(context.items(), &["settings", "---", "delete"]);
+        assert_eq!(context.items(), &["new agent", "settings", "---", "delete"]);
         assert_eq!(
             context.kind,
             ContextMenuKind::Group {
@@ -1586,7 +1586,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: crate::app::state::MenuListState::new(2),
+            list: crate::app::state::MenuListState::new(3),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -1594,7 +1594,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 3,
+            menu.y + 4,
         ));
 
         assert_eq!(app.state.mode, Mode::ConfirmDeleteGroup);
@@ -1614,7 +1614,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: crate::app::state::MenuListState::new(0),
+            list: crate::app::state::MenuListState::new(1),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -1622,7 +1622,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 1,
+            menu.y + 2,
         ));
 
         assert_eq!(app.state.mode, Mode::Settings);

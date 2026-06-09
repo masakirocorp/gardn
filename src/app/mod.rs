@@ -534,6 +534,7 @@ impl App {
             detach_requested: false,
             request_new_workspace: false,
             request_new_tab: false,
+            request_agent_profile_tab: None,
             request_reload_config: false,
             request_open_git_diff: false,
             request_client_config_reload: false,
@@ -566,6 +567,7 @@ impl App {
                 query: String::new(),
                 selected: 0,
                 scroll: 0,
+                mode: state::CommandPaletteMode::Commands,
             },
             navigator: state::NavigatorState::default(),
             command_catalog: Vec::new(),
@@ -709,6 +711,10 @@ impl App {
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,
                 pending_group_name: None,
+                pending_agent_profile_id: None,
+                pending_agent_profile_name: None,
+                pending_agent_profile_kind: None,
+                pending_agent_profile_command: None,
                 group_settings_target: None,
             },
             integration_recommendations: crate::integration::integration_recommendations(),
@@ -978,6 +984,13 @@ impl App {
                 needs_render = true;
             }
 
+            if let Some((ws_idx, profile_id)) = self.state.request_agent_profile_tab.take() {
+                if let Err(err) = self.create_agent_profile_tab(ws_idx, &profile_id) {
+                    tracing::warn!(profile = %profile_id, err = %err, "failed to launch agent profile");
+                }
+                needs_render = true;
+            }
+
             if self.state.request_reload_config {
                 self.state.request_reload_config = false;
                 self.reload_config();
@@ -1208,41 +1221,6 @@ impl App {
 
     pub(crate) fn refresh_integration_recommendations(&mut self) {
         self.state.integration_recommendations = crate::integration::integration_recommendations();
-    }
-
-    pub(crate) fn install_recommended_integrations(&mut self) {
-        let targets = self
-            .state
-            .integration_recommendations
-            .iter()
-            .filter(|recommendation| recommendation.needs_install())
-            .map(|recommendation| recommendation.target)
-            .collect::<Vec<_>>();
-
-        self.state.integration_install_messages.clear();
-        if targets.is_empty() {
-            self.state
-                .integration_install_messages
-                .push("all detected integrations are current".to_string());
-            return;
-        }
-
-        for target in targets {
-            let label = crate::integration::integration_target_label(target);
-            match crate::integration::install_target(target) {
-                Ok(_) => self
-                    .state
-                    .integration_install_messages
-                    .push(format!("installed {label}")),
-                Err(err) => self
-                    .state
-                    .integration_install_messages
-                    .push(format!("{label}: {err}")),
-            }
-        }
-
-        self.state.integration_recommendations = crate::integration::integration_recommendations();
-        self.state.mark_session_dirty();
     }
 
     pub(crate) fn install_integration(&mut self, target: crate::api::schema::IntegrationTarget) {

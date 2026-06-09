@@ -133,6 +133,40 @@ impl TerminalRuntime {
         .map(Self)
     }
 
+    // Mirrors PaneRuntime::spawn_profile_command so call sites do not unwrap
+    // the runtime newtype just to pass profile launch context through.
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn_profile_command(
+        pane_id: PaneId,
+        rows: u16,
+        cols: u16,
+        cwd: std::path::PathBuf,
+        shell_config: crate::pane::PaneShellConfig<'_>,
+        command: &str,
+        extra_env: &[(String, String)],
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<AtomicBool>,
+    ) -> std::io::Result<Self> {
+        crate::pane::PaneRuntime::spawn_profile_command(
+            pane_id,
+            rows,
+            cols,
+            cwd,
+            shell_config,
+            command,
+            extra_env,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            events,
+            render_notify,
+            render_dirty,
+        )
+        .map(Self)
+    }
+
     pub fn spawn_shell_command(
         pane_id: PaneId,
         rows: u16,

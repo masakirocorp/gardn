@@ -9,6 +9,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SettingsListRow {
     Header(&'static str),
+    Caption(Cow<'static, str>),
     Spacer,
     Option {
         index: usize,
@@ -47,14 +48,20 @@ pub(crate) fn option_index_for_visual_row(rows: &[SettingsListRow], row: usize) 
     let mut visual_row = 0;
     for entry in rows {
         match entry {
-            SettingsListRow::Header(_) | SettingsListRow::Spacer => {
+            SettingsListRow::Header(_) | SettingsListRow::Caption(_) | SettingsListRow::Spacer => {
                 if row == visual_row {
                     return None;
                 }
                 visual_row += 1;
             }
-            SettingsListRow::Option { index, .. } | SettingsListRow::TextInput { index, .. } => {
+            SettingsListRow::Option { index, .. } => {
                 if row == visual_row || row == visual_row + 1 {
+                    return Some(*index);
+                }
+                visual_row += 2;
+            }
+            SettingsListRow::TextInput { index, .. } => {
+                if row == visual_row + 1 {
                     return Some(*index);
                 }
                 visual_row += 2;
@@ -92,10 +99,18 @@ pub(crate) fn selected_visual_row(rows: &[SettingsListRow], selected: usize) -> 
     let mut visual_row = 0;
     for entry in rows {
         match entry {
-            SettingsListRow::Header(_) | SettingsListRow::Spacer => visual_row += 1,
-            SettingsListRow::Option { index, .. } | SettingsListRow::TextInput { index, .. } => {
+            SettingsListRow::Header(_) | SettingsListRow::Caption(_) | SettingsListRow::Spacer => {
+                visual_row += 1;
+            }
+            SettingsListRow::Option { index, .. } => {
                 if *index == selected {
                     return Some(visual_row);
+                }
+                visual_row += 2;
+            }
+            SettingsListRow::TextInput { index, .. } => {
+                if *index == selected {
+                    return Some(visual_row + 1);
                 }
                 visual_row += 2;
             }
@@ -114,6 +129,7 @@ pub(crate) fn visual_row_count(rows: &[SettingsListRow]) -> usize {
     rows.iter()
         .map(|row| match row {
             SettingsListRow::Header(_)
+            | SettingsListRow::Caption(_)
             | SettingsListRow::Spacer
             | SettingsListRow::Choice { .. }
             | SettingsListRow::StatusChoice { .. } => 1,
@@ -323,51 +339,171 @@ fn group_general_rows(app: &AppState) -> Vec<SettingsListRow> {
     ]
 }
 
+fn active_group_favorites(app: &AppState) -> &[String] {
+    app.groups
+        .get(app.active_group)
+        .map(|group| group.favorite_agent_profile_ids.as_slice())
+        .unwrap_or(&[])
+}
+
+fn agent_profile_marker(
+    profile: &crate::agent_profiles::AgentProfile,
+    favorites: &[String],
+) -> (Cow<'static, str>, SettingsMarkerTone) {
+    if favorites.iter().any(|id| id == &profile.id) {
+        ("◆".into(), SettingsMarkerTone::Accent)
+    } else if profile.available() {
+        ("•".into(), SettingsMarkerTone::Good)
+    } else {
+        ("!".into(), SettingsMarkerTone::Warning)
+    }
+}
+
+fn agent_profile_editor_open(app: &AppState) -> bool {
+    app.settings.pending_agent_profile_id.is_some()
+        || app.settings.pending_agent_profile_name.is_some()
+        || app.settings.pending_agent_profile_command.is_some()
+}
+
+fn agent_profile_browse_label(profile: &crate::agent_profiles::AgentProfile) -> String {
+    if profile.is_system() || profile.command == profile.name {
+        profile.name.clone()
+    } else {
+        format!("{}  {}", profile.name, profile.command)
+    }
+}
+
 fn agent_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
+    if !agent_profile_editor_open(app) {
+        return agent_profile_browse_rows(app);
+    }
+
     let mut rows = Vec::new();
-    rows.push(SettingsListRow::Header("system profiles"));
-    let mut index = 0;
-    for profile in app.agent_profiles.profiles() {
-        if profile.is_system() {
-            rows.push(SettingsListRow::StatusChoice {
-                index,
-                marker: if profile.available() { "•" } else { "!" }.into(),
-                label: format!("{}  {}", profile.name, profile.command).into(),
-                tone: if profile.available() {
-                    SettingsMarkerTone::Accent
-                } else {
-                    SettingsMarkerTone::Warning
-                },
-            });
-            index += 1;
-        }
+    let name = app
+        .settings
+        .pending_agent_profile_name
+        .clone()
+        .unwrap_or_default();
+    let command = app
+        .settings
+        .pending_agent_profile_command
+        .clone()
+        .unwrap_or_default();
+    let kind = app
+        .settings
+        .pending_agent_profile_kind
+        .unwrap_or(crate::agent_profiles::AgentKind::Omp);
+    let editing = app.settings.pending_agent_profile_id.is_some();
+
+    rows.push(SettingsListRow::Header("1. name"));
+    rows.push(SettingsListRow::Caption(
+        "enter the short label shown in menus and pickers".into(),
+    ));
+    rows.push(SettingsListRow::TextInput {
+        index: 0,
+        title: "profile name".into(),
+        value: name.into(),
+    });
+    rows.push(SettingsListRow::Spacer);
+    rows.push(SettingsListRow::Header("2. kind"));
+    rows.push(SettingsListRow::Caption(
+        "select the agent family this command should restore as".into(),
+    ));
+    for (offset, agent_kind) in crate::agent_profiles::AgentKind::ALL
+        .iter()
+        .copied()
+        .enumerate()
+    {
+        rows.push(SettingsListRow::Choice {
+            index: 1 + offset,
+            label: agent_kind.as_str().into(),
+            checked: agent_kind == kind,
+        });
     }
     rows.push(SettingsListRow::Spacer);
-    rows.push(SettingsListRow::Header("custom profiles"));
-    let mut has_custom = false;
-    for profile in app.agent_profiles.profiles() {
-        if !profile.is_system() {
-            has_custom = true;
+    rows.push(SettingsListRow::Header("3. command"));
+    rows.push(SettingsListRow::Caption(
+        "enter the exact shell command hako should launch".into(),
+    ));
+    rows.push(SettingsListRow::TextInput {
+        index: 9,
+        title: "command".into(),
+        value: command.into(),
+    });
+    rows.push(SettingsListRow::Spacer);
+    rows.push(SettingsListRow::Header("4. actions"));
+    rows.push(SettingsListRow::Caption(
+        "save the profile, discard changes, or delete a custom profile".into(),
+    ));
+    rows.push(SettingsListRow::StatusChoice {
+        index: 10,
+        marker: "+".into(),
+        label: if editing {
+            "save custom profile".into()
+        } else {
+            "add custom profile".into()
+        },
+        tone: SettingsMarkerTone::Accent,
+    });
+    rows.push(SettingsListRow::StatusChoice {
+        index: 11,
+        marker: "×".into(),
+        label: "discard changes".into(),
+        tone: SettingsMarkerTone::Disabled,
+    });
+    if editing {
+        rows.push(SettingsListRow::StatusChoice {
+            index: 12,
+            marker: "!".into(),
+            label: "delete custom profile".into(),
+            tone: SettingsMarkerTone::Danger,
+        });
+    }
+    rows
+}
+
+fn agent_profile_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
+    let favorites = active_group_favorites(app);
+    let mut rows = Vec::new();
+    let mut index = 1;
+
+    rows.push(SettingsListRow::Header("custom"));
+    rows.push(SettingsListRow::StatusChoice {
+        index: 0,
+        marker: "+".into(),
+        label: "add custom profile".into(),
+        tone: SettingsMarkerTone::Accent,
+    });
+
+    let (favorite, available) = app.agent_profiles.group_sections(favorites);
+    rows.push(SettingsListRow::Spacer);
+    rows.push(SettingsListRow::Header("favorites"));
+    if favorite.is_empty() {
+        rows.push(SettingsListRow::Caption("no favorites".into()));
+    } else {
+        for profile in favorite {
+            let (marker, tone) = agent_profile_marker(profile, favorites);
             rows.push(SettingsListRow::StatusChoice {
                 index,
-                marker: if profile.available() { "•" } else { "!" }.into(),
-                label: format!("{}  {}", profile.name, profile.command).into(),
-                tone: if profile.available() {
-                    SettingsMarkerTone::Accent
-                } else {
-                    SettingsMarkerTone::Warning
-                },
+                marker,
+                label: agent_profile_browse_label(profile).into(),
+                tone,
             });
             index += 1;
         }
     }
-    if !has_custom {
+
+    rows.push(SettingsListRow::Spacer);
+    rows.push(SettingsListRow::Header("available"));
+    for profile in available {
+        let (marker, tone) = agent_profile_marker(profile, favorites);
         rows.push(SettingsListRow::StatusChoice {
             index,
-            marker: "+".into(),
-            label: "add profile in config.toml".into(),
-            tone: SettingsMarkerTone::Disabled,
+            marker,
+            label: agent_profile_browse_label(profile).into(),
+            tone,
         });
+        index += 1;
     }
     rows
 }
@@ -384,13 +520,13 @@ fn group_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
     let mut index = 0;
     rows.push(SettingsListRow::Header("favorites"));
     if favorite.is_empty() {
-        rows.push(SettingsListRow::Header("no favorites"));
+        rows.push(SettingsListRow::Caption("no favorites".into()));
     } else {
         for profile in favorite {
             rows.push(SettingsListRow::StatusChoice {
                 index,
                 marker: "◆".into(),
-                label: format!("{}  {}", profile.name, profile.kind.as_str()).into(),
+                label: agent_profile_browse_label(profile).into(),
                 tone: SettingsMarkerTone::Accent,
             });
             index += 1;
@@ -402,7 +538,7 @@ fn group_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
         rows.push(SettingsListRow::StatusChoice {
             index,
             marker: " ".into(),
-            label: format!("{}  {}", profile.name, profile.kind.as_str()).into(),
+            label: agent_profile_browse_label(profile).into(),
             tone: SettingsMarkerTone::Disabled,
         });
         index += 1;
@@ -423,20 +559,11 @@ fn layout_rows(app: &AppState) -> Vec<SettingsListRow> {
         .settings
         .pending_sidebar_max_width
         .unwrap_or(app.sidebar_max_width);
-    let worktree_directory = app
-        .settings
-        .pending_worktree_directory
-        .clone()
-        .unwrap_or_else(|| app.worktree_directory.display().to_string());
-
     vec![
         SettingsListRow::Header("sidebar"),
         option(0, "default sidebar width", format!("{width} columns"), true),
         option(1, "minimum sidebar width", format!("{min} columns"), true),
         option(2, "maximum sidebar width", format!("{max} columns"), true),
-        SettingsListRow::Spacer,
-        SettingsListRow::Header("worktrees"),
-        option(3, "worktree directory", worktree_directory, true),
     ]
 }
 
@@ -453,6 +580,11 @@ fn behavior_rows(app: &AppState) -> Vec<SettingsListRow> {
             .pending_mouse_scroll_lines
             .unwrap_or(app.mouse_scroll_lines)
     );
+    let worktree_directory = app
+        .settings
+        .pending_worktree_directory
+        .clone()
+        .unwrap_or_else(|| app.worktree_directory.display().to_string());
 
     vec![
         SettingsListRow::Header("workspace"),
@@ -472,12 +604,13 @@ fn behavior_rows(app: &AppState) -> Vec<SettingsListRow> {
                 .pending_prompt_new_tab_name
                 .unwrap_or_else(|| app.prompt_new_tab_name_enabled()),
         ),
+        option(2, "worktree directory", worktree_directory, true),
         SettingsListRow::Spacer,
         SettingsListRow::Header("terminal"),
-        option(2, "new terminal cwd", cwd_label, true),
-        option(3, "mouse wheel speed", scroll_label, true),
+        option(3, "new terminal cwd", cwd_label, true),
+        option(4, "mouse wheel speed", scroll_label, true),
         option(
-            4,
+            5,
             "agent border labels",
             "show detected agent names in split pane borders",
             app.settings
@@ -648,9 +781,11 @@ mod tests {
         assert_eq!(option_index_for_visual_row(&rows, 2), Some(0));
         assert_eq!(option_index_for_visual_row(&rows, 3), Some(1));
         assert_eq!(option_index_for_visual_row(&rows, 4), Some(1));
-        assert_eq!(option_index_for_visual_row(&rows, 5), None);
-        assert_eq!(option_index_for_visual_row(&rows, 6), None);
-        assert_eq!(option_index_for_visual_row(&rows, 7), Some(2));
-        assert_eq!(option_index_for_visual_row(&rows, 11), Some(4));
+        assert_eq!(option_index_for_visual_row(&rows, 5), Some(2));
+        assert_eq!(option_index_for_visual_row(&rows, 6), Some(2));
+        assert_eq!(option_index_for_visual_row(&rows, 7), None);
+        assert_eq!(option_index_for_visual_row(&rows, 8), None);
+        assert_eq!(option_index_for_visual_row(&rows, 9), Some(3));
+        assert_eq!(option_index_for_visual_row(&rows, 13), Some(5));
     }
 }

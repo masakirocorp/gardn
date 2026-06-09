@@ -110,9 +110,9 @@ Supported built-in detection includes:
 ### Agent profiles
 
 - **System profiles** — Hako exposes one read-only system profile for each supported integration target.
-- **Custom profiles** — define profile-specific commands and optional environment in `[agent_profiles]`, such as organization-specific OMP, PI, OpenCode, or Codex wrappers.
-- **Group favorites** — group settings can promote favorite profiles; favorites appear before available profiles while both sections keep the global profile order.
-- **New agent from command palette** — launch an agent profile into a new tab in the active space from the command palette.
+- **Custom profiles** — add or edit profile-specific commands from Settings > Agents. Hako persists them to `[agent_profiles]`, so organization-specific OMP, PI, OpenCode, Codex, or wrapper commands restore with the same profile/tooling.
+- **Group favorites** — group settings can promote favorite profiles with `ctrl+f`; favorites appear before available profiles while both sections keep the global profile order.
+- **New agent launch** — choose `new agent` from the command palette, space context menu, group context menu, tab context menu, or the tab `+` dropdown. Hako starts the only available profile immediately, or opens a favorites-first profile picker when multiple profiles are available.
 
 ### Agent session restore
 
@@ -194,13 +194,15 @@ Settings are edited in an in-app modal.
 Tabs include:
 
 - Theme
+- Layout
 - Sound
-- Toast
-- Pane Labels
+- Toasts
+- Behavior
+- Agents
 - Integrations
 - Experiments
 
-The modal supports keyboard navigation, mouse navigation, scrollbars, save/cancel semantics, and install/update/uninstall actions in the integrations tab.
+The modal supports keyboard navigation, mouse navigation, scrollbars, immediate settings updates, a top-right `esc close` affordance, a responsive tab bar, and install/update/uninstall actions in the integrations tab. Workspace behavior owns prompts, terminal defaults, and the worktree directory.
 
 ### Help and confirmations
 

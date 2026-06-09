@@ -2,15 +2,16 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{List, ListItem, ListState, Paragraph, Tabs},
+    widgets::{List, ListItem, ListState, Paragraph},
     Frame,
 };
+use unicode_width::UnicodeWidthStr;
 
 use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    action_button_row_rects, centered_popup_rect, modal_section_heading_style, modal_stack_areas,
+    action_button_width, centered_popup_rect, modal_section_heading_style, modal_stack_areas,
     panel_contrast_fg, render_action_button, render_modal_description, render_modal_divider,
-    render_modal_header_bar, render_modal_hint_line, render_panel_shell, ActionButtonSpec,
+    render_modal_header_bar, render_modal_hint_line, render_panel_shell, secondary_action_style,
 };
 use crate::{
     app::{
@@ -18,10 +19,7 @@ use crate::{
         AppState,
     },
     config::ThemeMode,
-    settings_rows::{
-        rows_for_section, selected_visual_row, visual_row_count, SettingsListRow,
-        SettingsMarkerTone,
-    },
+    settings_rows::{rows_for_section, visual_row_count, SettingsListRow, SettingsMarkerTone},
 };
 const GROUP_SETTINGS_SECTIONS: &[SettingsSection] = &[
     SettingsSection::Theme,
@@ -53,13 +51,307 @@ fn settings_section_label(app: &AppState, section: SettingsSection) -> &'static 
     }
 }
 
+fn settings_tab_text(app: &AppState, section: SettingsSection) -> &'static str {
+    settings_section_label(app, section)
+}
+
+fn settings_tab_width(app: &AppState, section: SettingsSection) -> u16 {
+    let label_width = settings_tab_text(app, section).width() as u16;
+    let badge_width = if app.settings_section_has_badge(section) {
+        2
+    } else {
+        0
+    };
+    label_width + badge_width + 2
+}
+
+fn settings_tabs_width(
+    app: &AppState,
+    sections: &[SettingsSection],
+    start: usize,
+    end: usize,
+) -> u16 {
+    if start >= end {
+        return 0;
+    }
+
+    let tab_width = sections[start..end]
+        .iter()
+        .copied()
+        .map(|section| settings_tab_width(app, section))
+        .sum::<u16>();
+    let gaps = end.saturating_sub(start + 1) as u16;
+    let edge_hints = u16::from(start > 0) * 2 + u16::from(end < sections.len()) * 2;
+    tab_width + gaps + edge_hints
+}
+
+fn settings_visible_tab_range(app: &AppState, row_width: u16) -> (usize, usize) {
+    let sections = settings_sections(app);
+    if sections.is_empty() {
+        return (0, 0);
+    }
+    let selected = sections
+        .iter()
+        .position(|section| *section == app.settings.section)
+        .unwrap_or(0);
+    let mut start = selected;
+    let mut end = selected + 1;
+
+    loop {
+        let mut expanded = false;
+        if start > 0 && settings_tabs_width(app, sections, start - 1, end) <= row_width {
+            start -= 1;
+            expanded = true;
+        }
+        if end < sections.len() && settings_tabs_width(app, sections, start, end + 1) <= row_width {
+            end += 1;
+            expanded = true;
+        }
+        if !expanded {
+            break;
+        }
+    }
+
+    (start, end)
+}
+
+pub(crate) fn settings_tab_hit_areas(app: &AppState, row: Rect) -> Vec<(SettingsSection, Rect)> {
+    let sections = settings_sections(app);
+    let (start, end) = settings_visible_tab_range(app, row.width);
+    let mut x = row.x;
+    if start > 0 {
+        x = x.saturating_add(2);
+    }
+
+    let mut areas = Vec::new();
+    for (visible_idx, section) in sections[start..end].iter().copied().enumerate() {
+        if visible_idx > 0 {
+            x = x.saturating_add(1);
+        }
+        let width = settings_tab_width(app, section);
+        areas.push((section, Rect::new(x, row.y, width, 1)));
+        x = x.saturating_add(width);
+    }
+    areas
+}
+
+pub(crate) fn settings_tab_chevron_at(
+    app: &AppState,
+    row: Rect,
+    col: u16,
+) -> Option<SettingsSection> {
+    let sections = settings_sections(app);
+    let (start, end) = settings_visible_tab_range(app, row.width);
+    if start > 0 && col >= row.x && col < row.x.saturating_add(2) {
+        return sections.get(start - 1).copied();
+    }
+
+    if end < sections.len() {
+        let right_x = settings_tab_hit_areas(app, row)
+            .last()
+            .map(|(_, rect)| rect.x.saturating_add(rect.width))
+            .unwrap_or(row.x);
+        if col >= right_x && col < right_x.saturating_add(2) {
+            return sections.get(end).copied();
+        }
+    }
+
+    None
+}
+
+fn render_settings_tabs(app: &AppState, frame: &mut Frame, row: Rect) {
+    let p = &app.palette;
+    let sections = settings_sections(app);
+    let (start, end) = settings_visible_tab_range(app, row.width);
+    let mut spans = Vec::new();
+
+    if start > 0 {
+        spans.push(Span::styled("‹ ", Style::default().fg(p.overlay0)));
+    }
+
+    for (visible_idx, section) in sections[start..end].iter().copied().enumerate() {
+        if visible_idx > 0 {
+            spans.push(Span::raw(" "));
+        }
+
+        let selected = section == app.settings.section;
+        let tab_style = if selected {
+            Style::default()
+                .fg(panel_contrast_fg(p))
+                .bg(p.accent)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(p.overlay1)
+        };
+        spans.push(Span::styled(" ", tab_style));
+        if app.settings_section_has_badge(section) {
+            let badge_style = if selected {
+                tab_style
+            } else {
+                Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
+            };
+            spans.push(Span::styled("●", badge_style));
+            spans.push(Span::styled(" ", tab_style));
+        }
+        spans.push(Span::styled(settings_tab_text(app, section), tab_style));
+        spans.push(Span::styled(" ", tab_style));
+    }
+
+    if end < sections.len() {
+        spans.push(Span::styled(" ›", Style::default().fg(p.overlay0)));
+    }
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), row);
+}
+
+fn settings_section_title(app: &AppState, section: SettingsSection) -> &'static str {
+    if app.settings.group_settings_target.is_some() && section == SettingsSection::Theme {
+        "accent"
+    } else if section == SettingsSection::Agents && settings_agents_editor_open(app) {
+        if app.settings.pending_agent_profile_id.is_some() {
+            "edit custom profile"
+        } else {
+            "add custom profile"
+        }
+    } else {
+        match section {
+            SettingsSection::Theme => "theme",
+            SettingsSection::Layout => "layout",
+            SettingsSection::Sound => "sound",
+            SettingsSection::Toast => "toasts",
+            SettingsSection::PaneLabels => "behavior",
+            SettingsSection::Experiments => "experiments",
+            SettingsSection::Agents => "agents",
+            SettingsSection::Integrations => "agent integrations",
+            SettingsSection::GroupGeneral => "general",
+            SettingsSection::GroupProfiles => "profiles",
+        }
+    }
+}
+
+fn settings_section_description(app: &AppState, section: SettingsSection) -> &'static str {
+    match section {
+        SettingsSection::Theme if app.settings.group_settings_target.is_some() => {
+            "choose an ANSI accent for this group, or inherit the global accent"
+        }
+        SettingsSection::Theme => {
+            let mode = app
+                .settings
+                .pending_theme_mode
+                .unwrap_or(app.global_theme_mode);
+            let pending_light_theme = app
+                .settings
+                .pending_light_theme_name
+                .as_deref()
+                .unwrap_or(&app.global_light_theme_name);
+            let pending_dark_theme = app
+                .settings
+                .pending_dark_theme_name
+                .as_deref()
+                .unwrap_or(&app.global_dark_theme_name);
+            let system_source = mode == ThemeMode::System
+                && normalize_theme_name(pending_light_theme) == "system"
+                && normalize_theme_name(pending_dark_theme) == "system";
+            if system_source {
+                "follow terminal colors directly"
+            } else {
+                match mode {
+                    ThemeMode::System => {
+                        "choose custom palettes for automatic light and dark appearance"
+                    }
+                    ThemeMode::Light => "choose the palette hako uses in light appearance",
+                    ThemeMode::Dark => "choose the palette hako uses in dark appearance",
+                }
+            }
+        }
+        SettingsSection::Layout => "set sidebar width bounds",
+        SettingsSection::Sound => "choose whether hako plays terminal bell sounds",
+        SettingsSection::Toast => "choose where command and agent notifications are delivered",
+        SettingsSection::PaneLabels => {
+            "control workspace prompts and terminal interaction defaults"
+        }
+        SettingsSection::Experiments => "enable behavior that is useful but still being proven",
+        SettingsSection::Agents if settings_agents_editor_open(app) => {
+            "name the profile and provide the command hako should launch"
+        }
+        SettingsSection::Agents => {
+            "create custom agent commands and favorite profiles for this group"
+        }
+        SettingsSection::Integrations => "install hooks so agents report state directly",
+        SettingsSection::GroupGeneral => "rename this group or delete it",
+        SettingsSection::GroupProfiles => {
+            "choose which agent profiles are favorites for this group"
+        }
+    }
+}
+
+pub(crate) fn settings_agents_editor_back_button_rect(app: &AppState, area: Rect) -> Option<Rect> {
+    (app.settings.section == SettingsSection::Agents && settings_agents_editor_open(app)).then(
+        || {
+            let width = action_button_width(None, "← back");
+            Rect::new(area.x + area.width.saturating_sub(width), area.y, width, 1)
+        },
+    )
+}
+
+pub(crate) fn settings_section_list_rect(area: Rect) -> Rect {
+    let [_, _, list_area] = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Min(2),
+    ])
+    .areas::<3>(area);
+    list_area
+}
+
+fn render_settings_section_intro(
+    app: &AppState,
+    frame: &mut Frame,
+    area: Rect,
+    section: SettingsSection,
+) -> Rect {
+    let [desc_area, _, list_area] = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Min(2),
+    ])
+    .areas::<3>(area);
+    let [title_area, description_area] =
+        Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(desc_area);
+    let title_width = settings_agents_editor_back_button_rect(app, title_area)
+        .map(|back| back.x.saturating_sub(title_area.x).saturating_sub(1))
+        .unwrap_or(title_area.width);
+    render_modal_description(
+        frame,
+        Rect::new(title_area.x, title_area.y, title_width, title_area.height),
+        settings_section_title(app, section),
+        Style::default().fg(app.palette.accent),
+    );
+    if let Some(back) = settings_agents_editor_back_button_rect(app, title_area) {
+        render_action_button(
+            frame,
+            back,
+            None,
+            "← back",
+            secondary_action_style(&app.palette),
+        );
+    }
+    render_modal_description(
+        frame,
+        description_area,
+        settings_section_description(app, section),
+        Style::default().fg(app.palette.overlay0),
+    );
+    list_area
+}
+
 pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     use crate::app::state::SettingsSection;
 
     let group_settings = app.settings.group_settings_target.is_some();
 
     let p = &app.palette;
-    let Some(popup) = centered_popup_rect(area, 76, 22) else {
+    let Some(popup) = centered_popup_rect(area, 92, 26) else {
         return;
     };
 
@@ -72,102 +364,38 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         return;
     }
 
-    let stack = modal_stack_areas(inner, 3, 2, 0, 1);
+    let stack = modal_stack_areas(inner, 4, 1, 0, 1);
     let header_rows = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
+        Constraint::Length(1),
     ])
-    .areas::<3>(stack.header);
+    .areas::<4>(stack.header);
 
-    render_modal_header_bar(frame, header_rows[0], settings_title(app), p, false);
-
-    let tab_labels = settings_sections(app).iter().map(|section| {
-        let label = settings_section_label(app, *section);
-        if app.settings_section_has_badge(*section) {
-            let badge_style = settings_tab_badge_style(p, app.settings.section == *section);
-            Line::from(vec![Span::styled("● ", badge_style), Span::raw(label)])
-        } else {
-            Line::from(label)
-        }
-    });
-    let tabs = Tabs::new(tab_labels)
-        .select(
-            settings_sections(app)
-                .iter()
-                .position(|section| *section == app.settings.section)
-                .unwrap_or(0),
-        )
-        .style(Style::default().fg(p.overlay1))
-        .highlight_style(
-            Style::default()
-                .fg(panel_contrast_fg(p))
-                .bg(p.accent)
-                .add_modifier(Modifier::BOLD),
-        )
-        .divider(" ")
-        .padding(" ", " ");
-    frame.render_widget(tabs, header_rows[1]);
-
-    render_modal_divider(frame, header_rows[2], p);
+    render_modal_header_bar(frame, header_rows[0], settings_title(app), p, true);
+    render_settings_tabs(app, frame, header_rows[2]);
+    render_modal_divider(frame, header_rows[3], p);
 
     let content_area = stack.content;
 
     match app.settings.section {
-        SettingsSection::Theme => {
-            render_settings_theme(app, frame, content_area);
-        }
-        SettingsSection::Layout => {
-            render_settings_layout(app, frame, content_area);
-        }
-        SettingsSection::Sound | SettingsSection::Toast => {
-            render_settings_sectioned_toggle_list(app, frame, content_area);
-        }
-        SettingsSection::PaneLabels => {
-            render_settings_behavior(app, frame, content_area);
-        }
-        SettingsSection::Experiments => {
-            render_settings_experiments(app, frame, content_area);
-        }
-        SettingsSection::Agents
+        SettingsSection::Theme
+        | SettingsSection::Layout
+        | SettingsSection::Sound
+        | SettingsSection::Toast
+        | SettingsSection::PaneLabels
+        | SettingsSection::Experiments
+        | SettingsSection::Agents
         | SettingsSection::GroupGeneral
         | SettingsSection::GroupProfiles => {
             render_settings_sectioned_toggle_list(app, frame, content_area);
         }
-        SettingsSection::Integrations => {
-            render_settings_integrations(app, frame, content_area);
-        }
+        SettingsSection::Integrations => render_settings_integrations(app, frame, content_area),
     }
 
     if let Some(footer_area) = stack.footer {
-        let footer_rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)])
-            .areas::<2>(footer_area);
-        let primary_label = settings_primary_button_label(app.settings.section);
-        let show_primary = settings_show_primary_action(app);
-        let (apply_rect, close_rect) =
-            settings_button_rects(inner, app.settings.section, show_primary);
-        if let Some(apply_rect) = apply_rect {
-            render_action_button(
-                frame,
-                apply_rect,
-                Some("↵"),
-                primary_label,
-                Style::default()
-                    .fg(panel_contrast_fg(p))
-                    .bg(p.accent)
-                    .add_modifier(Modifier::BOLD),
-            );
-        }
-        render_action_button(
-            frame,
-            close_rect,
-            Some("esc"),
-            "cancel",
-            Style::default()
-                .fg(p.text)
-                .bg(p.surface0)
-                .add_modifier(Modifier::BOLD),
-        );
+        let footer_rows = Layout::vertical([Constraint::Length(1)]).areas::<1>(footer_area);
 
         if app.settings.section == SettingsSection::Integrations {
             render_modal_hint_line(
@@ -175,6 +403,25 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                 footer_rows[0],
                 p,
                 &[("move", "↑↓"), ("action", "space/↵"), ("section", "tab")],
+            );
+        } else if app.settings.section == SettingsSection::Agents {
+            let hints = if settings_agents_editor_open(app) {
+                &[("move", "↑↓"), ("action", "↵"), ("section", "tab")][..]
+            } else {
+                &[
+                    ("move", "↑↓"),
+                    ("favorite", "ctrl+f"),
+                    ("edit/add", "↵"),
+                    ("section", "tab"),
+                ][..]
+            };
+            render_modal_hint_line(frame, footer_rows[0], p, hints);
+        } else if app.settings.section == SettingsSection::GroupProfiles {
+            render_modal_hint_line(
+                frame,
+                footer_rows[0],
+                p,
+                &[("move", "↑↓"), ("favorite", "ctrl+f")],
             );
         } else if group_settings {
             render_modal_hint_line(
@@ -194,82 +441,33 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     }
 }
 
-pub(crate) fn settings_primary_button_label(
-    section: crate::app::state::SettingsSection,
-) -> &'static str {
-    match section {
-        crate::app::state::SettingsSection::Integrations => "install",
-        _ => "save",
-    }
+fn settings_agents_editor_open(app: &AppState) -> bool {
+    app.settings.pending_agent_profile_id.is_some()
+        || app.settings.pending_agent_profile_name.is_some()
+        || app.settings.pending_agent_profile_command.is_some()
 }
 
-pub(crate) fn settings_show_primary_action(app: &AppState) -> bool {
-    app.settings.section != crate::app::state::SettingsSection::Integrations
-        || app
-            .integration_recommendations
-            .iter()
-            .any(crate::integration::IntegrationRecommendation::needs_install)
+pub(crate) fn settings_close_button_rect(inner: Rect) -> Rect {
+    let header = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas::<4>(modal_stack_areas(inner, 4, 1, 0, 1).header)[0];
+    super::widgets::modal_close_button_rect(header)
 }
 
-pub(crate) fn settings_button_rects(
-    inner: Rect,
-    section: crate::app::state::SettingsSection,
-    show_primary: bool,
-) -> (Option<Rect>, Rect) {
-    if !show_primary {
-        let rects = action_button_row_rects(
-            inner,
-            &[ActionButtonSpec {
-                hint: Some("esc"),
-                label: "cancel",
-            }],
-            2,
-            inner.height.saturating_sub(1),
-        );
-        return (None, rects[0]);
-    }
-
-    let rects = action_button_row_rects(
-        inner,
-        &[
-            ActionButtonSpec {
-                hint: Some("↵"),
-                label: settings_primary_button_label(section),
-            },
-            ActionButtonSpec {
-                hint: Some("esc"),
-                label: "cancel",
-            },
-        ],
-        2,
-        inner.height.saturating_sub(1),
-    );
-    (Some(rects[0]), rects[1])
+#[cfg(test)]
+fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
+    render_settings_sectioned_toggle_list(app, frame, area);
 }
 
 fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
     let p = &app.palette;
-    let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(2),
-        Constraint::Length(1),
-        Constraint::Min(0),
-    ])
-    .areas::<4>(area);
-
-    frame.render_widget(
-        Paragraph::new("agent integrations")
-            .style(Style::default().fg(p.text).add_modifier(Modifier::BOLD)),
-        rows[0],
-    );
-    frame.render_widget(
-        Paragraph::new(
-            "let agents report state directly instead of relying only on process detection",
-        )
-        .style(Style::default().fg(p.overlay1))
-        .wrap(ratatui::widgets::Wrap { trim: false }),
-        rows[1],
-    );
+    let body_area = render_settings_section_intro(app, frame, area, SettingsSection::Integrations);
+    let [list_area, hint_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas::<2>(body_area);
 
     let model_rows = rows_for_section(app, SettingsSection::Integrations).unwrap_or_default();
     let mut lines = Vec::new();
@@ -298,7 +496,7 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
         if selected {
             let text = format!(" {marker} {label}");
             lines.push(Line::from(Span::styled(
-                format!("{text:<width$}", width = rows[3].width as usize),
+                format!("{text:<width$}", width = list_area.width as usize),
                 selected_style,
             )));
         } else {
@@ -315,202 +513,70 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
             Style::default().fg(p.overlay1),
         )));
     }
+    frame.render_widget(Paragraph::new(lines), list_area);
 
-    if !app.integration_install_messages.is_empty() {
-        lines.push(Line::from(""));
-        for message in &app.integration_install_messages {
-            lines.push(Line::from(Span::styled(
-                format!(" {message}"),
-                Style::default().fg(p.overlay1),
-            )));
+    let found_any = app.integration_recommendations.iter().any(|item| {
+        item.available || item.state != crate::integration::IntegrationStatusKind::NotInstalled
+    });
+    let hint = if !app.integration_install_messages.is_empty() {
+        app.integration_install_messages.join("\n ")
+    } else if let Some(item) = app
+        .integration_recommendations
+        .get(app.settings.list.selected)
+    {
+        match item.state {
+            crate::integration::IntegrationStatusKind::Current => {
+                "press enter to uninstall selected integration".to_string()
+            }
+            crate::integration::IntegrationStatusKind::Outdated => {
+                "press enter to update selected integration".to_string()
+            }
+            crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
+                "press enter to install selected integration".to_string()
+            }
+            crate::integration::IntegrationStatusKind::NotInstalled => {
+                "selected integration is unavailable".to_string()
+            }
         }
+    } else if app
+        .integration_recommendations
+        .iter()
+        .any(crate::integration::IntegrationRecommendation::needs_install)
+    {
+        "press enter to add available or outdated integrations".to_string()
+    } else if found_any {
+        "all detected integrations are installed".to_string()
     } else {
-        lines.push(Line::from(""));
-        let found_any = app.integration_recommendations.iter().any(|item| {
-            item.available || item.state != crate::integration::IntegrationStatusKind::NotInstalled
-        });
-        let hint = if let Some(item) = app
-            .integration_recommendations
-            .get(app.settings.list.selected)
-        {
-            match item.state {
-                crate::integration::IntegrationStatusKind::Current => {
-                    " press enter to uninstall selected integration"
-                }
-                crate::integration::IntegrationStatusKind::Outdated => {
-                    " press enter to update selected integration"
-                }
-                crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
-                    " press enter to install selected integration"
-                }
-                crate::integration::IntegrationStatusKind::NotInstalled => {
-                    " selected integration is unavailable"
-                }
-            }
-        } else if app
-            .integration_recommendations
-            .iter()
-            .any(crate::integration::IntegrationRecommendation::needs_install)
-        {
-            " press install to add available or outdated integrations"
-        } else if found_any {
-            " all detected integrations are installed"
-        } else {
-            " no supported agent CLIs found on PATH"
-        };
-        lines.push(Line::from(Span::styled(
-            hint,
-            Style::default().fg(p.overlay1),
-        )));
-    }
-
-    frame.render_widget(Paragraph::new(lines), rows[3]);
-}
-
-fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
-    let p = &app.palette;
-    let [desc_area, _, list_area] = Layout::vertical([
-        Constraint::Length(2),
-        Constraint::Length(1),
-        Constraint::Min(2),
-    ])
-    .areas::<3>(area);
-    let [title_area, description_area] =
-        Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(desc_area);
-
-    let mode = app
-        .settings
-        .pending_theme_mode
-        .unwrap_or(app.global_theme_mode);
-    let pending_light_theme = app
-        .settings
-        .pending_light_theme_name
-        .as_deref()
-        .unwrap_or(&app.global_light_theme_name);
-    let pending_dark_theme = app
-        .settings
-        .pending_dark_theme_name
-        .as_deref()
-        .unwrap_or(&app.global_dark_theme_name);
-    let system_source = mode == ThemeMode::System
-        && normalize_theme_name(pending_light_theme) == "system"
-        && normalize_theme_name(pending_dark_theme) == "system";
-
-    let description = if app.settings.group_settings_target.is_some() {
-        "choose an ANSI accent for this group, or inherit the global accent"
-    } else if system_source {
-        "follow terminal colors directly"
-    } else {
-        match mode {
-            ThemeMode::System => "choose custom palettes for automatic light and dark appearance",
-            ThemeMode::Light => "choose the palette hako uses in light appearance",
-            ThemeMode::Dark => "choose the palette hako uses in dark appearance",
-        }
+        "no supported agent CLIs found on PATH".to_string()
     };
-    render_modal_description(
-        frame,
-        title_area,
-        if app.settings.group_settings_target.is_some() {
-            "accent"
-        } else {
-            "theme"
-        },
-        modal_section_heading_style(p),
+    frame.render_widget(
+        Paragraph::new(format!(" {hint}")).style(Style::default().fg(p.overlay1)),
+        hint_area,
     );
-    render_modal_description(
-        frame,
-        description_area,
-        description,
-        Style::default().fg(p.overlay1),
-    );
-
-    let Some(model_rows) = rows_for_section(app, SettingsSection::Theme) else {
-        return;
-    };
-    let selected_row = selected_visual_row(&model_rows, app.settings.list.selected).unwrap_or(0);
-    let mut items: Vec<ListItem> = Vec::with_capacity(model_rows.len());
-    let list_width = list_area.width as usize;
-
-    for row in &model_rows {
-        match row {
-            SettingsListRow::Header(title) => {
-                items.push(ListItem::new(Line::from(Span::styled(
-                    format!(" {title}"),
-                    modal_section_heading_style(p),
-                ))));
-            }
-            SettingsListRow::Spacer => items.push(ListItem::new(Line::from(""))),
-            SettingsListRow::Choice { label, checked, .. } => {
-                let selected = selected_row == items.len();
-                let marker = if *checked { " ✓" } else { "" };
-                if selected {
-                    let text = format!("  {label}{marker}");
-                    items.push(ListItem::new(Line::from(Span::styled(
-                        format!("{text:<list_width$}"),
-                        modal_option_style(p, true),
-                    ))));
-                } else {
-                    items.push(ListItem::new(Line::from(vec![
-                        Span::styled(format!("  {label}"), modal_option_style(p, false)),
-                        Span::styled(marker.to_string(), modal_option_marker_style(p, false)),
-                    ])));
-                }
-            }
-            SettingsListRow::Option { .. }
-            | SettingsListRow::TextInput { .. }
-            | SettingsListRow::StatusChoice { .. } => {}
-        }
-    }
-
-    let total_items = visual_row_count(&model_rows);
-    let list = List::new(items)
-        .highlight_style(
-            Style::default()
-                .fg(panel_contrast_fg(p))
-                .bg(p.accent)
-                .add_modifier(Modifier::BOLD),
-        )
-        .style(Style::default().fg(p.subtext0));
-
-    let viewport = crate::ui::ModalListViewport::new(
-        total_items,
-        list_area.height as usize,
-        app.settings.scroll,
-    );
-    let scroll = viewport.scroll();
-    let scroll_area = viewport.scroll_area(list_area);
-    let metrics = viewport.metrics();
-    let viewport_rows = list_area.height as usize;
-
-    let selected =
-        (selected_row >= scroll && selected_row < scroll + viewport_rows).then_some(selected_row);
-    let mut state = ListState::default()
-        .with_selected(selected)
-        .with_offset(scroll);
-    frame.render_stateful_widget(list, scroll_area.body, &mut state);
-    if let Some(track) = scroll_area.track {
-        render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▐");
-    }
-}
-
-fn render_settings_layout(app: &AppState, frame: &mut Frame, area: Rect) {
-    render_settings_sectioned_toggle_list(app, frame, area);
-}
-
-fn render_settings_behavior(app: &AppState, frame: &mut Frame, area: Rect) {
-    render_settings_sectioned_toggle_list(app, frame, area);
 }
 
 fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area: Rect) {
+    let list_area = render_settings_section_intro(app, frame, area, app.settings.section);
+    render_settings_rows(app, frame, list_area);
+}
+
+fn render_settings_rows(app: &AppState, frame: &mut Frame, area: Rect) {
     let p = &app.palette;
     let selected_style = modal_option_style(p, true);
-    let list_width = area.width as usize;
-    let mut selected_row = None;
-    let mut rows = Vec::new();
 
     let Some(model_rows) = rows_for_section(app, app.settings.section) else {
         return;
     };
+
+    let total_items = visual_row_count(&model_rows);
+    let viewport =
+        crate::ui::ModalListViewport::new(total_items, area.height as usize, app.settings.scroll);
+    let scroll = viewport.scroll();
+    let scroll_area = viewport.scroll_area(area);
+    let list_width = scroll_area.body.width as usize;
+    let viewport_rows = area.height as usize;
+    let mut selected_row = None;
+    let mut rows = Vec::with_capacity(total_items);
 
     for row in &model_rows {
         match row {
@@ -518,6 +584,12 @@ fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area
                 rows.push(ListItem::new(Line::from(Span::styled(
                     format!(" {title}"),
                     modal_section_heading_style(p),
+                ))));
+            }
+            SettingsListRow::Caption(text) => {
+                rows.push(ListItem::new(Line::from(Span::styled(
+                    format!(" {text}"),
+                    Style::default().fg(p.subtext0),
                 ))));
             }
             SettingsListRow::Spacer => rows.push(ListItem::new(Line::from(""))),
@@ -533,39 +605,33 @@ fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area
                 }
                 let marker = if *enabled { "●" } else { "○" };
                 let marker_style = settings_toggle_marker_style(p, *enabled, selected);
-
-                let item = if selected {
-                    ListItem::new(vec![
-                        Line::from(vec![
-                            Span::styled(marker, marker_style),
-                            Span::styled(" ", selected_style),
-                            Span::styled(
-                                format!("{title:<width$}", width = list_width.saturating_sub(2)),
-                                selected_style,
-                            ),
-                        ]),
-                        Line::from(Span::styled(
-                            format!(
-                                "  {description:<width$}",
-                                width = list_width.saturating_sub(2)
-                            ),
+                if selected {
+                    rows.push(ListItem::new(Line::from(vec![
+                        Span::styled(marker, marker_style),
+                        Span::styled(" ", selected_style),
+                        Span::styled(
+                            format!("{title:<width$}", width = list_width.saturating_sub(2)),
                             selected_style,
-                        )),
-                    ])
+                        ),
+                    ])));
+                    rows.push(ListItem::new(Line::from(Span::styled(
+                        format!(
+                            "  {description:<width$}",
+                            width = list_width.saturating_sub(2)
+                        ),
+                        selected_style,
+                    ))));
                 } else {
-                    ListItem::new(vec![
-                        Line::from(vec![
-                            Span::styled(marker, marker_style),
-                            Span::raw(" "),
-                            Span::styled(title.as_ref(), Style::default().fg(p.text)),
-                        ]),
-                        Line::from(Span::styled(
-                            description.as_ref(),
-                            Style::default().fg(p.subtext0),
-                        )),
-                    ])
-                };
-                rows.push(item);
+                    rows.push(ListItem::new(Line::from(vec![
+                        Span::styled(marker, marker_style),
+                        Span::raw(" "),
+                        Span::styled(title.as_ref(), Style::default().fg(p.text)),
+                    ])));
+                    rows.push(ListItem::new(Line::from(Span::styled(
+                        description.as_ref(),
+                        Style::default().fg(p.subtext0),
+                    ))));
+                }
             }
             SettingsListRow::TextInput {
                 index,
@@ -574,28 +640,22 @@ fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area
             } => {
                 let selected = app.settings.list.selected == *index;
                 if selected {
-                    selected_row = Some(rows.len());
+                    selected_row = Some(rows.len() + 1);
                 }
-                let title_style = if selected {
-                    selected_style
-                } else {
-                    Style::default().fg(p.text).add_modifier(Modifier::BOLD)
-                };
+                rows.push(ListItem::new(Line::from(Span::styled(
+                    format!(" {title:<width$}", width = list_width.saturating_sub(1)),
+                    Style::default().fg(p.text).add_modifier(Modifier::BOLD),
+                ))));
                 let input_value = if selected {
                     format!(" {value}█")
                 } else {
                     format!(" {value}")
                 };
-                rows.push(ListItem::new(vec![
-                    Line::from(Span::styled(
-                        format!(" {title:<width$}", width = list_width.saturating_sub(1)),
-                        title_style,
-                    )),
-                    Line::from(Span::styled(
-                        format!("{input_value:<list_width$}"),
-                        Style::default().fg(p.text).bg(p.surface0),
-                    )),
-                ]));
+                let input_style = Style::default().fg(p.text).bg(p.surface0);
+                rows.push(ListItem::new(Line::from(Span::styled(
+                    format!("{input_value:<list_width$}"),
+                    input_style,
+                ))));
             }
             SettingsListRow::Choice {
                 index,
@@ -661,13 +721,24 @@ fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area
         }
     }
 
-    let list = List::new(rows).highlight_symbol(" ");
-    let mut state = ListState::default().with_selected(selected_row);
-    frame.render_stateful_widget(list, area, &mut state);
-}
+    let selected =
+        selected_row.and_then(|row| (row >= scroll && row < scroll + viewport_rows).then_some(row));
 
-fn render_settings_experiments(app: &AppState, frame: &mut Frame, area: Rect) {
-    render_settings_sectioned_toggle_list(app, frame, area);
+    let list = List::new(rows);
+    let mut state = ListState::default()
+        .with_selected(selected)
+        .with_offset(scroll);
+    frame.render_stateful_widget(list, scroll_area.body, &mut state);
+    if let Some(track) = scroll_area.track {
+        render_scrollbar(
+            frame,
+            viewport.metrics(),
+            track,
+            p.surface_dim,
+            p.overlay0,
+            "▐",
+        );
+    }
 }
 
 fn modal_option_style(p: &Palette, selected: bool) -> Style {
@@ -696,16 +767,6 @@ fn settings_danger_selected_style(p: &Palette) -> Style {
         .fg(panel_contrast_fg(p))
         .bg(p.red)
         .add_modifier(Modifier::BOLD)
-}
-fn settings_tab_badge_style(p: &Palette, selected: bool) -> Style {
-    if selected {
-        Style::default()
-            .fg(panel_contrast_fg(p))
-            .bg(p.accent)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
-    }
 }
 
 fn settings_toggle_marker_style(p: &Palette, enabled: bool, selected: bool) -> Style {
@@ -1061,9 +1122,74 @@ mod tests {
             .expect("render theme settings");
 
         let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(0, 9)].symbol(), " ");
-        assert_eq!(buffer[(1, 9)].symbol(), " ");
-        assert_eq!(buffer[(2, 9)].symbol(), "l");
+        let text = buffer_text(buffer, area.width, area.height);
+        let (y, x) = find_text_cell(&text, "light ✓").expect("selected light row");
+        assert_eq!(buffer[(x.saturating_sub(2), y)].symbol(), " ");
+        assert_eq!(buffer[(x.saturating_sub(1), y)].symbol(), " ");
+        assert_eq!(buffer[(x, y)].symbol(), "l");
+    }
+
+    #[test]
+    fn agent_profile_editor_renders_numbered_steps() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Agents;
+        app.settings.pending_agent_profile_name = Some("omp mk".to_string());
+        app.settings.pending_agent_profile_command = Some("omp-mk".to_string());
+        app.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Omp);
+
+        let area = Rect::new(0, 0, 100, 40);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("← back"));
+        assert!(text.contains("1. name"));
+        assert!(text.contains("enter the short label shown in menus and pickers"));
+        assert!(text.contains("2. kind"));
+        assert!(text.contains("select the agent family this command should restore as"));
+        app.settings.scroll = 12;
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render scrolled settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("3. command"));
+        assert!(text.contains("enter the exact shell command hako should launch"));
+        assert!(text.contains("4. actions"));
+    }
+
+    #[test]
+    fn agent_profile_editor_selected_choice_does_not_shift_text() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Agents;
+        app.settings.pending_agent_profile_name = Some("omp mk".to_string());
+        app.settings.pending_agent_profile_command = Some("omp-mk".to_string());
+        app.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Omp);
+        app.settings.list.selected = 2;
+
+        let area = Rect::new(0, 0, 100, 40);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, area.width, area.height);
+        let (y, x) = find_text_cell(&text, "omp ✓").expect("selected omp kind");
+        let popup = centered_popup_rect(area, 92, 26).expect("settings popup");
+        let inner = Rect::new(
+            popup.x + 1,
+            popup.y + 1,
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
+        );
+        let list_x = settings_section_list_rect(modal_stack_areas(inner, 4, 1, 0, 1).content).x;
+        assert_eq!(x, list_x + 2);
+        assert_eq!(buffer[(x, y)].symbol(), "o");
     }
 
     #[test]
@@ -1109,7 +1235,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_renders_single_escape_cancel_label() {
+    fn settings_renders_single_escape_close_label() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Theme;
 
@@ -1121,12 +1247,12 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert_eq!(text.matches("esc cancel").count(), 1);
-        assert!(!text.contains("esc close"));
+        assert_eq!(text.matches("esc close").count(), 1);
+        assert!(!text.contains("esc cancel"));
     }
 
     #[test]
-    fn settings_primary_action_is_save_not_apply() {
+    fn settings_has_no_footer_save_button() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Theme;
 
@@ -1138,8 +1264,79 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("↵ save"));
+        assert!(!text.contains("↵ save"));
         assert!(!text.contains("↵ apply"));
+    }
+
+    #[test]
+    fn settings_tabs_fit_modal_width() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Theme;
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        let tab_line = text
+            .lines()
+            .find(|line| line.contains("theme") && line.contains("layout"))
+            .expect("tab line");
+        assert!(tab_line.contains("experiments"));
+    }
+
+    #[test]
+    fn settings_header_keeps_blank_row_between_title_and_tabs() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Theme;
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        let lines: Vec<&str> = text.lines().collect();
+        let title_row = lines
+            .iter()
+            .position(|line| line.contains("settings") && line.contains("esc close"))
+            .expect("settings title row");
+        let tab_row = lines
+            .iter()
+            .position(|line| line.contains("theme") && line.contains("layout"))
+            .expect("settings tab row");
+
+        assert_eq!(tab_row, title_row + 2);
+    }
+
+    #[test]
+    fn settings_tabs_render_descriptions_consistently() {
+        for section in SettingsSection::ALL {
+            let mut app = AppState::test_new();
+            app.settings.section = *section;
+
+            let area = Rect::new(0, 0, 100, 30);
+            let backend = TestBackend::new(area.width, area.height);
+            let mut terminal = Terminal::new(backend).expect("test backend");
+            terminal
+                .draw(|frame| render_settings_overlay(&app, frame, area))
+                .expect("render settings overlay");
+
+            let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+            assert!(
+                text.contains(settings_section_title(&app, *section)),
+                "missing title for {section:?}"
+            );
+            assert!(
+                text.contains(settings_section_description(&app, *section)),
+                "missing description for {section:?}"
+            );
+        }
     }
 
     #[test]
@@ -1159,13 +1356,34 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("sidebar"));
-        assert!(text.contains("worktrees"));
         assert!(text.contains("● default sidebar width"));
         assert!(text.contains("26 columns"));
         assert!(text.contains("● minimum sidebar width"));
         assert!(text.contains("18 columns"));
         assert!(text.contains("● maximum sidebar width"));
         assert!(text.contains("36 columns"));
+        assert!(!text.contains("worktrees"));
+        assert!(!text.contains("worktree directory"));
+        assert!(!text.contains("/tmp/hako-worktrees"));
+    }
+
+    #[test]
+    fn behavior_settings_render_workspace_terminal_and_worktree_options() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::PaneLabels;
+        app.worktree_directory = std::path::PathBuf::from("/tmp/hako-worktrees");
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("workspace"));
+        assert!(text.contains("terminal"));
+        assert!(text.contains("worktrees"));
         assert!(text.contains("● worktree directory"));
         assert!(text.contains("/tmp/hako-worktrees"));
     }
@@ -1207,7 +1425,7 @@ mod tests {
         app.prompt_new_tab_name = true;
         app.show_agent_labels_on_pane_borders = false;
         app.settings.section = SettingsSection::PaneLabels;
-        app.settings.list.selected = 0;
+        app.settings.list.selected = 5;
 
         let area = Rect::new(0, 0, 100, 30);
         let backend = TestBackend::new(area.width, area.height);
@@ -1217,10 +1435,8 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("workspace"));
-        assert!(text.contains("terminal"));
-        assert!(text.contains("● confirm before closing workspaces"));
         assert!(text.contains("● name new tabs"));
+        assert!(text.contains("● worktree directory"));
         assert!(text.contains("● new terminal cwd"));
         assert!(text.contains("follow focused pane"));
         assert!(text.contains("● mouse wheel speed"));
@@ -1337,25 +1553,21 @@ mod tests {
             .draw(|frame| render_settings_overlay(&app, frame, area))
             .expect("render settings overlay");
 
-        let popup = centered_popup_rect(area, 76, 22).expect("popup");
+        let popup = centered_popup_rect(area, 92, 26).expect("popup");
         let inner = Rect::new(
             popup.x + 1,
             popup.y + 1,
             popup.width.saturating_sub(2),
             popup.height.saturating_sub(2),
         );
-        let content = modal_stack_areas(inner, 3, 2, 0, 1).content;
-        let rows = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(2),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
-        .areas::<4>(content);
-        let selected_row_end = rows[3].x + rows[3].width.saturating_sub(1);
+        let content = modal_stack_areas(inner, 4, 1, 0, 1).content;
+        let body = settings_section_list_rect(content);
+        let [list_area, _] =
+            Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas::<2>(body);
+        let selected_row_end = list_area.x + list_area.width.saturating_sub(1);
 
         assert_eq!(
-            terminal.backend().buffer()[(selected_row_end, rows[3].y)]
+            terminal.backend().buffer()[(selected_row_end, list_area.y)]
                 .style()
                 .bg,
             Some(app.palette.accent)

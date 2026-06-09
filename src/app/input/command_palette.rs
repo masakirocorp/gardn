@@ -3,9 +3,10 @@ use ratatui::layout::{Direction, Rect};
 
 use crate::app::{
     command_palette::{
-        command_palette_filtered_commands, CommandPaletteAction, CommandPaletteCommand,
+        active_group_agent_profile_ids, command_palette_filtered_commands, CommandPaletteAction,
+        CommandPaletteCommand,
     },
-    state::{AppState, Mode},
+    state::{AppState, CommandPaletteMode, Mode},
     App,
 };
 
@@ -18,6 +19,7 @@ pub(super) fn open_command_palette(state: &mut AppState) {
     state.command_palette.query.clear();
     state.command_palette.selected = 0;
     state.command_palette.scroll = 0;
+    state.command_palette.mode = CommandPaletteMode::Commands;
     state.mode = Mode::CommandPalette;
 }
 
@@ -30,6 +32,12 @@ impl App {
         match key.code {
             KeyCode::Esc => leave_command_palette(&mut self.state),
             KeyCode::Enter => self.execute_selected_command_palette_command(),
+            KeyCode::Char('f')
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && self.state.command_palette.mode == CommandPaletteMode::AgentProfiles =>
+            {
+                self.toggle_selected_command_palette_agent_favorite();
+            }
             KeyCode::Up => {
                 move_command_palette_selection(&mut self.state, false);
             }
@@ -68,6 +76,18 @@ impl App {
             return;
         };
         execute_command_palette_action(self, command.action);
+    }
+
+    fn toggle_selected_command_palette_agent_favorite(&mut self) {
+        let commands = command_palette_visible_commands(&self.state);
+        let Some(command) = commands.get(self.state.command_palette.selected) else {
+            return;
+        };
+        let CommandPaletteAction::NewAgentProfile(profile_id) = &command.action else {
+            return;
+        };
+        self.state
+            .toggle_group_agent_profile_favorite(self.state.active_group, profile_id);
     }
 }
 
@@ -357,6 +377,33 @@ fn command_palette_screen_rect(state: &AppState) -> Rect {
     Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
 }
 
+pub(super) fn open_new_agent_picker_for_workspace(state: &mut AppState, ws_idx: usize) {
+    let profile_ids = active_group_agent_profile_ids(state).collect::<Vec<_>>();
+    match profile_ids.as_slice() {
+        [] => {}
+        [profile_id] => {
+            state.request_agent_profile_tab = Some((ws_idx, profile_id.clone()));
+            state.return_to_active_workspace_mode();
+        }
+        _ => {
+            state.selected = ws_idx;
+            state.active = Some(ws_idx);
+            state.command_palette.query.clear();
+            state.command_palette.selected = 0;
+            state.command_palette.scroll = 0;
+            state.command_palette.mode = CommandPaletteMode::AgentProfiles;
+            state.mode = Mode::CommandPalette;
+        }
+    }
+}
+
+fn open_new_agent_from_palette(app: &mut App) {
+    let Some(ws_idx) = app.state.active else {
+        return;
+    };
+    open_new_agent_picker_for_workspace(&mut app.state, ws_idx);
+}
+
 fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
     match action {
         CommandPaletteAction::NewWorkspace => app.state.request_new_workspace = true,
@@ -385,6 +432,10 @@ fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
         CommandPaletteAction::SwitchWorkspace(idx) => app.state.switch_workspace(idx),
         CommandPaletteAction::NewTab => {
             super::modal::open_new_tab_dialog(&mut app.state);
+            return;
+        }
+        CommandPaletteAction::NewAgent => {
+            open_new_agent_from_palette(app);
             return;
         }
         CommandPaletteAction::NewAgentProfile(profile_id) => {
@@ -536,6 +587,88 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::CommandPalette;
         app
+    }
+
+    #[test]
+    fn command_palette_shows_one_new_agent_entry_before_picker() {
+        let app = app_with_space();
+
+        let commands = command_palette_visible_commands(&app.state);
+        let agent_launchers = commands
+            .iter()
+            .filter(|command| matches!(command.action, CommandPaletteAction::NewAgentProfile(_)))
+            .count();
+
+        assert!(commands.iter().any(|command| {
+            command.title == "new agent" && command.action == CommandPaletteAction::NewAgent
+        }));
+        assert_eq!(agent_launchers, 0);
+    }
+
+    #[test]
+    fn command_palette_new_agent_opens_profile_picker_when_multiple_profiles_exist() {
+        let mut app = app_with_space();
+        app.state.command_palette.query = "new agent".to_string();
+
+        app.handle_command_palette_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+
+        assert_eq!(app.state.mode, Mode::CommandPalette);
+        assert_eq!(
+            app.state.command_palette.mode,
+            CommandPaletteMode::AgentProfiles
+        );
+        let commands = command_palette_visible_commands(&app.state);
+        assert!(commands.len() > 1);
+        assert!(commands
+            .iter()
+            .all(|command| matches!(command.action, CommandPaletteAction::NewAgentProfile(_))));
+    }
+
+    #[test]
+    fn command_palette_agent_picker_ctrl_f_toggles_active_group_favorite() {
+        let mut app = app_with_space();
+        app.state.command_palette.mode = CommandPaletteMode::AgentProfiles;
+        app.state.command_palette.selected = 0;
+
+        app.handle_command_palette_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL));
+
+        assert_eq!(
+            app.state.groups[app.state.active_group].favorite_agent_profile_ids,
+            vec!["system:pi".to_string()]
+        );
+        assert!(app.state.session_dirty);
+    }
+
+    #[tokio::test]
+    async fn command_palette_agent_picker_launches_custom_profile_through_shell() {
+        let mut app = app_with_space();
+        app.state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:shell-builtin".to_string()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "shell-builtin".to_string(),
+                    name: "shell builtin".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Omp,
+                    command: "cd .".to_string(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }],
+            },
+        );
+        app.state.command_palette.mode = CommandPaletteMode::AgentProfiles;
+        app.state.command_palette.selected = 0;
+
+        app.handle_command_palette_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(app.state.workspaces[0].tabs.len(), 2);
+        let pane_id = app.state.workspaces[0].tabs[1].root_pane;
+        let terminal_id = app.state.terminal_id_for_pane(0, pane_id).unwrap();
+        let terminal = app.state.terminals.get(&terminal_id).unwrap();
+        assert_eq!(
+            terminal.launch_argv,
+            Some(vec!["cd".to_string(), ".".to_string()])
+        );
     }
 
     #[test]

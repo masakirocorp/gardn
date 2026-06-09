@@ -1919,6 +1919,14 @@ pub struct SettingsState {
     pub pending_group_accent_choice: Option<Option<TerminalAccent>>,
     /// Pending group name while group settings is open.
     pub pending_group_name: Option<String>,
+    /// Custom agent profile id loaded into the editor.
+    pub pending_agent_profile_id: Option<String>,
+    /// Pending custom agent profile name while settings is open.
+    pub pending_agent_profile_name: Option<String>,
+    /// Pending custom agent profile kind while settings is open.
+    pub pending_agent_profile_kind: Option<crate::agent_profiles::AgentKind>,
+    /// Pending custom agent profile command while settings is open.
+    pub pending_agent_profile_command: Option<String>,
     /// Group whose settings are being edited, if settings was opened from a group menu.
     pub group_settings_target: Option<usize>,
 }
@@ -2012,6 +2020,9 @@ pub enum ContextMenuKind {
         ws_idx: usize,
         tab_idx: usize,
     },
+    NewTabButton {
+        ws_idx: usize,
+    },
     Pane {
         pane_id: PaneId,
         has_manual_label: bool,
@@ -2031,12 +2042,13 @@ impl ContextMenuState {
         match self.kind {
             ContextMenuKind::Group {
                 can_delete: true, ..
-            } => &["settings", "---", "delete"],
+            } => &["new agent", "settings", "---", "delete"],
             ContextMenuKind::Group {
                 can_delete: false, ..
-            } => &["settings"],
-            ContextMenuKind::Workspace { .. } => &["rename", "close"],
-            ContextMenuKind::Tab { .. } => &["new tab", "rename", "close"],
+            } => &["new agent", "settings"],
+            ContextMenuKind::Workspace { .. } => &["new agent", "new tab", "rename", "close"],
+            ContextMenuKind::Tab { .. } => &["new agent", "new tab", "rename", "close"],
+            ContextMenuKind::NewTabButton { .. } => &["new tab", "new agent"],
             ContextMenuKind::Pane {
                 has_manual_label: true,
                 ..
@@ -2156,10 +2168,17 @@ pub struct KeybindHelpState {
     pub scroll: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommandPaletteMode {
+    Commands,
+    AgentProfiles,
+}
+
 pub struct CommandPaletteState {
     pub query: String,
     pub selected: usize,
     pub scroll: usize,
+    pub mode: CommandPaletteMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2206,6 +2225,7 @@ pub struct AppState {
     pub detach_requested: bool,
     pub request_new_workspace: bool,
     pub request_new_tab: bool,
+    pub request_agent_profile_tab: Option<(usize, String)>,
     pub request_reload_config: bool,
     pub request_open_git_diff: bool,
     /// Set when the headless server should ask attached clients to reload
@@ -2829,6 +2849,7 @@ impl AppState {
             detach_requested: false,
             request_new_workspace: false,
             request_new_tab: false,
+            request_agent_profile_tab: None,
             request_reload_config: false,
             request_open_git_diff: false,
             request_client_config_reload: false,
@@ -2852,6 +2873,7 @@ impl AppState {
                 query: String::new(),
                 selected: 0,
                 scroll: 0,
+                mode: CommandPaletteMode::Commands,
             },
             navigator: NavigatorState::default(),
             previous_pane_focus: None,
@@ -2991,6 +3013,10 @@ impl AppState {
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,
                 pending_group_name: None,
+                pending_agent_profile_id: None,
+                pending_agent_profile_name: None,
+                pending_agent_profile_kind: None,
+                pending_agent_profile_command: None,
                 group_settings_target: None,
             },
             integration_recommendations: Vec::new(),

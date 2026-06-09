@@ -207,6 +207,14 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut invalid_sections,
         |section| config.experimental = section,
     );
+    load_live_section(
+        &table,
+        "agent_profiles",
+        "agent profile config",
+        &mut diagnostics,
+        &mut invalid_sections,
+        |section| config.agent_profiles = section,
+    );
 
     Ok(LoadedConfig {
         config,
@@ -480,6 +488,29 @@ resume_agents_on_restore = true
         .unwrap();
 
         assert!(loaded.config.session.resume_agents_on_restore);
+        assert!(loaded.diagnostics.is_empty());
+        assert!(loaded.invalid_sections.is_empty());
+    }
+
+    #[test]
+    fn load_live_config_parses_agent_profiles_section() {
+        let loaded = load_live_config_from_str(
+            r#"
+[agent_profiles]
+order = ["user:omp-mk"]
+
+[[agent_profiles.custom]]
+id = "omp-mk"
+name = "omp mk"
+kind = "omp"
+command = "omp-mk"
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(loaded.config.agent_profiles.order, ["user:omp-mk"]);
+        assert_eq!(loaded.config.agent_profiles.custom[0].id, "omp-mk");
+        assert_eq!(loaded.config.agent_profiles.custom[0].command, "omp-mk");
         assert!(loaded.diagnostics.is_empty());
         assert!(loaded.invalid_sections.is_empty());
     }
