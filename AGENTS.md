@@ -65,6 +65,16 @@ just check              # formatting check + clippy + cargo nextest + maintenanc
 
 During development, focused `cargo test --locked <test-name>` runs are fine for tight iteration. Before committing non-trivial changes, run `just check` unless Can explicitly accepts a narrower validation for that commit.
 
+### Interactive development loop
+
+When the user is actively iterating, prefer the shortest verification that can catch the specific mistake just introduced.
+
+Do not run long gates (`just check`, full `just test`, broad test suites, release builds) during the iteration loop unless the user explicitly asks or the change is about to be committed, merged, or released.
+
+For small UI or behavior tweaks, make the edit, run formatting/build only if needed to produce a usable `hako-dev`, and let the user manually review. For logic/state changes, run one focused test that covers the changed behavior.
+
+Batch small follow-up fixes before revalidating. Full checks belong at commit, merge, and release boundaries, not after every edit.
+
 CI intentionally splits formatting, clippy, Rust tests, and maintenance tests into separate steps. Keep that shape; it makes platform hangs diagnosable. Rust tests use the `ci` nextest profile, which reports slow tests and times out hung tests.
 
 Unit tests live next to the code (`#[cfg(test)] mod tests`). If you add behavior to `AppState` or `Workspace`, it should be testable with `AppState::test_new()` and `Workspace::test_new()` — no PTYs.
