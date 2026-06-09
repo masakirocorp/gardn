@@ -755,11 +755,16 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
                 dim_style,
             );
         } else {
+            let label = if item.starts_with(" +") {
+                format!(" {item}")
+            } else {
+                format!("  {item}")
+            };
             render_menu_row(
                 frame,
                 inner,
                 idx,
-                Line::from(format!(" {item}")),
+                Line::from(label),
                 idx == menu.list.highlighted,
                 selected_style,
                 text_style,

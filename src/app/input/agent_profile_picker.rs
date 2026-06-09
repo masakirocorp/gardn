@@ -62,6 +62,9 @@ impl App {
             KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.toggle_selected_agent_profile_favorite();
             }
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_selected_agent_profile_default();
+            }
             KeyCode::Up => {
                 move_agent_profile_picker_selection(&mut self.state, false);
             }
@@ -139,6 +142,22 @@ impl App {
         {
             self.state
                 .toggle_group_agent_profile_favorite(group_idx, &entry.profile_id);
+        }
+    }
+
+    fn toggle_selected_agent_profile_default(&mut self) {
+        let entries = agent_profile_picker_filtered_entries(&self.state);
+        let Some(entry) = entries.get(self.state.agent_profile_picker.selected) else {
+            return;
+        };
+        if let Some(group_idx) = self
+            .state
+            .workspaces
+            .get(self.state.agent_profile_picker.ws_idx)
+            .and_then(|workspace| self.state.group_index_by_id(&workspace.group_id))
+        {
+            self.state
+                .toggle_group_default_agent_profile(group_idx, &entry.profile_id);
         }
     }
 }

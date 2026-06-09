@@ -152,6 +152,49 @@ pub(super) fn render_modal_scroll_hints(frame: &mut Frame, area: Rect, p: &Palet
     );
 }
 
+pub(super) fn render_modal_hint_lines(
+    frame: &mut Frame,
+    area: Rect,
+    p: &Palette,
+    hints: &[(&str, &str)],
+    max_rows: u16,
+) {
+    if max_rows <= 1 || area.height <= 1 {
+        render_modal_hint_line(frame, area, p, hints);
+        return;
+    }
+
+    let mut lines: Vec<Vec<(&str, &str)>> = Vec::new();
+    let mut current = Vec::new();
+    let mut current_width = 0usize;
+    let max_width = area.width as usize;
+
+    for hint in hints.iter().copied() {
+        let prefix_width = if current.is_empty() { 1 } else { 5 };
+        let hint_width = prefix_width + hint.0.chars().count() + 1 + hint.1.chars().count();
+        let would_overflow = !current.is_empty()
+            && current_width + hint_width > max_width
+            && lines.len() + 1 < max_rows as usize;
+        if would_overflow {
+            lines.push(current);
+            current = Vec::new();
+            current_width = 0;
+        }
+
+        let prefix_width = if current.is_empty() { 1 } else { 5 };
+        current_width += prefix_width + hint.0.chars().count() + 1 + hint.1.chars().count();
+        current.push(hint);
+    }
+
+    if !current.is_empty() {
+        lines.push(current);
+    }
+
+    for (idx, line_hints) in lines.into_iter().take(max_rows as usize).enumerate() {
+        let row = Rect::new(area.x, area.y + idx as u16, area.width, 1);
+        render_modal_hint_line(frame, row, p, &line_hints);
+    }
+}
 pub(super) fn render_modal_hint_line(
     frame: &mut Frame,
     area: Rect,

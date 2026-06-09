@@ -19,8 +19,8 @@ use super::{
     widgets::{
         action_button_row_rects, modal_section_heading_style, panel_contrast_fg,
         primary_action_style, render_action_button, render_modal_divider, render_modal_header_bar,
-        render_modal_hint_line, render_modal_shell, render_modal_subtitle, render_modal_text_input,
-        ActionButtonSpec,
+        render_modal_hint_lines, render_modal_shell, render_modal_subtitle,
+        render_modal_text_input, ActionButtonSpec,
     },
 };
 
@@ -42,7 +42,7 @@ pub(crate) fn agent_profile_picker_button_rects(inner: Rect) -> (Rect, Rect) {
 }
 
 pub(crate) fn agent_profile_picker_popup_rect(area: Rect) -> Option<Rect> {
-    super::centered_popup_rect(area, 76, 25)
+    super::centered_popup_rect(area, 60, 25)
 }
 
 pub(crate) fn agent_profile_picker_inner_rect(area: Rect) -> Option<Rect> {
@@ -105,14 +105,14 @@ pub(crate) fn agent_profile_picker_list_area(area: Rect) -> Option<Rect> {
         inner.x,
         inner.y + 10,
         inner.width,
-        inner.height.saturating_sub(12),
+        inner.height.saturating_sub(14),
     ))
 }
 
 pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Frame) {
     super::dim_background(frame, frame.area());
 
-    let Some(inner) = render_modal_shell(frame, frame.area(), 76, 25, &app.palette) else {
+    let Some(inner) = render_modal_shell(frame, frame.area(), 60, 25, &app.palette) else {
         return;
     };
     if inner.height < 13 || inner.width < 20 {
@@ -133,8 +133,10 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
         Constraint::Min(1),
         Constraint::Length(1),
         Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
     ])
-    .areas::<13>(inner);
+    .areas::<15>(inner);
 
     render_modal_header_bar(frame, rows[0], "new agent", &app.palette, true);
     render_agent_profile_picker_filters(app, frame, rows[2]);
@@ -158,15 +160,17 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
     let input = Rect::new(rows[8].x, rows[8].y, rows[8].width, 1);
     render_modal_text_input(frame, input, &app.agent_profile_picker.query, &app.palette);
 
-    render_modal_hint_line(
+    render_modal_hint_lines(
         frame,
-        rows[11],
+        Rect::new(rows[12].x, rows[12].y, rows[12].width, 2),
         &app.palette,
         &[
             ("quick start", "alt+1..9"),
             ("favorite", "ctrl+f"),
+            ("default", "ctrl+d"),
             ("filter", "shift+←→"),
         ],
+        2,
     );
 
     let (start_rect, _) = agent_profile_picker_button_rects(inner);
@@ -191,7 +195,7 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
         .agent_profile_picker
         .selected
         .min(entries.len().saturating_sub(1));
-    let picker_rows = agent_profile_picker_rows(&entries);
+    let picker_rows = agent_profile_picker_rows(app, &entries);
     let viewport = crate::ui::ModalListViewport::new(
         picker_rows.len(),
         rows[10].height as usize,
@@ -210,7 +214,7 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
                 format!(" {section}"),
                 modal_section_heading_style(&app.palette),
             )),
-            AgentProfilePickerRow::Entry(idx, entry, shortcut) => {
+            AgentProfilePickerRow::Entry(idx, entry, shortcut, default) => {
                 let selected = *idx == selected;
                 let row_style = if selected {
                     Style::default().bg(app.palette.accent)
@@ -235,6 +239,7 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
                 agent_profile_picker_entry_line(
                     &entry.name,
                     *shortcut,
+                    *default,
                     list_width,
                     title_style,
                     shortcut_style,
@@ -349,14 +354,18 @@ fn render_agent_profile_picker_group_line(app: &AppState, frame: &mut Frame, are
 enum AgentProfilePickerRow<'a> {
     Spacer,
     Header(&'static str),
-    Entry(usize, &'a AgentProfilePickerEntry, Option<usize>),
+    Entry(usize, &'a AgentProfilePickerEntry, Option<usize>, bool),
 }
 
-fn agent_profile_picker_rows(
-    entries: &[AgentProfilePickerEntry],
-) -> Vec<AgentProfilePickerRow<'_>> {
+fn agent_profile_picker_rows<'a>(
+    app: &AppState,
+    entries: &'a [AgentProfilePickerEntry],
+) -> Vec<AgentProfilePickerRow<'a>> {
     let mut rows = Vec::new();
     let mut last_section = None;
+    let default_profile_id = agent_profile_picker_group_idx(app)
+        .and_then(|group_idx| app.groups.get(group_idx))
+        .and_then(|group| group.default_agent_profile_id.as_deref());
     let mut favorite_shortcut = 1;
 
     for (idx, entry) in entries.iter().enumerate() {
@@ -374,7 +383,12 @@ fn agent_profile_picker_rows(
         } else {
             None
         };
-        rows.push(AgentProfilePickerRow::Entry(idx, entry, shortcut));
+        rows.push(AgentProfilePickerRow::Entry(
+            idx,
+            entry,
+            shortcut,
+            default_profile_id == Some(entry.profile_id.as_str()),
+        ));
     }
 
     rows
@@ -383,36 +397,42 @@ fn agent_profile_picker_rows(
 fn agent_profile_picker_entry_line<'a>(
     title: &str,
     shortcut: Option<usize>,
+    is_default: bool,
     width: usize,
     title_style: Style,
     shortcut_style: Style,
     row_style: Style,
 ) -> Line<'a> {
     let title_text = format!("  {title}");
-    let Some(shortcut) = shortcut else {
+    let meta_text = match (is_default, shortcut) {
+        (true, Some(shortcut)) => Some(format!("default  alt+{shortcut}")),
+        (true, None) => Some("default".to_string()),
+        (false, Some(shortcut)) => Some(format!("alt+{shortcut}")),
+        (false, None) => None,
+    };
+    let Some(meta_text) = meta_text else {
         return Line::from(Span::styled(
             pad_right(title_text, width),
             title_style.patch(row_style),
         ));
     };
 
-    let shortcut_text = format!("alt+{shortcut}");
     let title_len = title_text.chars().count();
-    let shortcut_len = shortcut_text.chars().count();
-    if title_len + shortcut_len >= width {
+    let meta_len = meta_text.chars().count();
+    if title_len + meta_len >= width {
         return Line::from(vec![
             Span::styled(title_text, title_style.patch(row_style)),
-            Span::styled(shortcut_text, shortcut_style.patch(row_style)),
+            Span::styled(meta_text, shortcut_style.patch(row_style)),
         ]);
     }
 
-    let gap = width - title_len - shortcut_len;
+    let gap = width - title_len - meta_len;
     Line::from(vec![
         Span::styled(
             format!("{title_text}{}", " ".repeat(gap)),
             title_style.patch(row_style),
         ),
-        Span::styled(shortcut_text, shortcut_style.patch(row_style)),
+        Span::styled(meta_text, shortcut_style.patch(row_style)),
     ])
 }
 
