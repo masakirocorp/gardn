@@ -31,6 +31,10 @@ fn command_palette_height(area: Rect) -> u16 {
     17 + modal_scroll_hint_line_count(inner_width, 2)
 }
 
+pub(crate) fn command_palette_popup_rect(area: Rect) -> Option<Rect> {
+    super::centered_popup_rect(area, 76, command_palette_height(area))
+}
+
 pub(crate) fn command_palette_button_rects(inner: Rect) -> (Rect, Rect) {
     let rects = action_button_row_rects(
         inner,

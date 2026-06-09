@@ -339,22 +339,7 @@ fn command_palette_inner_rect(state: &AppState) -> Option<Rect> {
 }
 
 fn command_palette_popup_rect(state: &AppState) -> Option<Rect> {
-    crate::ui::centered_popup_rect(command_palette_screen_rect(state), 76, 18)
-}
-
-fn command_palette_screen_rect(state: &AppState) -> Rect {
-    let sidebar = state.view.sidebar_rect;
-    let right_sidebar = state.view.right_sidebar_rect;
-    let terminal = state.view.terminal_area;
-    let x = sidebar.x.min(terminal.x).min(right_sidebar.x);
-    let y = sidebar.y.min(terminal.y).min(right_sidebar.y);
-    let right = (sidebar.x + sidebar.width)
-        .max(terminal.x + terminal.width)
-        .max(right_sidebar.x + right_sidebar.width);
-    let bottom = (sidebar.y + sidebar.height)
-        .max(terminal.y + terminal.height)
-        .max(right_sidebar.y + right_sidebar.height);
-    Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
+    crate::ui::command_palette_popup_rect(state.screen_rect())
 }
 
 fn open_new_agent_from_palette(app: &mut App) {

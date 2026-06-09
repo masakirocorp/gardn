@@ -66,7 +66,7 @@ pub(crate) use self::{
         agent_profile_picker_list_area, agent_profile_picker_popup_rect,
         agent_profile_picker_tab_chevron_at, agent_profile_picker_tab_hit_areas,
     },
-    command_palette::command_palette_button_rects,
+    command_palette::{command_palette_button_rects, command_palette_popup_rect},
 };
 pub(crate) use self::{
     dialogs::{

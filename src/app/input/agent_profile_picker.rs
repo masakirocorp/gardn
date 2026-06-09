@@ -410,7 +410,7 @@ fn agent_profile_picker_rows_for_input(state: &AppState) -> Option<(Rect, Vec<Op
 }
 
 fn agent_profile_picker_list_area(state: &AppState) -> Option<Rect> {
-    crate::ui::agent_profile_picker_list_area(agent_profile_picker_screen_rect(state))
+    crate::ui::agent_profile_picker_list_area(state.screen_rect())
 }
 
 fn agent_profile_picker_tab_row(state: &AppState) -> Option<Rect> {
@@ -425,26 +425,11 @@ fn agent_profile_picker_tab_row(state: &AppState) -> Option<Rect> {
 }
 
 fn agent_profile_picker_inner_rect(state: &AppState) -> Option<Rect> {
-    crate::ui::agent_profile_picker_inner_rect(agent_profile_picker_screen_rect(state))
+    crate::ui::agent_profile_picker_inner_rect(state.screen_rect())
 }
 
 fn agent_profile_picker_popup_rect(state: &AppState) -> Option<Rect> {
-    crate::ui::agent_profile_picker_popup_rect(agent_profile_picker_screen_rect(state))
-}
-
-fn agent_profile_picker_screen_rect(state: &AppState) -> Rect {
-    let sidebar = state.view.sidebar_rect;
-    let terminal = state.view.terminal_area;
-    let right_sidebar = state.view.right_sidebar_rect;
-    let x = sidebar.x.min(terminal.x).min(right_sidebar.x);
-    let y = sidebar.y.min(terminal.y).min(right_sidebar.y);
-    let right = (sidebar.x + sidebar.width)
-        .max(terminal.x + terminal.width)
-        .max(right_sidebar.x + right_sidebar.width);
-    let bottom = (sidebar.y + sidebar.height)
-        .max(terminal.y + terminal.height)
-        .max(right_sidebar.y + right_sidebar.height);
-    Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
+    crate::ui::agent_profile_picker_popup_rect(state.screen_rect())
 }
 
 fn agent_profile_picker_scroll_metrics(state: &AppState) -> Option<crate::pane::ScrollMetrics> {
