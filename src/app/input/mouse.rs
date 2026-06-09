@@ -1194,6 +1194,19 @@ impl AppState {
                 {
                     return None;
                 }
+                if let Some(group_idx) = self.workspace_group_header_at_row(mouse.row) {
+                    self.context_menu = Some(ContextMenuState {
+                        kind: ContextMenuKind::Group {
+                            group_idx,
+                            can_delete: self.groups.len() > 1,
+                        },
+                        x: mouse.column,
+                        y: mouse.row,
+                        list: MenuListState::new(0),
+                    });
+                    self.mode = Mode::ContextMenu;
+                    return None;
+                }
                 if let Some(idx) = self.workspace_at_row(mouse.row) {
                     self.selected = idx;
                     self.context_menu = Some(ContextMenuState {

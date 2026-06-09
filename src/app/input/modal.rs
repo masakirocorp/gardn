@@ -938,33 +938,6 @@ pub(super) fn apply_context_menu_action(
             state.active = Some(ws_idx);
             super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
         }
-        (ContextMenuKind::Group { group_idx, .. }, Some("new agent")) => {
-            state.active_group = group_idx;
-            let group_id = state
-                .groups
-                .get(group_idx)
-                .map(|group| group.id.as_str())
-                .unwrap_or_default();
-            if let Some(ws_idx) = state
-                .active
-                .filter(|idx| {
-                    state
-                        .workspaces
-                        .get(*idx)
-                        .is_some_and(|ws| ws.group_id == group_id)
-                })
-                .or_else(|| {
-                    state
-                        .workspaces
-                        .iter()
-                        .position(|workspace| workspace.group_id == group_id)
-                })
-            {
-                super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
-            } else {
-                state.return_to_active_workspace_mode();
-            }
-        }
         (ContextMenuKind::Tab { ws_idx, tab_idx }, Some("new agent")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
@@ -1604,7 +1577,7 @@ mod tests {
     }
 
     #[test]
-    fn group_context_menu_keyboard_skips_separator() {
+    fn group_context_menu_keyboard_moves_between_actions_without_separator() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Work".to_string());
         state.context_menu = Some(ContextMenuState {
@@ -1623,41 +1596,14 @@ mod tests {
             &mut terminal_runtimes,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
         );
-        handle_context_menu_key(
-            &mut state,
-            &mut terminal_runtimes,
-            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-        );
-        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 3);
+        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 1);
 
         handle_context_menu_key(
             &mut state,
             &mut terminal_runtimes,
             KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
         );
-        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 1);
-    }
-
-    #[test]
-    fn group_context_menu_separator_is_not_an_action() {
-        let mut state = state_with_workspaces(&["test"]);
-        let group_idx = state.create_group("Work".to_string());
-        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
-        let menu = ContextMenuState {
-            kind: ContextMenuKind::Group {
-                group_idx,
-                can_delete: true,
-            },
-            x: 0,
-            y: 0,
-            list: MenuListState::new(2),
-        };
-
-        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 2);
-
-        assert_eq!(state.mode, Mode::ContextMenu);
-        assert!(state.context_menu.is_some());
-        assert_eq!(state.active_group, 0);
+        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 0);
     }
 
     #[test]

@@ -1566,7 +1566,49 @@ mod tests {
 
         assert_eq!(app.state.mode, Mode::ContextMenu);
         let context = app.state.context_menu.as_ref().unwrap();
-        assert_eq!(context.items(), &["new agent", "settings", "---", "delete"]);
+        assert_eq!(context.items(), &["settings", "delete"]);
+        assert_eq!(
+            context.kind,
+            ContextMenuKind::Group {
+                group_idx: work_group,
+                can_delete: true
+            }
+        );
+    }
+
+    #[test]
+    fn right_clicking_group_header_opens_group_context_menu() {
+        let mut app = app_for_mouse_test();
+        app.state.group_filter_enabled = false;
+        app.state.groups.push(Group {
+            id: "work".into(),
+            name: "work".into(),
+            icon: "■".into(),
+            accent: None,
+            favorite_agent_profile_ids: Vec::new(),
+        });
+        let work_group = app.state.groups.len() - 1;
+        app.state.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
+        app.state.workspaces[1].group_id = "work".into();
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+        let header = app
+            .state
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .find(|header| header.group_idx == work_group)
+            .copied()
+            .expect("work group header");
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Right),
+            header.rect.x + 2,
+            header.rect.y,
+        ));
+
+        assert_eq!(app.state.mode, Mode::ContextMenu);
+        let context = app.state.context_menu.as_ref().unwrap();
+        assert_eq!(context.items(), &["settings", "delete"]);
         assert_eq!(
             context.kind,
             ContextMenuKind::Group {
@@ -1588,7 +1630,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: crate::app::state::MenuListState::new(3),
+            list: crate::app::state::MenuListState::new(1),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -1596,7 +1638,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 4,
+            menu.y + 2,
         ));
 
         assert_eq!(app.state.mode, Mode::ConfirmDeleteGroup);
@@ -1616,7 +1658,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: crate::app::state::MenuListState::new(1),
+            list: crate::app::state::MenuListState::new(0),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -1624,7 +1666,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 2,
+            menu.y + 1,
         ));
 
         assert_eq!(app.state.mode, Mode::Settings);

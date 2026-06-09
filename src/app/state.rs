@@ -2048,10 +2048,10 @@ impl ContextMenuState {
         match self.kind {
             ContextMenuKind::Group {
                 can_delete: true, ..
-            } => &["new agent", "settings", "---", "delete"],
+            } => &["settings", "delete"],
             ContextMenuKind::Group {
                 can_delete: false, ..
-            } => &["new agent", "settings"],
+            } => &["settings"],
             ContextMenuKind::Workspace { .. } => &["new agent", "new tab", "rename", "close"],
             ContextMenuKind::Tab { .. } => &["new agent", "new tab", "rename", "close"],
             ContextMenuKind::NewTabButton { .. } => &["new tab", "new agent"],
