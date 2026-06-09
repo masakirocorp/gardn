@@ -358,6 +358,18 @@ fn agent_profile_browse_label(profile: &crate::agent_profiles::AgentProfile) -> 
     }
 }
 
+fn agent_profile_group_label(
+    profile: &crate::agent_profiles::AgentProfile,
+    is_default: bool,
+) -> String {
+    let label = agent_profile_browse_label(profile);
+    if is_default {
+        format!("{label}  default")
+    } else {
+        label
+    }
+}
+
 fn agent_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
     if !agent_profile_editor_open(app) {
         return agent_profile_browse_rows(app);
@@ -488,12 +500,14 @@ fn agent_profile_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
 }
 
 fn group_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
-    let favorites = app
+    let group = app
         .settings
         .group_settings_target
-        .and_then(|idx| app.groups.get(idx))
+        .and_then(|idx| app.groups.get(idx));
+    let favorites = group
         .map(|group| group.favorite_agent_profile_ids.as_slice())
         .unwrap_or(&[]);
+    let default_profile_id = group.and_then(|group| group.default_agent_profile_id.as_deref());
     let (favorite, available) = app.agent_profiles.group_sections(favorites);
     let mut rows = Vec::new();
     let mut index = 0;
@@ -502,10 +516,11 @@ fn group_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
         rows.push(SettingsListRow::Caption("no favorites".into()));
     } else {
         for profile in favorite {
+            let is_default = default_profile_id == Some(profile.id.as_str());
             rows.push(SettingsListRow::StatusChoice {
                 index,
-                marker: "◆".into(),
-                label: agent_profile_browse_label(profile).into(),
+                marker: if is_default { "●" } else { "◆" }.into(),
+                label: agent_profile_group_label(profile, is_default).into(),
                 tone: SettingsMarkerTone::Accent,
             });
             index += 1;
@@ -514,11 +529,16 @@ fn group_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
     rows.push(SettingsListRow::Spacer);
     rows.push(SettingsListRow::Header("available"));
     for profile in available {
+        let is_default = default_profile_id == Some(profile.id.as_str());
         rows.push(SettingsListRow::StatusChoice {
             index,
-            marker: " ".into(),
-            label: agent_profile_browse_label(profile).into(),
-            tone: SettingsMarkerTone::Disabled,
+            marker: if is_default { "●" } else { " " }.into(),
+            label: agent_profile_group_label(profile, is_default).into(),
+            tone: if is_default {
+                SettingsMarkerTone::Accent
+            } else {
+                SettingsMarkerTone::Disabled
+            },
         });
         index += 1;
     }

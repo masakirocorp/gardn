@@ -1586,6 +1586,7 @@ navigate_pane_right = "ctrl+l"
             icon: "■".into(),
             accent: None,
             favorite_agent_profile_ids: Vec::new(),
+            default_agent_profile_id: None,
         });
         state.workspaces[1].group_id = "side".into();
         state.workspaces[2].group_id = "side".into();

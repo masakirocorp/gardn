@@ -70,6 +70,7 @@ pub struct Group {
     pub icon: String,
     pub accent: Option<TerminalAccent>,
     pub favorite_agent_profile_ids: Vec<String>,
+    pub default_agent_profile_id: Option<String>,
 }
 
 impl Group {
@@ -80,6 +81,7 @@ impl Group {
             icon: DEFAULT_GROUP_ICON.to_string(),
             accent: None,
             favorite_agent_profile_ids: Vec::new(),
+            default_agent_profile_id: None,
         }
     }
 }

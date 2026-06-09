@@ -111,8 +111,8 @@ Supported built-in detection includes:
 
 - **System profiles** — Hako exposes one read-only system profile for each supported integration target.
 - **Custom profiles** — add or edit profile-specific commands from Settings > Agents. Hako persists them to `[agent_profiles]`; known-family wrappers can keep native profile/tooling restore behavior, while `custom` unsupported agents are labeled `custom · launch-only`.
-- **Group favorites** — group settings can promote favorite profiles with `ctrl+f`; favorites appear before available profiles while both sections keep the global profile order.
-- **New agent launch** — choose `new agent` from the command palette, space context menu, group context menu, tab context menu, or the tab `+` dropdown. Hako starts the only available profile immediately, or opens a favorites-first profile picker when multiple profiles are available.
+- **Group favorites and defaults** — group settings can promote favorite profiles with `ctrl+f` and set a default with `ctrl+d`; favorites appear before available profiles while both sections keep the global profile order. When a group default is set, `new agent` starts it directly instead of opening the picker.
+- **New agent launch** — choose `new agent` from the command palette, space context menu, tab context menu, or the tab `+` dropdown. Hako starts the group default or only available profile immediately, or opens a favorites-first profile picker when multiple profiles are available.
 
 ### Agent session restore
 

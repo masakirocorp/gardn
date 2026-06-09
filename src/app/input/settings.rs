@@ -1038,6 +1038,16 @@ fn toggle_selected_group_profile_favorite(state: &mut AppState) {
     state.toggle_group_agent_profile_favorite(group_idx, &profile_id);
 }
 
+fn toggle_selected_group_profile_default(state: &mut AppState) {
+    let Some(group_idx) = state.settings.group_settings_target else {
+        return;
+    };
+    let Some(profile_id) = group_profile_id_for_index(state, state.settings.list.selected) else {
+        return;
+    };
+    state.toggle_group_default_agent_profile(group_idx, &profile_id);
+}
+
 fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_theme_name = None;
     state.settings.pending_theme_mode = None;
@@ -1647,6 +1657,9 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
             KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 toggle_selected_group_profile_favorite(state);
+            }
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                toggle_selected_group_profile_default(state);
             }
             KeyCode::Enter | KeyCode::Char(' ') => {}
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -2666,6 +2679,46 @@ mod tests {
         assert!(state.groups[group_idx]
             .favorite_agent_profile_ids
             .is_empty());
+        assert!(state.session_dirty);
+    }
+
+    #[test]
+    fn group_profiles_ctrl_d_toggles_default_and_favorites_profile() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Side".to_string());
+
+        open_group_settings(&mut state, group_idx);
+        state.settings.section = SettingsSection::GroupProfiles;
+        state.settings.list.selected = 1;
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
+        );
+
+        assert_eq!(action, None);
+        assert_eq!(
+            state.groups[group_idx].default_agent_profile_id.as_deref(),
+            Some("system:omp")
+        );
+        assert_eq!(
+            state.groups[group_idx].favorite_agent_profile_ids,
+            vec!["system:omp".to_string()]
+        );
+        assert!(state.session_dirty);
+
+        state.session_dirty = false;
+        state.settings.list.selected = 0;
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
+        );
+
+        assert_eq!(action, None);
+        assert!(state.groups[group_idx].default_agent_profile_id.is_none());
+        assert_eq!(
+            state.groups[group_idx].favorite_agent_profile_ids,
+            vec!["system:omp".to_string()]
+        );
         assert!(state.session_dirty);
     }
 

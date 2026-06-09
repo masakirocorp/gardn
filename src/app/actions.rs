@@ -1227,6 +1227,7 @@ impl AppState {
             icon: super::state::normalize_group_icon(&icon),
             accent: None,
             favorite_agent_profile_ids: Vec::new(),
+            default_agent_profile_id: None,
         });
         self.mark_session_dirty();
         self.groups.len() - 1
@@ -1326,10 +1327,41 @@ impl AppState {
             .position(|id| id == profile_id)
         {
             group.favorite_agent_profile_ids.remove(pos);
+            if group.default_agent_profile_id.as_deref() == Some(profile_id) {
+                group.default_agent_profile_id = None;
+            }
         } else if self.agent_profiles.get(profile_id).is_some() {
             group
                 .favorite_agent_profile_ids
                 .push(profile_id.to_string());
+        }
+        self.mark_session_dirty();
+    }
+
+    pub(crate) fn toggle_group_default_agent_profile(
+        &mut self,
+        group_idx: usize,
+        profile_id: &str,
+    ) {
+        if self.agent_profiles.get(profile_id).is_none() {
+            return;
+        }
+        let Some(group) = self.groups.get_mut(group_idx) else {
+            return;
+        };
+        if group.default_agent_profile_id.as_deref() == Some(profile_id) {
+            group.default_agent_profile_id = None;
+        } else {
+            if !group
+                .favorite_agent_profile_ids
+                .iter()
+                .any(|id| id == profile_id)
+            {
+                group
+                    .favorite_agent_profile_ids
+                    .push(profile_id.to_string());
+            }
+            group.default_agent_profile_id = Some(profile_id.to_string());
         }
         self.mark_session_dirty();
     }

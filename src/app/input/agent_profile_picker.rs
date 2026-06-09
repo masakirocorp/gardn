@@ -13,6 +13,19 @@ use crate::app::{
 use super::{modal::modal_action_from_buttons, modal::ModalAction, ScrollbarClickTarget};
 
 pub(super) fn open_new_agent_picker_for_workspace(state: &mut AppState, ws_idx: usize) {
+    if let Some(default_profile_id) = state
+        .workspaces
+        .get(ws_idx)
+        .and_then(|workspace| state.group_index_by_id(&workspace.group_id))
+        .and_then(|group_idx| state.groups.get(group_idx))
+        .and_then(|group| group.default_agent_profile_id.as_ref())
+        .filter(|profile_id| state.agent_profiles.get(profile_id).is_some())
+        .cloned()
+    {
+        state.request_agent_profile_tab = Some((ws_idx, default_profile_id));
+        state.return_to_active_workspace_mode();
+        return;
+    }
     let profile_ids = workspace_agent_profile_ids(state, ws_idx).collect::<Vec<_>>();
     match profile_ids.as_slice() {
         [] => {}
@@ -479,6 +492,21 @@ mod tests {
         open_new_agent_picker_for_workspace(&mut app.state, 0);
 
         app.handle_agent_profile_picker_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::ALT));
+
+        assert_eq!(
+            app.state.request_agent_profile_tab,
+            Some((0, "system:omp".to_string()))
+        );
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn new_agent_uses_group_default_profile_without_picker() {
+        let mut app = app_with_space();
+        app.state.groups[app.state.active_group].default_agent_profile_id =
+            Some("system:omp".to_string());
+
+        open_new_agent_picker_for_workspace(&mut app.state, 0);
 
         assert_eq!(
             app.state.request_agent_profile_tab,

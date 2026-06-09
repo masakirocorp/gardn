@@ -487,7 +487,11 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                 frame,
                 footer_area,
                 p,
-                &[("move", "↑↓"), ("favorite", "ctrl+f")],
+                &[
+                    ("move", "↑↓"),
+                    ("favorite", "ctrl+f"),
+                    ("default", "ctrl+d"),
+                ],
             );
         } else if group_settings {
             render_modal_hint_line(

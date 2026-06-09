@@ -312,6 +312,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             icon: state::normalize_group_icon(&group.icon),
             accent: group.accent,
             favorite_agent_profile_ids: group.favorite_agent_profile_ids.clone(),
+            default_agent_profile_id: group.default_agent_profile_id.clone(),
         })
         .collect();
 
@@ -325,6 +326,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             icon: state::DEFAULT_GROUP_ICON.to_string(),
             accent: None,
             favorite_agent_profile_ids: Vec::new(),
+            default_agent_profile_id: None,
         });
     }
 
@@ -1932,6 +1934,7 @@ mod tests {
             icon: "■".to_string(),
             accent: None,
             favorite_agent_profile_ids: Vec::new(),
+            default_agent_profile_id: None,
         }
     }
 

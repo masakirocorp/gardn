@@ -275,6 +275,9 @@ impl App {
             group
                 .favorite_agent_profile_ids
                 .retain(|id| id != profile_id);
+            if group.default_agent_profile_id.as_deref() == Some(profile_id) {
+                group.default_agent_profile_id = None;
+            }
         }
         self.state.mark_session_dirty();
         self.state.settings.pending_agent_profile_id = None;
