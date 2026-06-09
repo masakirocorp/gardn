@@ -456,7 +456,11 @@ fn agent_profile_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
 
     rows.push(SettingsListRow::Spacer);
     rows.push(SettingsListRow::Header("profiles"));
-    for profile in app.agent_profiles.profiles() {
+    for profile in app.agent_profiles.profiles().iter().filter(|profile| {
+        app.settings
+            .agent_profile_kind_filter
+            .is_none_or(|kind| profile.kind == kind)
+    }) {
         let tone = if profile.available() {
             SettingsMarkerTone::Good
         } else {

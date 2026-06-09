@@ -327,6 +327,14 @@ impl App {
                         _ => {}
                     }
 
+                    if agent_profile_picker::select_agent_profile_picker_tab_at(
+                        &mut self.state,
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        return;
+                    }
+
                     if let Some(target) =
                         agent_profile_picker::agent_profile_picker_scrollbar_target_at(
                             &self.state,

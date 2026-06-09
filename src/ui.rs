@@ -11,6 +11,7 @@ mod dialogs;
 mod keybind_help;
 mod menus;
 mod mobile;
+mod modal_tabs;
 mod navigator;
 mod onboarding;
 mod panes;
@@ -63,6 +64,7 @@ pub(crate) use self::{
     agent_profile_picker::{
         agent_profile_picker_button_rects, agent_profile_picker_inner_rect,
         agent_profile_picker_list_area, agent_profile_picker_popup_rect,
+        agent_profile_picker_tab_chevron_at, agent_profile_picker_tab_hit_areas,
     },
     command_palette::command_palette_button_rects,
 };
@@ -72,8 +74,10 @@ pub(crate) use self::{
         group_icon_picker_rects, rename_button_rects, rename_modal_size,
     },
     settings::{
-        settings_agents_editor_back_button_rect, settings_close_button_rect,
-        settings_section_list_rect, settings_tab_chevron_at, settings_tab_hit_areas,
+        settings_agents_editor_back_button_rect, settings_agents_family_tab_chevron_at,
+        settings_agents_family_tab_hit_areas, settings_agents_family_tab_row,
+        settings_agents_profile_list_rect, settings_close_button_rect, settings_section_list_rect,
+        settings_tab_chevron_at, settings_tab_hit_areas,
     },
     sidebar::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_entry_at_row,

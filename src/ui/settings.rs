@@ -15,6 +15,7 @@ use super::widgets::{
 };
 use crate::{
     app::{
+        agent_profile_picker::{agent_profile_picker_tab_label, AGENT_PROFILE_PICKER_TABS},
         state::{normalize_theme_name, Palette, SettingsSection},
         AppState,
     },
@@ -65,74 +66,26 @@ fn settings_tab_width(app: &AppState, section: SettingsSection) -> u16 {
     label_width + badge_width + 2
 }
 
-fn settings_tabs_width(
-    app: &AppState,
-    sections: &[SettingsSection],
-    start: usize,
-    end: usize,
-) -> u16 {
-    if start >= end {
-        return 0;
-    }
-
-    let tab_width = sections[start..end]
-        .iter()
-        .copied()
-        .map(|section| settings_tab_width(app, section))
-        .sum::<u16>();
-    let gaps = end.saturating_sub(start + 1) as u16;
-    let edge_hints = u16::from(start > 0) * 2 + u16::from(end < sections.len()) * 2;
-    tab_width + gaps + edge_hints
-}
-
 fn settings_visible_tab_range(app: &AppState, row_width: u16) -> (usize, usize) {
     let sections = settings_sections(app);
-    if sections.is_empty() {
-        return (0, 0);
-    }
     let selected = sections
         .iter()
         .position(|section| *section == app.settings.section)
         .unwrap_or(0);
-    let mut start = selected;
-    let mut end = selected + 1;
-
-    loop {
-        let mut expanded = false;
-        if start > 0 && settings_tabs_width(app, sections, start - 1, end) <= row_width {
-            start -= 1;
-            expanded = true;
-        }
-        if end < sections.len() && settings_tabs_width(app, sections, start, end + 1) <= row_width {
-            end += 1;
-            expanded = true;
-        }
-        if !expanded {
-            break;
-        }
-    }
-
-    (start, end)
+    super::modal_tabs::visible_tab_range(sections.len(), selected, row_width, |idx| {
+        settings_tab_width(app, sections[idx])
+    })
 }
 
 pub(crate) fn settings_tab_hit_areas(app: &AppState, row: Rect) -> Vec<(SettingsSection, Rect)> {
     let sections = settings_sections(app);
     let (start, end) = settings_visible_tab_range(app, row.width);
-    let mut x = row.x;
-    if start > 0 {
-        x = x.saturating_add(2);
-    }
-
-    let mut areas = Vec::new();
-    for (visible_idx, section) in sections[start..end].iter().copied().enumerate() {
-        if visible_idx > 0 {
-            x = x.saturating_add(1);
-        }
-        let width = settings_tab_width(app, section);
-        areas.push((section, Rect::new(x, row.y, width, 1)));
-        x = x.saturating_add(width);
-    }
-    areas
+    super::modal_tabs::tab_hit_areas(row, start, end, |idx| {
+        settings_tab_width(app, sections[idx])
+    })
+    .into_iter()
+    .map(|(idx, rect)| (sections[idx], rect))
+    .collect()
 }
 
 pub(crate) fn settings_tab_chevron_at(
@@ -142,21 +95,10 @@ pub(crate) fn settings_tab_chevron_at(
 ) -> Option<SettingsSection> {
     let sections = settings_sections(app);
     let (start, end) = settings_visible_tab_range(app, row.width);
-    if start > 0 && col >= row.x && col < row.x.saturating_add(2) {
-        return sections.get(start - 1).copied();
-    }
-
-    if end < sections.len() {
-        let right_x = settings_tab_hit_areas(app, row)
-            .last()
-            .map(|(_, rect)| rect.x.saturating_add(rect.width))
-            .unwrap_or(row.x);
-        if col >= right_x && col < right_x.saturating_add(2) {
-            return sections.get(end).copied();
-        }
-    }
-
-    None
+    super::modal_tabs::chevron_tab_at(sections.len(), row, col, start, end, |idx| {
+        settings_tab_width(app, sections[idx])
+    })
+    .and_then(|idx| sections.get(idx).copied())
 }
 
 fn render_settings_tabs(app: &AppState, frame: &mut Frame, row: Rect) {
@@ -343,6 +285,111 @@ fn render_settings_section_intro(
     list_area
 }
 
+pub(crate) fn settings_agents_profile_list_rect(app: &AppState, area: Rect) -> Rect {
+    let body = settings_section_list_rect(area);
+    if app.settings.section != SettingsSection::Agents || settings_agents_editor_open(app) {
+        return body;
+    }
+
+    let [_, _, list_area] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(0),
+    ])
+    .areas::<3>(body);
+    list_area
+}
+
+pub(crate) fn settings_agents_family_tab_row(app: &AppState, area: Rect) -> Option<Rect> {
+    (app.settings.section == SettingsSection::Agents && !settings_agents_editor_open(app))
+        .then(|| settings_section_list_rect(area))
+        .map(|body| Rect::new(body.x, body.y, body.width, 1))
+}
+
+pub(crate) fn settings_agents_family_tab_hit_areas(
+    app: &AppState,
+    row: Rect,
+) -> Vec<(Option<crate::agent_profiles::AgentKind>, Rect)> {
+    let (start, end) = settings_agents_visible_family_tab_range(app, row.width);
+    super::modal_tabs::tab_hit_areas(row, start, end, settings_agents_tab_width)
+        .into_iter()
+        .map(|(idx, rect)| (AGENT_PROFILE_PICKER_TABS[idx], rect))
+        .collect()
+}
+
+pub(crate) fn settings_agents_family_tab_chevron_at(
+    app: &AppState,
+    row: Rect,
+    col: u16,
+) -> Option<Option<crate::agent_profiles::AgentKind>> {
+    let (start, end) = settings_agents_visible_family_tab_range(app, row.width);
+    super::modal_tabs::chevron_tab_at(
+        AGENT_PROFILE_PICKER_TABS.len(),
+        row,
+        col,
+        start,
+        end,
+        settings_agents_tab_width,
+    )
+    .map(|idx| AGENT_PROFILE_PICKER_TABS[idx])
+}
+
+fn settings_agents_visible_family_tab_range(app: &AppState, row_width: u16) -> (usize, usize) {
+    let selected = AGENT_PROFILE_PICKER_TABS
+        .iter()
+        .position(|tab| *tab == app.settings.agent_profile_kind_filter)
+        .unwrap_or(0);
+    super::modal_tabs::visible_tab_range(
+        AGENT_PROFILE_PICKER_TABS.len(),
+        selected,
+        row_width,
+        settings_agents_tab_width,
+    )
+}
+
+fn settings_agents_tab_width(idx: usize) -> u16 {
+    (agent_profile_picker_tab_label(AGENT_PROFILE_PICKER_TABS[idx]).width() as u16)
+        .saturating_add(2)
+}
+
+fn render_settings_agents_family_tabs(app: &AppState, frame: &mut Frame, row: Rect) {
+    let p = &app.palette;
+    let (start, end) = settings_agents_visible_family_tab_range(app, row.width);
+    let mut spans = Vec::new();
+
+    if start > 0 {
+        spans.push(Span::styled("‹ ", Style::default().fg(p.overlay0)));
+    }
+
+    for (visible_idx, tab) in AGENT_PROFILE_PICKER_TABS[start..end]
+        .iter()
+        .copied()
+        .enumerate()
+    {
+        if visible_idx > 0 {
+            spans.push(Span::raw(" "));
+        }
+        let selected = tab == app.settings.agent_profile_kind_filter;
+        let style = if selected {
+            Style::default()
+                .fg(panel_contrast_fg(p))
+                .bg(p.accent)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(p.overlay1)
+        };
+        spans.push(Span::styled(" ", style));
+        spans.push(Span::styled(agent_profile_picker_tab_label(tab), style));
+        spans.push(Span::styled(" ", style));
+    }
+
+    if end < AGENT_PROFILE_PICKER_TABS.len() {
+        spans.push(Span::styled(" ›", Style::default().fg(p.overlay0)));
+    }
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), row);
+}
+
 pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     use crate::app::state::SettingsSection;
 
@@ -411,6 +458,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                     ("edit/add", "↵"),
                     ("delete", "ctrl+d"),
                     ("reorder", "ctrl+↑↓"),
+                    ("family", "←→"),
                     ("section", "tab"),
                 ][..]
             };
@@ -549,14 +597,26 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
         "no supported agent CLIs found on PATH".to_string()
     };
     frame.render_widget(
-        Paragraph::new(format!(" {hint}")).style(Style::default().fg(p.overlay1)),
+        Paragraph::new(format!(" {hint}")).style(Style::default().fg(p.overlay0)),
         hint_area,
     );
 }
 
 fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area: Rect) {
-    let list_area = render_settings_section_intro(app, frame, area, app.settings.section);
-    render_settings_rows(app, frame, list_area);
+    let body_area = render_settings_section_intro(app, frame, area, app.settings.section);
+    if app.settings.section == SettingsSection::Agents && !settings_agents_editor_open(app) {
+        let [tab_row, divider_row, list_area] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .areas::<3>(body_area);
+        render_settings_agents_family_tabs(app, frame, tab_row);
+        render_modal_divider(frame, divider_row, &app.palette);
+        render_settings_rows(app, frame, list_area);
+    } else {
+        render_settings_rows(app, frame, body_area);
+    }
 }
 
 fn render_settings_rows(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -1128,6 +1188,25 @@ mod tests {
         assert_eq!(buffer[(x, y)].symbol(), "l");
     }
 
+    #[test]
+    fn agent_settings_renders_family_tabs_above_profile_rows() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Agents;
+        app.settings.agent_profile_kind_filter = Some(crate::agent_profiles::AgentKind::Omp);
+
+        let area = Rect::new(0, 0, 100, 40);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("agents"));
+        assert!(text.contains("all"));
+        assert!(text.contains("omp"));
+        assert!(text.contains("profiles"));
+    }
     #[test]
     fn agent_profile_editor_renders_numbered_steps() {
         let mut app = AppState::test_new();

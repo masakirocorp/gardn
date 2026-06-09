@@ -3,6 +3,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 
 use crate::{
     app::{
+        agent_profile_picker::AGENT_PROFILE_PICKER_TABS,
         state::{
             normalize_theme_name, theme_names_for_appearance, AppState, DragState, DragTarget,
             SettingsSection, THEME_NAMES,
@@ -324,7 +325,12 @@ fn settings_section_scroll_len(state: &AppState, section: SettingsSection) -> us
 }
 
 fn settings_section_list_rect(state: &AppState, section: SettingsSection) -> Rect {
-    let body_area = crate::ui::settings_section_list_rect(state.settings_content_rect());
+    let content_area = state.settings_content_rect();
+    let body_area = if section == SettingsSection::Agents {
+        crate::ui::settings_agents_profile_list_rect(state, content_area)
+    } else {
+        crate::ui::settings_section_list_rect(content_area)
+    };
     if section == SettingsSection::Integrations {
         let [list_area, _] =
             Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas::<2>(body_area);
@@ -599,7 +605,14 @@ fn browse_agent_profile_id_for_settings_index(state: &AppState, selected: usize)
     state
         .agent_profiles
         .profiles()
-        .get(selected - 1)
+        .iter()
+        .filter(|profile| {
+            state
+                .settings
+                .agent_profile_kind_filter
+                .is_none_or(|kind| profile.kind == kind)
+        })
+        .nth(selected - 1)
         .map(|profile| profile.id.clone())
 }
 
@@ -615,7 +628,12 @@ fn custom_profile_id_for_settings_index(state: &AppState, selected: usize) -> Op
 fn open_blank_agent_profile_editor(state: &mut AppState) {
     state.settings.pending_agent_profile_id = None;
     state.settings.pending_agent_profile_name = Some(String::new());
-    state.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Omp);
+    state.settings.pending_agent_profile_kind = Some(
+        state
+            .settings
+            .agent_profile_kind_filter
+            .unwrap_or(crate::agent_profiles::AgentKind::Omp),
+    );
     state.settings.pending_agent_profile_command = Some(String::new());
     state.settings.list.selected = AGENT_PROFILE_NAME_INDEX;
     state.settings.scroll = 0;
@@ -1228,6 +1246,28 @@ fn select_next_setting(state: &mut AppState, item_count: usize) {
     };
 }
 
+fn move_agent_settings_family_tab(state: &mut AppState, forward: bool) {
+    if agent_profile_editor_open(state) {
+        return;
+    }
+    let current = state.settings.agent_profile_kind_filter;
+    let current_idx = AGENT_PROFILE_PICKER_TABS
+        .iter()
+        .position(|tab| *tab == current)
+        .unwrap_or(0);
+    let next_idx = if forward {
+        (current_idx + 1) % AGENT_PROFILE_PICKER_TABS.len()
+    } else {
+        current_idx
+            .checked_sub(1)
+            .unwrap_or(AGENT_PROFILE_PICKER_TABS.len() - 1)
+    };
+    state.settings.agent_profile_kind_filter = AGENT_PROFILE_PICKER_TABS[next_idx];
+    state.settings.list.selected = 0;
+    state.settings.scroll = 0;
+    ensure_settings_selection_visible(state);
+}
+
 fn handle_settings_modal_action(state: &mut AppState, key: &KeyEvent) -> Option<SettingsAction> {
     match super::modal::modal_action_from_key(key, super::modal::SETTINGS_ACTIONS) {
         Some(super::modal::ModalAction::Close) => {
@@ -1476,6 +1516,12 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 {
                     return Some(SettingsAction::DeleteAgentProfile(profile_id));
                 }
+            }
+            KeyCode::Left | KeyCode::Char('h') if !agent_profile_editor_open(state) => {
+                move_agent_settings_family_tab(state, false);
+            }
+            KeyCode::Right | KeyCode::Char('l') if !agent_profile_editor_open(state) => {
+                move_agent_settings_family_tab(state, true);
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::PaneLabels;
@@ -1771,6 +1817,25 @@ impl AppState {
             })
     }
 
+    fn settings_agents_family_tab_at(
+        &self,
+        col: u16,
+        row: u16,
+    ) -> Option<Option<crate::agent_profiles::AgentKind>> {
+        let tab_row =
+            crate::ui::settings_agents_family_tab_row(self, self.settings_content_rect())?;
+        if row != tab_row.y {
+            return None;
+        }
+        crate::ui::settings_agents_family_tab_chevron_at(self, tab_row, col).or_else(|| {
+            crate::ui::settings_agents_family_tab_hit_areas(self, tab_row)
+                .into_iter()
+                .find_map(|(kind, rect)| {
+                    (col >= rect.x && col < rect.x.saturating_add(rect.width)).then_some(kind)
+                })
+        })
+    }
+
     fn settings_agents_editor_back_at(&self, col: u16, row: u16) -> bool {
         let area = self.settings_content_rect();
         let Some(rect) = crate::ui::settings_agents_editor_back_button_rect(self, area) else {
@@ -1910,6 +1975,13 @@ impl AppState {
                     if section == SettingsSection::Theme {
                         ensure_settings_selection_visible(self);
                     }
+                    return None;
+                }
+
+                if let Some(kind) = self.settings_agents_family_tab_at(mouse.column, mouse.row) {
+                    self.settings.agent_profile_kind_filter = kind;
+                    self.settings.list.select(0);
+                    self.settings.scroll = 0;
                     return None;
                 }
 
@@ -2368,6 +2440,75 @@ mod tests {
                     if label.as_ref() == "pi" && marker.as_ref() == "◆"
             )
         }));
+    }
+
+    #[test]
+    fn agent_settings_family_tab_filters_profile_rows() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Agents);
+        state.settings.agent_profile_kind_filter = Some(crate::agent_profiles::AgentKind::Omp);
+
+        let rows = rows_for_section(&state, SettingsSection::Agents).expect("agent rows");
+
+        assert!(rows.iter().any(|row| {
+            matches!(
+                row,
+                crate::settings_rows::SettingsListRow::StatusChoice { label, .. }
+                    if label.as_ref() == "omp"
+            )
+        }));
+        assert!(!rows.iter().any(|row| {
+            matches!(
+                row,
+                crate::settings_rows::SettingsListRow::StatusChoice { label, .. }
+                    if label.as_ref() == "codex"
+            )
+        }));
+    }
+
+    #[test]
+    fn agent_settings_left_right_moves_family_tab_not_settings_section() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Agents);
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Right, KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.settings.section, SettingsSection::Agents);
+        assert_eq!(
+            state.settings.agent_profile_kind_filter,
+            Some(crate::agent_profiles::AgentKind::Pi)
+        );
+    }
+
+    #[test]
+    fn agent_settings_clicking_family_tab_filters_profile_rows() {
+        let mut app = app_for_mouse_test();
+        app.state.view.terminal_area = Rect::new(0, 0, 100, 40);
+        open_settings_at(&mut app.state, SettingsSection::Agents);
+        let tab_row = crate::ui::settings_agents_family_tab_row(
+            &app.state,
+            app.state.settings_content_rect(),
+        )
+        .expect("agents family tabs");
+        let (_, omp_rect) = crate::ui::settings_agents_family_tab_hit_areas(&app.state, tab_row)
+            .into_iter()
+            .find(|(kind, _)| *kind == Some(crate::agent_profiles::AgentKind::Omp))
+            .expect("omp tab");
+
+        let action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            omp_rect.x + 1,
+            omp_rect.y,
+        ));
+
+        assert_eq!(action, None);
+        assert_eq!(
+            app.state.settings.agent_profile_kind_filter,
+            Some(crate::agent_profiles::AgentKind::Omp)
+        );
     }
     #[test]
     fn agent_settings_hover_matches_visual_rows() {

@@ -1,9 +1,12 @@
+use crate::agent_profiles::AgentKind;
+
 use super::AppState;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentProfilePickerEntry {
     pub profile_id: String,
     pub name: String,
+    pub kind: AgentKind,
     pub section: &'static str,
 }
 
@@ -14,9 +17,28 @@ impl AgentProfilePickerEntry {
             return true;
         }
 
-        let haystack = format!("{} {}", self.name, self.section).to_ascii_lowercase();
-        query.split_whitespace().all(|term| haystack.contains(term))
+        let name = self.name.to_ascii_lowercase();
+        let kind = self.kind.as_str();
+        query
+            .split_whitespace()
+            .all(|term| name.contains(term) || kind.contains(term) || self.section.contains(term))
     }
+}
+
+pub(crate) const AGENT_PROFILE_PICKER_TABS: [Option<AgentKind>; 9] = [
+    None,
+    Some(AgentKind::Pi),
+    Some(AgentKind::Omp),
+    Some(AgentKind::Claude),
+    Some(AgentKind::Codex),
+    Some(AgentKind::Copilot),
+    Some(AgentKind::Opencode),
+    Some(AgentKind::Hermes),
+    Some(AgentKind::Qodercli),
+];
+
+pub(crate) fn agent_profile_picker_tab_label(tab: Option<AgentKind>) -> &'static str {
+    tab.map_or("all", AgentKind::as_str)
 }
 
 pub(crate) fn workspace_agent_profile_ids(
@@ -53,6 +75,7 @@ pub(crate) fn agent_profile_picker_entries_for_workspace(
         .map(|profile| AgentProfilePickerEntry {
             profile_id: profile.id.clone(),
             name: profile.name.clone(),
+            kind: profile.kind,
             section: "favorites",
         })
         .chain(
@@ -62,6 +85,7 @@ pub(crate) fn agent_profile_picker_entries_for_workspace(
                 .map(|profile| AgentProfilePickerEntry {
                     profile_id: profile.id.clone(),
                     name: profile.name.clone(),
+                    kind: profile.kind,
                     section: "available",
                 }),
         )
@@ -72,8 +96,10 @@ pub(crate) fn agent_profile_picker_filtered_entries(
     state: &AppState,
 ) -> Vec<AgentProfilePickerEntry> {
     let query = state.agent_profile_picker.query.as_str();
+    let kind_filter = state.agent_profile_picker.kind_filter;
     agent_profile_picker_entries(state)
         .into_iter()
+        .filter(|entry| kind_filter.is_none_or(|kind| entry.kind == kind))
         .filter(|entry| entry.matches(query))
         .collect()
 }

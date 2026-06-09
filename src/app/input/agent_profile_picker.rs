@@ -2,7 +2,10 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 
 use crate::app::{
-    agent_profile_picker::{agent_profile_picker_filtered_entries, workspace_agent_profile_ids},
+    agent_profile_picker::{
+        agent_profile_picker_filtered_entries, workspace_agent_profile_ids,
+        AGENT_PROFILE_PICKER_TABS,
+    },
     state::{AppState, Mode},
     App,
 };
@@ -19,7 +22,7 @@ pub(super) fn open_new_agent_picker_for_workspace(state: &mut AppState, ws_idx: 
         }
         _ => {
             state.selected = ws_idx;
-            state.active = Some(ws_idx);
+            state.agent_profile_picker.kind_filter = None;
             state.agent_profile_picker.ws_idx = ws_idx;
             state.agent_profile_picker.query.clear();
             state.agent_profile_picker.selected = 0;
@@ -35,6 +38,11 @@ pub(super) fn close_agent_profile_picker(state: &mut AppState) {
 
 impl App {
     pub(crate) fn handle_agent_profile_picker_key(&mut self, key: KeyEvent) {
+        if let Some(index) = agent_profile_picker_favorite_shortcut_index(key) {
+            self.launch_favorite_agent_profile_by_shortcut(index);
+            return;
+        }
+
         match key.code {
             KeyCode::Esc => close_agent_profile_picker(&mut self.state),
             KeyCode::Enter => self.launch_selected_agent_profile(),
@@ -52,6 +60,12 @@ impl App {
             }
             KeyCode::PageDown => {
                 scroll_agent_profile_picker_rows(&mut self.state, super::MODAL_PAGE_SCROLL_ROWS)
+            }
+            KeyCode::Left | KeyCode::BackTab => {
+                move_agent_profile_picker_tab(&mut self.state, false);
+            }
+            KeyCode::Right | KeyCode::Tab => {
+                move_agent_profile_picker_tab(&mut self.state, true);
             }
             KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 move_agent_profile_picker_selection(&mut self.state, false);
@@ -86,6 +100,19 @@ impl App {
         self.state.return_to_active_workspace_mode();
     }
 
+    fn launch_favorite_agent_profile_by_shortcut(&mut self, favorite_idx: usize) {
+        let Some(entry) = agent_profile_picker_filtered_entries(&self.state)
+            .into_iter()
+            .filter(|entry| entry.section == "favorites")
+            .nth(favorite_idx)
+        else {
+            return;
+        };
+        let ws_idx = self.state.agent_profile_picker.ws_idx;
+        self.state.request_agent_profile_tab = Some((ws_idx, entry.profile_id));
+        self.state.return_to_active_workspace_mode();
+    }
+
     fn toggle_selected_agent_profile_favorite(&mut self) {
         let entries = agent_profile_picker_filtered_entries(&self.state);
         let Some(entry) = entries.get(self.state.agent_profile_picker.selected) else {
@@ -102,6 +129,16 @@ impl App {
         }
     }
 }
+fn agent_profile_picker_favorite_shortcut_index(key: KeyEvent) -> Option<usize> {
+    if !key.modifiers.contains(KeyModifiers::ALT) {
+        return None;
+    }
+
+    match key.code {
+        KeyCode::Char(c @ '1'..='9') => Some((c as usize) - ('1' as usize)),
+        _ => None,
+    }
+}
 
 pub(super) fn agent_profile_picker_action_button_at(
     state: &AppState,
@@ -115,6 +152,34 @@ pub(super) fn agent_profile_picker_action_button_at(
         row,
         &[(start, ModalAction::Apply), (close, ModalAction::Close)],
     )
+}
+
+pub(super) fn select_agent_profile_picker_tab_at(state: &mut AppState, col: u16, row: u16) -> bool {
+    let Some(tab_row) = agent_profile_picker_tab_row(state) else {
+        return false;
+    };
+    if row != tab_row.y {
+        return false;
+    }
+
+    let tab_idx =
+        crate::ui::agent_profile_picker_tab_chevron_at(state, tab_row, col).or_else(|| {
+            crate::ui::agent_profile_picker_tab_hit_areas(state, tab_row)
+                .into_iter()
+                .find_map(|(idx, rect)| {
+                    (col >= rect.x && col < rect.x.saturating_add(rect.width)).then_some(idx)
+                })
+        });
+
+    let Some(tab_idx) = tab_idx else {
+        return false;
+    };
+
+    state.agent_profile_picker.kind_filter = AGENT_PROFILE_PICKER_TABS[tab_idx];
+    state.agent_profile_picker.selected = 0;
+    state.agent_profile_picker.scroll = 0;
+    clamp_agent_profile_picker_selection(state);
+    true
 }
 
 pub(super) fn agent_profile_picker_contains_point(state: &AppState, col: u16, row: u16) -> bool {
@@ -235,6 +300,26 @@ fn move_agent_profile_picker_selection(state: &mut AppState, down: bool) -> bool
     changed
 }
 
+fn move_agent_profile_picker_tab(state: &mut AppState, forward: bool) {
+    let current = state.agent_profile_picker.kind_filter;
+    let current_idx = AGENT_PROFILE_PICKER_TABS
+        .iter()
+        .position(|tab| *tab == current)
+        .unwrap_or(0);
+    let next_idx = if forward {
+        (current_idx + 1) % AGENT_PROFILE_PICKER_TABS.len()
+    } else {
+        current_idx
+            .checked_sub(1)
+            .unwrap_or(AGENT_PROFILE_PICKER_TABS.len() - 1)
+    };
+
+    state.agent_profile_picker.kind_filter = AGENT_PROFILE_PICKER_TABS[next_idx];
+    state.agent_profile_picker.selected = 0;
+    state.agent_profile_picker.scroll = 0;
+    clamp_agent_profile_picker_selection(state);
+}
+
 fn ensure_agent_profile_picker_selection_visible(state: &mut AppState) {
     let Some((_, rows, viewport)) = agent_profile_picker_viewport(state) else {
         state.agent_profile_picker.scroll = 0;
@@ -296,6 +381,11 @@ fn agent_profile_picker_list_area(state: &AppState) -> Option<Rect> {
     crate::ui::agent_profile_picker_list_area(agent_profile_picker_screen_rect(state))
 }
 
+fn agent_profile_picker_tab_row(state: &AppState) -> Option<Rect> {
+    let inner = agent_profile_picker_inner_rect(state)?;
+    Some(Rect::new(inner.x, inner.y + 2, inner.width, 1))
+}
+
 fn agent_profile_picker_inner_rect(state: &AppState) -> Option<Rect> {
     crate::ui::agent_profile_picker_inner_rect(agent_profile_picker_screen_rect(state))
 }
@@ -340,6 +430,7 @@ mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     use super::*;
+    use ratatui::layout::Rect;
 
     fn app_with_space() -> App {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -375,6 +466,22 @@ mod tests {
     }
 
     #[test]
+    fn picker_alt_number_launches_favorite_by_group_order() {
+        let mut app = app_with_space();
+        app.state.groups[app.state.active_group].favorite_agent_profile_ids =
+            vec!["system:pi".to_string(), "system:omp".to_string()];
+        open_new_agent_picker_for_workspace(&mut app.state, 0);
+
+        app.handle_agent_profile_picker_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::ALT));
+
+        assert_eq!(
+            app.state.request_agent_profile_tab,
+            Some((0, "system:omp".to_string()))
+        );
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
     fn picker_uses_workspace_group_favorites_when_active_group_differs() {
         let mut app = app_with_space();
         let group_idx = app.state.create_group("side".to_string());
@@ -393,6 +500,95 @@ mod tests {
 
         assert_eq!(entries[0].section, "favorites");
         assert_eq!(entries[0].profile_id, "system:codex");
+    }
+
+    #[test]
+    fn picker_tabs_filter_by_agent_family() {
+        let mut app = app_with_space();
+        open_new_agent_picker_for_workspace(&mut app.state, 0);
+
+        app.handle_agent_profile_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::empty()));
+
+        assert_eq!(
+            app.state.agent_profile_picker.kind_filter,
+            Some(crate::agent_profiles::AgentKind::Pi)
+        );
+        let entries = agent_profile_picker_filtered_entries(&app.state);
+        assert!(entries
+            .iter()
+            .all(|entry| entry.kind == crate::agent_profiles::AgentKind::Pi));
+    }
+
+    #[test]
+    fn picker_alt_number_launches_visible_family_favorite() {
+        let mut app = app_with_space();
+        app.state.groups[app.state.active_group].favorite_agent_profile_ids = vec![
+            "system:pi".to_string(),
+            "system:omp".to_string(),
+            "system:claude".to_string(),
+        ];
+        open_new_agent_picker_for_workspace(&mut app.state, 0);
+        app.state.agent_profile_picker.kind_filter = Some(crate::agent_profiles::AgentKind::Omp);
+
+        app.handle_agent_profile_picker_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::ALT));
+
+        assert_eq!(
+            app.state.request_agent_profile_tab,
+            Some((0, "system:omp".to_string()))
+        );
+    }
+
+    #[test]
+    fn picker_overflow_chevron_selects_hidden_tab() {
+        let mut app = app_with_space();
+        app.state.view.terminal_area = Rect::new(0, 0, 60, 24);
+        open_new_agent_picker_for_workspace(&mut app.state, 0);
+
+        let tab_row = agent_profile_picker_tab_row(&app.state).expect("tab row");
+        let right = crate::ui::agent_profile_picker_tab_hit_areas(&app.state, tab_row)
+            .last()
+            .map(|(_, rect)| (rect.x.saturating_add(rect.width), rect.y))
+            .expect("visible tab");
+
+        assert!(select_agent_profile_picker_tab_at(
+            &mut app.state,
+            right.0,
+            right.1
+        ));
+        assert!(app.state.agent_profile_picker.kind_filter.is_some());
+        assert_ne!(
+            app.state.agent_profile_picker.kind_filter,
+            Some(crate::agent_profiles::AgentKind::Pi)
+        );
+    }
+
+    #[test]
+    fn picker_tab_hit_areas_match_rendered_tabs_after_last_tab_selected() {
+        let mut app = app_with_space();
+        app.state.view.terminal_area = Rect::new(0, 0, 80, 24);
+        open_new_agent_picker_for_workspace(&mut app.state, 0);
+        app.state.agent_profile_picker.kind_filter =
+            Some(crate::agent_profiles::AgentKind::Qodercli);
+        let tab_row = agent_profile_picker_tab_row(&app.state).expect("tab row");
+        let hit_areas = crate::ui::agent_profile_picker_tab_hit_areas(&app.state, tab_row);
+        assert!(hit_areas
+            .iter()
+            .any(|(idx, _)| AGENT_PROFILE_PICKER_TABS[*idx]
+                == Some(crate::agent_profiles::AgentKind::Omp)));
+
+        for (idx, rect) in hit_areas {
+            app.state.agent_profile_picker.kind_filter =
+                Some(crate::agent_profiles::AgentKind::Qodercli);
+            assert!(select_agent_profile_picker_tab_at(
+                &mut app.state,
+                rect.x + rect.width / 2,
+                rect.y
+            ));
+            assert_eq!(
+                app.state.agent_profile_picker.kind_filter,
+                AGENT_PROFILE_PICKER_TABS[idx]
+            );
+        }
     }
 
     #[test]

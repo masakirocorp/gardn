@@ -572,6 +572,7 @@ impl App {
             agent_profile_picker: state::AgentProfilePickerState {
                 ws_idx: 0,
                 query: String::new(),
+                kind_filter: None,
                 selected: 0,
                 scroll: 0,
             },
@@ -721,6 +722,7 @@ impl App {
                 pending_agent_profile_name: None,
                 pending_agent_profile_kind: None,
                 pending_agent_profile_command: None,
+                agent_profile_kind_filter: None,
                 group_settings_target: None,
             },
             integration_recommendations: crate::integration::integration_recommendations(),

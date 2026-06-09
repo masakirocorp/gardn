@@ -406,11 +406,14 @@ mod tests {
         });
 
         assert!(app.start_pending_agent_resumes(false));
-        for _ in 0..40 {
-            if output.exists() {
-                break;
+        let expected_line_count = args.len() + 1;
+        for _ in 0..100 {
+            if let Ok(recorded) = std::fs::read_to_string(output) {
+                if recorded.lines().count() == expected_line_count {
+                    break;
+                }
             }
-            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         let recorded = std::fs::read_to_string(output).unwrap_or_else(|err| {
             panic!(

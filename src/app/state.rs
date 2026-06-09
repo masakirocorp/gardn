@@ -1928,6 +1928,8 @@ pub struct SettingsState {
     pub pending_agent_profile_kind: Option<crate::agent_profiles::AgentKind>,
     /// Pending custom agent profile command while settings is open.
     pub pending_agent_profile_command: Option<String>,
+    /// Active agent family filter in the global agents settings tab.
+    pub agent_profile_kind_filter: Option<crate::agent_profiles::AgentKind>,
     /// Group whose settings are being edited, if settings was opened from a group menu.
     pub group_settings_target: Option<usize>,
 }
@@ -2182,6 +2184,7 @@ pub struct AgentProfilePickerState {
     pub ws_idx: usize,
     pub query: String,
     pub selected: usize,
+    pub kind_filter: Option<crate::agent_profiles::AgentKind>,
     pub scroll: usize,
 }
 
@@ -2882,6 +2885,7 @@ impl AppState {
             agent_profile_picker: AgentProfilePickerState {
                 ws_idx: 0,
                 query: String::new(),
+                kind_filter: None,
                 selected: 0,
                 scroll: 0,
             },
@@ -3027,6 +3031,7 @@ impl AppState {
                 pending_agent_profile_name: None,
                 pending_agent_profile_kind: None,
                 pending_agent_profile_command: None,
+                agent_profile_kind_filter: None,
                 group_settings_target: None,
             },
             integration_recommendations: Vec::new(),
