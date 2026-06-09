@@ -77,7 +77,7 @@ pub(crate) use self::{
         settings_agents_editor_back_button_rect, settings_close_button_rect,
         settings_profile_family_tab_chevron_at, settings_profile_family_tab_hit_areas,
         settings_profile_family_tab_row, settings_profile_list_rect, settings_section_list_rect,
-        settings_tab_chevron_at, settings_tab_hit_areas,
+        settings_stack_areas, settings_tab_chevron_at, settings_tab_hit_areas,
     },
     sidebar::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_entry_at_row,

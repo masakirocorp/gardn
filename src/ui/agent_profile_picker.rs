@@ -17,15 +17,30 @@ use crate::app::{
 use super::{
     scrollbar::render_scrollbar,
     widgets::{
-        action_button_row_rects, modal_section_heading_style, panel_contrast_fg,
-        primary_action_style, render_action_button, render_modal_divider, render_modal_header_bar,
-        render_modal_hint_lines, render_modal_shell, render_modal_subtitle,
-        render_modal_text_input, ActionButtonSpec,
+        action_button_row_rects, modal_hint_line_count, modal_section_heading_style,
+        panel_contrast_fg, primary_action_style, render_action_button, render_modal_divider,
+        render_modal_header_bar, render_modal_hint_lines, render_modal_shell,
+        render_modal_subtitle, render_modal_text_input, ActionButtonSpec,
     },
 };
 
 const AGENT_PROFILE_PICKER_KEY_HINT_RIGHT_PADDING: usize = 1;
+const AGENT_PROFILE_PICKER_HINTS: &[(&str, &str)] = &[
+    ("quick start", "alt+1..9"),
+    ("favorite", "ctrl+f"),
+    ("default", "ctrl+d"),
+    ("filter", "shift+←→"),
+];
 
+fn agent_profile_picker_hint_rows(inner_width: u16) -> u16 {
+    modal_hint_line_count(inner_width, AGENT_PROFILE_PICKER_HINTS, 2)
+}
+
+fn agent_profile_picker_height(area: Rect) -> u16 {
+    let popup_width = 60.min(area.width.saturating_sub(4));
+    let inner_width = popup_width.saturating_sub(2);
+    23 + agent_profile_picker_hint_rows(inner_width)
+}
 pub(crate) fn agent_profile_picker_button_rects(inner: Rect) -> (Rect, Rect) {
     let rects = action_button_row_rects(
         inner,
@@ -42,7 +57,7 @@ pub(crate) fn agent_profile_picker_button_rects(inner: Rect) -> (Rect, Rect) {
 }
 
 pub(crate) fn agent_profile_picker_popup_rect(area: Rect) -> Option<Rect> {
-    super::centered_popup_rect(area, 60, 25)
+    super::centered_popup_rect(area, 60, agent_profile_picker_height(area))
 }
 
 pub(crate) fn agent_profile_picker_inner_rect(area: Rect) -> Option<Rect> {
@@ -101,24 +116,32 @@ pub(crate) fn agent_profile_picker_list_area(area: Rect) -> Option<Rect> {
         return None;
     }
 
+    let hint_rows = agent_profile_picker_hint_rows(inner.width);
     Some(Rect::new(
         inner.x,
         inner.y + 10,
         inner.width,
-        inner.height.saturating_sub(14),
+        inner.height.saturating_sub(12 + hint_rows),
     ))
 }
 
 pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Frame) {
     super::dim_background(frame, frame.area());
 
-    let Some(inner) = render_modal_shell(frame, frame.area(), 60, 25, &app.palette) else {
+    let Some(inner) = render_modal_shell(
+        frame,
+        frame.area(),
+        60,
+        agent_profile_picker_height(frame.area()),
+        &app.palette,
+    ) else {
         return;
     };
     if inner.height < 13 || inner.width < 20 {
         return;
     }
 
+    let hint_rows = agent_profile_picker_hint_rows(inner.width);
     let rows = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
@@ -132,11 +155,10 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
         Constraint::Length(1),
         Constraint::Min(1),
         Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
+        Constraint::Length(hint_rows),
         Constraint::Length(1),
     ])
-    .areas::<15>(inner);
+    .areas::<14>(inner);
 
     render_modal_header_bar(frame, rows[0], "new agent", &app.palette, true);
     render_agent_profile_picker_filters(app, frame, rows[2]);
@@ -160,18 +182,7 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
     let input = Rect::new(rows[8].x, rows[8].y, rows[8].width, 1);
     render_modal_text_input(frame, input, &app.agent_profile_picker.query, &app.palette);
 
-    render_modal_hint_lines(
-        frame,
-        Rect::new(rows[12].x, rows[12].y, rows[12].width, 2),
-        &app.palette,
-        &[
-            ("quick start", "alt+1..9"),
-            ("favorite", "ctrl+f"),
-            ("default", "ctrl+d"),
-            ("filter", "shift+←→"),
-        ],
-        2,
-    );
+    render_modal_hint_lines(frame, rows[12], &app.palette, AGENT_PROFILE_PICKER_HINTS, 2);
 
     let (start_rect, _) = agent_profile_picker_button_rects(inner);
     render_action_button(

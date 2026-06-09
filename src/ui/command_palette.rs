@@ -16,14 +16,20 @@ use crate::app::{
 use super::{
     scrollbar::render_scrollbar,
     widgets::{
-        action_button_row_rects, modal_section_heading_style, panel_contrast_fg,
-        primary_action_style, render_action_button, render_modal_header_bar,
+        action_button_row_rects, modal_scroll_hint_line_count, modal_section_heading_style,
+        panel_contrast_fg, primary_action_style, render_action_button, render_modal_header_bar,
         render_modal_scroll_hints, render_modal_shell, render_modal_subtitle,
         render_modal_text_input, ActionButtonSpec,
     },
 };
 
 const COMMAND_PALETTE_KEY_HINT_RIGHT_PADDING: usize = 1;
+
+fn command_palette_height(area: Rect) -> u16 {
+    let popup_width = 76.min(area.width.saturating_sub(4));
+    let inner_width = popup_width.saturating_sub(2);
+    17 + modal_scroll_hint_line_count(inner_width, 2)
+}
 
 pub(crate) fn command_palette_button_rects(inner: Rect) -> (Rect, Rect) {
     let rects = action_button_row_rects(
@@ -43,20 +49,27 @@ pub(crate) fn command_palette_button_rects(inner: Rect) -> (Rect, Rect) {
 pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) {
     super::dim_background(frame, frame.area());
 
-    let Some(inner) = render_modal_shell(frame, frame.area(), 76, 18, &app.palette) else {
+    let Some(inner) = render_modal_shell(
+        frame,
+        frame.area(),
+        76,
+        command_palette_height(frame.area()),
+        &app.palette,
+    ) else {
         return;
     };
     if inner.height < 6 || inner.width < 20 {
         return;
     }
 
+    let hint_rows = modal_scroll_hint_line_count(inner.width, 2);
     let rows = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Min(1),
         Constraint::Length(1),
-        Constraint::Length(1),
+        Constraint::Length(hint_rows),
         Constraint::Length(1),
     ])
     .areas::<7>(inner);

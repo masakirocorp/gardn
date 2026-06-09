@@ -143,13 +143,40 @@ pub(super) fn render_modal_divider(frame: &mut Frame, area: Rect, p: &Palette) {
     );
 }
 
+const MODAL_SCROLL_HINTS: &[(&str, &str)] = &[("scroll", "wheel ↑↓"), ("jump", "pgup / pgdn")];
+
+pub(super) fn modal_scroll_hint_line_count(area_width: u16, max_rows: u16) -> u16 {
+    modal_hint_line_count(area_width, MODAL_SCROLL_HINTS, max_rows)
+}
+
 pub(super) fn render_modal_scroll_hints(frame: &mut Frame, area: Rect, p: &Palette) {
-    render_modal_hint_line(
-        frame,
-        area,
-        p,
-        &[("scroll", "wheel ↑↓"), ("jump", "pgup / pgdn")],
-    );
+    render_modal_hint_lines(frame, area, p, MODAL_SCROLL_HINTS, 2);
+}
+
+pub(super) fn modal_hint_line_count(area_width: u16, hints: &[(&str, &str)], max_rows: u16) -> u16 {
+    if max_rows <= 1 {
+        return 1;
+    }
+
+    let mut line_count = 1u16;
+    let mut current_width = 0usize;
+    let max_width = area_width as usize;
+
+    for hint in hints {
+        let prefix_width = if current_width == 0 { 1 } else { 5 };
+        let hint_width = prefix_width + hint.0.chars().count() + 1 + hint.1.chars().count();
+        let would_overflow =
+            current_width != 0 && current_width + hint_width > max_width && line_count < max_rows;
+        if would_overflow {
+            line_count += 1;
+            current_width = 0;
+        }
+
+        let prefix_width = if current_width == 0 { 1 } else { 5 };
+        current_width += prefix_width + hint.0.chars().count() + 1 + hint.1.chars().count();
+    }
+
+    line_count
 }
 
 pub(super) fn render_modal_hint_lines(
@@ -170,9 +197,9 @@ pub(super) fn render_modal_hint_lines(
     let max_width = area.width as usize;
 
     for hint in hints.iter().copied() {
-        let prefix_width = if current.is_empty() { 1 } else { 5 };
+        let prefix_width = if current_width == 0 { 1 } else { 5 };
         let hint_width = prefix_width + hint.0.chars().count() + 1 + hint.1.chars().count();
-        let would_overflow = !current.is_empty()
+        let would_overflow = current_width != 0
             && current_width + hint_width > max_width
             && lines.len() + 1 < max_rows as usize;
         if would_overflow {
@@ -181,7 +208,7 @@ pub(super) fn render_modal_hint_lines(
             current_width = 0;
         }
 
-        let prefix_width = if current.is_empty() { 1 } else { 5 };
+        let prefix_width = if current_width == 0 { 1 } else { 5 };
         current_width += prefix_width + hint.0.chars().count() + 1 + hint.1.chars().count();
         current.push(hint);
     }

@@ -8,9 +8,10 @@ use ratatui::{
 
 use super::scrollbar::{release_notes_scrollbar_rect, render_scrollbar};
 use super::widgets::{
-    modal_close_button_rect, modal_scroll_area, modal_stack_areas, panel_contrast_fg,
-    render_action_button, render_modal_header, render_modal_header_bar, render_modal_scroll_hints,
-    render_modal_shell, render_modal_subtitle,
+    modal_close_button_rect, modal_hint_line_count, modal_scroll_area,
+    modal_scroll_hint_line_count, modal_stack_areas, panel_contrast_fg, render_action_button,
+    render_modal_header, render_modal_header_bar, render_modal_hint_lines,
+    render_modal_scroll_hints, render_modal_shell, render_modal_subtitle,
 };
 use crate::app::{
     state::{Palette, ProductAnnouncementState, ReleaseNotesState},
@@ -19,6 +20,8 @@ use crate::app::{
 
 pub(crate) const RELEASE_NOTES_MODAL_SIZE: (u16, u16) = (80, 24);
 pub(crate) const PRODUCT_ANNOUNCEMENT_MODAL_SIZE: (u16, u16) = (88, 24);
+const PRODUCT_ANNOUNCEMENT_HINTS: &[(&str, &str)] =
+    &[("scroll", "wheel ↑↓"), ("close", "esc / enter")];
 
 pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     let Some(notes) = &app.release_notes else {
@@ -40,7 +43,7 @@ pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, ar
         return;
     }
 
-    let stack = modal_stack_areas(inner, 2, 1, 0, 1);
+    let stack = modal_stack_areas(inner, 2, modal_scroll_hint_line_count(inner.width, 2), 0, 1);
     let header_rows =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(stack.header);
 
@@ -112,7 +115,13 @@ pub(super) fn render_product_announcement_overlay(app: &AppState, frame: &mut Fr
         return;
     }
 
-    let stack = modal_stack_areas(inner, 2, 1, 0, 1);
+    let stack = modal_stack_areas(
+        inner,
+        2,
+        modal_hint_line_count(inner.width, PRODUCT_ANNOUNCEMENT_HINTS, 2),
+        0,
+        1,
+    );
     let header_rows =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(stack.header);
 
@@ -191,15 +200,12 @@ pub(super) fn render_product_announcement_overlay(app: &AppState, frame: &mut Fr
         );
     }
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(" scroll ", Style::default().fg(app.palette.overlay0)),
-            Span::styled("wheel ↑↓", Style::default().fg(app.palette.text)),
-            Span::styled("  ·  ", Style::default().fg(app.palette.overlay0)),
-            Span::styled("close", Style::default().fg(app.palette.overlay0)),
-            Span::styled(" esc / enter ", Style::default().fg(app.palette.text)),
-        ])),
+    render_modal_hint_lines(
+        frame,
         stack.footer.unwrap_or_default(),
+        &app.palette,
+        PRODUCT_ANNOUNCEMENT_HINTS,
+        2,
     );
 }
 

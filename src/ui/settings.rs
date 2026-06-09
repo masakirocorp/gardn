@@ -9,9 +9,10 @@ use unicode_width::UnicodeWidthStr;
 
 use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    action_button_width, centered_popup_rect, modal_section_heading_style, modal_stack_areas,
-    panel_contrast_fg, render_action_button, render_modal_description, render_modal_divider,
-    render_modal_header_bar, render_modal_hint_line, render_panel_shell, secondary_action_style,
+    action_button_width, centered_popup_rect, modal_hint_line_count, modal_section_heading_style,
+    modal_stack_areas, panel_contrast_fg, render_action_button, render_modal_description,
+    render_modal_divider, render_modal_header_bar, render_modal_hint_lines, render_panel_shell,
+    secondary_action_style,
 };
 use crate::{
     app::{
@@ -417,6 +418,55 @@ fn render_settings_profile_family_tabs(app: &AppState, frame: &mut Frame, row: R
     frame.render_widget(Paragraph::new(Line::from(spans)), chip_row);
 }
 
+const SETTINGS_INTEGRATIONS_HINTS: &[(&str, &str)] =
+    &[("move", "↑↓"), ("action", "space/↵"), ("section", "←→/tab")];
+const SETTINGS_AGENTS_EDITOR_HINTS: &[(&str, &str)] =
+    &[("move", "↑↓"), ("action", "↵"), ("section", "←→/tab")];
+const SETTINGS_AGENTS_HINTS: &[(&str, &str)] = &[
+    ("move", "↑↓"),
+    ("edit/add", "↵"),
+    ("delete", "ctrl+d"),
+    ("filter", "shift+←→"),
+    ("section", "←→/tab"),
+];
+const SETTINGS_GROUP_PROFILES_HINTS: &[(&str, &str)] = &[
+    ("move", "↑↓"),
+    ("favorite", "ctrl+f"),
+    ("default", "ctrl+d"),
+    ("filter", "shift+←→"),
+];
+const SETTINGS_GROUP_HINTS: &[(&str, &str)] = &[("move", "↑↓"), ("select", "space")];
+const SETTINGS_DEFAULT_HINTS: &[(&str, &str)] =
+    &[("move", "↑↓"), ("select", "space"), ("section", "←→/tab")];
+
+fn settings_footer_hints(
+    app: &AppState,
+    group_settings: bool,
+) -> &'static [(&'static str, &'static str)] {
+    if app.settings.section == SettingsSection::Integrations {
+        SETTINGS_INTEGRATIONS_HINTS
+    } else if app.settings.section == SettingsSection::Agents {
+        if settings_agents_editor_open(app) {
+            SETTINGS_AGENTS_EDITOR_HINTS
+        } else {
+            SETTINGS_AGENTS_HINTS
+        }
+    } else if app.settings.section == SettingsSection::GroupProfiles {
+        SETTINGS_GROUP_PROFILES_HINTS
+    } else if group_settings {
+        SETTINGS_GROUP_HINTS
+    } else {
+        SETTINGS_DEFAULT_HINTS
+    }
+}
+
+pub(crate) fn settings_stack_areas(app: &AppState, inner: Rect) -> super::widgets::ModalStackAreas {
+    let group_settings = app.settings.group_settings_target.is_some();
+    let footer_rows =
+        modal_hint_line_count(inner.width, settings_footer_hints(app, group_settings), 2);
+    modal_stack_areas(inner, 4, footer_rows, 0, 1)
+}
+
 pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     use crate::app::state::SettingsSection;
 
@@ -436,7 +486,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         return;
     }
 
-    let stack = modal_stack_areas(inner, 4, 1, 0, 1);
+    let stack = settings_stack_areas(app, inner);
     let header_rows = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
@@ -467,53 +517,13 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     }
 
     if let Some(footer_area) = stack.footer {
-        if app.settings.section == SettingsSection::Integrations {
-            render_modal_hint_line(
-                frame,
-                footer_area,
-                p,
-                &[("move", "↑↓"), ("action", "space/↵"), ("section", "←→/tab")],
-            );
-        } else if app.settings.section == SettingsSection::Agents {
-            let hints = if settings_agents_editor_open(app) {
-                &[("move", "↑↓"), ("action", "↵"), ("section", "←→/tab")][..]
-            } else {
-                &[
-                    ("move", "↑↓"),
-                    ("edit/add", "↵"),
-                    ("delete", "ctrl+d"),
-                    ("filter", "shift+←→"),
-                    ("section", "←→/tab"),
-                ][..]
-            };
-            render_modal_hint_line(frame, footer_area, p, hints);
-        } else if app.settings.section == SettingsSection::GroupProfiles {
-            render_modal_hint_line(
-                frame,
-                footer_area,
-                p,
-                &[
-                    ("move", "↑↓"),
-                    ("favorite", "ctrl+f"),
-                    ("default", "ctrl+d"),
-                    ("filter", "shift+←→"),
-                ],
-            );
-        } else if group_settings {
-            render_modal_hint_line(
-                frame,
-                footer_area,
-                p,
-                &[("move", "↑↓"), ("select", "space")],
-            );
-        } else {
-            render_modal_hint_line(
-                frame,
-                footer_area,
-                p,
-                &[("move", "↑↓"), ("select", "space"), ("section", "←→/tab")],
-            );
-        }
+        render_modal_hint_lines(
+            frame,
+            footer_area,
+            p,
+            settings_footer_hints(app, group_settings),
+            2,
+        );
     }
 }
 

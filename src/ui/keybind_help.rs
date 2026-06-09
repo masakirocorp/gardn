@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use ratatui::{
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
@@ -10,8 +10,8 @@ use ratatui::{
 
 use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    modal_scroll_area, modal_stack_areas, render_modal_header_bar, render_modal_scroll_hints,
-    render_modal_shell, render_modal_subtitle,
+    modal_scroll_area, modal_scroll_hint_line_count, modal_stack_areas, render_modal_header_bar,
+    render_modal_scroll_hints, render_modal_shell, render_modal_subtitle,
 };
 use crate::app::AppState;
 
@@ -234,17 +234,29 @@ pub(crate) fn keybind_help_lines(app: &AppState) -> Vec<(usize, Line<'static>)> 
     lines
 }
 
+fn keybind_help_height(area: Rect) -> u16 {
+    let popup_width = 76.min(area.width.saturating_sub(4));
+    let inner_width = popup_width.saturating_sub(2);
+    21 + modal_scroll_hint_line_count(inner_width, 2)
+}
+
 pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
     super::dim_background(frame, frame.area());
 
-    let Some(inner) = render_modal_shell(frame, frame.area(), 76, 22, &app.palette) else {
+    let Some(inner) = render_modal_shell(
+        frame,
+        frame.area(),
+        76,
+        keybind_help_height(frame.area()),
+        &app.palette,
+    ) else {
         return;
     };
     if inner.height < 6 || inner.width < 20 {
         return;
     }
 
-    let stack = modal_stack_areas(inner, 2, 1, 0, 1);
+    let stack = modal_stack_areas(inner, 2, modal_scroll_hint_line_count(inner.width, 2), 0, 1);
     let header_rows =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(stack.header);
 

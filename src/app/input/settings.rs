@@ -1856,7 +1856,7 @@ impl AppState {
 
     pub(crate) fn settings_content_rect(&self) -> Rect {
         let inner = self.settings_inner_rect();
-        crate::ui::modal_stack_areas(inner, 4, 1, 0, 1).content
+        crate::ui::settings_stack_areas(self, inner).content
     }
 
     fn settings_list_index_at(&self, col: u16, row: u16) -> Option<usize> {
