@@ -346,10 +346,15 @@ fn agent_profile_editor_open(app: &AppState) -> bool {
 }
 
 fn agent_profile_browse_label(profile: &crate::agent_profiles::AgentProfile) -> String {
-    if profile.is_system() || profile.command == profile.name {
+    let label = if profile.is_system() || profile.command == profile.name {
         profile.name.clone()
     } else {
         format!("{}  {}", profile.name, profile.command)
+    };
+    if profile.kind.is_supported() {
+        label
+    } else {
+        format!("{label}  launch-only · state unknown · no native restore")
     }
 }
 
@@ -387,7 +392,7 @@ fn agent_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
     rows.push(SettingsListRow::Spacer);
     rows.push(SettingsListRow::Header("2. kind"));
     rows.push(SettingsListRow::Caption(
-        "select the agent family this command should restore as".into(),
+        "choose a known family, or custom for unsupported launch-only CLIs".into(),
     ));
     for (offset, agent_kind) in crate::agent_profiles::AgentKind::ALL
         .iter()
@@ -400,13 +405,30 @@ fn agent_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
             checked: agent_kind == kind,
         });
     }
+    if !kind.is_supported() {
+        rows.push(SettingsListRow::Spacer);
+        rows.push(SettingsListRow::Header("unsupported agent"));
+        rows.push(SettingsListRow::Caption(
+            "hako can launch this command, but some features may not work".into(),
+        ));
+        rows.push(SettingsListRow::Caption(
+            "activity/status detection may stay unknown".into(),
+        ));
+        rows.push(SettingsListRow::Caption(
+            "native session restore is unavailable".into(),
+        ));
+        rows.push(SettingsListRow::Caption(
+            "automatic integration hook install is unavailable".into(),
+        ));
+    }
     rows.push(SettingsListRow::Spacer);
     rows.push(SettingsListRow::Header("3. command"));
     rows.push(SettingsListRow::Caption(
         "enter the exact shell command hako should launch".into(),
     ));
+    let command_index = 1 + crate::agent_profiles::AgentKind::ALL.len();
     rows.push(SettingsListRow::TextInput {
-        index: 9,
+        index: command_index,
         title: "command".into(),
         value: command.into(),
     });
@@ -415,8 +437,9 @@ fn agent_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
     rows.push(SettingsListRow::Caption(
         "save the profile, discard changes, or delete a custom profile".into(),
     ));
+    let save_index = command_index + 1;
     rows.push(SettingsListRow::StatusChoice {
-        index: 10,
+        index: save_index,
         marker: "+".into(),
         label: if editing {
             "save custom profile".into()
@@ -426,14 +449,14 @@ fn agent_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
         tone: SettingsMarkerTone::Accent,
     });
     rows.push(SettingsListRow::StatusChoice {
-        index: 11,
+        index: save_index + 1,
         marker: "×".into(),
         label: "discard changes".into(),
         tone: SettingsMarkerTone::Disabled,
     });
     if editing {
         rows.push(SettingsListRow::StatusChoice {
-            index: 12,
+            index: save_index + 2,
             marker: "!".into(),
             label: "delete custom profile".into(),
             tone: SettingsMarkerTone::Danger,

@@ -492,10 +492,11 @@ fn edit_pending_group_name(state: &mut AppState, key: KeyEvent) -> bool {
 
 const AGENT_PROFILE_NAME_INDEX: usize = 0;
 const AGENT_PROFILE_KIND_START_INDEX: usize = 1;
-const AGENT_PROFILE_COMMAND_INDEX: usize = 9;
-const AGENT_PROFILE_SAVE_INDEX: usize = 10;
-const AGENT_PROFILE_DISCARD_INDEX: usize = 11;
-const AGENT_PROFILE_DELETE_INDEX: usize = 12;
+const AGENT_PROFILE_COMMAND_INDEX: usize =
+    AGENT_PROFILE_KIND_START_INDEX + crate::agent_profiles::AgentKind::ALL.len();
+const AGENT_PROFILE_SAVE_INDEX: usize = AGENT_PROFILE_COMMAND_INDEX + 1;
+const AGENT_PROFILE_DISCARD_INDEX: usize = AGENT_PROFILE_COMMAND_INDEX + 2;
+const AGENT_PROFILE_DELETE_INDEX: usize = AGENT_PROFILE_COMMAND_INDEX + 3;
 
 fn pending_agent_profile_name(state: &AppState) -> String {
     state
@@ -2236,7 +2237,7 @@ mod tests {
         state.settings.pending_agent_profile_name = Some("omp mk".to_string());
         state.settings.pending_agent_profile_command = Some("omp-mk --profile main".to_string());
         state.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Omp);
-        state.settings.list.selected = 10;
+        state.settings.list.selected = AGENT_PROFILE_SAVE_INDEX;
 
         let action = update_settings_state(
             &mut state,
@@ -2299,7 +2300,7 @@ mod tests {
         );
         open_settings_at(&mut state, SettingsSection::Agents);
         assert!(load_custom_agent_profile_editor(&mut state, "user:omp-mk"));
-        state.settings.list.selected = 12;
+        state.settings.list.selected = AGENT_PROFILE_DELETE_INDEX;
 
         let action = update_settings_state(
             &mut state,
@@ -2333,14 +2334,14 @@ mod tests {
         open_settings_at(&mut state, SettingsSection::Agents);
         assert!(load_custom_agent_profile_editor(&mut state, "user:omp-mk"));
 
-        for _ in 0..12 {
+        for _ in 0..AGENT_PROFILE_DELETE_INDEX {
             update_settings_state(
                 &mut state,
                 KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
             );
         }
 
-        assert_eq!(state.settings.list.selected, 12);
+        assert_eq!(state.settings.list.selected, AGENT_PROFILE_DELETE_INDEX);
     }
     #[test]
     fn agent_settings_ctrl_f_does_not_toggle_group_favorite() {
@@ -2509,6 +2510,96 @@ mod tests {
             app.state.settings.agent_profile_kind_filter,
             Some(crate::agent_profiles::AgentKind::Omp)
         );
+    }
+
+    #[test]
+    fn agent_settings_custom_kind_is_launch_only_and_saveable() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Agents);
+        state.settings.pending_agent_profile_name = Some("kilocode".to_string());
+        state.settings.pending_agent_profile_command = Some("kilocode --profile main".to_string());
+        state.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Custom);
+        state.settings.list.selected = AGENT_PROFILE_SAVE_INDEX;
+
+        let rows = rows_for_section(&state, SettingsSection::Agents).expect("agent rows");
+        assert!(rows.iter().any(|row| {
+            matches!(
+                row,
+                crate::settings_rows::SettingsListRow::Header(title)
+                    if *title == "unsupported agent"
+            )
+        }));
+        assert!(rows.iter().any(|row| {
+            matches!(
+                row,
+                crate::settings_rows::SettingsListRow::Caption(text)
+                    if text.as_ref() == "native session restore is unavailable"
+            )
+        }));
+        assert!(!rows.iter().any(|row| {
+            matches!(
+                row,
+                crate::settings_rows::SettingsListRow::Caption(text)
+                    if text.as_ref().contains("/resume")
+            )
+        }));
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::SaveAgentProfile(
+                crate::agent_profiles::UserAgentProfileConfig {
+                    id: "kilocode".to_string(),
+                    name: "kilocode".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Custom,
+                    command: "kilocode --profile main".to_string(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn agent_settings_custom_tab_filters_to_unsupported_profiles() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:kilocode".to_string()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "kilocode".to_string(),
+                    name: "kilocode".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Custom,
+                    command: "kilocode".to_string(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }],
+            },
+        );
+        open_settings_at(&mut state, SettingsSection::Agents);
+        state.settings.agent_profile_kind_filter = Some(crate::agent_profiles::AgentKind::Custom);
+
+        let rows = rows_for_section(&state, SettingsSection::Agents).expect("agent rows");
+
+        assert!(rows.iter().any(|row| {
+            matches!(
+                row,
+                crate::settings_rows::SettingsListRow::StatusChoice { label, .. }
+                    if label.as_ref().contains("kilocode")
+                        && label.as_ref().contains("launch-only")
+            )
+        }));
+        assert!(!rows.iter().any(|row| {
+            matches!(
+                row,
+                crate::settings_rows::SettingsListRow::StatusChoice { label, .. }
+                    if label.as_ref() == "omp"
+            )
+        }));
     }
     #[test]
     fn agent_settings_hover_matches_visual_rows() {

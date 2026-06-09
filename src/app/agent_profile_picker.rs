@@ -25,7 +25,7 @@ impl AgentProfilePickerEntry {
     }
 }
 
-pub(crate) const AGENT_PROFILE_PICKER_TABS: [Option<AgentKind>; 9] = [
+pub(crate) const AGENT_PROFILE_PICKER_TABS: [Option<AgentKind>; 10] = [
     None,
     Some(AgentKind::Pi),
     Some(AgentKind::Omp),
@@ -35,6 +35,7 @@ pub(crate) const AGENT_PROFILE_PICKER_TABS: [Option<AgentKind>; 9] = [
     Some(AgentKind::Opencode),
     Some(AgentKind::Hermes),
     Some(AgentKind::Qodercli),
+    Some(AgentKind::Custom),
 ];
 
 pub(crate) fn agent_profile_picker_tab_label(tab: Option<AgentKind>) -> &'static str {

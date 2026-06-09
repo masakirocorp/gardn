@@ -110,7 +110,7 @@ Supported built-in detection includes:
 ### Agent profiles
 
 - **System profiles** — Hako exposes one read-only system profile for each supported integration target.
-- **Custom profiles** — add or edit profile-specific commands from Settings > Agents. Hako persists them to `[agent_profiles]`, so organization-specific OMP, PI, OpenCode, Codex, or wrapper commands restore with the same profile/tooling.
+- **Custom profiles** — add or edit profile-specific commands from Settings > Agents. Hako persists them to `[agent_profiles]`; known-family wrappers can keep native profile/tooling restore behavior, while `custom` unsupported agents launch normally but are labeled as launch-only with unknown state and no native restore/integration hook install.
 - **Group favorites** — group settings can promote favorite profiles with `ctrl+f`; favorites appear before available profiles while both sections keep the global profile order.
 - **New agent launch** — choose `new agent` from the command palette, space context menu, group context menu, tab context menu, or the tab `+` dropdown. Hako starts the only available profile immediately, or opens a favorites-first profile picker when multiple profiles are available.
 

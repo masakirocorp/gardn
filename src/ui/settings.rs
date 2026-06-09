@@ -1227,7 +1227,7 @@ mod tests {
         assert!(text.contains("1. name"));
         assert!(text.contains("enter the short label shown in menus and pickers"));
         assert!(text.contains("2. kind"));
-        assert!(text.contains("select the agent family this command should restore as"));
+        assert!(text.contains("choose a known family, or custom for unsupported launch-only CLIs"));
         app.settings.scroll = 12;
         terminal
             .draw(|frame| render_settings_overlay(&app, frame, area))

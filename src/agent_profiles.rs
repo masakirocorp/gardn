@@ -13,10 +13,23 @@ pub enum AgentKind {
     Opencode,
     Hermes,
     Qodercli,
+    Custom,
 }
 
 impl AgentKind {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
+        Self::Pi,
+        Self::Omp,
+        Self::Claude,
+        Self::Codex,
+        Self::Copilot,
+        Self::Opencode,
+        Self::Hermes,
+        Self::Qodercli,
+        Self::Custom,
+    ];
+
+    pub const SYSTEM: [Self; 8] = [
         Self::Pi,
         Self::Omp,
         Self::Claude,
@@ -37,6 +50,7 @@ impl AgentKind {
             Self::Opencode => "opencode",
             Self::Hermes => "hermes",
             Self::Qodercli => "qodercli",
+            Self::Custom => "custom",
         }
     }
 
@@ -50,11 +64,16 @@ impl AgentKind {
             Self::Opencode => "opencode",
             Self::Hermes => "hermes",
             Self::Qodercli => "qoder",
+            Self::Custom => "custom",
         }
     }
 
     pub fn system_id(self) -> String {
         format!("system:{}", self.as_str())
+    }
+
+    pub fn is_supported(self) -> bool {
+        self != Self::Custom
     }
 }
 
@@ -133,7 +152,7 @@ pub struct AgentProfileCatalog {
 impl AgentProfileCatalog {
     pub fn from_config(config: &AgentProfilesConfig) -> Self {
         let mut profiles = Vec::new();
-        for kind in AgentKind::ALL {
+        for kind in AgentKind::SYSTEM {
             let command = kind.system_command().to_string();
             profiles.push(AgentProfile {
                 id: kind.system_id(),
@@ -276,6 +295,7 @@ mod tests {
         assert_eq!(catalog.profiles()[0].argv, ["omp-mk", "--profile", "main"]);
         assert_eq!(catalog.profiles()[1].id, "system:codex");
         assert!(catalog.get("system:omp").unwrap().is_system());
+        assert!(catalog.get("system:custom").is_none());
     }
 
     #[test]
