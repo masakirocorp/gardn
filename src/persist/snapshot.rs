@@ -1547,7 +1547,14 @@ mod tests {
     #[test]
     fn future_version_is_rejected() {
         let json = r#"{"version":999,"workspaces":[],"active":null,"selected":0}"#;
-        assert!(parse_snapshot(json).is_err());
+        let err = match parse_snapshot(json) {
+            Ok(_) => panic!("future snapshot version should be rejected"),
+            Err(err) => err,
+        };
+        assert!(
+            err.contains("snapshot version 999 is newer than supported"),
+            "error should identify unsupported future version: {err}"
+        );
     }
 
     #[test]
@@ -1555,85 +1562,5 @@ mod tests {
         let json = r#"{"custom_name":"test","identity_cwd":"/tmp","tabs":[]}"#;
         let ws: WorkspaceSnapshot = serde_json::from_str(json).unwrap();
         assert_eq!(ws.active_tab, 0);
-    }
-
-    #[test]
-    fn restore_falls_back_to_home_when_cwd_missing() {
-        let mut panes = HashMap::new();
-        panes.insert(
-            0,
-            PaneSnapshot {
-                env_pane_id: None,
-                cwd: PathBuf::from("/tmp/this-directory-does-not-exist-for-hako-test"),
-                label: None,
-                agent_name: None,
-                agent_session: None,
-                launch_argv: None,
-                launch_env: Vec::new(),
-                seen: true,
-                terminal_semantics: None,
-            },
-        );
-        panes.insert(
-            1,
-            PaneSnapshot {
-                env_pane_id: None,
-                cwd: std::env::var("HOME")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|_| PathBuf::from("/tmp")),
-                label: None,
-                agent_name: None,
-                agent_session: None,
-                launch_argv: None,
-                launch_env: Vec::new(),
-                seen: true,
-                terminal_semantics: None,
-            },
-        );
-
-        let snap = SessionSnapshot {
-            version: SNAPSHOT_VERSION,
-            groups: default_groups(),
-            active_group: 0,
-            group_filter_enabled: true,
-            workspaces: vec![WorkspaceSnapshot {
-                id: Some("test-ws".to_string()),
-                custom_name: Some("fallback test".to_string()),
-                group_id: default_group_id(),
-                identity_cwd: PathBuf::from("/tmp"),
-                tabs: vec![TabSnapshot {
-                    custom_name: None,
-                    layout: LayoutSnapshot::Split {
-                        direction: DirectionSnapshot::Horizontal,
-                        ratio: 0.5,
-                        first: Box::new(LayoutSnapshot::Pane(0)),
-                        second: Box::new(LayoutSnapshot::Pane(1)),
-                    },
-                    panes,
-                    zoomed: false,
-                    focused: Some(0),
-                    root_pane: Some(0),
-                }],
-                active_tab: 0,
-            }],
-            active: Some(0),
-            selected: 0,
-            agent_panel_scope: AgentPanelScope::CurrentWorkspace,
-            sidebar_width: Some(26),
-            sidebar_collapsed: false,
-            sidebar_section_split: Some(0.5),
-            right_sidebar_width: Some(28),
-            right_sidebar_collapsed: false,
-            ui: SessionUiSnapshot::default(),
-            pane_id_aliases: HashMap::new(),
-        };
-
-        let json = serde_json::to_string(&snap).unwrap();
-        let restored = parse_snapshot(&json).unwrap();
-        assert_eq!(restored.workspaces.len(), 1);
-        assert_eq!(
-            restored.workspaces[0].tabs[0].panes[&0].cwd,
-            PathBuf::from("/tmp/this-directory-does-not-exist-for-hako-test")
-        );
     }
 }

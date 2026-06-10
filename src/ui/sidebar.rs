@@ -4812,38 +4812,34 @@ mod tests {
             .draw(|frame| render_right_sidebar(&app, frame, Rect::new(0, 0, 32, 18)))
             .expect("render right sidebar");
 
-        let (_, port_area) = right_sidebar_panel_rects(&app, Rect::new(0, 0, 32, 18));
         let buffer = terminal.backend().buffer();
-        assert_eq!(
-            buffer[(port_area.x + RIGHT_SECTION_LABEL_COL, port_area.y)].symbol(),
-            "p"
-        );
-        assert!(!buffer[(port_area.x + port_area.width - 2, port_area.y)]
+        let text = buffer_text(buffer, 32, 18);
+        let (ports_y, ports_x) = find_text_cell(&text, "ports").expect("ports section header");
+        let ports_line = text
+            .lines()
+            .nth(ports_y as usize)
+            .expect("ports header line");
+        let count_byte_x = ports_line.rfind('1').expect("ports count");
+        let count_x = ports_line[..count_byte_x].chars().count() as u16;
+        assert_eq!(buffer[(ports_x, ports_y)].symbol(), "p");
+        assert!(!buffer[(count_x, ports_y)]
             .style()
             .add_modifier
             .contains(Modifier::BOLD));
-        assert_eq!(
-            buffer[(port_area.x + port_area.width - 2, port_area.y)].symbol(),
-            "1"
-        );
-        assert_eq!(
-            buffer[(port_area.x + RIGHT_ENTRY_PRIMARY_COL, port_area.y + 1)].symbol(),
-            ":"
-        );
-        assert_eq!(
-            buffer[(port_area.x + RIGHT_ENTRY_ICON_COL, port_area.y + 2)].symbol(),
-            "│"
-        );
-        assert_eq!(
-            buffer[(port_area.x + RIGHT_ENTRY_PRIMARY_COL, port_area.y + 2)].symbol(),
-            "l"
-        );
 
-        let text = buffer_text(terminal.backend().buffer(), 32, 18);
-        assert!(text.contains("ports"));
-        assert!(text.contains(":5173"));
+        let (port_y, port_x) = find_text_cell(&text, ":5173").expect("visible port row");
+        assert_eq!(buffer[(port_x, port_y)].symbol(), ":");
+        let (detail_y, detail_x) =
+            find_text_cell(&text, "localhost · vite").expect("visible port detail row");
+        let detail_line = text
+            .lines()
+            .nth(detail_y as usize)
+            .expect("port detail line");
+        let icon_byte_x = detail_line.find('│').expect("port detail guide");
+        let icon_x = detail_line[..icon_byte_x].chars().count() as u16;
+        assert!(icon_x < detail_x);
+
         assert!(text.contains("pane 1"));
-        assert!(text.contains("localhost · vite"));
     }
 
     #[test]
@@ -5102,6 +5098,14 @@ mod tests {
             }
         }
         None
+    }
+
+    fn find_text_cell(text: &str, needle: &str) -> Option<(u16, u16)> {
+        text.lines().enumerate().find_map(|(y, line)| {
+            let byte_x = line.find(needle)?;
+            let cell_x = line[..byte_x].chars().count();
+            Some((y as u16, cell_x as u16))
+        })
     }
 
     fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {

@@ -249,6 +249,29 @@ pub(crate) fn list_existing_worktrees(repo_root: &Path) -> Result<Vec<ExistingWo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct HomeEnvGuard(Option<std::ffi::OsString>);
+
+    impl HomeEnvGuard {
+        fn set(value: &str) -> Self {
+            let old_home = std::env::var_os("HOME");
+            std::env::set_var("HOME", value);
+            Self(old_home)
+        }
+    }
+
+    impl Drop for HomeEnvGuard {
+        fn drop(&mut self) {
+            if let Some(home) = self.0.take() {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+        }
+    }
 
     fn unique_temp_path(name: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
@@ -352,8 +375,8 @@ prunable stale
 
     #[test]
     fn expand_tilde_path_uses_home_when_available() {
-        let old_home = std::env::var_os("HOME");
-        std::env::set_var("HOME", "/home/me");
+        let _home_lock = HOME_ENV_LOCK.lock().unwrap();
+        let _home_guard = HomeEnvGuard::set("/home/me");
         assert_eq!(
             expand_tilde_path("~/.hako/worktrees"),
             PathBuf::from("/home/me/.hako/worktrees")
@@ -362,11 +385,6 @@ prunable stale
             expand_tilde_path("/tmp/worktrees"),
             PathBuf::from("/tmp/worktrees")
         );
-        if let Some(home) = old_home {
-            std::env::set_var("HOME", home);
-        } else {
-            std::env::remove_var("HOME");
-        }
     }
 
     #[test]

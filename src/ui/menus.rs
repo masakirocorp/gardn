@@ -809,16 +809,40 @@ mod tests {
         let mut app = AppState::test_new();
         let group_idx = app.create_group("work".to_string());
         app.groups[group_idx].icon = "■".to_string();
+        app.group_filter_enabled = false;
         app.workspaces = vec![crate::workspace::Workspace::test_new("a")];
         app.workspaces[0].group_id = app.groups[group_idx].id.clone();
 
         let all = group_menu_all_line(&app, false, 12);
-        assert_eq!(all.spans[1].content.as_ref(), "     ");
-        assert_eq!(all.spans[2].content.as_ref(), "1");
+        let all_text = line_text(&all);
+        assert!(all_text.starts_with("* all"));
+        assert_eq!(all_text.chars().last(), Some('1'));
+        assert_eq!(all_text.chars().count(), 11);
+        let all_count = all
+            .spans
+            .iter()
+            .find(|span| span.content.as_ref() == "1")
+            .expect("all count span");
+        assert_eq!(all_count.style.fg, Some(app.palette.overlay0));
 
         let group = group_menu_group_line(&app, group_idx, false, 12);
-        assert_eq!(group.spans[4].content.as_ref(), "  ");
-        assert_eq!(group.spans[5].content.as_ref(), "1");
+        let group_text = line_text(&group);
+        assert!(group_text.starts_with("  ■ work"));
+        assert_eq!(group_text.chars().last(), Some('1'));
+        assert_eq!(group_text.chars().count(), 11);
+        let group_count = group
+            .spans
+            .iter()
+            .find(|span| span.content.as_ref() == "1")
+            .expect("group count span");
+        assert_eq!(group_count.style.fg, Some(app.palette.overlay0));
+    }
+
+    fn line_text(line: &Line<'_>) -> String {
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>()
     }
 
     #[test]

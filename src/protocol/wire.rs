@@ -1025,7 +1025,7 @@ mod tests {
     }
 
     #[test]
-    fn framing_oversized_rejected_without_panic() {
+    fn framing_oversized_returns_oversized_error() {
         // Craft a frame with a huge length prefix (4 GB claim).
         let mut buf: Vec<u8> = (u32::MAX).to_le_bytes().to_vec();
         // Add a few garbage bytes after the length prefix.
@@ -1043,17 +1043,16 @@ mod tests {
     }
 
     #[test]
-    fn framing_malformed_payload_rejected_without_panic() {
+    fn framing_malformed_payload_returns_bincode_error() {
         // Valid length prefix pointing to garbage data.
         let payload = vec![0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02];
         let mut buf = (payload.len() as u32).to_le_bytes().to_vec();
         buf.extend_from_slice(&payload);
 
-        let result: Result<ClientMessage, FramingError> =
-            read_message(&mut buf.as_slice(), MAX_FRAME_SIZE);
-        assert!(result.is_err(), "malformed payload should be rejected");
-        match result {
-            Err(FramingError::Bincode(_)) => {} // expected
+        match read_message::<_, ClientMessage>(&mut buf.as_slice(), MAX_FRAME_SIZE) {
+            Err(FramingError::Bincode(msg)) => {
+                assert!(!msg.is_empty(), "bincode error should include context");
+            }
             other => panic!("expected Bincode error, got: {other:?}"),
         }
     }
@@ -1177,28 +1176,34 @@ mod tests {
     // ---- Malformed/oversized input ----
 
     #[test]
-    fn oversized_frame_does_not_panic() {
-        // Claim 4GB payload — should return Oversized error, not panic.
-        let mut buf: Vec<u8> = 0xFFC00000u32.to_le_bytes().to_vec(); // ~4 GB claim
+    fn oversized_frame_returns_oversized_error() {
+        // Claim 4GB payload — should return Oversized error without allocating it.
+        let claimed = 0xFFC00000u32;
+        let mut buf: Vec<u8> = claimed.to_le_bytes().to_vec();
         buf.extend_from_slice(&[0; 8]);
 
-        let result: Result<ClientMessage, FramingError> =
-            read_message(&mut buf.as_slice(), MAX_FRAME_SIZE);
-        assert!(result.is_err());
-        // Did not panic — test passing is proof.
+        match read_message::<_, ClientMessage>(&mut buf.as_slice(), MAX_FRAME_SIZE) {
+            Err(FramingError::Oversized { claimed, max }) => {
+                assert_eq!(claimed, 0xFFC00000usize);
+                assert_eq!(max, MAX_FRAME_SIZE);
+            }
+            other => panic!("expected Oversized error, got: {other:?}"),
+        }
     }
 
     #[test]
-    fn malformed_frame_does_not_panic() {
-        // Random garbage bytes after a valid-ish length prefix.
+    fn malformed_frame_returns_bincode_error() {
+        // Random garbage bytes after a valid length prefix.
         let garbage: Vec<u8> = (0..200).map(|i| (i ^ 0xAA) as u8).collect();
         let mut buf = (garbage.len() as u32).to_le_bytes().to_vec();
         buf.extend_from_slice(&garbage);
 
-        let result: Result<ClientMessage, FramingError> =
-            read_message(&mut buf.as_slice(), MAX_FRAME_SIZE);
-        assert!(result.is_err());
-        // Did not panic.
+        match read_message::<_, ClientMessage>(&mut buf.as_slice(), MAX_FRAME_SIZE) {
+            Err(FramingError::Bincode(msg)) => {
+                assert!(!msg.is_empty(), "bincode error should include context");
+            }
+            other => panic!("expected Bincode error, got: {other:?}"),
+        }
     }
 
     #[test]
@@ -1210,12 +1215,13 @@ mod tests {
         let mut buf = Vec::new();
         write_message(&mut buf, &msg).unwrap();
 
-        let result: Result<ClientMessage, FramingError> = read_message(&mut buf.as_slice(), 64);
-        // The actual bincode payload for 1000 bytes of input will be > 64 bytes.
-        assert!(
-            matches!(result, Err(FramingError::Oversized { .. })),
-            "expected Oversized with small max_frame_size"
-        );
+        match read_message::<_, ClientMessage>(&mut buf.as_slice(), 64) {
+            Err(FramingError::Oversized { claimed, max }) => {
+                assert!(claimed > 64, "encoded input should exceed custom max");
+                assert_eq!(max, 64);
+            }
+            other => panic!("expected Oversized with small max_frame_size, got: {other:?}"),
+        }
     }
 
     // ---- FrameData ↔ ratatui Buffer conversion ----
@@ -1440,13 +1446,13 @@ mod tests {
     }
 
     #[test]
-    fn write_message_rejects_oversized_payload() {
-        // We can't easily create a message that exceeds u32::MAX in a test,
-        // but we can verify the check exists by testing that normal messages
-        // have lengths well within the limit and the function doesn't fail.
+    fn write_message_accepts_small_payload() {
         let msg = ClientMessage::Detach;
         let mut buf = Vec::new();
-        assert!(write_message(&mut buf, &msg).is_ok());
+
+        write_message(&mut buf, &msg).expect("small payload should be written");
+        let payload_len = u32::from_le_bytes(buf[..4].try_into().unwrap()) as usize;
+        assert_eq!(payload_len, buf.len() - LENGTH_PREFIX_BYTES);
     }
 
     // ---- Unix socketpair integration test ----

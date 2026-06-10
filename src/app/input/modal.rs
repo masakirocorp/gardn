@@ -1599,7 +1599,7 @@ mod tests {
             },
             x: 0,
             y: 0,
-            list: MenuListState::new(1),
+            list: MenuListState::new(2),
         });
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
 

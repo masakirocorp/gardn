@@ -471,8 +471,9 @@ mod tests {
             .output()
             .unwrap();
         if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             std::fs::remove_dir_all(root).unwrap();
-            return;
+            panic!("git init --ref-format=reftable failed: {stderr}");
         }
         run_git(&root, &["config", "user.email", "hako@example.invalid"]);
         run_git(&root, &["config", "user.name", "Hako Test"]);

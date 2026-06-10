@@ -2411,45 +2411,43 @@ mod tests {
     }
 
     #[test]
-    fn agent_settings_rows_are_global_profile_management_only() {
-        let state = {
-            let mut state = state_with_workspaces(&["test"]);
-            open_settings_at(&mut state, SettingsSection::Agents);
-            state.groups[state.active_group]
-                .favorite_agent_profile_ids
-                .push("system:pi".to_string());
-            state
-        };
-        let rows = rows_for_section(&state, SettingsSection::Agents).expect("agent rows");
+    fn global_agent_settings_leave_group_favorites_to_group_profiles() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.active_group;
+        state.groups[group_idx]
+            .favorite_agent_profile_ids
+            .push("system:pi".to_string());
+        state.session_dirty = false;
 
-        assert!(rows.iter().any(|row| {
-            matches!(
-                row,
-                crate::settings_rows::SettingsListRow::Header(section)
-                    if *section == "profiles"
-            )
-        }));
-        assert!(!rows.iter().any(|row| {
-            matches!(
-                row,
-                crate::settings_rows::SettingsListRow::Header(section)
-                    if *section == "favorites" || *section == "available"
-            )
-        }));
-        assert!(rows.iter().any(|row| {
-            matches!(
-                row,
-                crate::settings_rows::SettingsListRow::StatusChoice { label, .. }
-                    if label.as_ref() == "pi"
-            )
-        }));
-        assert!(!rows.iter().any(|row| {
-            matches!(
-                row,
-                crate::settings_rows::SettingsListRow::StatusChoice { label, marker, .. }
-                    if label.as_ref() == "pi" && marker.as_ref() == "◆"
-            )
-        }));
+        open_settings_at(&mut state, SettingsSection::Agents);
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
+        );
+
+        assert_eq!(action, None);
+        assert_eq!(
+            state.groups[group_idx].favorite_agent_profile_ids,
+            vec!["system:pi".to_string()]
+        );
+        assert!(!state.session_dirty);
+
+        open_group_settings(&mut state, group_idx);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Left, KeyModifiers::empty()),
+        );
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
+        );
+
+        assert_eq!(action, None);
+        assert_eq!(state.settings.section, SettingsSection::GroupProfiles);
+        assert!(state.groups[group_idx]
+            .favorite_agent_profile_ids
+            .is_empty());
+        assert!(state.session_dirty);
     }
 
     #[test]
@@ -3836,32 +3834,35 @@ mod tests {
 
     #[test]
     fn settings_tab_hit_area_includes_integration_update_badge() {
-        let mut state = state_with_workspaces(&["test"]);
-        state.view.terminal_area = Rect::new(0, 0, 100, 30);
-        state.integration_recommendations = vec![integration_recommendation(
+        let mut app = app_for_mouse_test();
+        app.state.view.terminal_area = Rect::new(0, 0, 100, 30);
+        app.state.integration_recommendations = vec![integration_recommendation(
             crate::integration::IntegrationStatusKind::Outdated,
             true,
         )];
-        open_settings(&mut state);
+        open_settings(&mut app.state);
 
-        let inner = state.settings_inner_rect();
+        let inner = app.state.settings_inner_rect();
         let header_rows = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
         ])
-        .areas::<4>(crate::ui::modal_stack_areas(inner, 4, 1, 0, 1).header);
+        .areas::<4>(crate::ui::settings_stack_areas(&app.state, inner).header);
         let tab_row = header_rows[2];
-        let (_, integrations_rect) = crate::ui::settings_tab_hit_areas(&state, tab_row)
+        let (_, integrations_rect) = crate::ui::settings_tab_hit_areas(&app.state, tab_row)
             .into_iter()
             .find(|(section, _)| *section == SettingsSection::Integrations)
             .expect("integrations tab should be visible");
 
-        assert_eq!(
-            state.settings_tab_at(integrations_rect.x + integrations_rect.width - 1, tab_row.y),
-            Some(SettingsSection::Integrations)
-        );
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            integrations_rect.x + 1,
+            tab_row.y,
+        ));
+
+        assert_eq!(app.state.settings.section, SettingsSection::Integrations);
     }
 
     #[test]

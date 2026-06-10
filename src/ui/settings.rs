@@ -1150,12 +1150,17 @@ mod tests {
             .draw(|frame| render_settings_theme(&app, frame, area))
             .expect("render theme settings");
 
-        let selected_row_y = 9;
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, area.width, area.height);
+        let (selected_y, selected_x) =
+            find_text_cell(&text, "light ✓").expect("selected light row");
         let selected_row_end = area.x + area.width.saturating_sub(1);
         assert_eq!(
-            terminal.backend().buffer()[(selected_row_end, selected_row_y)]
-                .style()
-                .bg,
+            buffer[(selected_x, selected_y)].style().bg,
+            Some(app.palette.accent)
+        );
+        assert_eq!(
+            buffer[(selected_row_end, selected_y)].style().bg,
             Some(app.palette.accent)
         );
     }
@@ -1322,17 +1327,14 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, area.width, area.height);
-        let (y, x) = find_text_cell(&text, "omp ✓").expect("selected omp kind");
-        let popup = centered_popup_rect(area, 92, 26).expect("settings popup");
-        let inner = Rect::new(
-            popup.x + 1,
-            popup.y + 1,
-            popup.width.saturating_sub(2),
-            popup.height.saturating_sub(2),
+        let (selected_y, selected_x) = find_text_cell(&text, "omp ✓").expect("selected omp kind");
+        let (_, codex_x) = find_text_cell(&text, "codex").expect("unselected codex kind");
+        assert_eq!(selected_x, codex_x);
+        assert_eq!(buffer[(selected_x, selected_y)].symbol(), "o");
+        assert_eq!(
+            buffer[(selected_x, selected_y)].style().bg,
+            Some(app.palette.accent)
         );
-        let list_x = settings_section_list_rect(modal_stack_areas(inner, 4, 1, 0, 1).content).x;
-        assert_eq!(x, list_x + 2);
-        assert_eq!(buffer[(x, y)].symbol(), "o");
     }
 
     #[test]

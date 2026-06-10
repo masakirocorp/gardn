@@ -992,6 +992,95 @@ mod tests {
     }
 
     #[test]
+    fn restore_falls_back_to_home_when_cwd_missing() {
+        let missing =
+            std::env::temp_dir().join(format!("hako-missing-restore-cwd-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&missing);
+        let expected_cwd = std::env::var("HOME")
+            .map(PathBuf::from)
+            .ok()
+            .filter(|home| home.exists())
+            .unwrap_or_else(|| PathBuf::from("/"));
+        let snapshot = SessionSnapshot {
+            version: super::super::snapshot::SNAPSHOT_VERSION,
+            groups: vec![super::super::snapshot::GroupSnapshot {
+                id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
+                name: "group 1".to_string(),
+                icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
+                accent: None,
+                favorite_agent_profile_ids: Vec::new(),
+                default_agent_profile_id: None,
+            }],
+            active_group: 0,
+            group_filter_enabled: true,
+            workspaces: vec![WorkspaceSnapshot {
+                id: None,
+                custom_name: Some("restored".into()),
+                group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
+                identity_cwd: missing.clone(),
+                tabs: vec![TabSnapshot {
+                    custom_name: None,
+                    layout: LayoutSnapshot::Pane(7),
+                    panes: HashMap::from([(
+                        7,
+                        super::super::snapshot::PaneSnapshot {
+                            cwd: missing,
+                            env_pane_id: None,
+                            label: None,
+                            agent_name: Some("codex".into()),
+                            agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
+                                source: "hako:codex".into(),
+                                agent: "codex".into(),
+                                kind: crate::agent_resume::AgentSessionRefKind::Id,
+                                value: "codex-session".into(),
+                            }),
+                            launch_argv: Some(vec!["codex".into()]),
+                            launch_env: Vec::new(),
+                            seen: true,
+                            terminal_semantics: None,
+                        },
+                    )]),
+                    zoomed: false,
+                    focused: Some(7),
+                    root_pane: Some(7),
+                }],
+                active_tab: 0,
+            }],
+            active: Some(0),
+            selected: 0,
+            agent_panel_scope: crate::app::state::AgentPanelScope::AllWorkspaces,
+            sidebar_width: None,
+            sidebar_collapsed: false,
+            sidebar_section_split: None,
+            right_sidebar_width: None,
+            right_sidebar_collapsed: false,
+            ui: crate::persist::SessionUiSnapshot::default(),
+            pane_id_aliases: HashMap::new(),
+        };
+        let (event_tx, _event_rx) = mpsc::channel(1);
+
+        let (_workspaces, terminals, _runtimes) = restore(
+            &snapshot,
+            None,
+            24,
+            80,
+            crate::config::DEFAULT_SCROLLBACK_LIMIT_BYTES,
+            "",
+            crate::config::ShellModeConfig::Auto,
+            true,
+            event_tx,
+            Arc::new(Notify::new()),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        let terminal = terminals
+            .values()
+            .next()
+            .expect("restored pane should have terminal state");
+        assert_eq!(terminal.cwd, expected_cwd);
+    }
+
+    #[test]
     fn restore_plan_respects_opt_in_and_allowlist() {
         let session = super::super::snapshot::PaneAgentSessionSnapshot {
             source: "hako:pi".into(),

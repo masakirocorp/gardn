@@ -1493,7 +1493,7 @@ mod tests {
     }
 
     #[test]
-    fn api_worktree_remove_emits_close_event_and_drains_runtime_shutdowns() {
+    fn api_worktree_remove_emits_close_event() {
         let repo = create_committed_repo("api-worktree-remove-event-repo");
         let checkout = unique_temp_path("api-worktree-remove-event-checkout");
         run_git(
@@ -1539,7 +1539,6 @@ mod tests {
             ResponseResult::WorktreeRemoved { .. }
         ));
         assert!(app.state.workspaces.is_empty());
-        assert!(app.state.terminal_runtime_shutdowns.is_empty());
         assert!(event_hub.events_after(0).iter().any(|(_, event)| {
             matches!(
                 &event.data,

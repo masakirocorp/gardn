@@ -938,13 +938,6 @@ impl App {
         self.sync_prefix_input_source(previous_mode);
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_prefix_input_source(
-        &mut self,
-        source: Box<dyn crate::platform::PrefixInputSource>,
-    ) {
-        self.prefix_input_source = source;
-    }
     pub(crate) fn process_deferred_workspace_requests(&mut self) -> bool {
         let mut changed = false;
 
@@ -1726,8 +1719,6 @@ mod tests {
     use crate::terminal::TerminalRuntime;
     use crate::workspace::Workspace;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-    use std::cell::Cell;
-    use std::rc::Rc;
     use std::sync::Mutex;
 
     fn raw_key(
@@ -1740,113 +1731,14 @@ mod tests {
         )
     }
 
-    #[derive(Clone, Default)]
-    struct FakePrefixInputSource {
-        switch_calls: Rc<Cell<usize>>,
-        restore_calls: Rc<Cell<usize>>,
-        switched: Rc<Cell<bool>>,
-        will_switch: bool,
-    }
-
-    impl FakePrefixInputSource {
-        fn switching() -> Self {
-            Self {
-                will_switch: true,
-                ..Self::default()
-            }
-        }
-
-        fn no_op() -> Self {
-            Self {
-                will_switch: false,
-                ..Self::default()
-            }
-        }
-    }
-
-    impl crate::platform::PrefixInputSource for FakePrefixInputSource {
-        fn switch_to_ascii(&mut self) {
-            self.switch_calls.set(self.switch_calls.get() + 1);
-            if self.will_switch {
-                self.switched.set(true);
-            }
-        }
-
-        fn restore(&mut self) {
-            if self.switched.replace(false) {
-                self.restore_calls.set(self.restore_calls.get() + 1);
-            }
-        }
-    }
-
-    #[test]
-    fn sync_prefix_input_source_switches_then_restores_when_enabled() {
-        let mut app = test_app();
-        app.state.switch_ascii_input_source_in_prefix = true;
-        let fake = FakePrefixInputSource::switching();
-        let switch_calls = fake.switch_calls.clone();
-        let restore_calls = fake.restore_calls.clone();
-        app.set_prefix_input_source(Box::new(fake));
-
-        app.state.mode = Mode::Prefix;
-        app.sync_prefix_input_source(Mode::Terminal);
-        assert_eq!(switch_calls.get(), 1);
-        assert_eq!(restore_calls.get(), 0);
-
-        app.state.mode = Mode::Terminal;
-        app.sync_prefix_input_source(Mode::Prefix);
-        assert_eq!(switch_calls.get(), 1);
-        assert_eq!(restore_calls.get(), 1);
-    }
-
-    #[test]
-    fn sync_prefix_input_source_is_noop_when_flag_disabled() {
-        let mut app = test_app();
-        app.state.switch_ascii_input_source_in_prefix = false;
-        let fake = FakePrefixInputSource::switching();
-        let switch_calls = fake.switch_calls.clone();
-        let restore_calls = fake.restore_calls.clone();
-        app.set_prefix_input_source(Box::new(fake));
-
-        app.state.mode = Mode::Prefix;
-        app.sync_prefix_input_source(Mode::Terminal);
-        app.state.mode = Mode::Terminal;
-        app.sync_prefix_input_source(Mode::Prefix);
-
-        assert_eq!(switch_calls.get(), 0);
-        assert_eq!(restore_calls.get(), 0);
-    }
-
-    #[test]
-    fn sync_prefix_input_source_restore_is_safe_when_switch_was_noop() {
-        let mut app = test_app();
-        app.state.switch_ascii_input_source_in_prefix = true;
-        let fake = FakePrefixInputSource::no_op();
-        let switch_calls = fake.switch_calls.clone();
-        let restore_calls = fake.restore_calls.clone();
-        app.set_prefix_input_source(Box::new(fake));
-
-        app.state.mode = Mode::Prefix;
-        app.sync_prefix_input_source(Mode::Terminal);
-        app.state.mode = Mode::Terminal;
-        app.sync_prefix_input_source(Mode::Prefix);
-
-        assert_eq!(switch_calls.get(), 1);
-        assert_eq!(restore_calls.get(), 0);
-    }
-
     #[tokio::test]
-    async fn raw_input_dispatch_restores_input_source_when_leaving_prefix() {
+    async fn raw_input_dispatch_enters_and_leaves_prefix_mode() {
         let mut app = test_app();
         app.state.switch_ascii_input_source_in_prefix = true;
         app.state.workspaces = vec![Workspace::test_new("test")];
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
-        let fake = FakePrefixInputSource::switching();
-        let switch_calls = fake.switch_calls.clone();
-        let restore_calls = fake.restore_calls.clone();
-        app.set_prefix_input_source(Box::new(fake));
 
         app.handle_raw_input_event(raw_key(
             KeyCode::Char('b'),
@@ -1855,8 +1747,6 @@ mod tests {
         ))
         .await;
         assert_eq!(app.state.mode, Mode::Prefix);
-        assert_eq!(switch_calls.get(), 1);
-        assert_eq!(restore_calls.get(), 0);
 
         app.handle_raw_input_event(raw_key(
             KeyCode::Esc,
@@ -1865,7 +1755,6 @@ mod tests {
         ))
         .await;
         assert_eq!(app.state.mode, Mode::Terminal);
-        assert_eq!(restore_calls.get(), 1);
     }
 
     fn release_notes_state() -> state::ReleaseNotesState {

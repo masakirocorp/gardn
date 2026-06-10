@@ -196,12 +196,12 @@ mod autoscroll_tests {
 
     #[test]
     fn above_pane_sets_autoscroll_up() {
-        // Build state with pane starting at row 5 so we can drag above it
         let mut state = AppState::test_new();
         let ws = Workspace::test_new("test");
         let pane_id = ws.tabs[0].root_pane;
         state.workspaces.push(ws);
         state.active = Some(0);
+        state.mode = crate::app::state::Mode::Terminal;
         state.view.pane_infos.push(PaneInfo {
             id: pane_id,
             rect: Rect::new(0, 5, 80, 24),
@@ -209,12 +209,25 @@ mod autoscroll_tests {
             scrollbar_rect: None,
             is_focused: true,
         });
-        // Anchor at (5, 10), drag to different cell above pane
-        let mut sel = crate::selection::Selection::anchor(pane_id, 5, 10, None);
-        sel.drag(4, 5, Rect::new(0, 5, 80, 24), None);
-        state.selection = Some(sel);
-        let terminal_runtimes = TerminalRuntimeRegistry::new();
-        state.update_selection_drag(&terminal_runtimes, 5, 4);
+
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+        state.handle_mouse(
+            &mut terminal_runtimes,
+            super::super::mouse(
+                MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                5,
+                5,
+            ),
+        );
+        state.handle_mouse(
+            &mut terminal_runtimes,
+            super::super::mouse(
+                MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                5,
+                4,
+            ),
+        );
+
         let autoscroll = state.selection_autoscroll.as_ref().unwrap();
         assert_eq!(autoscroll.direction, SelectionAutoscrollDirection::Up);
     }

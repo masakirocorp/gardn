@@ -592,7 +592,7 @@ mod tests {
     use super::scrollbar::scrollbar_thumb;
     use super::*;
     use crate::{
-        app::state::{ContextMenuState, MenuListState, ViewLayout},
+        app::state::ViewLayout,
         layout::PaneInfo,
         workspace::{GitWorkSummary, Workspace},
     };

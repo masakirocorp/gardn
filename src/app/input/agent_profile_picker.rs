@@ -520,7 +520,7 @@ mod tests {
     }
 
     #[test]
-    fn picker_uses_workspace_group_favorites_when_active_group_differs() {
+    fn picker_alt_number_uses_workspace_group_favorites_when_active_group_differs() {
         let mut app = app_with_space();
         let group_idx = app.state.create_group("side".to_string());
         let group_id = app.state.groups[group_idx].id.clone();
@@ -534,10 +534,13 @@ mod tests {
         app.state.active_group = 0;
 
         open_new_agent_picker_for_workspace(&mut app.state, 1);
-        let entries = agent_profile_picker_filtered_entries(&app.state);
+        app.handle_agent_profile_picker_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::ALT));
 
-        assert_eq!(entries[0].section, "favorites");
-        assert_eq!(entries[0].profile_id, "system:codex");
+        assert_eq!(
+            app.state.request_agent_profile_tab,
+            Some((1, "system:codex".to_string()))
+        );
+        assert_eq!(app.state.mode, Mode::Terminal);
     }
 
     #[test]

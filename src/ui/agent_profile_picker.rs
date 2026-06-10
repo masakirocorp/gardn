@@ -509,10 +509,22 @@ mod tests {
         assert!(text.contains("shell builtin"));
         assert!(text.contains("alt+1"));
         assert!(text.contains("↵ start"));
-        assert_eq!(buffer[(23, 6)].style().fg, Some(app.group_accent_color(0)));
+        let (group_icon_y, group_icon_x) = find_text_cell(&text, "■").expect("group icon");
+        assert_eq!(
+            buffer[(group_icon_x, group_icon_y)].style().fg,
+            Some(app.group_accent_color(0))
+        );
         assert!(!text.contains("command palette"));
         assert!(!text.contains("type to filter commands"));
         assert!(!text.contains("↵ run"));
+    }
+
+    fn find_text_cell(text: &str, needle: &str) -> Option<(u16, u16)> {
+        text.lines().enumerate().find_map(|(y, line)| {
+            let byte_x = line.find(needle)?;
+            let cell_x = line[..byte_x].chars().count();
+            Some((y as u16, cell_x as u16))
+        })
     }
 
     fn buffer_text(buffer: &ratatui::buffer::Buffer, width: u16, height: u16) -> String {

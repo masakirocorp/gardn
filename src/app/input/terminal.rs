@@ -1072,15 +1072,15 @@ mod tests {
         let info = pane_infos[0].clone();
         let mut bytes = b"\x1b[?1002h".to_vec();
         bytes.extend_from_slice(&numbered_lines_bytes(64));
-        ws.tabs[0].runtimes.insert(
-            pane_id,
-            crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
+        let (runtime, mut rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
                 info.inner_rect.width,
                 info.inner_rect.height,
                 16 * 1024,
                 &bytes,
-            ),
-        );
+                4,
+            );
+        ws.tabs[0].runtimes.insert(pane_id, runtime);
 
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
@@ -1097,12 +1097,16 @@ mod tests {
 
         app.handle_terminal_key_headless(TerminalKey::new(KeyCode::PageUp, KeyModifiers::empty()));
 
+        assert_eq!(
+            rx.try_recv().expect("PageUp forwarded to pane").as_ref(),
+            b"\x1b[5~"
+        );
+        assert!(rx.try_recv().is_err());
         let end_metrics = app
             .state
             .runtime_for_pane_in_workspace(&app.terminal_runtimes, 0, pane_id)
             .and_then(crate::terminal::TerminalRuntime::scroll_metrics)
             .expect("scroll metrics after PageUp");
-        // Forwarded to pane, so test runtime doesn't process it — scroll stays at bottom.
         assert_eq!(end_metrics.offset_from_bottom, 0);
     }
 }

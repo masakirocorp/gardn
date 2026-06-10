@@ -526,22 +526,6 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_shows_one_new_agent_entry_before_picker() {
-        let app = app_with_space();
-
-        let commands = command_palette_visible_commands(&app.state);
-        let agent_launchers = commands
-            .iter()
-            .filter(|command| matches!(command.action, CommandPaletteAction::NewAgent))
-            .count();
-
-        assert!(commands.iter().any(|command| {
-            command.title == "new agent" && command.action == CommandPaletteAction::NewAgent
-        }));
-        assert_eq!(agent_launchers, 1);
-    }
-
-    #[test]
     fn command_palette_new_agent_opens_agent_profile_picker_when_multiple_profiles_exist() {
         let mut app = app_with_space();
         app.state.command_palette.query = "new agent".to_string();

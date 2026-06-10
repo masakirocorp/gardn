@@ -426,9 +426,14 @@ mod tests {
 
         assert_eq!(lines.len(), 1);
         assert_eq!(line_text(&lines[0].1), " • hako pane run ... now works");
-        assert_eq!(lines[0].1.spans[1].content.as_ref(), "hako pane run ...");
-        assert_eq!(lines[0].1.spans[1].style.fg, Some(palette.accent));
-        assert_eq!(lines[0].1.spans[1].style.bg, Some(palette.surface0));
+        let code_span = lines[0]
+            .1
+            .spans
+            .iter()
+            .find(|span| span.content.as_ref() == "hako pane run ...")
+            .expect("visible inline code span");
+        assert_eq!(code_span.style.fg, Some(palette.accent));
+        assert_eq!(code_span.style.bg, Some(palette.surface0));
     }
 
     #[test]
