@@ -140,8 +140,12 @@ _Avoid_: Runtime, terminal
 The newline-delimited JSON control surface exposed by a running Hako server for status, server control, workspace/pane/agent operations, waits, event subscriptions, integrations, and capability discovery.
 _Avoid_: Wire protocol, render stream
 
+**Local API Event**:
+A recent app event emitted on the Local API stream for automation clients, such as workspace, tab, pane, or agent changes. Local API events are operational signals, not durable audit records.
+_Avoid_: Audit log, wire frame
+
 **Wire Protocol**:
-The binary server/client message contract used by Hako clients to attach to a running Hako server. The wire protocol is separate from the public API socket, though public API status/ping reports its protocol version.
+The binary server/client message contract used by Hako clients to attach to a running Hako server. The wire protocol is separate from the Local API socket, though Local API status/ping reports its protocol version.
 _Avoid_: API, command protocol
 
 **Protocol Version**:
