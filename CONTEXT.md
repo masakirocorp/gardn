@@ -184,6 +184,10 @@ _Avoid_: Session snapshot, terminal semantics
 A server replacement flow that transfers live pane runtimes and session state to a new Hako server so pane processes can survive the server swap.
 _Avoid_: Restart, cold restore
 
+**Handoff Import**:
+The replacement-server side of live handoff, started on a private import socket to validate a manifest, receive live pane runtime file descriptors, bind public sockets, and assume ownership after commit.
+_Avoid_: Client attach, cold restore
+
 **Handoff Snapshot**:
 The `SessionSnapshot` produced by `capture_handoff` for live server replacement. Unlike a normal save, it may populate per-pane terminal semantics so the replacement server can preserve live agent presentation.
 _Avoid_: Normal save, history
