@@ -13,23 +13,61 @@ pub fn app_dir_name() -> &'static str {
 }
 
 pub fn config_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("XDG_CONFIG_HOME") {
-        PathBuf::from(dir).join(app_dir_name())
-    } else if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(format!(".config/{}", app_dir_name()))
-    } else {
-        PathBuf::from(format!("/tmp/{}", app_dir_name()))
-    }
+    config_dir_from_env(
+        std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
+        std::env::var_os("HOME").map(PathBuf::from),
+        std::env::var_os("APPDATA").map(PathBuf::from),
+        cfg!(windows),
+    )
 }
 
 pub fn state_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("XDG_STATE_HOME") {
-        PathBuf::from(dir).join(app_dir_name())
-    } else if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(format!(".local/state/{}", app_dir_name()))
-    } else {
-        PathBuf::from(format!("/tmp/{}-state", app_dir_name()))
+    state_dir_from_env(
+        std::env::var_os("XDG_STATE_HOME").map(PathBuf::from),
+        std::env::var_os("HOME").map(PathBuf::from),
+        std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
+        cfg!(windows),
+    )
+}
+
+fn config_dir_from_env(
+    xdg_config_home: Option<PathBuf>,
+    home: Option<PathBuf>,
+    appdata: Option<PathBuf>,
+    target_is_windows: bool,
+) -> PathBuf {
+    if let Some(dir) = xdg_config_home {
+        return dir.join(app_dir_name());
     }
+    if target_is_windows {
+        if let Some(dir) = appdata {
+            return dir.join(app_dir_name());
+        }
+    }
+    if let Some(home) = home {
+        return home.join(format!(".config/{}", app_dir_name()));
+    }
+    std::env::temp_dir().join(app_dir_name())
+}
+
+fn state_dir_from_env(
+    xdg_state_home: Option<PathBuf>,
+    home: Option<PathBuf>,
+    local_appdata: Option<PathBuf>,
+    target_is_windows: bool,
+) -> PathBuf {
+    if let Some(dir) = xdg_state_home {
+        return dir.join(app_dir_name());
+    }
+    if target_is_windows {
+        if let Some(dir) = local_appdata {
+            return dir.join(app_dir_name()).join("state");
+        }
+    }
+    if let Some(home) = home {
+        return home.join(format!(".local/state/{}", app_dir_name()));
+    }
+    std::env::temp_dir().join(format!("{}-state", app_dir_name()))
 }
 
 impl Config {
@@ -434,6 +472,34 @@ mod tests {
     #[test]
     fn app_dir_uses_hako_namespace() {
         assert_eq!(app_dir_name(), "hako-dev");
+    }
+
+    #[test]
+    fn config_dir_uses_windows_appdata_on_windows_target() {
+        assert_eq!(
+            config_dir_from_env(
+                None,
+                Some(PathBuf::from("C:/Users/alice")),
+                Some(PathBuf::from("C:/Users/alice/AppData/Roaming")),
+                true,
+            ),
+            PathBuf::from("C:/Users/alice/AppData/Roaming").join(app_dir_name())
+        );
+    }
+
+    #[test]
+    fn state_dir_uses_windows_local_appdata_on_windows_target() {
+        assert_eq!(
+            state_dir_from_env(
+                None,
+                Some(PathBuf::from("C:/Users/alice")),
+                Some(PathBuf::from("C:/Users/alice/AppData/Local")),
+                true,
+            ),
+            PathBuf::from("C:/Users/alice/AppData/Local")
+                .join(app_dir_name())
+                .join("state")
+        );
     }
 
     #[test]

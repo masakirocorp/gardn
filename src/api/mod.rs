@@ -7,7 +7,9 @@ mod subscriptions;
 mod wait;
 
 pub use event_hub::EventHub;
-pub use server::{start_server, start_server_with_capabilities, ServerHandle};
+pub use server::{
+    default_server_capabilities, start_server, start_server_with_capabilities, ServerHandle,
+};
 pub use status::{read_runtime_status_at, RuntimeStatus};
 
 use std::path::PathBuf;

@@ -1333,7 +1333,7 @@ fn pane_report_agent_updates_effective_state() {
     );
     assert_eq!(send_enter["result"]["type"], "ok");
 
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let pane = send_request(
             &socket_path,
@@ -1596,7 +1596,7 @@ fn pane_release_agent_suppresses_reacquire_during_graceful_exit() {
     );
     assert_eq!(send_enter["result"]["type"], "ok");
 
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let pane = send_request(
             &socket_path,
@@ -1740,7 +1740,7 @@ fn pane_clear_agent_authority_restores_fallback_state() {
     );
     assert_eq!(send_enter["result"]["type"], "ok");
 
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let pane = send_request(
             &socket_path,

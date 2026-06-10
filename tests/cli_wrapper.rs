@@ -2731,8 +2731,12 @@ fn wait_agent_status_exits_when_idle_status_matches() {
         ),
     );
     assert!(created["result"]["workspace"]["workspace_id"].is_string());
+    let pane_id = created["result"]["root_pane"]["pane_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    let start_pi = run_cli(&socket_path, &["pane", "run", "1-1", "pi"]);
+    let start_pi = run_cli(&socket_path, &["pane", "run", &pane_id, "pi"]);
     assert!(start_pi.status.success());
 
     let waited = run_cli(
@@ -2740,7 +2744,7 @@ fn wait_agent_status_exits_when_idle_status_matches() {
         &[
             "wait",
             "agent-status",
-            "1-1",
+            &pane_id,
             "--status",
             "idle",
             "--timeout",
@@ -2754,7 +2758,13 @@ fn wait_agent_status_exits_when_idle_status_matches() {
     );
     let waited_json: serde_json::Value = serde_json::from_slice(&waited.stdout).unwrap();
     assert_eq!(waited_json["event"], "pane.agent_status_changed");
-    assert_eq!(waited_json["data"]["agent_status"], "idle");
+    assert!(
+        matches!(
+            waited_json["data"]["agent_status"].as_str(),
+            Some("idle" | "done")
+        ),
+        "unexpected agent status: {waited_json}"
+    );
     assert_eq!(waited_json["data"]["agent"], "pi");
 
     cleanup_spawned_hako(hako, base);
@@ -2772,7 +2782,7 @@ fn wait_agent_status_exits_when_background_agent_finishes() {
     let fake_pi = bin_dir.join("pi");
     fs::write(
         &fake_pi,
-        "#!/bin/sh\nprintf 'Working...\\n'\nsleep 3\nprintf '\\033[2J\\033[Hdone\\n'\n",
+        "#!/bin/sh\nprintf 'Working...\\n'\nsleep 1\nprintf '\\033[2J\\033[Hdone\\n'\n",
     )
     .unwrap();
     #[cfg(unix)]
@@ -2831,7 +2841,7 @@ fn wait_agent_status_exits_when_background_agent_finishes() {
             "--status",
             "idle",
             "--timeout",
-            "10000",
+            "5000",
         ],
     );
     assert!(

@@ -209,6 +209,7 @@ enum ServerRuntimeStatus {
     Running {
         version: Option<String>,
         protocol: Option<u32>,
+        capabilities: Option<crate::api::schema::ServerCapabilities>,
     },
     NotRunning,
 }
@@ -284,7 +285,9 @@ fn print_client_status(format: StatusFormat) {
 
 fn print_server_status_body(server: &ServerRuntimeStatus, indent: &str) {
     match server {
-        ServerRuntimeStatus::Running { version, protocol } => {
+        ServerRuntimeStatus::Running {
+            version, protocol, ..
+        } => {
             println!("{indent}status: running");
             println!("{indent}version: {}", option_label(version.as_deref()));
             println!("{indent}protocol: {}", protocol_label(*protocol));
@@ -300,13 +303,20 @@ fn print_server_status_body(server: &ServerRuntimeStatus, indent: &str) {
 
 fn server_status_json(server: &ServerRuntimeStatus) -> serde_json::Value {
     match server {
-        ServerRuntimeStatus::Running { version, protocol } => {
+        ServerRuntimeStatus::Running {
+            version,
+            protocol,
+            capabilities,
+        } => {
             serde_json::json!({
                 "status": "running",
                 "running": true,
                 "version": version,
                 "protocol": protocol,
                 "compatible": compatible_protocol(*protocol),
+                "capabilities": capabilities.as_ref().map(|capabilities| serde_json::json!({
+                    "live_handoff": capabilities.live_handoff,
+                })),
                 "restart_needed": restart_needed(server),
                 "socket": api::socket_path().display().to_string(),
             })
@@ -353,6 +363,7 @@ fn read_server_runtime_status() -> std::io::Result<ServerRuntimeStatus> {
                     .get("protocol")
                     .and_then(|value| value.as_u64())
                     .and_then(|value| u32::try_from(value).ok()),
+                capabilities: serde_json::from_value(result["capabilities"].clone()).ok(),
             })
         }
         Err(err) if server_not_running_error(&err) => Ok(ServerRuntimeStatus::NotRunning),
@@ -2531,7 +2542,7 @@ pub(super) fn wait_for_agent_change(
     timeout_message: &str,
 ) -> std::io::Result<i32> {
     let read_timeout = timeout_ms.map(Duration::from_millis);
-    let (ack, mut stream) = ApiClient::local()
+    let (ack, stream) = ApiClient::local()
         .subscribe_value(&request, read_timeout)
         .map_err(api_client_error_to_io)?;
     if let Err(err) = crate::api::client::parse_response_value(ack) {
@@ -2542,7 +2553,7 @@ pub(super) fn wait_for_agent_change(
         return Err(api_client_error_to_io(err));
     }
 
-    match stream.next_event() {
+    match next_event_with_timeout(stream, timeout_ms) {
         Ok(None) => {
             eprintln!("subscription closed before event arrived");
             Ok(1)
@@ -2556,6 +2567,39 @@ pub(super) fn wait_for_agent_change(
             Ok(1)
         }
         Err(err) => Err(api_client_error_to_io(err)),
+    }
+}
+
+fn next_event_with_timeout(
+    mut stream: crate::api::client::EventStream,
+    timeout_ms: Option<u64>,
+) -> Result<Option<crate::api::schema::SubscriptionEventEnvelope>, ApiClientError> {
+    #[cfg(windows)]
+    {
+        let Some(timeout_ms) = timeout_ms else {
+            return stream.next_event();
+        };
+        let timeout = Duration::from_millis(timeout_ms);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(stream.next_event());
+        });
+        return match rx.recv_timeout(timeout) {
+            Ok(result) => result,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                Err(ApiClientError::Io(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "timed out waiting for subscription event",
+                )))
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Ok(None),
+        };
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = timeout_ms;
+        stream.next_event()
     }
 }
 

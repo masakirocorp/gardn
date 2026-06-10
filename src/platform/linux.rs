@@ -14,47 +14,31 @@ pub fn raise_server_nofile_limit() {}
 
 /// Collect the foreground terminal job for a given child PID.
 pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
-    let tpgid = foreground_process_group_id(child_pid).unwrap_or(child_pid);
-    let mut processes = Vec::new();
-    let mut seen_pids = std::collections::HashSet::new();
-
-    for entry in std::fs::read_dir("/proc").ok()? {
-        let entry = entry.ok()?;
-        let file_name = entry.file_name();
-        let pid_str = file_name.to_str()?;
-        if !pid_str.bytes().all(|b| b.is_ascii_digit()) {
-            continue;
-        }
-
-        let pid: u32 = match pid_str.parse() {
-            Ok(pid) => pid,
-            Err(_) => continue,
-        };
-
-        let Some(stat) = process_stat(pid) else {
-            continue;
-        };
-        if stat.pgrp as u32 != tpgid {
-            continue;
-        }
-
-        if let Some(process) = foreground_process_info(pid) {
-            seen_pids.insert(pid);
-            processes.push(process);
-        }
-    }
+    let foreground_pgid = foreground_process_group_id(child_pid);
+    let process_group_id = foreground_pgid.unwrap_or(child_pid);
+    let mut processes = foreground_pgid
+        .map(collect_processes_in_group)
+        .unwrap_or_default();
+    let mut seen_pids: std::collections::HashSet<u32> =
+        processes.iter().map(|process| process.pid).collect();
 
     // Some CI/container PTYs do not expose a useful foreground process group
-    // for shell children. Keep the real foreground group first, then fall back
-    // to shell descendants so agent wrappers launched under the pane shell are
-    // still identifiable.
-    for pid in session_processes(child_pid) {
-        if seen_pids.contains(&pid) {
-            continue;
-        }
-        if let Some(process) = foreground_process_info(pid) {
-            seen_pids.insert(pid);
-            processes.push(process);
+    // while a command is being launched from the pane shell. Only fall back to
+    // the pane shell descendants when the foreground group is missing, empty,
+    // or just the pane shell itself. A real foreground job should stay
+    // authoritative so background agents in the same terminal session cannot
+    // steal detection.
+    if foreground_pgid.is_none()
+        || foreground_group_needs_descendant_fallback(child_pid, &processes)
+    {
+        for pid in session_processes(child_pid) {
+            if seen_pids.contains(&pid) {
+                continue;
+            }
+            if let Some(process) = foreground_process_info(pid) {
+                seen_pids.insert(pid);
+                processes.push(process);
+            }
         }
     }
 
@@ -63,9 +47,34 @@ pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
     }
 
     Some(ForegroundJob {
-        process_group_id: tpgid,
+        process_group_id,
         processes,
     })
+}
+
+fn collect_processes_in_group(process_group_id: u32) -> Vec<ForegroundProcess> {
+    let mut processes = Vec::new();
+
+    for pid in all_pids() {
+        let Some(stat) = process_stat(pid) else {
+            continue;
+        };
+        if stat.pgrp as u32 != process_group_id {
+            continue;
+        }
+        if let Some(process) = foreground_process_info(pid) {
+            processes.push(process);
+        }
+    }
+
+    processes
+}
+
+fn foreground_group_needs_descendant_fallback(
+    child_pid: u32,
+    processes: &[ForegroundProcess],
+) -> bool {
+    processes.is_empty() || processes.iter().all(|process| process.pid == child_pid)
 }
 
 pub fn foreground_process_group_id(child_pid: u32) -> Option<u32> {
@@ -96,7 +105,9 @@ fn foreground_process_info(pid: u32) -> Option<ForegroundProcess> {
     })
 }
 
+#[derive(Clone)]
 struct ProcStat {
+    ppid: i32,
     pgrp: i32,
     session: i32,
     comm: String,
@@ -108,9 +119,11 @@ fn process_stat(pid: u32) -> Option<ProcStat> {
     let comm = stat.get(1 + stat.find('(')?..close)?.to_string();
     let rest = stat.get(close + 2..)?;
     let fields: Vec<&str> = rest.split_whitespace().collect();
+    let ppid: i32 = fields.get(1)?.parse().ok()?;
     let pgrp: i32 = fields.get(2)?.parse().ok()?;
     let session: i32 = fields.get(3)?.parse().ok()?;
     Some(ProcStat {
+        ppid,
         pgrp,
         session,
         comm,
@@ -148,19 +161,44 @@ pub fn session_processes(child_pid: u32) -> Vec<u32> {
         return Vec::new();
     };
 
-    let mut pids = Vec::new();
+    let mut table = std::collections::HashMap::new();
     for pid in all_pids() {
         let Some(stat) = process_stat(pid) else {
             continue;
         };
         if stat.session == shell_session {
-            pids.push(pid);
+            table.insert(pid, stat);
         }
     }
 
+    let mut pids = table
+        .keys()
+        .copied()
+        .filter(|pid| process_is_descendant_of_child(*pid, child_pid, &table))
+        .collect::<Vec<_>>();
     pids.sort_unstable();
     pids.dedup();
     pids
+}
+
+fn process_is_descendant_of_child(
+    mut pid: u32,
+    child_pid: u32,
+    table: &std::collections::HashMap<u32, ProcStat>,
+) -> bool {
+    for _ in 0..=table.len() {
+        if pid == child_pid {
+            return true;
+        }
+        let Some(stat) = table.get(&pid) else {
+            return false;
+        };
+        if stat.ppid <= 0 {
+            return false;
+        }
+        pid = stat.ppid as u32;
+    }
+    false
 }
 
 pub fn signal_processes(pids: &[u32], signal: Signal) {
@@ -528,6 +566,42 @@ mod tests {
 
         assert!(pids.contains(&child.id()));
         assert!(!pids.contains(&std::process::id()));
+    }
+
+    #[test]
+    fn process_descendant_check_ignores_same_session_siblings() {
+        let table = std::collections::HashMap::from([
+            (
+                10,
+                ProcStat {
+                    ppid: 1,
+                    pgrp: 10,
+                    session: 10,
+                    comm: "sh".into(),
+                },
+            ),
+            (
+                11,
+                ProcStat {
+                    ppid: 10,
+                    pgrp: 11,
+                    session: 10,
+                    comm: "pi".into(),
+                },
+            ),
+            (
+                12,
+                ProcStat {
+                    ppid: 1,
+                    pgrp: 12,
+                    session: 10,
+                    comm: "codex".into(),
+                },
+            ),
+        ]);
+
+        assert!(process_is_descendant_of_child(11, 10, &table));
+        assert!(!process_is_descendant_of_child(12, 10, &table));
     }
 
     #[test]

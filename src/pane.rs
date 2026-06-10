@@ -673,20 +673,49 @@ fn truncate_handoff_history(history: String, max_bytes: usize) -> String {
     history[start..].to_owned()
 }
 
-fn pane_shell(configured_shell: &str) -> String {
-    pane_shell_from(configured_shell, std::env::var("SHELL").ok())
+fn pane_shell_for_target(configured_shell: &str, target_is_windows: bool) -> String {
+    pane_shell_from_parts(
+        configured_shell,
+        std::env::var("SHELL").ok(),
+        std::env::var("COMSPEC").ok(),
+        target_is_windows,
+    )
 }
 
+#[cfg(test)]
 fn pane_shell_from(configured_shell: &str, env_shell: Option<String>) -> String {
+    pane_shell_from_parts(configured_shell, env_shell, None, false)
+}
+
+fn pane_shell_from_parts(
+    configured_shell: &str,
+    env_shell: Option<String>,
+    env_comspec: Option<String>,
+    target_is_windows: bool,
+) -> String {
     let configured_shell = configured_shell.trim();
     if !configured_shell.is_empty() {
         return configured_shell.to_string();
     }
 
-    env_shell
+    let env_default = if target_is_windows {
+        env_comspec.or(env_shell)
+    } else {
+        env_shell
+    };
+
+    env_default
         .map(|shell| shell.trim().to_string())
         .filter(|shell| !shell.is_empty())
-        .unwrap_or_else(|| "/bin/sh".into())
+        .unwrap_or_else(|| default_shell_for_target(target_is_windows).into())
+}
+
+fn default_shell_for_target(target_is_windows: bool) -> &'static str {
+    if target_is_windows {
+        "cmd.exe"
+    } else {
+        "/bin/sh"
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -707,7 +736,11 @@ impl<'a> PaneShellConfig<'a> {
 fn shell_mode_uses_login_shell(
     mode: crate::config::ShellModeConfig,
     target_is_macos: bool,
+    target_is_windows: bool,
 ) -> bool {
+    if target_is_windows {
+        return false;
+    }
     match mode {
         crate::config::ShellModeConfig::Auto => target_is_macos,
         crate::config::ShellModeConfig::Login => true,
@@ -764,9 +797,10 @@ fn resolve_shell_for_login_mode(shell: &str) -> io::Result<String> {
 fn pane_shell_command_builder_for_target(
     shell_config: PaneShellConfig<'_>,
     target_is_macos: bool,
+    target_is_windows: bool,
 ) -> io::Result<CommandBuilder> {
-    let shell = pane_shell(shell_config.default_shell);
-    if shell_mode_uses_login_shell(shell_config.mode, target_is_macos) {
+    let shell = pane_shell_for_target(shell_config.default_shell, target_is_windows);
+    if shell_mode_uses_login_shell(shell_config.mode, target_is_macos, target_is_windows) {
         let mut cmd = CommandBuilder::new_default_prog();
         cmd.env("SHELL", resolve_shell_for_login_mode(&shell)?);
         Ok(cmd)
@@ -776,7 +810,61 @@ fn pane_shell_command_builder_for_target(
 }
 
 fn pane_shell_command_builder(shell_config: PaneShellConfig<'_>) -> io::Result<CommandBuilder> {
-    pane_shell_command_builder_for_target(shell_config, cfg!(target_os = "macos"))
+    pane_shell_command_builder_for_target(shell_config, cfg!(target_os = "macos"), cfg!(windows))
+}
+
+fn shell_command_builder_for_target(
+    shell_config: Option<PaneShellConfig<'_>>,
+    command: &str,
+    target_is_windows: bool,
+) -> io::Result<CommandBuilder> {
+    if target_is_windows {
+        let shell = pane_shell_for_target(
+            shell_config
+                .map(|config| config.default_shell)
+                .unwrap_or(""),
+            target_is_windows,
+        );
+        let mut cmd = CommandBuilder::new(&shell);
+        append_windows_shell_command_args(&mut cmd, &shell, command);
+        return Ok(cmd);
+    }
+
+    match shell_config {
+        Some(shell_config) => {
+            let shell = pane_shell_for_target(shell_config.default_shell, target_is_windows);
+            let mut cmd = CommandBuilder::new(resolve_shell_for_login_mode(&shell)?);
+            cmd.arg("-lic");
+            cmd.arg(command);
+            Ok(cmd)
+        }
+        None => {
+            let mut cmd = CommandBuilder::new("/bin/sh");
+            cmd.arg("-c");
+            cmd.arg(command);
+            Ok(cmd)
+        }
+    }
+}
+
+fn append_windows_shell_command_args(cmd: &mut CommandBuilder, shell: &str, command: &str) {
+    let shell_name = Path::new(shell)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(shell)
+        .to_ascii_lowercase();
+    if matches!(
+        shell_name.as_str(),
+        "powershell.exe" | "powershell" | "pwsh.exe" | "pwsh"
+    ) {
+        cmd.arg("-NoLogo");
+        cmd.arg("-NoProfile");
+        cmd.arg("-Command");
+        cmd.arg(command);
+    } else {
+        cmd.arg("/C");
+        cmd.arg(command);
+    }
 }
 
 impl PaneRuntime {
@@ -957,10 +1045,7 @@ impl PaneRuntime {
         render_notify: Arc<Notify>,
         render_dirty: Arc<AtomicBool>,
     ) -> std::io::Result<Self> {
-        let shell = pane_shell(shell_config.default_shell);
-        let mut cmd = CommandBuilder::new(resolve_shell_for_login_mode(&shell)?);
-        cmd.arg("-lic");
-        cmd.arg(command);
+        let mut cmd = shell_command_builder_for_target(Some(shell_config), command, cfg!(windows))?;
         cmd.cwd(cwd);
         cmd.env(crate::HAKO_ENV_VAR, crate::HAKO_ENV_VALUE);
         apply_pane_terminal_env(&mut cmd);
@@ -996,9 +1081,7 @@ impl PaneRuntime {
         render_notify: Arc<Notify>,
         render_dirty: Arc<AtomicBool>,
     ) -> std::io::Result<Self> {
-        let mut cmd = CommandBuilder::new("/bin/sh");
-        cmd.arg("-c");
-        cmd.arg(command);
+        let mut cmd = shell_command_builder_for_target(None, command, cfg!(windows))?;
         cmd.cwd(cwd);
         cmd.env(crate::HAKO_ENV_VAR, crate::HAKO_ENV_VALUE);
         apply_pane_terminal_env(&mut cmd);
@@ -2194,21 +2277,44 @@ mod tests {
     }
 
     #[test]
+    fn pane_shell_uses_windows_defaults_for_windows_target() {
+        assert_eq!(
+            pane_shell_from_parts(
+                "",
+                Some("/bin/sh".to_string()),
+                Some("C:\\Windows\\System32\\cmd.exe".to_string()),
+                true,
+            ),
+            "C:\\Windows\\System32\\cmd.exe"
+        );
+        assert_eq!(pane_shell_from_parts("", None, None, true), "cmd.exe");
+    }
+
+    #[test]
     fn shell_mode_auto_uses_login_shell_only_on_macos() {
         assert!(shell_mode_uses_login_shell(
             crate::config::ShellModeConfig::Auto,
-            true
+            true,
+            false
         ));
         assert!(!shell_mode_uses_login_shell(
             crate::config::ShellModeConfig::Auto,
+            false,
             false
         ));
         assert!(shell_mode_uses_login_shell(
             crate::config::ShellModeConfig::Login,
+            false,
             false
         ));
         assert!(!shell_mode_uses_login_shell(
             crate::config::ShellModeConfig::NonLogin,
+            true,
+            false
+        ));
+        assert!(!shell_mode_uses_login_shell(
+            crate::config::ShellModeConfig::Login,
+            false,
             true
         ));
     }
@@ -2217,6 +2323,7 @@ mod tests {
     fn login_shell_builder_uses_default_prog_with_resolved_shell_env() {
         let cmd = pane_shell_command_builder_for_target(
             PaneShellConfig::new("/bin/sh", crate::config::ShellModeConfig::Login),
+            false,
             false,
         )
         .unwrap();
@@ -2232,6 +2339,7 @@ mod tests {
         let cmd = pane_shell_command_builder_for_target(
             PaneShellConfig::new("/bin/sh", crate::config::ShellModeConfig::Auto),
             true,
+            false,
         )
         .unwrap();
         assert!(cmd.is_default_prog());
@@ -2246,6 +2354,7 @@ mod tests {
         let cmd = pane_shell_command_builder_for_target(
             PaneShellConfig::new("/bin/sh", crate::config::ShellModeConfig::Auto),
             false,
+            false,
         )
         .unwrap();
         assert!(!cmd.is_default_prog());
@@ -2259,6 +2368,7 @@ mod tests {
                 "/__hako_missing_shell__",
                 crate::config::ShellModeConfig::Login,
             ),
+            false,
             false,
         )
         .unwrap_err();
@@ -2290,6 +2400,7 @@ mod tests {
         let cmd = pane_shell_command_builder_for_target(
             PaneShellConfig::new("fake-shell", crate::config::ShellModeConfig::Login),
             false,
+            false,
         )
         .unwrap();
 
@@ -2315,6 +2426,52 @@ mod tests {
         .unwrap();
         assert!(!cmd.is_default_prog());
         assert_eq!(cmd.get_argv(), &[std::ffi::OsString::from("/bin/sh")]);
+    }
+
+    #[test]
+    fn windows_shell_command_builder_uses_cmd_switches() {
+        let cmd = shell_command_builder_for_target(
+            Some(PaneShellConfig::new(
+                "cmd.exe",
+                crate::config::ShellModeConfig::Login,
+            )),
+            "echo ok",
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(
+            cmd.get_argv(),
+            &[
+                std::ffi::OsString::from("cmd.exe"),
+                std::ffi::OsString::from("/C"),
+                std::ffi::OsString::from("echo ok"),
+            ]
+        );
+    }
+
+    #[test]
+    fn windows_shell_command_builder_uses_powershell_switches() {
+        let cmd = shell_command_builder_for_target(
+            Some(PaneShellConfig::new(
+                "pwsh.exe",
+                crate::config::ShellModeConfig::Login,
+            )),
+            "Write-Output ok",
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(
+            cmd.get_argv(),
+            &[
+                std::ffi::OsString::from("pwsh.exe"),
+                std::ffi::OsString::from("-NoLogo"),
+                std::ffi::OsString::from("-NoProfile"),
+                std::ffi::OsString::from("-Command"),
+                std::ffi::OsString::from("Write-Output ok"),
+            ]
+        );
     }
 
     #[test]
