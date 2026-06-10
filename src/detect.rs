@@ -1673,7 +1673,7 @@ fn process_priority(process: &crate::platform::ForegroundProcess, normalized_nam
 
 fn is_generic_runtime_or_shell(name: &str) -> bool {
     matches!(
-        name,
+        path_basename(name),
         "sh" | "bash" | "zsh" | "fish" | "tmux" | "node" | "bun" | "python" | "python3"
     )
 }
@@ -1904,6 +1904,25 @@ mod tests {
                 "sh",
                 &["/bin/sh", "/tmp/test-bin/pi"],
             )],
+        };
+
+        assert_eq!(
+            identify_agent_in_job(&job),
+            Some((Agent::Pi, "pi".to_string()))
+        );
+    }
+
+    #[test]
+    fn identify_agent_in_job_detects_shell_wrapped_pi_with_absolute_argv0() {
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 123,
+            processes: vec![crate::platform::ForegroundProcess {
+                pid: 1,
+                name: "sh".to_string(),
+                argv0: Some("/bin/sh".to_string()),
+                argv: Some(vec!["/bin/sh".to_string(), "/tmp/test-bin/pi".to_string()]),
+                cmdline: Some("/bin/sh /tmp/test-bin/pi".to_string()),
+            }],
         };
 
         assert_eq!(

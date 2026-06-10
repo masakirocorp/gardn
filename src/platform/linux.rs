@@ -31,10 +31,10 @@ pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
             Err(_) => continue,
         };
 
-        let Some((pgrp, _)) = process_pgrp_and_comm(pid) else {
+        let Some(stat) = process_stat(pid) else {
             continue;
         };
-        if pgrp as u32 != tpgid {
+        if stat.pgrp as u32 != tpgid {
             continue;
         }
 
@@ -85,7 +85,7 @@ pub fn foreground_process_group_id_for_tty_fd(fd: RawFd) -> Option<u32> {
 }
 
 fn foreground_process_info(pid: u32) -> Option<ForegroundProcess> {
-    let (_, name) = process_pgrp_and_comm(pid)?;
+    let name = process_stat(pid)?.comm;
     let argv = process_argv(pid);
     Some(ForegroundProcess {
         pid,
@@ -96,14 +96,25 @@ fn foreground_process_info(pid: u32) -> Option<ForegroundProcess> {
     })
 }
 
-fn process_pgrp_and_comm(pid: u32) -> Option<(i32, String)> {
+struct ProcStat {
+    pgrp: i32,
+    session: i32,
+    comm: String,
+}
+
+fn process_stat(pid: u32) -> Option<ProcStat> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let close = stat.rfind(')')?;
     let comm = stat.get(1 + stat.find('(')?..close)?.to_string();
     let rest = stat.get(close + 2..)?;
     let fields: Vec<&str> = rest.split_whitespace().collect();
     let pgrp: i32 = fields.get(2)?.parse().ok()?;
-    Some((pgrp, comm))
+    let session: i32 = fields.get(3)?.parse().ok()?;
+    Some(ProcStat {
+        pgrp,
+        session,
+        comm,
+    })
 }
 
 fn process_argv(pid: u32) -> Option<Vec<String>> {
@@ -133,29 +144,23 @@ pub fn active_tcp_listeners() -> Vec<super::TcpListenerInfo> {
 }
 
 pub fn session_processes(child_pid: u32) -> Vec<u32> {
-    if child_pid == 0 || process_parent_id(child_pid).is_none() {
+    let Some(shell_session) = process_stat(child_pid).map(|stat| stat.session) else {
         return Vec::new();
-    }
+    };
 
-    let mut children_by_parent = std::collections::HashMap::<u32, Vec<u32>>::new();
+    let mut pids = Vec::new();
     for pid in all_pids() {
-        let Some(parent) = process_parent_id(pid) else {
+        let Some(stat) = process_stat(pid) else {
             continue;
         };
-        children_by_parent.entry(parent).or_default().push(pid);
-    }
-
-    let mut descendants = Vec::new();
-    let mut stack = vec![child_pid];
-    while let Some(pid) = stack.pop() {
-        descendants.push(pid);
-        if let Some(children) = children_by_parent.get(&pid) {
-            stack.extend(children.iter().copied());
+        if stat.session == shell_session {
+            pids.push(pid);
         }
     }
-    descendants.sort_unstable();
-    descendants.dedup();
-    descendants
+
+    pids.sort_unstable();
+    pids.dedup();
+    pids
 }
 
 pub fn signal_processes(pids: &[u32], signal: Signal) {
@@ -510,8 +515,9 @@ mod tests {
     }
 
     #[test]
-    fn session_processes_are_scoped_to_child_tree() {
-        let mut child = std::process::Command::new("/bin/sh")
+    fn session_processes_are_scoped_to_pane_session() {
+        let mut child = std::process::Command::new("setsid")
+            .arg("/bin/sh")
             .arg("-c")
             .arg("sleep 5 & wait")
             .spawn()
