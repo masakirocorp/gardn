@@ -1181,6 +1181,33 @@
       "subject": "fix: ignore nested agent session id clobbers",
       "status": "ported",
       "reason": "ported to Hako terminal session persistence so same-agent child id refs cannot replace the pane's current session identity."
+    },
+    {
+      "upstream": "27a028aeae0b2ecdd747c90aa34605fd7e810ef1",
+      "subject": "fix: detect codex interrupt status headers",
+      "status": "ported",
+      "local": [
+        "port-codex-detection"
+      ],
+      "reason": "Adapted to Hako src/detect.rs with focused Codex detector coverage."
+    },
+    {
+      "upstream": "e8acc76ef6d6c587a2b0c500ce02699344b9fe20",
+      "subject": "fix: detect truncated codex status rows",
+      "status": "ported",
+      "local": [
+        "port-codex-detection"
+      ],
+      "reason": "Adapted to Hako src/detect.rs with focused Codex detector coverage."
+    },
+    {
+      "upstream": "2e9f030681b694d2e60e809724bfd7f6caa50a5a",
+      "subject": "fix: scope codex blocked prompts to live prompt region",
+      "status": "ported",
+      "local": [
+        "port-codex-detection"
+      ],
+      "reason": "Adapted to Hako src/detect.rs with focused Codex detector coverage."
     }
   ]
 }

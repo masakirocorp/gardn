@@ -365,25 +365,21 @@ fn detect_claude(content: &str) -> AgentState {
 }
 
 fn detect_codex(content: &str) -> AgentState {
+    if has_codex_strong_blocked_prompt(content) {
+        return AgentState::Blocked;
+    }
+
     let lower = content.to_lowercase();
 
-    // Blocked patterns
-    if lower.contains("press enter to confirm or esc to cancel")
-        || lower.contains("enter to submit answer")
-        || lower.contains("enter to submit all")
-        || lower.contains("allow command?")
-        || lower.contains("[y/n]")
-        || lower.contains("yes (y)")
-    {
-        return AgentState::Blocked;
-    }
-    if has_confirmation_prompt(&lower) {
-        return AgentState::Blocked;
+    // Working
+    if (!has_codex_prompt(content) && has_interrupt_pattern(&lower)) || has_codex_working_header(content) {
+        return AgentState::Working;
     }
 
-    // Working
-    if has_interrupt_pattern(&lower) || has_codex_working_header(content) {
-        return AgentState::Working;
+    // Weak blocked patterns are too broad to become visible blockers, but the
+    // legacy state detector still reports them as blocked for compatibility.
+    if has_codex_weak_blocked_prompt(&codex_live_prompt_region(content).to_lowercase()) {
+        return AgentState::Blocked;
     }
 
     AgentState::Idle
@@ -1014,11 +1010,7 @@ fn has_claude_visible_blocker(content: &str) -> bool {
 }
 
 fn has_codex_visible_blocker(content: &str) -> bool {
-    let lower = content.to_lowercase();
-    lower.contains("press enter to confirm or esc to cancel")
-        || lower.contains("enter to submit answer")
-        || lower.contains("enter to submit all")
-        || lower.contains("allow command?")
+    has_codex_strong_blocked_prompt(content)
 }
 
 fn has_visible_idle(agent: Agent, content: &str, state: AgentState) -> bool {
@@ -1057,9 +1049,14 @@ fn has_codex_visible_working(content: &str) -> bool {
 }
 
 fn codex_live_working_line(line: &str) -> bool {
-    let lower = line.to_lowercase();
+    let trimmed = line.trim_start();
+    let lower = trimmed.to_lowercase();
     codex_working_status_line(line)
-        && (lower.contains("esc to interrupt") || lower.contains("esc…"))
+        && (trimmed.contains("Waiting for background terminal")
+            || has_codex_status_interrupt_hint(&lower)
+            || lower.contains("background terminal running")
+            || lower.contains("/ps to view")
+            || lower.contains("/stop to close"))
 }
 
 fn codex_working_status_line(line: &str) -> bool {
@@ -1068,9 +1065,85 @@ fn codex_working_status_line(line: &str) -> bool {
     trimmed.starts_with('•')
         && (trimmed.contains("Working (")
             || trimmed.contains("Waiting for background terminal (")
+            || has_codex_status_interrupt_hint(&lower)
             || lower.contains("reviewing approval request (")
             || (lower.contains("reviewing ") && lower.contains(" approval requests ("))
             || trimmed.contains("Booting MCP server:"))
+}
+
+fn has_codex_strong_blocked_prompt(content: &str) -> bool {
+    let lower = codex_live_prompt_region(content).to_lowercase();
+    lower.contains("press enter to confirm or esc to cancel")
+        || lower.contains("enter to submit answer")
+        || lower.contains("enter to submit all")
+        || lower.contains("allow command?")
+}
+
+fn has_codex_weak_blocked_prompt(lower_content: &str) -> bool {
+    lower_content.contains("[y/n]")
+        || lower_content.contains("yes (y)")
+        || has_confirmation_prompt(lower_content)
+}
+
+fn codex_live_prompt_region(content: &str) -> &str {
+    let mut region_start = 0;
+    let mut offset = 0;
+
+    for segment in content.split_inclusive('\n') {
+        let line = segment.trim_end_matches(['\r', '\n']);
+        if codex_prompt_line(line) {
+            region_start = offset + segment.len();
+        }
+        offset += segment.len();
+    }
+
+    &content[region_start..]
+}
+
+fn has_codex_status_interrupt_hint(lower_line: &str) -> bool {
+    let Some((before_escape, after_escape)) = lower_line.split_once(" • esc") else {
+        return false;
+    };
+
+    has_codex_status_elapsed(before_escape) && has_codex_status_escape_suffix(after_escape)
+}
+
+fn has_codex_status_elapsed(before_escape: &str) -> bool {
+    let Some((_, elapsed)) = before_escape.rsplit_once('(') else {
+        return false;
+    };
+
+    let mut count = 0;
+    for part in elapsed.split_whitespace() {
+        count += 1;
+        if count > 3
+            || part.len() < 2
+            || !matches!(part.as_bytes().last(), Some(b'h' | b'm' | b's'))
+            || !part[..part.len() - 1].chars().all(|ch| ch.is_ascii_digit())
+        {
+            return false;
+        }
+    }
+
+    count > 0
+}
+
+fn has_codex_status_escape_suffix(after_escape: &str) -> bool {
+    let suffix = after_escape.trim_start();
+    if suffix.starts_with('…') || suffix.starts_with("to interrupt") {
+        return true;
+    }
+
+    let Some(rest) = suffix.strip_prefix("to ") else {
+        return false;
+    };
+    if rest.starts_with('…') {
+        return true;
+    }
+
+    rest.split_once('…')
+        .map(|(fragment, _)| !fragment.is_empty() && "interrupt".starts_with(fragment.trim_end()))
+        .unwrap_or(false)
 }
 
 fn codex_block_marker_line(line: &str) -> bool {
@@ -1083,10 +1156,12 @@ fn has_codex_working_header(content: &str) -> bool {
 }
 
 fn has_codex_prompt(content: &str) -> bool {
-    content.lines().any(|line| {
-        let trimmed = line.trim_start();
-        trimmed == "›" || trimmed.starts_with("› ")
-    })
+    content.lines().any(codex_prompt_line)
+}
+
+fn codex_prompt_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed == "›" || trimmed.starts_with("› ")
 }
 
 fn has_cursor_blocked_prompt(content: &str, lower: &str) -> bool {
@@ -2387,6 +2462,16 @@ mod tests {
     }
 
     #[test]
+    fn codex_replayed_approval_text_above_prompt_is_idle() {
+        let screen = "• Ran grep for blockers\n  └ allow command?\n[y/n]\n\n■ Conversation interrupted - tell the model what to do differently. Something went wrong? Hit `/feedback` to report the issue.\n\n\n› Write tests for @filename\n\n  gpt-5.5 high · ~/.hako/worktrees/plugin-v1 · plugin-v1";
+        let detection = detect_agent(Some(Agent::Codex), screen);
+
+        assert_eq!(detection.state, AgentState::Idle);
+        assert!(detection.visible_idle);
+        assert!(!detection.visible_blocker);
+    }
+
+    #[test]
     fn codex_working_interrupt() {
         assert_eq!(
             detect_codex("generating code\nesc to interrupt"),
@@ -2409,6 +2494,50 @@ mod tests {
         assert_eq!(detection.state, AgentState::Working);
         assert!(detection.visible_working);
         assert!(!detection.visible_idle);
+    }
+
+    #[test]
+    fn codex_generic_interrupt_status_above_current_prompt_stays_working() {
+        let detection = detect_agent(
+            Some(Agent::Codex),
+            "• I need to inspect more code first.\n\n• Investigating code output (44s • esc to interrupt)\n\n\n› Summarize recent commits\n\n  gpt-5.5 high · ~/Projects/hako",
+        );
+
+        assert_eq!(detection.state, AgentState::Working);
+        assert!(detection.visible_working);
+        assert!(!detection.visible_idle);
+    }
+
+    #[test]
+    fn codex_truncated_status_with_arbitrary_label_is_visible_working() {
+        let detection = detect_agent(
+            Some(Agent::Codex),
+            "• Ran git diff -- src/detect.rs\n  └ diff output...\n\n• Considering patch updates (2m 26s • esc …\n\n\n› Fix Codex detection\n\n  ~/Projects/hako · master",
+        );
+
+        assert_eq!(detection.state, AgentState::Working);
+        assert!(detection.visible_working);
+        assert!(!detection.visible_idle);
+    }
+
+    #[test]
+    fn codex_truncated_status_without_prompt_is_working() {
+        assert_eq!(
+            detect_codex("• Considering patch updates (2m 26s • esc …"),
+            AgentState::Working
+        );
+    }
+
+    #[test]
+    fn codex_bullet_with_esc_text_without_timer_is_not_visible_working() {
+        let detection = detect_agent(
+            Some(Agent::Codex),
+            "• Notes mention esc to interrupt as a phrase\n\n› Fix Codex detection\n\n  ~/Projects/hako · master",
+        );
+
+        assert_eq!(detection.state, AgentState::Idle);
+        assert!(detection.visible_idle);
+        assert!(!detection.visible_working);
     }
 
     #[test]
