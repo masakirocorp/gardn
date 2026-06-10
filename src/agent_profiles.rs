@@ -10,34 +10,43 @@ pub enum AgentKind {
     Claude,
     Codex,
     Copilot,
+    Kimi,
+    Droid,
     Opencode,
     Hermes,
     Qodercli,
+    Cursor,
     Custom,
 }
 
 impl AgentKind {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 12] = [
         Self::Pi,
         Self::Omp,
         Self::Claude,
         Self::Codex,
         Self::Copilot,
+        Self::Kimi,
+        Self::Droid,
         Self::Opencode,
         Self::Hermes,
         Self::Qodercli,
+        Self::Cursor,
         Self::Custom,
     ];
 
-    pub const SYSTEM: [Self; 8] = [
+    pub const SYSTEM: [Self; 11] = [
         Self::Pi,
         Self::Omp,
         Self::Claude,
         Self::Codex,
         Self::Copilot,
+        Self::Kimi,
+        Self::Droid,
         Self::Opencode,
         Self::Hermes,
         Self::Qodercli,
+        Self::Cursor,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -47,9 +56,12 @@ impl AgentKind {
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::Copilot => "copilot",
+            Self::Kimi => "kimi",
+            Self::Droid => "droid",
             Self::Opencode => "opencode",
             Self::Hermes => "hermes",
             Self::Qodercli => "qodercli",
+            Self::Cursor => "cursor",
             Self::Custom => "custom",
         }
     }
@@ -61,9 +73,12 @@ impl AgentKind {
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::Copilot => "copilot",
+            Self::Kimi => "kimi",
+            Self::Droid => "droid",
             Self::Opencode => "opencode",
             Self::Hermes => "hermes",
             Self::Qodercli => "qoder",
+            Self::Cursor => "cursor-agent",
             Self::Custom => "custom",
         }
     }
@@ -85,9 +100,12 @@ impl From<crate::api::schema::IntegrationTarget> for AgentKind {
             crate::api::schema::IntegrationTarget::Claude => Self::Claude,
             crate::api::schema::IntegrationTarget::Codex => Self::Codex,
             crate::api::schema::IntegrationTarget::Copilot => Self::Copilot,
+            crate::api::schema::IntegrationTarget::Kimi => Self::Kimi,
+            crate::api::schema::IntegrationTarget::Droid => Self::Droid,
             crate::api::schema::IntegrationTarget::Opencode => Self::Opencode,
             crate::api::schema::IntegrationTarget::Hermes => Self::Hermes,
             crate::api::schema::IntegrationTarget::Qodercli => Self::Qodercli,
+            crate::api::schema::IntegrationTarget::Cursor => Self::Cursor,
         }
     }
 }

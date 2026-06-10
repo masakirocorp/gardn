@@ -1208,6 +1208,48 @@
         "port-codex-detection"
       ],
       "reason": "Adapted to Hako src/detect.rs with focused Codex detector coverage."
+    },
+    {
+      "upstream": "66b0f6b2d6e1c63c3a7aa0d26cff91cf750232aa",
+      "subject": "feat: add kimi code cli integration",
+      "status": "ported",
+      "reason": "ported as Hako Kimi session-restore integration and install/status/uninstall target without upstream branding or preview plumbing."
+    },
+    {
+      "upstream": "9b2749776a97bf373e50819dd8a66f290e421551",
+      "subject": "feat: add droid integration",
+      "status": "ported",
+      "reason": "ported as Hako Droid session-restore integration and install/status/uninstall target without upstream branding or preview plumbing."
+    },
+    {
+      "upstream": "5fe527d1be5622e506244ee726209fa72b0c7fd3",
+      "subject": "feat: add cursor agent cli integration for session restore",
+      "status": "ported",
+      "reason": "ported as Hako Cursor session-restore integration and install/status/uninstall target without upstream branding."
+    },
+    {
+      "upstream": "1ce4213d9ebb6149395743baa03e62baeaeeb10c",
+      "subject": "fix: preserve hermes flat plugin lists",
+      "status": "ported",
+      "reason": "ported into Hako Hermes config updater with flat plugin list coverage."
+    },
+    {
+      "upstream": "df7880c54b8b5d337421cb4b1dd8daea27008801",
+      "subject": "feat: update agent lifecycle integrations",
+      "status": "ported",
+      "reason": "ported the accepted lifecycle-session behavior for Kimi and Droid while keeping Hako-owned lifecycle semantics for existing integrations."
+    },
+    {
+      "upstream": "7081954d1081842dc089f5a7ef9ae3f1a5643288",
+      "subject": "docs: clarify nested tmux agent detection limit",
+      "status": "ported",
+      "reason": "ported as Hako documentation note on pane-local agent detection."
+    },
+    {
+      "upstream": "4001fd2ec8ff05a982da18744b8cbde9df3ab530",
+      "subject": "feat: improve toast ergonomics",
+      "status": "deferred",
+      "reason": "large cross-cutting toast/API/headless-server change; deferred to avoid unsafe adaptation inside integration port."
     }
   ]
 }

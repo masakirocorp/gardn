@@ -233,11 +233,11 @@ Integration management supports:
 - outdated-version detection
 - in-app integration management
 
-Integration install side effects are agent-specific: pi and OMP install extensions, Claude and Codex install/update hooks or settings, OpenCode installs a plugin, and Hermes installs/enables a plugin.
+Integration install side effects are agent-specific: pi and OMP install extensions, Claude, Codex, Kimi, Droid, Cursor, Copilot, and Qoder-style CLIs install/update hooks or settings, OpenCode installs a plugin, and Hermes installs/enables a plugin.
 
-Claude Code, Codex, and OpenCode integrations report native session identity for restore; Hako reads their visible terminal UI for state. Pi, OMP, Hermes, and Qoder-style integrations can report state directly.
+Claude Code, Codex, Kimi, Droid, Cursor, and OpenCode integrations report native session identity for restore; Hako reads their visible terminal UI for state. Pi, OMP, Hermes, Copilot, and Qoder-style integrations can report state directly.
 
-Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, and `CODEX_HOME`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
+Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
 
 ## CLI and socket API
 

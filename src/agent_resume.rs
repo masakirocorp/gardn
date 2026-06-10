@@ -84,6 +84,8 @@ pub fn launch_env_from_report(
         ("hako:claude", "claude") => &["CLAUDE_CONFIG_DIR"][..],
         ("hako:codex", "codex") => &["CODEX_HOME"][..],
         ("hako:copilot", "copilot") => &["COPILOT_HOME"][..],
+        ("hako:kimi", "kimi") => &["KIMI_CODE_HOME"][..],
+        ("hako:cursor", "cursor") => &["CURSOR_CONFIG_DIR"][..],
         ("hako:pi", "pi") | ("hako:omp", "omp") => &["PI_CONFIG_DIR", "PI_CODING_AGENT_DIR"][..],
         ("hako:hermes", "hermes") => &["HERMES_HOME"][..],
         ("hako:opencode", "opencode") => &["OPENCODE_CONFIG", "XDG_DATA_HOME"][..],
@@ -148,6 +150,12 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
         ("hako:copilot", "copilot", AgentSessionRefKind::Id) => {
             vec!["copilot".into(), format!("--resume={}", session_ref.value)]
         }
+        ("hako:droid", "droid", AgentSessionRefKind::Id) => {
+            vec!["droid".into(), "--resume".into(), session_ref.value.clone()]
+        }
+        ("hako:kimi", "kimi", AgentSessionRefKind::Id) => {
+            vec!["kimi".into(), "--session".into(), session_ref.value.clone()]
+        }
         ("hako:pi", "pi", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
             path_agent_resume_argv("pi", session_ref)
         }
@@ -165,6 +173,13 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
             vec![
                 "opencode".into(),
                 "--session".into(),
+                session_ref.value.clone(),
+            ]
+        }
+        ("hako:cursor", "cursor", AgentSessionRefKind::Id) => {
+            vec![
+                "cursor-agent".into(),
+                "--resume".into(),
                 session_ref.value.clone(),
             ]
         }
@@ -316,10 +331,13 @@ fn is_official_agent_source(source: &str, agent: &str) -> bool {
         ("hako:claude", "claude")
             | ("hako:codex", "codex")
             | ("hako:copilot", "copilot")
+            | ("hako:droid", "droid")
+            | ("hako:kimi", "kimi")
             | ("hako:pi", "pi")
             | ("hako:omp", "omp")
             | ("hako:hermes", "hermes")
             | ("hako:opencode", "opencode")
+            | ("hako:cursor", "cursor")
     )
 }
 
@@ -391,6 +409,26 @@ mod tests {
         );
         assert_eq!(
             plan(
+                "hako:kimi",
+                "kimi",
+                &AgentSessionRef::id("kimi-session").unwrap()
+            )
+            .unwrap()
+            .argv,
+            vec!["kimi", "--session", "kimi-session"]
+        );
+        assert_eq!(
+            plan(
+                "hako:droid",
+                "droid",
+                &AgentSessionRef::id("droid-session").unwrap()
+            )
+            .unwrap()
+            .argv,
+            vec!["droid", "--resume", "droid-session"]
+        );
+        assert_eq!(
+            plan(
                 "hako:pi",
                 "pi",
                 &AgentSessionRef::path("/tmp/pi-session.jsonl").unwrap()
@@ -428,6 +466,16 @@ mod tests {
             .unwrap()
             .argv,
             vec!["opencode", "--session", "opencode-session"]
+        );
+        assert_eq!(
+            plan(
+                "hako:cursor",
+                "cursor",
+                &AgentSessionRef::id("cursor-session").unwrap()
+            )
+            .unwrap()
+            .argv,
+            vec!["cursor-agent", "--resume", "cursor-session"]
         );
     }
 

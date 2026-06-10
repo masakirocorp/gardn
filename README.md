@@ -131,7 +131,7 @@ detection works by reading foreground process and terminal output. zero config, 
 
 ## lives in your terminal
 
-not a gui window, not a web dashboard, not electron. hako runs inside whatever terminal you already use. single rust binary, no dependencies. works inside tmux.
+not a gui window, not a web dashboard, not electron. hako runs inside whatever terminal you already use. single rust binary, no dependencies. works inside tmux. agent auto-detection observes the current terminal pane; agents hidden inside nested tmux panes can require explicit profiles or direct attachment.
 
 ## what you get
 
@@ -195,17 +195,20 @@ for agents outside the built-in list, hako still works as a terminal multiplexer
 
 ### direct integrations
 
-the built-in pi, omp, copilot, hermes, and qodercli integrations can forward semantic state to hako over the socket api. claude code, codex, and opencode integrations report native session identity for restore while hako reads their visible terminal UI for state. install with:
+the built-in pi, omp, copilot, hermes, and qodercli integrations can forward semantic state to hako over the socket api. claude code, codex, kimi, droid, cursor, and opencode integrations report native session identity for restore while hako reads their visible terminal UI for state. install with:
 
 ```bash
 hako integration install pi
 hako integration install omp
 hako integration install claude
 hako integration install codex
+hako integration install kimi
+hako integration install droid
 hako integration install copilot
 hako integration install opencode
 hako integration install hermes
 hako integration install qodercli
+hako integration install cursor
 ```
 
 see the [integrations docs](https://hako.masakiro.com/docs/integrations/) for setup details.
@@ -289,7 +292,7 @@ full logging and environment variable details: [configuration docs](https://hako
 
 - [features](./docs/features.md) — product feature reference
 - [configuration](https://hako.masakiro.com/docs/configuration/) — keybindings, themes, notifications, environment variables
-- [integrations](https://hako.masakiro.com/docs/integrations/) — pi, omp, claude code, codex, opencode, hermes integrations
+- [integrations](https://hako.masakiro.com/docs/integrations/) — pi, omp, claude code, codex, kimi, droid, cursor, opencode, hermes integrations
 - [`SKILL.md`](./SKILL.md) — reusable agent skill
 - [socket api](https://hako.masakiro.com/docs/socket-api/) — socket protocol and cli reference
 

@@ -566,9 +566,12 @@ pub enum IntegrationTarget {
     Claude,
     Codex,
     Copilot,
+    Kimi,
+    Droid,
     Opencode,
     Hermes,
     Qodercli,
+    Cursor,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
