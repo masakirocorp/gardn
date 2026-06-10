@@ -40,6 +40,14 @@ _Avoid_: Run command, start bot
 The permission a socket API integration source has to report agent state, session identity, or presentation metadata for a pane. Authority is about a running pane report, not how an agent was launched.
 _Avoid_: Agent profile, launcher permission
 
+**Agent Metadata**:
+Presentation details reported by an integration source for a running terminal, such as title, display agent, custom status, or state labels. Agent metadata decorates an agent; it is not the agent state itself.
+_Avoid_: Pane label, agent state
+
+**Effective Presentation**:
+The current user-facing title, display agent, custom status, and state-label set after Hako combines valid metadata with terminal and integration state.
+_Avoid_: Raw metadata, session state
+
 **Config File**:
 The user-editable TOML file that defines Hako's persistent product settings. It is a public configuration surface, not a dump of runtime state.
 _Avoid_: Settings cache, state file
