@@ -1250,6 +1250,69 @@
       "subject": "feat: improve toast ergonomics",
       "status": "deferred",
       "reason": "large cross-cutting toast/API/headless-server change; deferred to avoid unsafe adaptation inside integration port."
+    },
+    {
+      "upstream": "ee51c5e5fbaea694e65bb0a4908f75bcaf9707d1",
+      "subject": "feat: use pty-first agent detection",
+      "status": "ported",
+      "local": [
+        "port-agent-detection"
+      ],
+      "reason": "ported to Hako as pty-first detection policy and pane runtime adaptation; Herdr docs/site and branding changes intentionally omitted."
+    },
+    {
+      "upstream": "f18bee9f5c43e56ebdcb7e5fad17f3236de4d08e",
+      "subject": "fix: smooth agent status transitions",
+      "status": "ported",
+      "local": [
+        "port-agent-detection"
+      ],
+      "reason": "ported to Hako with transition policy tests covering stale screen state and pty activity arbitration."
+    },
+    {
+      "upstream": "615310e15c6a7b273947dafe0b3fe01290757c96",
+      "subject": "fix: debounce idle to working agent transitions",
+      "status": "ported",
+      "local": [
+        "port-agent-detection"
+      ],
+      "reason": "ported to Hako with pending working confirmation before publishing idle-to-working transitions."
+    },
+    {
+      "upstream": "d5ccf19a9d0d47cecb216038f917554b236aaa30",
+      "subject": "fix: lease working status on pty output",
+      "status": "ported",
+      "local": [
+        "port-agent-detection"
+      ],
+      "reason": "ported to Hako with pty output/input causality tracking and post-taint working lease coverage."
+    },
+    {
+      "upstream": "55f5a3b5d4ab90b7df207531d3cd3cd5f0923616",
+      "subject": "refactor: split agent detection policy from pane runtime",
+      "status": "ported",
+      "local": [
+        "port-agent-detection"
+      ],
+      "reason": "ported to Hako by moving detection policy into dedicated modules while preserving Hako pane/runtime naming."
+    },
+    {
+      "upstream": "120001b591e64d80a557d81e3b112460b9987fc6",
+      "subject": "fix: keep non-claude pty working transitions screenless",
+      "status": "ported",
+      "local": [
+        "port-agent-detection"
+      ],
+      "reason": "ported to Hako with screenless pty Working evaluation for non-Claude agents."
+    },
+    {
+      "upstream": "eeacb45b4b6ab4446c5bea1331f743fee5e5b9f8",
+      "subject": "fix: remove idle screen patterns from agent detection",
+      "status": "ported",
+      "local": [
+        "port-agent-detection"
+      ],
+      "reason": "ported to Hako by dropping idle screen authority from pty-aware policy so stale idle prompts cannot override active pty signals."
     }
   ]
 }

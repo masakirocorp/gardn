@@ -18,6 +18,7 @@ const NESTED_HAKO_MESSAGES: [&str; 6] = [
     "recursion detected. base case not found. aborting.",
 ];
 
+mod agent_detection_policy;
 mod agent_profiles;
 mod agent_resume;
 mod api;
