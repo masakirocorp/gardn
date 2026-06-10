@@ -8,11 +8,12 @@ use crate::api::schema::{
     AgentReadParams, AgentRenameParams, AgentSendParams, AgentStartParams, AgentStatus,
     AgentTarget, EmptyParams, GroupCreateParams, GroupRenameParams, GroupTarget, IntegrationTarget,
     Method, NotificationShowParams, NotificationShowSound, OutputMatch, PaneAgentState,
-    PaneListParams, PaneReadParams, PaneRenameParams, PaneReportAgentParams, PaneReportMetadataParams,
-    PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams, PaneSplitParams, PaneTarget,
-    PaneWaitForOutputParams, PingParams, ReadFormat, ReadSource, Request, ServerLiveHandoffParams,
-    SplitDirection, Subscription, TabCreateParams, TabListParams, TabRenameParams, TabTarget,
-    WorkspaceCreateParams, WorkspaceMoveToGroupParams, WorkspaceRenameParams, WorkspaceTarget,
+    PaneListParams, PaneReadParams, PaneRenameParams, PaneReportAgentParams,
+    PaneReportMetadataParams, PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams,
+    PaneSplitParams, PaneTarget, PaneWaitForOutputParams, PingParams, ReadFormat, ReadSource,
+    Request, ServerLiveHandoffParams, SplitDirection, Subscription, TabCreateParams, TabListParams,
+    TabRenameParams, TabTarget, WorkspaceCreateParams, WorkspaceMoveToGroupParams,
+    WorkspaceRenameParams, WorkspaceTarget,
 };
 
 mod worktree;

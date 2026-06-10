@@ -2283,10 +2283,16 @@ mod tests {
         app.state.workspaces = vec![active, background];
         app.state.active = Some(0);
         app.state.selected = 0;
-        app.state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::Finished, title: "pi finished".into(), context: "background · 2".into(), position: None, target: Some(crate::app::state::ToastTarget {
-            workspace_id,
-            pane_id: target_pane,
-        }) });
+        app.state.toast = Some(crate::app::state::ToastNotification {
+            kind: crate::app::state::ToastKind::Finished,
+            title: "pi finished".into(),
+            context: "background · 2".into(),
+            position: None,
+            target: Some(crate::app::state::ToastTarget {
+                workspace_id,
+                pane_id: target_pane,
+            }),
+        });
         app.state.mode = Mode::Settings;
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
 

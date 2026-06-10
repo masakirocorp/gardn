@@ -3030,18 +3030,51 @@ mod tests {
     fn windows_supports_only_cli_hook_integrations() {
         use crate::api::schema::IntegrationTarget;
 
-        assert!(!integration_target_supported_for_platform(IntegrationTarget::Pi, true));
-        assert!(!integration_target_supported_for_platform(IntegrationTarget::Omp, true));
-        assert!(!integration_target_supported_for_platform(IntegrationTarget::Opencode, true));
-        assert!(!integration_target_supported_for_platform(IntegrationTarget::Hermes, true));
-        assert!(!integration_target_supported_for_platform(IntegrationTarget::Cursor, true));
+        assert!(!integration_target_supported_for_platform(
+            IntegrationTarget::Pi,
+            true
+        ));
+        assert!(!integration_target_supported_for_platform(
+            IntegrationTarget::Omp,
+            true
+        ));
+        assert!(!integration_target_supported_for_platform(
+            IntegrationTarget::Opencode,
+            true
+        ));
+        assert!(!integration_target_supported_for_platform(
+            IntegrationTarget::Hermes,
+            true
+        ));
+        assert!(!integration_target_supported_for_platform(
+            IntegrationTarget::Cursor,
+            true
+        ));
 
-        assert!(integration_target_supported_for_platform(IntegrationTarget::Claude, true));
-        assert!(integration_target_supported_for_platform(IntegrationTarget::Codex, true));
-        assert!(integration_target_supported_for_platform(IntegrationTarget::Copilot, true));
-        assert!(integration_target_supported_for_platform(IntegrationTarget::Droid, true));
-        assert!(integration_target_supported_for_platform(IntegrationTarget::Kimi, true));
-        assert!(integration_target_supported_for_platform(IntegrationTarget::Qodercli, true));
+        assert!(integration_target_supported_for_platform(
+            IntegrationTarget::Claude,
+            true
+        ));
+        assert!(integration_target_supported_for_platform(
+            IntegrationTarget::Codex,
+            true
+        ));
+        assert!(integration_target_supported_for_platform(
+            IntegrationTarget::Copilot,
+            true
+        ));
+        assert!(integration_target_supported_for_platform(
+            IntegrationTarget::Droid,
+            true
+        ));
+        assert!(integration_target_supported_for_platform(
+            IntegrationTarget::Kimi,
+            true
+        ));
+        assert!(integration_target_supported_for_platform(
+            IntegrationTarget::Qodercli,
+            true
+        ));
     }
 
     #[test]

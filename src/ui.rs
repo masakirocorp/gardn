@@ -544,7 +544,10 @@ fn render_notifications(app: &AppState, frame: &mut Frame, terminal_area: Rect) 
                 has_config_diagnostic,
                 &app.palette,
             );
-            toast_rect = Some(mobile_toast_banner_rect(frame.area(), has_config_diagnostic));
+            toast_rect = Some(mobile_toast_banner_rect(
+                frame.area(),
+                has_config_diagnostic,
+            ));
         } else {
             let position = toast.position.unwrap_or(app.toast_config.hako.position);
             render_toast_notification(

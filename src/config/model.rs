@@ -1109,7 +1109,10 @@ position = "top-center"
         let config = Config::default();
         assert_eq!(config.ui.toast.delivery, ToastDelivery::Off);
         assert_eq!(config.ui.toast.delay_seconds, 1);
-        assert_eq!(config.ui.toast.hako.position, ToastHakoPosition::BottomRight);
+        assert_eq!(
+            config.ui.toast.hako.position,
+            ToastHakoPosition::BottomRight
+        );
         assert!(config.ui.toast.clipboard.enabled);
         assert_eq!(
             config.ui.toast.clipboard.position,
@@ -1185,7 +1188,6 @@ manage_ssh_config = false
         let config: Config = toml::from_str(toml).unwrap();
         assert!(!config.remote.manage_ssh_config);
     }
-
 
     #[test]
     fn missing_onboarding_shows_setup() {

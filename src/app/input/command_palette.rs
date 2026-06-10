@@ -84,7 +84,13 @@ impl App {
                 .await;
             let previous_toast = self.state.toast.clone();
             if let Err(err) = self.state.open_git_diff_panel(&mut self.terminal_runtimes) {
-                self.state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::NeedsAttention, title: "git diff failed".to_string(), context: err, position: None, target: None });
+                self.state.toast = Some(crate::app::state::ToastNotification {
+                    kind: crate::app::state::ToastKind::NeedsAttention,
+                    title: "git diff failed".to_string(),
+                    context: err,
+                    position: None,
+                    target: None,
+                });
                 self.sync_toast_deadline(previous_toast);
             }
             return;

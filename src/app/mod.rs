@@ -974,7 +974,13 @@ impl App {
         let previous_toast = self.state.toast.clone();
         if let Err(err) = self.create_agent_profile_tab(ws_idx, &profile_id) {
             tracing::warn!(profile = %profile_id, err = %err, "failed to launch agent profile");
-            self.state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::NeedsAttention, title: "agent launch failed".to_string(), context: err.to_string(), position: None, target: None });
+            self.state.toast = Some(crate::app::state::ToastNotification {
+                kind: crate::app::state::ToastKind::NeedsAttention,
+                title: "agent launch failed".to_string(),
+                context: err.to_string(),
+                position: None,
+                target: None,
+            });
             self.sync_toast_deadline(previous_toast);
         }
 
@@ -1027,7 +1033,13 @@ impl App {
                     .await;
                 let previous_toast = self.state.toast.clone();
                 if let Err(err) = self.state.open_git_diff_panel(&mut self.terminal_runtimes) {
-                    self.state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::NeedsAttention, title: "git diff failed".to_string(), context: err, position: None, target: None });
+                    self.state.toast = Some(crate::app::state::ToastNotification {
+                        kind: crate::app::state::ToastKind::NeedsAttention,
+                        title: "git diff failed".to_string(),
+                        context: err,
+                        position: None,
+                        target: None,
+                    });
                     self.sync_toast_deadline(previous_toast);
                 }
                 needs_render = true;
@@ -1477,13 +1489,25 @@ impl App {
             self.state.config_diagnostic = None;
             self.config_diagnostic_deadline = None;
             if notify_success {
-                self.state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::UpdateInstalled, title: "reloaded config".to_string(), context: "using config.toml".to_string(), position: None, target: None });
+                self.state.toast = Some(crate::app::state::ToastNotification {
+                    kind: crate::app::state::ToastKind::UpdateInstalled,
+                    title: "reloaded config".to_string(),
+                    context: "using config.toml".to_string(),
+                    position: None,
+                    target: None,
+                });
             }
         } else {
             self.state.config_diagnostic = crate::config::config_diagnostic_summary(&diagnostics);
             self.config_diagnostic_deadline = None;
             if notify_success {
-                self.state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::UpdateInstalled, title: "reloaded config".to_string(), context: "with warnings".to_string(), position: None, target: None });
+                self.state.toast = Some(crate::app::state::ToastNotification {
+                    kind: crate::app::state::ToastKind::UpdateInstalled,
+                    title: "reloaded config".to_string(),
+                    context: "with warnings".to_string(),
+                    position: None,
+                    target: None,
+                });
             }
         }
 

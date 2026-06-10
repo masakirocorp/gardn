@@ -226,7 +226,9 @@ fn command_line_to_argv(command_line: &str) -> Option<Vec<String>> {
             while *arg.add(len) != 0 {
                 len += 1;
             }
-            argv.push(String::from_utf16_lossy(std::slice::from_raw_parts(arg, len)));
+            argv.push(String::from_utf16_lossy(std::slice::from_raw_parts(
+                arg, len,
+            )));
         }
     }
     unsafe {

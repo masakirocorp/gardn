@@ -1,6 +1,6 @@
+use interprocess::local_socket::traits::Stream as _;
 use std::fmt;
 use std::io::{self, BufRead, BufReader, Write};
-use interprocess::local_socket::traits::Stream as _;
 use std::path::PathBuf;
 use std::time::Duration;
 

@@ -595,7 +595,13 @@ impl App {
                         .state
                         .run_project_command(&mut self.terminal_runtimes, &command_id)
                     {
-                        self.state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::NeedsAttention, title: "command failed".to_string(), context: err, position: None, target: None });
+                        self.state.toast = Some(crate::app::state::ToastNotification {
+                            kind: crate::app::state::ToastKind::NeedsAttention,
+                            title: "command failed".to_string(),
+                            context: err,
+                            position: None,
+                            target: None,
+                        });
                     }
                 }
                 crate::app::state::CommandPanelAction::Stop(command_id) => {

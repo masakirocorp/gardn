@@ -1,5 +1,5 @@
-use std::io::{self, Read, Write};
 use interprocess::local_socket::traits::{ListenerExt as _, Stream as _};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -16,7 +16,10 @@ use crate::api::schema::{
 use crate::api::subscriptions::ActiveSubscription;
 use crate::api::wait::wait_for_output;
 use crate::api::{request_changes_ui, socket_path, ApiRequestMessage, ApiRequestSender, EventHub};
-use crate::ipc::{bind_local_listener, remove_socket_file_if_owned, socket_file_identity, LocalStream, SocketFileIdentity};
+use crate::ipc::{
+    bind_local_listener, remove_socket_file_if_owned, socket_file_identity, LocalStream,
+    SocketFileIdentity,
+};
 
 const SOCKET_PERMISSION_MODE: u32 = 0o600;
 pub(super) const CONNECTION_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -456,7 +459,10 @@ fn write_text_line_allow_disconnect(stream: &mut LocalStream, value: &str) -> st
     }
 }
 
-fn write_json_line<T: serde::Serialize>(stream: &mut LocalStream, value: &T) -> std::io::Result<()> {
+fn write_json_line<T: serde::Serialize>(
+    stream: &mut LocalStream,
+    value: &T,
+) -> std::io::Result<()> {
     let encoded = serde_json::to_string(value)
         .map_err(|err| std::io::Error::other(format!("failed to encode json: {err}")))?;
     write_text_line(stream, &encoded)
@@ -582,9 +588,9 @@ fn error_response_json(id: String, code: &str, message: String) -> String {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use interprocess::local_socket::traits::Listener as _;
     use super::*;
     use crate::config::TestEnvVar;
+    use interprocess::local_socket::traits::Listener as _;
     use std::io::{BufRead, BufReader};
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::UnixListener;

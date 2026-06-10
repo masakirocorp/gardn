@@ -1184,7 +1184,10 @@ mod tests {
         };
         assert_eq!(params.title, "build failed");
         assert_eq!(params.body.as_deref(), Some("api workspace"));
-        assert_eq!(params.position, Some(crate::config::ToastHakoPosition::TopLeft));
+        assert_eq!(
+            params.position,
+            Some(crate::config::ToastHakoPosition::TopLeft)
+        );
         assert_eq!(params.sound, NotificationShowSound::Request);
     }
 

@@ -114,7 +114,9 @@ fn sound_for_toast_kind(
 ) -> Option<crate::sound::Sound> {
     match kind {
         ToastKind::NeedsAttention => Some(crate::sound::Sound::Request),
-        ToastKind::Finished if !suppress_active_tab_notifications => Some(crate::sound::Sound::Done),
+        ToastKind::Finished if !suppress_active_tab_notifications => {
+            Some(crate::sound::Sound::Done)
+        }
         ToastKind::Finished | ToastKind::UpdateInstalled => None,
     }
 }
@@ -2817,7 +2819,13 @@ impl AppState {
                     self.toast_config.delivery,
                     crate::config::ToastDelivery::Hako
                 ) {
-                    self.toast = Some(ToastNotification { kind: ToastKind::UpdateInstalled, title: format!("v{version} available"), context: format!("detach, then run `{install_command}`"), position: None, target: None });
+                    self.toast = Some(ToastNotification {
+                        kind: ToastKind::UpdateInstalled,
+                        title: format!("v{version} available"),
+                        context: format!("detach, then run `{install_command}`"),
+                        position: None,
+                        target: None,
+                    });
                 }
                 Vec::new()
             }
@@ -3148,7 +3156,11 @@ impl AppState {
                 notification_context(&self.workspaces[ws_idx], &workspace_label, ws_idx, pane_id);
             ToastNotification {
                 kind,
-                title: format!("{} {}", toast_agent_label(&agent_label), toast_event_text(kind)),
+                title: format!(
+                    "{} {}",
+                    toast_agent_label(&agent_label),
+                    toast_event_text(kind)
+                ),
                 context,
                 position: None,
                 target: Some(ToastTarget {
@@ -3157,7 +3169,7 @@ impl AppState {
                 }),
             }
         };
-        let toast = (!is_active_tab).then(&build_toast);
+        let toast = (!is_active_tab).then(build_toast);
         let client_notification = (!suppress_active_tab_notifications).then(build_toast);
 
         if toast.is_none() && client_notification.is_none() && sound.is_none() {
@@ -3183,7 +3195,10 @@ impl AppState {
             }
         }
 
-        if matches!(self.toast_config.delivery, crate::config::ToastDelivery::Hako) {
+        if matches!(
+            self.toast_config.delivery,
+            crate::config::ToastDelivery::Hako
+        ) {
             if let Some(toast) = delivery.toast.clone() {
                 self.toast = Some(toast);
             }

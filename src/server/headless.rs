@@ -315,7 +315,13 @@ impl HeadlessServer {
                             .state
                             .run_project_command(&mut self.app.terminal_runtimes, &command_id)
                         {
-                            self.app.state.toast = Some(app::state::ToastNotification { kind: app::state::ToastKind::NeedsAttention, title: "command failed".to_string(), context: err, position: None, target: None });
+                            self.app.state.toast = Some(app::state::ToastNotification {
+                                kind: app::state::ToastKind::NeedsAttention,
+                                title: "command failed".to_string(),
+                                context: err,
+                                position: None,
+                                target: None,
+                            });
                         }
                     }
                     app::state::CommandPanelAction::Stop(command_id) => {
@@ -925,7 +931,13 @@ impl HeadlessServer {
             .state
             .open_git_diff_panel(&mut self.app.terminal_runtimes)
         {
-            self.app.state.toast = Some(app::state::ToastNotification { kind: app::state::ToastKind::NeedsAttention, title: "git diff failed".to_string(), context: err, position: None, target: None });
+            self.app.state.toast = Some(app::state::ToastNotification {
+                kind: app::state::ToastKind::NeedsAttention,
+                title: "git diff failed".to_string(),
+                context: err,
+                position: None,
+                target: None,
+            });
             self.app.toast_deadline = Some(Instant::now() + Duration::from_secs(8));
         }
 
@@ -1123,7 +1135,9 @@ impl HeadlessServer {
 
                 let next_state = self.pane_effective_state(pane_id_val);
 
-                if self.app.state.toast_config.delay_seconds == 0 && self.app.state.sound.allows(agent_val) {
+                if self.app.state.toast_config.delay_seconds == 0
+                    && self.app.state.sound.allows(agent_val)
+                {
                     if let Some(sound) = crate::app::actions::notification_sound_for_state_change(
                         suppress_active_tab_notifications,
                         prev_state,
@@ -1140,27 +1154,28 @@ impl HeadlessServer {
                     }
                 }
 
-                let toast_msg =
-                    if self.app.state.toast_config.delay_seconds == 0 && should_forward_toast_to_clients(self.app.state.toast_config.delivery) {
-                        if self.app.state.toast.is_some() && self.app.state.toast != toast_before {
-                            self.app
-                                .state
-                                .toast
-                                .as_ref()
-                                .map(|toast| format!("{}: {}", toast.title, toast.context))
-                        } else {
-                            toast_message_from_state_change(
-                                &self.app.state,
-                                &self.app.terminal_runtimes,
-                                pane_id_val,
-                                suppress_active_tab_notifications,
-                                prev_state,
-                                next_state,
-                            )
-                        }
+                let toast_msg = if self.app.state.toast_config.delay_seconds == 0
+                    && should_forward_toast_to_clients(self.app.state.toast_config.delivery)
+                {
+                    if self.app.state.toast.is_some() && self.app.state.toast != toast_before {
+                        self.app
+                            .state
+                            .toast
+                            .as_ref()
+                            .map(|toast| format!("{}: {}", toast.title, toast.context))
                     } else {
-                        None
-                    };
+                        toast_message_from_state_change(
+                            &self.app.state,
+                            &self.app.terminal_runtimes,
+                            pane_id_val,
+                            suppress_active_tab_notifications,
+                            prev_state,
+                            next_state,
+                        )
+                    }
+                } else {
+                    None
+                };
 
                 if let Some(msg) = toast_msg {
                     self.send_to_foreground_client(ServerMessage::Notify {
@@ -1208,7 +1223,9 @@ impl HeadlessServer {
 
                 let next_state = self.pane_effective_state(pane_id_val);
 
-                if self.app.state.toast_config.delay_seconds == 0 && self.app.state.sound.allows(agent_val) {
+                if self.app.state.toast_config.delay_seconds == 0
+                    && self.app.state.sound.allows(agent_val)
+                {
                     if let Some(sound) = crate::app::actions::notification_sound_for_state_change(
                         suppress_active_tab_notifications,
                         prev_state,
@@ -1225,27 +1242,28 @@ impl HeadlessServer {
                     }
                 }
 
-                let toast_msg =
-                    if self.app.state.toast_config.delay_seconds == 0 && should_forward_toast_to_clients(self.app.state.toast_config.delivery) {
-                        if self.app.state.toast.is_some() && self.app.state.toast != toast_before {
-                            self.app
-                                .state
-                                .toast
-                                .as_ref()
-                                .map(|toast| format!("{}: {}", toast.title, toast.context))
-                        } else {
-                            toast_message_from_state_change(
-                                &self.app.state,
-                                &self.app.terminal_runtimes,
-                                pane_id_val,
-                                suppress_active_tab_notifications,
-                                prev_state,
-                                next_state,
-                            )
-                        }
+                let toast_msg = if self.app.state.toast_config.delay_seconds == 0
+                    && should_forward_toast_to_clients(self.app.state.toast_config.delivery)
+                {
+                    if self.app.state.toast.is_some() && self.app.state.toast != toast_before {
+                        self.app
+                            .state
+                            .toast
+                            .as_ref()
+                            .map(|toast| format!("{}: {}", toast.title, toast.context))
                     } else {
-                        None
-                    };
+                        toast_message_from_state_change(
+                            &self.app.state,
+                            &self.app.terminal_runtimes,
+                            pane_id_val,
+                            suppress_active_tab_notifications,
+                            prev_state,
+                            next_state,
+                        )
+                    }
+                } else {
+                    None
+                };
 
                 if let Some(msg) = toast_msg {
                     self.send_to_foreground_client(ServerMessage::Notify {
@@ -1267,22 +1285,23 @@ impl HeadlessServer {
 
                 self.app.handle_internal_event(ev);
 
-                let toast_msg =
-                    if self.app.state.toast_config.delay_seconds == 0 && should_forward_toast_to_clients(self.app.state.toast_config.delivery) {
-                        if self.app.state.toast.is_some() && self.app.state.toast != toast_before {
-                            self.app
-                                .state
-                                .toast
-                                .as_ref()
-                                .map(|toast| format!("{}: {}", toast.title, toast.context))
-                        } else {
-                            Some(format!(
-                                "v{version} available: detach, then run `{install_command}`"
-                            ))
-                        }
+                let toast_msg = if self.app.state.toast_config.delay_seconds == 0
+                    && should_forward_toast_to_clients(self.app.state.toast_config.delivery)
+                {
+                    if self.app.state.toast.is_some() && self.app.state.toast != toast_before {
+                        self.app
+                            .state
+                            .toast
+                            .as_ref()
+                            .map(|toast| format!("{}: {}", toast.title, toast.context))
                     } else {
-                        None
-                    };
+                        Some(format!(
+                            "v{version} available: detach, then run `{install_command}`"
+                        ))
+                    }
+                } else {
+                    None
+                };
 
                 if let Some(msg) = toast_msg {
                     self.send_to_foreground_client(ServerMessage::Notify {
@@ -2019,7 +2038,8 @@ impl HeadlessServer {
 
         self.sync_foreground_client_state();
         if let api::schema::Method::NotificationShow(params) = &msg.request.method {
-            let response = self.handle_notification_show_headless(msg.request.id.clone(), params.clone());
+            let response =
+                self.handle_notification_show_headless(msg.request.id.clone(), params.clone());
             let _ = msg.respond_to.send(response);
             return changed;
         }
@@ -2054,26 +2074,26 @@ impl HeadlessServer {
         // Hako delivery renders the toast in-frame and must not ask clients to
         // show a terminal or system notification.
         let toast_after = self.app.state.toast.clone();
-        let forwarded_toast_from_state =
-            if self.app.state.toast_config.delay_seconds == 0 && should_forward_toast_to_clients(self.app.state.toast_config.delivery)
-                && toast_after.is_some()
-                && toast_after != toast_before
-            {
-                if let Some(toast) = &toast_after {
-                    let msg_text = format!("{}: {}", toast.title, toast.context);
-                    debug!(msg = %msg_text, "forwarding toast notification from API request");
-                    self.send_to_foreground_client(ServerMessage::Notify {
-                        kind: toast_notify_kind(self.app.state.toast_config.delivery)
-                            .expect("toast forwarding requires a client notification kind"),
-                        message: msg_text,
-                    });
-                    true
-                } else {
-                    false
-                }
+        let forwarded_toast_from_state = if self.app.state.toast_config.delay_seconds == 0
+            && should_forward_toast_to_clients(self.app.state.toast_config.delivery)
+            && toast_after.is_some()
+            && toast_after != toast_before
+        {
+            if let Some(toast) = &toast_after {
+                let msg_text = format!("{}: {}", toast.title, toast.context);
+                debug!(msg = %msg_text, "forwarding toast notification from API request");
+                self.send_to_foreground_client(ServerMessage::Notify {
+                    kind: toast_notify_kind(self.app.state.toast_config.delivery)
+                        .expect("toast forwarding requires a client notification kind"),
+                    message: msg_text,
+                });
+                true
             } else {
                 false
-            };
+            }
+        } else {
+            false
+        };
 
         // Forward notifications for effective pane state changes that occurred
         // during the API request. Hook authority is already folded into
@@ -2120,7 +2140,8 @@ impl HeadlessServer {
             );
 
             if !forwarded_toast_from_state
-                && self.app.state.toast_config.delay_seconds == 0 && should_forward_toast_to_clients(self.app.state.toast_config.delivery)
+                && self.app.state.toast_config.delay_seconds == 0
+                && should_forward_toast_to_clients(self.app.state.toast_config.delivery)
             {
                 if let Some(kind) = crate::app::actions::notification_toast_for_state_change(
                     suppress_active_tab_notifications,
@@ -2165,7 +2186,8 @@ impl HeadlessServer {
 
             // Forward sound notification when server-side sound policy allows it.
             // Clients still decide locally whether they can execute the side effect.
-            if self.app.state.toast_config.delay_seconds == 0 && self.app.state.sound.allows(agent) {
+            if self.app.state.toast_config.delay_seconds == 0 && self.app.state.sound.allows(agent)
+            {
                 if let Some(sound) = crate::app::actions::notification_sound_for_state_change(
                     suppress_active_tab_notifications,
                     *prev_state,
@@ -2459,7 +2481,10 @@ impl HeadlessServer {
         self.send_to_foreground_client(ServerMessage::Notify {
             kind: toast_notify_kind(self.app.state.toast_config.delivery)
                 .expect("toast forwarding requires a client notification kind"),
-            message: notification_message(&toast.title, (!toast.context.is_empty()).then_some(toast.context.as_str())),
+            message: notification_message(
+                &toast.title,
+                (!toast.context.is_empty()).then_some(toast.context.as_str()),
+            ),
         });
     }
 
@@ -4854,7 +4879,6 @@ next_tab = ""
         );
     }
 
-
     #[test]
     fn notification_show_api_forwards_system_to_foreground_client() {
         let mut server = test_headless_server();
@@ -4876,20 +4900,22 @@ next_tab = ""
         server.app.state.toast_config.delivery = crate::config::ToastDelivery::System;
 
         let (respond_to, response_rx) = std::sync::mpsc::channel();
-        assert!(server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
-            request: api::schema::Request {
-                id: "notify".into(),
-                method: api::schema::Method::NotificationShow(
-                    api::schema::NotificationShowParams {
-                        title: "build\nfailed".into(),
-                        body: Some("api workspace".into()),
-                        position: None,
-                        sound: api::schema::NotificationShowSound::None,
-                    },
-                ),
-            },
-            respond_to,
-        }));
+        assert!(
+            server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
+                request: api::schema::Request {
+                    id: "notify".into(),
+                    method: api::schema::Method::NotificationShow(
+                        api::schema::NotificationShowParams {
+                            title: "build\nfailed".into(),
+                            body: Some("api workspace".into()),
+                            position: None,
+                            sound: api::schema::NotificationShowSound::None,
+                        },
+                    ),
+                },
+                respond_to,
+            })
+        );
 
         let response = response_rx
             .recv_timeout(Duration::from_millis(100))

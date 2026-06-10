@@ -9,7 +9,10 @@ mod tabs;
 mod workspaces;
 mod worktrees;
 
-use super::{api_helpers::pane_agent_status, App, Mode, OverlayPaneState, ToastKind, API_NOTIFICATION_RATE_LIMIT};
+use super::{
+    api_helpers::pane_agent_status, App, Mode, OverlayPaneState, ToastKind,
+    API_NOTIFICATION_RATE_LIMIT,
+};
 use crate::events::AppEvent;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,7 +20,6 @@ enum RuntimeExitAction {
     RespawnShell,
     ClosePane,
 }
-
 
 fn sanitized_notification_text(value: &str, max_chars: usize) -> Option<String> {
     let mut out = String::new();
@@ -839,17 +841,18 @@ mod tests {
         let mut app = test_app();
         app.state.toast_config.delivery = crate::config::ToastDelivery::Hako;
 
-        let response = app.handle_api_request_after_internal_events_drained(crate::api::schema::Request {
-            id: "notify".into(),
-            method: crate::api::schema::Method::NotificationShow(
-                crate::api::schema::NotificationShowParams {
-                    title: "  build\nfailed\t".into(),
-                    body: Some(" api\r\nworkspace ".into()),
-                    position: Some(crate::config::ToastHakoPosition::TopLeft),
-                    sound: crate::api::schema::NotificationShowSound::None,
-                },
-            ),
-        });
+        let response =
+            app.handle_api_request_after_internal_events_drained(crate::api::schema::Request {
+                id: "notify".into(),
+                method: crate::api::schema::Method::NotificationShow(
+                    crate::api::schema::NotificationShowParams {
+                        title: "  build\nfailed\t".into(),
+                        body: Some(" api\r\nworkspace ".into()),
+                        position: Some(crate::config::ToastHakoPosition::TopLeft),
+                        sound: crate::api::schema::NotificationShowSound::None,
+                    },
+                ),
+            });
 
         let parsed: crate::api::schema::SuccessResponse = serde_json::from_str(&response).unwrap();
         assert_eq!(
@@ -862,7 +865,10 @@ mod tests {
         let toast = app.state.toast.as_ref().expect("notification toast");
         assert_eq!(toast.title, "build failed");
         assert_eq!(toast.context, "api workspace");
-        assert_eq!(toast.position, Some(crate::config::ToastHakoPosition::TopLeft));
+        assert_eq!(
+            toast.position,
+            Some(crate::config::ToastHakoPosition::TopLeft)
+        );
         assert!(toast.target.is_none());
     }
 
@@ -871,17 +877,18 @@ mod tests {
         let mut app = test_app();
         app.state.toast_config.delivery = crate::config::ToastDelivery::Off;
 
-        let response = app.handle_api_request_after_internal_events_drained(crate::api::schema::Request {
-            id: "notify".into(),
-            method: crate::api::schema::Method::NotificationShow(
-                crate::api::schema::NotificationShowParams {
-                    title: "\n\t".into(),
-                    body: None,
-                    position: None,
-                    sound: crate::api::schema::NotificationShowSound::None,
-                },
-            ),
-        });
+        let response =
+            app.handle_api_request_after_internal_events_drained(crate::api::schema::Request {
+                id: "notify".into(),
+                method: crate::api::schema::Method::NotificationShow(
+                    crate::api::schema::NotificationShowParams {
+                        title: "\n\t".into(),
+                        body: None,
+                        position: None,
+                        sound: crate::api::schema::NotificationShowSound::None,
+                    },
+                ),
+            });
 
         let parsed: crate::api::schema::ErrorResponse = serde_json::from_str(&response).unwrap();
         assert_eq!(parsed.error.code, "invalid_params");
@@ -1068,10 +1075,16 @@ mod tests {
             process_exited: false,
             observed_at: std::time::Instant::now(),
         });
-        app.state.toast = Some(crate::app::state::ToastNotification { kind: ToastKind::Finished, title: "codex finished".into(), context: "__herdr_original__ · 1".into(), position: None, target: Some(crate::app::state::ToastTarget {
-            workspace_id,
-            pane_id: root,
-        }) });
+        app.state.toast = Some(crate::app::state::ToastNotification {
+            kind: ToastKind::Finished,
+            title: "codex finished".into(),
+            context: "__herdr_original__ · 1".into(),
+            position: None,
+            target: Some(crate::app::state::ToastTarget {
+                workspace_id,
+                pane_id: root,
+            }),
+        });
 
         app.handle_internal_event(AppEvent::StateChanged {
             pane_id: root,

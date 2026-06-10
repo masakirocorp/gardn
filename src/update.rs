@@ -6,11 +6,11 @@
 //! Uses `curl` as a subprocess for HTTP — no additional Rust HTTP dependencies.
 //! JSON parsing uses serde_json (already in deps for persistence).
 
+use crate::ipc::LocalStream;
+use interprocess::local_socket::traits::Stream as _;
 use std::env;
 use std::fs;
 use std::io::{self, BufRead, BufReader, IsTerminal, Write};
-use interprocess::local_socket::traits::Stream as _;
-use crate::ipc::LocalStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -2480,7 +2480,10 @@ mod tests {
     #[test]
     fn platform_target_is_known() {
         let (os, arch) = platform_target();
-        assert!(os == "linux" || os == "macos" || os == "windows", "os: {os}");
+        assert!(
+            os == "linux" || os == "macos" || os == "windows",
+            "os: {os}"
+        );
         assert!(arch == "x86_64" || arch == "aarch64", "arch: {arch}");
     }
 
@@ -2518,7 +2521,10 @@ mod tests {
             "hako-windows-x86_64.exe"
         );
         assert_eq!(release_asset_name(("linux", "x86_64")), "hako-linux-x86_64");
-        assert_eq!(release_asset_name(("macos", "aarch64")), "hako-macos-aarch64");
+        assert_eq!(
+            release_asset_name(("macos", "aarch64")),
+            "hako-macos-aarch64"
+        );
     }
 
     #[test]
