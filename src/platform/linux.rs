@@ -502,6 +502,7 @@ mod tests {
     use crate::config::TestEnvVar;
     use std::sync::{Mutex, OnceLock};
 
+    use std::os::unix::process::CommandExt;
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
@@ -509,12 +510,17 @@ mod tests {
 
     #[test]
     fn session_processes_are_scoped_to_pane_session() {
-        let mut child = std::process::Command::new("setsid")
-            .arg("/bin/sh")
-            .arg("-c")
-            .arg("sleep 5 & wait")
-            .spawn()
-            .expect("spawn shell");
+        let mut command = std::process::Command::new("/bin/sh");
+        command.arg("-c").arg("sleep 5");
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = command.spawn().expect("spawn shell");
 
         let pids = session_processes(child.id());
         let _ = child.kill();

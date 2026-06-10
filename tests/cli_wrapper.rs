@@ -2805,6 +2805,10 @@ fn wait_agent_status_exits_when_done_status_matches() {
         .as_str()
         .unwrap()
         .to_string();
+    let pane_id = created["result"]["root_pane"]["pane_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let tab_created = send_request(
         &socket_path,
@@ -2815,7 +2819,7 @@ fn wait_agent_status_exits_when_done_status_matches() {
     );
     assert_eq!(tab_created["result"]["type"], "tab_created");
 
-    let start_pi = run_cli(&socket_path, &["pane", "run", "1-1", "pi"]);
+    let start_pi = run_cli(&socket_path, &["pane", "run", &pane_id, "pi"]);
     assert!(start_pi.status.success());
 
     let waited = run_cli(
@@ -2823,7 +2827,7 @@ fn wait_agent_status_exits_when_done_status_matches() {
         &[
             "wait",
             "agent-status",
-            "1-1",
+            &pane_id,
             "--status",
             "done",
             "--timeout",
