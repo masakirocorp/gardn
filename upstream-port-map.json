@@ -1175,6 +1175,12 @@
       "subject": "fix: support worktree actions from bare repos",
       "status": "ported",
       "reason": "ported to Hako git discovery, API worktree actions, and worktree command coverage so standalone bare repos can act as worktree sources without changing normal worktree behavior."
+    },
+    {
+      "upstream": "07222706c78943da814e39abece8b5ba5a10dfc3",
+      "subject": "fix: ignore nested agent session id clobbers",
+      "status": "ported",
+      "reason": "ported to Hako terminal session persistence so same-agent child id refs cannot replace the pane's current session identity."
     }
   ]
 }

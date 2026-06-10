@@ -473,6 +473,12 @@ impl TerminalState {
         if self.known_agent_label_conflicts_with_detected_agent(&agent_label) {
             return None;
         }
+        if self
+            .conflicting_current_session_ref(&source, &agent_label, &session_ref)
+            .is_some()
+        {
+            return None;
+        }
 
         let previous_session = self.current_session_identity_for_persistence();
         self.persisted_agent_session = Some(crate::agent_resume::PersistedAgentSession {
@@ -512,6 +518,10 @@ impl TerminalState {
         if self.known_agent_label_conflicts_with_detected_agent(&agent_label) {
             return None;
         }
+        let session_ref = session_ref.map(|session_ref| {
+            self.conflicting_current_session_ref(&source, &agent_label, &session_ref)
+                .unwrap_or(session_ref)
+        });
         self.commit_hook_sequence(&source, seq, reset_sequence);
         self.persisted_agent_session = None;
         self.hook_authority = Some(HookAuthority {
@@ -618,6 +628,36 @@ impl TerminalState {
                 session.session_ref.value.clone(),
             )
         })
+    }
+
+    fn conflicting_current_session_ref(
+        &self,
+        source: &str,
+        agent_label: &str,
+        session_ref: &crate::agent_resume::AgentSessionRef,
+    ) -> Option<crate::agent_resume::AgentSessionRef> {
+        if session_ref.kind != crate::agent_resume::AgentSessionRefKind::Id {
+            return None;
+        }
+
+        let current_ref = self
+            .hook_authority
+            .as_ref()
+            .and_then(|authority| {
+                (authority.source == source && authority.agent_label == agent_label)
+                    .then_some(authority.session_ref.as_ref())
+                    .flatten()
+            })
+            .or_else(|| {
+                self.persisted_agent_session.as_ref().and_then(|session| {
+                    (session.source == source && session.agent == agent_label)
+                        .then_some(&session.session_ref)
+                })
+            })?;
+
+        (current_ref.kind == crate::agent_resume::AgentSessionRefKind::Id
+            && current_ref.value != session_ref.value)
+            .then(|| current_ref.clone())
     }
 
     pub fn set_persisted_agent_session(
@@ -2043,6 +2083,114 @@ mod tests {
                 .and_then(|authority| authority.session_ref.as_ref())
                 .map(|session_ref| session_ref.value.as_str()),
             Some("/tmp/pi.jsonl")
+        );
+    }
+
+    #[test]
+    fn same_agent_child_session_ref_cannot_clobber_current_hook_identity() {
+        let mut terminal = test_terminal();
+        terminal
+            .set_hook_authority_with_session_ref(
+                "hako:pi".into(),
+                "pi".into(),
+                AgentState::Working,
+                None,
+                None,
+                crate::agent_resume::AgentSessionRef::id("parent-session"),
+                Some(20),
+            )
+            .expect("parent session should establish hook authority");
+
+        let mutation = terminal
+            .set_hook_authority_with_session_ref(
+                "hako:pi".into(),
+                "pi".into(),
+                AgentState::Blocked,
+                Some("waiting on child tool".into()),
+                None,
+                crate::agent_resume::AgentSessionRef::id("child-session"),
+                Some(21),
+            )
+            .expect("state update from same agent should be accepted");
+
+        assert!(!mutation.session_ref_changed);
+        assert_eq!(terminal.state, AgentState::Blocked);
+        assert_eq!(
+            terminal.current_session_identity_for_persistence(),
+            Some((
+                "hako:pi".to_string(),
+                "pi".to_string(),
+                crate::agent_resume::AgentSessionRefKind::Id,
+                "parent-session".to_string(),
+            ))
+        );
+    }
+
+    #[test]
+    fn same_agent_child_session_ref_cannot_clobber_restored_pane_identity() {
+        let mut terminal = test_terminal();
+        terminal
+            .set_agent_session_ref(
+                "hako:pi".into(),
+                "pi".into(),
+                crate::agent_resume::AgentSessionRef::id("parent-session"),
+                Some(20),
+            )
+            .expect("parent session should be persisted");
+
+        let mutation = terminal.set_agent_session_ref(
+            "hako:pi".into(),
+            "pi".into(),
+            crate::agent_resume::AgentSessionRef::id("child-session"),
+            Some(21),
+        );
+
+        assert!(mutation.is_none());
+        assert_eq!(
+            terminal.current_session_identity_for_persistence(),
+            Some((
+                "hako:pi".to_string(),
+                "pi".to_string(),
+                crate::agent_resume::AgentSessionRefKind::Id,
+                "parent-session".to_string(),
+            ))
+        );
+    }
+
+    #[test]
+    fn new_parent_session_ref_is_accepted_after_current_identity_clears() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::Pi), AgentState::Working);
+        terminal
+            .set_agent_session_ref(
+                "hako:pi".into(),
+                "pi".into(),
+                crate::agent_resume::AgentSessionRef::id("parent-session"),
+                Some(20),
+            )
+            .expect("parent session should be persisted");
+
+        let clear = terminal.set_detected_state_with_mutation(None, AgentState::Unknown);
+        assert!(clear.session_ref_changed);
+
+        let mutation = terminal
+            .set_agent_session_ref(
+                "hako:pi".into(),
+                "pi".into(),
+                crate::agent_resume::AgentSessionRef::id("new-parent-session"),
+                Some(21),
+            )
+            .expect("new parent session should be accepted after clear");
+
+        assert!(mutation.session_ref_changed);
+        assert_eq!(
+            terminal.current_session_identity_for_persistence(),
+            Some((
+                "hako:pi".to_string(),
+                "pi".to_string(),
+                crate::agent_resume::AgentSessionRefKind::Id,
+                "new-parent-session".to_string(),
+            ))
         );
     }
 
