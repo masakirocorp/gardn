@@ -372,7 +372,9 @@ fn detect_codex(content: &str) -> AgentState {
     let lower = content.to_lowercase();
 
     // Working
-    if (!has_codex_prompt(content) && has_interrupt_pattern(&lower)) || has_codex_working_header(content) {
+    if (!has_codex_prompt(content) && has_interrupt_pattern(&lower))
+        || has_codex_working_header(content)
+    {
         return AgentState::Working;
     }
 

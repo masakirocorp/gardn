@@ -19,7 +19,8 @@ const AGENT_PENDING_WORKING_CAP: std::time::Duration = std::time::Duration::from
 const POST_TAINT_WORKING_LEASE: std::time::Duration = AGENT_PTY_ACTIVITY_WINDOW;
 pub(super) const STABLE_VISIBLE_SIGNAL_REFRESH: std::time::Duration =
     std::time::Duration::from_millis(800);
-pub(super) const AGENT_STARTUP_GRACE_WINDOW: std::time::Duration = std::time::Duration::from_secs(3);
+pub(super) const AGENT_STARTUP_GRACE_WINDOW: std::time::Duration =
+    std::time::Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct DetectionPublishState {
@@ -343,13 +344,17 @@ fn agent_activity_veto_requires_screen(agent: Option<Agent>) -> bool {
     matches!(agent, Some(Agent::Claude))
 }
 
-pub(super) fn decide_detection_screen_read(input: DetectionScreenReadInput) -> DetectionScreenReadDecision {
+pub(super) fn decide_detection_screen_read(
+    input: DetectionScreenReadInput,
+) -> DetectionScreenReadDecision {
     if !input.agent_changed
         && !input.process_exited
         && !input.pending_idle_active
         && !input.post_taint_working_active
         && input.agent.is_some()
-        && input.pty_activity.is_some_and(|signal| signal.active && !signal.tainted)
+        && input
+            .pty_activity
+            .is_some_and(|signal| signal.active && !signal.tainted)
     {
         return match input.state {
             AgentState::Working => DetectionScreenReadDecision::Skip,
@@ -361,11 +366,14 @@ pub(super) fn decide_detection_screen_read(input: DetectionScreenReadInput) -> D
                 process_exited: false,
             },
             AgentState::Idle | AgentState::Unknown
-                if agent_activity_veto_requires_screen(input.agent) && !input.pending_working_active =>
+                if agent_activity_veto_requires_screen(input.agent)
+                    && !input.pending_working_active =>
             {
                 DetectionScreenReadDecision::Read
             }
-            AgentState::Idle | AgentState::Unknown => DetectionScreenReadDecision::EvaluatePtyWorking,
+            AgentState::Idle | AgentState::Unknown => {
+                DetectionScreenReadDecision::EvaluatePtyWorking
+            }
         };
     }
 
@@ -454,7 +462,9 @@ fn stable_visible_signal_refresh_due(
 ) -> bool {
     let stable_visible_signal = next.visible_blocker && previous.visible_blocker;
     stable_visible_signal
-        && last_refresh.is_none_or(|last_refresh| now.duration_since(last_refresh) >= STABLE_VISIBLE_SIGNAL_REFRESH)
+        && last_refresh.is_none_or(|last_refresh| {
+            now.duration_since(last_refresh) >= STABLE_VISIBLE_SIGNAL_REFRESH
+        })
 }
 
 fn pty_working_transition_is_vetoed(
@@ -470,7 +480,7 @@ fn pty_working_transition_is_vetoed(
         && content.contains("※ recap: Done")
 }
 
-fn decide_transition(
+struct TransitionInput<'a> {
     agent: Option<Agent>,
     previous: DetectionPublishState,
     next: DetectionPublishState,
@@ -478,12 +488,27 @@ fn decide_transition(
     process_exited: bool,
     pty_activity: Option<PtyActivitySignal>,
     stable_refresh_due: bool,
-    content: &str,
+    content: &'a str,
     now: std::time::Instant,
+}
+
+fn decide_transition(
+    input: TransitionInput<'_>,
     pending_idle: &mut PendingIdleConfirmation,
     pending_working: &mut PendingWorkingConfirmation,
     post_taint_working: &mut PostTaintWorkingLease,
 ) -> DetectionPublishDecision {
+    let TransitionInput {
+        agent,
+        previous,
+        next,
+        agent_changed,
+        process_exited,
+        pty_activity,
+        stable_refresh_due,
+        content,
+        now,
+    } = input;
     if pty_working_transition_is_vetoed(agent, previous, next, content) {
         pending_idle.clear();
         pending_working.clear();
@@ -537,7 +562,13 @@ fn decide_transition(
         post_taint_working.clear();
         return DetectionPublishDecision::NoPublish;
     }
-    if should_publish_detection_update(previous, next, agent_changed, process_exited, stable_refresh_due) {
+    if should_publish_detection_update(
+        previous,
+        next,
+        agent_changed,
+        process_exited,
+        stable_refresh_due,
+    ) {
         return DetectionPublishDecision::Publish {
             state: next.state,
             visible_blocker: next.visible_blocker,
@@ -574,15 +605,17 @@ pub(super) fn decide_pty_working_publish_without_screen(
         input.now,
     );
     decide_transition(
-        input.agent,
-        previous,
-        next,
-        false,
-        false,
-        input.pty_activity,
-        stable_refresh_due,
-        "",
-        input.now,
+        TransitionInput {
+            agent: input.agent,
+            previous,
+            next,
+            agent_changed: false,
+            process_exited: false,
+            pty_activity: input.pty_activity,
+            stable_refresh_due,
+            content: "",
+            now: input.now,
+        },
         pending_idle,
         pending_working,
         post_taint_working,
@@ -595,10 +628,12 @@ pub(super) fn decide_screen_detection_publish(
     pending_working: &mut PendingWorkingConfirmation,
     post_taint_working: &mut PostTaintWorkingLease,
 ) -> DetectionPublishDecision {
-    let pty_signal = input.pty_activity.map(|signal| crate::agent_detection_policy::PtySignal {
-        active: signal.active,
-        tainted: signal.tainted,
-    });
+    let pty_signal = input
+        .pty_activity
+        .map(|signal| crate::agent_detection_policy::PtySignal {
+            active: signal.active,
+            tainted: signal.tainted,
+        });
     let detection = match crate::agent_detection_policy::apply_detection_policy(
         crate::agent_detection_policy::DetectionPolicyInput {
             agent: input.agent,
@@ -646,15 +681,17 @@ pub(super) fn decide_screen_detection_publish(
         input.now,
     );
     decide_transition(
-        input.agent,
-        previous,
-        next,
-        input.agent_changed,
-        input.process_exited,
-        input.pty_activity,
-        stable_refresh_due,
-        input.content,
-        input.now,
+        TransitionInput {
+            agent: input.agent,
+            previous,
+            next,
+            agent_changed: input.agent_changed,
+            process_exited: input.process_exited,
+            pty_activity: input.pty_activity,
+            stable_refresh_due,
+            content: input.content,
+            now: input.now,
+        },
         pending_idle,
         pending_working,
         post_taint_working,

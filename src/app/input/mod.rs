@@ -101,10 +101,9 @@ impl App {
                 Mode::ReleaseNotes => self.handle_release_notes_key(key_event),
                 Mode::ProductAnnouncement => self.handle_product_announcement_key(key_event),
                 Mode::Prefix | Mode::Navigate | Mode::Copy => unreachable!(),
-                Mode::RenameWorkspace
-                | Mode::RenameGroup
-                | Mode::RenameTab
-                | Mode::RenamePane => handle_rename_key(&mut self.state, key_event),
+                Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
+                    handle_rename_key(&mut self.state, key_event)
+                }
                 Mode::EditWorktreeDirectory => {
                     handle_worktree_directory_key(&mut self.state, key_event)
                 }

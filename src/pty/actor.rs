@@ -639,8 +639,11 @@ impl PtyIoActorRunner {
         if self.state == ActorState::Released {
             return;
         }
-        self.pending_writes
-            .extend(terminal_responses.into_iter().filter(|response| !response.is_empty()));
+        self.pending_writes.extend(
+            terminal_responses
+                .into_iter()
+                .filter(|response| !response.is_empty()),
+        );
     }
 
     fn flush_pending_writes_once(&mut self) {

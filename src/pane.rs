@@ -34,9 +34,8 @@ use self::agent_detection::{
     decide_pty_working_publish_without_screen, decide_screen_detection_publish,
     handle_skipped_detection_update, observe_pty_output_activity, DetectionPublishDecision,
     DetectionScreenReadDecision, DetectionScreenReadInput, PendingIdleConfirmation,
-    PendingWorkingConfirmation, PostTaintWorkingLease, PtyCausalityTracker,
-    PtyWorkingPublishInput, ScreenDetectionPublishInput, AGENT_PENDING_IDLE_RECHECK,
-    AGENT_STARTUP_GRACE_WINDOW,
+    PendingWorkingConfirmation, PostTaintWorkingLease, PtyCausalityTracker, PtyWorkingPublishInput,
+    ScreenDetectionPublishInput, AGENT_PENDING_IDLE_RECHECK, AGENT_STARTUP_GRACE_WINDOW,
 };
 use self::terminal::{GhosttyPaneTerminal, PaneTerminal};
 pub use self::{
@@ -1636,7 +1635,8 @@ impl PaneRuntime {
                         },
                         DetectionScreenReadDecision::Read => {
                             let content = terminal.detection_text();
-                            last_screen_scan_pty_output_seq = pty_activity.map(|signal| signal.output_seq);
+                            last_screen_scan_pty_output_seq =
+                                pty_activity.map(|signal| signal.output_seq);
                             let detection = if process_exited {
                                 detect::AgentDetection {
                                     state: AgentState::Idle,
@@ -1678,7 +1678,13 @@ impl PaneRuntime {
                         process_exited: publish_process_exited,
                     } = publish_decision
                     {
-                        debug!(pane = pane_id.raw(), ?state, ?new_state, ?agent, "state changed");
+                        debug!(
+                            pane = pane_id.raw(),
+                            ?state,
+                            ?new_state,
+                            ?agent,
+                            "state changed"
+                        );
                         state = new_state;
                         last_visible_blocker = visible_blocker;
                         last_visible_idle = visible_idle;

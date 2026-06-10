@@ -58,6 +58,15 @@ pub(super) fn ghostty_mouse_encoder_for_terminal(
 ) -> Option<crate::ghostty::MouseEncoder> {
     let mut encoder = crate::ghostty::MouseEncoder::new().ok()?;
     encoder.set_from_terminal(terminal);
+    if terminal
+        .mode_get(crate::ghostty::MODE_MOUSE_SGR_PIXELS)
+        .unwrap_or(false)
+    {
+        // Hako receives terminal mouse positions in cell coordinates from the
+        // host terminal, not surface pixels. If the child requested SGR-pixels,
+        // downgrade to SGR cells instead of forwarding bogus pixel values.
+        encoder.set_format_sgr();
+    }
     let cols = terminal.cols().ok()? as u32;
     let rows = terminal.rows().ok()? as u32;
     encoder.set_size(cols, rows, 1, 1);

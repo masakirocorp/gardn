@@ -142,6 +142,7 @@ pub const MODE_APPLICATION_CURSOR_KEYS: u16 = 1;
 pub const MODE_FOCUS_EVENT: u16 = 1004;
 pub const MODE_MOUSE_UTF8: u16 = 1005;
 pub const MODE_MOUSE_SGR: u16 = 1006;
+pub const MODE_MOUSE_SGR_PIXELS: u16 = 1016;
 pub const MODE_MOUSE_ALTERNATE_SCROLL: u16 = 1007;
 pub const MODE_BRACKETED_PASTE: u16 = 2004;
 pub const MODE_SYNCHRONIZED_OUTPUT: u16 = 2026;
@@ -2063,6 +2064,17 @@ impl MouseEncoder {
 
     pub fn set_from_terminal(&mut self, terminal: &Terminal) {
         unsafe { ffi::ghostty_mouse_encoder_setopt_from_terminal(self.raw, terminal.raw()) }
+    }
+
+    pub fn set_format_sgr(&mut self) {
+        let format = ffi::GhosttyMouseFormat_GHOSTTY_MOUSE_FORMAT_SGR;
+        unsafe {
+            ffi::ghostty_mouse_encoder_setopt(
+                self.raw,
+                ffi::GhosttyMouseEncoderOption_GHOSTTY_MOUSE_ENCODER_OPT_FORMAT,
+                (&format as *const ffi::GhosttyMouseFormat).cast(),
+            )
+        }
     }
 
     pub fn set_size(

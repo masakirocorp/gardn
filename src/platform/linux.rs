@@ -526,10 +526,8 @@ mod tests {
     #[test]
     fn read_clipboard_text_commands_include_session_backends() {
         let _guard = env_lock().lock().unwrap();
-        unsafe {
-            std::env::set_var("WAYLAND_DISPLAY", "wayland-0");
-            std::env::set_var("DISPLAY", ":0");
-        }
+        let _wayland_env = TestEnvVar::set("WAYLAND_DISPLAY", "wayland-0");
+        let _display_env = TestEnvVar::set("DISPLAY", ":0");
 
         let commands = read_clipboard_text_commands();
         assert_eq!(commands[0].program, "wl-paste");
@@ -586,8 +584,7 @@ mod tests {
     #[test]
     fn read_clipboard_image_rejects_xclip_text_served_for_image_target() {
         let _guard = env_lock().lock().unwrap();
-        let temp_dir =
-            std::env::temp_dir().join(format!("hako-fake-xclip-{}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!("hako-fake-xclip-{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).expect("temp dir should be created");
         let fake_xclip = temp_dir.join("xclip");
         std::fs::write(&fake_xclip, "#!/bin/sh\nprintf '# Tasks'\n")
@@ -605,30 +602,20 @@ mod tests {
                 .expect("fake xclip should be executable");
         }
 
-        let old_path = std::env::var_os("PATH");
-        let test_path = match old_path.as_ref() {
-            Some(path) => {
-                let mut paths = vec![temp_dir.clone()];
-                paths.extend(std::env::split_paths(path));
-                std::env::join_paths(paths).expect("test path should be valid")
+        let test_path = {
+            let mut paths = vec![temp_dir.clone()];
+            if let Some(path) = std::env::var_os("PATH") {
+                paths.extend(std::env::split_paths(&path));
             }
-            None => temp_dir.clone().into_os_string(),
+            std::env::join_paths(paths).expect("test path should be valid")
         };
 
-        unsafe {
-            std::env::remove_var("WAYLAND_DISPLAY");
-            std::env::set_var("DISPLAY", ":0");
-            std::env::set_var("PATH", test_path);
-        }
+        let _wayland_env = TestEnvVar::remove("WAYLAND_DISPLAY");
+        let _display_env = TestEnvVar::set("DISPLAY", ":0");
+        let _path_env = TestEnvVar::set("PATH", test_path);
 
         let result = read_clipboard_image();
 
-        unsafe {
-            match old_path {
-                Some(path) => std::env::set_var("PATH", path),
-                None => std::env::remove_var("PATH"),
-            }
-        }
         let _ = std::fs::remove_file(fake_xclip);
         let _ = std::fs::remove_dir(temp_dir);
 
@@ -662,30 +649,20 @@ mod tests {
             }
         }
 
-        let old_path = std::env::var_os("PATH");
-        let test_path = match old_path.as_ref() {
-            Some(path) => {
-                let mut paths = vec![temp_dir.clone()];
-                paths.extend(std::env::split_paths(path));
-                std::env::join_paths(paths).expect("test path should be valid")
+        let test_path = {
+            let mut paths = vec![temp_dir.clone()];
+            if let Some(path) = std::env::var_os("PATH") {
+                paths.extend(std::env::split_paths(&path));
             }
-            None => temp_dir.clone().into_os_string(),
+            std::env::join_paths(paths).expect("test path should be valid")
         };
 
-        unsafe {
-            std::env::set_var("WAYLAND_DISPLAY", "wayland-0");
-            std::env::set_var("DISPLAY", ":0");
-            std::env::set_var("PATH", test_path);
-        }
+        let _wayland_env = TestEnvVar::set("WAYLAND_DISPLAY", "wayland-0");
+        let _display_env = TestEnvVar::set("DISPLAY", ":0");
+        let _path_env = TestEnvVar::set("PATH", test_path);
 
         let result = read_clipboard_image();
 
-        unsafe {
-            match old_path {
-                Some(path) => std::env::set_var("PATH", path),
-                None => std::env::remove_var("PATH"),
-            }
-        }
         let _ = std::fs::remove_file(fake_wl_paste);
         let _ = std::fs::remove_file(fake_xclip);
         let _ = std::fs::remove_dir(temp_dir);

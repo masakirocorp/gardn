@@ -339,7 +339,10 @@ pub(crate) fn install_target(
         crate::api::schema::IntegrationTarget::Kimi => {
             let installed = install_kimi()?;
             vec![
-                format!("installed kimi integration hook to {}", installed.hook_path.display()),
+                format!(
+                    "installed kimi integration hook to {}",
+                    installed.hook_path.display()
+                ),
                 format!("ensured kimi config at {}", installed.config_path.display()),
                 format!("requires kimi code {KIMI_MIN_VERSION} or newer"),
             ]
@@ -347,11 +350,20 @@ pub(crate) fn install_target(
         crate::api::schema::IntegrationTarget::Droid => {
             let installed = install_droid()?;
             let mut messages = vec![
-                format!("installed droid integration hook to {}", installed.hook_path.display()),
-                format!("ensured droid hooks at {}", installed.settings_path.display()),
+                format!(
+                    "installed droid integration hook to {}",
+                    installed.hook_path.display()
+                ),
+                format!(
+                    "ensured droid hooks at {}",
+                    installed.settings_path.display()
+                ),
             ];
             if installed.updated_legacy_hooks {
-                messages.push(format!("removed legacy hako droid hook entries from {}", installed.hooks_path.display()));
+                messages.push(format!(
+                    "removed legacy hako droid hook entries from {}",
+                    installed.hooks_path.display()
+                ));
             }
             messages
         }
@@ -391,7 +403,10 @@ pub(crate) fn install_target(
         crate::api::schema::IntegrationTarget::Cursor => {
             let installed = install_cursor()?;
             vec![
-                format!("installed cursor integration hook to {}", installed.hook_path.display()),
+                format!(
+                    "installed cursor integration hook to {}",
+                    installed.hook_path.display()
+                ),
                 format!("updated cursor hooks at {}", installed.hooks_path.display()),
             ]
         }
@@ -496,16 +511,66 @@ pub(crate) fn uninstall_target(
         crate::api::schema::IntegrationTarget::Kimi => {
             let result = uninstall_kimi()?;
             let mut messages = Vec::new();
-            if result.removed_hook_file { messages.push(format!("removed kimi hook at {}", result.hook_path.display())); } else { messages.push(format!("no kimi hook found at {}", result.hook_path.display())); }
-            if result.updated_config { messages.push(format!("removed hako kimi hook entries from {}", result.config_path.display())); } else { messages.push(format!("no hako kimi hook entries found in {}", result.config_path.display())); }
+            if result.removed_hook_file {
+                messages.push(format!(
+                    "removed kimi hook at {}",
+                    result.hook_path.display()
+                ));
+            } else {
+                messages.push(format!(
+                    "no kimi hook found at {}",
+                    result.hook_path.display()
+                ));
+            }
+            if result.updated_config {
+                messages.push(format!(
+                    "removed hako kimi hook entries from {}",
+                    result.config_path.display()
+                ));
+            } else {
+                messages.push(format!(
+                    "no hako kimi hook entries found in {}",
+                    result.config_path.display()
+                ));
+            }
             messages
         }
         crate::api::schema::IntegrationTarget::Droid => {
             let result = uninstall_droid()?;
             let mut messages = Vec::new();
-            if result.removed_hook_file { messages.push(format!("removed droid hook at {}", result.hook_path.display())); } else { messages.push(format!("no droid hook found at {}", result.hook_path.display())); }
-            if result.updated_hooks { messages.push(format!("removed legacy hako droid hook entries from {}", result.hooks_path.display())); } else { messages.push(format!("no legacy hako droid hook entries found in {}", result.hooks_path.display())); }
-            if result.updated_settings { messages.push(format!("removed hako droid hook entries from {}", result.settings_path.display())); } else { messages.push(format!("no hako droid hook entries found in {}", result.settings_path.display())); }
+            if result.removed_hook_file {
+                messages.push(format!(
+                    "removed droid hook at {}",
+                    result.hook_path.display()
+                ));
+            } else {
+                messages.push(format!(
+                    "no droid hook found at {}",
+                    result.hook_path.display()
+                ));
+            }
+            if result.updated_hooks {
+                messages.push(format!(
+                    "removed legacy hako droid hook entries from {}",
+                    result.hooks_path.display()
+                ));
+            } else {
+                messages.push(format!(
+                    "no legacy hako droid hook entries found in {}",
+                    result.hooks_path.display()
+                ));
+            }
+            if result.updated_settings {
+                messages.push(format!(
+                    "removed hako droid hook entries from {}",
+                    result.settings_path.display()
+                ));
+            } else {
+                messages.push(format!(
+                    "no hako droid hook entries found in {}",
+                    result.settings_path.display()
+                ));
+            }
             messages
         }
         crate::api::schema::IntegrationTarget::Opencode => {
@@ -606,8 +671,28 @@ pub(crate) fn uninstall_target(
         crate::api::schema::IntegrationTarget::Cursor => {
             let result = uninstall_cursor()?;
             let mut messages = Vec::new();
-            if result.removed_hook_file { messages.push(format!("removed cursor hook at {}", result.hook_path.display())); } else { messages.push(format!("no cursor hook found at {}", result.hook_path.display())); }
-            if result.updated_hooks { messages.push(format!("removed hako cursor hook entries from {}", result.hooks_path.display())); } else { messages.push(format!("no hako cursor hook entries found in {}", result.hooks_path.display())); }
+            if result.removed_hook_file {
+                messages.push(format!(
+                    "removed cursor hook at {}",
+                    result.hook_path.display()
+                ));
+            } else {
+                messages.push(format!(
+                    "no cursor hook found at {}",
+                    result.hook_path.display()
+                ));
+            }
+            if result.updated_hooks {
+                messages.push(format!(
+                    "removed hako cursor hook entries from {}",
+                    result.hooks_path.display()
+                ));
+            } else {
+                messages.push(format!(
+                    "no hako cursor hook entries found in {}",
+                    result.hooks_path.display()
+                ));
+            }
             messages
         }
     };
@@ -1145,15 +1230,29 @@ pub(crate) fn install_kimi() -> io::Result<KimiInstallPaths> {
     fs::write(&hook_path, KIMI_HOOK_ASSET)?;
     make_executable(&hook_path)?;
     let config_path = dir.join("config.toml");
-    let existing_config = if config_path.is_file() { fs::read_to_string(&config_path)? } else { String::new() };
+    let existing_config = if config_path.is_file() {
+        fs::read_to_string(&config_path)?
+    } else {
+        String::new()
+    };
     let new_config = build_kimi_config_with_hooks(&existing_config, &hook_path);
-    if new_config != existing_config { fs::write(&config_path, new_config)?; }
-    Ok(KimiInstallPaths { hook_path, config_path })
+    if new_config != existing_config {
+        fs::write(&config_path, new_config)?;
+    }
+    Ok(KimiInstallPaths {
+        hook_path,
+        config_path,
+    })
 }
 
 pub(crate) fn install_droid() -> io::Result<DroidInstallPaths> {
     let dir = droid_dir()?;
-    if !dir.is_dir() { return Err(io::Error::other(format!("droid config directory not found at {}. install droid first", dir.display()))); }
+    if !dir.is_dir() {
+        return Err(io::Error::other(format!(
+            "droid config directory not found at {}. install droid first",
+            dir.display()
+        )));
+    }
     let hooks_dir = dir.join("hooks");
     fs::create_dir_all(&hooks_dir)?;
     let hook_path = hooks_dir.join(DROID_HOOK_INSTALL_NAME);
@@ -1161,28 +1260,69 @@ pub(crate) fn install_droid() -> io::Result<DroidInstallPaths> {
     make_executable(&hook_path)?;
     let settings_path = dir.join("settings.json");
     let mut settings = if settings_path.is_file() {
-        serde_json::from_str::<Value>(&fs::read_to_string(&settings_path)?).map_err(|err| io::Error::other(format!("failed to parse {}: {err}", settings_path.display())))?
-    } else { json!({}) };
-    let hooks = ensure_hooks_object(&mut settings, &settings_path, "droid settings", "droid settings hooks")?;
+        serde_json::from_str::<Value>(&fs::read_to_string(&settings_path)?).map_err(|err| {
+            io::Error::other(format!(
+                "failed to parse {}: {err}",
+                settings_path.display()
+            ))
+        })?
+    } else {
+        json!({})
+    };
+    let hooks = ensure_hooks_object(
+        &mut settings,
+        &settings_path,
+        "droid settings",
+        "droid settings hooks",
+    )?;
     remove_hook_commands(hooks, "SessionStart", &hook_path, None)?;
-    for (event, action) in DROID_REMOVED_LIFECYCLE_HOOK_EVENTS { remove_hook_commands(hooks, event, &hook_path, Some(action))?; }
+    for (event, action) in DROID_REMOVED_LIFECYCLE_HOOK_EVENTS {
+        remove_hook_commands(hooks, event, &hook_path, Some(action))?;
+    }
     for (event, action) in DROID_HOOK_EVENTS {
         remove_hook_commands(hooks, event, &hook_path, Some(action))?;
-        ensure_command_hook(hooks, event, hook_command(&hook_path, Some(action)), 10, None)?;
+        ensure_command_hook(
+            hooks,
+            event,
+            hook_command(&hook_path, Some(action)),
+            10,
+            None,
+        )?;
     }
     fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
     let hooks_path = dir.join("hooks.json");
     let mut updated_legacy_hooks = false;
     if hooks_path.is_file() {
-        let mut hooks_file = serde_json::from_str::<Value>(&fs::read_to_string(&hooks_path)?).map_err(|err| io::Error::other(format!("failed to parse {}: {err}", hooks_path.display())))?;
-        if let Some(hooks) = hooks_object_if_present(&mut hooks_file, &hooks_path, "droid hooks file", "droid hooks file hooks")? {
+        let mut hooks_file = serde_json::from_str::<Value>(&fs::read_to_string(&hooks_path)?)
+            .map_err(|err| {
+                io::Error::other(format!("failed to parse {}: {err}", hooks_path.display()))
+            })?;
+        if let Some(hooks) = hooks_object_if_present(
+            &mut hooks_file,
+            &hooks_path,
+            "droid hooks file",
+            "droid hooks file hooks",
+        )? {
             updated_legacy_hooks |= remove_hook_commands(hooks, "SessionStart", &hook_path, None)?;
-            for (event, action) in DROID_REMOVED_LIFECYCLE_HOOK_EVENTS { updated_legacy_hooks |= remove_hook_commands(hooks, event, &hook_path, Some(action))?; }
-            for (event, action) in DROID_HOOK_EVENTS { updated_legacy_hooks |= remove_hook_commands(hooks, event, &hook_path, Some(action))?; }
+            for (event, action) in DROID_REMOVED_LIFECYCLE_HOOK_EVENTS {
+                updated_legacy_hooks |=
+                    remove_hook_commands(hooks, event, &hook_path, Some(action))?;
+            }
+            for (event, action) in DROID_HOOK_EVENTS {
+                updated_legacy_hooks |=
+                    remove_hook_commands(hooks, event, &hook_path, Some(action))?;
+            }
         }
-        if updated_legacy_hooks { fs::write(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?; }
+        if updated_legacy_hooks {
+            fs::write(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?;
+        }
     }
-    Ok(DroidInstallPaths { hook_path, hooks_path, settings_path, updated_legacy_hooks })
+    Ok(DroidInstallPaths {
+        hook_path,
+        hooks_path,
+        settings_path,
+        updated_legacy_hooks,
+    })
 }
 
 pub(crate) fn install_copilot() -> io::Result<CopilotInstallPaths> {
@@ -1488,10 +1628,18 @@ pub(crate) fn uninstall_kimi() -> io::Result<KimiUninstallResult> {
     if config_path.is_file() {
         let existing_config = fs::read_to_string(&config_path)?;
         let new_config = remove_kimi_config_block(&existing_config);
-        if new_config != existing_config { fs::write(&config_path, new_config)?; updated_config = true; }
+        if new_config != existing_config {
+            fs::write(&config_path, new_config)?;
+            updated_config = true;
+        }
     }
     let removed_hook_file = remove_matching_integration_file(&hook_path, "kimi")?;
-    Ok(KimiUninstallResult { hook_path, config_path, removed_hook_file, updated_config })
+    Ok(KimiUninstallResult {
+        hook_path,
+        config_path,
+        removed_hook_file,
+        updated_config,
+    })
 }
 
 pub(crate) fn uninstall_droid() -> io::Result<DroidUninstallResult> {
@@ -1502,25 +1650,63 @@ pub(crate) fn uninstall_droid() -> io::Result<DroidUninstallResult> {
     let mut updated_hooks = false;
     let mut updated_settings = false;
     if hooks_path.is_file() {
-        let mut hooks_file = serde_json::from_str::<Value>(&fs::read_to_string(&hooks_path)?).map_err(|err| io::Error::other(format!("failed to parse {}: {err}", hooks_path.display())))?;
-        if let Some(hooks) = hooks_object_if_present(&mut hooks_file, &hooks_path, "droid hooks file", "droid hooks file hooks")? {
+        let mut hooks_file = serde_json::from_str::<Value>(&fs::read_to_string(&hooks_path)?)
+            .map_err(|err| {
+                io::Error::other(format!("failed to parse {}: {err}", hooks_path.display()))
+            })?;
+        if let Some(hooks) = hooks_object_if_present(
+            &mut hooks_file,
+            &hooks_path,
+            "droid hooks file",
+            "droid hooks file hooks",
+        )? {
             updated_hooks |= remove_hook_commands(hooks, "SessionStart", &hook_path, None)?;
-            for (event, action) in DROID_REMOVED_LIFECYCLE_HOOK_EVENTS { updated_hooks |= remove_hook_commands(hooks, event, &hook_path, Some(action))?; }
-            for (event, action) in DROID_HOOK_EVENTS { updated_hooks |= remove_hook_commands(hooks, event, &hook_path, Some(action))?; }
+            for (event, action) in DROID_REMOVED_LIFECYCLE_HOOK_EVENTS {
+                updated_hooks |= remove_hook_commands(hooks, event, &hook_path, Some(action))?;
+            }
+            for (event, action) in DROID_HOOK_EVENTS {
+                updated_hooks |= remove_hook_commands(hooks, event, &hook_path, Some(action))?;
+            }
         }
-        if updated_hooks { fs::write(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?; }
+        if updated_hooks {
+            fs::write(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?;
+        }
     }
     if settings_path.is_file() {
-        let mut settings = serde_json::from_str::<Value>(&fs::read_to_string(&settings_path)?).map_err(|err| io::Error::other(format!("failed to parse {}: {err}", settings_path.display())))?;
-        if let Some(hooks) = hooks_object_if_present(&mut settings, &settings_path, "droid settings", "droid settings hooks")? {
+        let mut settings = serde_json::from_str::<Value>(&fs::read_to_string(&settings_path)?)
+            .map_err(|err| {
+                io::Error::other(format!(
+                    "failed to parse {}: {err}",
+                    settings_path.display()
+                ))
+            })?;
+        if let Some(hooks) = hooks_object_if_present(
+            &mut settings,
+            &settings_path,
+            "droid settings",
+            "droid settings hooks",
+        )? {
             updated_settings |= remove_hook_commands(hooks, "SessionStart", &hook_path, None)?;
-            for (event, action) in DROID_REMOVED_LIFECYCLE_HOOK_EVENTS { updated_settings |= remove_hook_commands(hooks, event, &hook_path, Some(action))?; }
-            for (event, action) in DROID_HOOK_EVENTS { updated_settings |= remove_hook_commands(hooks, event, &hook_path, Some(action))?; }
+            for (event, action) in DROID_REMOVED_LIFECYCLE_HOOK_EVENTS {
+                updated_settings |= remove_hook_commands(hooks, event, &hook_path, Some(action))?;
+            }
+            for (event, action) in DROID_HOOK_EVENTS {
+                updated_settings |= remove_hook_commands(hooks, event, &hook_path, Some(action))?;
+            }
         }
-        if updated_settings { fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?; }
+        if updated_settings {
+            fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
+        }
     }
     let removed_hook_file = remove_matching_integration_file(&hook_path, "droid")?;
-    Ok(DroidUninstallResult { hook_path, hooks_path, settings_path, removed_hook_file, updated_hooks, updated_settings })
+    Ok(DroidUninstallResult {
+        hook_path,
+        hooks_path,
+        settings_path,
+        removed_hook_file,
+        updated_hooks,
+        updated_settings,
+    })
 }
 
 pub(crate) fn uninstall_copilot() -> io::Result<CopilotUninstallResult> {
@@ -1709,14 +1895,40 @@ pub(crate) fn install_qodercli() -> io::Result<QodercliInstallPaths> {
 
 pub(crate) fn install_cursor() -> io::Result<CursorInstallPaths> {
     let dir = cursor_dir()?;
-    if !dir.is_dir() { return Err(io::Error::other(format!("cursor config directory not found at {}. install cursor agent cli first", dir.display()))); }
+    if !dir.is_dir() {
+        return Err(io::Error::other(format!(
+            "cursor config directory not found at {}. install cursor agent cli first",
+            dir.display()
+        )));
+    }
     let hook_path = dir.join(CURSOR_HOOK_INSTALL_NAME);
     fs::write(&hook_path, CURSOR_HOOK_ASSET)?;
     make_executable(&hook_path)?;
     let hooks_path = dir.join("hooks.json");
-    let mut hooks_file = if hooks_path.is_file() { serde_json::from_str::<Value>(&fs::read_to_string(&hooks_path)?).map_err(|err| io::Error::other(format!("failed to parse {}: {err}", hooks_path.display())))? } else { json!({ "version": 1 }) };
-    if hooks_file.get("version").is_none() { hooks_file.as_object_mut().ok_or_else(|| io::Error::other(format!("cursor hooks file at {} must be a JSON object", hooks_path.display())))?.insert("version".to_string(), json!(1)); }
-    let hooks = ensure_hooks_object(&mut hooks_file, &hooks_path, "cursor hooks file", "cursor hooks file hooks")?;
+    let mut hooks_file = if hooks_path.is_file() {
+        serde_json::from_str::<Value>(&fs::read_to_string(&hooks_path)?).map_err(|err| {
+            io::Error::other(format!("failed to parse {}: {err}", hooks_path.display()))
+        })?
+    } else {
+        json!({ "version": 1 })
+    };
+    if hooks_file.get("version").is_none() {
+        hooks_file
+            .as_object_mut()
+            .ok_or_else(|| {
+                io::Error::other(format!(
+                    "cursor hooks file at {} must be a JSON object",
+                    hooks_path.display()
+                ))
+            })?
+            .insert("version".to_string(), json!(1));
+    }
+    let hooks = ensure_hooks_object(
+        &mut hooks_file,
+        &hooks_path,
+        "cursor hooks file",
+        "cursor hooks file hooks",
+    )?;
     let quoted_hook_path = shell_single_quote(&hook_path.display().to_string());
     let session_command = format!("bash {quoted_hook_path} session");
     remove_simple_command_hook(hooks, "beforeSubmitPrompt", &session_command)?;
@@ -1726,7 +1938,10 @@ pub(crate) fn install_cursor() -> io::Result<CursorInstallPaths> {
     remove_simple_command_hook(hooks, "sessionEnd", &session_command)?;
     ensure_simple_command_hook(hooks, "sessionStart", session_command)?;
     fs::write(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?;
-    Ok(CursorInstallPaths { hook_path, hooks_path })
+    Ok(CursorInstallPaths {
+        hook_path,
+        hooks_path,
+    })
 }
 
 pub(crate) fn uninstall_qodercli() -> io::Result<QodercliUninstallResult> {
@@ -1802,21 +2017,39 @@ pub(crate) fn uninstall_cursor() -> io::Result<CursorUninstallResult> {
     let hooks_path = cursor_home.join("hooks.json");
     let mut updated_hooks = false;
     if hooks_path.is_file() {
-        let mut hooks_file = serde_json::from_str::<Value>(&fs::read_to_string(&hooks_path)?).map_err(|err| io::Error::other(format!("failed to parse {}: {err}", hooks_path.display())))?;
-        if let Some(hooks) = hooks_object_if_present(&mut hooks_file, &hooks_path, "cursor hooks file", "cursor hooks file hooks")? {
+        let mut hooks_file = serde_json::from_str::<Value>(&fs::read_to_string(&hooks_path)?)
+            .map_err(|err| {
+                io::Error::other(format!("failed to parse {}: {err}", hooks_path.display()))
+            })?;
+        if let Some(hooks) = hooks_object_if_present(
+            &mut hooks_file,
+            &hooks_path,
+            "cursor hooks file",
+            "cursor hooks file hooks",
+        )? {
             let quoted_hook_path = shell_single_quote(&hook_path.display().to_string());
             let session_command = format!("bash {quoted_hook_path} session");
             updated_hooks |= remove_simple_command_hook(hooks, "sessionStart", &session_command)?;
-            updated_hooks |= remove_simple_command_hook(hooks, "beforeSubmitPrompt", &session_command)?;
-            updated_hooks |= remove_simple_command_hook(hooks, "beforeShellExecution", &session_command)?;
-            updated_hooks |= remove_simple_command_hook(hooks, "beforeMCPExecution", &session_command)?;
+            updated_hooks |=
+                remove_simple_command_hook(hooks, "beforeSubmitPrompt", &session_command)?;
+            updated_hooks |=
+                remove_simple_command_hook(hooks, "beforeShellExecution", &session_command)?;
+            updated_hooks |=
+                remove_simple_command_hook(hooks, "beforeMCPExecution", &session_command)?;
             updated_hooks |= remove_simple_command_hook(hooks, "stop", &session_command)?;
             updated_hooks |= remove_simple_command_hook(hooks, "sessionEnd", &session_command)?;
         }
-        if updated_hooks { fs::write(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?; }
+        if updated_hooks {
+            fs::write(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?;
+        }
     }
     let removed_hook_file = remove_matching_integration_file(&hook_path, "cursor")?;
-    Ok(CursorUninstallResult { hook_path, hooks_path, removed_hook_file, updated_hooks })
+    Ok(CursorUninstallResult {
+        hook_path,
+        hooks_path,
+        removed_hook_file,
+        updated_hooks,
+    })
 }
 
 fn ensure_hooks_object<'a>(
@@ -2023,20 +2256,52 @@ fn remove_direct_command_hook(
     Ok(removed)
 }
 
-fn ensure_simple_command_hook(hooks: &mut Map<String, Value>, event: &str, command: String) -> io::Result<()> {
-    let entries = hooks.entry(event.to_string()).or_insert_with(|| Value::Array(Vec::new())).as_array_mut().ok_or_else(|| io::Error::other(format!("hook entries for {event} must be an array")))?;
-    if entries.iter().any(|entry| entry.get("command").and_then(Value::as_str) == Some(command.as_str())) { return Ok(()); }
+fn ensure_simple_command_hook(
+    hooks: &mut Map<String, Value>,
+    event: &str,
+    command: String,
+) -> io::Result<()> {
+    let entries = hooks
+        .entry(event.to_string())
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .ok_or_else(|| io::Error::other(format!("hook entries for {event} must be an array")))?;
+    if entries
+        .iter()
+        .any(|entry| entry.get("command").and_then(Value::as_str) == Some(command.as_str()))
+    {
+        return Ok(());
+    }
     entries.push(json!({ "command": command }));
     Ok(())
 }
-fn remove_simple_command_hook(hooks: &mut Map<String, Value>, event: &str, command: &str) -> io::Result<bool> {
-    let Some(entries_value) = hooks.get_mut(event) else { return Ok(false); };
-    let entries = entries_value.as_array_mut().ok_or_else(|| io::Error::other(format!("hook entries for {event} must be an array")))?;
-    let before = entries.len(); entries.retain(|entry| entry.get("command").and_then(Value::as_str) != Some(command));
-    let removed = entries.len() != before; if entries.is_empty() { hooks.remove(event); } Ok(removed)
+fn remove_simple_command_hook(
+    hooks: &mut Map<String, Value>,
+    event: &str,
+    command: &str,
+) -> io::Result<bool> {
+    let Some(entries_value) = hooks.get_mut(event) else {
+        return Ok(false);
+    };
+    let entries = entries_value
+        .as_array_mut()
+        .ok_or_else(|| io::Error::other(format!("hook entries for {event} must be an array")))?;
+    let before = entries.len();
+    entries.retain(|entry| entry.get("command").and_then(Value::as_str) != Some(command));
+    let removed = entries.len() != before;
+    if entries.is_empty() {
+        hooks.remove(event);
+    }
+    Ok(removed)
 }
-fn remove_hook_commands(hooks: &mut Map<String, Value>, event: &str, hook_path: &Path, action: Option<&str>) -> io::Result<bool> {
-    let command = hook_command(hook_path, action); remove_command_hook(hooks, event, &command)
+fn remove_hook_commands(
+    hooks: &mut Map<String, Value>,
+    event: &str,
+    hook_path: &Path,
+    action: Option<&str>,
+) -> io::Result<bool> {
+    let command = hook_command(hook_path, action);
+    remove_command_hook(hooks, event, &command)
 }
 fn is_matching_command_hook(hook: &Value, command: &str) -> bool {
     hook.get("type").and_then(Value::as_str) == Some("command")
@@ -2142,7 +2407,9 @@ fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> String {
     }
 
     if let Some(mut items) = plugins_inline_items {
-        let existing_item_index = items.iter().position(|item| item == HERMES_PLUGIN_INSTALL_NAME);
+        let existing_item_index = items
+            .iter()
+            .position(|item| item == HERMES_PLUGIN_INSTALL_NAME);
         match (enabled, existing_item_index) {
             (true, Some(_)) | (false, None) => return content.to_string(),
             (true, None) => items.insert(0, HERMES_PLUGIN_INSTALL_NAME.to_string()),
@@ -2254,7 +2521,8 @@ fn yaml_list_item_value_at_indent(line: &str, indent: usize) -> Option<&str> {
 }
 
 fn yaml_list_item_matches_at_indent(line: &str, indent: usize, value: &str) -> bool {
-    yaml_list_item_value_at_indent(line, indent).is_some_and(|item| yaml_scalar_value(item) == value)
+    yaml_list_item_value_at_indent(line, indent)
+        .is_some_and(|item| yaml_scalar_value(item) == value)
 }
 
 fn yaml_flow_sequence_items(value: &str) -> Option<Vec<String>> {
@@ -2308,26 +2576,80 @@ fn join_yaml_lines(lines: Vec<String>, trailing_newline: bool) -> String {
 }
 
 fn build_kimi_config_with_hooks(content: &str, hook_path: &Path) -> String {
-    let mut result = remove_kimi_config_block(content).trim_end_matches('\n').to_string();
-    if !result.is_empty() { result.push('\n'); result.push('\n'); }
-    result.push_str(KIMI_CONFIG_BLOCK_BEGIN); result.push('\n');
-    for (event, action) in KIMI_HOOK_EVENTS { result.push_str(&kimi_hook_table(event, hook_path, action)); }
-    result.push_str(KIMI_CONFIG_BLOCK_END); result.push('\n'); result
+    let mut result = remove_kimi_config_block(content)
+        .trim_end_matches('\n')
+        .to_string();
+    if !result.is_empty() {
+        result.push('\n');
+        result.push('\n');
+    }
+    result.push_str(KIMI_CONFIG_BLOCK_BEGIN);
+    result.push('\n');
+    for (event, action) in KIMI_HOOK_EVENTS {
+        result.push_str(&kimi_hook_table(event, hook_path, action));
+    }
+    result.push_str(KIMI_CONFIG_BLOCK_END);
+    result.push('\n');
+    result
 }
 fn kimi_hook_table(event: &str, hook_path: &Path, action: &str) -> String {
     let command = hook_command(hook_path, Some(action));
-    format!("[[hooks]]\nevent = {}\ncommand = {}\ntimeout = 10\n\n", toml_basic_string(event), toml_basic_string(&command))
+    format!(
+        "[[hooks]]\nevent = {}\ncommand = {}\ntimeout = 10\n\n",
+        toml_basic_string(event),
+        toml_basic_string(&command)
+    )
 }
 fn remove_kimi_config_block(content: &str) -> String {
-    let trailing_newline = content.ends_with('\n'); let mut lines = Vec::new(); let mut in_block = false; let mut removed_block = false;
-    for line in content.lines() { if line.trim() == KIMI_CONFIG_BLOCK_BEGIN { in_block = true; removed_block = true; continue; } if in_block { if line.trim() == KIMI_CONFIG_BLOCK_END { in_block = false; } continue; } lines.push(line.to_string()); }
-    if !removed_block { return content.to_string(); }
-    let mut result = join_toml_lines(lines, trailing_newline); while result.ends_with("\n\n") { result.pop(); } if result == "\n" { String::new() } else { result }
+    let trailing_newline = content.ends_with('\n');
+    let mut lines = Vec::new();
+    let mut in_block = false;
+    let mut removed_block = false;
+    for line in content.lines() {
+        if line.trim() == KIMI_CONFIG_BLOCK_BEGIN {
+            in_block = true;
+            removed_block = true;
+            continue;
+        }
+        if in_block {
+            if line.trim() == KIMI_CONFIG_BLOCK_END {
+                in_block = false;
+            }
+            continue;
+        }
+        lines.push(line.to_string());
+    }
+    if !removed_block {
+        return content.to_string();
+    }
+    let mut result = join_toml_lines(lines, trailing_newline);
+    while result.ends_with("\n\n") {
+        result.pop();
+    }
+    if result == "\n" {
+        String::new()
+    } else {
+        result
+    }
 }
 fn toml_basic_string(value: &str) -> String {
-    let mut result = String::with_capacity(value.len() + 2); result.push('"');
-    for ch in value.chars() { match ch { '"' => result.push_str("\\\""), '\\' => result.push_str("\\\\"), '\t' => result.push_str("\\t"), '\n' => result.push_str("\\n"), '\r' => result.push_str("\\r"), ch if ch <= '\u{1f}' || ch == '\u{7f}' => result.push_str(&format!("\\u{:04X}", ch as u32)), ch => result.push(ch), } }
-    result.push('"'); result
+    let mut result = String::with_capacity(value.len() + 2);
+    result.push('"');
+    for ch in value.chars() {
+        match ch {
+            '"' => result.push_str("\\\""),
+            '\\' => result.push_str("\\\\"),
+            '\t' => result.push_str("\\t"),
+            '\n' => result.push_str("\\n"),
+            '\r' => result.push_str("\\r"),
+            ch if ch <= '\u{1f}' || ch == '\u{7f}' => {
+                result.push_str(&format!("\\u{:04X}", ch as u32))
+            }
+            ch => result.push(ch),
+        }
+    }
+    result.push('"');
+    result
 }
 fn build_codex_config_with_hooks(content: &str) -> String {
     let mut lines: Vec<String> = content.lines().map(str::to_string).collect();
@@ -2421,8 +2743,14 @@ fn is_toml_key(line: &str, key: &str) -> bool {
 }
 
 fn hook_command(hook_path: &Path, action: Option<&str>) -> String {
-    let mut command = format!("bash {}", shell_single_quote(&hook_path.display().to_string()));
-    if let Some(action) = action { command.push(' '); command.push_str(action); }
+    let mut command = format!(
+        "bash {}",
+        shell_single_quote(&hook_path.display().to_string())
+    );
+    if let Some(action) = action {
+        command.push(' ');
+        command.push_str(action);
+    }
     command
 }
 
@@ -2534,8 +2862,12 @@ fn codex_dir() -> io::Result<PathBuf> {
 fn copilot_dir() -> io::Result<PathBuf> {
     config_dir_from_env_or_home(COPILOT_HOME_ENV_VAR, &[".copilot"])
 }
-fn kimi_dir() -> io::Result<PathBuf> { config_dir_from_env_or_home(KIMI_CODE_HOME_ENV_VAR, &[".kimi-code"]) }
-fn droid_dir() -> io::Result<PathBuf> { Ok(home_dir()?.join(".factory")) }
+fn kimi_dir() -> io::Result<PathBuf> {
+    config_dir_from_env_or_home(KIMI_CODE_HOME_ENV_VAR, &[".kimi-code"])
+}
+fn droid_dir() -> io::Result<PathBuf> {
+    Ok(home_dir()?.join(".factory"))
+}
 
 fn config_dir_from_env_or_home(
     env_var: &str,
@@ -2589,7 +2921,9 @@ fn hermes_plugin_dir() -> io::Result<PathBuf> {
 fn qodercli_dir() -> io::Result<PathBuf> {
     config_dir_from_env_or_home(QODERCLI_CONFIG_DIR_ENV_VAR, &[".qoder"])
 }
-fn cursor_dir() -> io::Result<PathBuf> { config_dir_from_env_or_home(CURSOR_CONFIG_DIR_ENV_VAR, &[".cursor"]) }
+fn cursor_dir() -> io::Result<PathBuf> {
+    config_dir_from_env_or_home(CURSOR_CONFIG_DIR_ENV_VAR, &[".cursor"])
+}
 
 fn home_dir() -> io::Result<PathBuf> {
     std::env::var("HOME")
@@ -3941,31 +4275,44 @@ mod tests {
 
     #[test]
     fn hermes_plugin_update_preserves_flat_plugin_lists() {
-        let enabled = ensure_hermes_plugin_enabled("plugins: [alpha, beta]
+        let enabled = ensure_hermes_plugin_enabled(
+            "plugins: [alpha, beta]
 model: auto
-");
-        assert_eq!(enabled, "plugins:
+",
+        );
+        assert_eq!(
+            enabled,
+            "plugins:
   - hako-agent-state
   - alpha
   - beta
 model: auto
-");
+"
+        );
         let removed = remove_hermes_plugin_enabled(&enabled);
-        assert_eq!(removed, "plugins:
+        assert_eq!(
+            removed,
+            "plugins:
   - alpha
   - beta
 model: auto
-");
+"
+        );
 
-        let enabled = ensure_hermes_plugin_enabled("plugins:
+        let enabled = ensure_hermes_plugin_enabled(
+            "plugins:
   - alpha
   - beta
-");
-        assert_eq!(enabled, "plugins:
+",
+        );
+        assert_eq!(
+            enabled,
+            "plugins:
   - hako-agent-state
   - alpha
   - beta
-");
+"
+        );
     }
 
     #[test]
@@ -4030,8 +4377,14 @@ model: auto
         let installed = install_kimi().unwrap();
         let config = fs::read_to_string(&installed.config_path).unwrap();
 
-        assert_eq!(installed.hook_path, kimi_dir.join("hooks").join(KIMI_HOOK_INSTALL_NAME));
-        assert_eq!(fs::read_to_string(&installed.hook_path).unwrap(), KIMI_HOOK_ASSET);
+        assert_eq!(
+            installed.hook_path,
+            kimi_dir.join("hooks").join(KIMI_HOOK_INSTALL_NAME)
+        );
+        assert_eq!(
+            fs::read_to_string(&installed.hook_path).unwrap(),
+            KIMI_HOOK_ASSET
+        );
         assert!(config.contains(KIMI_CONFIG_BLOCK_BEGIN));
         assert!(config.contains("event = \"SessionStart\""));
         assert!(config.contains(" session"));
@@ -4049,10 +4402,17 @@ model: auto
         let _home_env = TestEnvVar::set("HOME", &base);
 
         let installed = install_droid().unwrap();
-        let settings: Value = serde_json::from_str(&fs::read_to_string(&installed.settings_path).unwrap()).unwrap();
+        let settings: Value =
+            serde_json::from_str(&fs::read_to_string(&installed.settings_path).unwrap()).unwrap();
 
-        assert_eq!(installed.hook_path, factory_dir.join("hooks").join(DROID_HOOK_INSTALL_NAME));
-        assert_eq!(fs::read_to_string(&installed.hook_path).unwrap(), DROID_HOOK_ASSET);
+        assert_eq!(
+            installed.hook_path,
+            factory_dir.join("hooks").join(DROID_HOOK_INSTALL_NAME)
+        );
+        assert_eq!(
+            fs::read_to_string(&installed.hook_path).unwrap(),
+            DROID_HOOK_ASSET
+        );
         assert!(settings["hooks"].get("SessionStart").is_some());
         assert!(settings["hooks"].get("UserPromptSubmit").is_none());
         let _ = fs::remove_dir_all(base);
@@ -4068,12 +4428,22 @@ model: auto
         let _cursor_env = TestEnvVar::set(CURSOR_CONFIG_DIR_ENV_VAR, &cursor_dir);
 
         let installed = install_cursor().unwrap();
-        let hooks: Value = serde_json::from_str(&fs::read_to_string(&installed.hooks_path).unwrap()).unwrap();
+        let hooks: Value =
+            serde_json::from_str(&fs::read_to_string(&installed.hooks_path).unwrap()).unwrap();
 
-        assert_eq!(installed.hook_path, cursor_dir.join(CURSOR_HOOK_INSTALL_NAME));
-        assert_eq!(fs::read_to_string(&installed.hook_path).unwrap(), CURSOR_HOOK_ASSET);
+        assert_eq!(
+            installed.hook_path,
+            cursor_dir.join(CURSOR_HOOK_INSTALL_NAME)
+        );
+        assert_eq!(
+            fs::read_to_string(&installed.hook_path).unwrap(),
+            CURSOR_HOOK_ASSET
+        );
         assert_eq!(hooks["version"], 1);
-        assert!(hooks["hooks"]["sessionStart"][0]["command"].as_str().unwrap().contains(" session"));
+        assert!(hooks["hooks"]["sessionStart"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains(" session"));
         let _ = fs::remove_dir_all(base);
     }
 

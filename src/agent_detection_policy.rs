@@ -93,7 +93,12 @@ mod tests {
     use super::*;
 
     fn screen(state: AgentState) -> AgentDetection {
-        detection(state, false, state == AgentState::Idle, state == AgentState::Working)
+        detection(
+            state,
+            false,
+            state == AgentState::Idle,
+            state == AgentState::Working,
+        )
     }
 
     fn input(screen_detection: AgentDetection) -> DetectionPolicyInput {
@@ -125,7 +130,10 @@ mod tests {
         let mut input = input(screen(AgentState::Working));
         input.startup_grace_active = true;
 
-        assert_eq!(apply_detection_policy(input), DetectionPolicyDecision::Freeze);
+        assert_eq!(
+            apply_detection_policy(input),
+            DetectionPolicyDecision::Freeze
+        );
     }
 
     #[test]
@@ -136,7 +144,10 @@ mod tests {
             tainted: true,
         });
 
-        assert_eq!(apply_detection_policy(input), DetectionPolicyDecision::Freeze);
+        assert_eq!(
+            apply_detection_policy(input),
+            DetectionPolicyDecision::Freeze
+        );
     }
 
     #[test]

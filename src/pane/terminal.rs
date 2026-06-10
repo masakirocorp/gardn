@@ -2754,7 +2754,9 @@ mod tests {
 
         {
             let mut core = pane.core.lock().unwrap();
-            core.terminal.mode_set(MODE_MOUSE_PRESS_RELEASE, true).unwrap();
+            core.terminal
+                .mode_set(MODE_MOUSE_PRESS_RELEASE, true)
+                .unwrap();
         }
 
         assert_eq!(

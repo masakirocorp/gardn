@@ -1029,7 +1029,9 @@ mod tests {
         });
         let success: SuccessResponse = serde_json::from_str(&response).unwrap();
         let ResponseResult::WorktreeCreated {
-            workspace, worktree, ..
+            workspace,
+            worktree,
+            ..
         } = success.result
         else {
             panic!("expected worktree_created response");
