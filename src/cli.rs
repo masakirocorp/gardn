@@ -1417,7 +1417,7 @@ fn agent_wait(args: &[String]) -> std::io::Result<i32> {
     }
     if response["result"]["agent"]["agent_status"]
         .as_str()
-        .is_some_and(|current| agent_wait_status_satisfied(agent_status, current))
+        .is_some_and(|current| agent_status_matches(agent_status, current))
     {
         println!("{}", serde_json::to_string(&response).unwrap());
         return Ok(0);
@@ -2456,6 +2456,45 @@ fn wait_agent_status(args: &[String]) -> std::io::Result<i32> {
         return Ok(2);
     };
 
+    let current = send_request(&Request {
+        id: "cli:wait:agent-status:current".into(),
+        method: Method::PaneGet(PaneTarget {
+            pane_id: pane_id.clone(),
+        }),
+    })?;
+    if current.get("error").is_some() {
+        eprintln!("{}", serde_json::to_string(&current).unwrap());
+        return Ok(1);
+    }
+    if current["result"]["pane"]["agent_status"]
+        .as_str()
+        .is_some_and(|current| agent_status_matches(agent_status, current))
+    {
+        let pane = &current["result"]["pane"];
+        println!(
+            "{}",
+            serde_json::to_string(&serde_json::json!({
+                "event": "pane.agent_status_changed",
+                "data": {
+                    "pane_id": pane["pane_id"].clone(),
+                    "workspace_id": pane["workspace_id"].clone(),
+                    "agent_status": pane["agent_status"].clone(),
+                    "agent": pane["agent"].clone(),
+                    "title": pane["title"].clone(),
+                    "display_agent": pane["display_agent"].clone(),
+                    "custom_status": pane["custom_status"].clone(),
+                    "state_labels": pane["state_labels"].clone(),
+                    "agent_session": pane["agent_session"].clone(),
+                    "cwd": pane["cwd"].clone(),
+                    "foreground_cwd": pane["foreground_cwd"].clone(),
+                    "revision": pane["revision"].clone()
+                }
+            }))
+            .unwrap()
+        );
+        return Ok(0);
+    }
+
     wait_for_agent_change(
         Request {
             id: "cli:wait:agent-status".into(),
@@ -2609,13 +2648,13 @@ fn parse_agent_status(value: &str) -> std::io::Result<AgentStatus> {
     }
 }
 
-fn agent_wait_status_satisfied(desired: AgentStatus, current: &str) -> bool {
+fn agent_status_matches(desired: AgentStatus, current: &str) -> bool {
     match desired {
         AgentStatus::Idle => matches!(current, "idle" | "done"),
         AgentStatus::Working => current == "working",
         AgentStatus::Blocked => current == "blocked",
         AgentStatus::Unknown => current == "unknown",
-        AgentStatus::Done => false,
+        AgentStatus::Done => current == "done",
     }
 }
 
