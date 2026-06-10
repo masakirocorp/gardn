@@ -152,6 +152,14 @@ _Avoid_: Audit log, wire frame
 The binary server/client message contract used by Hako clients to attach to a running Hako server. The wire protocol is separate from the Local API socket, though Local API status/ping reports its protocol version.
 _Avoid_: API, command protocol
 
+**Render Stream**:
+The wire-protocol flow of visual frame updates from a Hako server to a thin client. Render streams are per-client and droppable; they are not durable state or Local API events.
+_Avoid_: Audit log, control channel
+
+**Render Encoding**:
+The negotiated representation used for one thin client's render stream, such as semantic frame data or terminal ANSI bytes.
+_Avoid_: Protocol version, client mode
+
 **Protocol Version**:
 The numeric compatibility marker for the wire protocol. Hako currently treats protocol compatibility as an exact match between client and server protocol values.
 _Avoid_: App version, release version
