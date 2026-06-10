@@ -2761,7 +2761,7 @@ fn wait_agent_status_exits_when_idle_status_matches() {
 }
 
 #[test]
-fn wait_agent_status_exits_when_done_status_matches() {
+fn wait_agent_status_exits_when_background_agent_finishes() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
@@ -2829,7 +2829,7 @@ fn wait_agent_status_exits_when_done_status_matches() {
             "agent-status",
             &pane_id,
             "--status",
-            "done",
+            "idle",
             "--timeout",
             "10000",
         ],
@@ -2841,7 +2841,13 @@ fn wait_agent_status_exits_when_done_status_matches() {
     );
     let waited_json: serde_json::Value = serde_json::from_slice(&waited.stdout).unwrap();
     assert_eq!(waited_json["event"], "pane.agent_status_changed");
-    assert_eq!(waited_json["data"]["agent_status"], "done");
+    assert!(
+        matches!(
+            waited_json["data"]["agent_status"].as_str(),
+            Some("idle" | "done")
+        ),
+        "unexpected agent status: {waited_json}"
+    );
     assert_eq!(waited_json["data"]["agent"], "pi");
 
     cleanup_spawned_hako(hako, base);

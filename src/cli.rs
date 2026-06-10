@@ -2495,14 +2495,29 @@ fn wait_agent_status(args: &[String]) -> std::io::Result<i32> {
         return Ok(0);
     }
 
+    let subscriptions = if agent_status == AgentStatus::Idle {
+        vec![
+            Subscription::PaneAgentStatusChanged {
+                pane_id: pane_id.clone(),
+                agent_status: Some(AgentStatus::Idle),
+            },
+            Subscription::PaneAgentStatusChanged {
+                pane_id,
+                agent_status: Some(AgentStatus::Done),
+            },
+        ]
+    } else {
+        vec![Subscription::PaneAgentStatusChanged {
+            pane_id,
+            agent_status: Some(agent_status),
+        }]
+    };
+
     wait_for_agent_change(
         Request {
             id: "cli:wait:agent-status".into(),
             method: Method::EventsSubscribe(crate::api::schema::EventsSubscribeParams {
-                subscriptions: vec![Subscription::PaneAgentStatusChanged {
-                    pane_id,
-                    agent_status: Some(agent_status),
-                }],
+                subscriptions,
             }),
         },
         timeout_ms,
