@@ -324,8 +324,8 @@ impl AppState {
         }));
         labels.push("---".to_string());
         labels.push("new".to_string());
-        labels.push("  + space".to_string());
-        labels.push("  + group".to_string());
+        labels.push("  space".to_string());
+        labels.push("  group".to_string());
         labels
     }
 
@@ -1453,8 +1453,8 @@ mod tests {
         assert!(labels[4].contains("Work 1"));
         assert_eq!(labels[5], "---");
         assert_eq!(labels[6], "new");
-        assert_eq!(labels[7], "  + space");
-        assert_eq!(labels[8], "  + group");
+        assert_eq!(labels[7], "  space");
+        assert_eq!(labels[8], "  group");
     }
 
     #[test]
@@ -1500,7 +1500,7 @@ mod tests {
             .state
             .group_menu_labels()
             .iter()
-            .position(|label| label == "  + group")
+            .position(|label| label == "  group")
             .unwrap() as u16;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
@@ -1528,7 +1528,7 @@ mod tests {
             .state
             .group_menu_labels()
             .iter()
-            .position(|label| label == "  + space")
+            .position(|label| label == "  space")
             .unwrap() as u16;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
@@ -1606,10 +1606,7 @@ mod tests {
         let context = app.state.context_menu.as_ref().unwrap();
         assert_eq!(
             context.items(),
-            &[
-                "new", " + space", " + group", "---", "manage", "settings", "---", "danger",
-                "delete"
-            ]
+            &["new", "space", "group", "---", "manage", "settings", "---", "danger", "delete"]
         );
         assert_eq!(
             context.kind,
@@ -1719,7 +1716,7 @@ mod tests {
             .state
             .group_menu_labels()
             .iter()
-            .position(|label| label == "  + group")
+            .position(|label| label == "  group")
             .unwrap() as u16;
         app.handle_mouse(mouse(
             MouseEventKind::Moved,

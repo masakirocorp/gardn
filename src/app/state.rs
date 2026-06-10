@@ -2051,16 +2051,15 @@ impl ContextMenuState {
             ContextMenuKind::Group {
                 can_delete: true, ..
             } => &[
-                "new", " + space", " + group", "---", "manage", "settings", "---", "danger",
-                "delete",
+                "new", "space", "group", "---", "manage", "settings", "---", "danger", "delete",
             ],
             ContextMenuKind::Group {
                 can_delete: false, ..
-            } => &["new", " + space", " + group", "---", "manage", "settings"],
+            } => &["new", "space", "group", "---", "manage", "settings"],
             ContextMenuKind::Workspace { .. } | ContextMenuKind::Tab { .. } => &[
-                "new", " + tab", " + agent", "---", "manage", "rename", "---", "danger", "close",
+                "new", "tab", "agent", "---", "manage", "rename", "---", "danger", "close",
             ],
-            ContextMenuKind::NewTabButton { .. } => &["new", " + tab", " + agent"],
+            ContextMenuKind::NewTabButton { .. } => &["new", "tab", "agent"],
             ContextMenuKind::Pane {
                 has_manual_label: true,
                 ..
