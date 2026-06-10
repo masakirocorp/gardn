@@ -60,6 +60,10 @@ _Avoid_: Settings cache, state file
 The runtime flow that reloads `config.toml` into an already-running app or server and applies valid sections while reporting invalid ones.
 _Avoid_: Restart, migration
 
+**Settings Row**:
+A typed row in Hako's settings modal that defines how a setting or explanatory element renders, participates in selection, and maps between visual rows and logical options.
+_Avoid_: Config entry, raw list item
+
 **Workspace**:
 A named working area that groups related tabs, panes, and terminal sessions for one project or task.
 _Avoid_: Project, folder, session
