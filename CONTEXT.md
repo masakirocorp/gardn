@@ -40,6 +40,14 @@ _Avoid_: Run command, start bot
 The permission a socket API integration source has to report agent state, session identity, or presentation metadata for a pane. Authority is about a running pane report, not how an agent was launched.
 _Avoid_: Agent profile, launcher permission
 
+**Config File**:
+The user-editable TOML file that defines Hako's persistent product settings. It is a public configuration surface, not a dump of runtime state.
+_Avoid_: Settings cache, state file
+
+**Live Config Reload**:
+The runtime flow that reloads `config.toml` into an already-running app or server and applies valid sections while reporting invalid ones.
+_Avoid_: Restart, migration
+
 **Workspace**:
 A named working area that groups related tabs, panes, and terminal sessions for one project or task.
 _Avoid_: Project, folder, session

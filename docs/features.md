@@ -311,6 +311,10 @@ Hako supports terminal-derived colors and built-in palettes.
 ## Configuration
 
 Configuration file: `~/.config/hako/config.toml`.
+Hako treats `config.toml` as a stable hand-editable configuration surface. Settings modal changes rewrite their owned keys or sections, preserve unrelated sections, and reload the file into the running app after successful writes.
+
+Runtime reload is section-scoped for live sections: valid sections apply, invalid sections keep the previous live settings and emit diagnostics through the app/server reload path.
+
 
 Configurable areas include:
 
