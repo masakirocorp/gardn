@@ -186,7 +186,7 @@ Hako can discover and run project commands. The command palette is also a genera
 ### Activity panels
 
 The right sidebar can show agents, commands, and ports. Port entries include active/stale state, exposure labels, owner context, and click-to-focus behavior when an owner pane is known.
-Shared ports can list multiple owner panes when more than one command owns the same listener.
+Shared ports can list multiple owner panes when more than one pane/process-tree owner is attributed to the same listener.
 
 ### Settings modal
 

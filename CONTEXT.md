@@ -76,6 +76,14 @@ _Avoid_: Task when referring to Hako's managed command catalog
 A Hako-managed terminal tab created for a project command, tracked so the same command can be focused, stopped, or restarted instead of duplicated.
 _Avoid_: Shell command, one-off terminal
 
+**Port Entry**:
+An observed host TCP listener shown in Hako's activity surfaces, with active/stale and exposure labels. A port entry is runtime observation, not user-authored config or workspace identity.
+_Avoid_: Port config, forwarded port
+
+**Port Owner**:
+A best-effort pane attribution for an observed port entry. A port owner is useful for context and focus, but it does not mean Hako owns the socket lifecycle.
+_Avoid_: Socket owner, command owner
+
 **Terminal**:
 A running shell or agent session that Hako can display, send input to, and track. A terminal may be shown in a pane and may outlive a particular pane placement.
 _Avoid_: Pane, viewport
