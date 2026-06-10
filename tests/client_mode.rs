@@ -13,8 +13,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Deserialize;
 use support::{
-    cleanup_test_base, client_handshake, encode_varint_u16, encode_varint_u32, frame_message,
-    read_server_message, register_runtime_dir, register_spawned_hako_pid,
+    cleanup_test_base, client_handshake, connect_unix_socket, encode_varint_u16, encode_varint_u32,
+    frame_message, read_server_message, register_runtime_dir, register_spawned_hako_pid,
     unregister_spawned_hako_pid, wait_for_file, wait_for_message_variant, wait_for_socket,
     wait_until,
 };
@@ -150,25 +150,6 @@ fn spawn_server(
     }
 }
 
-fn connect_unix_socket(path: &PathBuf, timeout: Duration) -> UnixStream {
-    let deadline = Instant::now() + timeout;
-    let mut last_err = None;
-    while Instant::now() < deadline {
-        match UnixStream::connect(path) {
-            Ok(stream) => return stream,
-            Err(err) => {
-                last_err = Some(err);
-                thread::sleep(Duration::from_millis(20));
-            }
-        }
-    }
-    panic!(
-        "timed out connecting to {}; last error: {:?}",
-        path.display(),
-        last_err
-    );
-}
-
 fn ping_socket(socket_path: &PathBuf) -> String {
     let mut stream = connect_unix_socket(socket_path, Duration::from_secs(5));
 
@@ -287,7 +268,7 @@ fn client_connects_and_receives_frame() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Connect and handshake.
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect to client socket");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11, "server should report protocol version 11");
@@ -355,7 +336,7 @@ fn client_sees_headless_startup_config_diagnostic() {
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_file(&client_socket, Duration::from_secs(10));
 
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect to client socket");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -404,7 +385,7 @@ fn client_input_forwarded_to_pane() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Connect and handshake.
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect to client socket");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -458,7 +439,7 @@ fn client_resize_sends_message() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Connect and handshake.
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect to client socket");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -517,7 +498,7 @@ fn server_shutdown_sends_message_to_client() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Connect and handshake.
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect to client socket");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -745,7 +726,7 @@ fn client_receives_frame_after_pane_output() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Connect and handshake.
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect to client socket");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -792,7 +773,7 @@ fn navigate_mode_keybind_dispatch_in_server() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Connect and handshake.
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect to client socket");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -878,7 +859,7 @@ fn pane_spawn_cwd_fallback_in_server() {
     );
 
     // Create a workspace via the API — this tests pane creation in the server.
-    let mut ws_stream = UnixStream::connect(&api_socket).expect("connect to API");
+    let mut ws_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
     let request = r#"{"id":"2","method":"workspace.create","params":{"label":"cwd-test"}}"#;
     writeln!(ws_stream, "{}", request).unwrap();
 
@@ -910,7 +891,7 @@ fn graceful_shutdown_sends_server_shutdown_to_client() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Connect and handshake.
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect to client socket");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -1094,7 +1075,7 @@ fn client_receives_notify_on_agent_state_change() {
     // Now report Idle from Working — this should trigger a Done sound
     // if the pane is in a background workspace.
     // First, create a second workspace to make the first one "background".
-    let mut ws2_stream = UnixStream::connect(&api_socket).expect("connect to API");
+    let mut ws2_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
     let ws2_request = r#"{"id":"4","method":"workspace.create","params":{}}"#;
     writeln!(ws2_stream, "{}", ws2_request).unwrap();
     let mut ws2_reader = BufReader::new(ws2_stream);
@@ -1107,7 +1088,7 @@ fn client_receives_notify_on_agent_state_change() {
         .find(|s| s.starts_with("w_"))
         .unwrap_or("w_2")
         .to_string();
-    let mut focus_stream = UnixStream::connect(&api_socket).expect("connect to API");
+    let mut focus_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
     let focus_request = format!(
         r#"{{"id":"5","method":"workspace.focus","params":{{"workspace_id":"{ws2_id}"}}}}"#
     );
@@ -1125,7 +1106,7 @@ fn client_receives_notify_on_agent_state_change() {
 
     // Report agent as Working first, then Idle — this transition in a
     // background workspace should trigger a Done sound notification.
-    let mut work_stream = UnixStream::connect(&api_socket).expect("connect to API");
+    let mut work_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
     let work_request = format!(
         r#"{{"id":"6","method":"pane.report_agent","params":{{"pane_id":"{pane_id}","agent":"pi","state":"working","source":"test"}}}}"#
     );
@@ -1141,7 +1122,7 @@ fn client_receives_notify_on_agent_state_change() {
         "server should stay responsive after working state report"
     );
 
-    let mut idle_stream = UnixStream::connect(&api_socket).expect("connect to API");
+    let mut idle_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
     let idle_request = format!(
         r#"{{"id":"7","method":"pane.report_agent","params":{{"pane_id":"{pane_id}","agent":"pi","state":"idle","source":"test"}}}}"#
     );

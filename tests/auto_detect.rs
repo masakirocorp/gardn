@@ -16,7 +16,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde_json::Value;
 use support::{
-    cleanup_test_base, register_runtime_dir, register_spawned_hako_pid, unregister_spawned_hako_pid,
+    cleanup_test_base, connect_unix_socket, register_runtime_dir, register_spawned_hako_pid,
+    unregister_spawned_hako_pid,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -198,7 +199,7 @@ fn spawn_hako_no_session(
 }
 
 fn ping_socket(socket_path: &Path) -> String {
-    let mut stream = UnixStream::connect(socket_path).expect("should connect to API socket");
+    let mut stream = connect_unix_socket(socket_path, Duration::from_secs(5));
 
     let request = r#"{"id":"1","method":"ping","params":{}}"#;
     writeln!(stream, "{}", request).unwrap();
@@ -302,8 +303,7 @@ fn auto_detect_no_server_spawns_server_and_attaches() {
     );
 
     // Verify the client socket accepts connections (server is listening on it).
-    let _stream = UnixStream::connect(&client_socket)
-        .expect("should connect to client socket (server is listening)");
+    let _stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
 
     // Verify the client process is running.
     let client_pid = hako.child.process_id().expect("client should have PID");
@@ -404,8 +404,7 @@ fn auto_detect_socket_path_consistency() {
 
     // Verify client socket accepts connections (server is using the custom
     // client socket path).
-    let _stream = UnixStream::connect(&client_socket)
-        .expect("should connect to client socket at custom path");
+    let _stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
 
     cleanup_spawned_hako(hako, base);
 }
@@ -729,7 +728,7 @@ fn auto_detect_respects_nested_guard_before_auto_attach() {
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
     let baseline = read_json_line({
-        let mut stream = UnixStream::connect(&api_socket).unwrap();
+        let mut stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
         writeln!(
             stream,
             r#"{{"id":"ws_before","method":"workspace.list","params":{{}}}}"#
@@ -762,7 +761,7 @@ fn auto_detect_respects_nested_guard_before_auto_attach() {
     );
 
     let after = read_json_line({
-        let mut stream = UnixStream::connect(&api_socket).unwrap();
+        let mut stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
         writeln!(
             stream,
             r#"{{"id":"ws_after","method":"workspace.list","params":{{}}}}"#

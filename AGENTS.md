@@ -79,6 +79,19 @@ CI intentionally splits formatting, clippy, Rust tests, and maintenance tests in
 
 Unit tests live next to the code (`#[cfg(test)] mod tests`). If you add behavior to `AppState` or `Workspace`, it should be testable with `AppState::test_new()` and `Workspace::test_new()` — no PTYs.
 
+### Test design policy
+
+Tests are behavior specs, not implementation snapshots. Prefer the public/user-visible seam first: rendered UI plus real mouse/key input for interaction behavior, `restore(...)` for restore behavior, public framing helpers for wire behavior, and filesystem/git/process boundaries for integration behavior.
+
+- Keep tests flat and self-contained. Setup should be visible in the test body or a plain helper with no hidden mutable state.
+- Assert the behavior that would break for users. Avoid private row indexes, helper-derived expected copy, call counts, or exact geometry unless the geometry itself is the contract.
+- Render tests must assert visible output, styling, or hit behavior. A no-panic render smoke test is not enough.
+- Protocol compatibility tests must pin explicit framed bytes for representative messages. Roundtrips alone do not protect compatibility.
+- Process/socket tests must wait for readiness, not just path existence. Use `tests::support::connect_unix_socket` for Unix socket clients.
+- Tests that mutate global environment variables must serialize that mutation or restore state with a local guard.
+- Error-path tests should assert concrete error variants or useful message details, not only `is_err()`.
+- Mechanical guardrails live in `scripts/test_testing_guidelines.py` and run from `just test`/`just check`. If a test needs an exception, prefer improving the helper or naming the invariant explicitly over weakening the guardrail.
+
 ## Conventions
 
 - Agents choose concise conventional commit messages, lowercase, no emojis. Do not ask for commit-message approval unless the user explicitly requests it.

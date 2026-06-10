@@ -13,7 +13,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use support::{
-    cleanup_test_base, register_runtime_dir, register_spawned_hako_pid, unregister_spawned_hako_pid,
+    cleanup_test_base, connect_unix_socket, register_runtime_dir, register_spawned_hako_pid,
+    unregister_spawned_hako_pid,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -135,7 +136,7 @@ fn spawn_server(
 }
 
 fn ping_socket(socket_path: &Path) -> String {
-    let mut stream = UnixStream::connect(socket_path).expect("should connect to API socket");
+    let mut stream = connect_unix_socket(socket_path, Duration::from_secs(5));
 
     let request = r#"{"id":"1","method":"ping","params":{}}"#;
     writeln!(stream, "{}", request).unwrap();
@@ -509,7 +510,7 @@ fn server_persists_after_client_disconnect() {
 
     // Connect to the client socket and then immediately disconnect.
     {
-        let _stream = UnixStream::connect(&client_socket).expect("should connect to client socket");
+        let _stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
         // Immediately drop the connection.
     }
 
@@ -586,7 +587,7 @@ fn client_handshake_succeeds() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Connect to the client socket and perform a handshake.
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect to client socket");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
 
     // Send Hello with the current protocol version, 80 cols, 24 rows.
     let (version, error) =
@@ -616,7 +617,7 @@ fn client_handshake_rejects_incompatible_version() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Connect to the client socket and send Hello with version 0 (pre-persistence).
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect to client socket");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
 
     let (version, error) = client_handshake(&mut stream, 0, 80, 24)
         .expect("should read Welcome response even on rejection");
@@ -644,7 +645,7 @@ fn client_handshake_clamps_small_terminal_size() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Send Hello with 0x0 terminal size — should be clamped.
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect to client socket");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
 
     let (version, error) = client_handshake(&mut stream, 11, 0, 0)
         .expect("handshake with 0x0 should succeed (server clamps)");
@@ -676,7 +677,7 @@ fn no_hello_client_closed_within_five_seconds() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Connect but don't send Hello — just a raw connection.
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect to client socket");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
 
     // Set a read timeout longer than the handshake timeout so we can detect
     // when the server closes the connection.
@@ -707,8 +708,7 @@ fn no_hello_client_closed_within_five_seconds() {
     );
 
     // Verify the server is still healthy — a proper client can still connect.
-    let mut good_stream =
-        UnixStream::connect(&client_socket).expect("should connect after no-hello client");
+    let mut good_stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) = client_handshake(&mut good_stream, 11, 80, 24)
         .expect("proper handshake should still work after no-hello client");
     assert_eq!(version, 11);

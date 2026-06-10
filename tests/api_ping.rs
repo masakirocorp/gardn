@@ -10,8 +10,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use support::{
-    cleanup_test_base, fake_agent_script, register_runtime_dir, register_spawned_hako_pid,
-    unregister_spawned_hako_pid,
+    cleanup_test_base, connect_unix_socket, fake_agent_script, register_runtime_dir,
+    register_spawned_hako_pid, unregister_spawned_hako_pid,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -163,7 +163,7 @@ struct JsonLineReader {
 impl JsonLineReader {
     fn connect(socket_path: &Path) -> Self {
         Self {
-            stream: UnixStream::connect(socket_path).unwrap(),
+            stream: connect_unix_socket(socket_path, Duration::from_secs(5)),
             buf: Vec::new(),
         }
     }

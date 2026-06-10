@@ -2674,13 +2674,22 @@ mod tests {
             .unwrap();
         let mut row_cells = RowCells::new().unwrap();
         let mut grapheme_scratch = Vec::new();
+        let mut rendered = String::new();
 
         while rows.next() {
             let mut cells = rows.populate_cells(&mut row_cells).unwrap();
             while cells.next() {
                 cells.graphemes_into(&mut grapheme_scratch).unwrap();
+                if let Some(codepoint) = grapheme_scratch.first().copied() {
+                    if let Some(ch) = char::from_u32(codepoint) {
+                        rendered.push(ch);
+                    }
+                }
             }
         }
+
+        assert!(rendered.starts_with("README"));
+        assert!(rendered.contains("漢字"));
     }
 
     #[test]

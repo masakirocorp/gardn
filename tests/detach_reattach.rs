@@ -5,7 +5,6 @@ mod support;
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread;
@@ -14,9 +13,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde_json::Value;
 use support::{
-    cleanup_test_base, client_handshake, drain_messages, read_server_message, register_runtime_dir,
-    register_spawned_hako_pid, send_detach, send_input, unregister_spawned_hako_pid,
-    wait_for_disconnect, wait_for_file, wait_for_message_variant, wait_for_socket, wait_until,
+    cleanup_test_base, client_handshake, connect_unix_socket, drain_messages, read_server_message,
+    register_runtime_dir, register_spawned_hako_pid, send_detach, send_input,
+    unregister_spawned_hako_pid, wait_for_disconnect, wait_for_file, wait_for_message_variant,
+    wait_for_socket, wait_until,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -109,7 +109,7 @@ fn spawn_server(
 }
 
 fn ping_socket(socket_path: &PathBuf) -> String {
-    let mut stream = UnixStream::connect(socket_path).expect("should connect to API socket");
+    let mut stream = connect_unix_socket(socket_path, Duration::from_secs(5));
 
     let request = r#"{"id":"1","method":"ping","params":{}}"#;
     writeln!(stream, "{}", request).unwrap();
@@ -121,7 +121,7 @@ fn ping_socket(socket_path: &PathBuf) -> String {
 }
 
 fn send_json_request(socket_path: &PathBuf, request: &str) -> Value {
-    let mut stream = UnixStream::connect(socket_path).expect("should connect to API socket");
+    let mut stream = connect_unix_socket(socket_path, Duration::from_secs(5));
     writeln!(stream, "{}", request).unwrap();
 
     let mut reader = BufReader::new(stream);
@@ -270,7 +270,7 @@ fn navigate_q_detaches_client_and_server_persists() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Connect and handshake.
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect to client socket");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -332,7 +332,7 @@ fn explicit_detach_message_causes_clean_disconnect() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Connect and handshake.
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -391,7 +391,7 @@ fn reattach_after_detach_shows_current_state() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // --- Client A ---
-    let mut stream_a = UnixStream::connect(&client_socket).expect("client A should connect");
+    let mut stream_a = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream_a, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -401,7 +401,7 @@ fn reattach_after_detach_shows_current_state() {
     drain_messages(&mut stream_a);
 
     // Create a workspace via API while client A is attached.
-    let mut ws_stream = UnixStream::connect(&api_socket).expect("connect to API");
+    let mut ws_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
     let request = r#"{"id":"1","method":"workspace.create","params":{"label":"reattach-test"}}"#;
     writeln!(ws_stream, "{}", request).unwrap();
     let mut reader = BufReader::new(ws_stream);
@@ -430,7 +430,7 @@ fn reattach_after_detach_shows_current_state() {
     );
 
     // --- Client B (reattach) ---
-    let mut stream_b = UnixStream::connect(&client_socket).expect("client B should connect");
+    let mut stream_b = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream_b, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -467,7 +467,7 @@ fn reattach_after_detach_shows_current_state() {
     );
 
     // Verify the workspace still exists via API.
-    let mut list_stream = UnixStream::connect(&api_socket).expect("connect to API");
+    let mut list_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
     let list_request = r#"{"id":"2","method":"workspace.list","params":{}}"#;
     writeln!(list_stream, "{}", list_request).unwrap();
     let mut list_reader = BufReader::new(list_stream);
@@ -510,7 +510,7 @@ fn processes_survive_during_and_after_detach() {
     );
 
     // Connect and handshake.
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -549,7 +549,7 @@ fn processes_survive_during_and_after_detach() {
     );
 
     // Reattach — verify we can connect and receive a frame.
-    let mut stream_b = UnixStream::connect(&client_socket).expect("should reattach");
+    let mut stream_b = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream_b, 11, 80, 24).expect("reattach handshake should succeed");
     assert_eq!(version, 11);
@@ -598,7 +598,7 @@ fn server_persists_after_client_connection_drop() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Connect and handshake.
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -625,7 +625,7 @@ fn server_persists_after_client_connection_drop() {
     );
 
     // Reattach — verify we can connect and handshake again.
-    let mut stream_b = UnixStream::connect(&client_socket).expect("should reattach");
+    let mut stream_b = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream_b, 11, 80, 24).expect("reattach handshake should succeed");
     assert_eq!(version, 11);
@@ -647,7 +647,7 @@ fn detached_output_preserves_last_attached_pty_size() {
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_file(&client_socket, Duration::from_secs(10));
 
-    let mut stream = UnixStream::connect(&client_socket).expect("client should connect");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 120, 40).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -716,7 +716,7 @@ fn output_accumulated_while_detached_visible_on_reattach() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Connect and handshake client A.
-    let mut stream_a = UnixStream::connect(&client_socket).expect("client A should connect");
+    let mut stream_a = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream_a, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -753,7 +753,7 @@ fn output_accumulated_while_detached_visible_on_reattach() {
     let pane_id = first_pane_id(&pane_response);
 
     // Send text to the pane via API while detached.
-    let mut send_stream = UnixStream::connect(&api_socket).expect("connect to API");
+    let mut send_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
     let send_request = format!(
         r#"{{"id":"4","method":"pane.send_text","params":{{"pane_id":"{pane_id}","text":"echo DURING_DETACH\n"}}}}"#
     );
@@ -774,7 +774,7 @@ fn output_accumulated_while_detached_visible_on_reattach() {
     );
 
     // --- Client B (reattach) ---
-    let mut stream_b = UnixStream::connect(&client_socket).expect("client B should connect");
+    let mut stream_b = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream_b, 11, 80, 24).expect("reattach handshake should succeed");
     assert_eq!(version, 11);

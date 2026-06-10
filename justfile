@@ -3,7 +3,7 @@
 # Run tests
 test:
     CARGO_INCREMENTAL=0 cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
-    python3 -m unittest scripts.test_vendor_libghostty_vt
+    python3 -m unittest scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines
 
 # Run fast local lint checks
 lint:
@@ -16,7 +16,7 @@ ci: lint
 
 # Check formatting + run unit tests + maintenance script tests
 check: ci
-    python3 -m unittest scripts.test_vendor_libghostty_vt
+    python3 -m unittest scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines
     @echo "docs reminder: if this changes user-facing behavior, update README.md or call it out before release."
 
 

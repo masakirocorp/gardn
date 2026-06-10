@@ -12,8 +12,9 @@ use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use support::{
-    cleanup_test_base, client_handshake, register_runtime_dir, register_spawned_hako_pid,
-    send_input, unregister_spawned_hako_pid, wait_for_disconnect, wait_for_socket,
+    cleanup_test_base, client_handshake, connect_unix_socket, register_runtime_dir,
+    register_spawned_hako_pid, send_input, unregister_spawned_hako_pid, wait_for_disconnect,
+    wait_for_socket,
 };
 
 struct SpawnedHako {
@@ -632,7 +633,7 @@ fn live_handoff_preserves_pane_process_io() {
     )["result"]["protocol"]
         .as_u64()
         .unwrap() as u32;
-    let mut client_stream = UnixStream::connect(&client_socket).unwrap();
+    let mut client_stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (server_protocol, error) = client_handshake(&mut client_stream, protocol, 80, 24).unwrap();
     assert_eq!(server_protocol, protocol);
     assert!(error.is_none(), "client handshake failed: {error:?}");
@@ -784,7 +785,7 @@ pathlib.Path({received:?}).write_text(data.hex())
     wait_for_api(&api_socket, Duration::from_secs(10));
     wait_for_socket(&client_socket, Duration::from_secs(5));
 
-    let mut client_stream = UnixStream::connect(&client_socket).unwrap();
+    let mut client_stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (server_protocol, error) = client_handshake(&mut client_stream, protocol, 80, 24).unwrap();
     assert_eq!(server_protocol, protocol);
     assert!(error.is_none(), "client handshake failed: {error:?}");
@@ -875,7 +876,7 @@ pathlib.Path({received:?}).write_text(data.hex())
     wait_for_api(&api_socket, Duration::from_secs(10));
     wait_for_socket(&client_socket, Duration::from_secs(5));
 
-    let mut client_stream = UnixStream::connect(&client_socket).unwrap();
+    let mut client_stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (server_protocol, error) = client_handshake(&mut client_stream, protocol, 80, 24).unwrap();
     assert_eq!(server_protocol, protocol);
     assert!(error.is_none(), "client handshake failed: {error:?}");

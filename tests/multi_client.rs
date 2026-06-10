@@ -14,7 +14,8 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use serde::Deserialize;
 use serde_json::Value;
 use support::{
-    cleanup_test_base, register_runtime_dir, register_spawned_hako_pid, unregister_spawned_hako_pid,
+    cleanup_test_base, connect_unix_socket, register_runtime_dir, register_spawned_hako_pid,
+    unregister_spawned_hako_pid,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -202,7 +203,7 @@ fn wait_for_log_occurrence_count(
 }
 
 fn ping_socket(socket_path: &Path) -> String {
-    let mut stream = UnixStream::connect(socket_path).expect("should connect to API socket");
+    let mut stream = connect_unix_socket(socket_path, Duration::from_secs(5));
     writeln!(
         stream,
         "{{\"id\":\"ping\",\"method\":\"ping\",\"params\":{{}}}}"
@@ -216,7 +217,7 @@ fn ping_socket(socket_path: &Path) -> String {
 }
 
 fn send_json_request(socket_path: &Path, request: &str) -> Value {
-    let mut stream = UnixStream::connect(socket_path).expect("should connect to API socket");
+    let mut stream = connect_unix_socket(socket_path, Duration::from_secs(5));
     writeln!(stream, "{request}").unwrap();
 
     let mut reader = BufReader::new(stream);
@@ -545,7 +546,7 @@ fn client_handshake(
 }
 
 fn connect_raw_client(client_socket: &Path, cols: u16, rows: u16) -> UnixStream {
-    let mut stream = UnixStream::connect(client_socket).expect("should connect to client socket");
+    let mut stream = connect_unix_socket(client_socket, Duration::from_secs(5));
     client_handshake(&mut stream, 11, cols, rows).expect("handshake should succeed");
     stream
 }

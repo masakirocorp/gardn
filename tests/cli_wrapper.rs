@@ -12,7 +12,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use support::{
-    cleanup_test_base, register_runtime_dir, register_spawned_hako_pid, unregister_spawned_hako_pid,
+    cleanup_test_base, connect_unix_socket, register_runtime_dir, register_spawned_hako_pid,
+    unregister_spawned_hako_pid,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -472,7 +473,7 @@ fn wait_for_pid_file_rejects_unparseable_partial_write_until_stable_contents() {
 }
 
 fn send_request(socket_path: &Path, json: &str) -> serde_json::Value {
-    let mut stream = UnixStream::connect(socket_path).unwrap();
+    let mut stream = connect_unix_socket(socket_path, Duration::from_secs(5));
     stream.write_all(json.as_bytes()).unwrap();
     stream.write_all(b"\n").unwrap();
     stream.flush().unwrap();

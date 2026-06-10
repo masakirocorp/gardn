@@ -339,6 +339,30 @@ where
     predicate()
 }
 
+pub fn connect_unix_socket<P>(path: P, timeout: Duration) -> UnixStream
+where
+    P: AsRef<Path>,
+{
+    let path = path.as_ref();
+    let deadline = Instant::now() + timeout;
+    let mut last_err = None;
+    while Instant::now() < deadline {
+        match UnixStream::connect(path) {
+            Ok(stream) => return stream,
+            Err(err) => {
+                last_err = Some(err);
+                thread::sleep(Duration::from_millis(20));
+            }
+        }
+    }
+
+    panic!(
+        "timed out connecting to {}; last error: {:?}",
+        path.display(),
+        last_err
+    );
+}
+
 pub fn wait_for_message_variant(
     stream: &mut UnixStream,
     timeout: Duration,
