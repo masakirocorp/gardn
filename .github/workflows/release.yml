@@ -60,6 +60,11 @@ jobs:
             name: hako-macos-aarch64
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            name: hako-windows-x86_64.exe
+            libghostty_vt_optimize: ReleaseFast
+            libghostty_vt_simd: 'true'
 
     runs-on: ${{ matrix.os }}
     env:
@@ -123,7 +128,13 @@ jobs:
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Rename binary
-        run: cp target/${{ matrix.target }}/release/hako ${{ matrix.name }}
+        shell: bash
+        run: |
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            cp target/${{ matrix.target }}/release/hako.exe "${{ matrix.name }}"
+          else
+            cp target/${{ matrix.target }}/release/hako "${{ matrix.name }}"
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -156,5 +167,6 @@ jobs:
             hako-linux-aarch64/hako-linux-aarch64
             hako-macos-x86_64/hako-macos-x86_64
             hako-macos-aarch64/hako-macos-aarch64
+            hako-windows-x86_64.exe/hako-windows-x86_64.exe
           body_path: RELEASE_NOTES.md
 

@@ -646,7 +646,7 @@ impl HeadlessServer {
         } else {
             let _ = std::fs::remove_file(crate::api::socket_path());
         }
-        let _ = remove_socket_file_if_owned(&self.client_socket_path, self.client_socket_identity);
+        let _ = remove_socket_file_if_owned(&self.client_socket_path, &self.client_socket_identity);
         if let Err(err) = crate::server::handoff::wait_ready(&mut stream) {
             crate::server::handoff::cleanup_failed_import_child(&mut import_child);
             match self.wait_then_restore_public_sockets_after_failed_handoff() {
@@ -2508,7 +2508,7 @@ impl HeadlessServer {
     /// Removes socket files created by the server.
     fn cleanup_sockets(&self) -> io::Result<()> {
         if let Err(err) =
-            remove_socket_file_if_owned(&self.client_socket_path, self.client_socket_identity)
+            remove_socket_file_if_owned(&self.client_socket_path, &self.client_socket_identity)
         {
             if err.kind() != io::ErrorKind::NotFound {
                 warn!(

@@ -1,5 +1,5 @@
 use std::io::{self, Read, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
+use interprocess::local_socket::traits::{ListenerExt as _, Stream as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use tracing::{debug, error, info, warn};
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 use std::fs;
 
 use crate::api::schema::{
@@ -16,7 +16,7 @@ use crate::api::schema::{
 use crate::api::subscriptions::ActiveSubscription;
 use crate::api::wait::wait_for_output;
 use crate::api::{request_changes_ui, socket_path, ApiRequestMessage, ApiRequestSender, EventHub};
-use crate::ipc::{remove_socket_file_if_owned, socket_file_identity, SocketFileIdentity};
+use crate::ipc::{bind_local_listener, remove_socket_file_if_owned, socket_file_identity, LocalStream, SocketFileIdentity};
 
 const SOCKET_PERMISSION_MODE: u32 = 0o600;
 pub(super) const CONNECTION_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -46,7 +46,7 @@ impl Drop for ServerHandle {
 
 impl ServerHandle {
     pub(crate) fn remove_socket_file_if_owned(&self) -> std::io::Result<()> {
-        remove_socket_file_if_owned(&self.path, self.identity)
+        remove_socket_file_if_owned(&self.path, &self.identity)
     }
 }
 
@@ -69,7 +69,7 @@ pub fn start_server_with_capabilities(
     let path = socket_path();
     prepare_socket_path(&path)?;
 
-    let listener = UnixListener::bind(&path)?;
+    let listener = bind_local_listener(&path)?;
     restrict_socket_permissions(&path)?;
     let identity = socket_file_identity(&path)?;
     info!(path = %path.display(), "api server listening");
@@ -127,13 +127,13 @@ fn restrict_socket_permissions(path: &Path) -> std::io::Result<()> {
 }
 
 fn handle_connection(
-    mut stream: UnixStream,
+    mut stream: LocalStream,
     api_tx: &ApiRequestSender,
     event_hub: &EventHub,
     running: &Arc<AtomicBool>,
     capabilities: Option<ServerCapabilities>,
 ) -> std::io::Result<()> {
-    if let Err(err) = stream.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)) {
+    if let Err(err) = stream.set_send_timeout(Some(STREAM_WRITE_TIMEOUT)) {
         debug!(err = %err, "api connection write timeout unavailable");
     }
 
@@ -338,7 +338,7 @@ fn api_response_outcome(response: &str) -> &'static str {
     }
 }
 
-fn read_initial_request_line(stream: &mut UnixStream) -> std::io::Result<Option<String>> {
+fn read_initial_request_line(stream: &mut LocalStream) -> std::io::Result<Option<String>> {
     stream.set_nonblocking(true)?;
     let deadline = Instant::now() + INITIAL_REQUEST_TIMEOUT;
     let mut bytes = Vec::new();
@@ -385,7 +385,7 @@ fn read_initial_request_line(stream: &mut UnixStream) -> std::io::Result<Option<
 }
 
 fn stream_subscriptions(
-    mut stream: UnixStream,
+    mut stream: LocalStream,
     request_id: String,
     params: crate::api::schema::EventsSubscribeParams,
     api_tx: &ApiRequestSender,
@@ -442,27 +442,27 @@ fn stream_subscriptions(
     }
 }
 
-fn write_text_line(stream: &mut UnixStream, value: &str) -> std::io::Result<()> {
+fn write_text_line(stream: &mut LocalStream, value: &str) -> std::io::Result<()> {
     stream.write_all(value.as_bytes())?;
     stream.write_all(b"\n")?;
     stream.flush()
 }
 
-fn write_text_line_allow_disconnect(stream: &mut UnixStream, value: &str) -> std::io::Result<()> {
+fn write_text_line_allow_disconnect(stream: &mut LocalStream, value: &str) -> std::io::Result<()> {
     match write_text_line(stream, value) {
         Err(err) if is_connection_closed_error(&err) => Ok(()),
         result => result,
     }
 }
 
-fn write_json_line<T: serde::Serialize>(stream: &mut UnixStream, value: &T) -> std::io::Result<()> {
+fn write_json_line<T: serde::Serialize>(stream: &mut LocalStream, value: &T) -> std::io::Result<()> {
     let encoded = serde_json::to_string(value)
         .map_err(|err| std::io::Error::other(format!("failed to encode json: {err}")))?;
     write_text_line(stream, &encoded)
 }
 
 fn write_json_line_allow_disconnect<T: serde::Serialize>(
-    stream: &mut UnixStream,
+    stream: &mut LocalStream,
     value: &T,
 ) -> std::io::Result<()> {
     let encoded = serde_json::to_string(value)
@@ -471,7 +471,7 @@ fn write_json_line_allow_disconnect<T: serde::Serialize>(
 }
 
 pub(super) fn should_stop_connection(
-    stream: &mut UnixStream,
+    stream: &mut LocalStream,
     running: &Arc<AtomicBool>,
 ) -> std::io::Result<bool> {
     if !running.load(Ordering::Relaxed) {
@@ -481,7 +481,7 @@ pub(super) fn should_stop_connection(
     probe_stream_closed(stream)
 }
 
-fn probe_stream_closed(stream: &mut UnixStream) -> std::io::Result<bool> {
+fn probe_stream_closed(stream: &mut LocalStream) -> std::io::Result<bool> {
     stream.set_nonblocking(true)?;
     let mut probe = [0u8; 1];
     let status = match stream.read(&mut probe) {
@@ -579,12 +579,14 @@ fn error_response_json(id: String, code: &str, message: String) -> String {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
+    use interprocess::local_socket::traits::Listener as _;
     use super::*;
     use crate::config::TestEnvVar;
     use std::io::{BufRead, BufReader};
     use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::net::UnixListener;
     use std::sync::{Mutex, OnceLock};
     use tokio::sync::mpsc;
 
@@ -601,11 +603,19 @@ mod tests {
         std::env::temp_dir().join(format!("hako-{name}-{}-{nanos}", std::process::id()))
     }
 
-    fn read_line(stream: &mut UnixStream) -> String {
+    fn read_line(stream: &mut LocalStream) -> String {
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
         reader.read_line(&mut line).unwrap();
         line
+    }
+
+    fn local_stream_pair(name: &str) -> (LocalStream, LocalStream, PathBuf) {
+        let path = unique_test_path(name);
+        let listener = crate::ipc::bind_local_listener(&path).unwrap();
+        let client = crate::ipc::connect_local_stream(&path).unwrap();
+        let server = listener.accept().unwrap();
+        (client, server, path)
     }
 
     #[test]
@@ -769,7 +779,7 @@ mod tests {
             }
         });
 
-        let (mut client, server) = UnixStream::pair().unwrap();
+        let (mut client, server, _path) = local_stream_pair("api-wait-disconnect");
         client
             .write_all(br#"{"id":"req_wait","method":"pane.wait_for_output","params":{"pane_id":"pane_1","source":"recent","match":{"type":"substring","value":"never"}}}"#)
             .unwrap();
@@ -799,7 +809,7 @@ mod tests {
     #[test]
     fn subscriptions_stop_when_client_disconnects() {
         let (api_tx, _api_rx) = mpsc::unbounded_channel::<ApiRequestMessage>();
-        let (mut client, server) = UnixStream::pair().unwrap();
+        let (mut client, server, _path) = local_stream_pair("api-sub-disconnect");
         client
             .write_all(
                 br#"{"id":"sub_1","method":"events.subscribe","params":{"subscriptions":[{"type":"workspace.created"}]}}"#,
@@ -831,7 +841,7 @@ mod tests {
     #[test]
     fn subscriptions_stop_when_server_shuts_down() {
         let (api_tx, _api_rx) = mpsc::unbounded_channel::<ApiRequestMessage>();
-        let (mut client, server) = UnixStream::pair().unwrap();
+        let (mut client, server, _path) = local_stream_pair("api-sub-shutdown");
         client
             .write_all(
                 br#"{"id":"sub_2","method":"events.subscribe","params":{"subscriptions":[{"type":"workspace.created"}]}}"#,

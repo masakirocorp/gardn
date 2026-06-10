@@ -1313,6 +1313,90 @@
         "port-agent-detection"
       ],
       "reason": "ported to Hako by dropping idle screen authority from pty-aware policy so stale idle prompts cannot override active pty signals."
+    },
+    {
+      "upstream": "3c2b46d",
+      "subject": "feat: add native windows beta support",
+      "status": "ported",
+      "reason": "Adapted stable Windows primitives for Hako: platform process support, local socket abstraction, Windows release asset naming, worktree path handling, and integration platform gates without Herdr beta/preview branding."
+    },
+    {
+      "upstream": "b5fba2f",
+      "subject": "ci: run checks on windows branch",
+      "status": "superseded",
+      "reason": "Hako does not keep Herdr windows branch CI; stable release workflow now builds the Windows asset directly."
+    },
+    {
+      "upstream": "52e5750",
+      "subject": "ci: tighten windows branch validation",
+      "status": "superseded",
+      "reason": "Herdr branch-validation workflow shape is upstream-specific; Hako release/build validation is maintained in its own GitHub Actions workflow."
+    },
+    {
+      "upstream": "f61ed48",
+      "subject": "fix: preserve unix socket error semantics",
+      "status": "ported",
+      "reason": "Local socket abstraction preserves Unix stale/live socket handling and treats WouldBlock as stale while keeping owner-only Unix permissions."
+    },
+    {
+      "upstream": "745ce42",
+      "subject": "fix: handle windows worktree paths and removal",
+      "status": "ported",
+      "reason": "Adapted Windows home-directory expansion, Windows-style tilde handling, and dirty-worktree removal guard for Windows where Git cannot remove an active checkout cleanly."
+    },
+    {
+      "upstream": "0956ad8",
+      "subject": "feat: add windows preview installer",
+      "status": "skipped",
+      "reason": "Preview installer/channel plumbing is intentionally not ported; Hako stable Windows support uses direct GitHub release assets."
+    },
+    {
+      "upstream": "7c7d8c8",
+      "subject": "fix: gate windows updater checks",
+      "status": "ported",
+      "reason": "Updater now accounts for the stable Windows .exe asset name and keeps direct-update command guidance on hako update."
+    },
+    {
+      "upstream": "c01b947",
+      "subject": "fix: support windows agent hooks and input paths",
+      "status": "ported",
+      "reason": "Windows path/home handling and supported CLI-hook integration gating were adapted for Hako stable behavior."
+    },
+    {
+      "upstream": "3c8f8d",
+      "subject": "fix: gate integrations by platform support",
+      "status": "ported",
+      "reason": "Unsupported Unix/plugin integrations are hidden/rejected on Windows while CLI hook integrations remain available."
+    },
+    {
+      "upstream": "6f45969",
+      "subject": "fix(update): keep windows installs on preview",
+      "status": "skipped",
+      "reason": "Herdr preview-channel retention is not applicable; Hako Windows updates stay on stable direct release assets."
+    },
+    {
+      "upstream": "4168278",
+      "subject": "fix(update): tolerate empty windows channel env",
+      "status": "skipped",
+      "reason": "Preview channel environment handling is not applicable to Hako stable Windows updates."
+    },
+    {
+      "upstream": "fb56e64",
+      "subject": "fix: improve windows pane behavior",
+      "status": "deferred",
+      "reason": "The pane-rendering refinements are larger than the stable support cutover and remain separate from release/update/worktree/integration invariants."
+    },
+    {
+      "upstream": "3e2bdba",
+      "subject": "fix: unblock windows preview updates",
+      "status": "skipped",
+      "reason": "Preview update unblocking is not applicable because Hako intentionally has no preview channel."
+    },
+    {
+      "upstream": "698eb51",
+      "subject": "fix: migrate legacy windows bin backups",
+      "status": "skipped",
+      "reason": "Legacy Herdr Windows installer backup migration is not applicable to Hako stable direct installs."
     }
   ]
 }

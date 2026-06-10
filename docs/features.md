@@ -238,6 +238,7 @@ Integration install side effects are agent-specific: pi and OMP install extensio
 Claude Code, Codex, Kimi, Droid, Cursor, and OpenCode integrations report native session identity for restore; Hako reads their visible terminal UI for state. Pi, OMP, Hermes, Copilot, and Qoder-style integrations can report state directly.
 
 Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
+- On Windows, installable integrations are limited to CLI hook integrations with supported path layouts: Claude, Codex, Copilot, Kimi, Droid, and Qoder-style CLIs.
 
 ## CLI and socket API
 
@@ -333,12 +334,13 @@ Configurable areas include:
 
 ## Updates and release notes
 
-Direct installs use GitHub Releases for update checks, release metadata, and binary downloads. Homebrew-managed installs check Homebrew availability and should update through Homebrew; mise and Nix-managed installs are routed to their package manager instead of self-update.
+Direct installs use GitHub Releases for update checks, release metadata, and binary downloads on Linux, macOS, and Windows. Homebrew-managed installs check Homebrew availability and should update through Homebrew; mise and Nix-managed installs are routed to their package manager instead of self-update.
 
 - The app can notify when a new release or managed-install update is available.
 - `hako update` downloads and swaps supported direct binary installs.
 - Homebrew, mise, and Nix-managed installs are blocked from self-update and should use their package manager.
 - Live handoff can preserve running pane processes during updates when both the old and new server support the handoff protocol.
+- Windows direct updates use the stable `hako-windows-x86_64.exe` release asset; Hako does not use a preview channel.
 - In-app release notes can be shown after an update.
 - Post-update checks can report outdated integrations.
 - Product announcements can be shown separately from release notes and tracked as seen per version.

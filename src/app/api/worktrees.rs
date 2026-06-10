@@ -292,6 +292,19 @@ impl App {
             );
         }
 
+        #[cfg(windows)]
+        {
+            if !params.force
+                && crate::worktree::checkout_has_dirty_files(&space.checkout_path).unwrap_or(false)
+            {
+                return encode_error(
+                    id,
+                    "dirty_worktree_requires_force",
+                    crate::worktree::worktree_dirty_remove_message(&space.checkout_path),
+                );
+            }
+        }
+
         let command = crate::worktree::build_worktree_remove_command(
             &space.repo_root,
             &space.checkout_path,

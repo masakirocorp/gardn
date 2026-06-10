@@ -271,6 +271,13 @@ pub(crate) fn apply_pane_env(cmd: &mut CommandBuilder, pane_id: PaneId) {
 pub(crate) fn install_target(
     target: crate::api::schema::IntegrationTarget,
 ) -> io::Result<Vec<String>> {
+    if !integration_target_supported(target) {
+        return Err(io::Error::other(format!(
+            "{} integration is not supported on Windows",
+            integration_target_label(target)
+        )));
+    }
+
     let messages = match target {
         crate::api::schema::IntegrationTarget::Pi => {
             let path = install_pi()?;
@@ -737,8 +744,31 @@ pub(crate) fn integration_target_command(
     }
 }
 
+fn integration_target_supported(target: crate::api::schema::IntegrationTarget) -> bool {
+    integration_target_supported_for_platform(target, cfg!(windows))
+}
+
+fn integration_target_supported_for_platform(
+    target: crate::api::schema::IntegrationTarget,
+    is_windows: bool,
+) -> bool {
+    if !is_windows {
+        return true;
+    }
+
+    matches!(
+        target,
+        crate::api::schema::IntegrationTarget::Claude
+            | crate::api::schema::IntegrationTarget::Codex
+            | crate::api::schema::IntegrationTarget::Copilot
+            | crate::api::schema::IntegrationTarget::Droid
+            | crate::api::schema::IntegrationTarget::Kimi
+            | crate::api::schema::IntegrationTarget::Qodercli
+    )
+}
+
 fn integration_target_available(target: crate::api::schema::IntegrationTarget) -> bool {
-    command_available(integration_target_command(target))
+    integration_target_supported(target) && command_available(integration_target_command(target))
 }
 
 fn command_available(command: &str) -> bool {
@@ -772,6 +802,9 @@ pub(crate) fn installed_integration_statuses() -> Vec<IntegrationStatus> {
     integration_specs()
         .into_iter()
         .filter_map(|(target, path, expected_version)| {
+            if !integration_target_supported(target) {
+                return None;
+            }
             Some(integration_status_at(target, path.ok()?, expected_version))
         })
         .collect()
@@ -781,6 +814,9 @@ pub(crate) fn integration_recommendations() -> Vec<IntegrationRecommendation> {
     integration_specs()
         .into_iter()
         .filter_map(|(target, path, expected_version)| {
+            if !integration_target_supported(target) {
+                return None;
+            }
             let path = path.ok()?;
             let status = integration_status_at(target, path.clone(), expected_version);
             Some(IntegrationRecommendation {
@@ -2988,6 +3024,45 @@ mod tests {
         assert!(command_available("claude"));
 
         let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn windows_supports_only_cli_hook_integrations() {
+        use crate::api::schema::IntegrationTarget;
+
+        assert!(!integration_target_supported_for_platform(IntegrationTarget::Pi, true));
+        assert!(!integration_target_supported_for_platform(IntegrationTarget::Omp, true));
+        assert!(!integration_target_supported_for_platform(IntegrationTarget::Opencode, true));
+        assert!(!integration_target_supported_for_platform(IntegrationTarget::Hermes, true));
+        assert!(!integration_target_supported_for_platform(IntegrationTarget::Cursor, true));
+
+        assert!(integration_target_supported_for_platform(IntegrationTarget::Claude, true));
+        assert!(integration_target_supported_for_platform(IntegrationTarget::Codex, true));
+        assert!(integration_target_supported_for_platform(IntegrationTarget::Copilot, true));
+        assert!(integration_target_supported_for_platform(IntegrationTarget::Droid, true));
+        assert!(integration_target_supported_for_platform(IntegrationTarget::Kimi, true));
+        assert!(integration_target_supported_for_platform(IntegrationTarget::Qodercli, true));
+    }
+
+    #[test]
+    fn non_windows_supports_all_integrations() {
+        use crate::api::schema::IntegrationTarget;
+
+        for target in [
+            IntegrationTarget::Pi,
+            IntegrationTarget::Omp,
+            IntegrationTarget::Claude,
+            IntegrationTarget::Codex,
+            IntegrationTarget::Copilot,
+            IntegrationTarget::Kimi,
+            IntegrationTarget::Droid,
+            IntegrationTarget::Opencode,
+            IntegrationTarget::Hermes,
+            IntegrationTarget::Qodercli,
+            IntegrationTarget::Cursor,
+        ] {
+            assert!(integration_target_supported_for_platform(target, false));
+        }
     }
 
     #[test]

@@ -9,7 +9,8 @@
 use std::env;
 use std::fs;
 use std::io::{self, BufRead, BufReader, IsTerminal, Write};
-use std::os::unix::net::UnixStream;
+use interprocess::local_socket::traits::Stream as _;
+use crate::ipc::LocalStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -190,9 +191,7 @@ fn release_info_from_github_release(
     if latest <= current {
         return Ok(None);
     }
-
-    let (os, arch) = platform_target();
-    let asset_name = format!("hako-{os}-{arch}");
+    let asset_name = release_asset_name(platform_target());
     let download_url = release
         .assets
         .iter()
@@ -373,7 +372,7 @@ fn client_protocol_server_is_running_at(socket_path: &Path) -> bool {
         return false;
     }
 
-    UnixStream::connect(socket_path).is_ok()
+    crate::ipc::connect_local_stream(socket_path).is_ok()
 }
 
 fn client_protocol_server_is_running() -> bool {
@@ -1042,13 +1041,11 @@ fn send_server_update_method_at(
         method,
     };
 
-    let mut stream = UnixStream::connect(socket_path)
+    let mut stream = crate::ipc::connect_local_stream(socket_path)
         .map_err(|e| format!("failed to connect to running server: {e}"))?;
-    stream
-        .set_write_timeout(Some(timeout))
+    set_local_stream_timeout(&stream, true, timeout)
         .map_err(|e| format!("failed to set {error_prefix} write timeout: {e}"))?;
-    stream
-        .set_read_timeout(Some(timeout))
+    set_local_stream_timeout(&stream, false, timeout)
         .map_err(|e| format!("failed to set {error_prefix} read timeout: {e}"))?;
     stream
         .write_all(
@@ -1079,6 +1076,24 @@ fn send_server_update_method_at(
     }
 
     Ok(())
+}
+
+fn set_local_stream_timeout(
+    stream: &LocalStream,
+    send: bool,
+    timeout: Duration,
+) -> std::io::Result<()> {
+    let result = if send {
+        stream.set_send_timeout(Some(timeout))
+    } else {
+        stream.set_recv_timeout(Some(timeout))
+    };
+    match result {
+        Ok(()) => Ok(()),
+        #[cfg(windows)]
+        Err(err) if err.kind() == std::io::ErrorKind::Unsupported => Ok(()),
+        Err(err) => Err(err),
+    }
 }
 
 #[cfg(test)]
@@ -1137,7 +1152,7 @@ fn server_shutdown_confirmed_at(socket_path: &Path) -> Result<bool, String> {
         return Ok(true);
     }
 
-    match UnixStream::connect(socket_path) {
+    match crate::ipc::connect_local_stream(socket_path) {
         Ok(_) => Ok(false),
         Err(err)
             if matches!(
@@ -1675,7 +1690,7 @@ fn auto_update_homebrew(events: tokio::sync::mpsc::Sender<crate::events::AppEven
 
     let _ = events.blocking_send(crate::events::AppEvent::UpdateReady {
         version: version.to_string(),
-        install_command: HOMEBREW_UPDATE_COMMAND.to_string(),
+        install_command: update_install_command().to_string(),
     });
 }
 
@@ -1692,6 +1707,8 @@ fn platform_target() -> (&'static str, &'static str) {
         "linux"
     } else if cfg!(target_os = "macos") {
         "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
     } else {
         "unknown"
     };
@@ -1707,11 +1724,16 @@ fn platform_target() -> (&'static str, &'static str) {
     (os, arch)
 }
 
+fn release_asset_name((os, arch): (&str, &str)) -> String {
+    let extension = if os == "windows" { ".exe" } else { "" };
+    format!("hako-{os}-{arch}{extension}")
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::config::TestEnvVar;
@@ -2458,7 +2480,7 @@ mod tests {
     #[test]
     fn platform_target_is_known() {
         let (os, arch) = platform_target();
-        assert!(os == "linux" || os == "macos", "os: {os}");
+        assert!(os == "linux" || os == "macos" || os == "windows", "os: {os}");
         assert!(arch == "x86_64" || arch == "aarch64", "arch: {arch}");
     }
 
@@ -2474,7 +2496,7 @@ mod tests {
                     browser_download_url: "https://example.com/wrong".to_string(),
                 },
                 GitHubReleaseAsset {
-                    name: format!("hako-{os}-{arch}"),
+                    name: release_asset_name((os, arch)),
                     browser_download_url: "https://example.com/hako".to_string(),
                 },
             ],
@@ -2487,6 +2509,16 @@ mod tests {
         assert_eq!(info.version, Version::parse("99.99.99").unwrap());
         assert_eq!(info.download_url, "https://example.com/hako");
         assert_eq!(info.notes_body, "### Changed\n- GitHub release");
+    }
+
+    #[test]
+    fn release_asset_name_adds_exe_only_for_windows() {
+        assert_eq!(
+            release_asset_name(("windows", "x86_64")),
+            "hako-windows-x86_64.exe"
+        );
+        assert_eq!(release_asset_name(("linux", "x86_64")), "hako-linux-x86_64");
+        assert_eq!(release_asset_name(("macos", "aarch64")), "hako-macos-aarch64");
     }
 
     #[test]
