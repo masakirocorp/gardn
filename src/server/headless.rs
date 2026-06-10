@@ -1648,6 +1648,7 @@ impl HeadlessServer {
                 if let Some(client) = self.clients.get_mut(&client_id) {
                     if host_surface_redraw {
                         client.request_full_redraw();
+                        client.render_pending = true;
                     } else {
                         // Ensure semantic clients receive one post-input frame even if the
                         // semantic buffer compares equal. Terminal-ANSI clients must keep their
@@ -2223,33 +2224,32 @@ impl HeadlessServer {
                 commit_graphics_cache = false;
             }
 
-            let Some(mut prepared) = client.render_state.prepare_frame(&frame) else {
-                client.render_pending = false;
-                continue;
-            };
-            let mut frame_to_commit = frame.clone();
-
             let max_frame_size = if frame.graphics.is_empty() {
                 MAX_FRAME_SIZE
             } else {
                 MAX_GRAPHICS_FRAME_SIZE
+            };
+            let has_graphics = !frame.graphics.is_empty();
+            let Some(mut prepared) = client.render_state.prepare_frame(frame) else {
+                client.render_pending = false;
+                continue;
             };
             let serialized = match Self::frame_server_message_with_max(
                 prepared.message(),
                 max_frame_size,
             ) {
                 Ok(framed) => framed,
-                Err(protocol::FramingError::Oversized { claimed, max })
-                    if !frame.graphics.is_empty() =>
-                {
+                Err(protocol::FramingError::Oversized { claimed, max }) if has_graphics => {
                     warn!(
                         client_id,
                         claimed, max, "dropping graphics from oversized frame for client"
                     );
-                    let mut text_only_frame = frame.clone();
+                    let Some(mut text_only_frame) = prepared.into_frame() else {
+                        continue;
+                    };
                     text_only_frame.graphics.clear();
                     let Some(text_only_prepared) =
-                        client.render_state.prepare_frame(&text_only_frame)
+                        client.render_state.prepare_frame(text_only_frame)
                     else {
                         client.render_pending = false;
                         continue;
@@ -2263,7 +2263,6 @@ impl HeadlessServer {
                         }
                     };
                     prepared = text_only_prepared;
-                    frame_to_commit = text_only_frame;
                     commit_graphics_cache = false;
                     framed
                 }
@@ -2288,9 +2287,7 @@ impl HeadlessServer {
                         client.graphics_cache = next_graphics_cache;
                         client.graphics_surface_reset_pending = false;
                     }
-                    client
-                        .render_state
-                        .commit_sent_frame(frame_to_commit, prepared);
+                    client.render_state.commit_sent_frame(prepared);
                 }
                 Err(std::sync::mpsc::TrySendError::Full(_)) => {
                     client.render_pending = true;
@@ -4425,6 +4422,67 @@ next_tab = ""
     }
 
     #[test]
+    fn outer_focus_gained_client_render_pending_survives_semantic_render_queue_full() {
+        let mut server = test_headless_server();
+        let (client_tx, _client_control_rx, client_rx) = test_client_writer();
+
+        server.clients.insert(
+            1,
+            ClientConnection::new(
+                (80, 24),
+                crate::kitty_graphics::HostCellSize::default(),
+                crate::terminal_theme::TerminalTheme::default(),
+                None,
+                1,
+                RenderEncoding::SemanticFrame,
+                Some(client_tx),
+            ),
+        );
+        server.foreground_client_id = Some(1);
+
+        server.render_and_stream();
+        let _ = client_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("initial semantic frame");
+
+        let queued = HeadlessServer::frame_server_message(&ServerMessage::ReloadSoundConfig)
+            .expect("serialize dummy message");
+        server
+            .clients
+            .get(&1)
+            .unwrap()
+            .writer
+            .as_ref()
+            .unwrap()
+            .render
+            .send(queued)
+            .expect("pre-fill render queue");
+
+        assert!(server.handle_server_event(ServerEvent::ClientInput {
+            client_id: 1,
+            data: b"\x1b[I".to_vec(),
+        }));
+        assert!(server.clients.get(&1).unwrap().render_pending);
+
+        server.render_and_stream();
+
+        assert!(server.clients.get(&1).unwrap().render_pending);
+        assert!(matches!(
+            read_server_message(client_rx.recv_timeout(Duration::from_millis(100)).unwrap()),
+            ServerMessage::ReloadSoundConfig
+        ));
+
+        assert!(server.handle_server_event(ServerEvent::ClientWriterDrained { client_id: 1 }));
+        server.render_and_stream();
+
+        assert!(!server.clients.get(&1).unwrap().render_pending);
+        assert!(matches!(
+            read_server_message(client_rx.recv_timeout(Duration::from_millis(100)).unwrap()),
+            ServerMessage::Frame(_)
+        ));
+    }
+
+    #[test]
     fn outer_focus_gained_does_not_force_terminal_ansi_full_redraw_when_disabled() {
         let mut server = test_headless_server();
         server.app.state.redraw_on_focus_gained = false;
@@ -4468,6 +4526,37 @@ next_tab = ""
                 .unwrap(),
             1
         );
+    }
+
+    #[test]
+    fn outer_focus_gained_does_not_mark_semantic_render_pending_when_disabled() {
+        let mut server = test_headless_server();
+        server.app.state.redraw_on_focus_gained = false;
+        let (client_tx, _client_control_rx, _client_rx) = test_client_writer();
+
+        server.clients.insert(
+            1,
+            ClientConnection::new(
+                (80, 24),
+                crate::kitty_graphics::HostCellSize::default(),
+                crate::terminal_theme::TerminalTheme::default(),
+                None,
+                1,
+                RenderEncoding::SemanticFrame,
+                Some(client_tx),
+            ),
+        );
+        server.foreground_client_id = Some(1);
+
+        assert!(server.handle_server_event(ServerEvent::ClientInput {
+            client_id: 1,
+            data: b"\x1b[I".to_vec(),
+        }));
+
+        assert!(!server.clients.get(&1).unwrap().render_pending);
+        assert!(!server.app.full_redraw_pending);
+        assert_eq!(server.clients[&1].outer_terminal_focus, Some(true));
+        assert_eq!(server.app.state.outer_terminal_focus, Some(true));
     }
 
     #[test]

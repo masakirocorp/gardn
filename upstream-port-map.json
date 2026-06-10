@@ -1097,6 +1097,42 @@
       "subject": "docs: update website manifest for v0.6.8",
       "status": "skipped",
       "reason": "upstream website manifest is Hako-owned website/release surface."
+    },
+    {
+      "upstream": "648afa1fd5b4c2eb74b4292b4eceeeb6d93016c1",
+      "subject": "fix: backport libghostty resize overflow fix",
+      "status": "ported",
+      "reason": "ported to Hako with the libghostty-vt resize cursor subtraction saturation patch and focused vendored terminal tests."
+    },
+    {
+      "upstream": "670656b26f1aeadc3f18e6692a9fdf1b02da799c",
+      "subject": "fix: forward resize terminal responses",
+      "status": "ported",
+      "reason": "ported to Hako so resize-generated terminal responses are drained from libghostty-vt and forwarded through the PTY actor."
+    },
+    {
+      "upstream": "658017de68b2ab2bced9c300ae8b6968fae3e998",
+      "subject": "fix: keep focus redraw pending until sent",
+      "status": "ported",
+      "reason": "ported to Hako so focus-triggered semantic full redraws remain pending when the render queue is full."
+    },
+    {
+      "upstream": "a7cd7806f2fa0251e2dca41ffec61ceafb6f0e18",
+      "subject": "fix: reduce scroll CPU in headless server",
+      "status": "ported",
+      "reason": "ported to Hako by deriving wheel routing directly from libghostty-vt state and moving frame ownership into prepared renders to avoid cloning full frames on scroll."
+    },
+    {
+      "upstream": "580db93eccc9f03cdc31841e294b8c18855013f6",
+      "subject": "fix: handle application keypad input",
+      "status": "ported",
+      "reason": "ported to Hako so SS3 application keypad sequences frame and parse as keypad digits/operators/enter."
+    },
+    {
+      "upstream": "350e8c7e4685b12546b145bc5476eb9c3de99751",
+      "subject": "fix: validate clipboard image payloads",
+      "status": "ported",
+      "reason": "ported to Hako so Linux clipboard image reads reject text payloads served for image targets and validate format signatures."
     }
   ]
 }

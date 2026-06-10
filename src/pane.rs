@@ -478,11 +478,24 @@ impl PaneRuntimeIo {
         }
     }
 
-    fn resize(&self, rows: u16, cols: u16, cell_width_px: u32, cell_height_px: u32) {
+    fn resize(
+        &self,
+        rows: u16,
+        cols: u16,
+        cell_width_px: u32,
+        cell_height_px: u32,
+        terminal_responses: Vec<Bytes>,
+    ) {
         match self {
             #[cfg(unix)]
             PaneRuntimeIo::Actor(actor) => {
-                actor.resize(rows, cols, cell_width_px, cell_height_px);
+                actor.resize(
+                    rows,
+                    cols,
+                    cell_width_px,
+                    cell_height_px,
+                    terminal_responses,
+                );
             }
             #[cfg(test)]
             PaneRuntimeIo::TestChannel { resize_tx, .. } => {
@@ -1607,9 +1620,16 @@ impl PaneRuntime {
             return;
         }
         self.current_size.set(size);
-        self.terminal
+        let terminal_responses = self
+            .terminal
             .resize(rows, cols, cell_width_px, cell_height_px);
-        self.io.resize(rows, cols, cell_width_px, cell_height_px);
+        self.io.resize(
+            rows,
+            cols,
+            cell_width_px,
+            cell_height_px,
+            terminal_responses,
+        );
     }
 
     pub fn nudge_child_redraw_after_handoff(&self) {
@@ -1773,14 +1793,7 @@ impl PaneRuntime {
     }
 
     pub fn wheel_routing(&self) -> Option<WheelRouting> {
-        let input_state = self.input_state()?;
-        Some(if input_state.mouse_reporting_enabled() {
-            WheelRouting::MouseReport
-        } else if input_state.alternate_screen && input_state.mouse_alternate_scroll {
-            WheelRouting::AlternateScroll
-        } else {
-            WheelRouting::HostScroll
-        })
+        self.terminal.wheel_routing()
     }
 
     pub fn encode_mouse_button(

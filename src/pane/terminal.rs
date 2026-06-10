@@ -134,9 +134,15 @@ impl PaneTerminal {
             .process_pty_bytes(pane_id, shell_pid, bytes, response_writer)
     }
 
-    pub fn resize(&self, rows: u16, cols: u16, cell_width_px: u32, cell_height_px: u32) {
+    pub fn resize(
+        &self,
+        rows: u16,
+        cols: u16,
+        cell_width_px: u32,
+        cell_height_px: u32,
+    ) -> Vec<Bytes> {
         self.ghostty
-            .resize(rows, cols, cell_width_px, cell_height_px);
+            .resize(rows, cols, cell_width_px, cell_height_px)
     }
 
     pub fn scroll_up(&self, lines: usize) {
@@ -161,6 +167,10 @@ impl PaneTerminal {
 
     pub fn input_state(&self) -> Option<InputState> {
         self.ghostty.input_state()
+    }
+
+    pub fn wheel_routing(&self) -> Option<crate::pane::WheelRouting> {
+        self.ghostty.wheel_routing()
     }
 
     pub fn cursor_state(&self) -> Option<TerminalCursorState> {
@@ -629,11 +639,20 @@ impl GhosttyPaneTerminal {
         }
     }
 
-    pub fn resize(&self, rows: u16, cols: u16, cell_width_px: u32, cell_height_px: u32) {
+    pub fn resize(
+        &self,
+        rows: u16,
+        cols: u16,
+        cell_width_px: u32,
+        cell_height_px: u32,
+    ) -> Vec<Bytes> {
         if let Ok(mut core) = self.core.lock() {
             let _ = core
                 .terminal
                 .resize(cols, rows, cell_width_px, cell_height_px);
+            self.drain_pending_pty_responses()
+        } else {
+            Vec::new()
         }
     }
 
@@ -753,6 +772,29 @@ impl GhosttyPaneTerminal {
                 .keyboard_state_ansi()
                 .ok()
                 .is_some_and(|ansi| !ansi.is_empty()),
+        })
+    }
+
+    pub fn wheel_routing(&self) -> Option<crate::pane::WheelRouting> {
+        let Ok(core) = self.core.lock() else {
+            return None;
+        };
+        let alternate_screen =
+            core.terminal.active_screen().ok()? == crate::ghostty::ActiveScreen::Alternate;
+        let mouse_alternate_scroll = core
+            .terminal
+            .mode_get(crate::ghostty::MODE_MOUSE_ALTERNATE_SCROLL)
+            .ok()?;
+        let mouse_reporting = core.terminal.mode_get(MODE_MOUSE_ANY_MOTION).ok()?
+            || core.terminal.mode_get(MODE_MOUSE_BUTTON_MOTION).ok()?
+            || core.terminal.mode_get(MODE_MOUSE_PRESS_RELEASE).ok()?
+            || core.terminal.mode_get(MODE_MOUSE_X10).ok()?;
+        Some(if mouse_reporting {
+            crate::pane::WheelRouting::MouseReport
+        } else if alternate_screen && mouse_alternate_scroll {
+            crate::pane::WheelRouting::AlternateScroll
+        } else {
+            crate::pane::WheelRouting::HostScroll
         })
     }
 
@@ -2586,6 +2628,21 @@ mod tests {
     }
 
     #[test]
+    fn resize_returns_in_band_size_report_response() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
+        terminal.mode_set(2048, true).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        let responses = pane.resize(40, 100, 9, 18);
+
+        assert_eq!(
+            responses,
+            vec![Bytes::from_static(b"\x1B[48;40;100;720;900t")]
+        );
+    }
+
+    #[test]
     fn synchronized_output_suppresses_intermediate_render_requests_until_batch_ends() {
         let (tx, _rx) = mpsc::channel(4);
         let terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
@@ -2618,6 +2675,32 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let row = (0..16).map(|x| buffer[(x, 0)].symbol()).collect::<String>();
         assert_eq!(row, "restored history");
+    }
+
+    #[test]
+    fn wheel_routing_reads_terminal_modes_without_snapshotting_input_state() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
+        terminal.write(b"\x1b[?1049h");
+        terminal
+            .mode_set(crate::ghostty::MODE_MOUSE_ALTERNATE_SCROLL, true)
+            .unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        assert_eq!(
+            pane.wheel_routing(),
+            Some(crate::pane::WheelRouting::AlternateScroll)
+        );
+
+        {
+            let mut core = pane.core.lock().unwrap();
+            core.terminal.mode_set(MODE_MOUSE_PRESS_RELEASE, true).unwrap();
+        }
+
+        assert_eq!(
+            pane.wheel_routing(),
+            Some(crate::pane::WheelRouting::MouseReport)
+        );
     }
 
     #[test]
