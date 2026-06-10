@@ -1133,6 +1133,12 @@
       "subject": "fix: validate clipboard image payloads",
       "status": "ported",
       "reason": "ported to Hako so Linux clipboard image reads reject text payloads served for image targets and validate format signatures."
+    },
+    {
+      "upstream": "5d7e56737ef30d9de5802b0684a9428c40131dda",
+      "subject": "fix: support worktree actions from bare repos",
+      "status": "ported",
+      "reason": "ported to Hako git discovery, API worktree actions, and worktree command coverage so standalone bare repos can act as worktree sources without changing normal worktree behavior."
     }
   ]
 }

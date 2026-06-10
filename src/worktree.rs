@@ -496,4 +496,39 @@ prunable stale
 
         let _ = std::fs::remove_dir_all(repo);
     }
+
+    #[test]
+    fn run_worktree_add_and_remove_work_from_bare_repo_source() {
+        let repo = create_committed_repo("worktree-run-bare-source");
+        let bare = unique_temp_path("worktree-run-bare-repo");
+        run_git(
+            &repo,
+            &["clone", "--quiet", "--bare", ".", bare.to_str().unwrap()],
+        );
+        let checkout = unique_temp_path("worktree-run-bare-checkout");
+        let branch = "worktree/test-create-remove-bare";
+
+        let add = build_worktree_add_new_branch_command(&bare, &checkout, branch, "HEAD");
+        run_worktree_command(&add).unwrap();
+
+        assert!(checkout.join("README.md").exists());
+        let branch_name = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&checkout)
+            .args(["branch", "--show-current"])
+            .output()
+            .unwrap();
+        assert!(branch_name.status.success());
+        assert_eq!(
+            String::from_utf8(branch_name.stdout).unwrap().trim(),
+            branch
+        );
+
+        let remove = build_worktree_remove_command(&bare, &checkout, false);
+        run_worktree_command(&remove).unwrap();
+        assert!(!checkout.exists());
+
+        let _ = std::fs::remove_dir_all(bare);
+        let _ = std::fs::remove_dir_all(repo);
+    }
 }

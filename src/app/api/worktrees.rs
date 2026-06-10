@@ -1007,6 +1007,55 @@ mod tests {
         let _ = std::fs::remove_dir_all(repo);
     }
 
+    #[tokio::test]
+    async fn api_worktree_create_from_standalone_bare_repo_cwd() {
+        let repo = create_committed_repo("api-worktree-create-bare-source");
+        let bare = unique_temp_path("api-worktree-create-bare-repo");
+        run_git(
+            &repo,
+            &["clone", "--quiet", "--bare", ".", bare.to_str().unwrap()],
+        );
+        let worktree_root = unique_temp_path("api-worktree-create-bare-root");
+        let mut app = test_app();
+        app.state.worktree_directory = worktree_root.clone();
+
+        let response = app.handle_api_request(Request {
+            id: "req".into(),
+            method: crate::api::schema::Method::WorktreeCreate(WorktreeCreateParams {
+                cwd: Some(bare.join("refs").display().to_string()),
+                branch: Some("worktree/api-create-bare".into()),
+                ..WorktreeCreateParams::default()
+            }),
+        });
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::WorktreeCreated {
+            workspace, worktree, ..
+        } = success.result
+        else {
+            panic!("expected worktree_created response");
+        };
+
+        let checkout = Path::new(&worktree.path);
+        assert!(checkout.join("README.md").exists());
+        assert!(workspace
+            .worktree
+            .as_ref()
+            .is_some_and(|membership| membership.is_linked_worktree));
+        assert_eq!(app.state.workspaces.len(), 2);
+        let parent_membership = app.state.workspaces[0].worktree_space().unwrap();
+        assert!(!parent_membership.is_linked_worktree);
+        assert_eq!(
+            crate::worktree::canonical_or_original(&parent_membership.checkout_path),
+            crate::worktree::canonical_or_original(&bare)
+        );
+
+        let remove = crate::worktree::build_worktree_remove_command(&bare, checkout, false);
+        crate::worktree::run_worktree_command(&remove).unwrap();
+        let _ = std::fs::remove_dir_all(worktree_root);
+        let _ = std::fs::remove_dir_all(bare);
+        let _ = std::fs::remove_dir_all(repo);
+    }
+
     #[test]
     fn invalid_worktree_create_from_cwd_does_not_create_parent_workspace() {
         let repo = create_committed_repo("api-worktree-create-invalid-cwd-repo");
