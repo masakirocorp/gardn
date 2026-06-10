@@ -172,6 +172,14 @@ _Avoid_: Scrollback, runtime, terminal bytes
 A Hako client process attached to a running Hako server. A thin client renders server frames and forwards framed input bytes; the server owns normal app input semantics.
 _Avoid_: Server, app instance
 
+**Foreground Client**:
+The thin client whose host surface currently owns app-facing input context.
+_Avoid_: Attach owner, server
+
+**Clipboard Image Paste Bridge**:
+The explicit paste flow where the pasting thin client reads a local clipboard image and Hako delivers a temporary file path to the terminal instead of raw image bytes.
+_Avoid_: Clipboard sync, image upload
+
 **Semantic Input**:
 Decoded key, mouse, paste, outer-focus, and host terminal color/theme reply events interpreted in the context of Hako's current mode, foreground client, and keybindings.
 _Avoid_: Terminal bytes, stdin chunk
