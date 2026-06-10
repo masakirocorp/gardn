@@ -104,6 +104,14 @@ _Avoid_: Viewport, visible text
 Hako's current understanding of whether an agent is working, blocked, idle, or unknown.
 _Avoid_: Status when referring to Linear workflow status
 
+**State Notification**:
+A user-facing alert derived from an agent state change, such as needs-attention or finished. A state notification is about the product event before choosing Hako, terminal, system, sound, or no delivery.
+_Avoid_: Toast when delivery channel is not yet chosen
+
+**Notification Target**:
+The workspace and pane a Hako notification can focus. Notification targets exist for in-app navigation; external terminal or system notifications should not imply they can focus Hako.
+_Avoid_: Deep link, delivery target
+
 **Fallback Screen Detection**:
 Agent-state inference from terminal tail text. Fallback screen detection is separate from explicit agent reports and should not be treated as the only source of agent state.
 _Avoid_: Hook, report, source of truth
