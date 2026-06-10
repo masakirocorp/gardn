@@ -116,6 +116,10 @@ _Avoid_: Socket owner, command owner
 A running shell or agent session that Hako can display, send input to, and track. A terminal may be shown in a pane and may outlive a particular pane placement.
 _Avoid_: Pane, viewport
 
+**Terminal Runtime**:
+The live server-owned runtime for a terminal, including PTY/I/O ownership, process lifecycle, detector tasks, and render/update channels. Terminal runtime is not persisted app state.
+_Avoid_: AppState, pane metadata
+
 **Terminal Core**:
 The embedded terminal-emulation engine Hako uses to turn PTY bytes into terminal state, render data, input modes, and terminal responses.
 _Avoid_: Pane, terminal runtime
@@ -193,11 +197,11 @@ Optional saved terminal scrollback used to restore pane contents when a fresh ru
 _Avoid_: Session snapshot, terminal semantics
 
 **Live Handoff**:
-A server replacement flow that transfers live pane runtimes and session state to a new Hako server so pane processes can survive the server swap.
+A server replacement flow that transfers live terminal runtimes and session state to a new Hako server so terminal/session processes can survive the server swap.
 _Avoid_: Restart, cold restore
 
 **Handoff Import**:
-The replacement-server side of live handoff, started on a private import socket to validate a manifest, receive live pane runtime file descriptors, bind public sockets, and assume ownership after commit.
+The replacement-server side of live handoff, started on a private import socket to validate a manifest, receive terminal runtime PTY file descriptors, bind public sockets, and assume ownership after commit.
 _Avoid_: Client attach, cold restore
 
 **Handoff Snapshot**:
