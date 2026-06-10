@@ -1,8 +1,8 @@
 # hako task runner
 
-# Run tests
+# Run local tests with incremental compilation
 test:
-    CARGO_INCREMENTAL=0 cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
+    cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
     python3 -m unittest scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines
 
 # Run fast local lint checks
@@ -10,9 +10,12 @@ lint:
     cargo fmt --check
     CARGO_INCREMENTAL=0 cargo clippy --all-targets --locked -- -D warnings
 
+# Run Rust tests with CI settings
+ci-test:
+    CARGO_INCREMENTAL=0 cargo nextest run -P ci --locked --status-level slow --final-status-level slow --failure-output final --success-output never
+
 # Run PR CI checks
-ci: lint
-    CARGO_INCREMENTAL=0 cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
+ci: lint ci-test
 
 # Check formatting + run unit tests + maintenance script tests
 check: ci

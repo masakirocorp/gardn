@@ -59,8 +59,8 @@ This repo is a long-lived Masakiro product fork of `ogulcancelik/herdr`, branded
 Use `just` recipes by default for full tests and checks.
 
 ```bash
-just test               # cargo nextest + maintenance script tests
-just check              # formatting check + clippy + cargo nextest + maintenance script tests
+just test               # local incremental cargo nextest + maintenance script tests
+just check              # formatting check + clippy + non-incremental ci-profile cargo nextest + maintenance script tests
 ```
 
 During development, focused `cargo test --locked <test-name>` runs are fine for tight iteration. Before committing non-trivial changes, run `just check` unless Can explicitly accepts a narrower validation for that commit.
@@ -75,7 +75,7 @@ For small UI or behavior tweaks, make the edit, run formatting/build only if nee
 
 Batch small follow-up fixes before revalidating. Full checks belong at commit, merge, and release boundaries, not after every edit.
 
-CI intentionally splits formatting, clippy, Rust tests, and maintenance tests into separate steps. Keep that shape; it makes platform hangs diagnosable. Rust tests use the `ci` nextest profile, which reports slow tests and times out hung tests.
+CI intentionally splits formatting, clippy, Rust tests, and maintenance tests into separate steps. Keep that shape; it makes platform hangs diagnosable. Rust tests use `just ci-test`: non-incremental compilation plus the `ci` nextest profile, which reports slow tests and times out hung tests.
 
 Unit tests live next to the code (`#[cfg(test)] mod tests`). If you add behavior to `AppState` or `Workspace`, it should be testable with `AppState::test_new()` and `Workspace::test_new()` — no PTYs.
 
