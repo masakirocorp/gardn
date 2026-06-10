@@ -120,9 +120,27 @@ fn sidebar_section_heights(total_h: u16, split_ratio: f32) -> (u16, u16) {
     (ws_h, detail_h)
 }
 
-pub(crate) fn expanded_sidebar_sections(area: Rect, split_ratio: f32) -> (Rect, Rect) {
-    let content = Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height);
-    if content.width == 0 || content.height == 0 {
+fn sidebar_content_rect(area: Rect, separator_on_left: bool) -> Rect {
+    if area.width <= 1 || area.height == 0 {
+        return Rect::default();
+    }
+
+    let content_w = area.width.saturating_sub(1);
+    let content_x = if separator_on_left {
+        area.x.saturating_add(1)
+    } else {
+        area.x
+    };
+    Rect::new(content_x, area.y, content_w, area.height)
+}
+
+fn expanded_sidebar_sections_with_separator(
+    area: Rect,
+    split_ratio: f32,
+    separator_on_left: bool,
+) -> (Rect, Rect) {
+    let content = sidebar_content_rect(area, separator_on_left);
+    if content == Rect::default() {
         return (Rect::default(), Rect::default());
     }
 
@@ -132,9 +150,32 @@ pub(crate) fn expanded_sidebar_sections(area: Rect, split_ratio: f32) -> (Rect, 
     (ws_area, detail_area)
 }
 
+pub(crate) fn expanded_sidebar_sections(area: Rect, split_ratio: f32) -> (Rect, Rect) {
+    expanded_sidebar_sections_with_separator(area, split_ratio, false)
+}
+
+pub(crate) fn right_aligned_expanded_sidebar_sections(
+    area: Rect,
+    split_ratio: f32,
+) -> (Rect, Rect) {
+    expanded_sidebar_sections_with_separator(area, split_ratio, true)
+}
+
 pub(crate) fn sidebar_section_divider_rect(area: Rect, split_ratio: f32) -> Rect {
-    let content = Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height);
-    if content.width == 0 || content.height < 6 {
+    sidebar_section_divider_rect_with_separator(area, split_ratio, false)
+}
+
+pub(crate) fn right_aligned_sidebar_section_divider_rect(area: Rect, split_ratio: f32) -> Rect {
+    sidebar_section_divider_rect_with_separator(area, split_ratio, true)
+}
+
+fn sidebar_section_divider_rect_with_separator(
+    area: Rect,
+    split_ratio: f32,
+    separator_on_left: bool,
+) -> Rect {
+    let content = sidebar_content_rect(area, separator_on_left);
+    if content == Rect::default() || content.height < 6 {
         return Rect::default();
     }
 
@@ -717,6 +758,11 @@ pub(crate) fn workspace_list_rect(area: Rect, split_ratio: f32) -> Rect {
     ws_area
 }
 
+pub(crate) fn right_aligned_workspace_list_rect(area: Rect, split_ratio: f32) -> Rect {
+    let (ws_area, _) = right_aligned_expanded_sidebar_sections(area, split_ratio);
+    ws_area
+}
+
 pub(crate) fn left_sidebar_workspace_rect(area: Rect) -> Rect {
     let content = Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height);
     if content.width == 0 || content.height == 0 {
@@ -1117,7 +1163,6 @@ impl WorkspaceListEntry {
         }
     }
 }
-
 fn workspace_list_entries(app: &AppState) -> Vec<WorkspaceListEntry> {
     if app.sidebar_collapsed || app.group_filter_enabled {
         return app
@@ -1163,8 +1208,23 @@ pub(crate) fn collapsed_sidebar_sections(
     area: Rect,
     show_agent_detail: bool,
 ) -> (Rect, Option<u16>, Rect) {
-    let content = Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height);
-    if content.width == 0 || content.height == 0 {
+    collapsed_sidebar_sections_with_separator(area, show_agent_detail, false)
+}
+
+fn right_aligned_collapsed_sidebar_sections(
+    area: Rect,
+    show_agent_detail: bool,
+) -> (Rect, Option<u16>, Rect) {
+    collapsed_sidebar_sections_with_separator(area, show_agent_detail, true)
+}
+
+fn collapsed_sidebar_sections_with_separator(
+    area: Rect,
+    show_agent_detail: bool,
+    separator_on_left: bool,
+) -> (Rect, Option<u16>, Rect) {
+    let content = sidebar_content_rect(area, separator_on_left);
+    if content == Rect::default() {
         return (Rect::default(), None, Rect::default());
     }
 
@@ -1190,11 +1250,19 @@ pub(crate) fn collapsed_sidebar_sections(
 }
 
 pub(crate) fn collapsed_group_header_rect(area: Rect) -> Rect {
-    let content_w = area.width.saturating_sub(1);
-    if content_w == 0 || area.height == 0 {
+    collapsed_group_header_rect_with_separator(area, false)
+}
+
+fn right_aligned_collapsed_group_header_rect(area: Rect) -> Rect {
+    collapsed_group_header_rect_with_separator(area, true)
+}
+
+fn collapsed_group_header_rect_with_separator(area: Rect, separator_on_left: bool) -> Rect {
+    let content = sidebar_content_rect(area, separator_on_left);
+    if content == Rect::default() {
         return Rect::default();
     }
-    Rect::new(area.x, area.y, content_w, 1)
+    Rect::new(content.x, content.y, content.width, 1)
 }
 
 pub(crate) fn collapsed_workspace_rows_rect(area: Rect, show_agent_detail: bool) -> Rect {
@@ -1219,6 +1287,11 @@ fn collapsed_group_label(app: &AppState) -> String {
 }
 
 /// Collapsed sidebar: workspace glance, plus compact agent list only when no right sidebar exists.
+fn sidebar_is_combined_right(app: &AppState) -> bool {
+    app.view.right_sidebar_rect == Rect::default()
+        && app.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight
+}
+
 pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: Rect) {
     let is_navigating = matches!(app.mode, Mode::Navigate);
     let show_agent_detail = app.view.right_sidebar_rect == Rect::default();
@@ -1232,15 +1305,28 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
     } else {
         Style::default().fg(p.overlay0).bg(p.panel_bg)
     };
-    let sep_x = area.x + area.width.saturating_sub(1);
+    let combined_right = sidebar_is_combined_right(app);
+    let sep_x = if combined_right {
+        area.x
+    } else {
+        area.x + area.width.saturating_sub(1)
+    };
     let buf = frame.buffer_mut();
     for y in area.y..area.y + area.height {
         buf[(sep_x, y)].set_symbol("│");
         buf[(sep_x, y)].set_style(sep_style);
     }
 
-    let (ws_area, divider_y, detail_area) = collapsed_sidebar_sections(area, show_agent_detail);
-    let group_header = collapsed_group_header_rect(area);
+    let (ws_area, divider_y, detail_area) = if combined_right {
+        right_aligned_collapsed_sidebar_sections(area, show_agent_detail)
+    } else {
+        collapsed_sidebar_sections(area, show_agent_detail)
+    };
+    let group_header = if combined_right {
+        right_aligned_collapsed_group_header_rect(area)
+    } else {
+        collapsed_group_header_rect(area)
+    };
     if group_header != Rect::default() {
         let label = collapsed_group_label(app);
         let style = if app.group_filter_enabled {
@@ -1258,7 +1344,16 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         );
     }
 
-    let workspace_rows = collapsed_workspace_rows_rect(area, show_agent_detail);
+    let workspace_rows = if ws_area == Rect::default() || ws_area.height <= 1 {
+        Rect::default()
+    } else {
+        Rect::new(
+            ws_area.x,
+            ws_area.y + 1,
+            ws_area.width,
+            ws_area.height.saturating_sub(1),
+        )
+    };
     if ws_area == Rect::default() || workspace_rows == Rect::default() {
         render_sidebar_toggle(app, frame, area, true, p);
         return;
@@ -1403,7 +1498,12 @@ pub(super) fn render_sidebar(
         Style::default().fg(p.overlay0).bg(p.panel_bg)
     };
 
-    let sep_x = area.x + area.width.saturating_sub(1);
+    let combined_right = sidebar_is_combined_right(app);
+    let sep_x = if combined_right {
+        area.x
+    } else {
+        area.x + area.width.saturating_sub(1)
+    };
     let buf = frame.buffer_mut();
     for y in area.y..area.y + area.height {
         buf[(sep_x, y)].set_symbol("│");
@@ -1411,7 +1511,11 @@ pub(super) fn render_sidebar(
     }
 
     let ws_area = if app.view.right_sidebar_rect == Rect::default() {
-        let (ws_area, detail_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
+        let (ws_area, detail_area) = if combined_right {
+            right_aligned_expanded_sidebar_sections(area, app.sidebar_section_split)
+        } else {
+            expanded_sidebar_sections(area, app.sidebar_section_split)
+        };
         render_agent_detail_from(app, terminal_runtimes, frame, detail_area, true);
         ws_area
     } else {

@@ -20,8 +20,8 @@ pub use self::{
     model::{
         validated_sidebar_bounds, AgentPanelScopeConfig, Config, ConfigReloadReport,
         ConfigReloadStatus, KeysConfig, NewTerminalCwdConfig, ShellModeConfig,
-        ToastClipboardPosition, ToastConfig, ToastDelivery, ToastHakoPosition,
-        MAX_TOAST_DELAY_SECONDS,
+        SidebarArrangementConfig, ToastClipboardPosition, ToastConfig, ToastDelivery,
+        ToastHakoPosition, MAX_TOAST_DELAY_SECONDS,
     },
     sound::SoundConfig,
     theme::{parse_color, CustomThemeColors, TerminalAccent, ThemeConfig, ThemeMode},

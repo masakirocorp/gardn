@@ -10,7 +10,9 @@ use crate::{
         },
         App, Mode,
     },
-    config::{NewTerminalCwdConfig, TerminalAccent, ThemeMode, ToastDelivery},
+    config::{
+        NewTerminalCwdConfig, SidebarArrangementConfig, TerminalAccent, ThemeMode, ToastDelivery,
+    },
     settings_rows::{
         option_count, option_index_for_visual_row, rows_for_section, selected_visual_row,
         visual_row_count,
@@ -39,6 +41,7 @@ pub(super) enum SettingsAction {
         sidebar_width: u16,
         sidebar_min_width: u16,
         sidebar_max_width: u16,
+        sidebar_arrangement: SidebarArrangementConfig,
         worktree_directory: Option<String>,
         agent_border_labels: bool,
     },
@@ -78,6 +81,7 @@ impl App {
                     sidebar_width,
                     sidebar_min_width,
                     sidebar_max_width,
+                    sidebar_arrangement,
                     agent_border_labels,
                     worktree_directory,
                 } => {
@@ -94,6 +98,7 @@ impl App {
                     self.save_new_terminal_cwd(&new_terminal_cwd);
                     self.save_mouse_scroll_lines(mouse_scroll_lines);
                     self.save_sidebar_widths(sidebar_width, sidebar_min_width, sidebar_max_width);
+                    self.save_sidebar_arrangement(sidebar_arrangement);
                     if let Some(directory) = worktree_directory {
                         self.save_worktree_directory(&directory);
                     }
@@ -864,6 +869,13 @@ fn pending_sidebar_max_width(state: &AppState) -> u16 {
         .unwrap_or(state.sidebar_max_width)
 }
 
+fn pending_sidebar_arrangement(state: &AppState) -> SidebarArrangementConfig {
+    state
+        .settings
+        .pending_sidebar_arrangement
+        .unwrap_or(state.sidebar_arrangement)
+}
+
 fn pending_agent_border_labels(state: &AppState) -> bool {
     state
         .settings
@@ -1069,6 +1081,7 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_sidebar_width = None;
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
+    state.settings.pending_sidebar_arrangement = None;
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
@@ -1097,6 +1110,7 @@ fn current_settings_action(state: &AppState) -> SettingsAction {
         sidebar_width: pending_sidebar_width(state),
         sidebar_min_width: pending_sidebar_min_width(state),
         sidebar_max_width: pending_sidebar_max_width(state),
+        sidebar_arrangement: pending_sidebar_arrangement(state),
         worktree_directory: state.settings.pending_worktree_directory.clone(),
         agent_border_labels: pending_agent_border_labels(state),
     }
@@ -1132,16 +1146,29 @@ fn next_mouse_scroll_lines(lines: usize) -> usize {
     }
 }
 
+fn next_sidebar_arrangement(current: SidebarArrangementConfig) -> SidebarArrangementConfig {
+    match current {
+        SidebarArrangementConfig::Auto => SidebarArrangementConfig::Separate,
+        SidebarArrangementConfig::Separate => SidebarArrangementConfig::CombinedLeft,
+        SidebarArrangementConfig::CombinedLeft => SidebarArrangementConfig::CombinedRight,
+        SidebarArrangementConfig::CombinedRight => SidebarArrangementConfig::Auto,
+    }
+}
+
 fn select_pending_layout_setting(state: &mut AppState) {
     match state.settings.list.selected {
         0 => {
+            state.settings.pending_sidebar_arrangement =
+                Some(next_sidebar_arrangement(pending_sidebar_arrangement(state)));
+        }
+        1 => {
             let min = pending_sidebar_min_width(state);
             let max = pending_sidebar_max_width(state);
             let current = pending_sidebar_width(state).clamp(min, max);
             let next = current.saturating_add(2);
             state.settings.pending_sidebar_width = Some(if next > max { min } else { next });
         }
-        1 => {
+        2 => {
             let max = pending_sidebar_max_width(state);
             let current = pending_sidebar_min_width(state);
             let next = current.saturating_add(2);
@@ -1153,7 +1180,7 @@ fn select_pending_layout_setting(state: &mut AppState) {
             state.settings.pending_sidebar_min_width = Some(next);
             state.settings.pending_sidebar_width = Some(pending_sidebar_width(state).max(next));
         }
-        2 => {
+        3 => {
             let min = pending_sidebar_min_width(state);
             let current = pending_sidebar_max_width(state);
             let next = current.saturating_add(2);
@@ -1721,6 +1748,7 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
     state.settings.pending_sidebar_width = Some(state.default_sidebar_width);
     state.settings.pending_sidebar_min_width = Some(state.sidebar_min_width);
     state.settings.pending_sidebar_max_width = Some(state.sidebar_max_width);
+    state.settings.pending_sidebar_arrangement = Some(state.sidebar_arrangement);
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = Some(state.agent_border_labels_enabled());
     state.settings.pending_agent_profile_id = None;
@@ -1777,6 +1805,7 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_sidebar_width = None;
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
+    state.settings.pending_sidebar_arrangement = None;
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
@@ -3077,6 +3106,7 @@ mod tests {
                 sidebar_width: 26,
                 sidebar_min_width: 18,
                 sidebar_max_width: 36,
+                sidebar_arrangement: SidebarArrangementConfig::Auto,
                 worktree_directory: None,
                 agent_border_labels: false,
             })
@@ -3239,13 +3269,27 @@ mod tests {
     }
 
     #[test]
-    fn settings_layout_cycles_sidebar_widths() {
+    fn settings_layout_cycles_sidebar_arrangement_and_widths() {
         let mut state = state_with_workspaces(&["test"]);
+        state.sidebar_arrangement = SidebarArrangementConfig::Auto;
         state.default_sidebar_width = 26;
         state.sidebar_min_width = 18;
         state.sidebar_max_width = 36;
         open_settings_at(&mut state, SettingsSection::Layout);
 
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        assert_eq!(
+            state.settings.pending_sidebar_arrangement,
+            Some(SidebarArrangementConfig::Separate)
+        );
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
@@ -3280,6 +3324,7 @@ mod tests {
                 sidebar_width: 28,
                 sidebar_min_width: 20,
                 sidebar_max_width: 38,
+                sidebar_arrangement: SidebarArrangementConfig::Separate,
                 ..
             }
         ));

@@ -731,6 +731,45 @@ fn render_settings_rows(app: &AppState, frame: &mut Frame, area: Rect) {
                     ))));
                 }
             }
+            SettingsListRow::ValueOption {
+                index,
+                title,
+                value,
+            } => {
+                let selected = app.settings.list.selected == *index;
+                if selected {
+                    selected_row = Some(rows.len());
+                }
+                let marker_style = if selected {
+                    selected_style
+                } else {
+                    Style::default().fg(p.overlay0)
+                };
+                if selected {
+                    rows.push(ListItem::new(Line::from(vec![
+                        Span::styled("›", marker_style),
+                        Span::styled(" ", selected_style),
+                        Span::styled(
+                            format!("{title:<width$}", width = list_width.saturating_sub(2)),
+                            selected_style,
+                        ),
+                    ])));
+                    rows.push(ListItem::new(Line::from(Span::styled(
+                        format!("{value:<list_width$}"),
+                        selected_style,
+                    ))));
+                } else {
+                    rows.push(ListItem::new(Line::from(vec![
+                        Span::styled("›", marker_style),
+                        Span::raw(" "),
+                        Span::styled(title.as_ref(), Style::default().fg(p.text)),
+                    ])));
+                    rows.push(ListItem::new(Line::from(Span::styled(
+                        value.as_ref(),
+                        Style::default().fg(p.subtext0),
+                    ))));
+                }
+            }
             SettingsListRow::TextInput {
                 index,
                 title,
@@ -1547,11 +1586,13 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("sidebar"));
-        assert!(text.contains("● default sidebar width"));
+        assert!(text.contains("› sidebar arrangement"));
+        assert!(text.contains("auto"));
+        assert!(text.contains("› default sidebar width"));
         assert!(text.contains("26 columns"));
-        assert!(text.contains("● minimum sidebar width"));
+        assert!(text.contains("› minimum sidebar width"));
         assert!(text.contains("18 columns"));
-        assert!(text.contains("● maximum sidebar width"));
+        assert!(text.contains("› maximum sidebar width"));
         assert!(text.contains("36 columns"));
         assert!(!text.contains("worktrees"));
         assert!(!text.contains("worktree directory"));
@@ -1575,7 +1616,7 @@ mod tests {
         assert!(text.contains("workspace"));
         assert!(text.contains("terminal"));
         assert!(text.contains("worktrees"));
-        assert!(text.contains("● worktree directory"));
+        assert!(text.contains("› worktree directory"));
         assert!(text.contains("/tmp/hako-worktrees"));
     }
     #[test]
@@ -1627,16 +1668,16 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("● name new tabs"));
-        assert!(text.contains("● worktree directory"));
-        assert!(text.contains("● new terminal cwd"));
+        assert!(text.contains("› worktree directory"));
+        assert!(text.contains("› new terminal cwd"));
         assert!(text.contains("follow focused pane"));
-        assert!(text.contains("● mouse wheel speed"));
+        assert!(text.contains("› mouse wheel speed"));
         assert!(text.contains("3 lines per wheel notch"));
         assert!(text.contains("○ agent border labels"));
     }
 
     #[test]
-    fn selected_section_markers_use_selected_foreground() {
+    fn selected_value_option_marker_uses_selected_foreground() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Layout;
         app.settings.list.selected = 0;
@@ -1650,11 +1691,11 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         let (selected_y, marker_x) =
-            find_text_cell(&text, "● default sidebar width").expect("selected layout row");
+            find_text_cell(&text, "› sidebar arrangement").expect("selected layout row");
 
         assert_eq!(
             terminal.backend().buffer()[(marker_x, selected_y)].symbol(),
-            "●"
+            "›"
         );
         assert_eq!(
             terminal.backend().buffer()[(marker_x, selected_y)]
@@ -1662,6 +1703,9 @@ mod tests {
                 .fg,
             Some(panel_contrast_fg(&app.palette))
         );
+
+        let (_, value_x) = find_text_cell(&text, "auto").expect("selected layout value");
+        assert_eq!(value_x, marker_x);
     }
 
     #[test]

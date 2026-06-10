@@ -41,6 +41,12 @@ impl AppState {
         if self.view.right_sidebar_rect != Rect::default() {
             return crate::ui::left_sidebar_workspace_rect(sidebar);
         }
+        if self.sidebar_is_combined_right() {
+            return crate::ui::right_aligned_workspace_list_rect(
+                sidebar,
+                self.sidebar_section_split,
+            );
+        }
         crate::ui::workspace_list_rect(sidebar, self.sidebar_section_split)
     }
 
@@ -530,13 +536,23 @@ impl AppState {
         )
     }
 
+    fn sidebar_is_combined_right(&self) -> bool {
+        self.view.right_sidebar_rect == Rect::default()
+            && self.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight
+    }
+
     pub(super) fn on_sidebar_divider(&self, col: u16, row: u16) -> bool {
         if self.sidebar_collapsed {
             return false;
         }
         let sidebar = self.view.sidebar_rect;
+        let divider_x = if self.sidebar_is_combined_right() {
+            sidebar.x
+        } else {
+            sidebar.x + sidebar.width.saturating_sub(1)
+        };
         sidebar.width > 0
-            && col == sidebar.x + sidebar.width.saturating_sub(1)
+            && col == divider_x
             && row >= sidebar.y
             && row < sidebar.y + sidebar.height
     }
@@ -586,7 +602,14 @@ impl AppState {
 
     pub(super) fn set_manual_sidebar_width(&mut self, divider_col: u16) {
         let sidebar = self.view.sidebar_rect;
-        let width = divider_col.saturating_sub(sidebar.x).saturating_add(1);
+        let width = if self.sidebar_is_combined_right() {
+            sidebar
+                .x
+                .saturating_add(sidebar.width)
+                .saturating_sub(divider_col)
+        } else {
+            divider_col.saturating_sub(sidebar.x).saturating_add(1)
+        };
         self.sidebar_width = width.clamp(self.sidebar_min_width, self.sidebar_max_width);
         self.sidebar_width_source = crate::app::state::SidebarWidthSource::Manual;
         self.mark_session_dirty();
@@ -618,10 +641,17 @@ impl AppState {
         if self.sidebar_collapsed || self.view.right_sidebar_rect != Rect::default() {
             return false;
         }
-        let rect = crate::ui::sidebar_section_divider_rect(
-            self.view.sidebar_rect,
-            self.sidebar_section_split,
-        );
+        let rect = if self.sidebar_is_combined_right() {
+            crate::ui::right_aligned_sidebar_section_divider_rect(
+                self.view.sidebar_rect,
+                self.sidebar_section_split,
+            )
+        } else {
+            crate::ui::sidebar_section_divider_rect(
+                self.view.sidebar_rect,
+                self.sidebar_section_split,
+            )
+        };
         rect.width > 0
             && col >= rect.x
             && col < rect.x + rect.width

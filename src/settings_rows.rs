@@ -2,7 +2,9 @@ use std::borrow::Cow;
 
 use crate::{
     app::state::{normalize_theme_name, theme_names_for_appearance, AppState, SettingsSection},
-    config::{NewTerminalCwdConfig, TerminalAccent, ThemeMode, ToastDelivery},
+    config::{
+        NewTerminalCwdConfig, SidebarArrangementConfig, TerminalAccent, ThemeMode, ToastDelivery,
+    },
     terminal_theme::ThemeAppearance,
 };
 
@@ -16,6 +18,11 @@ pub(crate) enum SettingsListRow {
         title: Cow<'static, str>,
         description: Cow<'static, str>,
         enabled: bool,
+    },
+    ValueOption {
+        index: usize,
+        title: Cow<'static, str>,
+        value: Cow<'static, str>,
     },
     TextInput {
         index: usize,
@@ -54,7 +61,7 @@ pub(crate) fn option_index_for_visual_row(rows: &[SettingsListRow], row: usize) 
                 }
                 visual_row += 1;
             }
-            SettingsListRow::Option { index, .. } => {
+            SettingsListRow::Option { index, .. } | SettingsListRow::ValueOption { index, .. } => {
                 if row == visual_row || row == visual_row + 1 {
                     return Some(*index);
                 }
@@ -102,7 +109,7 @@ pub(crate) fn selected_visual_row(rows: &[SettingsListRow], selected: usize) -> 
             SettingsListRow::Header(_) | SettingsListRow::Caption(_) | SettingsListRow::Spacer => {
                 visual_row += 1;
             }
-            SettingsListRow::Option { index, .. } => {
+            SettingsListRow::Option { index, .. } | SettingsListRow::ValueOption { index, .. } => {
                 if *index == selected {
                     return Some(visual_row);
                 }
@@ -133,7 +140,9 @@ pub(crate) fn visual_row_count(rows: &[SettingsListRow]) -> usize {
             | SettingsListRow::Spacer
             | SettingsListRow::Choice { .. }
             | SettingsListRow::StatusChoice { .. } => 1,
-            SettingsListRow::Option { .. } | SettingsListRow::TextInput { .. } => 2,
+            SettingsListRow::Option { .. }
+            | SettingsListRow::ValueOption { .. }
+            | SettingsListRow::TextInput { .. } => 2,
         })
         .sum()
 }
@@ -144,6 +153,7 @@ pub(crate) fn option_count(rows: &[SettingsListRow]) -> usize {
             matches!(
                 row,
                 SettingsListRow::Option { .. }
+                    | SettingsListRow::ValueOption { .. }
                     | SettingsListRow::TextInput { .. }
                     | SettingsListRow::Choice { .. }
                     | SettingsListRow::StatusChoice { .. }
@@ -556,6 +566,14 @@ fn group_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
     rows
 }
 
+fn sidebar_arrangement_label(arrangement: SidebarArrangementConfig) -> &'static str {
+    match arrangement {
+        SidebarArrangementConfig::Auto => "auto",
+        SidebarArrangementConfig::Separate => "separate sidebars",
+        SidebarArrangementConfig::CombinedLeft => "combined left",
+        SidebarArrangementConfig::CombinedRight => "combined right",
+    }
+}
 fn layout_rows(app: &AppState) -> Vec<SettingsListRow> {
     let width = app
         .settings
@@ -569,11 +587,20 @@ fn layout_rows(app: &AppState) -> Vec<SettingsListRow> {
         .settings
         .pending_sidebar_max_width
         .unwrap_or(app.sidebar_max_width);
+    let arrangement = app
+        .settings
+        .pending_sidebar_arrangement
+        .unwrap_or(app.sidebar_arrangement);
     vec![
         SettingsListRow::Header("sidebar"),
-        option(0, "default sidebar width", format!("{width} columns"), true),
-        option(1, "minimum sidebar width", format!("{min} columns"), true),
-        option(2, "maximum sidebar width", format!("{max} columns"), true),
+        value_option(
+            0,
+            "sidebar arrangement",
+            sidebar_arrangement_label(arrangement),
+        ),
+        value_option(1, "default sidebar width", format!("{width} columns")),
+        value_option(2, "minimum sidebar width", format!("{min} columns")),
+        value_option(3, "maximum sidebar width", format!("{max} columns")),
     ]
 }
 
@@ -614,11 +641,11 @@ fn behavior_rows(app: &AppState) -> Vec<SettingsListRow> {
                 .pending_prompt_new_tab_name
                 .unwrap_or_else(|| app.prompt_new_tab_name_enabled()),
         ),
-        option(2, "worktree directory", worktree_directory, true),
+        value_option(2, "worktree directory", worktree_directory),
         SettingsListRow::Spacer,
         SettingsListRow::Header("terminal"),
-        option(3, "new terminal cwd", cwd_label, true),
-        option(4, "mouse wheel speed", scroll_label, true),
+        value_option(3, "new terminal cwd", cwd_label),
+        value_option(4, "mouse wheel speed", scroll_label),
         option(
             5,
             "agent border labels",
@@ -707,6 +734,18 @@ fn option(
         title: title.into(),
         description: description.into(),
         enabled,
+    }
+}
+
+fn value_option(
+    index: usize,
+    title: impl Into<Cow<'static, str>>,
+    value: impl Into<Cow<'static, str>>,
+) -> SettingsListRow {
+    SettingsListRow::ValueOption {
+        index,
+        title: title.into(),
+        value: value.into(),
     }
 }
 

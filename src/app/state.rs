@@ -1912,6 +1912,7 @@ pub struct SettingsState {
     pub pending_sidebar_min_width: Option<u16>,
     /// Pending maximum expanded sidebar width while settings is open.
     pub pending_sidebar_max_width: Option<u16>,
+    pub pending_sidebar_arrangement: Option<crate::config::SidebarArrangementConfig>,
     /// Pending worktree checkout parent directory while settings is open.
     pub pending_worktree_directory: Option<String>,
     /// Pending agent border label setting while settings is open.
@@ -2337,7 +2338,9 @@ pub struct AppState {
     pub sidebar_collapsed: bool,
     pub right_sidebar_width: u16,
     pub right_sidebar_collapsed: bool,
-    /// Ratio of sidebar height allocated to the workspaces section.
+    pub sidebar_arrangement: crate::config::SidebarArrangementConfig,
+    /// Ratio of sidebar height allocated to the workspaces section when activity
+    /// is stacked into the same sidebar.
     pub sidebar_section_split: f32,
     pub activity_agents_expanded: bool,
     pub activity_commands_expanded: bool,
@@ -2981,6 +2984,7 @@ impl AppState {
             sidebar_collapsed: false,
             right_sidebar_width: 28,
             right_sidebar_collapsed: false,
+            sidebar_arrangement: crate::config::SidebarArrangementConfig::Auto,
             sidebar_section_split: 0.5,
             activity_agents_expanded: true,
             activity_commands_expanded: false,
@@ -3058,6 +3062,7 @@ impl AppState {
                 pending_new_terminal_cwd: None,
                 pending_mouse_scroll_lines: None,
                 pending_sidebar_width: None,
+                pending_sidebar_arrangement: None,
                 pending_sidebar_min_width: None,
                 pending_sidebar_max_width: None,
                 pending_worktree_directory: None,

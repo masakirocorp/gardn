@@ -519,6 +519,7 @@ impl App {
                         sidebar_width,
                         sidebar_min_width,
                         sidebar_max_width,
+                        sidebar_arrangement,
                         worktree_directory,
                         agent_border_labels,
                     } => {
@@ -539,6 +540,7 @@ impl App {
                             sidebar_min_width,
                             sidebar_max_width,
                         );
+                        self.save_sidebar_arrangement(sidebar_arrangement);
                         if let Some(directory) = worktree_directory {
                             self.save_worktree_directory(&directory);
                         }

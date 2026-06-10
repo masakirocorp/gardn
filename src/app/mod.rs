@@ -639,6 +639,7 @@ impl App {
             sidebar_collapsed,
             right_sidebar_width,
             right_sidebar_collapsed,
+            sidebar_arrangement: config.ui.sidebar_arrangement,
             sidebar_section_split,
             activity_agents_expanded: true,
             activity_commands_expanded: false,
@@ -718,6 +719,7 @@ impl App {
                 pending_sidebar_width: None,
                 pending_sidebar_min_width: None,
                 pending_sidebar_max_width: None,
+                pending_sidebar_arrangement: None,
                 pending_worktree_directory: None,
                 pending_agent_border_labels: None,
                 pending_switch_ascii_input_source_in_prefix: None,
@@ -1396,6 +1398,7 @@ impl App {
                     config.ui.show_agent_labels_on_pane_borders;
                 self.state.agent_panel_scope =
                     agent_panel_scope_from_config(config.ui.agent_panel_scope);
+                self.state.sidebar_arrangement = config.ui.sidebar_arrangement;
                 self.state.agent_panel_scroll = 0;
                 self.state.accent = crate::config::parse_color(&config.ui.accent);
                 if !self.state.local_sound_playback && self.state.sound != config.ui.sound {
@@ -2764,6 +2767,30 @@ mod tests {
         assert!(content.contains("sidebar_width = 30"));
         assert!(content.contains("sidebar_min_width = 20"));
         assert!(content.contains("sidebar_max_width = 40"));
+        assert!(app.state.config_diagnostic.is_none());
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn settings_save_sidebar_arrangement_persists_then_applies_live_config() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("settings-save-sidebar-arrangement");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "onboarding = false\n").unwrap();
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        app.save_sidebar_arrangement(crate::config::SidebarArrangementConfig::CombinedRight);
+
+        assert_eq!(
+            app.state.sidebar_arrangement,
+            crate::config::SidebarArrangementConfig::CombinedRight
+        );
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("[ui]"));
+        assert!(content.contains("sidebar_arrangement = \"combined_right\""));
         assert!(app.state.config_diagnostic.is_none());
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());

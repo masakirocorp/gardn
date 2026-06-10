@@ -61,6 +61,27 @@ impl AgentPanelScopeConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SidebarArrangementConfig {
+    #[default]
+    Auto,
+    Separate,
+    CombinedLeft,
+    CombinedRight,
+}
+
+impl SidebarArrangementConfig {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Separate => "separate",
+            Self::CombinedLeft => "combined_left",
+            Self::CombinedRight => "combined_right",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RightClickPassthroughModifierConfig(Option<KeyModifiers>);
 
@@ -396,6 +417,8 @@ pub struct UiConfig {
     pub sidebar_max_width: u16,
     /// Terminal width at or below which Hako uses the mobile single-column layout. Default: 64.
     pub mobile_width_threshold: u16,
+    /// Sidebar arrangement on desktop: auto, separate, combined_left, or combined_right.
+    pub sidebar_arrangement: SidebarArrangementConfig,
     /// Capture mouse input for Hako's mouse UI. Default: true.
     pub mouse_capture: bool,
     /// Modifier that lets right-click gestures pass through to pane apps. Empty disables it.
@@ -606,6 +629,7 @@ impl Default for UiConfig {
             sidebar_min_width: 18,
             sidebar_max_width: 36,
             mobile_width_threshold: DEFAULT_MOBILE_WIDTH_THRESHOLD,
+            sidebar_arrangement: SidebarArrangementConfig::Auto,
             mouse_capture: true,
             right_click_passthrough_modifier: RightClickPassthroughModifierConfig::default(),
             redraw_on_focus_gained: true,
