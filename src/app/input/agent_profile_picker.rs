@@ -639,6 +639,45 @@ mod tests {
     }
 
     #[test]
+    fn picker_click_uses_rendered_mobile_geometry() {
+        let mut app = app_with_space();
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 119, 24));
+        open_new_agent_picker_for_workspace(&mut app.state, 0);
+
+        let backend = ratatui::backend::TestBackend::new(119, 24);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render agent picker");
+
+        let buffer = terminal.backend().buffer();
+        let (codex_x, codex_y) = (0..24)
+            .flat_map(|y| {
+                (0..114).filter_map(move |x| {
+                    ["c", "o", "d", "e", "x"]
+                        .iter()
+                        .enumerate()
+                        .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == *ch)
+                        .then_some((x, y))
+                })
+            })
+            .last()
+            .expect("codex profile");
+        let codex_idx = agent_profile_picker_filtered_entries(&app.state)
+            .iter()
+            .position(|entry| entry.profile_id == "system:codex")
+            .expect("codex profile index");
+
+        app.handle_mouse(super::super::mouse(
+            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            codex_x,
+            codex_y,
+        ));
+
+        assert_eq!(app.state.agent_profile_picker.selected, codex_idx);
+    }
+
+    #[test]
     fn picker_enter_enqueues_profile_launch() {
         let mut app = app_with_space();
         app.state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(

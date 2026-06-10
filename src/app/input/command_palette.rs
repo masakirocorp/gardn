@@ -554,6 +554,45 @@ mod tests {
     }
 
     #[test]
+    fn command_palette_click_uses_rendered_mobile_geometry() {
+        let mut app = app_with_space();
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 119, 24));
+        app.state.command_palette.query = "new tab".to_string();
+        app.state.command_palette.selected = 0;
+
+        let backend = ratatui::backend::TestBackend::new(119, 24);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render command palette");
+
+        let buffer = terminal.backend().buffer();
+        let (new_tab_x, new_tab_y) = (0..24)
+            .find_map(|y| {
+                (0..112).find_map(|x| {
+                    ["n", "e", "w", " ", "t", "a", "b"]
+                        .iter()
+                        .enumerate()
+                        .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == *ch)
+                        .then_some((x, y))
+                })
+            })
+            .expect("new tab command");
+        let new_tab_idx = command_palette_visible_commands(&app.state)
+            .iter()
+            .position(|command| command.action == CommandPaletteAction::NewTab)
+            .expect("new tab command index");
+
+        app.handle_mouse(super::super::mouse(
+            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            new_tab_x,
+            new_tab_y,
+        ));
+
+        assert_eq!(app.state.command_palette.selected, new_tab_idx);
+    }
+
+    #[test]
     fn command_palette_filters_commands_by_query() {
         let mut app = app_with_space();
         app.state.command_palette.query = "right side".to_string();
