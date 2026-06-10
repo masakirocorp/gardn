@@ -189,7 +189,7 @@ A Hako client process attached to a running Hako server. A thin client renders s
 _Avoid_: Server, app instance
 
 **Foreground Client**:
-The thin client whose host surface currently owns app-facing input context.
+The full app thin client whose host surface currently owns shared runtime size, outer-terminal focus, host theme, and app-facing keybinding context.
 _Avoid_: Attach owner, server
 
 **Clipboard Image Paste Bridge**:

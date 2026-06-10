@@ -17,7 +17,7 @@ A session is a persistent Hako runtime with its own sockets, panes, tabs, worksp
 - **SSH keepalive fallback** — remote attach can add private generated SSH keepalive defaults without overriding your own SSH config.
 - **Direct terminal attach** — `hako terminal attach <terminal-id>` and `hako agent attach <target>` attach directly to a single server-owned terminal.
 - **Attach takeover** — direct attach is exclusive by default; `--takeover` can claim a terminal attachment from another client.
-- **Multiple clients** — more than one client can connect to a server; the foreground interactive client drives shared runtime size, theme, and keybindings.
+- **Multiple clients** — more than one client can connect to a server; the foreground interactive client drives shared runtime size, focus, theme, and keybindings.
 - **Clipboard bridging** — thin clients forward OSC 52 clipboard writes locally and can bridge local clipboard-image paste into server panes.
 - **Live server handoff** — supported updates can move live pane PTYs and session state into a replacement server so running pane processes survive a server swap.
 
