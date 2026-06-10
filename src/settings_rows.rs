@@ -472,22 +472,20 @@ fn profile_kind_matches_filter(
 }
 
 fn agent_profile_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
-    let mut rows = Vec::new();
-    let mut index = 1;
-
-    rows.push(SettingsListRow::Header("custom"));
-    rows.push(SettingsListRow::StatusChoice {
-        index: 0,
-        marker: "+".into(),
-        label: "add custom profile".into(),
-        tone: SettingsMarkerTone::Accent,
-    });
-
-    rows.push(SettingsListRow::Spacer);
-    rows.push(SettingsListRow::Header("profiles"));
-    for profile in app.agent_profiles.profiles().iter().filter(|profile| {
+    let mut rows = vec![
+        SettingsListRow::Header("custom"),
+        SettingsListRow::StatusChoice {
+            index: 0,
+            marker: "+".into(),
+            label: "add custom profile".into(),
+            tone: SettingsMarkerTone::Accent,
+        },
+        SettingsListRow::Spacer,
+        SettingsListRow::Header("profiles"),
+    ];
+    for (index, profile) in (1..).zip(app.agent_profiles.profiles().iter().filter(|profile| {
         profile_kind_matches_filter(profile, app.settings.agent_profile_kind_filter)
-    }) {
+    })) {
         let tone = if profile.available() {
             SettingsMarkerTone::Good
         } else {
@@ -499,7 +497,6 @@ fn agent_profile_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
             label: agent_profile_browse_label(profile).into(),
             tone,
         });
-        index += 1;
     }
     rows
 }
