@@ -1081,6 +1081,42 @@
       "reason": "ported to Hako with UTF-8 grapheme buffer crash coverage on the existing Ghostty text path."
     },
     {
+      "upstream": "85aee98ddfea3237e34a57f2a7fcddd1750cec50",
+      "subject": "fix: match copy mode page scrolling boundaries (#460)",
+      "status": "ported",
+      "reason": "ported to Hako copy mode so page and half-page motion clamp at scrollback boundaries while moving the cursor within the viewport."
+    },
+    {
+      "upstream": "f5f753c7286ff4cc30cfe3a9d48c053bfe2881c7",
+      "subject": "fix: avoid stale clipboard feedback",
+      "status": "ported",
+      "reason": "ported to Hako headless clipboard forwarding so copy feedback appears only after the foreground client accepts the clipboard write."
+    },
+    {
+      "upstream": "3f7236f81735e338e2ed3ecbf0f1fed26392acba",
+      "subject": "fix: drop empty pty mouse writes",
+      "status": "ported",
+      "reason": "ported to Hako by filtering empty Ghostty mouse encodings and covering the existing PTY actor empty-write guard."
+    },
+    {
+      "upstream": "e7ba8da29ab27a6f0875c4b99245ef4dc5a3dbbb",
+      "subject": "fix: use cmd-click for macos pane links",
+      "status": "ported",
+      "reason": "ported to Hako pane URL clicks with Command-click on macOS and Control-click elsewhere."
+    },
+    {
+      "upstream": "22fa503d83e0de7b49cd37393644353e4f5f3faa",
+      "subject": "fix: respect prompt_new_tab_name in mouse click handlers (#521)",
+      "status": "ported",
+      "reason": "ported to Hako mobile and context-menu new-tab mouse paths so disabled prompting requests a tab directly."
+    },
+    {
+      "upstream": "77fcde0a2736c3927d1bc589bd9b4d0173a9df46",
+      "subject": "fix: support paste in modal inputs",
+      "status": "ported",
+      "reason": "ported to Hako modal text inputs, including rename, worktree directory, and navigator search fields, with platform clipboard text reads for paste shortcuts."
+    },
+    {
       "upstream": "5df21bb790d59b51666e99c8a1c2858af3f39d81",
       "subject": "docs: finalize 0.6.8 release notes",
       "status": "skipped",

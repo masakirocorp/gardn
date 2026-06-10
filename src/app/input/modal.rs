@@ -211,9 +211,7 @@ pub(crate) fn handle_navigator_key(state: &mut AppState, key: KeyEvent) {
             KeyCode::Char(c)
                 if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
             {
-                state.navigator.state_filter = None;
-                state.navigator.query.push(c);
-                state.clamp_navigator_selection();
+                insert_navigator_search_text(state, &c.to_string());
             }
             _ => {}
         }
@@ -393,6 +391,15 @@ pub(super) fn apply_agent_menu_action(
     state.mark_session_dirty();
 }
 
+pub(crate) fn insert_navigator_search_text(state: &mut AppState, text: &str) {
+    if !state.navigator.search_focused {
+        return;
+    }
+    state.navigator.state_filter = None;
+    state.navigator.query.push_str(text);
+    state.clamp_navigator_selection();
+}
+
 pub(crate) fn handle_keybind_help_key(state: &mut AppState, key: KeyEvent) {
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => state.scroll_keybind_help(-1),
@@ -503,6 +510,17 @@ pub(super) fn open_new_tab_dialog(state: &mut AppState) {
     state.name_input = next_new_tab_default_name(state);
     state.name_input_replace_on_type = true;
     state.mode = Mode::RenameTab;
+}
+
+pub(super) fn request_new_tab_from_ui(state: &mut AppState) {
+    if state.prompt_new_tab_name {
+        open_new_tab_dialog(state);
+    } else {
+        state.request_new_tab = true;
+        state.requested_new_tab_name = None;
+        state.creating_new_tab = false;
+        state.mode = Mode::Terminal;
+    }
 }
 
 pub(super) fn open_new_group_dialog(state: &mut AppState) {
@@ -723,6 +741,13 @@ fn clear_rename_input(state: &mut AppState) {
     state.name_input_replace_on_type = false;
 }
 
+pub(crate) fn insert_rename_input_text(state: &mut AppState, text: &str) {
+    if state.name_input_replace_on_type {
+        clear_rename_input(state);
+    }
+    state.name_input.push_str(text);
+}
+
 fn delete_rename_input_char(state: &mut AppState) {
     if state.name_input_replace_on_type {
         clear_rename_input(state);
@@ -803,10 +828,7 @@ pub(crate) fn handle_rename_key(state: &mut AppState, key: KeyEvent) {
         }
         KeyCode::Backspace => delete_rename_input_char(state),
         KeyCode::Char(c) if key.modifiers.difference(KeyModifiers::SHIFT).is_empty() => {
-            if state.name_input_replace_on_type {
-                clear_rename_input(state);
-            }
-            state.name_input.push(c);
+            insert_rename_input_text(state, &c.to_string());
         }
         _ => {}
     }
@@ -958,12 +980,12 @@ pub(super) fn apply_context_menu_action(
         (ContextMenuKind::Workspace { ws_idx }, Some(" + tab")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
-            open_new_tab_dialog(state);
+            request_new_tab_from_ui(state);
         }
         (ContextMenuKind::NewTabButton { ws_idx }, Some(" + tab")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
-            open_new_tab_dialog(state);
+            request_new_tab_from_ui(state);
         }
         (ContextMenuKind::NewTabButton { ws_idx }, Some(" + agent")) => {
             state.selected = ws_idx;
@@ -998,7 +1020,7 @@ pub(super) fn apply_context_menu_action(
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
-            open_new_tab_dialog(state);
+            request_new_tab_from_ui(state);
         }
         (ContextMenuKind::Tab { ws_idx, tab_idx }, Some("rename")) => {
             state.selected = ws_idx;
@@ -1361,6 +1383,23 @@ mod tests {
     }
 
     #[test]
+    fn rename_modal_replaces_prefilled_text_on_paste() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.mode = Mode::RenameTab;
+        state.name_input = "2".into();
+        state.name_input_replace_on_type = true;
+
+        insert_rename_input_text(&mut state, "feature/logs");
+
+        assert_eq!(state.name_input, "feature/logs");
+        assert!(!state.name_input_replace_on_type);
+
+        insert_rename_input_text(&mut state, "-copy");
+
+        assert_eq!(state.name_input, "feature/logs-copy");
+    }
+
+    #[test]
     fn rename_modal_handles_line_editing_shortcuts() {
         let mut state = state_with_workspaces(&["test"]);
         state.mode = Mode::RenameWorkspace;
@@ -1430,6 +1469,30 @@ mod tests {
             KeyEvent::new(KeyCode::Char('Z'), KeyModifiers::SHIFT),
         );
         assert_eq!(state.name_input, "websiteZ");
+    }
+
+    #[test]
+    fn navigator_search_accepts_pasted_text_when_focused() {
+        let mut state = state_with_workspaces(&["alpha", "beta"]);
+        state.mode = Mode::Navigator;
+        state.navigator.search_focused = true;
+        state.navigator.state_filter = Some(NavigatorStateFilter::Working);
+
+        insert_navigator_search_text(&mut state, "beta");
+
+        assert_eq!(state.navigator.query, "beta");
+        assert_eq!(state.navigator.state_filter, None);
+    }
+
+    #[test]
+    fn navigator_search_ignores_paste_when_search_is_not_focused() {
+        let mut state = state_with_workspaces(&["alpha", "beta"]);
+        state.mode = Mode::Navigator;
+        state.navigator.search_focused = false;
+
+        insert_navigator_search_text(&mut state, "beta");
+
+        assert!(state.navigator.query.is_empty());
     }
 
     #[test]
