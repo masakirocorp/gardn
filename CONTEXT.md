@@ -36,6 +36,10 @@ _Avoid_: Visibility, permission, policy, priority
 A launch surface for starting an agent profile as a new tab in a specific workspace or group context. New Agent starts the configured command and environment directly, uses group favorites to organize profiles, and does not edit the profile catalog.
 _Avoid_: Run command, start bot
 
+**Native Agent Resume**:
+The restore-time flow that launches a supported agent back into its own saved conversation session from a trusted session reference and preserved launch context.
+_Avoid_: Pane history replay, generic relaunch
+
 **Integration Authority**:
 The permission a socket API integration source has to report agent state, session identity, or presentation metadata for a pane. Authority is about a running pane report, not how an agent was launched.
 _Avoid_: Agent profile, launcher permission
