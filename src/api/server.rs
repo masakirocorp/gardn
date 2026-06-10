@@ -53,15 +53,17 @@ impl ServerHandle {
     }
 }
 
+pub fn default_server_capabilities() -> Option<ServerCapabilities> {
+    Some(ServerCapabilities {
+        live_handoff: cfg!(unix),
+    })
+}
+
 pub fn start_server(
     api_tx: ApiRequestSender,
     event_hub: EventHub,
 ) -> std::io::Result<ServerHandle> {
-    start_server_with_capabilities(
-        api_tx,
-        event_hub,
-        Some(ServerCapabilities { live_handoff: true }),
-    )
+    start_server_with_capabilities(api_tx, event_hub, default_server_capabilities())
 }
 
 pub fn start_server_with_capabilities(
@@ -488,6 +490,16 @@ pub(super) fn should_stop_connection(
     probe_stream_closed(stream)
 }
 
+#[cfg(windows)]
+fn probe_stream_closed(_stream: &mut LocalStream) -> std::io::Result<bool> {
+    // Windows named pipes do not give us the same nonblocking read semantics as
+    // Unix sockets here: probing can report an empty read while the client is
+    // still waiting for the long-poll response. Let writes detect disconnects
+    // instead of closing wait requests early.
+    Ok(false)
+}
+
+#[cfg(not(windows))]
 fn probe_stream_closed(stream: &mut LocalStream) -> std::io::Result<bool> {
     stream.set_nonblocking(true)?;
     let mut probe = [0u8; 1];
@@ -721,6 +733,14 @@ mod tests {
         let parsed: SuccessResponse = serde_json::from_str(&response).unwrap();
         assert_eq!(parsed.id, "req_1");
         assert!(matches!(parsed.result, ResponseResult::Pong { .. }));
+    }
+
+    #[test]
+    fn default_capabilities_match_platform_handoff_support() {
+        assert_eq!(
+            default_server_capabilities().unwrap().live_handoff,
+            cfg!(unix)
+        );
     }
 
     #[test]

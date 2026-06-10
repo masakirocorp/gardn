@@ -637,6 +637,12 @@ pub(crate) struct SelfUpdateOptions {
     pub(crate) live_handoff: bool,
 }
 
+fn self_update_platform_error(target_is_windows: bool) -> Option<&'static str> {
+    target_is_windows.then_some(
+        "self-update is disabled on Windows; download the latest hako-windows-x86_64.exe from GitHub Releases",
+    )
+}
+
 pub(crate) fn parse_self_update_args(args: &[String]) -> Result<SelfUpdateOptions, String> {
     let mut options = SelfUpdateOptions::default();
     for arg in args {
@@ -1532,6 +1538,9 @@ fn homebrew_cellar_keg_root(path: &Path) -> Option<PathBuf> {
 
 /// Manual self-update command (`hako update`).
 pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
+    if let Some(message) = self_update_platform_error(cfg!(windows)) {
+        return Err(message.to_string());
+    }
     if is_homebrew_managed_install() {
         return Err(format!(
             "self-update is disabled for Homebrew installs; run `{HOMEBREW_UPDATE_COMMAND}`"
@@ -1946,6 +1955,17 @@ mod tests {
             parse_self_update_args(&["--unknown".to_string()]).unwrap_err(),
             "unknown update option: --unknown"
         );
+    }
+
+    #[test]
+    fn self_update_is_disabled_on_windows_target() {
+        assert_eq!(
+            self_update_platform_error(true),
+            Some(
+                "self-update is disabled on Windows; download the latest hako-windows-x86_64.exe from GitHub Releases"
+            )
+        );
+        assert_eq!(self_update_platform_error(false), None);
     }
 
     #[test]
