@@ -68,6 +68,10 @@ _Avoid_: Config entry, raw list item
 A named working area that groups related tabs, panes, and terminal sessions for one project or task.
 _Avoid_: Project, folder, session
 
+**Creation Context**:
+The source workspace, group, and cwd information Hako uses when creating a new workspace, tab, or agent-profile tab.
+_Avoid_: Global default, launch profile
+
 **Workspace Group**:
 A presentation and workflow grouping for workspaces, with its own name, icon, accent, and agent-profile preferences. A workspace group filters and organizes workspaces; it is not the owner of tabs, panes, or terminal runtimes.
 _Avoid_: Workspace parent, project
