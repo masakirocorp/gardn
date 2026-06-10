@@ -930,10 +930,67 @@ mod tests {
     }
 
     #[test]
+    fn client_hello_framing_matches_golden_fixture() {
+        let msg = ClientMessage::Hello {
+            version: PROTOCOL_VERSION,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 8,
+            cell_height_px: 16,
+            requested_encoding: RenderEncoding::SemanticFrame,
+            keybindings: ClientKeybindings::Server,
+            launch_mode: ClientLaunchMode::App,
+        };
+        let expected = [
+            0x09, 0x00, 0x00, 0x00, // payload length
+            0x00, // ClientMessage::Hello
+            0x0b, // PROTOCOL_VERSION
+            0x50, // cols
+            0x18, // rows
+            0x08, // cell_width_px
+            0x10, // cell_height_px
+            0x00, // RenderEncoding::SemanticFrame
+            0x00, // ClientKeybindings::Server
+            0x00, // ClientLaunchMode::App
+        ];
+
+        let mut buf = Vec::new();
+        write_message(&mut buf, &msg).unwrap();
+        assert_eq!(buf.as_slice(), expected.as_slice());
+
+        let mut cursor = expected.as_slice();
+        let decoded: ClientMessage = read_message(&mut cursor, MAX_FRAME_SIZE).unwrap();
+        assert_eq!(decoded, msg);
+    }
+
+    #[test]
+    fn server_welcome_framing_matches_golden_fixture() {
+        let msg = ServerMessage::Welcome {
+            version: PROTOCOL_VERSION,
+            encoding: RenderEncoding::SemanticFrame,
+            error: None,
+        };
+        let expected = [
+            0x04, 0x00, 0x00, 0x00, // payload length
+            0x00, // ServerMessage::Welcome
+            0x0b, // PROTOCOL_VERSION
+            0x00, // RenderEncoding::SemanticFrame
+            0x00, // error: None
+        ];
+
+        let mut buf = Vec::new();
+        write_message(&mut buf, &msg).unwrap();
+        assert_eq!(buf.as_slice(), expected.as_slice());
+
+        let mut cursor = expected.as_slice();
+        let decoded: ServerMessage = read_message(&mut cursor, MAX_FRAME_SIZE).unwrap();
+        assert_eq!(decoded, msg);
+    }
+
+    #[test]
     fn framing_large_payload_roundtrip() {
-        // Create a Frame message that is ≥128 KB.
-        // Use a large frame with verbose cell data to exceed 128 KB after bincode encoding.
-        // 200×50 = 10000 cells. With varied symbols and styles, this should easily exceed 128 KB.
+        // Public framing must accept a frame at its claimed payload boundary and
+        // reject the same bytes when the caller's maximum is one byte too small.
         let width: u16 = 200;
         let height: u16 = 50;
         let cells: Vec<CellData> = (0..(width as usize) * (height as usize))
@@ -968,12 +1025,17 @@ mod tests {
 
         let mut buf = Vec::new();
         write_message(&mut buf, &msg).unwrap();
-        // Verify the payload is at least 128 KB
-        assert!(
-            buf.len() >= 128 * 1024,
-            "framed payload should be >= 128 KB, got {} bytes",
-            buf.len()
-        );
+        let payload_len =
+            u32::from_le_bytes(buf[..LENGTH_PREFIX_BYTES].try_into().unwrap()) as usize;
+        assert_eq!(payload_len, buf.len() - LENGTH_PREFIX_BYTES);
+
+        match read_message::<_, ServerMessage>(&mut buf.as_slice(), payload_len - 1) {
+            Err(FramingError::Oversized { claimed, max }) => {
+                assert_eq!(claimed, payload_len);
+                assert_eq!(max, payload_len - 1);
+            }
+            other => panic!("expected Oversized at one byte below framed payload, got: {other:?}"),
+        }
 
         let decoded: ServerMessage = read_message(&mut buf.as_slice(), MAX_FRAME_SIZE).unwrap();
         assert_eq!(msg, decoded);

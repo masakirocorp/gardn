@@ -726,21 +726,34 @@ mod tests {
 
     #[tokio::test]
     async fn copy_mode_word_motions_use_visible_row_words() {
-        let (mut app, _) = app_with_copy_screen(b"foo bar baz\n");
+        let key = |code| TerminalKey::new(code, KeyModifiers::empty());
+
+        let (mut app, _) = app_with_copy_screen(b"foo bar baz");
         app.state.enter_copy_mode(&app.terminal_runtimes);
-        if let Some(copy_mode) = app.state.copy_mode.as_mut() {
-            copy_mode.cursor_row = 0;
-            copy_mode.cursor_col = 0;
-        }
+        app.handle_copy_mode_key(key(KeyCode::Home));
+        app.handle_copy_mode_key(key(KeyCode::Char('v')));
+        app.handle_copy_mode_key(key(KeyCode::Char('w')));
+        app.handle_copy_mode_key(key(KeyCode::Char('y')));
+        assert_eq!(copy_mode_clipboard_text(&mut app), "foo b");
 
-        app.handle_copy_mode_key(TerminalKey::new(KeyCode::Char('w'), KeyModifiers::empty()));
-        assert_eq!(app.state.copy_mode.expect("copy mode").cursor_col, 4);
+        let (mut app, _) = app_with_copy_screen(b"foo bar baz");
+        app.state.enter_copy_mode(&app.terminal_runtimes);
+        app.handle_copy_mode_key(key(KeyCode::Home));
+        app.handle_copy_mode_key(key(KeyCode::Char('w')));
+        app.handle_copy_mode_key(key(KeyCode::Char('v')));
+        app.handle_copy_mode_key(key(KeyCode::Char('e')));
+        app.handle_copy_mode_key(key(KeyCode::Char('y')));
+        assert_eq!(copy_mode_clipboard_text(&mut app), "bar");
 
-        app.handle_copy_mode_key(TerminalKey::new(KeyCode::Char('e'), KeyModifiers::empty()));
-        assert_eq!(app.state.copy_mode.expect("copy mode").cursor_col, 6);
-
-        app.handle_copy_mode_key(TerminalKey::new(KeyCode::Char('b'), KeyModifiers::empty()));
-        assert_eq!(app.state.copy_mode.expect("copy mode").cursor_col, 4);
+        let (mut app, _) = app_with_copy_screen(b"foo bar baz");
+        app.state.enter_copy_mode(&app.terminal_runtimes);
+        app.handle_copy_mode_key(key(KeyCode::Home));
+        app.handle_copy_mode_key(key(KeyCode::Char('w')));
+        app.handle_copy_mode_key(key(KeyCode::Char('e')));
+        app.handle_copy_mode_key(key(KeyCode::Char('v')));
+        app.handle_copy_mode_key(key(KeyCode::Char('b')));
+        app.handle_copy_mode_key(key(KeyCode::Char('y')));
+        assert_eq!(copy_mode_clipboard_text(&mut app), "bar");
     }
 
     #[tokio::test]

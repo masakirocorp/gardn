@@ -1461,9 +1461,57 @@ mod tests {
 
     #[test]
     fn settings_tabs_render_descriptions_consistently() {
-        for section in SettingsSection::ALL {
+        let expected = [
+            (
+                SettingsSection::Theme,
+                "theme",
+                "choose custom palettes for automatic light and dark appearance",
+            ),
+            (
+                SettingsSection::Layout,
+                "layout",
+                "set sidebar width bounds",
+            ),
+            (
+                SettingsSection::Sound,
+                "sound",
+                "choose whether hako plays terminal bell sounds",
+            ),
+            (
+                SettingsSection::Toast,
+                "toasts",
+                "choose where command and agent notifications are delivered",
+            ),
+            (
+                SettingsSection::PaneLabels,
+                "behavior",
+                "control workspace prompts and terminal interaction defaults",
+            ),
+            (
+                SettingsSection::Agents,
+                "agents",
+                "create custom agent commands and manage global profile order",
+            ),
+            (
+                SettingsSection::Integrations,
+                "agent integrations",
+                "install hooks so agents report state directly",
+            ),
+            (
+                SettingsSection::Experiments,
+                "experiments",
+                "enable behavior that is useful but still being proven",
+            ),
+        ];
+
+        assert_eq!(expected.len(), SettingsSection::ALL.len());
+        for (&(section, title, description), expected_section) in
+            expected.iter().zip(SettingsSection::ALL)
+        {
+            assert_eq!(section, *expected_section);
+
             let mut app = AppState::test_new();
-            app.settings.section = *section;
+            app.settings.section = section;
 
             let area = Rect::new(0, 0, 100, 30);
             let backend = TestBackend::new(area.width, area.height);
@@ -1473,12 +1521,9 @@ mod tests {
                 .expect("render settings overlay");
 
             let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+            assert!(text.contains(title), "missing title for {section:?}");
             assert!(
-                text.contains(settings_section_title(&app, *section)),
-                "missing title for {section:?}"
-            );
-            assert!(
-                text.contains(settings_section_description(&app, *section)),
+                text.contains(description),
                 "missing description for {section:?}"
             );
         }

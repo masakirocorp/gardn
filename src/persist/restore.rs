@@ -1080,72 +1080,77 @@ mod tests {
         assert_eq!(terminal.cwd, expected_cwd);
     }
 
+    #[tokio::test]
+    async fn restore_opt_out_leaves_supported_agent_without_pending_plan() {
+        let snapshot = single_pane_snapshot(Some(pi_path_agent_session()));
+
+        let (terminals, mut runtimes) = restore_snapshot_for_test(&snapshot, None, false);
+
+        let terminal = terminals
+            .values()
+            .next()
+            .expect("restored pane should have terminal state");
+        assert!(terminal.pending_agent_resume_plan.is_none());
+        assert!(
+            !runtimes.is_empty(),
+            "opted-out restores should start a normal shell runtime"
+        );
+        for (_, runtime) in runtimes.drain() {
+            runtime.shutdown();
+        }
+    }
+
     #[test]
-    fn restore_plan_respects_opt_in_and_allowlist() {
-        let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:pi".into(),
-            agent: "pi".into(),
-            kind: crate::agent_resume::AgentSessionRefKind::Path,
-            value: "/tmp/pi-session.jsonl".into(),
-        };
+    fn restore_supported_agent_defers_with_pending_plan() {
+        let snapshot = single_pane_snapshot(Some(pi_path_agent_session()));
 
-        assert!(restore_plan_for_snapshot(&session, false, None, &[]).is_none());
-        assert_eq!(
-            restore_plan_for_snapshot(&session, true, None, &[])
-                .unwrap()
-                .argv,
-            vec!["pi", "--session", "/tmp/pi-session.jsonl"]
-        );
+        let (terminals, runtimes) = restore_snapshot_for_test(&snapshot, None, true);
 
-        let omp_session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:omp".into(),
-            agent: "omp".into(),
-            kind: crate::agent_resume::AgentSessionRefKind::Path,
-            value: "/tmp/omp-session.jsonl".into(),
-        };
-        assert_eq!(
-            restore_plan_for_snapshot(&omp_session, true, None, &[])
-                .unwrap()
-                .argv,
-            vec!["omp", "--session", "/tmp/omp-session.jsonl"]
+        assert!(
+            runtimes.is_empty(),
+            "native agent restore should defer shell runtime creation"
         );
-
-        let home = std::env::var("HOME").expect("HOME should be set in tests");
-        let child_session_path = format!(
-            "{home}/.omp-profile/agent/sessions/-projects-masakiro-hako/2026-06-03T17-52-01-399Z_019e8e9d-1b77-7000-875f-206076643bdf/RightSidebarHierarchyReview.jsonl"
-        );
-        let project_session_dir =
-            format!("{home}/.omp-profile/agent/sessions/-projects-masakiro-hako");
-        let child_omp_session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:omp".into(),
-            agent: "omp".into(),
-            kind: crate::agent_resume::AgentSessionRefKind::Path,
-            value: child_session_path.clone(),
-        };
+        let terminal = terminals
+            .values()
+            .next()
+            .expect("restored pane should have terminal state");
         assert_eq!(
-            restore_plan_for_snapshot(
-                &child_omp_session,
-                true,
-                Some(&["custom-omp".to_string()]),
-                &[]
-            )
-            .unwrap()
-            .argv,
-            vec![
-                "custom-omp".to_string(),
+            terminal
+                .pending_agent_resume_plan
+                .as_ref()
+                .map(|plan| plan.argv.clone()),
+            Some(vec![
+                "pi".to_string(),
                 "--session".to_string(),
-                child_session_path,
-                "--session-dir".to_string(),
-                project_session_dir,
-            ]
+                "/tmp/pi-session.jsonl".to_string()
+            ])
         );
-        let unsupported_path = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:claude".into(),
-            agent: "claude".into(),
-            kind: crate::agent_resume::AgentSessionRefKind::Path,
-            value: "/tmp/claude-session".into(),
-        };
-        assert!(restore_plan_for_snapshot(&unsupported_path, true, None, &[]).is_none());
+    }
+
+    #[tokio::test]
+    async fn restore_unsupported_agent_path_has_no_pending_plan() {
+        let snapshot =
+            single_pane_snapshot(Some(super::super::snapshot::PaneAgentSessionSnapshot {
+                source: "hako:claude".into(),
+                agent: "claude".into(),
+                kind: crate::agent_resume::AgentSessionRefKind::Path,
+                value: "/tmp/claude-session".into(),
+            }));
+
+        let (terminals, mut runtimes) = restore_snapshot_for_test(&snapshot, None, true);
+
+        let terminal = terminals
+            .values()
+            .next()
+            .expect("restored pane should have terminal state");
+        assert!(terminal.pending_agent_resume_plan.is_none());
+        assert!(
+            !runtimes.is_empty(),
+            "unsupported native agent sessions should restore as normal shell panes"
+        );
+        for (_, runtime) in runtimes.drain() {
+            runtime.shutdown();
+        }
     }
 
     #[test]
@@ -1405,34 +1410,24 @@ mod tests {
     }
 
     #[test]
-    fn pane_restore_startup_suppresses_history_for_native_agent_resume() {
-        let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:pi".into(),
-            agent: "pi".into(),
-            kind: crate::agent_resume::AgentSessionRefKind::Path,
-            value: "/tmp/pi-session.jsonl".into(),
-        };
-        let history = super::super::snapshot::PaneHistorySnapshot {
-            ansi: "RESTORED_HISTORY\r\n".into(),
-            lines: 1,
-        };
-        let mut resumed = HashSet::new();
-        let mut agent_restore = AgentRestoreState {
-            enabled: true,
-            resumed_sessions: &mut resumed,
-        };
+    fn restore_suppresses_history_for_native_agent_resume() {
+        let snapshot = single_pane_snapshot(Some(pi_path_agent_session()));
+        let history = single_pane_history("RESTORED_HISTORY\r\n");
 
-        let startup = pane_restore_startup(
-            Some(&session),
-            Some(&history),
-            None,
-            &[],
-            &mut agent_restore,
+        let (terminals, runtimes) = restore_snapshot_for_test(&snapshot, Some(&history), true);
+
+        assert!(
+            runtimes.is_empty(),
+            "native agent restore should not create a runtime seeded with pane history"
         );
-
-        assert!(startup.restore_plan.is_some());
-        assert!(startup.initial_history_ansi.is_none());
-        assert!(!startup.duplicate_agent_session);
+        let terminal = terminals
+            .values()
+            .next()
+            .expect("restored pane should have terminal state");
+        assert!(
+            terminal.pending_agent_resume_plan.is_some(),
+            "native agent restore should preserve the pending resume plan"
+        );
     }
 
     #[test]
@@ -1859,7 +1854,43 @@ mod tests {
         let _ = runtime.try_send_bytes(bytes::Bytes::from_static(b"exit\n"));
     }
 
-    fn snapshot_with_saved_pane_history() -> (SessionSnapshot, SessionHistorySnapshot) {
+    fn pi_path_agent_session() -> super::super::snapshot::PaneAgentSessionSnapshot {
+        super::super::snapshot::PaneAgentSessionSnapshot {
+            source: "hako:pi".into(),
+            agent: "pi".into(),
+            kind: crate::agent_resume::AgentSessionRefKind::Path,
+            value: "/tmp/pi-session.jsonl".into(),
+        }
+    }
+
+    fn restore_snapshot_for_test(
+        snapshot: &SessionSnapshot,
+        history: Option<&SessionHistorySnapshot>,
+        resume_agents_on_restore: bool,
+    ) -> (
+        HashMap<TerminalId, TerminalState>,
+        HashMap<TerminalId, TerminalRuntime>,
+    ) {
+        let (events, _events_rx) = mpsc::channel(8);
+        let (_workspaces, terminals, runtimes) = restore(
+            snapshot,
+            history,
+            5,
+            40,
+            4096,
+            "/usr/bin/true",
+            crate::config::ShellModeConfig::NonLogin,
+            resume_agents_on_restore,
+            events,
+            Arc::new(Notify::new()),
+            Arc::new(AtomicBool::new(false)),
+        );
+        (terminals, runtimes)
+    }
+
+    fn single_pane_snapshot(
+        agent_session: Option<super::super::snapshot::PaneAgentSessionSnapshot>,
+    ) -> SessionSnapshot {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
         let mut panes = HashMap::new();
         panes.insert(
@@ -1869,28 +1900,14 @@ mod tests {
                 cwd: cwd.clone(),
                 label: None,
                 agent_name: None,
-                agent_session: None,
+                agent_session,
                 launch_argv: None,
                 launch_env: Vec::new(),
                 seen: true,
                 terminal_semantics: None,
             },
         );
-        let history = SessionHistorySnapshot {
-            version: super::super::snapshot::SNAPSHOT_VERSION,
-            workspaces: vec![WorkspaceHistorySnapshot {
-                tabs: vec![super::super::snapshot::TabHistorySnapshot {
-                    panes: HashMap::from([(
-                        0,
-                        super::super::snapshot::PaneHistorySnapshot {
-                            ansi: "RESTORED_HISTORY\r\n".to_string(),
-                            lines: 1,
-                        },
-                    )]),
-                }],
-            }],
-        };
-        let snapshot = SessionSnapshot {
+        SessionSnapshot {
             version: super::super::snapshot::SNAPSHOT_VERSION,
             groups: vec![super::super::snapshot::GroupSnapshot {
                 id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
@@ -1907,7 +1924,6 @@ mod tests {
                 custom_name: None,
                 group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 identity_cwd: cwd,
-
                 tabs: vec![TabSnapshot {
                     custom_name: None,
                     layout: LayoutSnapshot::Pane(0),
@@ -1928,7 +1944,30 @@ mod tests {
             right_sidebar_collapsed: false,
             ui: super::super::snapshot::SessionUiSnapshot::default(),
             pane_id_aliases: HashMap::new(),
-        };
-        (snapshot, history)
+        }
+    }
+
+    fn single_pane_history(ansi: &str) -> SessionHistorySnapshot {
+        SessionHistorySnapshot {
+            version: super::super::snapshot::SNAPSHOT_VERSION,
+            workspaces: vec![WorkspaceHistorySnapshot {
+                tabs: vec![super::super::snapshot::TabHistorySnapshot {
+                    panes: HashMap::from([(
+                        0,
+                        super::super::snapshot::PaneHistorySnapshot {
+                            ansi: ansi.to_string(),
+                            lines: 1,
+                        },
+                    )]),
+                }],
+            }],
+        }
+    }
+
+    fn snapshot_with_saved_pane_history() -> (SessionSnapshot, SessionHistorySnapshot) {
+        (
+            single_pane_snapshot(None),
+            single_pane_history("RESTORED_HISTORY\r\n"),
+        )
     }
 }

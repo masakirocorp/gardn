@@ -379,13 +379,10 @@ mod tests {
             start_col,
             row,
         ));
-        assert!(app.last_pane_click.is_some());
 
         app.handle_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), end_col, row));
-        assert!(app.last_pane_click.is_none());
 
         app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), end_col, row));
-        assert!(app.last_pane_click.is_none());
         assert_eq!(clipboard_write_content(&mut app), b"alpha");
 
         app.handle_mouse(mouse(
@@ -394,8 +391,15 @@ mod tests {
             row,
         ));
 
-        assert!(app.last_pane_click.is_some());
         assert!(app.event_rx.try_recv().is_err());
+
+        app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), start_col, row));
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            start_col,
+            row,
+        ));
+        assert_eq!(clipboard_write_content(&mut app), b"alpha");
     }
 
     #[tokio::test]

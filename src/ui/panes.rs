@@ -637,14 +637,17 @@ mod tests {
             &app,
             &terminal_runtimes,
             area,
-            false,
+            true,
             crate::kitty_graphics::HostCellSize::default(),
         );
         let info = &infos[0];
 
         assert_eq!(info.rect, area);
         assert_eq!(info.scrollbar_rect, None);
-        assert_eq!(info.inner_rect, Rect::new(10, 3, 39, 8));
+        assert_eq!(
+            app.workspaces[0].tabs[0].runtimes[&root_pane].current_size(),
+            (area.height, area.width.saturating_sub(1))
+        );
     }
 
     fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {

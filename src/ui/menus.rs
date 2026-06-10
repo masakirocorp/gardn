@@ -776,6 +776,7 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
 
     #[test]
     fn menu_separator_bounds_inset_rule_when_roomy() {
@@ -849,29 +850,61 @@ mod tests {
     fn agent_menu_group_detail_uses_group_accent() {
         let mut app = AppState::test_new();
         let group_idx = app.create_group("work".to_string());
+        app.groups[group_idx].icon = "■".to_string();
         app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Blue));
         app.active_group = group_idx;
         app.group_filter_enabled = true;
+        app.workspaces = vec![crate::workspace::Workspace::test_new("space")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.workspaces[app.selected].group_id = app.groups[group_idx].id.clone();
+        app.view.sidebar_rect = Rect::new(0, 0, 24, 20);
+        app.view.terminal_area = Rect::new(24, 0, 56, 20);
 
-        let item = app.agent_menu_labels()[5].clone();
-        let line = if let Some(group_idx) = app.agent_menu_group_context_idx() {
-            Line::from(vec![
-                Span::styled("  ", Style::default().fg(app.palette.overlay0)),
-                Span::styled(
-                    item.trim_start().to_string(),
-                    Style::default()
-                        .fg(app.group_accent_color(group_idx))
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ])
-        } else {
-            Line::raw(item)
-        };
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_agent_menu(&app, frame))
+            .unwrap();
 
-        assert_eq!(line.spans[1].content.as_ref(), "work");
+        let buffer = terminal.backend().buffer();
+        let (x, y) = first_cell_with_text(buffer, 80, 20, "work").expect("rendered group name");
         assert_eq!(
-            line.spans[1].style.fg,
+            buffer[(x, y)].style().fg,
             Some(app.group_accent_color(group_idx))
         );
+        assert!(buffer_text(buffer, 80, 20).contains("work"));
+    }
+
+    fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {
+        let mut text = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                text.push_str(buffer[(x, y)].symbol());
+            }
+            text.push('\n');
+        }
+        text
+    }
+
+    fn first_cell_with_text(
+        buffer: &Buffer,
+        width: u16,
+        height: u16,
+        text: &str,
+    ) -> Option<(u16, u16)> {
+        let target: Vec<char> = text.chars().collect();
+        for y in 0..height {
+            for x in 0..width.saturating_sub(target.len().saturating_sub(1) as u16) {
+                let matches = target.iter().enumerate().all(|(idx, ch)| {
+                    let mut encoded = [0; 4];
+                    buffer[(x + idx as u16, y)].symbol() == ch.encode_utf8(&mut encoded)
+                });
+                if matches {
+                    return Some((x, y));
+                }
+            }
+        }
+        None
     }
 }

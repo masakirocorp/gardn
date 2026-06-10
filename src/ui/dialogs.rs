@@ -383,6 +383,15 @@ mod tests {
         terminal
             .draw(|frame| render_confirm_close_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
             .unwrap();
+
+        let text = buffer_text(terminal.backend().buffer(), 80, 24);
+        assert!(text.contains("close workspace?"));
+        assert!(text.contains("empty"));
+        assert!(text.contains("0 panes"));
+        assert!(text.contains("↵"));
+        assert!(text.contains("confirm"));
+        assert!(text.contains("esc"));
+        assert!(text.contains("cancel"));
     }
 
     #[test]
@@ -404,6 +413,17 @@ mod tests {
             buffer[(x, y)].style().fg,
             Some(app.group_accent_color(group_idx))
         );
+    }
+
+    fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {
+        let mut text = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                text.push_str(buffer[(x, y)].symbol());
+            }
+            text.push('\n');
+        }
+        text
     }
 
     fn first_cell_with_symbol(

@@ -2014,7 +2014,11 @@ fn apply_scroll(scroll: &mut usize, delta: i16, max_scroll: usize) {
 #[cfg(test)]
 mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
-    use ratatui::layout::{Direction, Rect};
+    use ratatui::{
+        backend::TestBackend,
+        layout::{Direction, Rect},
+        Terminal,
+    };
 
     use super::super::{
         app_for_mouse_test, capture_snapshot, handle_context_menu_key, mouse, numbered_lines_bytes,
@@ -2116,15 +2120,46 @@ mod tests {
         assert_eq!(app.state.command_palette.selected, 0);
     }
 
+    fn rendered_command_row_point(app: &crate::app::App, command_title: &str) -> (u16, u16) {
+        let screen = app.state.screen_rect();
+        let backend = TestBackend::new(screen.width, screen.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render command palette");
+        let buffer = terminal.backend().buffer();
+        let title_symbols = command_title
+            .chars()
+            .map(|ch| ch.to_string())
+            .collect::<Vec<_>>();
+        let title_width = title_symbols.len() as u16;
+
+        for y in 0..screen.height {
+            for x in 0..=screen.width.saturating_sub(title_width) {
+                if title_symbols
+                    .iter()
+                    .enumerate()
+                    .all(|(idx, symbol)| buffer[(x + idx as u16, y)].symbol() == symbol)
+                {
+                    return (x, y);
+                }
+            }
+        }
+
+        panic!("rendered command row not found: {command_title}");
+    }
+
     #[test]
     fn command_palette_hover_selects_visible_command() {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::CommandPalette;
 
-        app.handle_mouse(mouse(MouseEventKind::Moved, 18, 6));
+        let first = rendered_command_row_point(&app, "new space");
+        app.handle_mouse(mouse(MouseEventKind::Moved, first.0, first.1));
         assert_eq!(app.state.command_palette.selected, 0);
 
-        app.handle_mouse(mouse(MouseEventKind::Moved, 18, 7));
+        let second = rendered_command_row_point(&app, "rename selected space");
+        app.handle_mouse(mouse(MouseEventKind::Moved, second.0, second.1));
         assert_eq!(app.state.command_palette.selected, 1);
     }
 

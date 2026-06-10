@@ -234,84 +234,166 @@ mod autoscroll_tests {
 
     #[test]
     fn top_hot_zone_sets_autoscroll_up_on_drag() {
-        let (mut state, pane_id) = make_state_with_pane();
-        // Anchor at (5, 10), drag to top edge row (row 0) — different cell
-        let mut sel = crate::selection::Selection::anchor(pane_id, 5, 10, None);
-        sel.drag(0, 0, Rect::new(0, 0, 80, 24), None);
-        state.selection = Some(sel);
-        let terminal_runtimes = TerminalRuntimeRegistry::new();
-        state.update_selection_drag(&terminal_runtimes, 0, 0);
+        let (mut state, _) = make_state_with_pane();
+        state.mode = crate::app::state::Mode::Terminal;
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+
+        state.handle_mouse(
+            &mut terminal_runtimes,
+            super::super::mouse(
+                MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                5,
+                10,
+            ),
+        );
+        state.handle_mouse(
+            &mut terminal_runtimes,
+            super::super::mouse(
+                MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                0,
+                0,
+            ),
+        );
+
         let autoscroll = state.selection_autoscroll.as_ref().unwrap();
         assert_eq!(autoscroll.direction, SelectionAutoscrollDirection::Up);
     }
 
     #[test]
     fn top_hot_zone_clears_autoscroll_on_click() {
-        // An anchored click on the top edge row should NOT start autoscroll.
-        let (mut state, pane_id) = make_state_with_pane();
-        state.selection = Some(crate::selection::Selection::anchor(pane_id, 0, 0, None));
-        // Same-cell drag on top edge row — still anchored
-        let terminal_runtimes = TerminalRuntimeRegistry::new();
-        state.update_selection_drag(&terminal_runtimes, 0, 0);
+        let (mut state, _) = make_state_with_pane();
+        state.mode = crate::app::state::Mode::Terminal;
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+
+        state.handle_mouse(
+            &mut terminal_runtimes,
+            super::super::mouse(
+                MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                0,
+                0,
+            ),
+        );
+        state.handle_mouse(
+            &mut terminal_runtimes,
+            super::super::mouse(
+                MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                0,
+                0,
+            ),
+        );
         assert!(state.selection_autoscroll.is_none());
     }
 
     #[test]
     fn bottom_hot_zone_sets_autoscroll_down_on_drag() {
-        let (mut state, pane_id) = make_state_with_pane();
-        // Anchor at (0, 0), drag to bottom edge row (row 23) — different cell
-        let mut sel = crate::selection::Selection::anchor(pane_id, 0, 0, None);
-        sel.drag(23, 0, Rect::new(0, 0, 80, 24), None);
-        state.selection = Some(sel);
-        let terminal_runtimes = TerminalRuntimeRegistry::new();
-        state.update_selection_drag(&terminal_runtimes, 0, 23);
+        let (mut state, _) = make_state_with_pane();
+        state.mode = crate::app::state::Mode::Terminal;
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+
+        state.handle_mouse(
+            &mut terminal_runtimes,
+            super::super::mouse(
+                MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                0,
+                0,
+            ),
+        );
+        state.handle_mouse(
+            &mut terminal_runtimes,
+            super::super::mouse(
+                MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                0,
+                23,
+            ),
+        );
+
         let autoscroll = state.selection_autoscroll.as_ref().unwrap();
         assert_eq!(autoscroll.direction, SelectionAutoscrollDirection::Down);
     }
 
     #[test]
     fn bottom_hot_zone_clears_autoscroll_on_click() {
-        // An anchored click on the bottom edge row should NOT start autoscroll.
-        let (mut state, pane_id) = make_state_with_pane();
-        // Anchor at bottom edge row
-        state.selection = Some(crate::selection::Selection::anchor(pane_id, 23, 0, None));
-        // Same-cell drag — still anchored
-        let terminal_runtimes = TerminalRuntimeRegistry::new();
-        state.update_selection_drag(&terminal_runtimes, 0, 23);
+        let (mut state, _) = make_state_with_pane();
+        state.mode = crate::app::state::Mode::Terminal;
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+
+        state.handle_mouse(
+            &mut terminal_runtimes,
+            super::super::mouse(
+                MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                0,
+                23,
+            ),
+        );
+        state.handle_mouse(
+            &mut terminal_runtimes,
+            super::super::mouse(
+                MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                0,
+                23,
+            ),
+        );
         assert!(state.selection_autoscroll.is_none());
     }
 
     #[test]
     fn below_pane_sets_autoscroll_down_on_drag() {
-        let (mut state, pane_id) = make_state_with_pane();
-        // Anchor at (0, 0), drag to different cell below pane
-        let mut sel = crate::selection::Selection::anchor(pane_id, 0, 0, None);
-        sel.drag(5, 5, Rect::new(0, 0, 80, 24), None);
-        state.selection = Some(sel);
-        // Drag cursor one row below the pane bottom
-        let terminal_runtimes = TerminalRuntimeRegistry::new();
-        state.update_selection_drag(&terminal_runtimes, 0, 24);
+        let (mut state, _) = make_state_with_pane();
+        state.mode = crate::app::state::Mode::Terminal;
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+
+        state.handle_mouse(
+            &mut terminal_runtimes,
+            super::super::mouse(
+                MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                0,
+                0,
+            ),
+        );
+        state.handle_mouse(
+            &mut terminal_runtimes,
+            super::super::mouse(
+                MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                0,
+                24,
+            ),
+        );
         let autoscroll = state.selection_autoscroll.as_ref().unwrap();
         assert_eq!(autoscroll.direction, SelectionAutoscrollDirection::Down);
     }
 
     #[test]
     fn safe_zone_clears_autoscroll() {
-        let (mut state, pane_id) = make_state_with_pane();
-        // Anchor at (0, 0), drag to (5, 5) so it's truly dragging
-        let mut sel = crate::selection::Selection::anchor(pane_id, 0, 0, None);
-        sel.drag(5, 5, Rect::new(0, 0, 80, 24), None);
-        state.selection = Some(sel);
-        // Set autoscroll first
-        state.selection_autoscroll = Some(SelectionAutoscroll {
-            direction: SelectionAutoscrollDirection::Down,
-            last_mouse_screen_col: 5,
-            last_mouse_screen_row: 23,
-            inner_rect: Rect::new(0, 0, 80, 24),
-        });
-        // Move cursor into safe zone (middle of pane, not on edge rows)
-        let terminal_runtimes = TerminalRuntimeRegistry::new();
-        state.update_selection_drag(&terminal_runtimes, 5, 12);
+        let (mut state, _) = make_state_with_pane();
+        state.mode = crate::app::state::Mode::Terminal;
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+
+        state.handle_mouse(
+            &mut terminal_runtimes,
+            super::super::mouse(
+                MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                5,
+                10,
+            ),
+        );
+        state.handle_mouse(
+            &mut terminal_runtimes,
+            super::super::mouse(
+                MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                0,
+                23,
+            ),
+        );
+        assert!(state.selection_autoscroll.is_some());
+
+        state.handle_mouse(
+            &mut terminal_runtimes,
+            super::super::mouse(
+                MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                5,
+                12,
+            ),
+        );
         assert!(state.selection_autoscroll.is_none());
     }
 }

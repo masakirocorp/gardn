@@ -786,19 +786,29 @@ mod tests {
 
     #[test]
     fn section_headers_and_spacers_are_not_selectable() {
-        let app = AppState::test_new();
-        let rows = rows_for_section(&app, SettingsSection::PaneLabels).unwrap();
+        let rows = [
+            SettingsListRow::Header("section"),
+            SettingsListRow::Spacer,
+            SettingsListRow::Caption("caption".into()),
+            SettingsListRow::Option {
+                index: 7,
+                title: "option".into(),
+                description: "description".into(),
+                enabled: true,
+            },
+            SettingsListRow::Choice {
+                index: 11,
+                label: "choice".into(),
+                checked: false,
+            },
+        ];
 
         assert_eq!(option_index_for_visual_row(&rows, 0), None);
-        assert_eq!(option_index_for_visual_row(&rows, 1), Some(0));
-        assert_eq!(option_index_for_visual_row(&rows, 2), Some(0));
-        assert_eq!(option_index_for_visual_row(&rows, 3), Some(1));
-        assert_eq!(option_index_for_visual_row(&rows, 4), Some(1));
-        assert_eq!(option_index_for_visual_row(&rows, 5), Some(2));
-        assert_eq!(option_index_for_visual_row(&rows, 6), Some(2));
-        assert_eq!(option_index_for_visual_row(&rows, 7), None);
-        assert_eq!(option_index_for_visual_row(&rows, 8), None);
-        assert_eq!(option_index_for_visual_row(&rows, 9), Some(3));
-        assert_eq!(option_index_for_visual_row(&rows, 13), Some(5));
+        assert_eq!(option_index_for_visual_row(&rows, 1), None);
+        assert_eq!(option_index_for_visual_row(&rows, 2), None);
+        assert_eq!(option_index_for_visual_row(&rows, 3), Some(7));
+        assert_eq!(option_index_for_visual_row(&rows, 4), Some(7));
+        assert_eq!(option_index_for_visual_row(&rows, 5), Some(11));
+        assert_eq!(option_index_for_visual_row(&rows, 6), None);
     }
 }

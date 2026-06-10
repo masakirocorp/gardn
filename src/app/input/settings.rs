@@ -3033,38 +3033,29 @@ mod tests {
         state.global_dark_theme_name = "system".to_string();
         open_settings(&mut state);
 
-        let dark_heading_row = 6 + TerminalAccent::ALL.len();
+        let choices = theme_settings_choices(&state);
+        let first_dark_accent_selection = choices
+            .iter()
+            .position(|choice| matches!(choice, ThemeSettingsChoice::TerminalDarkAccent(_)))
+            .expect("first dark accent option");
+        let first_dark_accent_row =
+            theme_visual_row_for_selection(&state, first_dark_accent_selection);
+
+        assert!(first_dark_accent_row > 0);
         assert_eq!(
-            theme_selection_for_visual_row(&state, dark_heading_row),
+            theme_selection_for_visual_row(&state, first_dark_accent_row - 1),
             None
         );
 
-        let dark_blue_row = dark_heading_row + 1;
-        let selected =
-            theme_selection_for_visual_row(&state, dark_blue_row).expect("dark blue row");
-        assert_eq!(
-            theme_settings_choices(&state).get(selected),
-            Some(&ThemeSettingsChoice::TerminalDarkAccent(
-                TerminalAccent::Blue
-            ))
-        );
-        assert_eq!(
-            theme_visual_row_for_selection(&state, selected),
-            dark_blue_row
-        );
-
-        let dark_red_selected = theme_settings_choices(&state)
-            .iter()
-            .position(|choice| {
-                *choice == ThemeSettingsChoice::TerminalDarkAccent(TerminalAccent::Red)
-            })
-            .expect("dark red option");
-        let dark_red_row = theme_visual_row_for_selection(&state, dark_red_selected);
-        assert_eq!(dark_red_row + 1, theme_visual_len(&state));
-        assert_eq!(
-            theme_selection_for_visual_row(&state, dark_red_row),
-            Some(dark_red_selected)
-        );
+        let mut dark_accent_count = 0;
+        for (selection, choice) in choices.iter().enumerate() {
+            if matches!(choice, ThemeSettingsChoice::TerminalDarkAccent(_)) {
+                let row = theme_visual_row_for_selection(&state, selection);
+                assert_eq!(theme_selection_for_visual_row(&state, row), Some(selection));
+                dark_accent_count += 1;
+            }
+        }
+        assert_eq!(dark_accent_count, TerminalAccent::ALL.len());
     }
 
     #[test]
@@ -3407,6 +3398,17 @@ mod tests {
 
     #[test]
     fn settings_arrows_wrap_top_and_bottom_in_each_section() {
+        fn assert_open_section_wraps(state: &mut AppState, section: SettingsSection) {
+            let first_selection = state.settings.list.selected;
+            let last_selection = settings_section_choice_len(state, section) - 1;
+
+            update_settings_state(state, KeyEvent::new(KeyCode::Up, KeyModifiers::empty()));
+            assert_eq!(state.settings.list.selected, last_selection);
+
+            update_settings_state(state, KeyEvent::new(KeyCode::Down, KeyModifiers::empty()));
+            assert_eq!(state.settings.list.selected, first_selection);
+        }
+
         let mut state = state_with_workspaces(&["test"]);
         open_settings_at(&mut state, SettingsSection::Theme);
         state.settings.pending_theme_mode = Some(ThemeMode::Light);
@@ -3415,71 +3417,23 @@ mod tests {
         state.settings.pending_dark_theme_name =
             Some(crate::app::state::DEFAULT_DARK_THEME_NAME.to_string());
         state.settings.list.selected = 0;
-        let theme_len = theme_choice_len(&state);
-        assert!(theme_len > 2);
-
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.list.selected, theme_len - 1);
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.list.selected, 0);
+        assert_open_section_wraps(&mut state, SettingsSection::Theme);
 
         open_settings_at(&mut state, SettingsSection::Layout);
         state.settings.list.selected = 0;
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.list.selected, 2);
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.list.selected, 0);
+        assert_open_section_wraps(&mut state, SettingsSection::Layout);
 
         open_settings_at(&mut state, SettingsSection::Sound);
         state.settings.list.selected = 0;
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.list.selected, 1);
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.list.selected, 0);
+        assert_open_section_wraps(&mut state, SettingsSection::Sound);
 
         open_settings_at(&mut state, SettingsSection::Toast);
         state.settings.list.selected = 0;
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.list.selected, 3);
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.list.selected, 0);
+        assert_open_section_wraps(&mut state, SettingsSection::Toast);
 
         open_settings_at(&mut state, SettingsSection::PaneLabels);
         state.settings.list.selected = 0;
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.list.selected, 5);
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.list.selected, 0);
+        assert_open_section_wraps(&mut state, SettingsSection::PaneLabels);
 
         state.integration_recommendations = vec![
             integration_recommendation_for(
@@ -3495,16 +3449,7 @@ mod tests {
         ];
         open_settings_at(&mut state, SettingsSection::Integrations);
         state.settings.list.selected = 0;
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.list.selected, 1);
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.list.selected, 0);
+        assert_open_section_wraps(&mut state, SettingsSection::Integrations);
     }
 
     #[test]
