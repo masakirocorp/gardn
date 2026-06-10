@@ -1790,7 +1790,21 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
 }
 impl AppState {
     fn settings_popup_rect(&self) -> Rect {
-        crate::ui::centered_popup_rect(self.screen_rect(), 92, 26).unwrap_or_default()
+        crate::ui::centered_popup_rect(self.settings_overlay_rect(), 92, 26).unwrap_or_default()
+    }
+
+    fn settings_overlay_rect(&self) -> Rect {
+        let screen = self.screen_rect();
+        if self.view.layout == crate::app::state::ViewLayout::Desktop {
+            Rect::new(
+                screen.x,
+                screen.y,
+                screen.width.saturating_add(1),
+                screen.height.saturating_add(1),
+            )
+        } else {
+            screen
+        }
     }
 
     fn settings_inner_rect(&self) -> Rect {
@@ -2133,6 +2147,37 @@ mod tests {
         }
 
         panic!("rendered text not found: {text}");
+    }
+
+    fn rendered_text_point_at_or_after_row(
+        app: &crate::app::App,
+        text: &str,
+        min_row: u16,
+        width: u16,
+        height: u16,
+    ) -> (u16, u16) {
+        let backend = ratatui::backend::TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render settings");
+        let buffer = terminal.backend().buffer();
+        let symbols = text.chars().map(|ch| ch.to_string()).collect::<Vec<_>>();
+        let text_width = symbols.len() as u16;
+
+        for y in min_row..height {
+            for x in 0..=width.saturating_sub(text_width) {
+                if symbols
+                    .iter()
+                    .enumerate()
+                    .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == ch.as_str())
+                {
+                    return (x, y);
+                }
+            }
+        }
+
+        panic!("rendered text not found after row {min_row}: {text}");
     }
 
     fn rendered_text_point_on_row(
@@ -3906,6 +3951,51 @@ mod tests {
 
         assert_eq!(app.state.settings.section, SettingsSection::Layout);
     }
+
+    #[test]
+    fn settings_mouse_clicks_visible_tab_and_one_line_option_rows() {
+        let mut app = app_for_mouse_test();
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 150, 40));
+        open_settings_at(&mut app.state, SettingsSection::Theme);
+
+        let (layout_x, tab_y) = rendered_text_point(&app, "layout", 150, 40);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            layout_x,
+            tab_y,
+        ));
+        assert_eq!(app.state.settings.section, SettingsSection::Layout);
+
+        let (_, behavior_y) = rendered_text_point(&app, "behavior", 150, 40);
+        assert_eq!(behavior_y, tab_y);
+
+        let (sound_x, sound_y) = rendered_text_point(&app, "sound", 150, 40);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            sound_x,
+            sound_y,
+        ));
+        assert_eq!(app.state.settings.section, SettingsSection::Sound);
+
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::Sound);
+        let (off_x, off_y) = rendered_text_point_at_or_after_row(&app, "off", list_area.y, 150, 40);
+        let action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            off_x,
+            off_y,
+        ));
+        match action {
+            Some(SettingsAction::SaveSettings { sound_enabled, .. }) => assert!(
+                !sound_enabled,
+                "clicking the visible one-line off row should disable sound"
+            ),
+            other => panic!(
+                "expected sound save action, got {other:?}; point={off_x},{off_y}; list_area={list_area:?}; content={:?}; screen={:?}",
+                app.state.settings_content_rect(),
+                app.state.screen_rect()
+            ),
+        }
+    }
     #[test]
     fn settings_tab_chevrons_switch_to_hidden_adjacent_tabs() {
         let mut state = state_with_workspaces(&["test"]);
@@ -3930,7 +4020,7 @@ mod tests {
         let hidden_right = state
             .settings_tab_at(right_chevron_x, tab_row.y)
             .expect("right chevron target");
-        assert_eq!(hidden_right, SettingsSection::Agents);
+        assert_eq!(hidden_right, SettingsSection::Integrations);
 
         state.settings.section = SettingsSection::Experiments;
         let hidden_left = state
