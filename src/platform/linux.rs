@@ -16,6 +16,7 @@ pub fn raise_server_nofile_limit() {}
 pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
     let tpgid = foreground_process_group_id(child_pid)?;
     let mut processes = Vec::new();
+    let mut seen_pids = std::collections::HashSet::new();
 
     for entry in std::fs::read_dir("/proc").ok()? {
         let entry = entry.ok()?;
@@ -30,21 +31,31 @@ pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
             Err(_) => continue,
         };
 
-        let Some((pgrp, name)) = process_pgrp_and_comm(pid) else {
+        let Some((pgrp, _)) = process_pgrp_and_comm(pid) else {
             continue;
         };
         if pgrp as u32 != tpgid {
             continue;
         }
 
-        let argv = process_argv(pid);
-        processes.push(ForegroundProcess {
-            pid,
-            name,
-            argv0: argv.as_ref().and_then(|parts| parts.first().cloned()),
-            cmdline: argv.as_ref().map(|parts| parts.join(" ")),
-            argv,
-        });
+        if let Some(process) = foreground_process_info(pid) {
+            seen_pids.insert(pid);
+            processes.push(process);
+        }
+    }
+
+    // Some CI/container PTYs do not expose a useful foreground process group
+    // for shell children. Keep the real foreground group first, then fall back
+    // to shell descendants so agent wrappers launched under the pane shell are
+    // still identifiable.
+    for pid in session_processes(child_pid) {
+        if seen_pids.contains(&pid) {
+            continue;
+        }
+        if let Some(process) = foreground_process_info(pid) {
+            seen_pids.insert(pid);
+            processes.push(process);
+        }
     }
 
     if processes.is_empty() {
@@ -71,6 +82,18 @@ pub fn foreground_process_group_id(child_pid: u32) -> Option<u32> {
 pub fn foreground_process_group_id_for_tty_fd(fd: RawFd) -> Option<u32> {
     let pgid = unsafe { libc::tcgetpgrp(fd) };
     (pgid > 0).then_some(pgid as u32)
+}
+
+fn foreground_process_info(pid: u32) -> Option<ForegroundProcess> {
+    let (_, name) = process_pgrp_and_comm(pid)?;
+    let argv = process_argv(pid);
+    Some(ForegroundProcess {
+        pid,
+        name,
+        argv0: argv.as_ref().and_then(|parts| parts.first().cloned()),
+        cmdline: argv.as_ref().map(|parts| parts.join(" ")),
+        argv,
+    })
 }
 
 fn process_pgrp_and_comm(pid: u32) -> Option<(i32, String)> {
