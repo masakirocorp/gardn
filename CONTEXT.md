@@ -9,7 +9,7 @@ A coding assistant process detected or managed inside a pane, such as Codex, Cla
 _Avoid_: Bot, assistant, profile
 
 **Agent Profile**:
-A reusable launch identity for an agent family, with a stable id, display name, agent kind, launch argv, and optional environment. Agent profiles are global; groups can favorite profiles but do not redefine them.
+A reusable launch identity for an agent family, with a stable id, display name, agent kind, launch command, parsed argv, and optional environment. Agent profiles are global; groups can favorite profiles but do not redefine them.
 _Avoid_: Agent command, launcher, preset
 
 **Agent Kind**:
@@ -33,8 +33,12 @@ A per-group promotion of a global agent profile. Favorite profiles appear before
 _Avoid_: Visibility, permission, policy, priority
 
 **New Agent**:
-A launch surface for starting an agent profile as a new tab in a specific workspace or group context. New Agent starts the configured argv and environment directly, uses group favorites to organize profiles, and does not edit the profile catalog.
+A launch surface for starting an agent profile as a new tab in a specific workspace or group context. New Agent starts the configured command and environment directly, uses group favorites to organize profiles, and does not edit the profile catalog.
 _Avoid_: Run command, start bot
+
+**Integration Authority**:
+The permission a socket API integration source has to report agent state, session identity, or presentation metadata for a pane. Authority is about a running pane report, not how an agent was launched.
+_Avoid_: Agent profile, launcher permission
 
 **Workspace**:
 A named working area that groups related tabs, panes, and terminal sessions for one project or task.
