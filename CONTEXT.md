@@ -68,6 +68,14 @@ _Avoid_: Window, workspace
 A visible slot in a tab that displays and interacts with an attached terminal. A pane is the UI placement of a terminal, not the terminal process itself.
 _Avoid_: Terminal, process
 
+**Project Command**:
+A discovered command associated with a project root and launchable from Hako's command surfaces.
+_Avoid_: Task when referring to Hako's managed command catalog
+
+**Command Run**:
+A Hako-managed terminal tab created for a project command, tracked so the same command can be focused, stopped, or restarted instead of duplicated.
+_Avoid_: Shell command, one-off terminal
+
 **Terminal**:
 A running shell or agent session that Hako can display, send input to, and track. A terminal may be shown in a pane and may outlive a particular pane placement.
 _Avoid_: Pane, viewport
