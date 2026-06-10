@@ -22,6 +22,11 @@ use super::{
     WorkspaceSnapshot,
 };
 
+#[cfg(unix)]
+type ImportedPaneRuntime = crate::handoff_runtime::ImportedHandoffRuntime;
+#[cfg(not(unix))]
+enum ImportedPaneRuntime {}
+
 struct AgentRestoreState<'a> {
     enabled: bool,
     resumed_sessions: &'a mut HashSet<String>,
@@ -96,7 +101,7 @@ pub fn restore_handoff(
     scrollback_limit_bytes: usize,
     default_shell: &str,
     shell_mode: crate::config::ShellModeConfig,
-    imports: &mut HashMap<u32, crate::handoff_runtime::ImportedHandoffRuntime>,
+    imports: &mut HashMap<u32, ImportedPaneRuntime>,
     events: mpsc::Sender<AppEvent>,
     render_notify: Arc<Notify>,
     render_dirty: Arc<AtomicBool>,
@@ -182,7 +187,7 @@ fn restore_with_imports_strict(
     scrollback_limit_bytes: usize,
     shell_config: crate::pane::PaneShellConfig<'_>,
     resume_agents_on_restore: bool,
-    imported_panes: &mut HashMap<u32, crate::handoff_runtime::ImportedHandoffRuntime>,
+    imported_panes: &mut HashMap<u32, ImportedPaneRuntime>,
     events: mpsc::Sender<AppEvent>,
     render_notify: Arc<Notify>,
     render_dirty: Arc<AtomicBool>,
@@ -222,7 +227,7 @@ fn restore_with_imports(
     scrollback_limit_bytes: usize,
     shell_config: crate::pane::PaneShellConfig<'_>,
     resume_agents_on_restore: bool,
-    imported_panes: &mut HashMap<u32, crate::handoff_runtime::ImportedHandoffRuntime>,
+    imported_panes: &mut HashMap<u32, ImportedPaneRuntime>,
     events: mpsc::Sender<AppEvent>,
     render_notify: Arc<Notify>,
     render_dirty: Arc<AtomicBool>,
@@ -251,7 +256,7 @@ fn restore_with_imports_and_failures(
     scrollback_limit_bytes: usize,
     shell_config: crate::pane::PaneShellConfig<'_>,
     resume_agents_on_restore: bool,
-    imported_panes: &mut HashMap<u32, crate::handoff_runtime::ImportedHandoffRuntime>,
+    imported_panes: &mut HashMap<u32, ImportedPaneRuntime>,
     events: mpsc::Sender<AppEvent>,
     render_notify: Arc<Notify>,
     render_dirty: Arc<AtomicBool>,
@@ -298,7 +303,7 @@ fn restore_workspace(
     cols: u16,
     runtime_context: &RestoreRuntimeContext<'_>,
     resumed_agent_sessions: &mut HashSet<String>,
-    imported_panes: &mut HashMap<u32, crate::handoff_runtime::ImportedHandoffRuntime>,
+    imported_panes: &mut HashMap<u32, ImportedPaneRuntime>,
 ) -> RestoreFailures<Option<RestoredWorkspace>> {
     let mut tabs = Vec::new();
     let mut terminals = Vec::new();
@@ -395,7 +400,7 @@ fn restore_tab(
     cols: u16,
     runtime_context: &RestoreRuntimeContext<'_>,
     resumed_agent_sessions: &mut HashSet<String>,
-    imported_panes: &mut HashMap<u32, crate::handoff_runtime::ImportedHandoffRuntime>,
+    imported_panes: &mut HashMap<u32, ImportedPaneRuntime>,
 ) -> RestoreFailures<Option<RestoredTab>> {
     let (node, id_map) = restore_node_remapped(&snap.layout);
     let reverse_id_map: HashMap<PaneId, u32> = id_map
@@ -513,6 +518,7 @@ fn restore_tab(
             continue;
         }
 
+        #[cfg(unix)]
         let runtime_result = if let Some(imported) = imported_runtime {
             TerminalRuntime::from_handoff_fd(
                 crate::handoff_runtime::ImportedHandoffRuntime {
@@ -540,6 +546,20 @@ fn restore_tab(
                 runtime_context.render_dirty.clone(),
             )
         };
+        #[cfg(not(unix))]
+        let runtime_result = TerminalRuntime::spawn_with_initial_history(
+            *id,
+            rows,
+            cols,
+            cwd.clone(),
+            runtime_context.scrollback_limit_bytes,
+            crate::terminal_theme::TerminalTheme::default(),
+            runtime_context.shell_config,
+            startup.initial_history_ansi,
+            runtime_context.events.clone(),
+            runtime_context.render_notify.clone(),
+            runtime_context.render_dirty.clone(),
+        );
 
         match runtime_result {
             Ok(runtime) => {

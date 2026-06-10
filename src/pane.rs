@@ -19,7 +19,6 @@ use tracing::{debug, error, info, warn};
 use crate::detect::{Agent, AgentState};
 use crate::events::AppEvent;
 use crate::layout::PaneId;
-#[cfg(unix)]
 use crate::pty::actor::{PtyIoActor, PtyIoActorConfig, PtyIoActorHandle, PtyReadResult};
 
 mod agent_detection;
@@ -418,7 +417,6 @@ pub struct PaneRuntime {
 }
 
 enum PaneRuntimeIo {
-    #[cfg(unix)]
     Actor(PtyIoActorHandle),
     #[cfg(test)]
     TestChannel {
@@ -430,7 +428,6 @@ enum PaneRuntimeIo {
 impl PaneRuntimeIo {
     fn shutdown(&self) {
         match self {
-            #[cfg(unix)]
             PaneRuntimeIo::Actor(actor) => actor.shutdown(),
             #[cfg(test)]
             PaneRuntimeIo::TestChannel { .. } => {}
@@ -499,7 +496,6 @@ impl PaneRuntimeIo {
         terminal_responses: Vec<Bytes>,
     ) {
         match self {
-            #[cfg(unix)]
             PaneRuntimeIo::Actor(actor) => {
                 actor.resize(
                     rows,
@@ -524,7 +520,6 @@ impl PaneRuntimeIo {
         cell_height_px: u32,
     ) {
         match self {
-            #[cfg(unix)]
             PaneRuntimeIo::Actor(actor) => {
                 actor.nudge_child_redraw_after_handoff(rows, cols, cell_width_px, cell_height_px);
             }
@@ -535,7 +530,6 @@ impl PaneRuntimeIo {
 
     async fn send_bytes(&self, bytes: Bytes) -> Result<(), mpsc::error::SendError<Bytes>> {
         match self {
-            #[cfg(unix)]
             PaneRuntimeIo::Actor(actor) => actor.write_user_input(bytes).await,
             #[cfg(test)]
             PaneRuntimeIo::TestChannel { sender, .. } => sender.send(bytes).await,
@@ -544,7 +538,6 @@ impl PaneRuntimeIo {
 
     fn try_send_bytes(&self, bytes: Bytes) -> Result<(), mpsc::error::TrySendError<Bytes>> {
         match self {
-            #[cfg(unix)]
             PaneRuntimeIo::Actor(actor) => actor.try_write_user_input(bytes),
             #[cfg(test)]
             PaneRuntimeIo::TestChannel { sender, .. } => sender.try_send(bytes),
@@ -1323,13 +1316,26 @@ impl PaneRuntime {
                     terminal_responses: result.terminal_responses,
                 }
             });
-            PaneRuntimeIo::Actor(PtyIoActor::spawn(PtyIoActorConfig {
-                pane_id: pane_id.raw(),
-                master_fd: spawned.master_fd,
-                initially_quiesced: false,
-                on_read,
-                on_reader_exit: None,
-            })?)
+            #[cfg(unix)]
+            {
+                PaneRuntimeIo::Actor(PtyIoActor::spawn(PtyIoActorConfig {
+                    pane_id: pane_id.raw(),
+                    master_fd: spawned.master_fd,
+                    initially_quiesced: false,
+                    on_read,
+                    on_reader_exit: None,
+                })?)
+            }
+            #[cfg(windows)]
+            {
+                PaneRuntimeIo::Actor(PtyIoActor::spawn(PtyIoActorConfig {
+                    pane_id: pane_id.raw(),
+                    master: spawned.master,
+                    initially_quiesced: false,
+                    on_read,
+                    on_reader_exit: None,
+                })?)
+            }
         };
 
         // --- Detection task ---

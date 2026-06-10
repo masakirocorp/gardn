@@ -2804,6 +2804,9 @@ fn make_executable(path: &Path) -> io::Result<()> {
         fs::set_permissions(path, perms)?;
     }
 
+    #[cfg(not(unix))]
+    let _ = path;
+
     Ok(())
 }
 

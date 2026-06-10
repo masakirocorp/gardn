@@ -1315,8 +1315,8 @@ mod tests {
         app.settings.section = SettingsSection::Agents;
         app.settings.pending_agent_profile_name = Some("omp mk".to_string());
         app.settings.pending_agent_profile_command = Some("omp-mk".to_string());
-        app.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Omp);
-        app.settings.list.selected = 2;
+        app.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Codex);
+        app.settings.list.selected = 1;
 
         let area = Rect::new(0, 0, 100, 40);
         let backend = TestBackend::new(area.width, area.height);
@@ -1327,10 +1327,11 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, area.width, area.height);
-        let (selected_y, selected_x) = find_text_cell(&text, "omp ✓").expect("selected omp kind");
-        let (_, codex_x) = find_text_cell(&text, "codex").expect("unselected codex kind");
-        assert_eq!(selected_x, codex_x);
-        assert_eq!(buffer[(selected_x, selected_y)].symbol(), "o");
+        let (selected_y, selected_x) =
+            find_text_cell(&text, "codex ✓").expect("selected codex kind");
+        let (_, claude_x) = find_text_cell(&text, "claude").expect("unselected claude kind");
+        assert_eq!(selected_x, claude_x);
+        assert_eq!(buffer[(selected_x, selected_y)].symbol(), "c");
         assert_eq!(
             buffer[(selected_x, selected_y)].style().bg,
             Some(app.palette.accent)

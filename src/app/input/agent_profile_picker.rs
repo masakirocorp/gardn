@@ -483,7 +483,7 @@ mod tests {
 
         assert_eq!(
             app.state.groups[app.state.active_group].favorite_agent_profile_ids,
-            vec!["system:pi".to_string()]
+            vec!["system:codex".to_string()]
         );
         assert!(app.state.session_dirty);
     }

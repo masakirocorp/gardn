@@ -11,9 +11,11 @@ pub use self::io::{clear, clear_history, load, load_history, save};
 pub use self::restore::restore;
 #[cfg(unix)]
 pub use self::restore::{handoff_pane_aliases, restore_handoff};
+#[cfg(unix)]
+pub use self::snapshot::capture_handoff;
 #[cfg(test)]
 pub use self::snapshot::GroupSnapshot;
 pub use self::snapshot::{
-    capture, capture_handoff, capture_history, DirectionSnapshot, LayoutSnapshot,
-    SessionHistorySnapshot, SessionSnapshot, SessionUiSnapshot, TabSnapshot, WorkspaceSnapshot,
+    capture, capture_history, DirectionSnapshot, LayoutSnapshot, SessionHistorySnapshot,
+    SessionSnapshot, SessionUiSnapshot, TabSnapshot, WorkspaceSnapshot,
 };

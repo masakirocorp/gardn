@@ -15,7 +15,13 @@ pub(crate) fn stage(
     extension: &str,
     data: &[u8],
 ) -> io::Result<StagedClipboardImage> {
-    use std::os::unix::fs::OpenOptionsExt;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
 
     let extension = sanitize_extension(extension);
     let dir = ensure_staging_dir()?;
@@ -30,12 +36,7 @@ pub(crate) fn stage(
         let path = dir.join(format!(
             "client-{client_id}-clipboard-{unique}-{attempt}.{extension}"
         ));
-        let mut file = match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&path)
-        {
+        let mut file = match options.open(&path) {
             Ok(file) => file,
             Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(err) => return Err(err),
@@ -75,14 +76,18 @@ fn sanitize_extension(extension: &str) -> &'static str {
     }
 }
 
+#[cfg(unix)]
 fn staging_dir() -> PathBuf {
     let user_id = unsafe { libc::geteuid() };
     std::env::temp_dir().join(format!("hako-clipboard-images-{user_id}"))
 }
 
-fn ensure_staging_dir() -> io::Result<PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
+#[cfg(not(unix))]
+fn staging_dir() -> PathBuf {
+    std::env::temp_dir().join(format!("hako-clipboard-images-{}", std::process::id()))
+}
 
+fn ensure_staging_dir() -> io::Result<PathBuf> {
     let dir = staging_dir();
     fs::create_dir_all(&dir)?;
     let metadata = fs::metadata(&dir)?;
@@ -92,7 +97,11 @@ fn ensure_staging_dir() -> io::Result<PathBuf> {
             dir.display()
         )));
     }
-    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
+    }
     Ok(dir)
 }
 

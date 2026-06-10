@@ -9,8 +9,7 @@
 //! (escape hatch for users who want the traditional single-process behavior).
 
 use std::io;
-use std::os::unix::net::UnixStream;
-use std::os::unix::process::CommandExt;
+
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -39,7 +38,7 @@ const STATUS_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 /// This works by attempting to connect to the client socket. If the connection
 /// succeeds, a server is running. If the socket file doesn't exist or the
 /// connection is refused, no server is running. Stale sockets (from a crashed
-/// server) are detected because `UnixStream::connect` returns `ConnectionRefused`
+/// server) are detected because `connect_local_stream` returns `ConnectionRefused`
 /// when nobody is listening.
 #[allow(dead_code)] // Public API for external use and testing
 pub fn is_server_listening() -> bool {
@@ -52,7 +51,7 @@ fn is_server_listening_at(socket_path: &Path) -> bool {
         return false;
     }
 
-    match UnixStream::connect(socket_path) {
+    match crate::ipc::connect_local_stream(socket_path) {
         Ok(_) => {
             // Server is listening. Close the test connection immediately.
             // The server's handshake handler will time out on this connection
@@ -145,12 +144,16 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
 
 fn build_server_daemon_command(exe: PathBuf) -> Command {
     let mut command = Command::new(&exe);
-    command
-        .arg("server")
+    command.arg("server");
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
         // Create a new process group so the server survives the parent's exit
         // and doesn't receive SIGHUP when the client's terminal closes.
-        .process_group(0)
-        // Redirect stdio to /dev/null
+        command.process_group(0);
+    }
+    // Redirect stdio to the platform null device.
+    command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
