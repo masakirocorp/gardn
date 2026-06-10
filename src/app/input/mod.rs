@@ -595,12 +595,7 @@ impl App {
                         .state
                         .run_project_command(&mut self.terminal_runtimes, &command_id)
                     {
-                        self.state.toast = Some(crate::app::state::ToastNotification {
-                            kind: crate::app::state::ToastKind::NeedsAttention,
-                            title: "command failed".to_string(),
-                            context: err,
-                            target: None,
-                        });
+                        self.state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::NeedsAttention, title: "command failed".to_string(), context: err, position: None, target: None });
                     }
                 }
                 crate::app::state::CommandPanelAction::Stop(command_id) => {
@@ -856,6 +851,7 @@ fn app_for_mouse_test() -> App {
     app.state.mode = Mode::Terminal;
     app.state.update_available = None;
     app.state.latest_release_notes_available = false;
+    app.state.toast_config.delay_seconds = 0;
     app.state.view.sidebar_rect = ratatui::layout::Rect::new(0, 0, 26, 20);
     app.state.view.terminal_area = ratatui::layout::Rect::new(26, 0, 80, 20);
     app

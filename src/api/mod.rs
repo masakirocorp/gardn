@@ -22,6 +22,7 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
     matches!(
         &request.method,
         Method::ServerReloadConfig(_)
+            | Method::NotificationShow(_)
             | Method::GroupCreate(_)
             | Method::GroupFocus(_)
             | Method::GroupRename(_)

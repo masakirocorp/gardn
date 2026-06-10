@@ -9,10 +9,16 @@ use ratatui::{
 use super::widgets::panel_contrast_fg;
 use crate::{
     app::state::{CopyFeedback, Palette, ToastKind, ToastNotification},
+    config::{ToastClipboardPosition, ToastHakoPosition},
     detect::AgentState,
 };
 
-pub(crate) fn copy_feedback_rect(area: Rect, feedback: &CopyFeedback, offset_rows: u16) -> Rect {
+pub(crate) fn copy_feedback_rect(
+    area: Rect,
+    feedback: &CopyFeedback,
+    offset_rows: u16,
+    position: ToastClipboardPosition,
+) -> Rect {
     if area.width == 0 || area.height == 0 {
         return Rect::default();
     }
@@ -20,8 +26,25 @@ pub(crate) fn copy_feedback_rect(area: Rect, feedback: &CopyFeedback, offset_row
     let content_width = feedback.message.len() as u16 + 4;
     let width = content_width.min(area.width);
     let height = 3u16.min(area.height);
-    let x = area.x + area.width.saturating_sub(width) / 2;
-    let y = area.y + area.height.saturating_sub(height + offset_rows);
+    let x = match position {
+        ToastClipboardPosition::TopLeft | ToastClipboardPosition::BottomLeft => area.x,
+        ToastClipboardPosition::TopCenter | ToastClipboardPosition::BottomCenter => {
+            area.x + area.width.saturating_sub(width) / 2
+        }
+        ToastClipboardPosition::TopRight | ToastClipboardPosition::BottomRight => {
+            area.x + area.width.saturating_sub(width)
+        }
+    };
+    let y = match position {
+        ToastClipboardPosition::TopLeft
+        | ToastClipboardPosition::TopCenter
+        | ToastClipboardPosition::TopRight => area.y + offset_rows.min(area.height),
+        ToastClipboardPosition::BottomLeft
+        | ToastClipboardPosition::BottomCenter
+        | ToastClipboardPosition::BottomRight => {
+            area.y + area.height.saturating_sub(height + offset_rows)
+        }
+    };
     Rect::new(x, y, width, height)
 }
 
@@ -29,16 +52,27 @@ pub(crate) fn toast_notification_rect(
     area: Rect,
     toast: &ToastNotification,
     offset_for_warning: bool,
+    position: ToastHakoPosition,
 ) -> Rect {
     let content_width = (toast.title.len().max(toast.context.len()) as u16) + 4;
     let width = content_width.saturating_add(2).min(area.width);
     let content_height = if toast.context.is_empty() { 1 } else { 2 };
     let height = (content_height + 2).min(area.height);
-    let x = area.x + area.width.saturating_sub(width);
-    let y = area.y
-        + area
-            .height
-            .saturating_sub(height + if offset_for_warning { 1 } else { 0 });
+    let x = match position {
+        ToastHakoPosition::TopLeft | ToastHakoPosition::BottomLeft => area.x,
+        ToastHakoPosition::TopRight | ToastHakoPosition::BottomRight => {
+            area.x + area.width.saturating_sub(width)
+        }
+    };
+    let warning_offset = u16::from(offset_for_warning);
+    let y = match position {
+        ToastHakoPosition::TopLeft | ToastHakoPosition::TopRight => {
+            area.y + warning_offset.min(area.height)
+        }
+        ToastHakoPosition::BottomLeft | ToastHakoPosition::BottomRight => {
+            area.y + area.height.saturating_sub(height + warning_offset)
+        }
+    };
     Rect::new(x, y, width, height)
 }
 
@@ -55,11 +89,11 @@ pub(super) fn render_toast_notification(
     area: Rect,
     toast: &ToastNotification,
     offset_for_warning: bool,
+    position: ToastHakoPosition,
     p: &Palette,
 ) {
     let dot_color = toast_kind_color(toast.kind, p);
-    let toast_area = toast_notification_rect(area, toast, offset_for_warning);
-
+    let toast_area = toast_notification_rect(area, toast, offset_for_warning, position);
     frame.render_widget(Clear, toast_area);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -99,9 +133,10 @@ pub(super) fn render_copy_feedback(
     area: Rect,
     feedback: &CopyFeedback,
     offset_rows: u16,
+    position: ToastClipboardPosition,
     p: &Palette,
 ) {
-    let feedback_area = copy_feedback_rect(area, feedback, offset_rows);
+    let feedback_area = copy_feedback_rect(area, feedback, offset_rows, position);
     if feedback_area.is_empty() {
         return;
     }

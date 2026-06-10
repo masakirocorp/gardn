@@ -272,10 +272,18 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # background notification popup delivery
 [ui.toast]
 # off = disable pop-up notifications
-# hako = show top-right in-app toasts
+# hako = show in-app toasts
 # terminal = ask the outer terminal to show a desktop notification
 # system = ask the OS notification service directly
 # delivery = "off"
+# delay_seconds = 1
+
+[ui.toast.hako]
+# position = "bottom-right"
+
+[ui.toast.clipboard]
+# enabled = true
+# position = "bottom-center"
 
 # play sounds when agents change state in background workspaces
 [ui.sound]

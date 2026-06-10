@@ -8,6 +8,8 @@ use super::{
     DEFAULT_MOUSE_SCROLL_LINES, DEFAULT_SCROLLBACK_LIMIT_BYTES,
 };
 
+pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ToastDelivery {
@@ -16,6 +18,28 @@ pub enum ToastDelivery {
     Hako,
     Terminal,
     System,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ToastHakoPosition {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    #[default]
+    BottomRight,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ToastClipboardPosition {
+    TopLeft,
+    TopCenter,
+    TopRight,
+    BottomLeft,
+    #[default]
+    BottomCenter,
+    BottomRight,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
@@ -93,6 +117,22 @@ fn parse_right_click_passthrough_modifier(value: &str) -> Option<Option<KeyModif
 #[derive(Debug, Clone)]
 pub struct ToastConfig {
     pub delivery: ToastDelivery,
+    pub delay_seconds: u64,
+    pub hako: HakoToastConfig,
+    pub clipboard: ClipboardToastConfig,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct HakoToastConfig {
+    pub position: ToastHakoPosition,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ClipboardToastConfig {
+    pub enabled: bool,
+    pub position: ToastClipboardPosition,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -597,6 +637,26 @@ impl Default for ToastConfig {
     fn default() -> Self {
         Self {
             delivery: ToastDelivery::Off,
+            delay_seconds: 1,
+            hako: HakoToastConfig::default(),
+            clipboard: ClipboardToastConfig::default(),
+        }
+    }
+}
+
+impl Default for HakoToastConfig {
+    fn default() -> Self {
+        Self {
+            position: ToastHakoPosition::BottomRight,
+        }
+    }
+}
+
+impl Default for ClipboardToastConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            position: ToastClipboardPosition::BottomCenter,
         }
     }
 }
@@ -611,6 +671,9 @@ impl<'de> Deserialize<'de> for ToastConfig {
         struct RawToastConfig {
             delivery: Option<ToastDelivery>,
             enabled: Option<bool>,
+            delay_seconds: Option<u64>,
+            hako: HakoToastConfig,
+            clipboard: ClipboardToastConfig,
         }
 
         let raw = RawToastConfig::deserialize(deserializer)?;
@@ -619,7 +682,19 @@ impl<'de> Deserialize<'de> for ToastConfig {
             Some(false) | None => ToastDelivery::Off,
         };
         let delivery = raw.delivery.unwrap_or(legacy_delivery);
-        Ok(Self { delivery })
+        let default = Self::default();
+        let delay_seconds = raw.delay_seconds.unwrap_or(default.delay_seconds);
+        if delay_seconds > MAX_TOAST_DELAY_SECONDS {
+            return Err(de::Error::custom(format!(
+                "ui.toast.delay_seconds must be between 0 and {MAX_TOAST_DELAY_SECONDS}"
+            )));
+        }
+        Ok(Self {
+            delivery,
+            delay_seconds,
+            hako: raw.hako,
+            clipboard: raw.clipboard,
+        })
     }
 }
 
@@ -1009,9 +1084,37 @@ mouse_scroll_lines = 0
         let toml = r#"
 [ui.toast]
 delivery = "terminal"
+delay_seconds = 2
+
+[ui.toast.hako]
+position = "top-left"
+
+[ui.toast.clipboard]
+enabled = false
+position = "top-center"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.ui.toast.delivery, ToastDelivery::Terminal);
+        assert_eq!(config.ui.toast.delay_seconds, 2);
+        assert_eq!(config.ui.toast.hako.position, ToastHakoPosition::TopLeft);
+        assert!(!config.ui.toast.clipboard.enabled);
+        assert_eq!(
+            config.ui.toast.clipboard.position,
+            ToastClipboardPosition::TopCenter
+        );
+    }
+
+    #[test]
+    fn toast_config_defaults_preserve_existing_behavior_with_delay() {
+        let config = Config::default();
+        assert_eq!(config.ui.toast.delivery, ToastDelivery::Off);
+        assert_eq!(config.ui.toast.delay_seconds, 1);
+        assert_eq!(config.ui.toast.hako.position, ToastHakoPosition::BottomRight);
+        assert!(config.ui.toast.clipboard.enabled);
+        assert_eq!(
+            config.ui.toast.clipboard.position,
+            ToastClipboardPosition::BottomCenter
+        );
     }
 
     #[test]
@@ -1045,6 +1148,32 @@ enabled = false
     }
 
     #[test]
+    fn toast_config_delivery_wins_over_legacy_enabled() {
+        let toml = r#"
+[ui.toast]
+enabled = true
+delivery = "terminal"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.ui.toast.delivery, ToastDelivery::Terminal);
+    }
+
+    #[test]
+    fn toast_config_rejects_unbounded_delay() {
+        let toml = format!(
+            r#"
+[ui.toast]
+delay_seconds = {}
+"#,
+            MAX_TOAST_DELAY_SECONDS + 1
+        );
+
+        let error = toml::from_str::<Config>(&toml).unwrap_err().to_string();
+
+        assert!(error.contains("ui.toast.delay_seconds must be between 0 and 3600"));
+    }
+
+    #[test]
     fn remote_manage_ssh_config_defaults_on_and_parses() {
         let default_config = Config::default();
         assert!(default_config.remote.manage_ssh_config);
@@ -1057,16 +1186,6 @@ manage_ssh_config = false
         assert!(!config.remote.manage_ssh_config);
     }
 
-    #[test]
-    fn toast_config_delivery_wins_over_legacy_enabled() {
-        let toml = r#"
-[ui.toast]
-enabled = true
-delivery = "terminal"
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.ui.toast.delivery, ToastDelivery::Terminal);
-    }
 
     #[test]
     fn missing_onboarding_shows_setup() {

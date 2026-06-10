@@ -1248,8 +1248,8 @@
     {
       "upstream": "4001fd2ec8ff05a982da18744b8cbde9df3ab530",
       "subject": "feat: improve toast ergonomics",
-      "status": "deferred",
-      "reason": "large cross-cutting toast/API/headless-server change; deferred to avoid unsafe adaptation inside integration port."
+      "status": "ported",
+      "reason": "ported as Hako toast ergonomics: delayed agent notifications, configurable in-app and clipboard toast placement, clipboard feedback toggle, notification.show API/CLI, and headless forwarding semantics."
     },
     {
       "upstream": "ee51c5e5fbaea694e65bb0a4908f75bcaf9707d1",

@@ -36,6 +36,7 @@ pub(crate) const SELECTION_AUTOSCROLL_INTERVAL: Duration = Duration::from_millis
 const RESIZE_POLL_INTERVAL: Duration = Duration::from_millis(100);
 pub(crate) const PORT_SCAN_INTERVAL: Duration = Duration::from_secs(2);
 pub(crate) const COMMAND_SCAN_INTERVAL: Duration = Duration::from_secs(5);
+pub(crate) const API_NOTIFICATION_RATE_LIMIT: Duration = Duration::from_millis(250);
 const PORT_STALE_TTL: Duration = Duration::from_secs(5);
 const GIT_REMOTE_STATUS_REFRESH_INTERVAL: Duration = Duration::from_millis(1500);
 const AUTO_UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
@@ -113,6 +114,7 @@ pub struct App {
     pub(crate) next_animation_tick: Option<Instant>,
     pub(crate) next_auto_update_check: Option<Instant>,
     pub(crate) agent_metadata_deadline: Option<Instant>,
+    pub(crate) last_api_notification_at: Option<Instant>,
     pub(crate) pending_agent_resume_deadline: Option<Instant>,
     pub(crate) selection_autoscroll_deadline: Option<Instant>,
     pub(crate) selection_highlight_clear_deadline: Option<Instant>,
@@ -622,6 +624,7 @@ impl App {
             update_dismissed: false,
             config_diagnostic,
             toast: None,
+            pending_agent_notifications: std::collections::HashMap::new(),
             copy_feedback: None,
             outer_terminal_focus: None,
             prefix_code,
@@ -795,6 +798,7 @@ impl App {
             next_auto_update_check: auto_updates_enabled(no_session)
                 .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL),
             agent_metadata_deadline: None,
+            last_api_notification_at: None,
             pending_agent_resume_deadline: None,
             session_save_deadline: None,
             selection_autoscroll_deadline: None,
@@ -970,12 +974,7 @@ impl App {
         let previous_toast = self.state.toast.clone();
         if let Err(err) = self.create_agent_profile_tab(ws_idx, &profile_id) {
             tracing::warn!(profile = %profile_id, err = %err, "failed to launch agent profile");
-            self.state.toast = Some(crate::app::state::ToastNotification {
-                kind: crate::app::state::ToastKind::NeedsAttention,
-                title: "agent launch failed".to_string(),
-                context: err.to_string(),
-                target: None,
-            });
+            self.state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::NeedsAttention, title: "agent launch failed".to_string(), context: err.to_string(), position: None, target: None });
             self.sync_toast_deadline(previous_toast);
         }
 
@@ -1028,12 +1027,7 @@ impl App {
                     .await;
                 let previous_toast = self.state.toast.clone();
                 if let Err(err) = self.state.open_git_diff_panel(&mut self.terminal_runtimes) {
-                    self.state.toast = Some(crate::app::state::ToastNotification {
-                        kind: crate::app::state::ToastKind::NeedsAttention,
-                        title: "git diff failed".to_string(),
-                        context: err,
-                        target: None,
-                    });
+                    self.state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::NeedsAttention, title: "git diff failed".to_string(), context: err, position: None, target: None });
                     self.sync_toast_deadline(previous_toast);
                 }
                 needs_render = true;
@@ -1483,23 +1477,13 @@ impl App {
             self.state.config_diagnostic = None;
             self.config_diagnostic_deadline = None;
             if notify_success {
-                self.state.toast = Some(crate::app::state::ToastNotification {
-                    kind: crate::app::state::ToastKind::UpdateInstalled,
-                    title: "reloaded config".to_string(),
-                    context: "using config.toml".to_string(),
-                    target: None,
-                });
+                self.state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::UpdateInstalled, title: "reloaded config".to_string(), context: "using config.toml".to_string(), position: None, target: None });
             }
         } else {
             self.state.config_diagnostic = crate::config::config_diagnostic_summary(&diagnostics);
             self.config_diagnostic_deadline = None;
             if notify_success {
-                self.state.toast = Some(crate::app::state::ToastNotification {
-                    kind: crate::app::state::ToastKind::UpdateInstalled,
-                    title: "reloaded config".to_string(),
-                    context: "with warnings".to_string(),
-                    target: None,
-                });
+                self.state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::UpdateInstalled, title: "reloaded config".to_string(), context: "with warnings".to_string(), position: None, target: None });
             }
         }
 

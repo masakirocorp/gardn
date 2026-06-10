@@ -7,12 +7,12 @@ use crate::api::client::{ApiClient, ApiClientError};
 use crate::api::schema::{
     AgentReadParams, AgentRenameParams, AgentSendParams, AgentStartParams, AgentStatus,
     AgentTarget, EmptyParams, GroupCreateParams, GroupRenameParams, GroupTarget, IntegrationTarget,
-    Method, OutputMatch, PaneAgentState, PaneListParams, PaneReadParams, PaneRenameParams,
-    PaneReportAgentParams, PaneReportMetadataParams, PaneSendInputParams, PaneSendKeysParams,
-    PaneSendTextParams, PaneSplitParams, PaneTarget, PaneWaitForOutputParams, PingParams,
-    ReadFormat, ReadSource, Request, ServerLiveHandoffParams, SplitDirection, Subscription,
-    TabCreateParams, TabListParams, TabRenameParams, TabTarget, WorkspaceCreateParams,
-    WorkspaceMoveToGroupParams, WorkspaceRenameParams, WorkspaceTarget,
+    Method, NotificationShowParams, NotificationShowSound, OutputMatch, PaneAgentState,
+    PaneListParams, PaneReadParams, PaneRenameParams, PaneReportAgentParams, PaneReportMetadataParams,
+    PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams, PaneSplitParams, PaneTarget,
+    PaneWaitForOutputParams, PingParams, ReadFormat, ReadSource, Request, ServerLiveHandoffParams,
+    SplitDirection, Subscription, TabCreateParams, TabListParams, TabRenameParams, TabTarget,
+    WorkspaceCreateParams, WorkspaceMoveToGroupParams, WorkspaceRenameParams, WorkspaceTarget,
 };
 
 mod worktree;
@@ -38,6 +38,7 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
         "config" => run_config_command(&args[2..])?,
         "workspace" => run_workspace_command(&args[2..])?,
         "worktree" => worktree::run_worktree_command(&args[2..])?,
+        "notification" => run_notification_command(&args[2..])?,
         "tab" => run_tab_command(&args[2..])?,
         "agent" => run_agent_command(&args[2..])?,
         "terminal" => run_terminal_command(&args[2..])?,
@@ -411,6 +412,109 @@ fn current_exe_label() -> String {
     std::env::current_exe()
         .map(|path| path.display().to_string())
         .unwrap_or_else(|err| format!("unknown ({err})"))
+}
+
+fn run_notification_command(args: &[String]) -> std::io::Result<i32> {
+    let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
+        print_notification_help();
+        return Ok(2);
+    };
+
+    match subcommand {
+        "show" => notification_show(&args[1..]),
+        "help" | "--help" | "-h" => {
+            print_notification_help();
+            Ok(0)
+        }
+        _ => {
+            print_notification_help();
+            Ok(2)
+        }
+    }
+}
+
+fn print_notification_help() {
+    eprintln!(
+        "usage: hako notification show <title> [--body TEXT] [--position top-left|top-right|bottom-left|bottom-right] [--sound none|done|request]"
+    );
+}
+
+fn notification_show(args: &[String]) -> std::io::Result<i32> {
+    let Some(title) = args.first() else {
+        print_notification_help();
+        return Ok(2);
+    };
+
+    let mut body = None;
+    let mut position = None;
+    let mut sound = NotificationShowSound::None;
+    let mut idx = 1;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "--body" => {
+                let Some(value) = args.get(idx + 1) else {
+                    print_notification_help();
+                    return Ok(2);
+                };
+                body = Some(value.clone());
+                idx += 2;
+            }
+            "--position" => {
+                let Some(value) = args.get(idx + 1) else {
+                    print_notification_help();
+                    return Ok(2);
+                };
+                position = Some(parse_hako_toast_position(value)?);
+                idx += 2;
+            }
+            "--sound" => {
+                let Some(value) = args.get(idx + 1) else {
+                    print_notification_help();
+                    return Ok(2);
+                };
+                sound = parse_notification_sound(value)?;
+                idx += 2;
+            }
+            _ => {
+                print_notification_help();
+                return Ok(2);
+            }
+        }
+    }
+
+    let response = send_request(&Request {
+        id: "cli:notification:show".into(),
+        method: Method::NotificationShow(NotificationShowParams {
+            title: title.clone(),
+            body,
+            position,
+            sound,
+        }),
+    })?;
+    print_response(&response)
+}
+
+fn parse_hako_toast_position(value: &str) -> std::io::Result<crate::config::ToastHakoPosition> {
+    match value {
+        "top-left" => Ok(crate::config::ToastHakoPosition::TopLeft),
+        "top-right" => Ok(crate::config::ToastHakoPosition::TopRight),
+        "bottom-left" => Ok(crate::config::ToastHakoPosition::BottomLeft),
+        "bottom-right" => Ok(crate::config::ToastHakoPosition::BottomRight),
+        _ => Err(std::io::Error::other(
+            "invalid notification position: expected top-left, top-right, bottom-left, or bottom-right",
+        )),
+    }
+}
+
+fn parse_notification_sound(value: &str) -> std::io::Result<NotificationShowSound> {
+    match value {
+        "none" => Ok(NotificationShowSound::None),
+        "done" => Ok(NotificationShowSound::Done),
+        "request" => Ok(NotificationShowSound::Request),
+        _ => Err(std::io::Error::other(
+            "invalid notification sound: expected none, done, or request",
+        )),
+    }
 }
 
 fn run_workspace_command(args: &[String]) -> std::io::Result<i32> {

@@ -144,12 +144,7 @@ impl App {
         match result {
             Ok(()) => finish_custom_command_context(&mut self.state, context, previous_mode),
             Err(err) => {
-                self.state.toast = Some(crate::app::state::ToastNotification {
-                    kind: crate::app::state::ToastKind::NeedsAttention,
-                    title: "custom command failed".to_string(),
-                    context: err.to_string(),
-                    target: None,
-                });
+                self.state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::NeedsAttention, title: "custom command failed".to_string(), context: err.to_string(), position: None, target: None });
                 self.sync_toast_deadline(previous_toast);
                 finish_custom_command_context(&mut self.state, context, previous_mode);
             }
@@ -225,12 +220,7 @@ impl App {
         match self.open_focused_scrollback_in_editor() {
             Ok(()) => self.sync_toast_deadline(previous_toast),
             Err(err) => {
-                self.state.toast = Some(crate::app::state::ToastNotification {
-                    kind: crate::app::state::ToastKind::NeedsAttention,
-                    title: "edit scrollback failed".to_string(),
-                    context: err.to_string(),
-                    target: None,
-                });
+                self.state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::NeedsAttention, title: "edit scrollback failed".to_string(), context: err.to_string(), position: None, target: None });
                 self.sync_toast_deadline(previous_toast);
             }
         }
@@ -267,12 +257,7 @@ impl App {
         }
 
         if let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) {
-            self.state.toast = Some(crate::app::state::ToastNotification {
-                kind: crate::app::state::ToastKind::Finished,
-                title: "opened scrollback".to_string(),
-                context: format!("focused pane {public_pane_id}"),
-                target: None,
-            });
+            self.state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::Finished, title: "opened scrollback".to_string(), context: format!("focused pane {public_pane_id}"), position: None, target: None });
         }
         Ok(())
     }
@@ -1177,15 +1162,10 @@ mod tests {
         state.keybinds.open_notification_target = crate::config::ActionKeybinds::prefix("g");
         let target_workspace_id = state.workspaces[1].id.clone();
         let target_pane = state.workspaces[1].tabs[0].root_pane;
-        state.toast = Some(crate::app::state::ToastNotification {
-            kind: crate::app::state::ToastKind::NeedsAttention,
-            title: "pi needs attention".into(),
-            context: "two".into(),
-            target: Some(crate::app::state::ToastTarget {
-                workspace_id: target_workspace_id,
-                pane_id: target_pane,
-            }),
-        });
+        state.toast = Some(crate::app::state::ToastNotification { kind: crate::app::state::ToastKind::NeedsAttention, title: "pi needs attention".into(), context: "two".into(), position: None, target: Some(crate::app::state::ToastTarget {
+            workspace_id: target_workspace_id,
+            pane_id: target_pane,
+        }) });
 
         handle_navigate_key(
             &mut state,

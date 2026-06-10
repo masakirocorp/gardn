@@ -59,6 +59,35 @@ use crate::server::client_transport::ClientWriter;
 #[cfg(test)]
 use std::fs;
 
+fn sanitize_notification_text(value: &str, max_chars: usize) -> Option<String> {
+    let mut out = String::new();
+    let mut pending_space = false;
+
+    for ch in value.chars() {
+        if ch.is_control() || ch.is_whitespace() {
+            pending_space = !out.is_empty();
+            continue;
+        }
+        if pending_space && out.chars().count() < max_chars {
+            out.push(' ');
+        }
+        pending_space = false;
+        if out.chars().count() >= max_chars {
+            break;
+        }
+        out.push(ch);
+    }
+
+    (!out.is_empty()).then_some(out)
+}
+
+fn notification_message(title: &str, body: Option<&str>) -> String {
+    match body {
+        Some(body) if !body.is_empty() => format!("{title}: {body}"),
+        _ => title.to_owned(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Loop event enum for the headless server event loop
 // ---------------------------------------------------------------------------
@@ -286,12 +315,7 @@ impl HeadlessServer {
                             .state
                             .run_project_command(&mut self.app.terminal_runtimes, &command_id)
                         {
-                            self.app.state.toast = Some(app::state::ToastNotification {
-                                kind: app::state::ToastKind::NeedsAttention,
-                                title: "command failed".to_string(),
-                                context: err,
-                                target: None,
-                            });
+                            self.app.state.toast = Some(app::state::ToastNotification { kind: app::state::ToastKind::NeedsAttention, title: "command failed".to_string(), context: err, position: None, target: None });
                         }
                     }
                     app::state::CommandPanelAction::Stop(command_id) => {
@@ -901,12 +925,7 @@ impl HeadlessServer {
             .state
             .open_git_diff_panel(&mut self.app.terminal_runtimes)
         {
-            self.app.state.toast = Some(app::state::ToastNotification {
-                kind: app::state::ToastKind::NeedsAttention,
-                title: "git diff failed".to_string(),
-                context: err,
-                target: None,
-            });
+            self.app.state.toast = Some(app::state::ToastNotification { kind: app::state::ToastKind::NeedsAttention, title: "git diff failed".to_string(), context: err, position: None, target: None });
             self.app.toast_deadline = Some(Instant::now() + Duration::from_secs(8));
         }
 
@@ -1104,7 +1123,7 @@ impl HeadlessServer {
 
                 let next_state = self.pane_effective_state(pane_id_val);
 
-                if self.app.state.sound.allows(agent_val) {
+                if self.app.state.toast_config.delay_seconds == 0 && self.app.state.sound.allows(agent_val) {
                     if let Some(sound) = crate::app::actions::notification_sound_for_state_change(
                         suppress_active_tab_notifications,
                         prev_state,
@@ -1122,7 +1141,7 @@ impl HeadlessServer {
                 }
 
                 let toast_msg =
-                    if should_forward_toast_to_clients(self.app.state.toast_config.delivery) {
+                    if self.app.state.toast_config.delay_seconds == 0 && should_forward_toast_to_clients(self.app.state.toast_config.delivery) {
                         if self.app.state.toast.is_some() && self.app.state.toast != toast_before {
                             self.app
                                 .state
@@ -1189,7 +1208,7 @@ impl HeadlessServer {
 
                 let next_state = self.pane_effective_state(pane_id_val);
 
-                if self.app.state.sound.allows(agent_val) {
+                if self.app.state.toast_config.delay_seconds == 0 && self.app.state.sound.allows(agent_val) {
                     if let Some(sound) = crate::app::actions::notification_sound_for_state_change(
                         suppress_active_tab_notifications,
                         prev_state,
@@ -1207,7 +1226,7 @@ impl HeadlessServer {
                 }
 
                 let toast_msg =
-                    if should_forward_toast_to_clients(self.app.state.toast_config.delivery) {
+                    if self.app.state.toast_config.delay_seconds == 0 && should_forward_toast_to_clients(self.app.state.toast_config.delivery) {
                         if self.app.state.toast.is_some() && self.app.state.toast != toast_before {
                             self.app
                                 .state
@@ -1249,7 +1268,7 @@ impl HeadlessServer {
                 self.app.handle_internal_event(ev);
 
                 let toast_msg =
-                    if should_forward_toast_to_clients(self.app.state.toast_config.delivery) {
+                    if self.app.state.toast_config.delay_seconds == 0 && should_forward_toast_to_clients(self.app.state.toast_config.delivery) {
                         if self.app.state.toast.is_some() && self.app.state.toast != toast_before {
                             self.app
                                 .state
@@ -1834,6 +1853,100 @@ impl HeadlessServer {
         changed
     }
 
+    fn handle_notification_show_headless(
+        &mut self,
+        id: String,
+        params: api::schema::NotificationShowParams,
+    ) -> String {
+        use api::schema::{NotificationShowReason, ResponseResult};
+
+        let requested_sound = params.sound;
+        let Some(title) = sanitize_notification_text(&params.title, 80) else {
+            return serde_json::to_string(&api::schema::ErrorResponse {
+                id,
+                error: api::schema::ErrorBody {
+                    code: "invalid_params".into(),
+                    message: "notification title is empty".into(),
+                },
+            })
+            .unwrap_or_else(|_| "{}".to_string());
+        };
+        let body = params
+            .body
+            .as_deref()
+            .and_then(|body| sanitize_notification_text(body, 240));
+
+        let now = Instant::now();
+        let reason = match self.app.state.toast_config.delivery {
+            crate::config::ToastDelivery::Off => NotificationShowReason::Disabled,
+            crate::config::ToastDelivery::Hako => {
+                if self.app.state.toast.is_some() {
+                    NotificationShowReason::Busy
+                } else if self.app.api_notification_rate_limited(now) {
+                    NotificationShowReason::RateLimited
+                } else {
+                    let previous_toast = self.app.state.toast.clone();
+                    self.app.mark_api_notification_shown(now);
+                    self.app.state.toast = Some(app::state::ToastNotification {
+                        kind: app::state::ToastKind::UpdateInstalled,
+                        title,
+                        context: body.unwrap_or_default(),
+                        position: params.position,
+                        target: None,
+                    });
+                    self.app.sync_toast_deadline(previous_toast);
+                    self.forward_api_notification_sound(requested_sound);
+                    NotificationShowReason::Shown
+                }
+            }
+            crate::config::ToastDelivery::Terminal | crate::config::ToastDelivery::System => {
+                if self.app.api_notification_rate_limited(now) {
+                    NotificationShowReason::RateLimited
+                } else {
+                    let message = notification_message(&title, body.as_deref());
+                    let sent = self.send_to_foreground_client(ServerMessage::Notify {
+                        kind: toast_notify_kind(self.app.state.toast_config.delivery)
+                            .expect("toast forwarding requires a client notification kind"),
+                        message,
+                    });
+                    if sent {
+                        self.app.mark_api_notification_shown(now);
+                        self.forward_api_notification_sound(requested_sound);
+                        NotificationShowReason::Shown
+                    } else {
+                        NotificationShowReason::NoForegroundClient
+                    }
+                }
+            }
+        };
+
+        serde_json::to_string(&api::schema::SuccessResponse {
+            id,
+            result: ResponseResult::NotificationShow {
+                shown: matches!(reason, NotificationShowReason::Shown),
+                reason,
+            },
+        })
+        .unwrap_or_else(|_| "{}".to_string())
+    }
+
+    fn forward_api_notification_sound(&mut self, sound: api::schema::NotificationShowSound) {
+        if !self.app.state.sound.allows(None) {
+            return;
+        }
+        let Some(sound) = sound.to_sound() else {
+            return;
+        };
+        let message = match sound {
+            crate::sound::Sound::Done => "agent done",
+            crate::sound::Sound::Request => "agent attention",
+        };
+        self.send_to_foreground_client(ServerMessage::Notify {
+            kind: protocol::NotifyKind::Sound,
+            message: message.to_owned(),
+        });
+    }
+
     /// Handles a single API request with shutdown awareness.
     ///
     /// Also forwards any toast/sound notifications that result from the API
@@ -1905,6 +2018,11 @@ impl HeadlessServer {
         };
 
         self.sync_foreground_client_state();
+        if let api::schema::Method::NotificationShow(params) = &msg.request.method {
+            let response = self.handle_notification_show_headless(msg.request.id.clone(), params.clone());
+            let _ = msg.respond_to.send(response);
+            return changed;
+        }
         let response = if matches!(
             &msg.request.method,
             api::schema::Method::ServerReloadConfig(_)
@@ -1937,7 +2055,7 @@ impl HeadlessServer {
         // show a terminal or system notification.
         let toast_after = self.app.state.toast.clone();
         let forwarded_toast_from_state =
-            if should_forward_toast_to_clients(self.app.state.toast_config.delivery)
+            if self.app.state.toast_config.delay_seconds == 0 && should_forward_toast_to_clients(self.app.state.toast_config.delivery)
                 && toast_after.is_some()
                 && toast_after != toast_before
             {
@@ -2002,7 +2120,7 @@ impl HeadlessServer {
             );
 
             if !forwarded_toast_from_state
-                && should_forward_toast_to_clients(self.app.state.toast_config.delivery)
+                && self.app.state.toast_config.delay_seconds == 0 && should_forward_toast_to_clients(self.app.state.toast_config.delivery)
             {
                 if let Some(kind) = crate::app::actions::notification_toast_for_state_change(
                     suppress_active_tab_notifications,
@@ -2047,7 +2165,7 @@ impl HeadlessServer {
 
             // Forward sound notification when server-side sound policy allows it.
             // Clients still decide locally whether they can execute the side effect.
-            if self.app.state.sound.allows(agent) {
+            if self.app.state.toast_config.delay_seconds == 0 && self.app.state.sound.allows(agent) {
                 if let Some(sound) = crate::app::actions::notification_sound_for_state_change(
                     suppress_active_tab_notifications,
                     *prev_state,
@@ -2317,6 +2435,34 @@ impl HeadlessServer {
     /// Handle scheduled tasks for the headless server.
     ///
     /// Similar to `App::handle_scheduled_tasks` but without resize polling
+    fn forward_agent_notification_delivery(
+        &mut self,
+        delivery: &app::state::AgentNotificationDelivery,
+    ) {
+        if let Some(sound) = delivery.sound {
+            let message = match sound {
+                crate::sound::Sound::Done => "agent done",
+                crate::sound::Sound::Request => "agent attention",
+            };
+            self.send_to_foreground_client(ServerMessage::Notify {
+                kind: protocol::NotifyKind::Sound,
+                message: message.to_owned(),
+            });
+        }
+
+        if !should_forward_toast_to_clients(self.app.state.toast_config.delivery) {
+            return;
+        }
+        let Some(toast) = delivery.client_notification.as_ref() else {
+            return;
+        };
+        self.send_to_foreground_client(ServerMessage::Notify {
+            kind: toast_notify_kind(self.app.state.toast_config.delivery)
+                .expect("toast forwarding requires a client notification kind"),
+            message: notification_message(&toast.title, (!toast.context.is_empty()).then_some(toast.context.as_str())),
+        });
+    }
+
     /// (the server doesn't have a terminal to resize).
     fn handle_scheduled_tasks_headless(&mut self, now: Instant, geometry_dirty: bool) -> bool {
         let mut changed = false;
@@ -2371,6 +2517,22 @@ impl HeadlessServer {
             self.app.copy_feedback_deadline = None;
             self.app.state.copy_feedback = None;
             changed = true;
+        }
+
+        if self
+            .app
+            .state
+            .next_pending_agent_notification_deadline()
+            .is_some_and(|deadline| now >= deadline)
+        {
+            let deliveries = self.app.state.drain_due_agent_notifications(now);
+            for delivery in &deliveries {
+                self.forward_agent_notification_delivery(delivery);
+            }
+            if !deliveries.is_empty() {
+                self.app.sync_toast_deadline(None);
+                changed = true;
+            }
         }
 
         if self
@@ -2793,6 +2955,7 @@ mod tests {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = crate::app::App::new(&config, true, None, api_rx, api::EventHub::default());
         app.state.local_sound_playback = false;
+        app.state.toast_config.delay_seconds = 0;
         app.local_terminal_notifications = false;
 
         let dir = std::env::temp_dir().join(format!(
@@ -4691,6 +4854,66 @@ next_tab = ""
         );
     }
 
+
+    #[test]
+    fn notification_show_api_forwards_system_to_foreground_client() {
+        let mut server = test_headless_server();
+        let (client_tx, client_control_rx, _client_rx) = test_client_writer();
+
+        server.clients.insert(
+            1,
+            ClientConnection::new(
+                (80, 24),
+                crate::kitty_graphics::HostCellSize::default(),
+                crate::terminal_theme::TerminalTheme::default(),
+                None,
+                1,
+                RenderEncoding::SemanticFrame,
+                Some(client_tx),
+            ),
+        );
+        server.foreground_client_id = Some(1);
+        server.app.state.toast_config.delivery = crate::config::ToastDelivery::System;
+
+        let (respond_to, response_rx) = std::sync::mpsc::channel();
+        assert!(server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
+            request: api::schema::Request {
+                id: "notify".into(),
+                method: api::schema::Method::NotificationShow(
+                    api::schema::NotificationShowParams {
+                        title: "build\nfailed".into(),
+                        body: Some("api workspace".into()),
+                        position: None,
+                        sound: api::schema::NotificationShowSound::None,
+                    },
+                ),
+            },
+            respond_to,
+        }));
+
+        let response = response_rx
+            .recv_timeout(Duration::from_millis(100))
+            .unwrap();
+        let parsed: api::schema::SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(
+            parsed.result,
+            api::schema::ResponseResult::NotificationShow {
+                shown: true,
+                reason: api::schema::NotificationShowReason::Shown,
+            }
+        );
+        match read_server_message(
+            client_control_rx
+                .recv_timeout(Duration::from_millis(100))
+                .expect("api notification message"),
+        ) {
+            ServerMessage::Notify { kind, message } => {
+                assert_eq!(kind, protocol::NotifyKind::SystemToast);
+                assert_eq!(message, "build failed: api workspace");
+            }
+            other => panic!("expected api notification, got {other:?}"),
+        }
+    }
     #[test]
     fn client_config_reload_request_refreshes_attached_clients() {
         let mut server = test_headless_server();

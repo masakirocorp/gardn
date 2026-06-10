@@ -243,6 +243,7 @@ impl App {
             kind: ToastKind::NeedsAttention,
             title: format!("couldn't restore {} session", plan.agent),
             context: restore_failure_context(reason, command),
+            position: None,
             target,
         });
     }

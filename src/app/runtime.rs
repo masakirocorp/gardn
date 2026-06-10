@@ -273,6 +273,18 @@ impl App {
             self.state.copy_feedback = None;
             changed = true;
         }
+        if self
+            .state
+            .next_pending_agent_notification_deadline()
+            .is_some_and(|deadline| now >= deadline)
+        {
+            let previous_toast = self.state.toast.clone();
+            let deliveries = self.state.drain_due_agent_notifications(now);
+            if !deliveries.is_empty() {
+                self.sync_toast_deadline(previous_toast);
+                changed = true;
+            }
+        }
 
         if self
             .next_animation_tick
@@ -585,6 +597,7 @@ impl App {
             self.config_diagnostic_deadline,
             self.toast_deadline,
             self.copy_feedback_deadline,
+            self.state.next_pending_agent_notification_deadline(),
             self.next_animation_tick,
             (!self.state.workspaces.is_empty()).then_some(self.next_command_scan),
             include_git_refresh

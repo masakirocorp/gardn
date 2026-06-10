@@ -9,7 +9,7 @@ mod tabs;
 mod workspaces;
 mod worktrees;
 
-use super::{api_helpers::pane_agent_status, App, Mode, OverlayPaneState, ToastKind};
+use super::{api_helpers::pane_agent_status, App, Mode, OverlayPaneState, ToastKind, API_NOTIFICATION_RATE_LIMIT};
 use crate::events::AppEvent;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +18,28 @@ enum RuntimeExitAction {
     ClosePane,
 }
 
+
+fn sanitized_notification_text(value: &str, max_chars: usize) -> Option<String> {
+    let mut out = String::new();
+    let mut pending_space = false;
+
+    for ch in value.chars() {
+        if ch.is_control() || ch.is_whitespace() {
+            pending_space = !out.is_empty();
+            continue;
+        }
+        if pending_space && out.chars().count() < max_chars {
+            out.push(' ');
+        }
+        pending_space = false;
+        if out.chars().count() >= max_chars {
+            break;
+        }
+        out.push(ch);
+    }
+
+    (!out.is_empty()).then_some(out)
+}
 impl App {
     pub(crate) fn handle_internal_event(&mut self, ev: AppEvent) {
         if let AppEvent::ClipboardWrite { content } = ev {
@@ -262,6 +284,9 @@ impl App {
     }
 
     pub(crate) fn show_clipboard_feedback(&mut self) {
+        if !self.state.toast_config.clipboard.enabled {
+            return;
+        }
         self.state.copy_feedback = Some(crate::app::state::CopyFeedback {
             message: "copied to clipboard".to_string(),
         });
@@ -398,7 +423,7 @@ impl App {
         }
     }
 
-    pub(super) fn sync_toast_deadline(
+    pub(crate) fn sync_toast_deadline(
         &mut self,
         previous_toast: Option<crate::app::state::ToastNotification>,
     ) {
@@ -520,6 +545,9 @@ impl App {
                         diagnostics: report.diagnostics,
                     },
                 }
+            }
+            Method::NotificationShow(params) => {
+                return self.handle_notification_show(request.id, params);
             }
             Method::GroupList(_) => SuccessResponse {
                 id: request.id,
@@ -688,6 +716,97 @@ impl App {
 
         serde_json::to_string(&response).unwrap()
     }
+
+    fn handle_notification_show(
+        &mut self,
+        id: String,
+        params: crate::api::schema::NotificationShowParams,
+    ) -> String {
+        use crate::api::schema::{NotificationShowReason, ResponseResult};
+
+        let requested_sound = params.sound;
+        let Some(title) = sanitized_notification_text(&params.title, 80) else {
+            return responses::encode_error(id, "invalid_params", "notification title is empty");
+        };
+        let body = params
+            .body
+            .as_deref()
+            .and_then(|body| sanitized_notification_text(body, 240));
+
+        let now = Instant::now();
+        let reason = match self.state.toast_config.delivery {
+            crate::config::ToastDelivery::Off => NotificationShowReason::Disabled,
+            crate::config::ToastDelivery::Hako => {
+                if self.state.toast.is_some() {
+                    NotificationShowReason::Busy
+                } else if self.api_notification_rate_limited(now) {
+                    NotificationShowReason::RateLimited
+                } else {
+                    let previous_toast = self.state.toast.clone();
+                    self.mark_api_notification_shown(now);
+                    self.state.toast = Some(crate::app::state::ToastNotification {
+                        kind: ToastKind::UpdateInstalled,
+                        title,
+                        context: body.unwrap_or_default(),
+                        position: params.position,
+                        target: None,
+                    });
+                    self.sync_toast_deadline(previous_toast);
+                    self.emit_api_notification_sound(requested_sound);
+                    NotificationShowReason::Shown
+                }
+            }
+            crate::config::ToastDelivery::Terminal | crate::config::ToastDelivery::System => {
+                if self.api_notification_rate_limited(now) {
+                    NotificationShowReason::RateLimited
+                } else {
+                    let notify = match self.state.toast_config.delivery {
+                        crate::config::ToastDelivery::Terminal => {
+                            crate::terminal_notify::show_notification
+                        }
+                        crate::config::ToastDelivery::System => {
+                            crate::platform::show_desktop_notification
+                        }
+                        _ => unreachable!("notification delivery was checked above"),
+                    };
+                    match notify(&title, body.as_deref()) {
+                        Ok(true) => {
+                            self.mark_api_notification_shown(now);
+                            self.emit_api_notification_sound(requested_sound);
+                            NotificationShowReason::Shown
+                        }
+                        Ok(false) | Err(_) => NotificationShowReason::NoForegroundClient,
+                    }
+                }
+            }
+        };
+
+        responses::encode_success(
+            id,
+            ResponseResult::NotificationShow {
+                shown: matches!(reason, NotificationShowReason::Shown),
+                reason,
+            },
+        )
+    }
+
+    fn emit_api_notification_sound(&self, sound: crate::api::schema::NotificationShowSound) {
+        if !self.state.local_sound_playback || !self.state.sound.allows(None) {
+            return;
+        }
+        if let Some(sound) = sound.to_sound() {
+            crate::sound::play(sound, &self.state.sound);
+        }
+    }
+
+    pub(crate) fn api_notification_rate_limited(&self, now: Instant) -> bool {
+        self.last_api_notification_at
+            .is_some_and(|last| now.duration_since(last) < API_NOTIFICATION_RATE_LIMIT)
+    }
+
+    pub(crate) fn mark_api_notification_shown(&mut self, now: Instant) {
+        self.last_api_notification_at = Some(now);
+    }
 }
 
 #[cfg(test)]
@@ -702,6 +821,71 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success(), "git init failed for {}", path.display());
+    }
+
+    fn test_app() -> App {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        )
+    }
+
+    #[test]
+    fn notification_show_hako_sanitizes_and_sets_positioned_toast() {
+        let mut app = test_app();
+        app.state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+
+        let response = app.handle_api_request_after_internal_events_drained(crate::api::schema::Request {
+            id: "notify".into(),
+            method: crate::api::schema::Method::NotificationShow(
+                crate::api::schema::NotificationShowParams {
+                    title: "  build\nfailed\t".into(),
+                    body: Some(" api\r\nworkspace ".into()),
+                    position: Some(crate::config::ToastHakoPosition::TopLeft),
+                    sound: crate::api::schema::NotificationShowSound::None,
+                },
+            ),
+        });
+
+        let parsed: crate::api::schema::SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(
+            parsed.result,
+            crate::api::schema::ResponseResult::NotificationShow {
+                shown: true,
+                reason: crate::api::schema::NotificationShowReason::Shown,
+            }
+        );
+        let toast = app.state.toast.as_ref().expect("notification toast");
+        assert_eq!(toast.title, "build failed");
+        assert_eq!(toast.context, "api workspace");
+        assert_eq!(toast.position, Some(crate::config::ToastHakoPosition::TopLeft));
+        assert!(toast.target.is_none());
+    }
+
+    #[test]
+    fn notification_show_rejects_empty_title_before_delivery() {
+        let mut app = test_app();
+        app.state.toast_config.delivery = crate::config::ToastDelivery::Off;
+
+        let response = app.handle_api_request_after_internal_events_drained(crate::api::schema::Request {
+            id: "notify".into(),
+            method: crate::api::schema::Method::NotificationShow(
+                crate::api::schema::NotificationShowParams {
+                    title: "\n\t".into(),
+                    body: None,
+                    position: None,
+                    sound: crate::api::schema::NotificationShowSound::None,
+                },
+            ),
+        });
+
+        let parsed: crate::api::schema::ErrorResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(parsed.error.code, "invalid_params");
+        assert_eq!(parsed.error.message, "notification title is empty");
     }
 
     #[tokio::test]
@@ -742,6 +926,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app.state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        app.state.toast_config.delay_seconds = 0;
 
         let (events, _) = tokio::sync::mpsc::channel(4);
         let runtime = crate::terminal::TerminalRuntime::spawn(
@@ -883,15 +1068,10 @@ mod tests {
             process_exited: false,
             observed_at: std::time::Instant::now(),
         });
-        app.state.toast = Some(crate::app::state::ToastNotification {
-            kind: ToastKind::Finished,
-            title: "codex finished".into(),
-            context: "__herdr_original__ · 1".into(),
-            target: Some(crate::app::state::ToastTarget {
-                workspace_id,
-                pane_id: root,
-            }),
-        });
+        app.state.toast = Some(crate::app::state::ToastNotification { kind: ToastKind::Finished, title: "codex finished".into(), context: "__herdr_original__ · 1".into(), position: None, target: Some(crate::app::state::ToastTarget {
+            workspace_id,
+            pane_id: root,
+        }) });
 
         app.handle_internal_event(AppEvent::StateChanged {
             pane_id: root,
