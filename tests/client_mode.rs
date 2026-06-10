@@ -150,8 +150,27 @@ fn spawn_server(
     }
 }
 
+fn connect_unix_socket(path: &PathBuf, timeout: Duration) -> UnixStream {
+    let deadline = Instant::now() + timeout;
+    let mut last_err = None;
+    while Instant::now() < deadline {
+        match UnixStream::connect(path) {
+            Ok(stream) => return stream,
+            Err(err) => {
+                last_err = Some(err);
+                thread::sleep(Duration::from_millis(20));
+            }
+        }
+    }
+    panic!(
+        "timed out connecting to {}; last error: {:?}",
+        path.display(),
+        last_err
+    );
+}
+
 fn ping_socket(socket_path: &PathBuf) -> String {
-    let mut stream = UnixStream::connect(socket_path).expect("should connect to API socket");
+    let mut stream = connect_unix_socket(socket_path, Duration::from_secs(5));
 
     let request = r#"{"id":"1","method":"ping","params":{}}"#;
     writeln!(stream, "{}", request).unwrap();
@@ -990,7 +1009,7 @@ fn client_receives_notify_on_agent_state_change() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     // Connect as a client and perform handshake.
-    let mut stream = UnixStream::connect(&client_socket).expect("should connect");
+    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
@@ -1003,7 +1022,7 @@ fn client_receives_notify_on_agent_state_change() {
     while read_server_message(&mut stream).is_ok() {}
 
     // Create a workspace via the API.
-    let mut ws_stream = UnixStream::connect(&api_socket).expect("connect to API");
+    let mut ws_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
     let request = r#"{"id":"1","method":"workspace.create","params":{}}"#;
     writeln!(ws_stream, "{}", request).unwrap();
     let mut reader = BufReader::new(ws_stream);
@@ -1018,7 +1037,7 @@ fn client_receives_notify_on_agent_state_change() {
         .to_string();
 
     // Get pane list to find a pane ID.
-    let mut pane_stream = UnixStream::connect(&api_socket).expect("connect to API");
+    let mut pane_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
     let pane_request =
         format!(r#"{{"id":"2","method":"pane.list","params":{{"workspace_id":"{ws_id}"}}}}"#);
     writeln!(pane_stream, "{}", pane_request).unwrap();
@@ -1035,7 +1054,7 @@ fn client_receives_notify_on_agent_state_change() {
 
     // Report agent as Blocked via the API — this should trigger a
     // ServerMessage::Notify with kind=Sound (Request sound).
-    let mut report_stream = UnixStream::connect(&api_socket).expect("connect to API");
+    let mut report_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
     let report_request = format!(
         r#"{{"id":"3","method":"pane.report_agent","params":{{"pane_id":"{pane_id}","agent":"pi","state":"blocked","source":"test"}}}}"#
     );
