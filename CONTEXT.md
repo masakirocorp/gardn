@@ -196,6 +196,10 @@ _Avoid_: Clipboard sync, image upload
 Decoded key, mouse, paste, outer-focus, and host terminal color/theme reply events interpreted in the context of Hako's current mode, foreground client, and keybindings.
 _Avoid_: Terminal bytes, stdin chunk
 
+**Terminal Key**:
+A decoded keyboard event with key code, modifiers, event kind, and optional shifted character information. A terminal key is the semantic event Hako handles after parsing input bytes.
+_Avoid_: Escape sequence, keybinding
+
 **Direct Terminal Attach**:
 A thin-client mode that attaches to one terminal runtime and sends raw input bytes directly to it, bypassing normal app semantic input.
 _Avoid_: App client, pane attach
