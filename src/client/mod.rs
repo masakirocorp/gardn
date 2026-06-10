@@ -14,9 +14,11 @@
 
 mod input;
 
+use crate::ipc::LocalStream;
+use interprocess::local_socket::traits::Stream as _;
+use interprocess::TryClone as _;
 use std::collections::HashSet;
 use std::io::{self, Write as _};
-use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -332,7 +334,7 @@ fn requested_keybindings() -> ClientKeybindings {
 /// Sends Hello with the terminal size and protocol version, reads the Welcome
 /// response. Returns Ok(()) on success, or an error if the server rejects us.
 fn do_handshake(
-    stream: &mut UnixStream,
+    stream: &mut LocalStream,
     cols: u16,
     rows: u16,
     cell_width_px: u32,
@@ -364,11 +366,11 @@ fn do_handshake(
 
     // Read Welcome.
     stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
+        .set_recv_timeout(Some(Duration::from_secs(5)))
         .map_err(ClientError::ConnectionFailed)?;
     let welcome: ServerMessage = protocol::read_message(stream, MAX_FRAME_SIZE)?;
     stream
-        .set_read_timeout(None)
+        .set_recv_timeout(None)
         .map_err(ClientError::ConnectionFailed)?;
 
     match welcome {
@@ -450,7 +452,7 @@ fn run_client_with_mode(
     info!(path = %socket_path.display(), "{log_message}");
 
     // Try to connect to the server.
-    let mut stream = match UnixStream::connect(&socket_path) {
+    let mut stream = match crate::ipc::connect_local_stream(&socket_path) {
         Ok(s) => s,
         Err(err) => {
             // Server unreachable — show clear error and exit.
@@ -576,7 +578,7 @@ fn run_client_with_mode(
 /// - server reader thread → reads ServerMessages and sends to main loop
 /// - main loop: coordinates input, output, and server communication
 async fn run_client_loop(
-    stream: UnixStream,
+    stream: LocalStream,
     cols: u16,
     rows: u16,
     should_quit: Arc<AtomicBool>,
@@ -802,7 +804,7 @@ async fn run_client_loop(
 /// Blocking thread that reads ServerMessages from the server and sends them
 /// to the main event loop.
 fn server_reader_thread(
-    mut stream: UnixStream,
+    mut stream: LocalStream,
     event_tx: tokio::sync::mpsc::Sender<ClientLoopEvent>,
     should_quit: &Arc<AtomicBool>,
     max_frame_size: usize,
@@ -855,7 +857,7 @@ fn server_reader_thread(
 // ---------------------------------------------------------------------------
 
 /// Writes a message to the server stream (blocking).
-fn write_to_server(stream: &mut UnixStream, msg: &ClientMessage) -> io::Result<()> {
+fn write_to_server(stream: &mut LocalStream, msg: &ClientMessage) -> io::Result<()> {
     protocol::write_message(stream, msg).map_err(|e| io::Error::other(e.to_string()))
 }
 

@@ -913,6 +913,7 @@ mod tests {
         assert_eq!(unique.len(), 3);
     }
 
+    #[cfg(unix)]
     #[test]
     fn handoff_pane_aliases_remap_previous_env_aliases_transitively() {
         let workspace = crate::workspace::Workspace::test_new("space");

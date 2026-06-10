@@ -233,7 +233,7 @@ pub fn auto_detect_launch() -> io::Result<()> {
 // Tests
 // ---------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::ffi::OsStr;

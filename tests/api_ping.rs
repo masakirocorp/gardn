@@ -1270,7 +1270,6 @@ fn events_subscribe_streams_tab_and_workspace_close_events() {
 }
 
 #[cfg(not(target_os = "macos"))]
-#[cfg(not(target_os = "macos"))]
 #[test]
 fn pane_report_agent_updates_effective_state() {
     let _lock = test_lock();

@@ -41,7 +41,7 @@ pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
         processes.push(ForegroundProcess {
             pid,
             name,
-            argv0: None,
+            argv0: argv.as_ref().and_then(|parts| parts.first().cloned()),
             cmdline: argv.as_ref().map(|parts| parts.join(" ")),
             argv,
         });

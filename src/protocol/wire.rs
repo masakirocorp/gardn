@@ -1561,6 +1561,7 @@ mod tests {
 
     // ---- Unix socketpair integration test ----
 
+    #[cfg(unix)]
     #[test]
     fn framing_over_unix_socketpair() {
         use std::os::unix::net::UnixStream;

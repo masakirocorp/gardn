@@ -4,8 +4,10 @@
 //! It converts socket I/O into [`ServerEvent`] values consumed by
 //! `HeadlessServer`.
 
+use crate::ipc::LocalStream;
+use interprocess::local_socket::traits::Stream as _;
+use interprocess::TryClone as _;
 use std::io::{self, Write};
-use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -120,7 +122,7 @@ fn parse_client_keybindings(
 /// Reads the `Hello` message, validates the version, sends `Welcome`,
 /// and then enters a read loop forwarding messages to the server event channel.
 pub(crate) fn handle_client_handshake(
-    mut stream: UnixStream,
+    mut stream: LocalStream,
     client_id: u64,
     server_event_tx: &mpsc::Sender<ServerEvent>,
     should_quit: &Arc<AtomicBool>,
@@ -130,7 +132,7 @@ pub(crate) fn handle_client_handshake(
     stream.set_nonblocking(false)?;
 
     // Set a read timeout for the handshake.
-    stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
+    stream.set_recv_timeout(Some(HANDSHAKE_TIMEOUT))?;
 
     // Read the Hello message.
     let hello: ClientMessage = match protocol::read_message(&mut stream, MAX_FRAME_SIZE) {
@@ -230,7 +232,7 @@ pub(crate) fn handle_client_handshake(
     protocol::write_message(&mut stream, &welcome).map_err(|e| io::Error::other(e.to_string()))?;
 
     // Clear read timeout for normal operation.
-    stream.set_read_timeout(None)?;
+    stream.set_recv_timeout(None)?;
 
     // Create separate channels for reliable control messages and droppable renders.
     let (control_tx, control_rx) = std::sync::mpsc::channel::<Vec<u8>>();
@@ -272,7 +274,7 @@ pub(crate) fn handle_client_handshake(
 
 /// The client writer loop — prioritizes control messages over render frames.
 fn client_writer_loop(
-    mut stream: UnixStream,
+    mut stream: LocalStream,
     client_id: u64,
     control_rx: std::sync::mpsc::Receiver<Vec<u8>>,
     render_rx: std::sync::mpsc::Receiver<Vec<u8>>,
@@ -338,7 +340,7 @@ fn client_writer_loop(
     debug!("client writer thread exiting");
 }
 
-fn write_framed_bytes(stream: &mut UnixStream, data: &[u8]) -> bool {
+fn write_framed_bytes(stream: &mut LocalStream, data: &[u8]) -> bool {
     if let Err(err) = stream.write_all(data) {
         debug!(err = %err, "client write failed, closing writer");
         return false;
@@ -352,7 +354,7 @@ fn write_framed_bytes(stream: &mut UnixStream, data: &[u8]) -> bool {
 
 /// The client read loop — reads messages from the client and forwards to the server event channel.
 fn client_read_loop(
-    mut stream: UnixStream,
+    mut stream: LocalStream,
     client_id: u64,
     server_event_tx: &mpsc::Sender<ServerEvent>,
     should_quit: &Arc<AtomicBool>,
@@ -460,6 +462,26 @@ fn client_read_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use interprocess::local_socket::traits::Listener as _;
+
+    fn local_stream_pair(name: &str) -> (LocalStream, LocalStream, std::path::PathBuf) {
+        let suffix = format!(
+            "hct-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        #[cfg(unix)]
+        let path = std::path::PathBuf::from("/tmp").join(suffix);
+        #[cfg(windows)]
+        let path = std::env::temp_dir().join(suffix);
+        let listener = crate::ipc::bind_local_listener(&path).expect("bind test listener");
+        let client = crate::ipc::connect_local_stream(&path).expect("connect test client");
+        let server = listener.accept().expect("accept test server");
+        (client, server, path)
+    }
 
     #[test]
     fn clamp_terminal_size_zero_zero() {
@@ -542,7 +564,7 @@ new_tab = "ctrl+notakey"
 
     #[test]
     fn handshake_negotiates_terminal_ansi_encoding() {
-        let (mut client_stream, server_stream) = UnixStream::pair().expect("socket pair");
+        let (mut client_stream, server_stream, _path) = local_stream_pair("ansi-handshake");
         let (server_event_tx, server_event_rx) = mpsc::channel(4);
         let should_quit = Arc::new(AtomicBool::new(false));
         let handshake_quit = should_quit.clone();
@@ -592,7 +614,7 @@ new_tab = "ctrl+notakey"
 
     #[test]
     fn handshake_marks_terminal_attach_launch_mode() {
-        let (mut client_stream, server_stream) = UnixStream::pair().expect("socket pair");
+        let (mut client_stream, server_stream, _path) = local_stream_pair("attach-handshake");
         let (server_event_tx, mut server_event_rx) = mpsc::channel(4);
         let should_quit = Arc::new(AtomicBool::new(false));
         let handshake_quit = should_quit.clone();
@@ -655,7 +677,7 @@ new_tab = "ctrl+notakey"
 
     #[test]
     fn client_read_loop_rejects_oversized_input() {
-        let (mut client_stream, server_stream) = UnixStream::pair().expect("socket pair");
+        let (mut client_stream, server_stream, _path) = local_stream_pair("oversized-input");
         let (server_event_tx, mut server_event_rx) = mpsc::channel(4);
         let should_quit = Arc::new(AtomicBool::new(false));
         let read_quit = should_quit.clone();

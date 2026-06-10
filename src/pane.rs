@@ -2332,6 +2332,7 @@ mod tests {
         assert_eq!(output, "vt100\n24bit\n");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn handoff_history_ansi_captures_primary_screen() {
         let runtime =
@@ -2342,6 +2343,7 @@ mod tests {
         assert!(history.contains("handoff-primary-history"));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn handoff_history_ansi_skips_alternate_screen() {
         let runtime = PaneRuntime::test_with_scrollback_bytes(
@@ -2354,6 +2356,7 @@ mod tests {
         assert!(runtime.handoff_history_ansi().is_none());
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn handoff_runtime_state_captures_terminal_input_state() {
         let runtime = PaneRuntime::test_with_screen_bytes(
@@ -2380,6 +2383,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn truncate_handoff_history_keeps_recent_utf8_boundary() {
         let history = format!("old\n{}\nrecent\n", "é".repeat(8));
@@ -2390,6 +2394,7 @@ mod tests {
         assert!(truncated.is_char_boundary(0));
     }
 
+    #[cfg(unix)]
     #[test]
     fn truncate_handoff_history_drops_partial_long_line() {
         let history = format!("old\n{}", "x".repeat(64));

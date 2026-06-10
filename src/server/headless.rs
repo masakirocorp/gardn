@@ -14,9 +14,10 @@
 //! - Handles stale socket cleanup, explicit server stop, minimum terminal size,
 //!   and pane spawn failure during restore
 
+use crate::ipc::{bind_local_listener, LocalListener};
+use interprocess::local_socket::{traits::Listener as _, ListenerNonblockingMode};
 use std::collections::HashMap;
 use std::io;
-use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -131,7 +132,7 @@ pub struct HeadlessServer {
     app: app::App,
     api_tx: Option<api::ApiRequestSender>,
     api_server: Option<api::ServerHandle>,
-    client_listener: UnixListener,
+    client_listener: LocalListener,
     client_socket_path: PathBuf,
     client_socket_identity: SocketFileIdentity,
     clients: HashMap<u64, ClientConnection>,
@@ -181,13 +182,13 @@ impl HeadlessServer {
         let client_path = client_socket_path();
         prepare_socket_path(&client_path)?;
 
-        let listener = UnixListener::bind(&client_path)?;
+        let listener = bind_local_listener(&client_path)?;
         restrict_socket_permissions(&client_path)?;
         let client_socket_identity = socket_file_identity(&client_path)?;
         info!(path = %client_path.display(), "client protocol socket listening");
 
         // Set non-blocking on the listener so we can poll it from the event loop.
-        listener.set_nonblocking(true)?;
+        listener.set_nonblocking(ListenerNonblockingMode::Accept)?;
 
         let should_quit = Arc::new(AtomicBool::new(false));
 
@@ -757,10 +758,10 @@ impl HeadlessServer {
 
         let client_path = client_socket_path();
         prepare_socket_path(&client_path)?;
-        let listener = UnixListener::bind(&client_path)?;
+        let listener = bind_local_listener(&client_path)?;
         restrict_socket_permissions(&client_path)?;
         let client_socket_identity = socket_file_identity(&client_path)?;
-        listener.set_nonblocking(true)?;
+        listener.set_nonblocking(ListenerNonblockingMode::Accept)?;
 
         self.api_server = Some(api_server);
         self.client_listener = listener;
@@ -2921,14 +2922,13 @@ fn run_handoff_import_server(socket_path: &Path, token: &str) -> io::Result<()> 
 
 #[cfg(unix)]
 fn wait_for_old_public_sockets_to_close(timeout: Duration) -> io::Result<()> {
-    use std::os::unix::net::UnixStream;
-
     let deadline = Instant::now() + timeout;
     let api_socket = api::socket_path();
     let client_socket = client_socket_path();
     while Instant::now() < deadline {
-        let api_open = api_socket.exists() && UnixStream::connect(&api_socket).is_ok();
-        let client_open = client_socket.exists() && UnixStream::connect(&client_socket).is_ok();
+        let api_open = api_socket.exists() && crate::ipc::connect_local_stream(&api_socket).is_ok();
+        let client_open =
+            client_socket.exists() && crate::ipc::connect_local_stream(&client_socket).is_ok();
         if !api_open && !client_open {
             return Ok(());
         }
@@ -2995,11 +2995,11 @@ mod tests {
         let _ = fs::create_dir_all(&dir);
         let socket_path = dir.join("client.sock");
         let _ = fs::remove_file(&socket_path);
-        let listener = UnixListener::bind(&socket_path).expect("bind test listener");
+        let listener = bind_local_listener(&socket_path).expect("bind test listener");
         let client_socket_identity =
             socket_file_identity(&socket_path).expect("test listener socket identity");
         listener
-            .set_nonblocking(true)
+            .set_nonblocking(ListenerNonblockingMode::Accept)
             .expect("set listener nonblocking");
         let (server_event_tx, server_event_rx) = mpsc::channel(64);
         let server_keybindings = app_keybindings(&app);

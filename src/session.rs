@@ -1,5 +1,10 @@
+use crate::ipc::LocalStream;
+use interprocess::local_socket::traits::Stream as _;
+#[cfg(test)]
+use interprocess::local_socket::{traits::Listener as _, ListenerNonblockingMode};
+#[cfg(test)]
+use interprocess::TryClone as _;
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -264,7 +269,7 @@ fn stop_session_with_timeout(name: Option<&str>, timeout: Duration) -> Result<Se
         "method": "server.stop",
         "params": {}
     });
-    let stream = UnixStream::connect(&socket_path).map_err(|err| {
+    let stream = crate::ipc::connect_local_stream(&socket_path).map_err(|err| {
         format!(
             "session {} is not running or cannot be reached at {}: {err}",
             name.unwrap_or(DEFAULT_SESSION_NAME),
@@ -308,14 +313,14 @@ pub fn delete_session(name: &str) -> Result<SessionInfo, String> {
 }
 
 fn send_stop_request(
-    mut stream: UnixStream,
+    mut stream: LocalStream,
     request: &serde_json::Value,
     deadline: Instant,
 ) -> Result<Option<serde_json::Value>, String> {
     let Some(write_timeout) = socket_timeout_until(deadline) else {
         return Ok(None);
     };
-    if let Err(err) = stream.set_write_timeout(Some(write_timeout)) {
+    if let Err(err) = stream.set_send_timeout(Some(write_timeout)) {
         if stop_request_error_allows_wait(&err) {
             return Ok(None);
         }
@@ -334,7 +339,7 @@ fn send_stop_request(
 }
 
 fn send_stop_request_inner(
-    stream: &mut UnixStream,
+    stream: &mut LocalStream,
     request: &serde_json::Value,
     deadline: Instant,
 ) -> std::io::Result<Option<String>> {
@@ -345,7 +350,7 @@ fn send_stop_request_inner(
     let Some(read_timeout) = socket_timeout_until(deadline) else {
         return Ok(None);
     };
-    if let Err(err) = stream.set_read_timeout(Some(read_timeout)) {
+    if let Err(err) = stream.set_recv_timeout(Some(read_timeout)) {
         if err.kind() == std::io::ErrorKind::InvalidInput {
             return Ok(None);
         }
@@ -374,7 +379,7 @@ fn stop_request_error_allows_wait(err: &std::io::Error) -> bool {
 }
 
 fn is_running_at(socket_path: &Path) -> bool {
-    socket_path.exists() && UnixStream::connect(socket_path).is_ok()
+    socket_path.exists() && crate::ipc::connect_local_stream(socket_path).is_ok()
 }
 
 fn wait_until_stopped_until(socket_path: &Path, deadline: Instant) -> bool {
@@ -480,7 +485,23 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
-        PathBuf::from("/tmp").join(format!("hs-{name}-{}-{nanos}", std::process::id()))
+        let suffix = format!("hs-{name}-{}-{nanos}", std::process::id());
+        #[cfg(unix)]
+        {
+            PathBuf::from("/tmp").join(suffix)
+        }
+        #[cfg(windows)]
+        {
+            std::env::temp_dir().join(suffix)
+        }
+    }
+
+    fn local_stream_pair(name: &str) -> (LocalStream, LocalStream, PathBuf) {
+        let path = unique_temp_path(name).with_extension("sock");
+        let listener = crate::ipc::bind_local_listener(&path).expect("bind test listener");
+        let client = crate::ipc::connect_local_stream(&path).expect("connect test client");
+        let server = listener.accept().expect("accept test server");
+        (client, server, path)
     }
 
     #[test]
@@ -514,7 +535,7 @@ mod tests {
 
     #[test]
     fn stop_request_empty_response_waits_for_socket_state() {
-        let (client, server) = UnixStream::pair().unwrap();
+        let (client, server, _path) = local_stream_pair("empty-response");
         let handle = std::thread::spawn(move || {
             let mut request = String::new();
             let _ = BufReader::new(server).read_line(&mut request);
@@ -547,15 +568,17 @@ mod tests {
         let socket_path = api_socket_path_for(Some(session_name));
         std::fs::create_dir_all(socket_path.parent().unwrap()).unwrap();
         let _ = std::fs::remove_file(&socket_path);
-        let listener = std::os::unix::net::UnixListener::bind(&socket_path).unwrap();
-        listener.set_nonblocking(true).unwrap();
+        let listener = crate::ipc::bind_local_listener(&socket_path).unwrap();
+        listener
+            .set_nonblocking(ListenerNonblockingMode::Accept)
+            .unwrap();
         let keep_running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
         let keep_running_for_thread = keep_running.clone();
         let handle = std::thread::spawn(move || {
             let mut held_streams = Vec::new();
             while keep_running_for_thread.load(Ordering::Relaxed) {
                 match listener.accept() {
-                    Ok((stream, _)) => {
+                    Ok(stream) => {
                         if let Ok(reader_stream) = stream.try_clone() {
                             let mut request = String::new();
                             match BufReader::new(reader_stream).read_line(&mut request) {
@@ -913,14 +936,16 @@ mod tests {
         let socket_path = api_socket_path_for(Some(session_name));
         std::fs::create_dir_all(socket_path.parent().unwrap()).unwrap();
         let _ = std::fs::remove_file(&socket_path);
-        let listener = std::os::unix::net::UnixListener::bind(&socket_path).unwrap();
-        listener.set_nonblocking(true).unwrap();
+        let listener = crate::ipc::bind_local_listener(&socket_path).unwrap();
+        listener
+            .set_nonblocking(ListenerNonblockingMode::Accept)
+            .unwrap();
         let keep_running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
         let keep_running_for_thread = keep_running.clone();
         let handle = std::thread::spawn(move || {
             while keep_running_for_thread.load(Ordering::Relaxed) {
                 match listener.accept() {
-                    Ok((mut stream, _)) => {
+                    Ok(mut stream) => {
                         if let Ok(reader_stream) = stream.try_clone() {
                             let mut request = String::new();
                             let _ = BufReader::new(reader_stream).read_line(&mut request);
