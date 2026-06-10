@@ -112,6 +112,10 @@ _Avoid_: Pane, terminal runtime
 The portion of terminal history currently visible in a pane. Scrolling changes the viewport without changing the terminal tail.
 _Avoid_: Screen, buffer
 
+**Host Graphics**:
+Image placements displayed by the user's host terminal outside normal text cells. Host graphics must stay synchronized with Hako's current workspace/tab view because repainting text does not necessarily clear terminal-managed image placements.
+_Avoid_: Terminal core graphics, image upload
+
 **Terminal Tail**:
 The recent bottom portion of a terminal's output. Fallback agent detection reads the terminal tail, not the user's current viewport.
 _Avoid_: Viewport, visible text
