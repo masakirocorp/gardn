@@ -21,32 +21,32 @@ pub enum AgentKind {
 
 impl AgentKind {
     pub const ALL: [Self; 12] = [
+        Self::Codex,
+        Self::Claude,
+        Self::Cursor,
+        Self::Opencode,
+        Self::Copilot,
         Self::Pi,
         Self::Omp,
-        Self::Claude,
-        Self::Codex,
-        Self::Copilot,
         Self::Kimi,
         Self::Droid,
-        Self::Opencode,
         Self::Hermes,
         Self::Qodercli,
-        Self::Cursor,
         Self::Custom,
     ];
 
     pub const SYSTEM: [Self; 11] = [
+        Self::Codex,
+        Self::Claude,
+        Self::Cursor,
+        Self::Opencode,
+        Self::Copilot,
         Self::Pi,
         Self::Omp,
-        Self::Claude,
-        Self::Codex,
-        Self::Copilot,
         Self::Kimi,
         Self::Droid,
-        Self::Opencode,
         Self::Hermes,
         Self::Qodercli,
-        Self::Cursor,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -293,6 +293,21 @@ fn valid_env_value(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_system_profiles_start_with_popular_agents() {
+        let catalog = AgentProfileCatalog::from_config(&AgentProfilesConfig::default());
+
+        assert_eq!(
+            catalog
+                .profiles()
+                .iter()
+                .take(3)
+                .map(|profile| profile.id.as_str())
+                .collect::<Vec<_>>(),
+            ["system:codex", "system:claude", "system:cursor"]
+        );
+    }
 
     #[test]
     fn catalog_layers_system_and_custom_profiles_in_config_order() {
