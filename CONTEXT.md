@@ -52,6 +52,14 @@ _Avoid_: Restart, migration
 A named working area that groups related tabs, panes, and terminal sessions for one project or task.
 _Avoid_: Project, folder, session
 
+**Workspace Group**:
+A presentation and workflow grouping for workspaces, with its own name, icon, accent, and agent-profile preferences. A workspace group filters and organizes workspaces; it is not the owner of tabs, panes, or terminal runtimes.
+_Avoid_: Workspace parent, project
+
+**Public ID**:
+A user-facing identifier used by CLI and socket API commands to target workspaces, tabs, panes, groups, and agents without exposing runtime allocation details.
+_Avoid_: Raw id, memory id
+
 **Tab**:
 A layout surface inside a workspace. A tab contains one or more panes and has one active pane.
 _Avoid_: Window, workspace

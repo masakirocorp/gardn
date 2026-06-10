@@ -31,7 +31,8 @@ A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 - **Workspace groups** — group workspaces, filter the sidebar by group, collapse groups, and assign per-group ANSI accent colors that tint group labels, tabs, menus, and related group UI.
 - **Group lifecycle** — create, rename, delete, focus, and switch groups from the TUI, CLI, or socket API; reorder groups by dragging headers in the all-groups sidebar.
 - **Group icons** — group creation and rename flows can choose from a curated set of 20 distinct icons.
-- **Move between groups** — move workspaces between groups with `hako workspace move-to-group` or the socket API.
+- **Move between groups** — move workspaces between groups from the TUI/sidebar group workflows.
+- **Public IDs** — CLI and socket API commands target workspaces, tabs, panes, and groups with public IDs; raw pane IDs remain compatibility inputs and are remapped after live handoff where possible.
 - **Live cwd labels** — workspace labels can follow active pane cwd unless manually renamed.
 - **Git worktrees** — list, create, open, and remove Git worktrees from the CLI and socket API.
 - **Worktree safety** — generated worktree names are slugged into safe checkout paths, removal leaves branches intact, and dirty worktrees require forced removal.
