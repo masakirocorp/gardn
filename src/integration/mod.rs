@@ -2160,18 +2160,20 @@ pub(crate) fn integration_env_lock() -> MutexGuard<'static, ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::TestEnvVar;
 
-    fn clear_integration_path_env() {
-        std::env::remove_var(PI_CODING_AGENT_DIR_ENV_VAR);
-        std::env::remove_var(OMP_CONFIG_DIR_ENV_VAR);
-        std::env::remove_var(CLAUDE_CONFIG_DIR_ENV_VAR);
-        std::env::remove_var(CODEX_HOME_ENV_VAR);
-        std::env::remove_var(COPILOT_HOME_ENV_VAR);
-        std::env::remove_var(QODERCLI_CONFIG_DIR_ENV_VAR);
+    fn clear_integration_path_env() -> [TestEnvVar; 6] {
+        [
+            TestEnvVar::remove(PI_CODING_AGENT_DIR_ENV_VAR),
+            TestEnvVar::remove(OMP_CONFIG_DIR_ENV_VAR),
+            TestEnvVar::remove(CLAUDE_CONFIG_DIR_ENV_VAR),
+            TestEnvVar::remove(CODEX_HOME_ENV_VAR),
+            TestEnvVar::remove(COPILOT_HOME_ENV_VAR),
+            TestEnvVar::remove(QODERCLI_CONFIG_DIR_ENV_VAR),
+        ]
     }
 
     fn unique_base() -> PathBuf {
-        clear_integration_path_env();
         std::env::temp_dir().join(format!(
             "hako-integration-install-test-{}-{}",
             std::process::id(),
@@ -2188,11 +2190,11 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let bin = base.join("bin");
         fs::create_dir_all(&bin).unwrap();
-        let original_path = std::env::var_os("PATH");
-        std::env::set_var("PATH", &bin);
+        let _path_env = TestEnvVar::set("PATH", &bin);
 
         let command = bin.join("claude");
         fs::write(&command, "#!/bin/sh\n").unwrap();
@@ -2202,11 +2204,6 @@ mod tests {
         fs::set_permissions(&command, fs::Permissions::from_mode(0o755)).unwrap();
         assert!(command_available("claude"));
 
-        if let Some(path) = original_path {
-            std::env::set_var("PATH", path);
-        } else {
-            std::env::remove_var("PATH");
-        }
         let _ = fs::remove_dir_all(base);
     }
 
@@ -2237,11 +2234,12 @@ mod tests {
     #[test]
     fn install_pi_writes_embedded_asset_to_pi_extensions_dir() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let ext_dir = home.join(".pi/agent/extensions");
         fs::create_dir_all(&ext_dir).unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let path = install_pi().unwrap();
         let content = fs::read_to_string(&path).unwrap();
@@ -2251,54 +2249,53 @@ mod tests {
         assert!(content.contains("HAKO_INTEGRATION_VERSION=1"));
         assert!(content.contains("Math.max(reportSeq + 1, Date.now() * 1000)"));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_pi_uses_pi_coding_agent_dir_env() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let agent_dir = base.join("custom-pi-agent");
         let ext_dir = agent_dir.join("extensions");
         fs::create_dir_all(&ext_dir).unwrap();
-        std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
+        let _pi_agent_dir_env = TestEnvVar::set(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
 
         let path = install_pi().unwrap();
 
         assert_eq!(path, ext_dir.join(PI_EXTENSION_INSTALL_NAME));
 
-        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_pi_expands_tilde_in_pi_coding_agent_dir_env() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let ext_dir = home.join("custom-pi-agent/extensions");
         fs::create_dir_all(&ext_dir).unwrap();
-        std::env::set_var("HOME", &home);
-        std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, "~/custom-pi-agent");
+        let _home_env = TestEnvVar::set("HOME", &home);
+        let _pi_agent_dir_env = TestEnvVar::set(PI_CODING_AGENT_DIR_ENV_VAR, "~/custom-pi-agent");
 
         let path = install_pi().unwrap();
 
         assert_eq!(path, ext_dir.join(PI_EXTENSION_INSTALL_NAME));
 
-        std::env::remove_var("HOME");
-        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_omp_writes_embedded_asset_to_omp_extensions_dir() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let ext_dir = home.join(".omp/agent/extensions");
         fs::create_dir_all(&ext_dir).unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let installed = install_omp().unwrap();
         let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
@@ -2312,20 +2309,20 @@ mod tests {
         assert!(content.contains("agent: \"omp\""));
         assert!(!content.contains("agent: \"pi\""));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_omp_removes_legacy_shared_pi_omp_integration_from_extensions_dir() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let ext_dir = home.join(".omp/agent/extensions");
         fs::create_dir_all(&ext_dir).unwrap();
         let legacy_path = ext_dir.join(LEGACY_PI_OMP_EXTENSION_INSTALL_NAME);
         fs::write(&legacy_path, PI_EXTENSION_ASSET).unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let installed = install_omp().unwrap();
         let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
@@ -2338,21 +2335,21 @@ mod tests {
             OMP_EXTENSION_ASSET
         );
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_pi_and_omp_write_distinct_files_in_same_extension_dir() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let agent_dir = base.join("shared-agent");
         let ext_dir = agent_dir.join("extensions");
         fs::create_dir_all(&ext_dir).unwrap();
         fs::create_dir_all(&home).unwrap();
-        std::env::set_var("HOME", &home);
-        std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
+        let _home_env = TestEnvVar::set("HOME", &home);
+        let _pi_agent_dir_env = TestEnvVar::set(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
 
         let pi_path = install_pi().unwrap();
         let installed_omp = install_omp().unwrap();
@@ -2364,20 +2361,19 @@ mod tests {
         assert_eq!(fs::read_to_string(omp_path).unwrap(), OMP_EXTENSION_ASSET);
         assert!(!ext_dir.join(LEGACY_PI_OMP_EXTENSION_INSTALL_NAME).exists());
 
-        std::env::remove_var("HOME");
-        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_omp_uses_pi_config_dir_env_for_default_agent_dir() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let ext_dir = home.join("custom-omp/agent/extensions");
         fs::create_dir_all(&ext_dir).unwrap();
-        std::env::set_var("HOME", &home);
-        std::env::set_var(OMP_CONFIG_DIR_ENV_VAR, "custom-omp");
+        let _home_env = TestEnvVar::set("HOME", &home);
+        let _omp_config_dir_env = TestEnvVar::set(OMP_CONFIG_DIR_ENV_VAR, "custom-omp");
 
         let installed = install_omp().unwrap();
         let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
@@ -2385,13 +2381,12 @@ mod tests {
         assert_eq!(installed.extension_paths, vec![extension_path]);
         assert!(installed.removed_legacy_pi_extensions.is_empty());
 
-        std::env::remove_var("HOME");
-        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
     #[test]
     fn install_omp_writes_to_all_existing_omp_profiles() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let default_agent = home.join(".omp/agent");
@@ -2400,8 +2395,8 @@ mod tests {
         fs::create_dir_all(&default_agent).unwrap();
         fs::create_dir_all(&mk_agent).unwrap();
         fs::create_dir_all(&frs_agent).unwrap();
-        std::env::set_var("HOME", &home);
-        std::env::set_var(OMP_CONFIG_DIR_ENV_VAR, ".omp-mk");
+        let _home_env = TestEnvVar::set("HOME", &home);
+        let _omp_config_dir_env = TestEnvVar::set(OMP_CONFIG_DIR_ENV_VAR, ".omp-mk");
 
         let installed = install_omp().unwrap();
 
@@ -2423,14 +2418,13 @@ mod tests {
             assert_eq!(fs::read_to_string(path).unwrap(), OMP_EXTENSION_ASSET);
         }
 
-        std::env::remove_var("HOME");
-        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_omp_includes_pi_coding_agent_dir_env_without_skipping_existing_omp_profiles() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let env_agent_dir = base.join("custom-omp-agent");
@@ -2439,8 +2433,8 @@ mod tests {
         let home_ext_dir = home_agent_dir.join("extensions");
         fs::create_dir_all(&env_ext_dir).unwrap();
         fs::create_dir_all(&home_agent_dir).unwrap();
-        std::env::set_var("HOME", &home);
-        std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &env_agent_dir);
+        let _home_env = TestEnvVar::set("HOME", &home);
+        let _pi_agent_dir_env = TestEnvVar::set(PI_CODING_AGENT_DIR_ENV_VAR, &env_agent_dir);
 
         let installed = install_omp().unwrap();
         let mut actual = installed.extension_paths;
@@ -2457,14 +2451,13 @@ mod tests {
             assert_eq!(fs::read_to_string(path).unwrap(), OMP_EXTENSION_ASSET);
         }
 
-        std::env::remove_var("HOME");
-        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn uninstall_omp_removes_embedded_extension_when_present() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let ext_dir = home.join(".omp/agent/extensions");
@@ -2474,7 +2467,7 @@ mod tests {
             OMP_EXTENSION_ASSET,
         )
         .unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let result = uninstall_omp().unwrap();
         let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
@@ -2483,35 +2476,35 @@ mod tests {
         assert_eq!(result.removed_extension_paths, vec![extension_path.clone()]);
         assert!(!extension_path.exists());
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_omp_errors_when_extension_dir_missing() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         fs::create_dir_all(&home).unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let err = install_omp().unwrap_err().to_string();
 
         assert!(err.contains("omp agent directory not found"));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn uninstall_pi_removes_embedded_extension_when_present() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let ext_dir = home.join(".pi/agent/extensions");
         fs::create_dir_all(&ext_dir).unwrap();
         fs::write(ext_dir.join(PI_EXTENSION_INSTALL_NAME), PI_EXTENSION_ASSET).unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let result = uninstall_pi().unwrap();
 
@@ -2522,20 +2515,20 @@ mod tests {
         assert!(result.removed_extension);
         assert!(!result.extension_path.exists());
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn outdated_integrations_treat_missing_version_marker_as_legacy() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let ext_dir = home.join(".pi/agent/extensions");
         fs::create_dir_all(&ext_dir).unwrap();
         let extension_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
         fs::write(&extension_path, "// installed by hako\n").unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let outdated = outdated_installed_integrations();
 
@@ -2548,13 +2541,13 @@ mod tests {
         assert_eq!(outdated[0].installed_version, None);
         assert_eq!(outdated[0].expected_version, PI_INTEGRATION_VERSION);
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn integration_status_treats_same_version_with_stale_content_as_outdated() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let ext_dir = home.join(".pi/agent/extensions");
@@ -2565,7 +2558,7 @@ mod tests {
             "// installed by hako\n// HAKO_INTEGRATION_ID=pi\n// HAKO_INTEGRATION_VERSION=1\n",
         )
         .unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let outdated = outdated_installed_integrations();
 
@@ -2578,34 +2571,34 @@ mod tests {
         assert_eq!(outdated[0].installed_version, Some(1));
         assert_eq!(outdated[0].expected_version, PI_INTEGRATION_VERSION);
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn outdated_integrations_accept_current_version_marker() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let ext_dir = home.join(".pi/agent/extensions");
         fs::create_dir_all(&ext_dir).unwrap();
         fs::write(ext_dir.join(PI_EXTENSION_INSTALL_NAME), PI_EXTENSION_ASSET).unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         assert!(outdated_installed_integrations().is_empty());
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn pi_and_omp_statuses_can_be_current_in_same_extension_dir() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let agent_dir = base.join("shared-agent");
         let ext_dir = agent_dir.join("extensions");
         fs::create_dir_all(&ext_dir).unwrap();
-        std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
+        let _pi_agent_dir_env = TestEnvVar::set(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
         let pi_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
         let omp_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
         fs::write(&pi_path, PI_EXTENSION_ASSET).unwrap();
@@ -2625,21 +2618,21 @@ mod tests {
         assert_eq!(pi_status.state, IntegrationStatusKind::Current);
         assert_eq!(omp_status.state, IntegrationStatusKind::Current);
 
-        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn uninstall_pi_does_not_remove_distinct_omp_asset() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let agent_dir = base.join("shared-agent");
         let ext_dir = agent_dir.join("extensions");
         fs::create_dir_all(&ext_dir).unwrap();
         fs::create_dir_all(&home).unwrap();
-        std::env::set_var("HOME", &home);
-        std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
+        let _home_env = TestEnvVar::set("HOME", &home);
+        let _pi_agent_dir_env = TestEnvVar::set(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
         let pi_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
         let omp_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
         fs::write(&pi_path, PI_EXTENSION_ASSET).unwrap();
@@ -2651,22 +2644,21 @@ mod tests {
         assert!(!pi_path.exists());
         assert_eq!(fs::read_to_string(&omp_path).unwrap(), OMP_EXTENSION_ASSET);
 
-        std::env::remove_var("HOME");
-        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn uninstall_omp_does_not_remove_distinct_pi_asset() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let agent_dir = base.join("shared-agent");
         let ext_dir = agent_dir.join("extensions");
         fs::create_dir_all(&ext_dir).unwrap();
         fs::create_dir_all(&home).unwrap();
-        std::env::set_var("HOME", &home);
-        std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
+        let _home_env = TestEnvVar::set("HOME", &home);
+        let _pi_agent_dir_env = TestEnvVar::set(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
         let pi_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
         let omp_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
         fs::write(&pi_path, PI_EXTENSION_ASSET).unwrap();
@@ -2678,30 +2670,29 @@ mod tests {
         assert!(!omp_path.exists());
         assert_eq!(fs::read_to_string(&pi_path).unwrap(), PI_EXTENSION_ASSET);
 
-        std::env::remove_var("HOME");
-        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_pi_errors_when_extension_dir_missing() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         fs::create_dir_all(&home).unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let err = install_pi().unwrap_err().to_string();
 
         assert!(err.contains("pi extension directory not found"));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_claude_writes_hook_and_updates_settings() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let claude_dir = home.join(".claude");
@@ -2711,7 +2702,7 @@ mod tests {
             r#"{"permissions":{"allow":["Read"]},"hooks":{}}"#,
         )
         .unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let installed = install_claude().unwrap();
         let hook_content = fs::read_to_string(&installed.hook_path).unwrap();
@@ -2738,17 +2729,17 @@ mod tests {
         assert!(settings["hooks"].get("Stop").is_none());
         assert!(settings["hooks"].get("SessionEnd").is_none());
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_claude_uses_claude_config_dir_env() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let claude_dir = base.join("custom-claude");
         fs::create_dir_all(&claude_dir).unwrap();
-        std::env::set_var(CLAUDE_CONFIG_DIR_ENV_VAR, &claude_dir);
+        let _claude_config_dir_env = TestEnvVar::set(CLAUDE_CONFIG_DIR_ENV_VAR, &claude_dir);
 
         let installed = install_claude().unwrap();
 
@@ -2758,18 +2749,18 @@ mod tests {
             claude_dir.join("hooks").join(CLAUDE_HOOK_INSTALL_NAME)
         );
 
-        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_claude_is_idempotent_for_hook_entries() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let claude_dir = home.join(".claude");
         fs::create_dir_all(&claude_dir).unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         install_claude().unwrap();
         install_claude().unwrap();
@@ -2794,13 +2785,13 @@ mod tests {
         assert!(settings["hooks"].get("Stop").is_none());
         assert!(settings["hooks"].get("SessionEnd").is_none());
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_claude_removes_deprecated_completion_hooks_and_preserves_user_hooks() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let claude_dir = home.join(".claude");
@@ -2817,7 +2808,7 @@ mod tests {
             ),
         )
         .unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         install_claude().unwrap();
 
@@ -2846,13 +2837,13 @@ mod tests {
             .unwrap()
             .contains(" session"));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn claude_v1_integration_status_is_outdated() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let claude_hooks_dir = home.join(".claude").join("hooks");
@@ -2863,7 +2854,7 @@ mod tests {
             "#!/bin/sh\n# HAKO_INTEGRATION_ID=claude\n# HAKO_INTEGRATION_VERSION=1\n",
         )
         .unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let statuses = installed_integration_statuses();
         let claude = statuses
@@ -2876,13 +2867,13 @@ mod tests {
         assert_eq!(claude.expected_version, CLAUDE_INTEGRATION_VERSION);
         assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn claude_v2_integration_status_is_outdated() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let claude_hooks_dir = home.join(".claude").join("hooks");
@@ -2893,7 +2884,7 @@ mod tests {
             "#!/bin/sh\n# HAKO_INTEGRATION_ID=claude\n# HAKO_INTEGRATION_VERSION=2\n",
         )
         .unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let statuses = installed_integration_statuses();
         let claude = statuses
@@ -2906,13 +2897,13 @@ mod tests {
         assert_eq!(claude.expected_version, CLAUDE_INTEGRATION_VERSION);
         assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn uninstall_claude_removes_hako_hooks_and_preserves_others() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let claude_dir = home.join(".claude");
@@ -2935,7 +2926,7 @@ mod tests {
             ),
         )
         .unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let result = uninstall_claude().unwrap();
         let settings: Value =
@@ -2964,29 +2955,29 @@ mod tests {
         assert!(settings["hooks"].get("Stop").is_none());
         assert!(settings["hooks"].get("SessionEnd").is_none());
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_claude_errors_when_claude_dir_missing() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         fs::create_dir_all(&home).unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let err = install_claude().unwrap_err().to_string();
 
         assert!(err.contains("claude directory not found"));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn codex_v2_integration_status_is_outdated() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let codex_dir = home.join(".codex");
@@ -2997,7 +2988,7 @@ mod tests {
             "#!/bin/sh\n# HAKO_INTEGRATION_ID=codex\n# HAKO_INTEGRATION_VERSION=2\n",
         )
         .unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let statuses = installed_integration_statuses();
         let codex = statuses
@@ -3010,19 +3001,19 @@ mod tests {
         assert_eq!(codex.expected_version, CODEX_INTEGRATION_VERSION);
         assert_eq!(codex.state, IntegrationStatusKind::Outdated);
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_codex_writes_hook_and_updates_hooks_and_config() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let codex_dir = home.join(".codex");
         fs::create_dir_all(&codex_dir).unwrap();
         fs::write(codex_dir.join("config.toml"), "model = \"gpt-5.4\"\n").unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let installed = install_codex().unwrap();
         let hook_content = fs::read_to_string(&installed.hook_path).unwrap();
@@ -3047,18 +3038,18 @@ mod tests {
         assert!(config.contains("hooks = true"));
         assert!(!config.contains("codex_hooks"));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_codex_uses_codex_home_env() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let codex_dir = base.join("custom-codex");
         fs::create_dir_all(&codex_dir).unwrap();
         fs::write(codex_dir.join("config.toml"), "model = \"gpt-5.4\"\n").unwrap();
-        std::env::set_var(CODEX_HOME_ENV_VAR, &codex_dir);
+        let _codex_home_env = TestEnvVar::set(CODEX_HOME_ENV_VAR, &codex_dir);
 
         let installed = install_codex().unwrap();
 
@@ -3066,13 +3057,13 @@ mod tests {
         assert_eq!(installed.hooks_path, codex_dir.join("hooks.json"));
         assert_eq!(installed.config_path, codex_dir.join("config.toml"));
 
-        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_codex_is_idempotent_for_hook_entries_and_feature_flag() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let codex_dir = home.join(".codex");
@@ -3082,7 +3073,7 @@ mod tests {
             "[features]\ncodex_hooks = false\nother = true\n",
         )
         .unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         install_codex().unwrap();
         install_codex().unwrap();
@@ -3105,13 +3096,13 @@ mod tests {
         assert!(!config.contains("codex_hooks"));
         assert!(config.contains("other = true"));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_codex_only_migrates_top_level_feature_flags() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let codex_dir = home.join(".codex");
@@ -3121,7 +3112,7 @@ mod tests {
             "profile = \"work\"\n\n[profiles.work.features]\nhooks = false\ncodex_hooks = false\n\n[features]\ncodex_hooks = true\nother = true\n",
         )
         .unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         install_codex().unwrap();
 
@@ -3130,12 +3121,12 @@ mod tests {
         assert!(config.contains("[profiles.work.features]\nhooks = false\ncodex_hooks = false"));
         assert!(config.contains("[features]\nhooks = true\nother = true"));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
     #[test]
     fn uninstall_codex_removes_hako_hooks_and_leaves_config_alone() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let codex_dir = home.join(".codex");
@@ -3159,7 +3150,7 @@ mod tests {
             "[features]\nhooks = true\nother = true\n",
         )
         .unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let result = uninstall_codex().unwrap();
         let hooks: Value =
@@ -3188,29 +3179,29 @@ mod tests {
         assert!(config.contains("hooks = true"));
         assert!(config.contains("other = true"));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_codex_errors_when_config_dir_missing() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         fs::create_dir_all(&home).unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let err = install_codex().unwrap_err().to_string();
 
         assert!(err.contains("codex config directory not found"));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_copilot_writes_hook_and_updates_settings() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let copilot_dir = home.join(".copilot");
@@ -3220,7 +3211,7 @@ mod tests {
             r#"{"permissions":{"allow":["Read"]},"hooks":{}}"#,
         )
         .unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let installed = install_copilot().unwrap();
         let hook_content = fs::read_to_string(&installed.hook_path).unwrap();
@@ -3257,17 +3248,17 @@ mod tests {
             "permission_prompt|elicitation_dialog|agent_idle"
         );
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_copilot_uses_copilot_home_env_and_is_idempotent() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let copilot_dir = base.join("custom-copilot");
         fs::create_dir_all(&copilot_dir).unwrap();
-        std::env::set_var(COPILOT_HOME_ENV_VAR, &copilot_dir);
+        let _copilot_home_env = TestEnvVar::set(COPILOT_HOME_ENV_VAR, &copilot_dir);
 
         install_copilot().unwrap();
         let installed = install_copilot().unwrap();
@@ -3298,17 +3289,17 @@ mod tests {
             );
         }
 
-        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn uninstall_copilot_removes_hako_hooks_and_preserves_others() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let copilot_dir = base.join(".copilot");
         fs::create_dir_all(&copilot_dir).unwrap();
-        std::env::set_var(COPILOT_HOME_ENV_VAR, &copilot_dir);
+        let _copilot_home_env = TestEnvVar::set(COPILOT_HOME_ENV_VAR, &copilot_dir);
 
         install_copilot().unwrap();
         let mut settings: Value =
@@ -3356,33 +3347,33 @@ mod tests {
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0]["command"], "echo user-defined");
 
-        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_copilot_errors_when_config_dir_missing() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let missing = base.join(".copilot");
-        std::env::set_var(COPILOT_HOME_ENV_VAR, &missing);
+        let _copilot_home_env = TestEnvVar::set(COPILOT_HOME_ENV_VAR, &missing);
 
         let err = install_copilot().unwrap_err().to_string();
 
         assert!(err.contains("copilot config directory not found"));
 
-        clear_integration_path_env();
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_opencode_writes_plugin_to_plugins_dir() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let opencode_dir = home.join(".config/opencode");
         fs::create_dir_all(&opencode_dir).unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let installed = install_opencode().unwrap();
         let plugin_content = fs::read_to_string(&installed.plugin_path).unwrap();
@@ -3400,13 +3391,13 @@ mod tests {
         assert!(!plugin_content.contains("pane.report_agent\""));
         assert!(!plugin_content.contains("pane.release_agent"));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn uninstall_opencode_removes_plugin_when_present() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let opencode_dir = home.join(".config/opencode/plugins");
@@ -3416,42 +3407,42 @@ mod tests {
             OPENCODE_PLUGIN_ASSET,
         )
         .unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let result = uninstall_opencode().unwrap();
 
         assert!(result.removed_plugin);
         assert!(!result.plugin_path.exists());
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_opencode_errors_when_config_dir_missing() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         fs::create_dir_all(&home).unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let err = install_opencode().unwrap_err().to_string();
 
         assert!(err.contains("opencode config directory not found"));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_hermes_writes_plugin_and_enables_it() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let hermes_dir = home.join(".hermes");
         fs::create_dir_all(&hermes_dir).unwrap();
         fs::write(hermes_dir.join("config.yaml"), "model:\n  provider: auto\n").unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let installed = install_hermes().unwrap();
         let manifest = fs::read_to_string(
@@ -3472,13 +3463,13 @@ mod tests {
         assert_eq!(init, HERMES_PLUGIN_INIT_ASSET);
         assert!(config.contains("plugins:\n  enabled:\n    - hako-agent-state"));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_hermes_is_idempotent_for_enabled_entry() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let hermes_dir = home.join(".hermes");
@@ -3488,7 +3479,7 @@ mod tests {
             "plugins:\n  enabled:\n    - hako-agent-state\n",
         )
         .unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         install_hermes().unwrap();
         install_hermes().unwrap();
@@ -3496,13 +3487,13 @@ mod tests {
         let config = fs::read_to_string(hermes_dir.join("config.yaml")).unwrap();
         assert_eq!(config.matches("hako-agent-state").count(), 1);
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn uninstall_hermes_removes_plugin_and_enabled_entry() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         let hermes_dir = home.join(".hermes");
@@ -3518,7 +3509,7 @@ mod tests {
             "plugins:\n  enabled:\n    - other-plugin\n    - hako-agent-state\n",
         )
         .unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let result = uninstall_hermes().unwrap();
         let config = fs::read_to_string(hermes_dir.join("config.yaml")).unwrap();
@@ -3529,23 +3520,22 @@ mod tests {
         assert!(config.contains("    - other-plugin"));
         assert!(!config.contains("hako-agent-state"));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_hermes_errors_when_config_dir_missing() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
         fs::create_dir_all(&home).unwrap();
-        std::env::set_var("HOME", &home);
+        let _home_env = TestEnvVar::set("HOME", &home);
 
         let err = install_hermes().unwrap_err().to_string();
 
         assert!(err.contains("hermes config directory not found"));
 
-        std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
     }
 
@@ -3592,6 +3582,7 @@ mod tests {
     #[test]
     fn install_qodercli_writes_hook_and_updates_settings() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let qoder_dir = base.join(".qoder");
         fs::create_dir_all(&qoder_dir).unwrap();
@@ -3600,7 +3591,7 @@ mod tests {
             r#"{"permissions":{"allow":["Read"]},"hooks":{}}"#,
         )
         .unwrap();
-        std::env::set_var(QODERCLI_CONFIG_DIR_ENV_VAR, &qoder_dir);
+        let _qodercli_config_dir_env = TestEnvVar::set(QODERCLI_CONFIG_DIR_ENV_VAR, &qoder_dir);
 
         let installed = install_qodercli().unwrap();
 
@@ -3633,17 +3624,17 @@ mod tests {
         // Pre-existing settings keys must be preserved.
         assert!(settings.get("permissions").is_some());
 
-        std::env::remove_var(QODERCLI_CONFIG_DIR_ENV_VAR);
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_qodercli_is_idempotent_for_hook_entries() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let qoder_dir = base.join(".qoder");
         fs::create_dir_all(&qoder_dir).unwrap();
-        std::env::set_var(QODERCLI_CONFIG_DIR_ENV_VAR, &qoder_dir);
+        let _qodercli_config_dir_env = TestEnvVar::set(QODERCLI_CONFIG_DIR_ENV_VAR, &qoder_dir);
 
         install_qodercli().unwrap();
         install_qodercli().unwrap();
@@ -3668,17 +3659,17 @@ mod tests {
             );
         }
 
-        std::env::remove_var(QODERCLI_CONFIG_DIR_ENV_VAR);
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn uninstall_qodercli_removes_hako_hooks_and_preserves_others() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let qoder_dir = base.join(".qoder");
         fs::create_dir_all(&qoder_dir).unwrap();
-        std::env::set_var(QODERCLI_CONFIG_DIR_ENV_VAR, &qoder_dir);
+        let _qodercli_config_dir_env = TestEnvVar::set(QODERCLI_CONFIG_DIR_ENV_VAR, &qoder_dir);
 
         install_qodercli().unwrap();
         // Inject a foreign hook entry the user might have configured by hand.
@@ -3714,16 +3705,16 @@ mod tests {
         let cmd = remaining[0]["hooks"][0]["command"].as_str().unwrap();
         assert_eq!(cmd, "echo user-defined");
 
-        std::env::remove_var(QODERCLI_CONFIG_DIR_ENV_VAR);
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn install_qodercli_errors_when_config_dir_missing() {
         let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
         let base = unique_base();
         let missing = base.join(".qoder");
-        std::env::set_var(QODERCLI_CONFIG_DIR_ENV_VAR, &missing);
+        let _qodercli_config_dir_env = TestEnvVar::set(QODERCLI_CONFIG_DIR_ENV_VAR, &missing);
 
         let err = install_qodercli().unwrap_err().to_string();
         assert!(
@@ -3731,7 +3722,6 @@ mod tests {
             "unexpected error: {err}"
         );
 
-        std::env::remove_var(QODERCLI_CONFIG_DIR_ENV_VAR);
         let _ = fs::remove_dir_all(base);
     }
 }

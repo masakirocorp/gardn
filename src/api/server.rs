@@ -582,6 +582,7 @@ fn error_response_json(id: String, code: &str, message: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::TestEnvVar;
     use std::io::{BufRead, BufReader};
     use std::os::unix::fs::PermissionsExt;
     use std::sync::{Mutex, OnceLock};
@@ -610,12 +611,18 @@ mod tests {
     #[test]
     fn socket_path_prefers_explicit_env_override() {
         let _guard = env_lock().lock().unwrap();
-        let unique = format!("/tmp/hako-test-{}.sock", std::process::id());
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
-        crate::session::clear_explicit_session_for_test();
-        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, &unique);
+        let unique = format!(
+            "/tmp/hako-test-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        );
+        let _session_env = TestEnvVar::remove(crate::session::SESSION_ENV_VAR);
+        let _explicit_session = crate::session::explicit_session_request_guard(false);
+        let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, &unique);
         assert_eq!(socket_path(), PathBuf::from(&unique));
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
     }
 
     #[test]
@@ -623,29 +630,26 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let config_home = unique_test_path("socket-default-config-home");
         let runtime_dir = unique_test_path("socket-default-runtime");
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
-        crate::session::clear_explicit_session_for_test();
-        std::env::set_var("XDG_CONFIG_HOME", &config_home);
-        std::env::set_var("XDG_RUNTIME_DIR", &runtime_dir);
+        let _socket_env = TestEnvVar::remove(crate::api::SOCKET_PATH_ENV_VAR);
+        let _session_env = TestEnvVar::remove(crate::session::SESSION_ENV_VAR);
+        let _explicit_session = crate::session::explicit_session_request_guard(false);
+        let _config_home_env = TestEnvVar::set("XDG_CONFIG_HOME", &config_home);
+        let _runtime_dir_env = TestEnvVar::set("XDG_RUNTIME_DIR", &runtime_dir);
 
         let expected = config_home
             .join(crate::config::app_dir_name())
             .join("hako.sock");
         assert_eq!(socket_path(), expected);
-
-        std::env::remove_var("XDG_CONFIG_HOME");
-        std::env::remove_var("XDG_RUNTIME_DIR");
     }
 
     #[test]
     fn socket_path_uses_named_session_dir() {
         let _guard = env_lock().lock().unwrap();
         let config_home = unique_test_path("socket-named-config-home");
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
-        crate::session::clear_explicit_session_for_test();
-        std::env::set_var(crate::session::SESSION_ENV_VAR, "work");
-        std::env::set_var("XDG_CONFIG_HOME", &config_home);
+        let _socket_env = TestEnvVar::remove(crate::api::SOCKET_PATH_ENV_VAR);
+        let _explicit_session = crate::session::explicit_session_request_guard(false);
+        let _session_env = TestEnvVar::set(crate::session::SESSION_ENV_VAR, "work");
+        let _config_home_env = TestEnvVar::set("XDG_CONFIG_HOME", &config_home);
 
         let expected = config_home
             .join(crate::config::app_dir_name())
@@ -653,9 +657,6 @@ mod tests {
             .join("work")
             .join("hako.sock");
         assert_eq!(socket_path(), expected);
-
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
-        std::env::remove_var("XDG_CONFIG_HOME");
     }
 
     #[test]

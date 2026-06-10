@@ -948,9 +948,13 @@ right_click_passthrough_modifier = "cmd+alt"
 right_click_passthrough_modifier = "{value}"
 "#
             );
+            let err = toml::from_str::<Config>(&toml)
+                .expect_err(&format!("value {value:?} should be rejected"))
+                .to_string();
             assert!(
-                toml::from_str::<Config>(&toml).is_err(),
-                "value {value:?} should be rejected"
+                err.contains("right_click_passthrough_modifier must be")
+                    && err.contains("without shift"),
+                "value {value:?} failed with the wrong error: {err}"
             );
         }
     }
@@ -990,7 +994,14 @@ mouse_scroll_lines = 1
 [ui]
 mouse_scroll_lines = 0
 "#;
-        assert!(toml::from_str::<Config>(toml).is_err());
+        let err = toml::from_str::<Config>(toml).expect_err("zero scroll lines should reject");
+        let message = err.to_string();
+        assert!(
+            message.contains("invalid value")
+                && message.contains('0')
+                && (message.contains("nonzero") || message.contains("non-zero")),
+            "zero scroll lines failed with the wrong error: {message}"
+        );
     }
 
     #[test]

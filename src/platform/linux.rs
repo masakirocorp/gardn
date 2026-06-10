@@ -371,6 +371,7 @@ fn process_parent_id(pid: u32) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::TestEnvVar;
     use std::sync::{Mutex, OnceLock};
 
     fn env_lock() -> &'static Mutex<()> {
@@ -397,10 +398,8 @@ mod tests {
     #[test]
     fn clipboard_commands_prefer_wayland_when_available() {
         let _guard = env_lock().lock().unwrap();
-        unsafe {
-            std::env::set_var("WAYLAND_DISPLAY", "wayland-0");
-            std::env::remove_var("DISPLAY");
-        }
+        let _wayland_env = TestEnvVar::set("WAYLAND_DISPLAY", "wayland-0");
+        let _display_env = TestEnvVar::remove("DISPLAY");
         let commands = clipboard_commands();
         assert_eq!(commands.len(), 1);
         assert_eq!(commands[0].program, "wl-copy");
@@ -409,10 +408,8 @@ mod tests {
     #[test]
     fn clipboard_commands_include_x11_fallbacks() {
         let _guard = env_lock().lock().unwrap();
-        unsafe {
-            std::env::remove_var("WAYLAND_DISPLAY");
-            std::env::set_var("DISPLAY", ":0");
-        }
+        let _wayland_env = TestEnvVar::remove("WAYLAND_DISPLAY");
+        let _display_env = TestEnvVar::set("DISPLAY", ":0");
         let commands = clipboard_commands();
         assert_eq!(commands.len(), 2);
         assert_eq!(commands[0].program, "xclip");
@@ -444,13 +441,18 @@ mod tests {
     #[test]
     fn desktop_notification_separates_option_like_titles() {
         let _guard = env_lock().lock().unwrap();
-        unsafe {
-            std::env::remove_var("WAYLAND_DISPLAY");
-            std::env::set_var("DISPLAY", ":0");
-        }
+        let _wayland_env = TestEnvVar::remove("WAYLAND_DISPLAY");
+        let _display_env = TestEnvVar::set("DISPLAY", ":0");
 
-        let path =
-            std::env::temp_dir().join(format!("hako-notify-send-args-{}", std::process::id()));
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!(
+            "hako-notify-send-args-{}-{nanos}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
         let script = "printf '%s\\n' \"$@\" > \"$HAKO_NOTIFY_ARGS\"";
         let shown = show_desktop_notification_with_command("-danger", Some("body"), |_| {
             let mut cmd = Command::new("sh");

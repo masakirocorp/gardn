@@ -88,7 +88,7 @@ Tests are behavior specs, not implementation snapshots. Prefer the public/user-v
 - Render tests must assert visible output, styling, or hit behavior. A no-panic render smoke test is not enough.
 - Protocol compatibility tests must pin explicit framed bytes for representative messages. Roundtrips alone do not protect compatibility.
 - Process/socket tests must wait for readiness, not just path existence. Use `tests::support::connect_unix_socket` for Unix socket clients.
-- Tests that mutate global environment variables must serialize that mutation or restore state with a local guard.
+- Tests that mutate global environment variables must serialize that mutation and restore through `crate::config::TestEnvVar` or an equivalent RAII guard.
 - Error-path tests should assert concrete error variants or useful message details, not only `is_err()`.
 - Mechanical guardrails live in `scripts/test_testing_guidelines.py` and run from `just test`/`just check`. If a test needs an exception, prefer improving the helper or naming the invariant explicitly over weakening the guardrail.
 

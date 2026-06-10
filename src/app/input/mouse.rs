@@ -2120,33 +2120,30 @@ mod tests {
         assert_eq!(app.state.command_palette.selected, 0);
     }
 
-    fn rendered_command_row_point(app: &crate::app::App, command_title: &str) -> (u16, u16) {
+    fn rendered_text_point(app: &crate::app::App, text: &str) -> (u16, u16) {
         let screen = app.state.screen_rect();
         let backend = TestBackend::new(screen.width, screen.height);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
             .draw(|frame| crate::ui::render(&app.state, frame))
-            .expect("render command palette");
+            .expect("render app");
         let buffer = terminal.backend().buffer();
-        let title_symbols = command_title
-            .chars()
-            .map(|ch| ch.to_string())
-            .collect::<Vec<_>>();
-        let title_width = title_symbols.len() as u16;
+        let symbols = text.chars().map(|ch| ch.to_string()).collect::<Vec<_>>();
+        let text_width = symbols.len() as u16;
 
         for y in 0..screen.height {
-            for x in 0..=screen.width.saturating_sub(title_width) {
-                if title_symbols
+            for x in 0..=screen.width.saturating_sub(text_width) {
+                if symbols
                     .iter()
                     .enumerate()
-                    .all(|(idx, symbol)| buffer[(x + idx as u16, y)].symbol() == symbol)
+                    .all(|(idx, symbol)| buffer[(x + idx as u16, y)].symbol() == symbol.as_str())
                 {
                     return (x, y);
                 }
             }
         }
 
-        panic!("rendered command row not found: {command_title}");
+        panic!("rendered text not found: {text}");
     }
 
     #[test]
@@ -2154,11 +2151,11 @@ mod tests {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::CommandPalette;
 
-        let first = rendered_command_row_point(&app, "new space");
+        let first = rendered_text_point(&app, "new space");
         app.handle_mouse(mouse(MouseEventKind::Moved, first.0, first.1));
         assert_eq!(app.state.command_palette.selected, 0);
 
-        let second = rendered_command_row_point(&app, "rename selected space");
+        let second = rendered_text_point(&app, "rename selected space");
         app.handle_mouse(mouse(MouseEventKind::Moved, second.0, second.1));
         assert_eq!(app.state.command_palette.selected, 1);
     }
@@ -2399,19 +2396,18 @@ mod tests {
     }
 
     #[test]
-    fn group_modal_buttons_use_full_screen_geometry_with_right_sidebar() {
+    fn group_modal_save_clicks_rendered_button_with_right_sidebar() {
         let mut app = app_for_mouse_test();
         app.state.view.right_sidebar_rect = Rect::new(106, 0, 34, 20);
         super::super::modal::open_new_group_dialog(&mut app.state);
         app.state.name_input = "Work".to_string();
         app.state.group_icon_input = "☕".to_string();
 
-        let inner = app.state.rename_modal_inner().unwrap();
-        let (save, _, _) = crate::ui::rename_button_rects(inner);
+        let save = rendered_text_point(&app, "save");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            save.x,
-            save.y,
+            save.0,
+            save.1,
         ));
 
         assert_eq!(app.state.groups[1].name, "Work");
@@ -2420,18 +2416,17 @@ mod tests {
     }
 
     #[test]
-    fn group_modal_clear_uses_full_screen_geometry_with_right_sidebar() {
+    fn group_modal_clear_clicks_rendered_button_with_right_sidebar() {
         let mut app = app_for_mouse_test();
         app.state.view.right_sidebar_rect = Rect::new(106, 0, 34, 20);
         super::super::modal::open_new_group_dialog(&mut app.state);
         app.state.name_input = "Work".to_string();
 
-        let inner = app.state.rename_modal_inner().unwrap();
-        let (_, clear, _) = crate::ui::rename_button_rects(inner);
+        let clear = rendered_text_point(&app, "clear");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            clear.x,
-            clear.y,
+            clear.0,
+            clear.1,
         ));
 
         assert_eq!(app.state.name_input, "");
@@ -2439,17 +2434,16 @@ mod tests {
     }
 
     #[test]
-    fn group_modal_cancel_uses_full_screen_geometry_with_right_sidebar() {
+    fn group_modal_close_clicks_rendered_button_with_right_sidebar() {
         let mut app = app_for_mouse_test();
         app.state.view.right_sidebar_rect = Rect::new(106, 0, 34, 20);
         super::super::modal::open_new_group_dialog(&mut app.state);
 
-        let inner = app.state.rename_modal_inner().unwrap();
-        let (_, _, cancel) = crate::ui::rename_button_rects(inner);
+        let close = rendered_text_point(&app, "close");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            cancel.x,
-            cancel.y,
+            close.0,
+            close.1,
         ));
 
         assert_eq!(app.state.mode, Mode::Navigate);
@@ -2457,17 +2451,30 @@ mod tests {
     }
 
     #[test]
-    fn group_modal_icon_uses_full_screen_geometry_with_right_sidebar() {
+    fn group_modal_icon_clicks_rendered_button_with_right_sidebar() {
         let mut app = app_for_mouse_test();
         app.state.view.right_sidebar_rect = Rect::new(106, 0, 34, 20);
         super::super::modal::open_new_group_dialog(&mut app.state);
 
         let inner = app.state.rename_modal_inner().unwrap();
-        let icon_button = crate::ui::group_icon_button_rect(inner);
+        let icon_rect = crate::ui::group_icon_button_rect(inner);
+        let screen = app.state.screen_rect();
+        let backend = TestBackend::new(screen.width, screen.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render app");
+        let buffer = terminal.backend().buffer();
+        let icon_symbol = app.state.group_icon_input.as_str();
+        assert!(
+            (icon_rect.x..icon_rect.x + icon_rect.width)
+                .any(|x| buffer[(x, icon_rect.y)].symbol() == icon_symbol),
+            "rendered group icon should be inside the icon button"
+        );
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            icon_button.x,
-            icon_button.y,
+            icon_rect.x + 1,
+            icon_rect.y,
         ));
 
         assert!(app.state.group_icon_picker_open);

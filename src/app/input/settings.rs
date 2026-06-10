@@ -2105,6 +2105,65 @@ mod tests {
     use super::super::{app_for_mouse_test, mouse, state_with_workspaces};
     use super::*;
 
+    fn rendered_text_point(
+        app: &crate::app::App,
+        text: &str,
+        width: u16,
+        height: u16,
+    ) -> (u16, u16) {
+        let backend = ratatui::backend::TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render settings");
+        let buffer = terminal.backend().buffer();
+        let symbols = text.chars().map(|ch| ch.to_string()).collect::<Vec<_>>();
+        let text_width = symbols.len() as u16;
+
+        for y in 0..height {
+            for x in 0..=width.saturating_sub(text_width) {
+                if symbols
+                    .iter()
+                    .enumerate()
+                    .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == ch.as_str())
+                {
+                    return (x, y);
+                }
+            }
+        }
+
+        panic!("rendered text not found: {text}");
+    }
+
+    fn rendered_text_point_on_row(
+        app: &crate::app::App,
+        text: &str,
+        row: u16,
+        width: u16,
+        height: u16,
+    ) -> (u16, u16) {
+        let backend = ratatui::backend::TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render settings");
+        let buffer = terminal.backend().buffer();
+        let symbols = text.chars().map(|ch| ch.to_string()).collect::<Vec<_>>();
+        let text_width = symbols.len() as u16;
+
+        for x in 0..=width.saturating_sub(text_width) {
+            if symbols
+                .iter()
+                .enumerate()
+                .all(|(idx, ch)| buffer[(x + idx as u16, row)].symbol() == ch.as_str())
+            {
+                return (x, row);
+            }
+        }
+
+        panic!("rendered text not found on row {row}: {text}");
+    }
+
     #[test]
     fn settings_escape_closes_without_reverting_previewed_theme() {
         let mut state = state_with_workspaces(&["test"]);
@@ -2269,21 +2328,17 @@ mod tests {
     }
 
     #[test]
-    fn agent_settings_back_returns_to_profile_list() {
+    fn agent_settings_back_returns_to_profile_list_from_rendered_button() {
         let mut app = app_for_mouse_test();
         app.state.view.terminal_area = Rect::new(0, 0, 100, 40);
         open_settings_at(&mut app.state, SettingsSection::Agents);
         open_blank_agent_profile_editor(&mut app.state);
 
-        let rect = crate::ui::settings_agents_editor_back_button_rect(
-            &app.state,
-            app.state.settings_content_rect(),
-        )
-        .expect("back button");
+        let (back_x, back_y) = rendered_text_point(&app, "← back", 100, 40);
         let action = app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
-            rect.x,
-            rect.y,
+            back_x,
+            back_y,
         ));
         assert_eq!(action, None);
         assert_eq!(app.state.settings.pending_agent_profile_name, None);
@@ -2514,24 +2569,17 @@ mod tests {
     }
 
     #[test]
-    fn agent_settings_clicking_family_tab_filters_profile_rows() {
+    fn agent_settings_clicking_rendered_family_tab_filters_profile_rows() {
         let mut app = app_for_mouse_test();
         app.state.view.terminal_area = Rect::new(0, 0, 100, 40);
         open_settings_at(&mut app.state, SettingsSection::Agents);
-        let tab_row = crate::ui::settings_profile_family_tab_row(
-            &app.state,
-            app.state.settings_content_rect(),
-        )
-        .expect("agents family filters");
-        let (_, omp_rect) = crate::ui::settings_profile_family_tab_hit_areas(&app.state, tab_row)
-            .into_iter()
-            .find(|(kind, _)| *kind == Some(crate::agent_profiles::AgentKind::Omp))
-            .expect("omp tab");
+        let (_, filter_y) = rendered_text_point(&app, "filter", 100, 40);
+        let (omp_x, omp_y) = rendered_text_point_on_row(&app, "omp", filter_y, 100, 40);
 
         let action = app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
-            omp_rect.x + 1,
-            omp_rect.y,
+            omp_x,
+            omp_y,
         ));
 
         assert_eq!(action, None);

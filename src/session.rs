@@ -124,6 +124,25 @@ pub(crate) fn clear_explicit_session_for_test() {
     EXPLICIT_SESSION_REQUESTED.store(false, Ordering::Relaxed);
 }
 
+#[cfg(test)]
+pub(crate) struct ExplicitSessionRequestGuard {
+    previous: bool,
+}
+
+#[cfg(test)]
+impl Drop for ExplicitSessionRequestGuard {
+    fn drop(&mut self) {
+        EXPLICIT_SESSION_REQUESTED.store(self.previous, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn explicit_session_request_guard(value: bool) -> ExplicitSessionRequestGuard {
+    let previous = explicit_session_requested();
+    EXPLICIT_SESSION_REQUESTED.store(value, Ordering::Relaxed);
+    ExplicitSessionRequestGuard { previous }
+}
+
 pub fn data_dir() -> PathBuf {
     data_dir_for(active_name().as_deref())
 }
@@ -428,11 +447,40 @@ fn normalize_name(name: &str) -> Result<Option<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::TestEnvVar;
     use std::sync::{Mutex, OnceLock};
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct ExplicitSessionGuard {
+        previous: bool,
+    }
+
+    impl Drop for ExplicitSessionGuard {
+        fn drop(&mut self) {
+            EXPLICIT_SESSION_REQUESTED.store(self.previous, Ordering::Relaxed);
+        }
+    }
+
+    fn explicit_session_guard(value: bool) -> ExplicitSessionGuard {
+        let previous = explicit_session_requested();
+        EXPLICIT_SESSION_REQUESTED.store(value, Ordering::Relaxed);
+        ExplicitSessionGuard { previous }
+    }
+
+    fn clear_explicit_session_guard() -> ExplicitSessionGuard {
+        explicit_session_guard(false)
+    }
+
+    fn unique_temp_path(name: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        PathBuf::from("/tmp").join(format!("hs-{name}-{}-{nanos}", std::process::id()))
     }
 
     #[test]
@@ -493,8 +541,8 @@ mod tests {
     #[test]
     fn stop_session_times_out_when_socket_stays_open_without_response() {
         let _guard = env_lock().lock().unwrap();
-        let config_home = PathBuf::from(format!("/tmp/hs-stop-open-{}", std::process::id()));
-        std::env::set_var("XDG_CONFIG_HOME", &config_home);
+        let config_home = unique_temp_path("stop-open");
+        let _config_home_env = TestEnvVar::set("XDG_CONFIG_HOME", &config_home);
         let session_name = "silent";
         let socket_path = api_socket_path_for(Some(session_name));
         std::fs::create_dir_all(socket_path.parent().unwrap()).unwrap();
@@ -535,14 +583,13 @@ mod tests {
         keep_running.store(false, Ordering::Relaxed);
         handle.join().unwrap();
         let _ = std::fs::remove_dir_all(&config_home);
-        std::env::remove_var("XDG_CONFIG_HOME");
     }
 
     #[test]
     fn configure_from_args_removes_global_session_option() {
         let _guard = env_lock().lock().unwrap();
-        std::env::remove_var(SESSION_ENV_VAR);
-        clear_explicit_session_for_test();
+        let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
+        let _explicit_session = clear_explicit_session_guard();
         let args = vec![
             "hako".to_string(),
             "--session".to_string(),
@@ -556,15 +603,13 @@ mod tests {
         assert_eq!(std::env::var(SESSION_ENV_VAR).as_deref(), Ok("work"));
         assert!(explicit_session_requested());
         assert_eq!(cleaned, vec!["hako", "workspace", "list"]);
-        std::env::remove_var(SESSION_ENV_VAR);
-        clear_explicit_session_for_test();
     }
 
     #[test]
     fn configure_from_args_accepts_equals_form() {
         let _guard = env_lock().lock().unwrap();
-        std::env::remove_var(SESSION_ENV_VAR);
-        clear_explicit_session_for_test();
+        let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
+        let _explicit_session = clear_explicit_session_guard();
         let args = vec![
             "hako".to_string(),
             "server".to_string(),
@@ -577,15 +622,13 @@ mod tests {
         assert_eq!(std::env::var(SESSION_ENV_VAR).as_deref(), Ok("api"));
         assert!(explicit_session_requested());
         assert_eq!(cleaned, vec!["hako", "server", "stop"]);
-        std::env::remove_var(SESSION_ENV_VAR);
-        clear_explicit_session_for_test();
     }
 
     #[test]
     fn configure_from_args_preserves_child_session_option_after_separator() {
         let _guard = env_lock().lock().unwrap();
-        std::env::remove_var(SESSION_ENV_VAR);
-        clear_explicit_session_for_test();
+        let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
+        let _explicit_session = clear_explicit_session_guard();
         let args = vec![
             "hako".to_string(),
             "agent".to_string(),
@@ -607,8 +650,8 @@ mod tests {
     #[test]
     fn configure_from_args_preserves_child_session_equals_option_after_separator() {
         let _guard = env_lock().lock().unwrap();
-        std::env::remove_var(SESSION_ENV_VAR);
-        clear_explicit_session_for_test();
+        let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
+        let _explicit_session = clear_explicit_session_guard();
         let args = vec![
             "hako".to_string(),
             "agent".to_string(),
@@ -629,9 +672,9 @@ mod tests {
     #[test]
     fn configure_from_args_rewrites_session_attach_to_default_launch() {
         let _guard = env_lock().lock().unwrap();
-        std::env::set_var(SESSION_ENV_VAR, "bad/name");
-        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/inherited.sock");
-        clear_explicit_session_for_test();
+        let _session_env = TestEnvVar::set(SESSION_ENV_VAR, "bad/name");
+        let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/inherited.sock");
+        let _explicit_session = clear_explicit_session_guard();
         let args = vec![
             "hako".to_string(),
             "session".to_string(),
@@ -644,16 +687,13 @@ mod tests {
         assert_eq!(std::env::var(SESSION_ENV_VAR).as_deref(), Ok("work"));
         assert!(explicit_session_requested());
         assert_eq!(cleaned, vec!["hako"]);
-        std::env::remove_var(SESSION_ENV_VAR);
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
-        clear_explicit_session_for_test();
     }
 
     #[test]
     fn configure_from_args_leaves_session_attach_help_for_cli_dispatch() {
         let _guard = env_lock().lock().unwrap();
-        std::env::remove_var(SESSION_ENV_VAR);
-        clear_explicit_session_for_test();
+        let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
+        let _explicit_session = clear_explicit_session_guard();
         let args = vec![
             "hako".to_string(),
             "session".to_string(),
@@ -670,12 +710,11 @@ mod tests {
     #[test]
     fn configure_from_args_maps_default_session_name_to_default_path() {
         let _guard = env_lock().lock().unwrap();
-        let config_home =
-            std::env::temp_dir().join(format!("hako-session-default-{}", std::process::id()));
-        std::env::set_var("XDG_CONFIG_HOME", &config_home);
-        std::env::set_var(SESSION_ENV_VAR, "work");
-        clear_explicit_session_for_test();
-        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/inherited.sock");
+        let config_home = unique_temp_path("default");
+        let _config_home_env = TestEnvVar::set("XDG_CONFIG_HOME", &config_home);
+        let _session_env = TestEnvVar::set(SESSION_ENV_VAR, "work");
+        let _explicit_session = clear_explicit_session_guard();
+        let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/inherited.sock");
         let args = vec![
             "hako".to_string(),
             "--session".to_string(),
@@ -695,17 +734,13 @@ mod tests {
                 .join(crate::config::app_dir_name())
                 .join("hako.sock")
         );
-        std::env::remove_var("XDG_CONFIG_HOME");
-        std::env::remove_var(SESSION_ENV_VAR);
-        clear_explicit_session_for_test();
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
     }
 
     #[test]
     fn env_session_does_not_mark_session_explicit() {
         let _guard = env_lock().lock().unwrap();
-        std::env::set_var(SESSION_ENV_VAR, "env-session");
-        EXPLICIT_SESSION_REQUESTED.store(true, Ordering::Relaxed);
+        let _session_env = TestEnvVar::set(SESSION_ENV_VAR, "env-session");
+        let _explicit_session = explicit_session_guard(true);
         let args = vec![
             "hako".to_string(),
             "workspace".to_string(),
@@ -717,18 +752,16 @@ mod tests {
         assert_eq!(cleaned, vec!["hako", "workspace", "list"]);
         assert_eq!(std::env::var(SESSION_ENV_VAR).as_deref(), Ok("env-session"));
         assert!(!explicit_session_requested());
-        std::env::remove_var(SESSION_ENV_VAR);
     }
 
     #[test]
     fn env_default_session_name_uses_default_path() {
         let _guard = env_lock().lock().unwrap();
-        let config_home =
-            std::env::temp_dir().join(format!("hako-env-session-default-{}", std::process::id()));
-        std::env::set_var("XDG_CONFIG_HOME", &config_home);
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
-        std::env::set_var(SESSION_ENV_VAR, DEFAULT_SESSION_NAME);
-        EXPLICIT_SESSION_REQUESTED.store(true, Ordering::Relaxed);
+        let config_home = unique_temp_path("env-default");
+        let _config_home_env = TestEnvVar::set("XDG_CONFIG_HOME", &config_home);
+        let _socket_env = TestEnvVar::remove(crate::api::SOCKET_PATH_ENV_VAR);
+        let _session_env = TestEnvVar::set(SESSION_ENV_VAR, DEFAULT_SESSION_NAME);
+        let _explicit_session = explicit_session_guard(true);
         let args = vec![
             "hako".to_string(),
             "workspace".to_string(),
@@ -746,16 +779,12 @@ mod tests {
                 .join(crate::config::app_dir_name())
                 .join("hako.sock")
         );
-        std::env::remove_var("XDG_CONFIG_HOME");
-        std::env::remove_var(SESSION_ENV_VAR);
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
-        clear_explicit_session_for_test();
     }
 
     #[test]
     fn local_attach_command_uses_default_launch_for_default_session() {
         let _guard = env_lock().lock().unwrap();
-        std::env::remove_var(SESSION_ENV_VAR);
+        let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
 
         assert_eq!(local_attach_command(), "hako");
     }
@@ -763,42 +792,35 @@ mod tests {
     #[test]
     fn local_attach_command_uses_session_attach_for_named_session() {
         let _guard = env_lock().lock().unwrap();
-        std::env::set_var(SESSION_ENV_VAR, "work");
+        let _session_env = TestEnvVar::set(SESSION_ENV_VAR, "work");
 
         assert_eq!(local_attach_command(), "hako session attach work");
-
-        std::env::remove_var(SESSION_ENV_VAR);
     }
 
     #[test]
     fn local_stop_command_uses_server_stop_for_default_session() {
         let _guard = env_lock().lock().unwrap();
-        std::env::remove_var(SESSION_ENV_VAR);
+        let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
 
         assert_eq!(local_stop_command(), "hako server stop");
-
-        std::env::remove_var(SESSION_ENV_VAR);
     }
 
     #[test]
     fn local_stop_command_uses_session_stop_for_named_session() {
         let _guard = env_lock().lock().unwrap();
-        std::env::set_var(SESSION_ENV_VAR, "work");
+        let _session_env = TestEnvVar::set(SESSION_ENV_VAR, "work");
 
         assert_eq!(local_stop_command(), "hako session stop work");
-
-        std::env::remove_var(SESSION_ENV_VAR);
     }
 
     #[test]
     fn explicit_session_socket_ignores_inherited_socket_override() {
         let _guard = env_lock().lock().unwrap();
-        let config_home =
-            std::env::temp_dir().join(format!("hako-session-precedence-{}", std::process::id()));
-        std::env::set_var("XDG_CONFIG_HOME", &config_home);
-        std::env::set_var(SESSION_ENV_VAR, "work");
-        EXPLICIT_SESSION_REQUESTED.store(true, Ordering::Relaxed);
-        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/inherited.sock");
+        let config_home = unique_temp_path("precedence");
+        let _config_home_env = TestEnvVar::set("XDG_CONFIG_HOME", &config_home);
+        let _session_env = TestEnvVar::set(SESSION_ENV_VAR, "work");
+        let _explicit_session = explicit_session_guard(true);
+        let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/inherited.sock");
 
         let path = active_api_socket_path();
 
@@ -810,23 +832,16 @@ mod tests {
                 .join("work")
                 .join("hako.sock")
         );
-        std::env::remove_var("XDG_CONFIG_HOME");
-        std::env::remove_var(SESSION_ENV_VAR);
-        clear_explicit_session_for_test();
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
     }
 
     #[test]
     fn inherited_release_socket_is_ignored_by_dev_binary() {
         let _guard = env_lock().lock().unwrap();
-        let config_home = std::env::temp_dir().join(format!(
-            "hako-session-app-precedence-{}",
-            std::process::id()
-        ));
-        std::env::set_var("XDG_CONFIG_HOME", &config_home);
-        std::env::remove_var(SESSION_ENV_VAR);
-        clear_explicit_session_for_test();
-        std::env::set_var(
+        let config_home = unique_temp_path("app-precedence");
+        let _config_home_env = TestEnvVar::set("XDG_CONFIG_HOME", &config_home);
+        let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
+        let _explicit_session = clear_explicit_session_guard();
+        let _socket_env = TestEnvVar::set(
             crate::api::SOCKET_PATH_ENV_VAR,
             config_home.join("hako").join("hako.sock"),
         );
@@ -837,55 +852,44 @@ mod tests {
                 .join(crate::config::app_dir_name())
                 .join("hako.sock")
         );
-
-        std::env::remove_var("XDG_CONFIG_HOME");
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
     }
 
     #[test]
     fn inherited_socket_for_same_app_is_used() {
         let _guard = env_lock().lock().unwrap();
-        let config_home =
-            std::env::temp_dir().join(format!("hako-session-same-app-{}", std::process::id()));
+        let config_home = unique_temp_path("same-app");
         let socket_path = config_home
             .join(crate::config::app_dir_name())
             .join("sessions")
             .join("work")
             .join("hako.sock");
-        std::env::set_var("XDG_CONFIG_HOME", &config_home);
-        std::env::remove_var(SESSION_ENV_VAR);
-        clear_explicit_session_for_test();
-        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, &socket_path);
+        let _config_home_env = TestEnvVar::set("XDG_CONFIG_HOME", &config_home);
+        let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
+        let _explicit_session = clear_explicit_session_guard();
+        let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, &socket_path);
 
         assert_eq!(active_api_socket_path(), socket_path);
-
-        std::env::remove_var("XDG_CONFIG_HOME");
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
     }
 
     #[test]
     fn env_socket_override_wins_without_explicit_session() {
         let _guard = env_lock().lock().unwrap();
-        std::env::set_var(SESSION_ENV_VAR, "work");
-        clear_explicit_session_for_test();
-        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/explicit.sock");
+        let _session_env = TestEnvVar::set(SESSION_ENV_VAR, "work");
+        let _explicit_session = clear_explicit_session_guard();
+        let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/explicit.sock");
 
         assert_eq!(
             active_api_socket_path(),
             PathBuf::from("/tmp/explicit.sock")
         );
-
-        std::env::remove_var(SESSION_ENV_VAR);
-        clear_explicit_session_for_test();
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
     }
 
     #[test]
     fn env_socket_override_skips_invalid_env_session_validation_without_explicit_session() {
         let _guard = env_lock().lock().unwrap();
-        std::env::set_var(SESSION_ENV_VAR, "bad/name");
-        clear_explicit_session_for_test();
-        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/hako.sock");
+        let _session_env = TestEnvVar::set(SESSION_ENV_VAR, "bad/name");
+        let _explicit_session = clear_explicit_session_guard();
+        let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/hako.sock");
         let args = vec![
             "hako".to_string(),
             "workspace".to_string(),
@@ -898,17 +902,13 @@ mod tests {
         assert!(!explicit_session_requested());
         assert_eq!(active_api_socket_path(), PathBuf::from("/tmp/hako.sock"));
         assert_eq!(std::env::var(SESSION_ENV_VAR).as_deref(), Ok("bad/name"));
-
-        std::env::remove_var(SESSION_ENV_VAR);
-        clear_explicit_session_for_test();
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
     }
 
     #[test]
     fn stop_session_fails_when_socket_remains_reachable_after_timeout() {
         let _guard = env_lock().lock().unwrap();
-        let config_home = PathBuf::from(format!("/tmp/hs-stop-{}", std::process::id()));
-        std::env::set_var("XDG_CONFIG_HOME", &config_home);
+        let config_home = unique_temp_path("stop");
+        let _config_home_env = TestEnvVar::set("XDG_CONFIG_HOME", &config_home);
         let session_name = "slow";
         let socket_path = api_socket_path_for(Some(session_name));
         std::fs::create_dir_all(socket_path.parent().unwrap()).unwrap();
@@ -947,7 +947,6 @@ mod tests {
         keep_running.store(false, Ordering::Relaxed);
         handle.join().unwrap();
         let _ = std::fs::remove_dir_all(&config_home);
-        std::env::remove_var("XDG_CONFIG_HOME");
     }
 
     #[test]
@@ -972,16 +971,15 @@ mod tests {
     #[test]
     fn list_sessions_skips_reserved_default_directory() {
         let _guard = env_lock().lock().unwrap();
-        let config_home =
-            std::env::temp_dir().join(format!("hako-session-list-{}", std::process::id()));
+        let config_home = unique_temp_path("list");
         let sessions_dir = config_home
             .join(crate::config::app_dir_name())
             .join("sessions");
         std::fs::create_dir_all(sessions_dir.join(DEFAULT_SESSION_NAME)).unwrap();
         std::fs::create_dir_all(sessions_dir.join("work")).unwrap();
-        std::env::set_var("XDG_CONFIG_HOME", &config_home);
-        std::env::remove_var(SESSION_ENV_VAR);
-        clear_explicit_session_for_test();
+        let _config_home_env = TestEnvVar::set("XDG_CONFIG_HOME", &config_home);
+        let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
+        let _explicit_session = clear_explicit_session_guard();
 
         let sessions = list_sessions().unwrap();
         let names: Vec<_> = sessions
@@ -991,6 +989,5 @@ mod tests {
 
         assert_eq!(names, vec![DEFAULT_SESSION_NAME, "work"]);
         std::fs::remove_dir_all(&config_home).unwrap();
-        std::env::remove_var("XDG_CONFIG_HOME");
     }
 }

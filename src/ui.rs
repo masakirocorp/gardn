@@ -1185,34 +1185,67 @@ mod tests {
     }
 
     #[test]
-    fn hovered_tab_truncates_label_to_keep_close_icon_visible() {
+    fn hovered_truncated_tab_keeps_close_icon_visible() {
         let mut app = crate::app::state::AppState::test_new();
         let mut ws = Workspace::test_new("test");
-        ws.tabs[0].set_custom_name("very-long-tab-name".into());
+        ws.tabs[0].set_custom_name("very-long-tab-name-0".into());
+        for idx in 1..14 {
+            ws.test_add_tab(Some(&format!("very-long-tab-name-{idx}")));
+        }
 
         app.workspaces = vec![ws];
         app.active = Some(0);
         app.selected = 0;
         app.mode = Mode::Terminal;
-        app.hovered_tab = Some(0);
+        app.mouse_capture = true;
+        app.tab_scroll_follow_active = false;
 
-        compute_view(&mut app, Rect::new(0, 0, 80, 20));
-        let original_tab_rect = app.view.tab_hit_areas[0];
-        app.view.tab_hit_areas[0] = Rect::new(original_tab_rect.x, original_tab_rect.y, 2, 1);
-        app.view.tab_close_hit_areas[0] =
-            Rect::new(original_tab_rect.x + 1, original_tab_rect.y, 1, 1);
-        let backend = TestBackend::new(80, 20);
+        let (area, truncated_idx) = (44..=80)
+            .find_map(|width| {
+                compute_view(&mut app, Rect::new(0, 0, width, 20));
+                let candidates = app
+                    .view
+                    .tab_hit_areas
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, rect)| (rect.width > 3 && rect.width < 8).then_some(idx))
+                    .collect::<Vec<_>>();
+                for idx in candidates {
+                    app.hovered_tab = Some(idx);
+                    let area = Rect::new(0, 0, width, 20);
+                    compute_view(&mut app, area);
+                    if app.view.tab_close_hit_areas[idx].width > 0 {
+                        return Some((area, idx));
+                    }
+                }
+                app.hovered_tab = None;
+                None
+            })
+            .expect("naturally truncated visible tab with close affordance");
+
+        let backend = TestBackend::new(area.width, area.height);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|frame| render(&app, frame)).unwrap();
         let buffer = terminal.backend().buffer();
-        let tab_rect = app.view.tab_hit_areas[0];
-        let close_rect = app.view.tab_close_hit_areas[0];
+        let tab_rect = app.view.tab_hit_areas[truncated_idx];
+        let rendered_symbols = (tab_rect.x..tab_rect.x + tab_rect.width)
+            .map(|x| buffer[(x, tab_rect.y)].symbol().to_string())
+            .collect::<Vec<_>>();
+        let close_rect = app.view.tab_close_hit_areas[truncated_idx];
+        let close_symbol = if close_rect.width > 0 {
+            buffer[(close_rect.x, close_rect.y)].symbol().to_string()
+        } else {
+            String::new()
+        };
 
-        assert_eq!(close_rect.x + close_rect.width, tab_rect.x + tab_rect.width);
-        assert_eq!(buffer[(close_rect.x, close_rect.y)].symbol(), "✕");
-        assert_ne!(
-            buffer[(close_rect.x.saturating_sub(1), close_rect.y)].symbol(),
-            "✕"
+        assert_eq!(
+            close_symbol, "✕",
+            "hovered truncated tab should keep the close icon visible: tab={rendered_symbols:?}, tab_rect={tab_rect:?}, close_rect={close_rect:?}"
+        );
+        let rendered = rendered_symbols.join("");
+        assert!(
+            !rendered.contains("very-long-tab-name"),
+            "hovered truncated tab should not let the full label crowd out the close icon: {rendered_symbols:?}"
         );
     }
 

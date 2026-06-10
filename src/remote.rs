@@ -1502,36 +1502,37 @@ mod tests {
     fn keepalive_ssh_config_includes_user_config_then_fallback() {
         use std::os::unix::fs::PermissionsExt;
 
+        let _guard = remote_env_lock().lock().unwrap();
+        let home =
+            std::env::temp_dir().join(format!("hako-keepalive-home-test-{}", std::process::id()));
+        let ssh_dir = home.join(".ssh");
+        let user_config = ssh_dir.join("config");
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+        std::fs::write(&user_config, "Host example\n  User hako\n").unwrap();
+        let _home = crate::config::TestEnvVar::set("HOME", home.as_os_str());
+
         let path = write_keepalive_ssh_config().expect("write keepalive config");
         let contents = std::fs::read_to_string(&path).expect("read keepalive config");
 
-        assert!(
-            contents.contains("Host *"),
-            "config should add a Host * fallback block: {contents}"
+        let include = format!(
+            "Include {}",
+            ssh_config_quote(&user_config.to_string_lossy())
         );
         assert!(
-            contents.contains("ServerAliveInterval 15"),
-            "config should set the keepalive interval: {contents}"
+            contents.starts_with(&format!("{include}\n")),
+            "user config Include must be first: {contents}"
         );
         assert!(
-            contents.contains("ServerAliveCountMax 4"),
-            "config should set the keepalive count: {contents}"
+            contents.ends_with("Host *\n  ServerAliveInterval 15\n  ServerAliveCountMax 4\n"),
+            "config should end with Hako's keepalive fallback block: {contents}"
         );
-        if let Some(home) = std::env::var_os("HOME") {
-            let user_config = PathBuf::from(home).join(".ssh").join("config");
-            if user_config.is_file() {
-                let include = format!(
-                    "Include {}",
-                    ssh_config_quote(&user_config.to_string_lossy())
-                );
-                let include_at = contents.find(&include).expect("user config Included");
-                let fallback_at = contents.find("Host *").expect("fallback present");
-                assert!(
-                    include_at < fallback_at,
-                    "user config must be Included before Hako's fallback: {contents}"
-                );
-            }
-        }
+        let include_at = contents.find(&include).expect("user config Included");
+        let fallback_at = contents.find("Host *").expect("fallback present");
+        assert!(
+            include_at < fallback_at,
+            "user config must be Included before Hako's fallback: {contents}"
+        );
 
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(
@@ -1543,6 +1544,7 @@ mod tests {
         assert_eq!(dir_mode, 0o700, "ssh config dir must be user-only");
 
         let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(home);
     }
 
     #[test]
@@ -2022,15 +2024,27 @@ mod tests {
         // Worst case for the readable form: macOS-style 49-char TMPDIR +
         // max-length sanitized components. Should fall back to the hashed
         // short name, which fits under TMPDIR.
+        let tmpdir = PathBuf::from("/tmp").join(format!("hako-{}", "a".repeat(39)));
+        let _ = fs::remove_dir_all(&tmpdir);
+        fs::create_dir_all(&tmpdir).unwrap();
+        let _tmpdir = crate::config::TestEnvVar::set("TMPDIR", tmpdir.as_os_str());
         let target = "longish-host.example.com";
         let session = "a-fairly-long-session-name-here";
         let path = local_forward_socket_path(target, session);
+        let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
         assert!(
             fits_unix_socket_path(&path),
             "socket path too long for sun_path: {} ({} bytes)",
             path.display(),
             socket_path_byte_len(&path)
         );
+        assert_eq!(path.parent(), Some(tmpdir.as_path()));
+        assert!(
+            filename.starts_with("hako-r-"),
+            "expected hashed name under macOS-style TMPDIR, got {filename}"
+        );
+        drop(_tmpdir);
+        let _ = fs::remove_dir_all(tmpdir);
     }
 
     #[test]
@@ -2038,10 +2052,9 @@ mod tests {
         let _guard = remote_env_lock().lock().unwrap();
         // Force a TMPDIR long enough that even the hashed short name cannot
         // fit inside it. The fallback should drop to /tmp.
-        let prior = std::env::var_os("TMPDIR");
-        let long_dir = std::env::temp_dir().join("a".repeat(80));
+        let long_dir = PathBuf::from("/tmp").join(format!("hako-{}", "a".repeat(80)));
         let _ = fs::create_dir_all(&long_dir);
-        std::env::set_var("TMPDIR", &long_dir);
+        let _tmpdir = crate::config::TestEnvVar::set("TMPDIR", long_dir.as_os_str());
 
         let path = local_forward_socket_path("longish-host.example.com", "default");
         let fits = fits_unix_socket_path(&path);
@@ -2052,10 +2065,7 @@ mod tests {
             .unwrap_or("")
             .to_string();
 
-        match prior {
-            Some(v) => std::env::set_var("TMPDIR", v),
-            None => std::env::remove_var("TMPDIR"),
-        }
+        drop(_tmpdir);
         let _ = fs::remove_dir_all(&long_dir);
 
         assert!(fits, "fallback path still overflows: {}", path.display());

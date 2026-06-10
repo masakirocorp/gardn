@@ -253,22 +253,14 @@ mod tests {
 
     static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
 
-    struct HomeEnvGuard(Option<std::ffi::OsString>);
+    struct HomeEnvGuard {
+        _env: crate::config::TestEnvVar,
+    }
 
     impl HomeEnvGuard {
         fn set(value: &str) -> Self {
-            let old_home = std::env::var_os("HOME");
-            std::env::set_var("HOME", value);
-            Self(old_home)
-        }
-    }
-
-    impl Drop for HomeEnvGuard {
-        fn drop(&mut self) {
-            if let Some(home) = self.0.take() {
-                std::env::set_var("HOME", home);
-            } else {
-                std::env::remove_var("HOME");
+            Self {
+                _env: crate::config::TestEnvVar::set("HOME", value),
             }
         }
     }

@@ -291,6 +291,12 @@ fn close_tab_label(width: u16) -> &'static str {
     }
 }
 
+fn tab_close_overlaps_x(close_hit_areas: &[Rect], x: u16, y: u16) -> bool {
+    close_hit_areas
+        .iter()
+        .any(|rect| rect.width > 0 && rect.y == y && x >= rect.x && x < rect.x + rect.width)
+}
+
 pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
@@ -393,9 +399,10 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         let label_width = rect
             .width
             .saturating_sub(if show_close { close_rect.width } else { 0 });
+        let label_rect = Rect::new(rect.x, rect.y, label_width, rect.height);
         frame.render_widget(
             Paragraph::new(fit_tab_label(&name, label_width)).style(style),
-            rect,
+            label_rect,
         );
         if show_close {
             frame.render_widget(
@@ -437,7 +444,9 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         } else {
             area.x
         };
-        if x < area.x + area.width {
+        if x < area.x + area.width
+            && !tab_close_overlaps_x(&app.view.tab_close_hit_areas, x, area.y)
+        {
             frame.buffer_mut()[(x, area.y)]
                 .set_symbol("…")
                 .set_style(Style::default().fg(p.overlay0));
@@ -449,7 +458,10 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         } else {
             area.x + area.width.saturating_sub(1)
         };
-        if x >= area.x && x < area.x + area.width {
+        if x >= area.x
+            && x < area.x + area.width
+            && !tab_close_overlaps_x(&app.view.tab_close_hit_areas, x, area.y)
+        {
             frame.buffer_mut()[(x, area.y)]
                 .set_symbol("…")
                 .set_style(Style::default().fg(p.overlay0));

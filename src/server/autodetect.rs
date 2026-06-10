@@ -251,6 +251,17 @@ mod tests {
         std::path::PathBuf::from(format!("/tmp/ha-{name}-{}-{nanos}", std::process::id()))
     }
 
+    fn wait_until_not_listening(path: &std::path::Path) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        while std::time::Instant::now() < deadline {
+            if !is_server_listening_at(path) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(!is_server_listening_at(path));
+    }
+
     #[test]
     fn is_server_listening_returns_false_for_nonexistent_path() {
         let dir = unique_test_dir("nonexistent");
@@ -261,9 +272,11 @@ mod tests {
     #[test]
     fn server_daemon_command_clears_socket_overrides_for_explicit_session() {
         let _guard = env_lock().lock().unwrap();
-        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/inherited.sock");
-        std::env::set_var("HAKO_CLIENT_SOCKET_PATH", "/tmp/inherited-client.sock");
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        let _socket_env =
+            crate::config::TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/inherited.sock");
+        let _client_socket_env =
+            crate::config::TestEnvVar::set("HAKO_CLIENT_SOCKET_PATH", "/tmp/inherited-client.sock");
+        let _session_env = crate::config::TestEnvVar::remove(crate::session::SESSION_ENV_VAR);
         crate::session::clear_explicit_session_for_test();
         let args = vec![
             "hako".to_string(),
@@ -281,9 +294,6 @@ mod tests {
         assert!(envs.iter().any(|(key, value)| {
             *key == OsStr::new("HAKO_CLIENT_SOCKET_PATH") && value.is_none()
         }));
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
-        std::env::remove_var("HAKO_CLIENT_SOCKET_PATH");
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
         crate::session::clear_explicit_session_for_test();
     }
 
@@ -311,7 +321,7 @@ mod tests {
         }
 
         // The socket file exists but nobody is listening.
-        assert!(!is_server_listening_at(&path));
+        wait_until_not_listening(&path);
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -325,7 +335,7 @@ mod tests {
         drop(UnixListener::bind(&path).unwrap());
 
         // Socket is stale — should return false.
-        assert!(!is_server_listening_at(&path));
+        wait_until_not_listening(&path);
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -414,7 +424,7 @@ mod tests {
         let dir = unique_test_dir("missing-api");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("api.sock");
-        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, &path);
+        let _socket_env = crate::config::TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, &path);
 
         let err = validate_running_server_compatibility().unwrap_err();
 
@@ -422,7 +432,6 @@ mod tests {
             err.to_string().contains("status API is unavailable"),
             "unexpected error: {err}"
         );
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

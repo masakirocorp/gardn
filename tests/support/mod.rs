@@ -385,20 +385,24 @@ pub fn wait_for_message_variant(
 pub fn wait_for_disconnect(stream: &mut UnixStream, timeout: Duration) -> Result<bool, String> {
     stream.set_nonblocking(true).map_err(|e| e.to_string())?;
     let deadline = Instant::now() + timeout;
-    let mut idle_since = None;
     let result = loop {
         match read_server_message(stream) {
-            Ok(_) => idle_since = None,
+            Ok(_) => {}
             Err(err)
                 if err.to_ascii_lowercase().contains("would block")
                     || err.contains("Resource temporarily unavailable") =>
             {
-                let idle_started = *idle_since.get_or_insert_with(Instant::now);
-                if idle_started.elapsed() >= Duration::from_millis(200) {
-                    break Ok(true);
-                }
+                // Still open, no complete frame available right now.
             }
-            Err(_) => break Ok(true),
+            Err(err)
+                if err.contains("failed to fill whole buffer")
+                    || err.contains("Connection reset")
+                    || err.contains("Broken pipe")
+                    || err.contains("Socket is not connected") =>
+            {
+                break Ok(true);
+            }
+            Err(err) => break Err(err),
         }
         if Instant::now() >= deadline {
             break Ok(false);

@@ -539,10 +539,30 @@ mod tests {
         std::fs::write(git_dir_one.join("HEAD"), "ref: refs/heads/one\n").unwrap();
         std::fs::write(git_dir_two.join("HEAD"), "ref: refs/heads/two\n").unwrap();
 
-        assert_ne!(
-            git_status_cache_key(&worktree_one),
-            git_status_cache_key(&worktree_two)
+        let info_one = git_worktree_info(&worktree_one).expect("worktree one info");
+        let info_two = git_worktree_info(&worktree_two).expect("worktree two info");
+        let key_one = git_status_cache_key(&worktree_one).expect("worktree one cache key");
+        let key_two = git_status_cache_key(&worktree_two).expect("worktree two cache key");
+
+        assert_eq!(
+            info_one.git_dir,
+            canonicalize_best_effort_path(&git_dir_one)
         );
+        assert_eq!(
+            info_two.git_dir,
+            canonicalize_best_effort_path(&git_dir_two)
+        );
+        assert_eq!(
+            std::fs::read_to_string(info_one.git_dir.join("HEAD")).unwrap(),
+            "ref: refs/heads/one\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(info_two.git_dir.join("HEAD")).unwrap(),
+            "ref: refs/heads/two\n"
+        );
+        assert_eq!(key_one, canonicalize_best_effort_path(&worktree_one));
+        assert_eq!(key_two, canonicalize_best_effort_path(&worktree_two));
+        assert_ne!(key_one, key_two);
 
         std::fs::remove_dir_all(base).unwrap();
     }

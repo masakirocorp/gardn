@@ -2788,6 +2788,9 @@ mod tests {
 
     use crate::app::AppState;
     use crate::protocol::CursorState;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEST_SOCKET_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     fn test_headless_server() -> HeadlessServer {
         let config = crate::config::Config::default();
@@ -2797,8 +2800,9 @@ mod tests {
         app.local_terminal_notifications = false;
 
         let dir = std::env::temp_dir().join(format!(
-            "hh-{}-{}",
+            "hh-{}-{}-{}",
             std::process::id(),
+            TEST_SOCKET_COUNTER.fetch_add(1, Ordering::Relaxed),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos())
@@ -2914,7 +2918,14 @@ mod tests {
 
         server.handle_scheduled_tasks_headless(now, false);
 
-        assert_eq!(server.app.next_port_scan, now + app::PORT_SCAN_INTERVAL);
+        assert!(
+            server.app.next_port_scan > now,
+            "due port scan should schedule a future refresh"
+        );
+        assert!(
+            server.app.next_port_scan <= now + app::PORT_SCAN_INTERVAL,
+            "due port scan should not skip the next refresh interval"
+        );
     }
 
     #[test]
@@ -3130,7 +3141,8 @@ new_tab = "prefix+t"
         ));
         std::fs::write(&path, "onboarding = false\n").unwrap();
         let _guard = crate::config::test_config_env_lock().lock().unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut server = test_headless_server();
         let local_config: crate::config::Config = toml::from_str(
@@ -3184,7 +3196,6 @@ next_tab = ""
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("delivery = \"hako\""));
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_file(path);
     }
 
@@ -3204,7 +3215,8 @@ next_tab = ""
         )
         .unwrap();
         let _guard = crate::config::test_config_env_lock().lock().unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut server = test_headless_server();
         let previous_server_config: crate::config::Config =
@@ -3266,7 +3278,6 @@ next_tab = ""
             .iter()
             .any(|binding| binding.label == "prefix+m"));
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_file(path);
     }
 

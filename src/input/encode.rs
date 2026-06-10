@@ -729,24 +729,53 @@ mod tests {
     }
 
     #[test]
-    fn legacy_modified_special_roundtrip_matrix() {
-        let cases = [
-            KeyEvent::new(KeyCode::Up, KeyModifiers::ALT),
-            KeyEvent::new(KeyCode::Down, KeyModifiers::ALT),
-            KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT),
-            KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL),
-            KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL),
-            KeyEvent::new(KeyCode::End, KeyModifiers::CONTROL | KeyModifiers::SHIFT),
-            KeyEvent::new(KeyCode::PageUp, KeyModifiers::ALT),
-            KeyEvent::new(KeyCode::PageDown, KeyModifiers::CONTROL),
-            KeyEvent::new(KeyCode::Insert, KeyModifiers::SHIFT),
-            KeyEvent::new(KeyCode::Delete, KeyModifiers::ALT),
+    fn legacy_modified_special_matrix_matches_xterm_bytes() {
+        let cases: &[(KeyEvent, &[u8])] = &[
+            (KeyEvent::new(KeyCode::Up, KeyModifiers::ALT), b"\x1b[1;3A"),
+            (
+                KeyEvent::new(KeyCode::Down, KeyModifiers::ALT),
+                b"\x1b[1;3B",
+            ),
+            (
+                KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT),
+                b"\x1b[1;2C",
+            ),
+            (
+                KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL),
+                b"\x1b[1;5D",
+            ),
+            (
+                KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL),
+                b"\x1b[1;5H",
+            ),
+            (
+                KeyEvent::new(KeyCode::End, KeyModifiers::CONTROL | KeyModifiers::SHIFT),
+                b"\x1b[1;6F",
+            ),
+            (
+                KeyEvent::new(KeyCode::PageUp, KeyModifiers::ALT),
+                b"\x1b[5;3~",
+            ),
+            (
+                KeyEvent::new(KeyCode::PageDown, KeyModifiers::CONTROL),
+                b"\x1b[6;5~",
+            ),
+            (
+                KeyEvent::new(KeyCode::Insert, KeyModifiers::SHIFT),
+                b"\x1b[2;2~",
+            ),
+            (
+                KeyEvent::new(KeyCode::Delete, KeyModifiers::ALT),
+                b"\x1b[3;3~",
+            ),
         ];
 
-        for key in cases {
-            let encoded = encode_key(key, KeyboardProtocol::Legacy);
+        for (key, expected) in cases {
+            let encoded = encode_key(*key, KeyboardProtocol::Legacy);
+            assert_eq!(encoded, *expected, "key={key:?}");
+
             let parsed =
-                parse_terminal_key_sequence(std::str::from_utf8(&encoded).unwrap()).unwrap();
+                parse_terminal_key_sequence(std::str::from_utf8(expected).unwrap()).unwrap();
             assert_terminal_key_eq(parsed, key.code, key.modifiers, key.kind, None);
         }
     }
@@ -760,28 +789,60 @@ mod tests {
     }
 
     #[test]
-    fn legacy_basic_special_roundtrip_matrix() {
-        let cases = [
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
-            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
-            KeyEvent::new(KeyCode::Backspace, KeyModifiers::empty()),
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::empty()),
-            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
-            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-            KeyEvent::new(KeyCode::Left, KeyModifiers::empty()),
-            KeyEvent::new(KeyCode::Right, KeyModifiers::empty()),
-            KeyEvent::new(KeyCode::Home, KeyModifiers::empty()),
-            KeyEvent::new(KeyCode::End, KeyModifiers::empty()),
-            KeyEvent::new(KeyCode::PageUp, KeyModifiers::empty()),
-            KeyEvent::new(KeyCode::PageDown, KeyModifiers::empty()),
-            KeyEvent::new(KeyCode::Insert, KeyModifiers::empty()),
-            KeyEvent::new(KeyCode::Delete, KeyModifiers::empty()),
+    fn legacy_basic_special_matrix_matches_bytes() {
+        let cases: &[(KeyEvent, &[u8])] = &[
+            (KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()), b"\r"),
+            (KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()), b"\t"),
+            (
+                KeyEvent::new(KeyCode::Backspace, KeyModifiers::empty()),
+                b"\x7f",
+            ),
+            (KeyEvent::new(KeyCode::Esc, KeyModifiers::empty()), b"\x1b"),
+            (KeyEvent::new(KeyCode::Up, KeyModifiers::empty()), b"\x1b[A"),
+            (
+                KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+                b"\x1b[B",
+            ),
+            (
+                KeyEvent::new(KeyCode::Left, KeyModifiers::empty()),
+                b"\x1b[D",
+            ),
+            (
+                KeyEvent::new(KeyCode::Right, KeyModifiers::empty()),
+                b"\x1b[C",
+            ),
+            (
+                KeyEvent::new(KeyCode::Home, KeyModifiers::empty()),
+                b"\x1b[H",
+            ),
+            (
+                KeyEvent::new(KeyCode::End, KeyModifiers::empty()),
+                b"\x1b[F",
+            ),
+            (
+                KeyEvent::new(KeyCode::PageUp, KeyModifiers::empty()),
+                b"\x1b[5~",
+            ),
+            (
+                KeyEvent::new(KeyCode::PageDown, KeyModifiers::empty()),
+                b"\x1b[6~",
+            ),
+            (
+                KeyEvent::new(KeyCode::Insert, KeyModifiers::empty()),
+                b"\x1b[2~",
+            ),
+            (
+                KeyEvent::new(KeyCode::Delete, KeyModifiers::empty()),
+                b"\x1b[3~",
+            ),
         ];
 
-        for key in cases {
-            let encoded = encode_key(key, KeyboardProtocol::Legacy);
+        for (key, expected) in cases {
+            let encoded = encode_key(*key, KeyboardProtocol::Legacy);
+            assert_eq!(encoded, *expected, "key={key:?}");
+
             let parsed =
-                parse_terminal_key_sequence(std::str::from_utf8(&encoded).unwrap()).unwrap();
+                parse_terminal_key_sequence(std::str::from_utf8(expected).unwrap()).unwrap();
             assert_terminal_key_eq(parsed, key.code, key.modifiers, key.kind, None);
         }
     }
@@ -816,7 +877,6 @@ mod tests {
     fn chinese_char_with_modifiers_falls_back_to_kitty_encoding() {
         let key = TerminalKey::new(KeyCode::Char('测'), KeyModifiers::ALT);
         let encoded = encode_terminal_key(key, KeyboardProtocol::Kitty { flags: 7 });
-        assert!(!encoded.is_empty());
-        assert_ne!(encoded, "测".as_bytes());
+        assert_eq!(encoded, b"\x1b[27979;3:1u");
     }
 }

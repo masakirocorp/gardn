@@ -15,8 +15,7 @@ use serde::Deserialize;
 use support::{
     cleanup_test_base, client_handshake, connect_unix_socket, encode_varint_u16, encode_varint_u32,
     frame_message, read_server_message, register_runtime_dir, register_spawned_hako_pid,
-    unregister_spawned_hako_pid, wait_for_file, wait_for_message_variant, wait_for_socket,
-    wait_until,
+    unregister_spawned_hako_pid, wait_for_file, wait_for_socket,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -162,6 +161,91 @@ fn ping_socket(socket_path: &PathBuf) -> String {
     response.trim().to_string()
 }
 
+fn send_json_request(socket_path: &PathBuf, request: &str) -> serde_json::Value {
+    let mut stream = connect_unix_socket(socket_path, Duration::from_secs(5));
+    writeln!(stream, "{request}").unwrap();
+
+    let mut reader = BufReader::new(stream);
+    let mut response = String::new();
+    reader.read_line(&mut response).unwrap();
+    serde_json::from_str(&response).expect("API response should be valid JSON")
+}
+
+fn assert_api_ok(response: &serde_json::Value, context: &str) {
+    assert!(
+        response.get("error").is_none(),
+        "{context} failed: {response}"
+    );
+}
+
+fn create_workspace_and_root_pane(socket_path: &PathBuf, label: &str) -> (String, String) {
+    let response = send_json_request(
+        socket_path,
+        &format!(
+            r#"{{"id":"workspace_create","method":"workspace.create","params":{{"label":"{label}"}}}}"#
+        ),
+    );
+    assert_api_ok(&response, "workspace.create");
+    let workspace_id = response["result"]["workspace"]["workspace_id"]
+        .as_str()
+        .expect("workspace.create should return workspace_id")
+        .to_string();
+    let pane_id = response["result"]["root_pane"]["pane_id"]
+        .as_str()
+        .expect("workspace.create should return root pane_id")
+        .to_string();
+    (workspace_id, pane_id)
+}
+
+fn tab_list(socket_path: &PathBuf, workspace_id: &str) -> serde_json::Value {
+    let response = send_json_request(
+        socket_path,
+        &format!(
+            r#"{{"id":"tab_list","method":"tab.list","params":{{"workspace_id":"{workspace_id}"}}}}"#
+        ),
+    );
+    assert_api_ok(&response, "tab.list");
+    response
+}
+
+fn focused_tab_id(socket_path: &PathBuf, workspace_id: &str) -> Option<String> {
+    tab_list(socket_path, workspace_id)["result"]["tabs"]
+        .as_array()
+        .expect("tab.list should return tabs")
+        .iter()
+        .find(|tab| tab["focused"].as_bool() == Some(true))
+        .and_then(|tab| tab["tab_id"].as_str())
+        .map(str::to_string)
+}
+
+fn wait_for_focused_tab(
+    socket_path: &PathBuf,
+    workspace_id: &str,
+    expected_tab_id: &str,
+    timeout: Duration,
+) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if focused_tab_id(socket_path, workspace_id).as_deref() == Some(expected_tab_id) {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    focused_tab_id(socket_path, workspace_id).as_deref() == Some(expected_tab_id)
+}
+
+fn pane_wait_for_output(socket_path: &PathBuf, pane_id: &str, needle: &str) -> serde_json::Value {
+    let response = send_json_request(
+        socket_path,
+        &format!(
+            r#"{{"id":"pane_wait","method":"pane.wait_for_output","params":{{"pane_id":"{pane_id}","source":"recent","lines":80,"match":{{"type":"substring","value":"{needle}"}},"timeout_ms":5000}}}}"#
+        ),
+    );
+    assert_api_ok(&response, "pane.wait_for_output");
+    assert_eq!(response["result"]["type"], "output_matched");
+    response
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct FrameWire {
@@ -208,6 +292,88 @@ fn decode_frame_payload(payload: &[u8]) -> std::io::Result<FrameWire> {
             }
             Ok(frame)
         })
+}
+
+fn read_next_frame_containing(
+    stream: &mut UnixStream,
+    needle: &str,
+    timeout: Duration,
+) -> Result<FrameWire, String> {
+    stream
+        .set_read_timeout(Some(Duration::from_millis(200)))
+        .map_err(|e| e.to_string())?;
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        match read_server_message(stream) {
+            Ok((1, payload)) => {
+                let frame = decode_frame_payload(&payload).map_err(|err| err.to_string())?;
+                if frame_contains_text(&frame, needle) {
+                    return Ok(frame);
+                }
+            }
+            Ok(_) => {}
+            Err(_) => {}
+        }
+    }
+    Err(format!("timed out waiting for frame containing {needle:?}"))
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+enum NotifyKindWire {
+    Sound,
+    Toast,
+    SystemToast,
+}
+
+#[derive(Debug, Deserialize)]
+struct NotifyWire {
+    kind: NotifyKindWire,
+    message: String,
+}
+
+fn decode_notify_payload(payload: &[u8]) -> std::io::Result<NotifyWire> {
+    bincode::serde::decode_from_slice(payload, bincode::config::standard())
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))
+        .and_then(|(notify, consumed): (NotifyWire, usize)| {
+            if consumed != payload.len() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "notify payload had trailing bytes: consumed={}, len={}",
+                        consumed,
+                        payload.len()
+                    ),
+                ));
+            }
+            Ok(notify)
+        })
+}
+
+fn wait_for_notify(
+    stream: &mut UnixStream,
+    expected_kind: NotifyKindWire,
+    expected_message: &str,
+    timeout: Duration,
+) -> Result<NotifyWire, String> {
+    stream
+        .set_read_timeout(Some(Duration::from_millis(200)))
+        .map_err(|e| e.to_string())?;
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        match read_server_message(stream) {
+            Ok((5, payload)) => {
+                let notify = decode_notify_payload(&payload).map_err(|err| err.to_string())?;
+                if notify.kind == expected_kind && notify.message == expected_message {
+                    return Ok(notify);
+                }
+            }
+            Ok(_) => {}
+            Err(_) => {}
+        }
+    }
+    Err(format!(
+        "timed out waiting for Notify::{expected_kind:?}({expected_message:?})"
+    ))
 }
 
 fn read_next_frame_payload(stream: &mut UnixStream, timeout: Duration) -> Result<Vec<u8>, String> {
@@ -384,6 +550,8 @@ fn client_input_forwarded_to_pane() {
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_file(&client_socket, Duration::from_secs(10));
 
+    let (_workspace_id, pane_id) = create_workspace_and_root_pane(&api_socket, "client-input");
+
     // Connect and handshake.
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
@@ -391,12 +559,9 @@ fn client_input_forwarded_to_pane() {
     assert_eq!(version, 11);
     assert!(error.is_none(), "{:?}", error);
 
-    // Send an Input message containing "echo hello\n".
-    // ClientMessage::Input is variant 1: { data: Vec<u8> }
     let input_data = b"echo hello\n".to_vec();
     let input_payload = {
-        let mut buf = encode_varint_u32(1); // variant 1 = Input
-                                            // Encode the data as a bincode Vec<u8>: length (varint) + bytes
+        let mut buf = encode_varint_u32(1);
         buf.extend_from_slice(&encode_varint_u32(input_data.len() as u32));
         buf.extend_from_slice(&input_data);
         buf
@@ -407,19 +572,11 @@ fn client_input_forwarded_to_pane() {
         .expect("should send Input message");
     stream.flush().expect("should flush");
 
-    assert!(
-        wait_until(Duration::from_secs(2), Duration::from_millis(25), || {
-            ping_socket(&api_socket).contains("pong")
-        }),
-        "server should still respond to ping after input"
-    );
-
-    // Verify the server is still alive and responsive via API.
-    let response = ping_socket(&api_socket);
-    assert!(
-        response.contains("pong"),
-        "server should still respond to ping after input: {response}"
-    );
+    let waited = pane_wait_for_output(&api_socket, &pane_id, "hello");
+    assert!(waited["result"]["read"]["text"]
+        .as_str()
+        .unwrap()
+        .contains("hello"));
 
     cleanup_spawned_hako(spawned, base);
 }
@@ -438,26 +595,25 @@ fn client_resize_sends_message() {
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_file(&client_socket, Duration::from_secs(10));
 
-    // Connect and handshake.
+    let (_workspace_id, _pane_id) = create_workspace_and_root_pane(&api_socket, "client-resize");
+
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
     assert!(error.is_none(), "{:?}", error);
 
-    // Drain the initial frame(s).
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))
         .unwrap();
     while read_server_message(&mut stream).is_ok() {}
 
-    // Send a Resize message: ClientMessage::Resize is variant 3.
     let resize_payload = {
-        let mut buf = encode_varint_u32(3); // variant 3 = Resize
-        buf.extend_from_slice(&encode_varint_u16(120)); // cols
-        buf.extend_from_slice(&encode_varint_u16(40)); // rows
-        buf.extend_from_slice(&encode_varint_u32(8)); // cell_width_px
-        buf.extend_from_slice(&encode_varint_u32(16)); // cell_height_px
+        let mut buf = encode_varint_u32(3);
+        buf.extend_from_slice(&encode_varint_u16(120));
+        buf.extend_from_slice(&encode_varint_u16(40));
+        buf.extend_from_slice(&encode_varint_u32(8));
+        buf.extend_from_slice(&encode_varint_u32(16));
         buf
     };
     let framed = frame_message(&resize_payload);
@@ -466,18 +622,13 @@ fn client_resize_sends_message() {
         .expect("should send Resize message");
     stream.flush().expect("should flush");
 
-    assert!(
-        wait_until(Duration::from_secs(2), Duration::from_millis(25), || {
-            ping_socket(&api_socket).contains("pong")
-        }),
-        "server should respond after resize"
-    );
-
-    // Verify the server is still alive.
-    let response = ping_socket(&api_socket);
-    assert!(
-        response.contains("pong"),
-        "server should respond after resize: {response}"
+    let frame_payload =
+        read_next_frame_payload(&mut stream, Duration::from_secs(5)).expect("resize frame");
+    let frame = decode_frame_payload(&frame_payload).expect("decode resize frame");
+    assert_eq!(
+        (frame.width, frame.height),
+        (120, 40),
+        "client resize should change rendered frame dimensions"
     );
 
     cleanup_spawned_hako(spawned, base);
@@ -725,6 +876,8 @@ fn client_receives_frame_after_pane_output() {
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_file(&client_socket, Duration::from_secs(10));
 
+    let (_workspace_id, _pane_id) = create_workspace_and_root_pane(&api_socket, "frame-output");
+
     // Connect and handshake.
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
@@ -747,20 +900,20 @@ fn client_receives_frame_after_pane_output() {
     stream.write_all(&framed).expect("send input");
     stream.flush().expect("flush");
 
-    // Read subsequent frames — the server should have re-rendered after
-    // the input was processed.
-    let received_frame = wait_for_message_variant(&mut stream, Duration::from_secs(2), 1)
-        .expect("wait for post-output frame");
-    assert!(received_frame, "should receive a Frame after pane output");
+    let frame = read_next_frame_containing(&mut stream, "test-output", Duration::from_secs(5))
+        .expect("client should receive a frame containing pane output");
+    assert!(
+        frame_contains_text(&frame, "test-output"),
+        "post-output frame should contain the echoed marker"
+    );
 
     cleanup_spawned_hako(spawned, base);
 }
 
 #[test]
 fn navigate_mode_keybind_dispatch_in_server() {
-    // Navigate mode keybind dispatch in server.
-    // This tests that the server can process a prefix key (Ctrl+B) to enter
-    // navigate mode, and then a navigation key (like 'n' for new workspace).
+    // Prefix-mode keybindings should be handled by the server, not only by the
+    // standalone TUI client path.
     let _lock = test_lock();
     let base = unique_test_dir();
     let config_home = base.join("config");
@@ -772,30 +925,46 @@ fn navigate_mode_keybind_dispatch_in_server() {
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_file(&client_socket, Duration::from_secs(10));
 
-    // Connect and handshake.
+    let (workspace_id, _pane_id) = create_workspace_and_root_pane(&api_socket, "keybind-tabs");
+    let first_tab_id = focused_tab_id(&api_socket, &workspace_id)
+        .expect("new workspace should focus its first tab");
+    let tab_created = send_json_request(
+        &api_socket,
+        &format!(
+            r#"{{"id":"tab_create","method":"tab.create","params":{{"workspace_id":"{workspace_id}","focus":false,"label":"second"}}}}"#
+        ),
+    );
+    assert_api_ok(&tab_created, "tab.create");
+    let second_tab_id = tab_created["result"]["tab"]["tab_id"]
+        .as_str()
+        .expect("tab.create should return tab_id")
+        .to_string();
+    assert_eq!(
+        focused_tab_id(&api_socket, &workspace_id).as_deref(),
+        Some(first_tab_id.as_str())
+    );
+
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
         client_handshake(&mut stream, 11, 80, 24).expect("handshake should succeed");
     assert_eq!(version, 11);
     assert!(error.is_none(), "{:?}", error);
 
-    // Drain initial frames.
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))
         .unwrap();
     while read_server_message(&mut stream).is_ok() {}
 
-    // Send Ctrl+B (prefix key) as raw bytes. In kitty mode, Ctrl+B is 0x02.
-    // In legacy mode, it's also 0x02 (control character).
-    let prefix_input = vec![0x02]; // Ctrl+B
+    let prefix_input = vec![0x02]; // Ctrl+B.
     let input_payload = {
-        let mut buf = encode_varint_u32(1); // Input variant
+        let mut buf = encode_varint_u32(1);
         buf.extend_from_slice(&encode_varint_u32(prefix_input.len() as u32));
         buf.extend_from_slice(&prefix_input);
         buf
     };
-    let framed = frame_message(&input_payload);
-    stream.write_all(&framed).expect("send prefix key");
+    stream
+        .write_all(&frame_message(&input_payload))
+        .expect("send prefix key");
     stream.flush().expect("flush");
 
     stream
@@ -804,30 +973,26 @@ fn navigate_mode_keybind_dispatch_in_server() {
     while read_server_message(&mut stream).is_ok() {}
     stream.set_read_timeout(None).unwrap();
 
-    // Send 'n' (new workspace in navigate mode).
-    let n_input = b"n".to_vec();
-    let n_payload = {
-        let mut buf = encode_varint_u32(1); // Input variant
-        buf.extend_from_slice(&encode_varint_u32(n_input.len() as u32));
-        buf.extend_from_slice(&n_input);
+    let next_tab_input = b"n".to_vec();
+    let next_tab_payload = {
+        let mut buf = encode_varint_u32(1);
+        buf.extend_from_slice(&encode_varint_u32(next_tab_input.len() as u32));
+        buf.extend_from_slice(&next_tab_input);
         buf
     };
-    let framed = frame_message(&n_payload);
-    stream.write_all(&framed).expect("send n key");
+    stream
+        .write_all(&frame_message(&next_tab_payload))
+        .expect("send next-tab key");
     stream.flush().expect("flush");
 
     assert!(
-        wait_until(Duration::from_secs(2), Duration::from_millis(25), || {
-            ping_socket(&api_socket).contains("pong")
-        }),
-        "server should still respond after navigate mode input"
-    );
-
-    // Verify the server is still alive and the API still works.
-    let response = ping_socket(&api_socket);
-    assert!(
-        response.contains("pong"),
-        "server should still respond after navigate mode input: {response}"
+        wait_for_focused_tab(
+            &api_socket,
+            &workspace_id,
+            &second_tab_id,
+            Duration::from_secs(5)
+        ),
+        "prefix+n should focus the next tab through server-side keybinding dispatch"
     );
 
     cleanup_spawned_hako(spawned, base);
@@ -1002,163 +1167,62 @@ fn client_receives_notify_on_agent_state_change() {
         .unwrap();
     while read_server_message(&mut stream).is_ok() {}
 
-    // Create a workspace via the API.
-    let mut ws_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
-    let request = r#"{"id":"1","method":"workspace.create","params":{}}"#;
-    writeln!(ws_stream, "{}", request).unwrap();
-    let mut reader = BufReader::new(ws_stream);
-    let mut ws_response = String::new();
-    reader.read_line(&mut ws_response).unwrap();
-
-    // Extract the workspace ID and pane ID from the response.
-    let ws_id = ws_response
-        .split('"')
-        .find(|s| s.starts_with("w_"))
-        .unwrap_or("w_1")
-        .to_string();
-
-    // Get pane list to find a pane ID.
-    let mut pane_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
-    let pane_request =
-        format!(r#"{{"id":"2","method":"pane.list","params":{{"workspace_id":"{ws_id}"}}}}"#);
-    writeln!(pane_stream, "{}", pane_request).unwrap();
-    let mut pane_reader = BufReader::new(pane_stream);
-    let mut pane_response = String::new();
-    pane_reader.read_line(&mut pane_response).unwrap();
-
-    // Extract first pane ID (format: p_<ws>_<pane>).
-    let pane_id = pane_response
-        .split('"')
-        .find(|s| s.starts_with("p_"))
-        .unwrap_or("p_1_1")
-        .to_string();
-
-    // Report agent as Blocked via the API — this should trigger a
-    // ServerMessage::Notify with kind=Sound (Request sound).
-    let mut report_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
-    let report_request = format!(
-        r#"{{"id":"3","method":"pane.report_agent","params":{{"pane_id":"{pane_id}","agent":"pi","state":"blocked","source":"test"}}}}"#
-    );
-    writeln!(report_stream, "{}", report_request).unwrap();
-    let mut report_reader = BufReader::new(report_stream);
-    let mut report_response = String::new();
-    report_reader.read_line(&mut report_response).unwrap();
-
-    // Read messages from the client stream and look for Notify (variant 5).
-    // Notify = ServerMessage variant index 5.
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .unwrap();
-    let mut found_notify = false;
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline {
-        match read_server_message(&mut stream) {
-            Ok((variant, _payload)) => {
-                if variant == 5 {
-                    // ServerMessage::Notify — found it!
-                    found_notify = true;
-                    break;
-                }
-                // Continue reading — Frame messages (variant 1) will come first.
-            }
-            Err(_) => {
-                break;
-            }
-        }
-    }
-
+    let (ws_id, pane_id) = create_workspace_and_root_pane(&api_socket, "notify-source");
     assert!(
-        found_notify,
-        "client should receive a ServerMessage::Notify after pane.report_agent"
+        !ws_id.is_empty(),
+        "workspace.create should return a non-empty workspace id: {ws_id}"
     );
 
-    // Now report Idle from Working — this should trigger a Done sound
-    // if the pane is in a background workspace.
-    // First, create a second workspace to make the first one "background".
-    let mut ws2_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
-    let ws2_request = r#"{"id":"4","method":"workspace.create","params":{}}"#;
-    writeln!(ws2_stream, "{}", ws2_request).unwrap();
-    let mut ws2_reader = BufReader::new(ws2_stream);
-    let mut ws2_response = String::new();
-    ws2_reader.read_line(&mut ws2_response).unwrap();
-
-    // Focus the new workspace (making the first one background).
-    let ws2_id = ws2_response
-        .split('"')
-        .find(|s| s.starts_with("w_"))
-        .unwrap_or("w_2")
-        .to_string();
-    let mut focus_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
-    let focus_request = format!(
-        r#"{{"id":"5","method":"workspace.focus","params":{{"workspace_id":"{ws2_id}"}}}}"#
+    let report_response = send_json_request(
+        &api_socket,
+        &format!(
+            r#"{{"id":"report_blocked","method":"pane.report_agent","params":{{"pane_id":"{pane_id}","agent":"pi","state":"blocked","source":"test"}}}}"#
+        ),
     );
-    writeln!(focus_stream, "{}", focus_request).unwrap();
-    let mut focus_reader = BufReader::new(focus_stream);
-    let mut focus_response = String::new();
-    focus_reader.read_line(&mut focus_response).unwrap();
+    assert_api_ok(&report_response, "pane.report_agent blocked");
 
-    assert!(
-        wait_until(Duration::from_secs(2), Duration::from_millis(25), || {
-            ping_socket(&api_socket).contains("pong")
-        }),
-        "server should stay responsive after workspace focus"
+    let attention = wait_for_notify(
+        &mut stream,
+        NotifyKindWire::Sound,
+        "agent attention",
+        Duration::from_secs(5),
+    )
+    .expect("blocked agent report should forward request sound notify");
+    assert_eq!(attention.message, "agent attention");
+
+    let (ws2_id, _) = create_workspace_and_root_pane(&api_socket, "notify-background");
+    let focus_response = send_json_request(
+        &api_socket,
+        &format!(
+            r#"{{"id":"focus_background","method":"workspace.focus","params":{{"workspace_id":"{ws2_id}"}}}}"#
+        ),
     );
+    assert_api_ok(&focus_response, "workspace.focus");
 
-    // Report agent as Working first, then Idle — this transition in a
-    // background workspace should trigger a Done sound notification.
-    let mut work_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
-    let work_request = format!(
-        r#"{{"id":"6","method":"pane.report_agent","params":{{"pane_id":"{pane_id}","agent":"pi","state":"working","source":"test"}}}}"#
+    let work_response = send_json_request(
+        &api_socket,
+        &format!(
+            r#"{{"id":"report_working","method":"pane.report_agent","params":{{"pane_id":"{pane_id}","agent":"pi","state":"working","source":"test"}}}}"#
+        ),
     );
-    writeln!(work_stream, "{}", work_request).unwrap();
-    let mut work_reader = BufReader::new(work_stream);
-    let mut work_response = String::new();
-    work_reader.read_line(&mut work_response).unwrap();
+    assert_api_ok(&work_response, "pane.report_agent working");
 
-    assert!(
-        wait_until(Duration::from_secs(2), Duration::from_millis(25), || {
-            ping_socket(&api_socket).contains("pong")
-        }),
-        "server should stay responsive after working state report"
+    let idle_response = send_json_request(
+        &api_socket,
+        &format!(
+            r#"{{"id":"report_idle","method":"pane.report_agent","params":{{"pane_id":"{pane_id}","agent":"pi","state":"idle","source":"test"}}}}"#
+        ),
     );
+    assert_api_ok(&idle_response, "pane.report_agent idle");
 
-    let mut idle_stream = connect_unix_socket(&api_socket, Duration::from_secs(5));
-    let idle_request = format!(
-        r#"{{"id":"7","method":"pane.report_agent","params":{{"pane_id":"{pane_id}","agent":"pi","state":"idle","source":"test"}}}}"#
-    );
-    writeln!(idle_stream, "{}", idle_request).unwrap();
-    let mut idle_reader = BufReader::new(idle_stream);
-    let mut idle_response = String::new();
-    idle_reader.read_line(&mut idle_response).unwrap();
-
-    // Read messages and look for Done sound notify.
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .unwrap();
-    let mut found_done_notify = false;
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline {
-        match read_server_message(&mut stream) {
-            Ok((variant, _payload)) => {
-                if variant == 5 {
-                    // Found a Notify message — that's good enough.
-                    // The test already verified the Blocked→Notify path above.
-                    found_done_notify = true;
-                    break;
-                }
-                // Continue reading — Frame messages will come first.
-            }
-            Err(e) => {
-                eprintln!("read error while looking for Done Notify: {e}");
-                break;
-            }
-        }
-    }
-
-    assert!(
-        found_done_notify,
-        "client should receive a Sound Notify with 'agent done' when background pane transitions Working→Idle"
-    );
+    let done = wait_for_notify(
+        &mut stream,
+        NotifyKindWire::Sound,
+        "agent done",
+        Duration::from_secs(5),
+    )
+    .expect("background Working→Idle transition should forward done sound notify");
+    assert_eq!(done.message, "agent done");
 
     cleanup_spawned_hako(spawned, base);
 }

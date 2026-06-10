@@ -164,6 +164,7 @@ fn normalize_body(body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::TestEnvVar;
 
     fn env_lock() -> &'static std::sync::Mutex<()> {
         static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
@@ -224,22 +225,14 @@ mod tests {
     #[test]
     fn fake_announcement_body_env_creates_preview() {
         let _guard = env_lock().lock().unwrap();
-        unsafe {
-            std::env::set_var(FAKE_ANNOUNCEMENT_BODY_ENV, "### Preview\n- Local body");
-            std::env::set_var(FAKE_ANNOUNCEMENT_TITLE_ENV, "Local title");
-            std::env::set_var(FAKE_ANNOUNCEMENT_ID_ENV, "local-id");
-        }
+        let _body_env = TestEnvVar::set(FAKE_ANNOUNCEMENT_BODY_ENV, "### Preview\n- Local body");
+        let _title_env = TestEnvVar::set(FAKE_ANNOUNCEMENT_TITLE_ENV, "Local title");
+        let _id_env = TestEnvVar::set(FAKE_ANNOUNCEMENT_ID_ENV, "local-id");
 
         let announcement = load_fake_for_current_version().expect("fake announcement");
         assert_eq!(announcement.id, "local-id");
         assert_eq!(announcement.title, "Local title");
         assert_eq!(announcement.body, "### Preview\n- Local body");
         assert!(announcement.preview);
-
-        unsafe {
-            std::env::remove_var(FAKE_ANNOUNCEMENT_BODY_ENV);
-            std::env::remove_var(FAKE_ANNOUNCEMENT_TITLE_ENV);
-            std::env::remove_var(FAKE_ANNOUNCEMENT_ID_ENV);
-        }
     }
 }

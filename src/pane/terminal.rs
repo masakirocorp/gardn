@@ -2865,8 +2865,10 @@ mod tests {
 
         let result = pane.process_pty_bytes(pane_id, 0, b"\x1b[6n", &tx);
 
-        assert_eq!(result.terminal_responses.len(), 1);
-        assert!(String::from_utf8_lossy(&result.terminal_responses[0]).contains('R'));
+        assert_eq!(
+            result.terminal_responses,
+            vec![Bytes::from_static(b"\x1b[1;1R")]
+        );
         assert!(rx.try_recv().is_err());
     }
 
@@ -2930,11 +2932,12 @@ mod tests {
 
         let result = pane.process_pty_bytes(pane_id, 0, b"\x1b[c\x1bP+q5463\x1b\\", &tx);
 
-        assert_eq!(result.terminal_responses.len(), 2);
-        assert!(String::from_utf8_lossy(&result.terminal_responses[0]).contains('c'));
         assert_eq!(
-            result.terminal_responses[1],
-            expected_xtgettcap_response("5463", None)
+            result.terminal_responses,
+            vec![
+                Bytes::from_static(b"\x1b[?62;22c"),
+                expected_xtgettcap_response("5463", None)
+            ]
         );
         assert!(rx.try_recv().is_err());
     }
@@ -2948,12 +2951,13 @@ mod tests {
 
         let result = pane.process_pty_bytes(pane_id, 0, b"\x1bP+q5463\x1b\\\x1b[c", &tx);
 
-        assert_eq!(result.terminal_responses.len(), 2);
         assert_eq!(
-            result.terminal_responses[0],
-            expected_xtgettcap_response("5463", None)
+            result.terminal_responses,
+            vec![
+                expected_xtgettcap_response("5463", None),
+                Bytes::from_static(b"\x1b[?62;22c")
+            ]
         );
-        assert!(String::from_utf8_lossy(&result.terminal_responses[1]).contains('c'));
         assert!(rx.try_recv().is_err());
     }
 
@@ -3060,12 +3064,13 @@ mod tests {
 
         let result = pane.process_pty_bytes(pane_id, 0, b"\x1b]11;?\x07\x1b[c", &tx);
 
-        assert_eq!(result.terminal_responses.len(), 2);
         assert_eq!(
-            result.terminal_responses[0],
-            Bytes::from_static(b"\x1b]11;rgb:0000/2b2b/3636\x1b\\")
+            result.terminal_responses,
+            vec![
+                Bytes::from_static(b"\x1b]11;rgb:0000/2b2b/3636\x1b\\"),
+                Bytes::from_static(b"\x1b[?62;22c")
+            ]
         );
-        assert!(String::from_utf8_lossy(&result.terminal_responses[1]).contains('c'));
         assert!(rx.try_recv().is_err());
     }
 
@@ -3113,16 +3118,14 @@ mod tests {
 
         let result = pane.process_pty_bytes(pane_id, 0, b"\x1b]4;0;?\x07\x1b]11;?\x07\x1b[c", &tx);
 
-        assert_eq!(result.terminal_responses.len(), 3);
         assert_eq!(
-            result.terminal_responses[0],
-            expected_osc_rgb_response("4;0", color)
+            result.terminal_responses,
+            vec![
+                expected_osc_rgb_response("4;0", color),
+                Bytes::from_static(b"\x1b]11;rgb:0000/2b2b/3636\x1b\\"),
+                Bytes::from_static(b"\x1b[?62;22c")
+            ]
         );
-        assert_eq!(
-            result.terminal_responses[1],
-            Bytes::from_static(b"\x1b]11;rgb:0000/2b2b/3636\x1b\\")
-        );
-        assert!(String::from_utf8_lossy(&result.terminal_responses[2]).contains('c'));
         assert!(rx.try_recv().is_err());
     }
 

@@ -771,8 +771,7 @@ mod tests {
         app.state.mode = Mode::Terminal;
 
         let output_path = unique_temp_path("direct-edit-scrollback");
-        let previous_editor = std::env::var_os("EDITOR");
-        std::env::set_var(
+        let _editor_env = crate::config::TestEnvVar::set(
             "EDITOR",
             format!("sh -c 'cp \"$1\" {}' sh", output_path.display()),
         );
@@ -783,11 +782,6 @@ mod tests {
             KeyModifiers::CONTROL | KeyModifiers::ALT,
         ))
         .await;
-
-        match previous_editor {
-            Some(value) => std::env::set_var("EDITOR", value),
-            None => std::env::remove_var("EDITOR"),
-        }
 
         let content = wait_for_file(&output_path);
         assert!(content.contains("alpha"));

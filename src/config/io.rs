@@ -440,15 +440,18 @@ mod tests {
     fn upsert_top_level_bool_replaces_existing_value() {
         let content = "onboarding = true\n[keys]\nprefix = \"ctrl+b\"\n";
         let updated = upsert_top_level_bool(content, "onboarding", false);
-        assert!(updated.contains("onboarding = false"));
-        assert!(!updated.contains("onboarding = true"));
+        assert_eq!(updated, "onboarding = false\n[keys]\nprefix = \"ctrl+b\"\n");
+        let parsed: toml::Table = toml::from_str(&updated).unwrap();
+        assert_eq!(parsed["onboarding"].as_bool(), Some(false));
+        assert_eq!(parsed["keys"]["prefix"].as_str(), Some("ctrl+b"));
     }
 
     #[test]
     fn upsert_section_bool_adds_missing_section() {
         let updated = upsert_section_bool("", "ui.toast", "enabled", true);
-        assert!(updated.contains("[ui.toast]"));
-        assert!(updated.contains("enabled = true"));
+        assert_eq!(updated, "[ui.toast]\nenabled = true\n");
+        let parsed: toml::Table = toml::from_str(&updated).unwrap();
+        assert_eq!(parsed["ui"]["toast"]["enabled"].as_bool(), Some(true));
     }
 
     #[test]
@@ -456,9 +459,14 @@ mod tests {
         let content =
             "[ui.toast]\nenabled = true\ndelivery = \"hako\"\n[ui.sound]\nenabled = true\n";
         let updated = remove_section_key(content, "ui.toast", "enabled");
-        assert!(!updated.contains("[ui.toast]\nenabled = true"));
-        assert!(updated.contains("delivery = \"hako\""));
-        assert!(updated.contains("[ui.sound]\nenabled = true"));
+        assert_eq!(
+            updated,
+            "[ui.toast]\ndelivery = \"hako\"\n[ui.sound]\nenabled = true\n"
+        );
+        let parsed: toml::Table = toml::from_str(&updated).unwrap();
+        assert!(parsed["ui"]["toast"].get("enabled").is_none());
+        assert_eq!(parsed["ui"]["toast"]["delivery"].as_str(), Some("hako"));
+        assert_eq!(parsed["ui"]["sound"]["enabled"].as_bool(), Some(true));
     }
 
     #[test]
@@ -540,13 +548,22 @@ mouse_capture = false
         let (updated, removed) = remove_keybinding_config_sections(content);
 
         assert!(removed);
-        assert!(updated.contains("onboarding = false"));
-        assert!(updated.contains("[theme]\nname = \"catppuccin\""));
-        assert!(updated.contains("[ui]\nmouse_capture = false"));
-        assert!(!updated.contains("[keys]"));
-        assert!(!updated.contains("[[keys.command]]"));
-        assert!(!updated.contains("[keys.indexed]"));
-        assert!(toml::from_str::<toml::Table>(&updated).is_ok());
+        assert_eq!(
+            updated,
+            r#"onboarding = false
+
+[theme]
+name = "catppuccin"
+
+[ui]
+mouse_capture = false
+"#
+        );
+        let parsed: toml::Table = toml::from_str(&updated).unwrap();
+        assert_eq!(parsed["onboarding"].as_bool(), Some(false));
+        assert_eq!(parsed["theme"]["name"].as_str(), Some("catppuccin"));
+        assert_eq!(parsed["ui"]["mouse_capture"].as_bool(), Some(false));
+        assert!(parsed.get("keys").is_none());
     }
 
     #[test]

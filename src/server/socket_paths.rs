@@ -85,6 +85,7 @@ pub(crate) fn restrict_socket_permissions(path: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::TestEnvVar;
     use std::fs;
     use std::os::unix::net::UnixListener;
     use std::time::Duration;
@@ -112,8 +113,8 @@ mod tests {
 
     #[test]
     fn client_socket_path_defaults_to_config_dir() {
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
-        crate::session::clear_explicit_session_for_test();
+        let _session_env = TestEnvVar::remove(crate::session::SESSION_ENV_VAR);
+        let _explicit_session = crate::session::explicit_session_request_guard(false);
         let path = client_socket_path_from_overrides(None, None);
         assert_eq!(path, crate::config::config_dir().join("hako-client.sock"));
     }

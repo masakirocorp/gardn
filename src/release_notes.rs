@@ -218,7 +218,15 @@ mod tests {
         )
         .unwrap();
 
-        assert!(load_latest_from_path(&path, "0.3.1").is_some());
+        let stored = load_stored_from_path(&path).expect("legacy notes should deserialize");
+        assert_eq!(stored.version, "0.3.1");
+        assert_eq!(stored.body, "### Changed\n- One");
+        assert!(stored.show_on_startup);
+
+        let notes = load_latest_from_path(&path, "0.3.1").expect("latest notes");
+        assert_eq!(notes.version, "0.3.1");
+        assert_eq!(notes.body, "### Changed\n- One");
+        assert!(!notes.preview);
 
         clear_pending_at(&path).unwrap();
     }

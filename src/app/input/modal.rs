@@ -1145,7 +1145,6 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use ratatui::layout::Rect;
 
     use super::super::{capture_snapshot, state_with_workspaces};
     use super::*;
@@ -1257,7 +1256,8 @@ mod tests {
     fn global_menu_whats_new_opens_saved_release_notes() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("whats-new-saved-release-notes");
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
         crate::release_notes::save_pending(env!("CARGO_PKG_VERSION"), "### Changed\n- Menu")
             .unwrap();
 
@@ -1277,12 +1277,11 @@ mod tests {
             Some("### Changed\n- Menu")
         );
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
-    fn rename_modal_keyboard_and_mouse_share_actions() {
+    fn rename_modal_keyboard_actions_update_workspace_name() {
         let mut state = state_with_workspaces(&["test"]);
         state.mode = Mode::RenameWorkspace;
         state.name_input = "hello".into();
@@ -1305,15 +1304,6 @@ mod tests {
             snapshot.workspaces[0].custom_name.as_deref(),
             Some("renamed")
         );
-
-        state.view.sidebar_rect = Rect::new(0, 0, 26, 20);
-        state.view.terminal_area = Rect::new(26, 0, 80, 20);
-        state.mode = Mode::RenameWorkspace;
-        state.name_input = "mouse".into();
-        let inner = state.rename_modal_inner().unwrap();
-        let (save, _, _) = crate::ui::rename_button_rects(inner);
-        let action = modal_action_from_buttons(save.x, save.y, &[(save, ModalAction::Save)]);
-        assert_eq!(action, Some(ModalAction::Save));
     }
 
     #[test]

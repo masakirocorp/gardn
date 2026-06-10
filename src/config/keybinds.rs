@@ -1719,7 +1719,14 @@ new_workspace = "prefix+n"
         .unwrap();
         let diagnostics = config.collect_diagnostics();
         let kb = config.keybinds();
-        assert!(kb.next_tab.bindings.is_empty() || kb.new_workspace.bindings.is_empty());
+        assert_eq!(
+            binding_triggers(&kb.new_workspace),
+            vec![BindingTrigger::Prefix((
+                KeyCode::Char('n'),
+                KeyModifiers::empty()
+            ))]
+        );
+        assert!(kb.next_tab.bindings.is_empty());
         assert!(diagnostics.iter().any(|diag| {
             diag.contains("kept keys.new_workspace") && diag.contains("disabled keys.next_tab")
         }));

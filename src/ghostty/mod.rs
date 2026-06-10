@@ -2445,6 +2445,55 @@ mod tests {
         out
     }
 
+    fn rendered_graphemes(render_state: &mut RenderState) -> Vec<Vec<u32>> {
+        let mut row_iterator = RowIterator::new().unwrap();
+        let mut rows = render_state
+            .populate_row_iterator(&mut row_iterator)
+            .unwrap();
+        let mut row_cells = RowCells::new().unwrap();
+        let mut grapheme_scratch = Vec::new();
+        let mut graphemes = Vec::new();
+
+        while rows.next() {
+            let mut cells = rows.populate_cells(&mut row_cells).unwrap();
+            while cells.next() {
+                cells.graphemes_into(&mut grapheme_scratch).unwrap();
+                if !grapheme_scratch.is_empty() {
+                    graphemes.push(grapheme_scratch.clone());
+                }
+            }
+        }
+
+        graphemes
+    }
+
+    fn rendered_rows(render_state: &mut RenderState) -> Vec<String> {
+        let mut row_iterator = RowIterator::new().unwrap();
+        let mut row_iter = render_state
+            .populate_row_iterator(&mut row_iterator)
+            .unwrap();
+        let mut row_cells = RowCells::new().unwrap();
+        let mut rows = Vec::new();
+
+        while row_iter.next() {
+            let mut cells = row_iter.populate_cells(&mut row_cells).unwrap();
+            let mut line = String::new();
+            while cells.next() {
+                let graphemes = cells.graphemes().unwrap();
+                if let Some(codepoint) = graphemes.first().copied() {
+                    if let Some(ch) = char::from_u32(codepoint) {
+                        line.push(ch);
+                    }
+                } else {
+                    line.push(' ');
+                }
+            }
+            rows.push(line.trim_end().to_owned());
+        }
+
+        rows
+    }
+
     #[test]
     fn kitty_image_fingerprint_samples_large_payloads() {
         let mut data = vec![1u8; KITTY_FINGERPRINT_SAMPLE_BYTES * 4];
@@ -2548,8 +2597,7 @@ mod tests {
         terminal.write(b"\x1b[6n");
 
         let output = responses.lock().unwrap().clone();
-        assert!(!output.is_empty());
-        assert!(String::from_utf8_lossy(&output).contains("R"));
+        assert_eq!(output, b"\x1b[1;1R");
     }
 
     #[test]
@@ -2668,28 +2716,21 @@ mod tests {
         let mut render_state = RenderState::new().unwrap();
         render_state.update(&terminal).unwrap();
 
-        let mut row_iterator = RowIterator::new().unwrap();
-        let mut rows = render_state
-            .populate_row_iterator(&mut row_iterator)
-            .unwrap();
-        let mut row_cells = RowCells::new().unwrap();
-        let mut grapheme_scratch = Vec::new();
-        let mut rendered = String::new();
+        let graphemes = rendered_graphemes(&mut render_state);
 
-        while rows.next() {
-            let mut cells = rows.populate_cells(&mut row_cells).unwrap();
-            while cells.next() {
-                cells.graphemes_into(&mut grapheme_scratch).unwrap();
-                if let Some(codepoint) = grapheme_scratch.first().copied() {
-                    if let Some(ch) = char::from_u32(codepoint) {
-                        rendered.push(ch);
-                    }
-                }
-            }
+        assert!(graphemes.contains(&vec!['R' as u32]));
+        assert!(graphemes.contains(&vec!['漢' as u32]));
+        assert!(graphemes.contains(&vec!['字' as u32]));
+        for codepoint in [
+            '👨', '👩', '👧', '👦', '🧑', '💻', 'e', '\u{0301}', '🏳', '🌈', '🚀',
+        ] {
+            assert!(
+                graphemes
+                    .iter()
+                    .any(|grapheme| grapheme.contains(&(codepoint as u32))),
+                "rendered cells should preserve codepoint {codepoint:?}; graphemes={graphemes:?}"
+            );
         }
-
-        assert!(rendered.starts_with("README"));
-        assert!(rendered.contains("漢字"));
     }
 
     #[test]
@@ -2726,7 +2767,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_and_render_state_smoke_test() {
+    fn terminal_render_state_exposes_visible_rows() {
         let mut terminal = Terminal::new(8, 3, 100).unwrap();
         assert_eq!(terminal.cols().unwrap(), 8);
         assert_eq!(terminal.rows().unwrap(), 3);
@@ -2737,43 +2778,20 @@ mod tests {
         render_state.update(&terminal).unwrap();
         assert_eq!(render_state.cols().unwrap(), 8);
         assert_eq!(render_state.rows().unwrap(), 3);
+        assert_eq!(
+            rendered_rows(&mut render_state),
+            vec!["hello".to_owned(), "world".to_owned(), String::new()]
+        );
+    }
+
+    #[test]
+    fn render_state_dirty_can_be_cleared_after_update() {
+        let mut terminal = Terminal::new(8, 3, 100).unwrap();
+        terminal.write(b"hello");
+
+        let mut render_state = RenderState::new().unwrap();
+        render_state.update(&terminal).unwrap();
         assert_ne!(render_state.dirty().unwrap(), Dirty::Clean);
-
-        let mut row_iterator = RowIterator::new().unwrap();
-        let mut row_iter = render_state
-            .populate_row_iterator(&mut row_iterator)
-            .unwrap();
-        let mut row_cells = RowCells::new().unwrap();
-
-        let mut found_hello = false;
-        let mut found_world = false;
-        let mut row_index = 0usize;
-        while row_iter.next() {
-            let _ = row_iter.dirty().unwrap();
-            let mut cells = row_iter.populate_cells(&mut row_cells).unwrap();
-            let mut line = String::new();
-            while cells.next() {
-                let graphemes = cells.graphemes().unwrap();
-                if let Some(codepoint) = graphemes.first().copied() {
-                    if let Some(ch) = char::from_u32(codepoint) {
-                        line.push(ch);
-                    }
-                } else {
-                    line.push(' ');
-                }
-            }
-            let trimmed = line.trim_end().to_string();
-            if row_index == 0 {
-                found_hello = trimmed.starts_with("hello");
-            }
-            if row_index == 1 {
-                found_world = trimmed.starts_with("world");
-            }
-            row_index += 1;
-        }
-
-        assert!(found_hello);
-        assert!(found_world);
 
         render_state.set_dirty(Dirty::Clean).unwrap();
         assert_eq!(render_state.dirty().unwrap(), Dirty::Clean);

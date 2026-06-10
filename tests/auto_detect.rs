@@ -5,7 +5,7 @@
 mod support;
 
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -210,6 +210,23 @@ fn ping_socket(socket_path: &Path) -> String {
     response.trim().to_string()
 }
 
+fn wait_for_pty_output(reader: &mut dyn Read, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    let mut buf = [0u8; 4096];
+    while Instant::now() < deadline {
+        match reader.read(&mut buf) {
+            Ok(n) if n > 0 => {
+                if !String::from_utf8_lossy(&buf[..n]).is_empty() {
+                    return true;
+                }
+            }
+            Ok(_) => thread::sleep(Duration::from_millis(30)),
+            Err(_) => thread::sleep(Duration::from_millis(30)),
+        }
+    }
+    false
+}
+
 fn wait_for_log_contains(path: &Path, needle: &str, timeout: Duration) {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -305,6 +322,15 @@ fn auto_detect_no_server_spawns_server_and_attaches() {
     // Verify the client socket accepts connections (server is listening on it).
     let _stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
 
+    let mut client_reader = hako
+        ._master
+        .try_clone_reader()
+        .expect("clone auto-spawned client PTY reader");
+    assert!(
+        wait_for_pty_output(&mut client_reader, Duration::from_secs(8)),
+        "auto-spawned client should attach and receive terminal frames"
+    );
+
     // Verify the client process is running.
     let client_pid = hako.child.process_id().expect("client should have PID");
     assert!(
@@ -326,36 +352,33 @@ fn auto_detect_server_running_attaches_directly() {
     let api_socket = runtime_dir.join("hako.sock");
     let client_socket = runtime_dir.join("hako-client.sock");
 
-    // Start a server explicitly.
     let server = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
     let server_pid = server.child.process_id().expect("server should have PID");
-
-    // Verify server is running.
     assert!(process_exists(server_pid), "server should be running");
 
-    // Run `hako` (no subcommand) — should detect the running server and attach.
     let client = spawn_hako_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
+    let mut client_reader = client
+        ._master
+        .try_clone_reader()
+        .expect("clone auto client PTY reader");
+    assert!(
+        wait_for_pty_output(&mut client_reader, Duration::from_secs(8)),
+        "auto-detected client should attach and receive terminal frames"
+    );
 
-    // Wait a moment for the client to attach.
-    thread::sleep(Duration::from_millis(500));
-
-    // Verify the client is running.
     let client_pid = client.child.process_id().expect("client should have PID");
     assert!(
         process_exists(client_pid),
-        "client process should be running"
+        "client process should be running after attach"
     );
-
-    // Verify the server is still the same one (no second server spawned).
     assert!(
         process_exists(server_pid),
         "original server should still be running"
     );
 
-    // Verify API still responds.
     let response = ping_socket(&api_socket);
     assert!(
         response.contains("pong"),
@@ -521,14 +544,20 @@ fn auto_detect_server_persists_and_reattaches() {
         "API should respond before client exit: {response}"
     );
 
+    let mut client1_reader = client1
+        ._master
+        .try_clone_reader()
+        .expect("clone first auto client PTY reader");
+    assert!(
+        wait_for_pty_output(&mut client1_reader, Duration::from_secs(8)),
+        "first auto-detected client should attach before it is killed"
+    );
+
     // Kill the first client.
     let client1_pid = client1.child.process_id().expect("client1 should have PID");
     let _ = client1.child.kill();
     let _ = wait_for_pid_exit(client1_pid, Duration::from_secs(2));
     drop(client1);
-
-    // Wait a moment for the server to process the disconnect.
-    thread::sleep(Duration::from_millis(500));
 
     // Verify server is still running after client exit — the API should
     // still respond because the server is a separate daemon process.
@@ -546,13 +575,20 @@ fn auto_detect_server_persists_and_reattaches() {
 
     // Run `hako` again — should detect the running server and reattach.
     let client2 = spawn_hako_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
-    thread::sleep(Duration::from_millis(500));
+    let mut client2_reader = client2
+        ._master
+        .try_clone_reader()
+        .expect("clone second auto client PTY reader");
+    assert!(
+        wait_for_pty_output(&mut client2_reader, Duration::from_secs(8)),
+        "second auto-detected client should attach and receive terminal frames"
+    );
 
     // Verify the new client is running.
     let client2_pid = client2.child.process_id().expect("client2 should have PID");
     assert!(
         process_exists(client2_pid),
-        "second client should be running"
+        "second client should be running after attach"
     );
 
     // Verify API still responds (same server).

@@ -623,6 +623,25 @@ mod tests {
     use super::*;
     use ratatui::style::{Color, Modifier};
 
+    fn assert_bincode_bytes<T>(value: &T, expected: &[u8])
+    where
+        T: serde::Serialize,
+    {
+        let encoded = bincode::serde::encode_to_vec(value, bincode::config::standard()).unwrap();
+        assert_eq!(encoded.as_slice(), expected);
+    }
+
+    fn assert_client_message_variant_decode_error(msg: &str, found: u32) {
+        assert!(
+            msg.contains(&format!("invalid value: integer `{found}`")),
+            "error should expose found variant {found}: {msg}"
+        );
+        assert!(
+            msg.contains("expected variant index 0 <= i < 6"),
+            "error should expose allowed ClientMessage variant range: {msg}"
+        );
+    }
+
     // ---- Round-trip: ClientMessage ----
 
     #[test]
@@ -637,10 +656,10 @@ mod tests {
             keybindings: ClientKeybindings::Server,
             launch_mode: ClientLaunchMode::App,
         };
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ClientMessage, _) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-        assert_eq!(msg, decoded);
+        assert_bincode_bytes(
+            &msg,
+            &[0x00, 0x0b, 0x50, 0x18, 0x08, 0x10, 0x00, 0x00, 0x00],
+        );
     }
 
     #[test]
@@ -648,10 +667,7 @@ mod tests {
         let msg = ClientMessage::Input {
             data: vec![0x1b, 0x5b, 0x41], // ESC [ A (up arrow)
         };
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ClientMessage, _) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-        assert_eq!(msg, decoded);
+        assert_bincode_bytes(&msg, &[0x01, 0x03, 0x1b, 0x5b, 0x41]);
     }
 
     #[test]
@@ -660,10 +676,10 @@ mod tests {
             extension: "png".to_owned(),
             data: vec![0x89, b'P', b'N', b'G'],
         };
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ClientMessage, _) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-        assert_eq!(msg, decoded);
+        assert_bincode_bytes(
+            &msg,
+            &[0x02, 0x03, b'p', b'n', b'g', 0x04, 0x89, b'P', b'N', b'G'],
+        );
     }
 
     #[test]
@@ -676,9 +692,14 @@ mod tests {
         };
 
         let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        assert_eq!(encoded[0], 0x01);
+        assert_eq!(encoded[1], 0xfc);
+        assert_eq!(
+            u32::from_le_bytes(encoded[2..6].try_into().unwrap()) as usize,
+            text.len()
+        );
         let (decoded, consumed): (ClientMessage, _) =
             bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-
         assert_eq!(consumed, encoded.len());
         assert_eq!(decoded, msg);
     }
@@ -691,19 +712,13 @@ mod tests {
             cell_width_px: 8,
             cell_height_px: 16,
         };
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ClientMessage, _) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-        assert_eq!(msg, decoded);
+        assert_bincode_bytes(&msg, &[0x03, 0x50, 0x18, 0x08, 0x10]);
     }
 
     #[test]
     fn client_detach_roundtrip() {
         let msg = ClientMessage::Detach;
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ClientMessage, _) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-        assert_eq!(msg, decoded);
+        assert_bincode_bytes(&msg, &[0x04]);
     }
 
     #[test]
@@ -712,10 +727,12 @@ mod tests {
             terminal_id: "term_123".to_owned(),
             takeover: true,
         };
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ClientMessage, _) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-        assert_eq!(msg, decoded);
+        assert_bincode_bytes(
+            &msg,
+            &[
+                0x05, 0x08, b't', b'e', b'r', b'm', b'_', b'1', b'2', b'3', 0x01,
+            ],
+        );
     }
 
     // ---- Round-trip: ServerMessage ----
@@ -727,10 +744,7 @@ mod tests {
             encoding: RenderEncoding::SemanticFrame,
             error: None,
         };
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ServerMessage, _) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-        assert_eq!(msg, decoded);
+        assert_bincode_bytes(&msg, &[0x00, 0x0b, 0x00, 0x00]);
     }
 
     #[test]
@@ -740,10 +754,13 @@ mod tests {
             encoding: RenderEncoding::SemanticFrame,
             error: Some("incompatible version".to_owned()),
         };
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ServerMessage, _) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-        assert_eq!(msg, decoded);
+        assert_bincode_bytes(
+            &msg,
+            &[
+                0x00, 0x0b, 0x00, 0x01, 0x14, b'i', b'n', b'c', b'o', b'm', b'p', b'a', b't', b'i',
+                b'b', b'l', b'e', b' ', b'v', b'e', b'r', b's', b'i', b'o', b'n',
+            ],
+        );
     }
 
     #[test]
@@ -813,8 +830,11 @@ mod tests {
         };
         let msg = ServerMessage::Frame(frame.clone());
         let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ServerMessage, _) =
+        assert_eq!(encoded[0], 0x01);
+
+        let (decoded, consumed): (ServerMessage, _) =
             bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
+        assert_eq!(consumed, encoded.len());
         assert_eq!(msg, decoded);
         match decoded {
             ServerMessage::Frame(frame) => {
@@ -830,27 +850,43 @@ mod tests {
         let msg = ServerMessage::ServerShutdown {
             reason: Some("updating".to_owned()),
         };
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ServerMessage, _) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-        assert_eq!(msg, decoded);
+        assert_bincode_bytes(
+            &msg,
+            &[
+                0x04, 0x01, 0x08, b'u', b'p', b'd', b'a', b't', b'i', b'n', b'g',
+            ],
+        );
     }
 
     #[test]
     fn server_notify_roundtrip() {
-        for kind in [
-            NotifyKind::Sound,
-            NotifyKind::Toast,
-            NotifyKind::SystemToast,
+        for (kind, expected_kind) in [
+            (NotifyKind::Sound, 0x00),
+            (NotifyKind::Toast, 0x01),
+            (NotifyKind::SystemToast, 0x02),
         ] {
             let msg = ServerMessage::Notify {
                 kind,
                 message: "agent done".to_owned(),
             };
-            let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-            let (decoded, _): (ServerMessage, _) =
-                bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-            assert_eq!(msg, decoded);
+            assert_bincode_bytes(
+                &msg,
+                &[
+                    0x05,
+                    expected_kind,
+                    0x0a,
+                    b'a',
+                    b'g',
+                    b'e',
+                    b'n',
+                    b't',
+                    b' ',
+                    b'd',
+                    b'o',
+                    b'n',
+                    b'e',
+                ],
+            );
         }
     }
 
@@ -859,10 +895,10 @@ mod tests {
         let msg = ServerMessage::Clipboard {
             data: "dGVzdA==".to_owned(), // base64 "test"
         };
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ServerMessage, _) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-        assert_eq!(msg, decoded);
+        assert_bincode_bytes(
+            &msg,
+            &[0x06, 0x08, b'd', b'G', b'V', b'z', b'd', b'A', b'=', b'='],
+        );
     }
 
     #[test]
@@ -870,10 +906,13 @@ mod tests {
         let msg = ServerMessage::Graphics {
             bytes: b"\x1b_Ga=d,d=A,q=2;\x1b\\".to_vec(),
         };
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ServerMessage, _) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-        assert_eq!(msg, decoded);
+        assert_bincode_bytes(
+            &msg,
+            &[
+                0x03, 0x11, 0x1b, b'_', b'G', b'a', b'=', b'd', b',', b'd', b'=', b'A', b',', b'q',
+                b'=', b'2', b';', 0x1b, b'\\',
+            ],
+        );
     }
 
     #[test]
@@ -885,28 +924,25 @@ mod tests {
             full: false,
             bytes: b"\x1b[1;1Hhello".to_vec(),
         });
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ServerMessage, _) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-        assert_eq!(msg, decoded);
+        assert_bincode_bytes(
+            &msg,
+            &[
+                0x02, 0x07, 0x78, 0x28, 0x00, 0x0b, 0x1b, b'[', b'1', b';', b'1', b'H', b'h', b'e',
+                b'l', b'l', b'o',
+            ],
+        );
     }
 
     #[test]
     fn server_reload_sound_config_roundtrip() {
         let msg = ServerMessage::ReloadSoundConfig;
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ServerMessage, _) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-        assert_eq!(msg, decoded);
+        assert_bincode_bytes(&msg, &[0x07]);
     }
 
     #[test]
     fn server_mouse_capture_roundtrip() {
         let msg = ServerMessage::MouseCapture { enabled: true };
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ServerMessage, _) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
-        assert_eq!(msg, decoded);
+        assert_bincode_bytes(&msg, &[0x08, 0x01]);
     }
 
     // ---- Framing ----
@@ -925,6 +961,10 @@ mod tests {
         };
         let mut buf = Vec::new();
         write_message(&mut buf, &msg).unwrap();
+        assert_eq!(
+            buf.as_slice(),
+            &[0x09, 0x00, 0x00, 0x00, 0x00, 0x0b, 0x50, 0x18, 0x08, 0x10, 0x00, 0x00, 0x00]
+        );
         let decoded: ClientMessage = read_message(&mut buf.as_slice(), MAX_FRAME_SIZE).unwrap();
         assert_eq!(msg, decoded);
     }
@@ -1113,7 +1153,7 @@ mod tests {
 
         match read_message::<_, ClientMessage>(&mut buf.as_slice(), MAX_FRAME_SIZE) {
             Err(FramingError::Bincode(msg)) => {
-                assert!(!msg.is_empty(), "bincode error should include context");
+                assert_client_message_variant_decode_error(&msg, 222);
             }
             other => panic!("expected Bincode error, got: {other:?}"),
         }
@@ -1180,36 +1220,36 @@ mod tests {
 
     #[test]
     fn version_older_client_rejected() {
-        let result = check_client_version(PROTOCOL_VERSION - 1);
-        assert!(matches!(result, VersionCheck::Incompatible(_)));
-        if let VersionCheck::Incompatible(msg) = result {
-            assert!(msg.contains("older"), "error should mention older version");
-        }
+        assert_eq!(
+            check_client_version(PROTOCOL_VERSION - 1),
+            VersionCheck::Incompatible(format!(
+                "client version {} is older than server version {PROTOCOL_VERSION}; please upgrade your hako client",
+                PROTOCOL_VERSION - 1
+            ))
+        );
     }
 
     #[test]
     fn version_newer_client_rejected() {
-        let result = check_client_version(PROTOCOL_VERSION + 1);
-        assert!(matches!(result, VersionCheck::Incompatible(_)));
-        if let VersionCheck::Incompatible(msg) = result {
-            assert!(msg.contains("newer"), "error should mention newer version");
-        }
+        assert_eq!(
+            check_client_version(PROTOCOL_VERSION + 1),
+            VersionCheck::Incompatible(format!(
+                "client version {} is newer than server version {PROTOCOL_VERSION}; please upgrade the hako server",
+                PROTOCOL_VERSION + 1
+            ))
+        );
     }
 
     // ---- Pre-persistence client rejection ----
 
     #[test]
     fn prepersistence_version_zero_rejected() {
-        let result = check_client_version(0);
-        match result {
-            VersionCheck::Incompatible(msg) => {
-                assert!(
-                    msg.contains("pre-persistence"),
-                    "error should mention pre-persistence: {msg}"
-                );
-            }
-            _ => panic!("version 0 should be rejected as incompatible"),
-        }
+        assert_eq!(
+            check_client_version(0),
+            VersionCheck::Incompatible(
+                "pre-persistence client (version 0) is not supported".to_owned()
+            )
+        );
     }
 
     #[test]
@@ -1262,7 +1302,7 @@ mod tests {
 
         match read_message::<_, ClientMessage>(&mut buf.as_slice(), MAX_FRAME_SIZE) {
             Err(FramingError::Bincode(msg)) => {
-                assert!(!msg.is_empty(), "bincode error should include context");
+                assert_client_message_variant_decode_error(&msg, 170);
             }
             other => panic!("expected Bincode error, got: {other:?}"),
         }

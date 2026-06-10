@@ -1039,10 +1039,12 @@ mod tests {
     #[test]
     fn terminal_notifier_success_skips_osascript() {
         let path = std::env::temp_dir().join(format!(
-            "hako-terminal-notifier-args-{}",
-            std::process::id()
+            "hako-terminal-notifier-args-{}-{}",
+            std::process::id(),
+            unique_timestamp_nanos()
         ));
-        let script = "printf '%s:%s\\n' \"$0\" \"$*\" >> \"$HAKO_NOTIFY_ARGS\"";
+        let _ = std::fs::remove_file(&path);
+        let script = "printf '%s:%s\\n' \"$0\" \"$*\" > \"$HAKO_NOTIFY_ARGS\"";
         let mut command = |program: &str| {
             let mut cmd = Command::new("sh");
             cmd.arg("-c")
@@ -1070,7 +1072,12 @@ mod tests {
 
     #[test]
     fn desktop_notification_falls_back_to_osascript_when_terminal_notifier_fails() {
-        let path = std::env::temp_dir().join(format!("hako-osascript-args-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "hako-osascript-args-{}-{}",
+            std::process::id(),
+            unique_timestamp_nanos()
+        ));
+        let _ = std::fs::remove_file(&path);
         let script = r#"
 if [ "$0" = "terminal-notifier" ]; then
   exit 1

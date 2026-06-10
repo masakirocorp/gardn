@@ -525,6 +525,31 @@ mod tests {
         app
     }
 
+    fn rendered_text_point(app: &App, text: &str, width: u16, height: u16) -> (u16, u16) {
+        let backend = ratatui::backend::TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render command palette");
+        let buffer = terminal.backend().buffer();
+        let symbols = text.chars().map(|ch| ch.to_string()).collect::<Vec<_>>();
+        let text_width = symbols.len() as u16;
+
+        for y in 0..height {
+            for x in 0..=width.saturating_sub(text_width) {
+                if symbols
+                    .iter()
+                    .enumerate()
+                    .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == ch.as_str())
+                {
+                    return (x, y);
+                }
+            }
+        }
+
+        panic!("rendered text not found: {text}");
+    }
+
     #[test]
     fn command_palette_new_agent_opens_agent_profile_picker_when_multiple_profiles_exist() {
         let mut app = app_with_space();
@@ -650,16 +675,23 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_scrolls_when_selection_moves_past_rendered_rows() {
+    fn command_palette_scrolls_when_down_key_moves_selection_past_rendered_rows() {
         let mut app = app_with_space();
         app.state.view.sidebar_rect = ratatui::layout::Rect::new(0, 0, 26, 20);
         app.state.view.terminal_area = ratatui::layout::Rect::new(26, 0, 80, 20);
-        app.state.command_palette.selected = 6;
-        app.state.command_palette.scroll = 0;
 
-        assert!(move_command_palette_selection(&mut app.state, true));
+        for _ in 0..7 {
+            app.handle_command_palette_key(KeyEvent::new(KeyCode::Down, KeyModifiers::empty()));
+        }
+
+        let visible_commands = command_palette_visible_commands(&app.state);
+        let selected_title = visible_commands
+            .get(app.state.command_palette.selected)
+            .map(|command| command.title.as_str())
+            .expect("selected command");
         assert_eq!(app.state.command_palette.selected, 7);
-        assert_eq!(app.state.command_palette.scroll, 1);
+        assert!(app.state.command_palette.scroll > 0);
+        rendered_text_point(&app, selected_title, 106, 20);
     }
 
     #[test]
@@ -700,13 +732,18 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_hover_ignores_scrollbar_column() {
+    fn command_palette_hover_ignores_rendered_scrollbar_column() {
         let mut app = app_with_space();
         app.state.view.sidebar_rect = ratatui::layout::Rect::new(0, 0, 26, 20);
         app.state.view.terminal_area = ratatui::layout::Rect::new(26, 0, 80, 20);
-        let track = command_palette_scrollbar_track(&app.state).expect("scrollbar track");
+        app.handle_command_palette_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::empty()));
 
-        hover_command_palette_selection(&mut app.state, track.x, track.y + 1);
+        let scrollbar = rendered_text_point(&app, "▐", 106, 20);
+        app.handle_mouse(super::super::mouse(
+            crossterm::event::MouseEventKind::Moved,
+            scrollbar.0,
+            scrollbar.1,
+        ));
 
         assert_eq!(app.state.command_palette.selected, 0);
     }

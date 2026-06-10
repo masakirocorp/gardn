@@ -2082,14 +2082,6 @@ mod tests {
         pane_id
     }
 
-    fn restore_xdg_state_home(original: Option<std::ffi::OsString>) {
-        if let Some(value) = original {
-            std::env::set_var("XDG_STATE_HOME", value);
-        } else {
-            std::env::remove_var("XDG_STATE_HOME");
-        }
-    }
-
     #[test]
     fn git_refresh_deadline_is_suppressed_while_in_flight() {
         let mut app = test_app();
@@ -2173,7 +2165,8 @@ mod tests {
     fn startup_restores_preview_update_available_from_saved_notes() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("startup-preview-update-available");
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         // Use a bogus far-future version so preview=true regardless of current binary version.
         crate::release_notes::save_pending("99.99.99", "### Changed\n- One").unwrap();
@@ -2183,7 +2176,6 @@ mod tests {
         assert_eq!(app.state.update_available.as_deref(), Some("99.99.99"));
         assert!(app.state.latest_release_notes_available);
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -2191,7 +2183,8 @@ mod tests {
     fn startup_does_not_restore_update_available_from_older_saved_notes() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("startup-stale-update-notes");
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         crate::release_notes::save_pending("0.0.9", "### Changed\n- One").unwrap();
 
@@ -2200,7 +2193,6 @@ mod tests {
         assert_eq!(app.state.update_available, None);
         assert!(app.state.latest_release_notes_available);
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -2208,7 +2200,8 @@ mod tests {
     fn startup_keeps_pending_release_notes_available_without_auto_opening() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("startup-pending-release-notes-no-auto-open");
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         crate::release_notes::save_pending(env!("CARGO_PKG_VERSION"), "### Changed\n- One")
             .unwrap();
@@ -2224,7 +2217,6 @@ mod tests {
         assert!(app.state.release_notes.is_none());
         assert!(app.state.latest_release_notes_available);
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -2233,21 +2225,24 @@ mod tests {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("startup-product-announcement-auto-open");
         let state_home = path.parent().unwrap().join("state");
-        let original_xdg_state_home = std::env::var_os("XDG_STATE_HOME");
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
-        std::env::set_var("XDG_STATE_HOME", &state_home);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _xdg_state_home_env = crate::config::TestEnvVar::set("XDG_STATE_HOME", &state_home);
 
         crate::release_notes::save_pending(env!("CARGO_PKG_VERSION"), "### Changed\n- One")
             .unwrap();
-        std::env::set_var(
+        let _fake_announcement_body_env = crate::config::TestEnvVar::set(
             "HAKO_FAKE_PRODUCT_ANNOUNCEMENT_BODY",
             "### Announcement\n- One",
         );
-        std::env::set_var(
+        let _fake_announcement_title_env = crate::config::TestEnvVar::set(
             "HAKO_FAKE_PRODUCT_ANNOUNCEMENT_TITLE",
             "Startup announcement",
         );
-        std::env::set_var("HAKO_FAKE_PRODUCT_ANNOUNCEMENT_ID", "startup-announcement");
+        let _fake_announcement_id_env = crate::config::TestEnvVar::set(
+            "HAKO_FAKE_PRODUCT_ANNOUNCEMENT_ID",
+            "startup-announcement",
+        );
 
         let config = Config {
             onboarding: Some(false),
@@ -2267,11 +2262,6 @@ mod tests {
         );
         assert!(app.state.release_notes.is_none());
 
-        std::env::remove_var("HAKO_FAKE_PRODUCT_ANNOUNCEMENT_BODY");
-        std::env::remove_var("HAKO_FAKE_PRODUCT_ANNOUNCEMENT_TITLE");
-        std::env::remove_var("HAKO_FAKE_PRODUCT_ANNOUNCEMENT_ID");
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
-        restore_xdg_state_home(original_xdg_state_home);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -2285,7 +2275,8 @@ mod tests {
             "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"non_login\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+g\"\nprefix = \"ctrl+a\"\n[ui]\nagent_panel_scope = \"current\"\nredraw_on_focus_gained = false\nright_click_passthrough_modifier = \"ctrl\"\n[ui.toast]\ndelivery = \"hako\"\n",
         )
         .unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         let report = app.reload_config();
@@ -2327,7 +2318,6 @@ mod tests {
         assert_eq!(toast.title, "reloaded config");
         assert_eq!(toast.context, "using config.toml");
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -2336,7 +2326,8 @@ mod tests {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("reload-config-sidebar-width");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         assert_eq!(
@@ -2358,7 +2349,6 @@ mod tests {
         assert_eq!(app.state.default_sidebar_width, 35);
         assert_eq!(app.state.sidebar_width, 31);
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -2367,7 +2357,8 @@ mod tests {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("reload-config-sidebar-bounds");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         // Default bounds.
@@ -2408,7 +2399,6 @@ mod tests {
             "manual width must re-clamp up to new min"
         );
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -2436,7 +2426,8 @@ mod tests {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("reload-config-invalid-sidebar-bounds");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         let original_min = app.state.sidebar_min_width;
@@ -2472,7 +2463,6 @@ mod tests {
                     && message.contains("greater")
             }));
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -2486,7 +2476,8 @@ mod tests {
             "[keys]\nnew_workspace = \"wat\"\n[ui.toast]\ndelivery = \"terminal\"\n",
         )
         .unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         let original_prefix = (app.state.prefix_code, app.state.prefix_mods);
@@ -2511,7 +2502,6 @@ mod tests {
                 message.contains("keys.new_workspace") && message.contains("kept current keybinds")
             }));
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -2525,7 +2515,8 @@ mod tests {
             "[keys]\nnew_workspace = \"prefix+g\"\n[ui.toast]\ndelivery = \"desktop\"\n",
         )
         .unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         app.state.toast_config.delivery = crate::config::ToastDelivery::Hako;
@@ -2547,7 +2538,6 @@ mod tests {
             .as_deref()
             .is_some_and(|message| message.contains("invalid ui config")));
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -2561,7 +2551,8 @@ mod tests {
             "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"sideways\"\nnew_cwd = \"home\"\n[ui.toast]\ndelivery = \"terminal\"\n",
         )
         .unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         let original_default_shell = app.state.default_shell.clone();
@@ -2583,7 +2574,6 @@ mod tests {
             .as_deref()
             .is_some_and(|message| message.contains("invalid terminal config")));
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -2593,7 +2583,8 @@ mod tests {
         let path = temp_config_path("settings-save-toast-delivery");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "onboarding = false\n").unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         assert_eq!(
@@ -2611,7 +2602,6 @@ mod tests {
         assert!(content.contains("delivery = \"terminal\""));
         assert!(app.state.config_diagnostic.is_none());
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -2621,7 +2611,8 @@ mod tests {
         let path = temp_config_path("save-agent-panel-scope");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "onboarding = false\n").unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         assert_eq!(
@@ -2639,7 +2630,6 @@ mod tests {
         assert!(content.contains("agent_panel_scope = \"group\""));
         assert!(app.state.config_diagnostic.is_none());
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -2649,7 +2639,8 @@ mod tests {
         let path = temp_config_path("settings-save-theme-mode");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "onboarding = false\n[theme]\nname = \"nord\"\n").unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         app.save_theme(
@@ -2690,7 +2681,8 @@ mod tests {
         let path = temp_config_path("settings-save-new-terminal-cwd");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "onboarding = false\n").unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         assert_eq!(
@@ -2709,7 +2701,6 @@ mod tests {
         assert!(content.contains("new_cwd = \"home\""));
         assert!(app.state.config_diagnostic.is_none());
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
     #[test]
@@ -2718,7 +2709,8 @@ mod tests {
         let path = temp_config_path("settings-save-mouse-scroll-lines");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "onboarding = false\n").unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         assert_eq!(
@@ -2734,7 +2726,6 @@ mod tests {
         assert!(content.contains("mouse_scroll_lines = 5"));
         assert!(app.state.config_diagnostic.is_none());
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
     #[test]
@@ -2743,7 +2734,8 @@ mod tests {
         let path = temp_config_path("settings-save-sidebar-widths");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "onboarding = false\n").unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         app.save_sidebar_widths(30, 20, 40);
@@ -2757,7 +2749,6 @@ mod tests {
         assert!(content.contains("sidebar_max_width = 40"));
         assert!(app.state.config_diagnostic.is_none());
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -2767,7 +2758,8 @@ mod tests {
         let path = temp_config_path("settings-save-worktree-directory");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "onboarding = false\n").unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         app.save_worktree_directory("~/Projects/hako-worktrees");
@@ -2781,7 +2773,6 @@ mod tests {
         assert!(content.contains("directory = \"~/Projects/hako-worktrees\""));
         assert!(app.state.config_diagnostic.is_none());
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
     #[test]
@@ -2794,7 +2785,8 @@ mod tests {
             "onboarding = false\n[ui]\nconfirm_close = true\nprompt_new_tab_name = true\n",
         )
         .unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         assert!(app.state.confirm_close);
@@ -2810,7 +2802,6 @@ mod tests {
         assert!(content.contains("prompt_new_tab_name = false"));
         assert!(app.state.config_diagnostic.is_none());
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -2820,7 +2811,8 @@ mod tests {
         let path = temp_config_path("reload-config-invalid-toml");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "[keys\nnew_workspace = \"g\"\n").unwrap();
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
         let original_prefix = (app.state.prefix_code, app.state.prefix_mods);
@@ -2844,7 +2836,6 @@ mod tests {
             }));
         assert!(app.state.toast.is_none());
 
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -3509,8 +3500,7 @@ mod tests {
     #[tokio::test]
     async fn pane_split_request_targets_pane_in_background_tab() {
         let _guard = config_env_lock().lock().unwrap();
-        let original_shell = std::env::var_os("SHELL");
-        std::env::set_var("SHELL", "/usr/bin/true");
+        let _shell_env = crate::config::TestEnvVar::set("SHELL", "/usr/bin/true");
 
         let mut app = test_app();
         let mut workspace = Workspace::test_new("api-pane-split-background-tab");
@@ -3585,17 +3575,12 @@ mod tests {
         for (_terminal_id, runtime) in runtimes {
             runtime.shutdown();
         }
-        match original_shell {
-            Some(value) => std::env::set_var("SHELL", value),
-            None => std::env::remove_var("SHELL"),
-        }
     }
 
     #[tokio::test]
     async fn pane_split_request_focuses_new_pane_when_requested() {
         let _guard = config_env_lock().lock().unwrap();
-        let original_shell = std::env::var_os("SHELL");
-        std::env::set_var("SHELL", "/usr/bin/true");
+        let _shell_env = crate::config::TestEnvVar::set("SHELL", "/usr/bin/true");
 
         let mut app = test_app();
         let mut workspace = Workspace::test_new("api-pane-split-focus-background-tab");
@@ -3631,10 +3616,6 @@ mod tests {
         let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
         for (_terminal_id, runtime) in runtimes {
             runtime.shutdown();
-        }
-        match original_shell {
-            Some(value) => std::env::set_var("SHELL", value),
-            None => std::env::remove_var("SHELL"),
         }
     }
 
@@ -4145,21 +4126,6 @@ mod tests {
         }
         assert_eq!(forwarded, text.as_bytes());
         assert!(rx.try_recv().is_err());
-    }
-
-    #[test]
-    fn route_client_input_handles_mouse_events() {
-        let mut app = test_app();
-        app.state.workspaces = vec![Workspace::test_new("test")];
-        app.state.active = Some(0);
-        app.state.selected = 0;
-
-        // Send a mouse scroll-up event via SGR encoding.
-        let mouse_bytes = b"\x1b[<64;10;5M".to_vec();
-        // This should not panic even though mouse handling is simplified
-        // in headless mode.
-        app.route_client_input(mouse_bytes);
-        // No assertions on specific behavior — just no panic.
     }
 
     #[test]

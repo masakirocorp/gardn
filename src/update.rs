@@ -1714,6 +1714,7 @@ fn platform_target() -> (&'static str, &'static str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::TestEnvVar;
     use std::os::unix::net::UnixListener;
     use std::sync::{
         atomic::{AtomicBool, Ordering},
@@ -1790,12 +1791,19 @@ mod tests {
         }
     }
 
-    fn set_test_config_home(name: &str) -> PathBuf {
-        let dir = PathBuf::from(format!("/tmp/hako-update-{name}-{}", std::process::id()));
+    fn set_test_config_home(name: &str) -> (PathBuf, TestEnvVar) {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let dir = PathBuf::from(format!(
+            "/tmp/hako-update-{name}-{}-{nanos}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        std::env::set_var("XDG_CONFIG_HOME", &dir);
-        dir
+        let env = TestEnvVar::set("XDG_CONFIG_HOME", &dir);
+        (dir, env)
     }
 
     #[test]
@@ -1983,8 +1991,7 @@ mod tests {
     #[test]
     fn mise_configured_installs_dir_path_is_detected() {
         let _guard = env_lock().lock().unwrap();
-        let previous = std::env::var_os(MISE_INSTALLS_DIR_ENV);
-        std::env::set_var(MISE_INSTALLS_DIR_ENV, "/opt/mise-tools");
+        let _mise_installs_dir_env = TestEnvVar::set(MISE_INSTALLS_DIR_ENV, "/opt/mise-tools");
         let path = Path::new("/opt/mise-tools/hako/0.6.6/bin/hako");
 
         assert!(is_mise_managed_exe_path(path));
@@ -1992,12 +1999,6 @@ mod tests {
             mise_install_root(path).unwrap(),
             PathBuf::from("/opt/mise-tools/hako/0.6.6")
         );
-
-        if let Some(previous) = previous {
-            std::env::set_var(MISE_INSTALLS_DIR_ENV, previous);
-        } else {
-            std::env::remove_var(MISE_INSTALLS_DIR_ENV);
-        }
     }
 
     #[test]
@@ -2067,10 +2068,10 @@ mod tests {
     #[test]
     fn plain_update_targets_all_running_sessions() {
         let _guard = env_lock().lock().unwrap();
-        let config_home = set_test_config_home("all-sessions");
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
-        crate::session::clear_explicit_session_for_test();
+        let (config_home, _config_home_env) = set_test_config_home("all-sessions");
+        let _socket_env = TestEnvVar::remove(crate::api::SOCKET_PATH_ENV_VAR);
+        let _session_env = TestEnvVar::remove(crate::session::SESSION_ENV_VAR);
+        let _explicit_session = crate::session::explicit_session_request_guard(false);
 
         let default_socket = crate::session::api_socket_path_for(None);
         let work_socket = crate::session::api_socket_path_for(Some("work"));
@@ -2085,7 +2086,6 @@ mod tests {
         drop(default_listener);
         drop(work_listener);
         let _ = fs::remove_dir_all(config_home);
-        std::env::remove_var("XDG_CONFIG_HOME");
 
         assert_eq!(targets.len(), 2);
         assert_eq!(targets[0].label, crate::session::DEFAULT_SESSION_NAME);
@@ -2097,10 +2097,11 @@ mod tests {
     #[test]
     fn explicit_session_update_targets_only_that_session() {
         let _guard = env_lock().lock().unwrap();
-        let config_home = set_test_config_home("explicit-session");
-        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/ignored-hako.sock");
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
-        crate::session::clear_explicit_session_for_test();
+        let (config_home, _config_home_env) = set_test_config_home("explicit-session");
+        let _socket_env =
+            TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/ignored-hako.sock");
+        let _session_env = TestEnvVar::remove(crate::session::SESSION_ENV_VAR);
+        let _explicit_session = crate::session::explicit_session_request_guard(false);
         let args = vec![
             "hako".to_string(),
             "--session".to_string(),
@@ -2112,10 +2113,6 @@ mod tests {
         let targets = running_update_targets().unwrap();
 
         let expected_socket = crate::session::api_socket_path_for(Some("work"));
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
-        std::env::remove_var("XDG_CONFIG_HOME");
-        crate::session::clear_explicit_session_for_test();
         let _ = fs::remove_dir_all(config_home);
 
         assert_eq!(targets.len(), 1);
@@ -2127,15 +2124,11 @@ mod tests {
     #[test]
     fn socket_override_update_targets_socket_not_env_session() {
         let _guard = env_lock().lock().unwrap();
-        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/custom-hako.sock");
-        std::env::set_var(crate::session::SESSION_ENV_VAR, "work");
-        crate::session::clear_explicit_session_for_test();
+        let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/custom-hako.sock");
+        let _session_env = TestEnvVar::set(crate::session::SESSION_ENV_VAR, "work");
+        let _explicit_session = crate::session::explicit_session_request_guard(false);
 
         let targets = running_update_targets().unwrap();
-
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
-        crate::session::clear_explicit_session_for_test();
 
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].name, None);
@@ -2151,10 +2144,10 @@ mod tests {
     #[test]
     fn plain_update_errors_when_named_session_has_client_socket_without_status_api() {
         let _guard = env_lock().lock().unwrap();
-        let config_home = set_test_config_home("client-only-session");
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
-        crate::session::clear_explicit_session_for_test();
+        let (config_home, _config_home_env) = set_test_config_home("client-only-session");
+        let _socket_env = TestEnvVar::remove(crate::api::SOCKET_PATH_ENV_VAR);
+        let _session_env = TestEnvVar::remove(crate::session::SESSION_ENV_VAR);
+        let _explicit_session = crate::session::explicit_session_request_guard(false);
 
         let work_client_socket = crate::session::client_socket_path_for(Some("work"));
         fs::create_dir_all(work_client_socket.parent().unwrap()).unwrap();
@@ -2165,7 +2158,6 @@ mod tests {
 
         drop(work_client_listener);
         let _ = fs::remove_dir_all(config_home);
-        std::env::remove_var("XDG_CONFIG_HOME");
 
         assert!(
             err.contains("work") && err.contains("status API did not respond"),
@@ -2226,8 +2218,8 @@ mod tests {
             !io::stdin().is_terminal(),
             "this test relies on noninteractive test stdin"
         );
-        std::env::set_var(crate::session::SESSION_ENV_VAR, "work");
-        crate::session::clear_explicit_session_for_test();
+        let _session_env = TestEnvVar::set(crate::session::SESSION_ENV_VAR, "work");
+        let _explicit_session = crate::session::explicit_session_request_guard(false);
         let server = crate::api::RuntimeStatus {
             version: Some("0.5.5".to_string()),
             protocol: Some(2),
@@ -2265,8 +2257,6 @@ mod tests {
         let complete = prompt_to_complete_plain_update(&decisions, &release).unwrap();
 
         assert!(!complete);
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
-        crate::session::clear_explicit_session_for_test();
     }
 
     #[test]

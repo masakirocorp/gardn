@@ -1150,7 +1150,6 @@ fn init_logging() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::OsString;
     use std::sync::{Mutex, OnceLock};
 
     fn env_lock() -> &'static Mutex<()> {
@@ -1158,54 +1157,29 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
     }
 
-    fn restore_env_var(key: &str, value: Option<OsString>) {
-        if let Some(value) = value {
-            std::env::set_var(key, value);
-        } else {
-            std::env::remove_var(key);
-        }
-    }
-
     struct EnvVarGuard {
-        key: &'static str,
-        previous: Option<OsString>,
+        _env: crate::config::TestEnvVar,
     }
 
     impl EnvVarGuard {
         fn set(key: &'static str, value: &str) -> Self {
-            let previous = std::env::var_os(key);
-            std::env::set_var(key, value);
-            Self { key, previous }
-        }
-    }
-
-    impl Drop for EnvVarGuard {
-        fn drop(&mut self) {
-            restore_env_var(self.key, self.previous.clone());
+            Self {
+                _env: crate::config::TestEnvVar::set(key, value),
+            }
         }
     }
 
     struct EnvVarsRemovedGuard {
-        previous: Vec<(&'static str, Option<OsString>)>,
+        _envs: Vec<crate::config::TestEnvVar>,
     }
 
     impl EnvVarsRemovedGuard {
         fn new(keys: &[&'static str]) -> Self {
-            let previous: Vec<_> = keys
-                .iter()
-                .map(|key| (*key, std::env::var_os(key)))
-                .collect();
-            for key in keys {
-                std::env::remove_var(key);
-            }
-            Self { previous }
-        }
-    }
-
-    impl Drop for EnvVarsRemovedGuard {
-        fn drop(&mut self) {
-            for (key, value) in self.previous.clone() {
-                restore_env_var(key, value);
+            Self {
+                _envs: keys
+                    .iter()
+                    .map(|&key| crate::config::TestEnvVar::remove(key))
+                    .collect(),
             }
         }
     }
@@ -1540,12 +1514,8 @@ mod tests {
 
     #[test]
     fn forward_clipboard_uses_local_clipboard_path() {
-        unsafe {
-            std::env::set_var("SSH_CONNECTION", "1 2 3 4");
-        }
+        let _guard = env_lock().lock().unwrap();
+        let _ssh_connection_env = EnvVarGuard::set("SSH_CONNECTION", "1 2 3 4");
         forward_clipboard("dGVzdA==");
-        unsafe {
-            std::env::remove_var("SSH_CONNECTION");
-        }
     }
 }

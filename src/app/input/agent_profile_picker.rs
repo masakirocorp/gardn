@@ -614,31 +614,59 @@ mod tests {
     }
 
     #[test]
-    fn picker_tab_hit_areas_match_rendered_tabs_after_last_tab_selected() {
+    fn picker_tabs_select_visible_rendered_labels_after_last_tab_selected() {
         let mut app = app_with_space();
         app.state.view.terminal_area = Rect::new(0, 0, 80, 24);
         open_new_agent_picker_for_workspace(&mut app.state, 0);
         app.state.agent_profile_picker.kind_filter =
             Some(crate::agent_profiles::AgentKind::Qodercli);
-        let tab_row = agent_profile_picker_tab_row(&app.state).expect("tab row");
-        let hit_areas = crate::ui::agent_profile_picker_tab_hit_areas(&app.state, tab_row);
-        assert!(hit_areas.iter().any(|(idx, _)| {
-            AGENT_PROFILE_PICKER_TABS[*idx] != Some(crate::agent_profiles::AgentKind::Qodercli)
-        }));
 
-        for (idx, rect) in hit_areas {
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render agent picker");
+        let buffer = terminal.backend().buffer();
+        let filter_y = (0..24)
+            .find(|&y| {
+                (0..=80 - 6).any(|x| {
+                    ["f", "i", "l", "t", "e", "r"]
+                        .iter()
+                        .enumerate()
+                        .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == *ch)
+                })
+            })
+            .expect("rendered filter row");
+
+        let mut clicked_non_selected_tab = false;
+        for tab in AGENT_PROFILE_PICKER_TABS {
+            let label = crate::app::agent_profile_picker::agent_profile_picker_tab_label(tab);
+            let rendered = format!(" {label} ");
+            let symbols = rendered
+                .chars()
+                .map(|ch| ch.to_string())
+                .collect::<Vec<_>>();
+            let Some(x) = (0..=80 - symbols.len() as u16).find(|&x| {
+                symbols
+                    .iter()
+                    .enumerate()
+                    .all(|(idx, ch)| buffer[(x + idx as u16, filter_y)].symbol() == ch.as_str())
+            }) else {
+                continue;
+            };
+
             app.state.agent_profile_picker.kind_filter =
                 Some(crate::agent_profiles::AgentKind::Qodercli);
-            assert!(select_agent_profile_picker_tab_at(
-                &mut app.state,
-                rect.x + rect.width / 2,
-                rect.y
+            app.handle_mouse(super::super::mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                x + 1,
+                filter_y,
             ));
-            assert_eq!(
-                app.state.agent_profile_picker.kind_filter,
-                AGENT_PROFILE_PICKER_TABS[idx]
-            );
+            assert_eq!(app.state.agent_profile_picker.kind_filter, tab);
+            clicked_non_selected_tab |= tab != Some(crate::agent_profiles::AgentKind::Qodercli);
         }
+
+        assert!(clicked_non_selected_tab);
     }
 
     #[test]
