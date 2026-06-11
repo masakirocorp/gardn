@@ -112,7 +112,7 @@ Supported built-in detection includes:
 
 - **System profiles** — Hako exposes one read-only system profile for each supported integration target.
 - **Custom profiles** — add or edit profile-specific commands from Settings > Agents. Hako persists them to `[agent_profiles]`; known-family wrappers can keep native profile/tooling restore behavior, while `custom` unsupported agents are labeled `custom · launch-only`.
-- **Group favorites and defaults** — group settings can promote favorite profiles with `ctrl+f`, set a default with `ctrl+d`, and filter the list by agent family. Favorites appear before available profiles while both sections keep the global profile order. When a group default is set, `new agent` starts it directly instead of opening the picker.
+- **Group favorites and defaults** — group settings can promote favorite profiles with `ctrl+f` and set a default with `ctrl+d`. Favorites appear before available profiles while both sections keep the global profile order. When a group default is set, `new agent` starts it directly instead of opening the picker.
 - **New agent launch** — choose `new agent` from the command palette, space context menu, tab context menu, or the tab `+` dropdown. Hako starts the group default or only available profile immediately, or opens a favorites-first profile picker when multiple profiles are available.
 
 ### Agent session restore
@@ -194,16 +194,14 @@ Settings are edited in an in-app modal.
 
 Tabs include:
 
-- Theme
-- Layout
-- Sound
-- Toasts
+- Appearance
+- Notifications
 - Behavior
 - Agents
 - Integrations
-- Experiments
+- Advanced
 
-The modal supports keyboard navigation, mouse navigation, scrollbars, immediate settings updates, a top-right `esc close` affordance, a responsive tab bar, and install/update/uninstall actions in the integrations tab. Workspace behavior owns prompts, terminal defaults, and the worktree directory.
+The modal supports keyboard navigation, mouse navigation, scrollbars, immediate settings updates, a top-right `esc close` affordance, a responsive tab bar, and install/update/uninstall actions in the integrations tab. Appearance owns theme, sidebar, and pane-label settings; notifications owns sounds and toasts; behavior owns prompts, terminal defaults, and the worktree directory.
 
 ### Help and confirmations
 
@@ -296,7 +294,7 @@ Hako supports terminal-derived colors and built-in palettes.
 - **Appearance mode** — system, light, or dark.
 - **Light and dark palette selection** — choose separate palettes when system mode is enabled.
 - **Custom token overrides** — override individual theme colors.
-- **Group settings** — assign per-group ANSI accent colors, inline-rename groups, delete groups, or inherit the global accent from the group settings modal.
+- **Group settings** — rename or delete groups, assign per-group ANSI accent colors, choose favorite/default agent profiles, or inherit the global accent from the group settings modal.
 - **Accent color** — configure highlight, border, and navigation accent color; when following terminal colors, choose separate terminal ANSI accents for light and dark appearances.
 
 ### Sound and toasts
