@@ -3050,6 +3050,15 @@ mod tests {
                 }],
             },
         );
+        server.app.state.integration_recommendations =
+            vec![crate::integration::IntegrationRecommendation {
+                target: crate::api::schema::IntegrationTarget::Omp,
+                label: "omp",
+                command: "omp",
+                available: true,
+                path: std::path::PathBuf::from("/tmp/hako-test-omp"),
+                state: crate::integration::IntegrationStatusKind::Current,
+            }];
         server.app.state.command_palette.query = "new agent".to_string();
 
         server.app.route_client_events(
