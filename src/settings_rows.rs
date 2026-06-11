@@ -596,7 +596,7 @@ fn group_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
             rows.push(agent_profile_row(
                 profile,
                 index,
-                true,
+                false,
                 is_default,
                 SettingsMarkerTone::Accent,
             ));
