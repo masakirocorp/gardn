@@ -16,7 +16,6 @@ use super::widgets::{
 };
 use crate::{
     app::{
-        agent_profile_picker::{agent_profile_picker_tab_label, AGENT_PROFILE_PICKER_TABS},
         state::{Palette, SettingsSection},
         AppState,
     },
@@ -135,9 +134,7 @@ fn render_settings_tabs(app: &AppState, frame: &mut Frame, row: Rect) {
 }
 
 fn settings_section_title(app: &AppState, section: SettingsSection) -> &'static str {
-    if app.settings.group_settings_target.is_some() && section == SettingsSection::Theme {
-        "accent"
-    } else if section == SettingsSection::Agents && settings_agents_editor_open(app) {
+    if section == SettingsSection::Agents && settings_agents_editor_open(app) {
         if app.settings.pending_agent_profile_id.is_some() {
             "edit custom profile"
         } else {
@@ -179,7 +176,7 @@ fn settings_section_description(app: &AppState, section: SettingsSection) -> &'s
         SettingsSection::Integrations => "install hooks so agents report state directly",
         SettingsSection::GroupGeneral => "rename this group or delete it",
         SettingsSection::GroupProfiles => {
-            "choose which agent profiles are favorites for this group"
+            "choose favorite and default agent profiles for this group"
         }
     }
 }
@@ -242,137 +239,6 @@ fn render_settings_section_intro(
         Style::default().fg(app.palette.overlay0),
     );
     list_area
-}
-
-pub(crate) fn settings_profile_list_rect(app: &AppState, area: Rect) -> Rect {
-    let body = settings_section_list_rect(area);
-    if !settings_profile_filters_visible(app) {
-        return body;
-    }
-
-    let [_, _, list_area] = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Min(0),
-    ])
-    .areas::<3>(body);
-    list_area
-}
-
-fn settings_profile_filters_visible(_app: &AppState) -> bool {
-    false
-}
-
-pub(crate) fn settings_profile_family_tab_row(app: &AppState, area: Rect) -> Option<Rect> {
-    let label_width = 5;
-    settings_profile_filters_visible(app)
-        .then(|| settings_section_list_rect(area))
-        .map(|body| {
-            Rect::new(
-                body.x.saturating_add(label_width),
-                body.y,
-                body.width.saturating_sub(label_width),
-                1,
-            )
-        })
-}
-
-pub(crate) fn settings_profile_family_tab_hit_areas(
-    app: &AppState,
-    row: Rect,
-) -> Vec<(Option<crate::agent_profiles::AgentKind>, Rect)> {
-    let (start, end) = settings_profile_visible_family_tab_range(app, row.width);
-    super::modal_tabs::tab_hit_areas(row, start, end, settings_profile_tab_width)
-        .into_iter()
-        .map(|(idx, rect)| (AGENT_PROFILE_PICKER_TABS[idx], rect))
-        .collect()
-}
-
-pub(crate) fn settings_profile_family_tab_chevron_at(
-    app: &AppState,
-    row: Rect,
-    col: u16,
-) -> Option<Option<crate::agent_profiles::AgentKind>> {
-    let (start, end) = settings_profile_visible_family_tab_range(app, row.width);
-    super::modal_tabs::chevron_tab_at(
-        AGENT_PROFILE_PICKER_TABS.len(),
-        row,
-        col,
-        start,
-        end,
-        settings_profile_tab_width,
-    )
-    .map(|idx| AGENT_PROFILE_PICKER_TABS[idx])
-}
-
-fn settings_profile_visible_family_tab_range(app: &AppState, row_width: u16) -> (usize, usize) {
-    let selected = AGENT_PROFILE_PICKER_TABS
-        .iter()
-        .position(|tab| *tab == app.settings.agent_profile_kind_filter)
-        .unwrap_or(0);
-    super::modal_tabs::visible_tab_range(
-        AGENT_PROFILE_PICKER_TABS.len(),
-        selected,
-        row_width,
-        settings_profile_tab_width,
-    )
-}
-
-fn settings_profile_tab_width(idx: usize) -> u16 {
-    (agent_profile_picker_tab_label(AGENT_PROFILE_PICKER_TABS[idx]).width() as u16)
-        .saturating_add(2)
-}
-
-fn render_settings_profile_family_tabs(app: &AppState, frame: &mut Frame, row: Rect) {
-    let label_width = 5;
-    frame.render_widget(
-        Paragraph::new(Span::styled(
-            "show ",
-            Style::default().fg(app.palette.overlay0),
-        )),
-        row,
-    );
-    let chip_row = Rect::new(
-        row.x.saturating_add(label_width),
-        row.y,
-        row.width.saturating_sub(label_width),
-        row.height,
-    );
-    let p = &app.palette;
-    let (start, end) = settings_profile_visible_family_tab_range(app, chip_row.width);
-    let mut spans = Vec::new();
-
-    if start > 0 {
-        spans.push(Span::styled("‹ ", Style::default().fg(p.overlay0)));
-    }
-
-    for (visible_idx, tab) in AGENT_PROFILE_PICKER_TABS[start..end]
-        .iter()
-        .copied()
-        .enumerate()
-    {
-        if visible_idx > 0 {
-            spans.push(Span::raw(" "));
-        }
-        let selected = tab == app.settings.agent_profile_kind_filter;
-        let style = if selected {
-            Style::default()
-                .fg(panel_contrast_fg(p))
-                .bg(p.accent)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(p.overlay1)
-        };
-        spans.push(Span::styled(" ", style));
-        spans.push(Span::styled(agent_profile_picker_tab_label(tab), style));
-        spans.push(Span::styled(" ", style));
-    }
-
-    if end < AGENT_PROFILE_PICKER_TABS.len() {
-        spans.push(Span::styled(" ›", Style::default().fg(p.overlay0)));
-    }
-
-    frame.render_widget(Paragraph::new(Line::from(spans)), chip_row);
 }
 
 const SETTINGS_INTEGRATIONS_HINTS: &[(&str, &str)] =
@@ -568,19 +434,7 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
 
 fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area: Rect) {
     let body_area = render_settings_section_intro(app, frame, area, app.settings.section);
-    if settings_profile_filters_visible(app) {
-        let [tab_row, divider_row, list_area] = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
-        .areas::<3>(body_area);
-        render_settings_profile_family_tabs(app, frame, tab_row);
-        render_modal_divider(frame, divider_row, &app.palette);
-        render_settings_rows(app, frame, list_area);
-    } else {
-        render_settings_rows(app, frame, body_area);
-    }
+    render_settings_rows(app, frame, body_area);
 }
 
 const SETTINGS_BODY_INDENT: usize = 2;

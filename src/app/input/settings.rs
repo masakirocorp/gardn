@@ -313,15 +313,7 @@ fn settings_section_scroll_len(state: &AppState, section: SettingsSection) -> us
 }
 
 fn settings_section_list_rect(state: &AppState, section: SettingsSection) -> Rect {
-    let content_area = state.settings_content_rect();
-    let body_area = if matches!(
-        section,
-        SettingsSection::Agents | SettingsSection::GroupProfiles
-    ) {
-        crate::ui::settings_profile_list_rect(state, content_area)
-    } else {
-        crate::ui::settings_section_list_rect(content_area)
-    };
+    let body_area = crate::ui::settings_section_list_rect(state.settings_content_rect());
     if section == SettingsSection::Integrations {
         let [list_area, _] =
             Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas::<2>(body_area);
@@ -1906,25 +1898,6 @@ impl AppState {
             })
     }
 
-    fn settings_profile_family_tab_at(
-        &self,
-        col: u16,
-        row: u16,
-    ) -> Option<Option<crate::agent_profiles::AgentKind>> {
-        let tab_row =
-            crate::ui::settings_profile_family_tab_row(self, self.settings_content_rect())?;
-        if row != tab_row.y {
-            return None;
-        }
-        crate::ui::settings_profile_family_tab_chevron_at(self, tab_row, col).or_else(|| {
-            crate::ui::settings_profile_family_tab_hit_areas(self, tab_row)
-                .into_iter()
-                .find_map(|(kind, rect)| {
-                    (col >= rect.x && col < rect.x.saturating_add(rect.width)).then_some(kind)
-                })
-        })
-    }
-
     fn settings_agents_editor_back_at(&self, col: u16, row: u16) -> bool {
         let area = self.settings_content_rect();
         let Some(rect) = crate::ui::settings_agents_editor_back_button_rect(self, area) else {
@@ -2063,14 +2036,6 @@ impl AppState {
                     if section == SettingsSection::Theme {
                         ensure_settings_selection_visible(self);
                     }
-                    return None;
-                }
-
-                if let Some(kind) = self.settings_profile_family_tab_at(mouse.column, mouse.row) {
-                    self.settings.agent_profile_kind_filter = kind;
-                    self.settings.list.select(0);
-                    self.settings.scroll = 0;
-                    clear_settings_selection(self);
                     return None;
                 }
 
