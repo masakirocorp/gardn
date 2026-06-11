@@ -259,8 +259,8 @@ pub(crate) fn settings_profile_list_rect(app: &AppState, area: Rect) -> Rect {
     list_area
 }
 
-fn settings_profile_filters_visible(app: &AppState) -> bool {
-    matches!(app.settings.section, SettingsSection::GroupProfiles)
+fn settings_profile_filters_visible(_app: &AppState) -> bool {
+    false
 }
 
 pub(crate) fn settings_profile_family_tab_row(app: &AppState, area: Rect) -> Option<Rect> {
@@ -389,7 +389,6 @@ const SETTINGS_GROUP_PROFILES_HINTS: &[(&str, &str)] = &[
     ("move", "↑↓"),
     ("favorite", "ctrl+f"),
     ("default", "ctrl+d"),
-    ("show", "shift+←→"),
     ("section", "←→/tab"),
 ];
 const SETTINGS_GROUP_HINTS: &[(&str, &str)] =
@@ -1440,7 +1439,7 @@ mod tests {
     }
 
     #[test]
-    fn group_profile_settings_renders_filter_chips_above_profile_rows() {
+    fn group_profile_settings_renders_profile_sections_without_filters() {
         let mut app = AppState::test_new();
         let group_idx = app.create_group("Work".to_string());
         app.settings.group_settings_target = Some(group_idx);
@@ -1456,11 +1455,9 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("group settings"));
-        assert!(text.contains("all"));
-        assert!(text.contains("omp"));
         assert!(text.contains("favorites"));
         assert!(text.contains("available"));
-        assert!(text.contains("show shift+←→"));
+        assert!(!text.contains("show shift+←→"));
     }
     #[test]
     fn agent_profile_editor_renders_numbered_steps() {

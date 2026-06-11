@@ -3,7 +3,6 @@ use ratatui::layout::{Constraint, Layout, Rect};
 
 use crate::{
     app::{
-        agent_profile_picker::AGENT_PROFILE_PICKER_TABS,
         state::{
             normalize_theme_name, theme_names_for_appearance, AppState, DragState, DragTarget,
             SettingsSection, THEME_NAMES,
@@ -1056,12 +1055,11 @@ fn group_profile_id_for_index(state: &AppState, selected: usize) -> Option<Strin
         .get(group_idx)?
         .favorite_agent_profile_ids
         .as_slice();
-    let kind_filter = state.settings.agent_profile_kind_filter;
     let (favorite, available) = state.agent_profiles.group_sections(favorites);
     favorite
         .into_iter()
         .chain(available)
-        .filter(|profile| kind_filter.is_none_or(|kind| profile.kind == kind))
+        .filter(|profile| state.agent_profile_launchable(profile))
         .nth(selected)
         .map(|profile| profile.id.clone())
 }
@@ -1362,34 +1360,6 @@ fn select_next_setting(state: &mut AppState, item_count: usize) {
     } else {
         selected + 1
     };
-}
-
-fn move_settings_profile_family_filter(state: &mut AppState, forward: bool) {
-    if state.settings.section == SettingsSection::Agents && agent_profile_editor_open(state) {
-        return;
-    }
-    if !matches!(
-        state.settings.section,
-        SettingsSection::Agents | SettingsSection::GroupProfiles
-    ) {
-        return;
-    }
-    let current = state.settings.agent_profile_kind_filter;
-    let current_idx = AGENT_PROFILE_PICKER_TABS
-        .iter()
-        .position(|tab| *tab == current)
-        .unwrap_or(0);
-    let next_idx = if forward {
-        (current_idx + 1) % AGENT_PROFILE_PICKER_TABS.len()
-    } else {
-        current_idx
-            .checked_sub(1)
-            .unwrap_or(AGENT_PROFILE_PICKER_TABS.len() - 1)
-    };
-    state.settings.agent_profile_kind_filter = AGENT_PROFILE_PICKER_TABS[next_idx];
-    state.settings.list.selected = 0;
-    state.settings.scroll = 0;
-    clear_settings_selection(state);
 }
 
 fn handle_settings_modal_action(state: &mut AppState, key: &KeyEvent) -> Option<SettingsAction> {
@@ -1758,12 +1728,6 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                         SettingsSection::GroupProfiles,
                     ));
             }
-            KeyCode::Left if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                move_settings_profile_family_filter(state, false);
-            }
-            KeyCode::Right if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                move_settings_profile_family_filter(state, true);
-            }
             KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 toggle_selected_group_profile_favorite(state);
             }
@@ -1771,6 +1735,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 toggle_selected_group_profile_default(state);
             }
             KeyCode::Enter | KeyCode::Char(' ') => {}
+            KeyCode::Left | KeyCode::Right if key.modifiers.contains(KeyModifiers::SHIFT) => {}
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::GroupGeneral;
                 state.settings.list.selected = 0;
@@ -2875,6 +2840,11 @@ mod tests {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
 
+        state.integration_recommendations = vec![integration_recommendation_for(
+            crate::api::schema::IntegrationTarget::Codex,
+            crate::integration::IntegrationStatusKind::Current,
+            true,
+        )];
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupProfiles;
         state.settings.list.selected = 0;
@@ -2913,6 +2883,18 @@ mod tests {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
 
+        state.integration_recommendations = vec![
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Codex,
+                crate::integration::IntegrationStatusKind::Current,
+                true,
+            ),
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Claude,
+                crate::integration::IntegrationStatusKind::Current,
+                true,
+            ),
+        ];
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupProfiles;
         state.settings.list.selected = 1;
@@ -2953,81 +2935,40 @@ mod tests {
     }
 
     #[test]
-    fn group_profiles_shift_arrows_filter_by_agent_family() {
+    fn group_profiles_do_not_use_family_filters() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
 
+        state.integration_recommendations = vec![
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Codex,
+                crate::integration::IntegrationStatusKind::Current,
+                true,
+            ),
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Claude,
+                crate::integration::IntegrationStatusKind::Current,
+                true,
+            ),
+        ];
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupProfiles;
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT),
         );
-        assert_eq!(
-            state.settings.agent_profile_kind_filter,
-            Some(crate::agent_profiles::AgentKind::Pi)
-        );
-
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT),
-        );
         assert_eq!(state.settings.agent_profile_kind_filter, None);
-    }
 
-    #[test]
-    fn group_profile_filter_scopes_favorite_and_default_actions() {
-        let mut state = state_with_workspaces(&["test"]);
-        let group_idx = state.create_group("Side".to_string());
-
-        open_group_settings(&mut state, group_idx);
-        state.settings.section = SettingsSection::GroupProfiles;
-        state.settings.agent_profile_kind_filter = Some(crate::agent_profiles::AgentKind::Omp);
-        state.settings.list.selected = 0;
+        state.settings.list.selected = 1;
         state.settings.selection_active = true;
-        state.settings.selection_active = true;
-
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
         );
         assert_eq!(
             state.groups[group_idx].favorite_agent_profile_ids,
-            vec!["system:omp".to_string()]
+            vec!["system:claude".to_string()]
         );
-
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
-        );
-        assert_eq!(
-            state.groups[group_idx].default_agent_profile_id.as_deref(),
-            Some("system:omp")
-        );
-    }
-
-    #[test]
-    fn group_profiles_enter_and_space_do_not_toggle_favorite() {
-        let mut state = state_with_workspaces(&["test"]);
-        let group_idx = state.create_group("Side".to_string());
-
-        open_group_settings(&mut state, group_idx);
-        state.settings.section = SettingsSection::GroupProfiles;
-        state.settings.list.selected = 0;
-        state.settings.selection_active = true;
-        state.session_dirty = false;
-
-        for key in [KeyCode::Enter, KeyCode::Char(' ')] {
-            let action =
-                update_settings_state(&mut state, KeyEvent::new(key, KeyModifiers::empty()));
-
-            assert_eq!(action, None);
-            assert!(state.groups[group_idx]
-                .favorite_agent_profile_ids
-                .is_empty());
-            assert!(!state.session_dirty);
-            assert_eq!(state.settings.section, SettingsSection::GroupProfiles);
-        }
     }
 
     #[test]
@@ -3036,6 +2977,10 @@ mod tests {
         let group_idx = state.create_group("Side".to_string());
 
         open_group_settings(&mut state, group_idx);
+
+        assert_eq!(state.settings.section, SettingsSection::Theme);
+        assert_eq!(state.settings.group_settings_target, Some(group_idx));
+
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
