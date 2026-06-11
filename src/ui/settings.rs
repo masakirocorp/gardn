@@ -25,8 +25,8 @@ use crate::{
 #[cfg(test)]
 use crate::config::ThemeMode;
 const GROUP_SETTINGS_SECTIONS: &[SettingsSection] = &[
-    SettingsSection::Theme,
     SettingsSection::GroupGeneral,
+    SettingsSection::Theme,
     SettingsSection::GroupProfiles,
 ];
 
@@ -151,7 +151,7 @@ fn settings_section_title(app: &AppState, section: SettingsSection) -> &'static 
             SettingsSection::Agents => "agents",
             SettingsSection::Integrations => "agent integrations",
             SettingsSection::GroupGeneral => "general",
-            SettingsSection::GroupProfiles => "profiles",
+            SettingsSection::GroupProfiles => "agents",
         }
     }
 }

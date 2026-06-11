@@ -1591,7 +1591,7 @@ impl SettingsSection {
             Self::Experiments => "advanced",
             Self::Integrations => "integrations",
             Self::GroupGeneral => "general",
-            Self::GroupProfiles => "profiles",
+            Self::GroupProfiles => "agents",
         }
     }
 }

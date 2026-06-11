@@ -1371,7 +1371,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             SettingsSection::Theme | SettingsSection::GroupGeneral | SettingsSection::GroupProfiles
         )
     {
-        state.settings.section = SettingsSection::Theme;
+        state.settings.section = SettingsSection::GroupGeneral;
     }
     let section_before_key = state.settings.section;
     if state.settings.section == SettingsSection::Agents
@@ -1412,14 +1412,14 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 if state.settings.group_settings_target.is_some() {
-                    switch_settings_section(state, SettingsSection::GroupGeneral, 0);
+                    switch_settings_section(state, SettingsSection::GroupProfiles, 0);
                 } else {
                     switch_settings_section(state, SettingsSection::Sound, 0);
                 }
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 if state.settings.group_settings_target.is_some() {
-                    switch_settings_section(state, SettingsSection::GroupProfiles, 0);
+                    switch_settings_section(state, SettingsSection::GroupGeneral, 0);
                 } else {
                     switch_settings_section(state, SettingsSection::Experiments, 0);
                 }
@@ -1666,13 +1666,13 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 return selected_group_general_action(state);
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                state.settings.section = SettingsSection::GroupProfiles;
+                state.settings.list.selected = 0;
+            }
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 state.settings.section = SettingsSection::Theme;
                 state.settings.list.selected = group_accent_selection_index(state);
                 ensure_settings_selection_visible(state);
-            }
-            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
-                state.settings.section = SettingsSection::GroupProfiles;
-                state.settings.list.selected = 0;
             }
             _ => {
                 if state.settings.selection_active
@@ -1729,13 +1729,13 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             KeyCode::Enter | KeyCode::Char(' ') => {}
             KeyCode::Left | KeyCode::Right if key.modifiers.contains(KeyModifiers::SHIFT) => {}
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
-                state.settings.section = SettingsSection::GroupGeneral;
-                state.settings.list.selected = 0;
-            }
-            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 state.settings.section = SettingsSection::Theme;
                 state.settings.list.selected = group_accent_selection_index(state);
                 ensure_settings_selection_visible(state);
+            }
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                state.settings.section = SettingsSection::GroupGeneral;
+                state.settings.list.selected = 0;
             }
             _ => {
                 if let Some(action) = handle_settings_modal_action(state, &key) {
@@ -1837,8 +1837,8 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.group_settings_target = Some(group_idx);
-    state.settings.section = SettingsSection::Theme;
-    state.settings.list.selected = group_accent_selection_index(state);
+    state.settings.section = SettingsSection::GroupGeneral;
+    state.settings.list.selected = 0;
     state.settings.scroll = 0;
     clear_settings_selection(state);
     ensure_settings_selection_visible(state);
@@ -2253,6 +2253,7 @@ mod tests {
         let group_idx = state.create_group("Side".to_string());
 
         open_group_settings(&mut state, group_idx);
+        state.settings.section = SettingsSection::Theme;
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
@@ -2283,6 +2284,7 @@ mod tests {
         let group_idx = state.create_group("Side".to_string());
 
         open_group_settings(&mut state, group_idx);
+        state.settings.section = SettingsSection::Theme;
         assert_eq!(state.settings.list.selected, 0);
         state.settings.selection_active = true;
         let action = update_settings_state(
@@ -2313,6 +2315,7 @@ mod tests {
         );
 
         open_group_settings(&mut state, group_idx);
+        state.settings.section = SettingsSection::Theme;
         state.settings.list.selected = 0;
         state.settings.selection_active = true;
         state.settings.selection_active = true;
@@ -2331,6 +2334,8 @@ mod tests {
         assert!(state.set_group_accent(group_idx, Some(TerminalAccent::Blue)));
 
         open_group_settings(&mut state, group_idx);
+        state.settings.section = SettingsSection::Theme;
+        state.settings.list.selected = group_accent_selection_index(&state);
         assert_eq!(state.settings.list.selected, 1);
         state.settings.selection_active = true;
         update_settings_state(
@@ -2937,13 +2942,13 @@ mod tests {
     }
 
     #[test]
-    fn group_settings_switches_between_appearance_and_general() {
+    fn group_settings_switches_general_appearance_agents() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
 
         open_group_settings(&mut state, group_idx);
 
-        assert_eq!(state.settings.section, SettingsSection::Theme);
+        assert_eq!(state.settings.section, SettingsSection::GroupGeneral);
         assert_eq!(state.settings.group_settings_target, Some(group_idx));
 
         update_settings_state(
@@ -2951,7 +2956,7 @@ mod tests {
             KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
         );
 
-        assert_eq!(state.settings.section, SettingsSection::GroupGeneral);
+        assert_eq!(state.settings.section, SettingsSection::Theme);
         assert_eq!(state.settings.group_settings_target, Some(group_idx));
 
         update_settings_state(
@@ -2966,7 +2971,7 @@ mod tests {
             KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
         );
 
-        assert_eq!(state.settings.section, SettingsSection::Theme);
+        assert_eq!(state.settings.section, SettingsSection::GroupGeneral);
         assert_eq!(state.settings.group_settings_target, Some(group_idx));
     }
 
@@ -3075,6 +3080,7 @@ mod tests {
         let group_idx = app.state.create_group("Side".to_string());
 
         open_group_settings(&mut app.state, group_idx);
+        app.state.settings.section = SettingsSection::Theme;
         app.state.settings.list.selected = 1;
         app.state.settings.selection_active = true;
         app.state.settings.selection_active = true;
