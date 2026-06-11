@@ -17,12 +17,14 @@ use super::widgets::{
 use crate::{
     app::{
         agent_profile_picker::{agent_profile_picker_tab_label, AGENT_PROFILE_PICKER_TABS},
-        state::{normalize_theme_name, Palette, SettingsSection},
+        state::{Palette, SettingsSection},
         AppState,
     },
-    config::ThemeMode,
     settings_rows::{rows_for_section, visual_row_count, SettingsListRow, SettingsMarkerTone},
 };
+
+#[cfg(test)]
+use crate::config::ThemeMode;
 const GROUP_SETTINGS_SECTIONS: &[SettingsSection] = &[
     SettingsSection::Theme,
     SettingsSection::GroupGeneral,
@@ -58,13 +60,7 @@ fn settings_tab_text(app: &AppState, section: SettingsSection) -> &'static str {
 }
 
 fn settings_tab_width(app: &AppState, section: SettingsSection) -> u16 {
-    let label_width = settings_tab_text(app, section).width() as u16;
-    let badge_width = if app.settings_section_has_badge(section) {
-        2
-    } else {
-        0
-    };
-    label_width + badge_width + 2
+    settings_tab_text(app, section).width() as u16 + 2
 }
 
 fn settings_visible_tab_range(app: &AppState, row_width: u16) -> (usize, usize) {
@@ -127,15 +123,6 @@ fn render_settings_tabs(app: &AppState, frame: &mut Frame, row: Rect) {
             Style::default().fg(p.overlay1)
         };
         spans.push(Span::styled(" ", tab_style));
-        if app.settings_section_has_badge(section) {
-            let badge_style = if selected {
-                tab_style
-            } else {
-                Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
-            };
-            spans.push(Span::styled("●", badge_style));
-            spans.push(Span::styled(" ", tab_style));
-        }
         spans.push(Span::styled(settings_tab_text(app, section), tab_style));
         spans.push(Span::styled(" ", tab_style));
     }
@@ -154,16 +141,16 @@ fn settings_section_title(app: &AppState, section: SettingsSection) -> &'static 
         if app.settings.pending_agent_profile_id.is_some() {
             "edit custom profile"
         } else {
-            "add custom profile"
+            "new custom profile"
         }
     } else {
         match section {
-            SettingsSection::Theme => "theme",
+            SettingsSection::Theme => "appearance",
             SettingsSection::Layout => "layout",
-            SettingsSection::Sound => "sound",
+            SettingsSection::Sound => "notifications",
             SettingsSection::Toast => "toasts",
             SettingsSection::PaneLabels => "behavior",
-            SettingsSection::Experiments => "experiments",
+            SettingsSection::Experiments => "advanced",
             SettingsSection::Agents => "agents",
             SettingsSection::Integrations => "agent integrations",
             SettingsSection::GroupGeneral => "general",
@@ -177,47 +164,18 @@ fn settings_section_description(app: &AppState, section: SettingsSection) -> &'s
         SettingsSection::Theme if app.settings.group_settings_target.is_some() => {
             "choose an ANSI accent for this group, or inherit the global accent"
         }
-        SettingsSection::Theme => {
-            let mode = app
-                .settings
-                .pending_theme_mode
-                .unwrap_or(app.global_theme_mode);
-            let pending_light_theme = app
-                .settings
-                .pending_light_theme_name
-                .as_deref()
-                .unwrap_or(&app.global_light_theme_name);
-            let pending_dark_theme = app
-                .settings
-                .pending_dark_theme_name
-                .as_deref()
-                .unwrap_or(&app.global_dark_theme_name);
-            let system_source = mode == ThemeMode::System
-                && normalize_theme_name(pending_light_theme) == "system"
-                && normalize_theme_name(pending_dark_theme) == "system";
-            if system_source {
-                "follow terminal colors directly"
-            } else {
-                match mode {
-                    ThemeMode::System => {
-                        "choose custom palettes for automatic light and dark appearance"
-                    }
-                    ThemeMode::Light => "choose the palette hako uses in light appearance",
-                    ThemeMode::Dark => "choose the palette hako uses in dark appearance",
-                }
-            }
-        }
+        SettingsSection::Theme => "configure theme, sidebar layout, and pane appearance",
         SettingsSection::Layout => "set sidebar width bounds",
-        SettingsSection::Sound => "choose whether hako plays terminal bell sounds",
+        SettingsSection::Sound => "choose sound and toast notification behavior",
         SettingsSection::Toast => "choose where command and agent notifications are delivered",
         SettingsSection::PaneLabels => {
             "control workspace prompts and terminal interaction defaults"
         }
-        SettingsSection::Experiments => "enable behavior that is useful but still being proven",
+        SettingsSection::Experiments => "configure advanced or platform-specific behavior",
         SettingsSection::Agents if settings_agents_editor_open(app) => {
             "name the profile and provide the command hako should launch"
         }
-        SettingsSection::Agents => "create custom agent commands and manage global profile order",
+        SettingsSection::Agents => "create custom commands and manage agent profiles",
         SettingsSection::Integrations => "install hooks so agents report state directly",
         SettingsSection::GroupGeneral => "rename this group or delete it",
         SettingsSection::GroupProfiles => {
@@ -303,11 +261,10 @@ pub(crate) fn settings_profile_list_rect(app: &AppState, area: Rect) -> Rect {
 
 fn settings_profile_filters_visible(app: &AppState) -> bool {
     matches!(app.settings.section, SettingsSection::GroupProfiles)
-        || (app.settings.section == SettingsSection::Agents && !settings_agents_editor_open(app))
 }
 
 pub(crate) fn settings_profile_family_tab_row(app: &AppState, area: Rect) -> Option<Rect> {
-    let label_width = 7;
+    let label_width = 5;
     settings_profile_filters_visible(app)
         .then(|| settings_section_list_rect(area))
         .map(|body| {
@@ -367,10 +324,10 @@ fn settings_profile_tab_width(idx: usize) -> u16 {
 }
 
 fn render_settings_profile_family_tabs(app: &AppState, frame: &mut Frame, row: Rect) {
-    let label_width = 7;
+    let label_width = 5;
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "filter ",
+            "show ",
             Style::default().fg(app.palette.overlay0),
         )),
         row,
@@ -421,23 +378,24 @@ fn render_settings_profile_family_tabs(app: &AppState, frame: &mut Frame, row: R
 const SETTINGS_INTEGRATIONS_HINTS: &[(&str, &str)] =
     &[("move", "↑↓"), ("action", "space/↵"), ("section", "←→/tab")];
 const SETTINGS_AGENTS_EDITOR_HINTS: &[(&str, &str)] =
-    &[("move", "↑↓"), ("action", "↵"), ("section", "←→/tab")];
+    &[("move", "↑↓"), ("action", "space/↵"), ("section", "←→/tab")];
 const SETTINGS_AGENTS_HINTS: &[(&str, &str)] = &[
     ("move", "↑↓"),
-    ("edit/add", "↵"),
+    ("new/edit", "space/↵"),
     ("delete", "ctrl+d"),
-    ("filter", "shift+←→"),
     ("section", "←→/tab"),
 ];
 const SETTINGS_GROUP_PROFILES_HINTS: &[(&str, &str)] = &[
     ("move", "↑↓"),
     ("favorite", "ctrl+f"),
     ("default", "ctrl+d"),
-    ("filter", "shift+←→"),
+    ("show", "shift+←→"),
+    ("section", "←→/tab"),
 ];
-const SETTINGS_GROUP_HINTS: &[(&str, &str)] = &[("move", "↑↓"), ("select", "space")];
+const SETTINGS_GROUP_HINTS: &[(&str, &str)] =
+    &[("move", "↑↓"), ("action", "space/↵"), ("section", "←→/tab")];
 const SETTINGS_DEFAULT_HINTS: &[(&str, &str)] =
-    &[("move", "↑↓"), ("select", "space"), ("section", "←→/tab")];
+    &[("move", "↑↓"), ("action", "space/↵"), ("section", "←→/tab")];
 
 fn settings_footer_hints(
     app: &AppState,
@@ -555,51 +513,19 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
     let [list_area, hint_area] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas::<2>(body_area);
 
-    let model_rows = rows_for_section(app, SettingsSection::Integrations).unwrap_or_default();
-    let mut lines = Vec::new();
-    for row in &model_rows {
-        let SettingsListRow::StatusChoice {
-            index,
-            marker,
-            label,
-            tone,
-        } = row
-        else {
-            continue;
-        };
-        let selected = app.settings.list.selected == *index;
-        let selected_style = modal_option_style(p, selected);
-        let marker_style = if selected {
-            selected_style
-        } else {
-            settings_marker_style(p, *tone)
-        };
-        let label_style = if selected {
-            selected_style
-        } else {
-            Style::default().fg(p.subtext0)
-        };
-        if selected {
-            let text = format!(" {marker} {label}");
-            lines.push(Line::from(Span::styled(
-                format!("{text:<width$}", width = list_area.width as usize),
-                selected_style,
-            )));
-        } else {
-            lines.push(Line::from(vec![
-                Span::styled(format!(" {marker} "), marker_style),
-                Span::styled(label.as_ref(), label_style),
-            ]));
-        }
+    if app.integration_recommendations.is_empty() {
+        frame.render_widget(
+            Paragraph::new(settings_description_line(
+                "no integration targets available",
+                list_area.width as usize,
+                Style::default().fg(p.overlay1),
+                false,
+            )),
+            list_area,
+        );
+    } else {
+        render_settings_rows(app, frame, list_area);
     }
-
-    if lines.is_empty() {
-        lines.push(Line::from(Span::styled(
-            " no integration targets available",
-            Style::default().fg(p.overlay1),
-        )));
-    }
-    frame.render_widget(Paragraph::new(lines), list_area);
 
     let found_any = app.integration_recommendations.iter().any(|item| {
         item.available || item.state != crate::integration::IntegrationStatusKind::NotInstalled
@@ -658,6 +584,175 @@ fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area
     }
 }
 
+const SETTINGS_BODY_INDENT: usize = 2;
+const SETTINGS_DESCRIPTION_INDENT: usize = 4;
+
+fn settings_body_width(width: usize) -> usize {
+    width.saturating_sub(SETTINGS_BODY_INDENT)
+}
+
+fn settings_description_width(width: usize) -> usize {
+    width.saturating_sub(SETTINGS_DESCRIPTION_INDENT)
+}
+
+fn settings_padded_text(text: &str, width: usize) -> String {
+    format!("{text:<width$}")
+}
+
+fn settings_title_value_line(
+    title: &str,
+    value: &str,
+    width: usize,
+    title_style: Style,
+    value_style: Style,
+    selected: bool,
+) -> Line<'static> {
+    let body_width = settings_body_width(width);
+    let title_width = title.width();
+    let value_width = value.width();
+    let gap = if body_width > title_width + value_width {
+        body_width - title_width - value_width
+    } else {
+        1
+    };
+    let filler_style = if selected {
+        title_style
+    } else {
+        Style::default()
+    };
+    Line::from(vec![
+        Span::styled(" ".repeat(SETTINGS_BODY_INDENT), filler_style),
+        Span::styled(title.to_string(), title_style),
+        Span::styled(" ".repeat(gap), filler_style),
+        Span::styled(value.to_string(), value_style),
+    ])
+}
+
+fn settings_description_line(
+    text: &str,
+    width: usize,
+    style: Style,
+    selected: bool,
+) -> Line<'static> {
+    let body_width = settings_body_width(width);
+    let content = settings_padded_text(text, body_width);
+    let filler_style = if selected { style } else { Style::default() };
+    Line::from(vec![
+        Span::styled(" ".repeat(SETTINGS_BODY_INDENT), filler_style),
+        Span::styled(content, style),
+    ])
+}
+
+fn settings_setting_description_line(
+    text: &str,
+    width: usize,
+    style: Style,
+    selected: bool,
+) -> Line<'static> {
+    let body_width = settings_description_width(width);
+    let content = settings_padded_text(text, body_width);
+    let filler_style = if selected { style } else { Style::default() };
+    Line::from(vec![
+        Span::styled(" ".repeat(SETTINGS_DESCRIPTION_INDENT), filler_style),
+        Span::styled(content, style),
+    ])
+}
+
+fn settings_status_line(
+    label: &str,
+    status: &str,
+    width: usize,
+    label_style: Style,
+    status_style: Style,
+    selected: bool,
+) -> Line<'static> {
+    settings_title_value_line(label, status, width, label_style, status_style, selected)
+}
+
+fn settings_action_line(
+    icon: &str,
+    label: &str,
+    width: usize,
+    style: Style,
+    selected: bool,
+) -> Line<'static> {
+    let body_width = settings_body_width(width);
+    let text = if icon.is_empty() {
+        label.to_string()
+    } else {
+        format!("{icon} {label}")
+    };
+    let content = settings_padded_text(&text, body_width);
+    let filler_style = if selected { style } else { Style::default() };
+    Line::from(vec![
+        Span::styled(" ".repeat(SETTINGS_BODY_INDENT), filler_style),
+        Span::styled(content, style),
+    ])
+}
+
+fn settings_choice_line(
+    label: &str,
+    checked: bool,
+    width: usize,
+    label_style: Style,
+    check_style: Style,
+    selected: bool,
+) -> Line<'static> {
+    let body_width = settings_body_width(width);
+    let marker = if checked { "✓" } else { " " };
+    let label_width = label.width();
+    let padding = body_width.saturating_sub(2 + label_width);
+    let filler_style = if selected {
+        label_style
+    } else {
+        Style::default()
+    };
+    Line::from(vec![
+        Span::styled(" ".repeat(SETTINGS_BODY_INDENT), filler_style),
+        Span::styled(marker.to_string(), check_style),
+        Span::styled(" ", filler_style),
+        Span::styled(label.to_string(), label_style),
+        Span::styled(" ".repeat(padding), filler_style),
+    ])
+}
+
+fn settings_profile_name_line(
+    name: &str,
+    detail: &str,
+    badge: Option<&str>,
+    width: usize,
+    name_style: Style,
+    detail_style: Style,
+    badge_style: Style,
+    selected: bool,
+) -> Line<'static> {
+    let badge = badge.unwrap_or("");
+    let detail_text = if detail.is_empty() {
+        String::new()
+    } else {
+        format!(" · {detail}")
+    };
+    let body_width = settings_body_width(width);
+    let used_width = name.width() + detail_text.width() + badge.width();
+    let gap = if body_width > used_width {
+        body_width - used_width
+    } else {
+        1
+    };
+    let filler_style = if selected {
+        name_style
+    } else {
+        Style::default()
+    };
+    Line::from(vec![
+        Span::styled(" ".repeat(SETTINGS_BODY_INDENT), filler_style),
+        Span::styled(name.to_string(), name_style),
+        Span::styled(detail_text, detail_style),
+        Span::styled(" ".repeat(gap), filler_style),
+        Span::styled(badge.to_string(), badge_style),
+    ])
+}
+
 fn render_settings_rows(app: &AppState, frame: &mut Frame, area: Rect) {
     let p = &app.palette;
     let selected_style = modal_option_style(p, true);
@@ -691,169 +786,240 @@ fn render_settings_rows(app: &AppState, frame: &mut Frame, area: Rect) {
                 ))));
             }
             SettingsListRow::Spacer => rows.push(ListItem::new(Line::from(""))),
-            SettingsListRow::Option {
+            SettingsListRow::Toggle {
                 index,
                 title,
                 description,
                 enabled,
             } => {
-                let selected = app.settings.list.selected == *index;
+                let selected =
+                    app.settings.selection_active && app.settings.list.selected == *index;
                 if selected {
                     selected_row = Some(rows.len());
                 }
-                let marker = if *enabled { "●" } else { "○" };
-                let marker_style = settings_toggle_marker_style(p, *enabled, selected);
-                if selected {
-                    rows.push(ListItem::new(Line::from(vec![
-                        Span::styled(marker, marker_style),
-                        Span::styled(" ", selected_style),
-                        Span::styled(
-                            format!("{title:<width$}", width = list_width.saturating_sub(2)),
-                            selected_style,
-                        ),
-                    ])));
-                    rows.push(ListItem::new(Line::from(Span::styled(
-                        format!(
-                            "  {description:<width$}",
-                            width = list_width.saturating_sub(2)
-                        ),
-                        selected_style,
-                    ))));
-                } else {
-                    rows.push(ListItem::new(Line::from(vec![
-                        Span::styled(marker, marker_style),
-                        Span::raw(" "),
-                        Span::styled(title.as_ref(), Style::default().fg(p.text)),
-                    ])));
-                    rows.push(ListItem::new(Line::from(Span::styled(
-                        description.as_ref(),
-                        Style::default().fg(p.subtext0),
-                    ))));
-                }
-            }
-            SettingsListRow::ValueOption {
-                index,
-                title,
-                value,
-            } => {
-                let selected = app.settings.list.selected == *index;
-                if selected {
-                    selected_row = Some(rows.len());
-                }
-                let marker_style = if selected {
+                let value = if *enabled { "on" } else { "off" };
+                let label_style = if selected {
                     selected_style
                 } else {
-                    Style::default().fg(p.overlay0)
+                    Style::default().fg(p.text)
                 };
-                if selected {
-                    rows.push(ListItem::new(Line::from(vec![
-                        Span::styled("›", marker_style),
-                        Span::styled(" ", selected_style),
-                        Span::styled(
-                            format!("{title:<width$}", width = list_width.saturating_sub(2)),
-                            selected_style,
-                        ),
-                    ])));
-                    rows.push(ListItem::new(Line::from(Span::styled(
-                        format!("{value:<list_width$}"),
-                        selected_style,
-                    ))));
+                let value_style = if selected {
+                    selected_style.add_modifier(Modifier::BOLD)
                 } else {
-                    rows.push(ListItem::new(Line::from(vec![
-                        Span::styled("›", marker_style),
-                        Span::raw(" "),
-                        Span::styled(title.as_ref(), Style::default().fg(p.text)),
-                    ])));
-                    rows.push(ListItem::new(Line::from(Span::styled(
-                        value.as_ref(),
-                        Style::default().fg(p.subtext0),
-                    ))));
+                    Style::default().fg(p.accent)
+                };
+                rows.push(ListItem::new(settings_title_value_line(
+                    title,
+                    value,
+                    list_width,
+                    label_style,
+                    value_style,
+                    selected,
+                )));
+                rows.push(ListItem::new(settings_setting_description_line(
+                    description,
+                    list_width,
+                    if selected {
+                        selected_style
+                    } else {
+                        Style::default().fg(p.subtext0)
+                    },
+                    selected,
+                )));
+            }
+            SettingsListRow::Value {
+                index,
+                title,
+                description,
+                value,
+            } => {
+                let selected =
+                    app.settings.selection_active && app.settings.list.selected == *index;
+                if selected {
+                    selected_row = Some(rows.len());
                 }
+                let label_style = if selected {
+                    selected_style
+                } else {
+                    Style::default().fg(p.text)
+                };
+                let value_style = if selected {
+                    selected_style.add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(p.accent)
+                };
+                rows.push(ListItem::new(settings_title_value_line(
+                    title,
+                    value,
+                    list_width,
+                    label_style,
+                    value_style,
+                    selected,
+                )));
+                rows.push(ListItem::new(settings_setting_description_line(
+                    description,
+                    list_width,
+                    if selected {
+                        selected_style
+                    } else {
+                        Style::default().fg(p.subtext0)
+                    },
+                    selected,
+                )));
             }
             SettingsListRow::TextInput {
                 index,
                 title,
                 value,
             } => {
-                let selected = app.settings.list.selected == *index;
+                let selected =
+                    app.settings.selection_active && app.settings.list.selected == *index;
                 if selected {
                     selected_row = Some(rows.len() + 1);
                 }
-                rows.push(ListItem::new(Line::from(Span::styled(
-                    format!(" {title:<width$}", width = list_width.saturating_sub(1)),
-                    Style::default().fg(p.text).add_modifier(Modifier::BOLD),
-                ))));
+                rows.push(ListItem::new(settings_description_line(
+                    title,
+                    list_width,
+                    Style::default().fg(p.text),
+                    false,
+                )));
                 let input_value = if selected {
-                    format!(" {value}█")
+                    format!("{value}█")
                 } else {
-                    format!(" {value}")
+                    value.to_string()
                 };
                 let input_style = Style::default().fg(p.text).bg(p.surface0);
-                rows.push(ListItem::new(Line::from(Span::styled(
-                    format!("{input_value:<list_width$}"),
+                rows.push(ListItem::new(settings_description_line(
+                    &input_value,
+                    list_width,
                     input_style,
-                ))));
+                    false,
+                )));
             }
             SettingsListRow::Choice {
                 index,
                 label,
                 checked,
             } => {
-                let selected = app.settings.list.selected == *index;
+                let selected =
+                    app.settings.selection_active && app.settings.list.selected == *index;
                 if selected {
                     selected_row = Some(rows.len());
                 }
-                let marker = if *checked { " ✓" } else { "" };
-                if selected {
-                    let text = format!("  {label}{marker}");
-                    rows.push(ListItem::new(Line::from(Span::styled(
-                        format!("{text:<list_width$}"),
-                        selected_style,
-                    ))));
-                } else {
-                    rows.push(ListItem::new(Line::from(vec![
-                        Span::styled(format!("  {label}"), modal_option_style(p, false)),
-                        Span::styled(marker.to_string(), modal_option_marker_style(p, false)),
-                    ])));
-                }
-            }
-            SettingsListRow::StatusChoice {
-                index,
-                marker,
-                label,
-                tone,
-            } => {
-                let selected = app.settings.list.selected == *index;
-                if selected {
-                    selected_row = Some(rows.len());
-                }
-                let selected_style = if selected && *tone == SettingsMarkerTone::Danger {
-                    settings_danger_selected_style(p)
-                } else {
-                    modal_option_style(p, selected)
-                };
-                let marker_style = if selected {
+                let label_style = if selected {
                     selected_style
-                } else {
-                    settings_marker_style(p, *tone)
-                };
-                let label_style = if *tone == SettingsMarkerTone::Danger {
-                    marker_style
                 } else {
                     Style::default().fg(p.text)
                 };
-                if selected {
-                    let text = format!(" {marker} {label}");
-                    rows.push(ListItem::new(Line::from(Span::styled(
-                        format!("{text:<list_width$}"),
-                        selected_style,
-                    ))));
+                let check_style = if selected {
+                    selected_style
+                } else if *checked {
+                    Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
                 } else {
-                    rows.push(ListItem::new(Line::from(vec![
-                        Span::styled(format!(" {marker} "), marker_style),
-                        Span::styled(label.as_ref(), label_style),
-                    ])));
+                    Style::default().fg(p.overlay0)
+                };
+                rows.push(ListItem::new(settings_choice_line(
+                    label,
+                    *checked,
+                    list_width,
+                    label_style,
+                    check_style,
+                    selected,
+                )));
+            }
+            SettingsListRow::Action {
+                index,
+                icon,
+                label,
+                tone,
+            } => {
+                let selected =
+                    app.settings.selection_active && app.settings.list.selected == *index;
+                if selected {
+                    selected_row = Some(rows.len());
                 }
+                let style = if selected && *tone == SettingsMarkerTone::Danger {
+                    settings_danger_selected_style(p)
+                } else if selected {
+                    selected_style
+                } else if *tone == SettingsMarkerTone::Danger {
+                    settings_marker_style(p, *tone)
+                } else {
+                    Style::default().fg(p.text)
+                };
+                rows.push(ListItem::new(settings_action_line(
+                    icon, label, list_width, style, selected,
+                )));
+            }
+            SettingsListRow::Status {
+                index,
+                label,
+                status,
+                tone,
+            } => {
+                let selected =
+                    app.settings.selection_active && app.settings.list.selected == *index;
+                if selected {
+                    selected_row = Some(rows.len());
+                }
+                let label_style = if selected {
+                    selected_style
+                } else {
+                    Style::default().fg(p.text)
+                };
+                let status_style = if selected {
+                    selected_style.add_modifier(Modifier::BOLD)
+                } else {
+                    settings_marker_style(p, *tone)
+                };
+                rows.push(ListItem::new(settings_status_line(
+                    label,
+                    status,
+                    list_width,
+                    label_style,
+                    status_style,
+                    selected,
+                )));
+            }
+            SettingsListRow::Profile {
+                index,
+                name,
+                detail,
+                badge,
+                tone,
+            } => {
+                let selected =
+                    app.settings.selection_active && app.settings.list.selected == *index;
+                if selected {
+                    selected_row = Some(rows.len());
+                }
+                let name_style = if selected {
+                    selected_style
+                } else if *tone == SettingsMarkerTone::Warning {
+                    Style::default().fg(p.text)
+                } else {
+                    Style::default().fg(p.text)
+                };
+                let detail_style = if selected {
+                    selected_style
+                } else {
+                    Style::default().fg(p.subtext0)
+                };
+                let badge_style = if selected {
+                    selected_style.add_modifier(Modifier::BOLD)
+                } else {
+                    settings_marker_style(p, *tone).add_modifier(Modifier::BOLD)
+                };
+                rows.push(ListItem::new(settings_profile_name_line(
+                    name,
+                    detail,
+                    badge.as_deref(),
+                    list_width,
+                    name_style,
+                    detail_style,
+                    badge_style,
+                    selected,
+                )));
             }
         }
     }
@@ -906,30 +1072,6 @@ fn settings_danger_selected_style(p: &Palette) -> Style {
         .add_modifier(Modifier::BOLD)
 }
 
-fn settings_toggle_marker_style(p: &Palette, enabled: bool, selected: bool) -> Style {
-    if selected {
-        Style::default()
-            .fg(panel_contrast_fg(p))
-            .bg(p.accent)
-            .add_modifier(Modifier::BOLD)
-    } else if enabled {
-        Style::default().fg(p.green)
-    } else {
-        Style::default().fg(p.overlay0)
-    }
-}
-
-fn modal_option_marker_style(p: &Palette, selected: bool) -> Style {
-    if selected {
-        Style::default()
-            .fg(panel_contrast_fg(p))
-            .bg(p.accent)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(p.green)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
@@ -980,10 +1122,10 @@ mod tests {
         assert!(text.contains("name"));
         assert!(text.contains("Work"));
         assert!(text.contains("danger zone"));
-        assert!(text.contains("! delete group"));
+        assert!(text.contains("× delete group"));
         assert!(!text.contains("●"));
         assert!(!text.contains("○"));
-        assert!(text.contains("Work█"));
+        assert!(!text.contains("Work█"));
     }
 
     #[test]
@@ -1001,19 +1143,20 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, 80, 24);
-        let (y, x) = find_text_cell(&text, "! delete group").expect("delete action row");
+        let (y, x) = find_text_cell(&text, "× delete group").expect("delete action row");
         assert_eq!(buffer[(x, y)].style().fg, Some(app.palette.red));
         assert_eq!(buffer[(x + 2, y)].style().fg, Some(app.palette.red));
         assert_ne!(buffer[(x, y)].style().bg, Some(app.palette.red));
 
         app.settings.list.selected = 1;
+        app.settings.selection_active = true;
         terminal
             .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
             .expect("render group settings overlay");
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, 80, 24);
-        let (y, x) = find_text_cell(&text, "! delete group").expect("delete action row");
+        let (y, x) = find_text_cell(&text, "× delete group").expect("delete action row");
         assert_eq!(buffer[(x, y)].style().bg, Some(app.palette.red));
         assert_eq!(buffer[(x + 2, y)].style().bg, Some(app.palette.red));
         assert_eq!(
@@ -1082,10 +1225,10 @@ mod tests {
             .expect("render theme settings");
 
         let text = buffer_text(terminal.backend().buffer(), 100, 50);
-        assert!(text.contains("terminal ✓"));
+        assert!(text.contains("✓ terminal"));
         assert!(text.contains("palettes"));
         assert!(text.contains("accent"));
-        assert!(text.contains("blue ✓"));
+        assert!(text.contains("✓ blue"));
         assert!(text.contains("magenta"));
         assert!(text.contains("colors"));
         assert!(!text.contains("light appearance"));
@@ -1109,9 +1252,9 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), 100, 50);
         assert!(text.contains("terminal"));
-        assert!(text.contains("palettes ✓"));
+        assert!(text.contains("✓ palettes"));
         assert!(text.contains("appearance"));
-        assert!(text.contains("automatic ✓"));
+        assert!(text.contains("✓ automatic"));
         assert!(!text.contains("system terminal"));
         assert!(!text.contains(" mode"));
         assert!(text.contains("light appearance"));
@@ -1119,6 +1262,7 @@ mod tests {
         assert_no_option_line(&text, "terminal");
 
         app.settings.list.selected = theme_names_for_appearance(ThemeAppearance::Light).len();
+        app.settings.selection_active = true;
         app.settings.scroll = theme_names_for_appearance(ThemeAppearance::Light).len() + 3;
         terminal
             .draw(|frame| render_settings_theme(&app, frame, Rect::new(0, 0, 100, 50)))
@@ -1138,6 +1282,7 @@ mod tests {
         app.settings.pending_light_theme_name = Some("solarized-light".to_string());
         app.settings.pending_dark_theme_name = Some("rose-pine".to_string());
         app.settings.list.selected = 0;
+        app.settings.selection_active = true;
         app.settings.scroll = theme_names_for_appearance(ThemeAppearance::Light).len() + 2;
 
         let backend = TestBackend::new(100, 50);
@@ -1160,6 +1305,7 @@ mod tests {
         app.settings.pending_theme_mode = Some(ThemeMode::Light);
         app.settings.pending_light_theme_name = Some("solarized-light".to_string());
         app.settings.list.selected = 1;
+        app.settings.selection_active = true;
 
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).expect("test backend");
@@ -1168,10 +1314,10 @@ mod tests {
             .expect("render theme settings");
 
         let text = buffer_text(terminal.backend().buffer(), 100, 50);
-        assert!(!text.contains("automatic ✓"));
-        assert!(text.contains("light ✓"));
-        assert!(!text.contains("catppuccin latte ✓"));
-        assert!(text.contains("solarized ✓"));
+        assert!(!text.contains("✓ automatic"));
+        assert!(text.contains("✓ light"));
+        assert!(!text.contains("✓ catppuccin latte"));
+        assert!(text.contains("✓ solarized"));
     }
 
     #[test]
@@ -1181,6 +1327,7 @@ mod tests {
         app.settings.section = SettingsSection::Theme;
         app.settings.pending_theme_mode = Some(ThemeMode::Light);
         app.settings.list.selected = 3;
+        app.settings.selection_active = true;
 
         let area = Rect::new(0, 0, 100, 50);
         let backend = TestBackend::new(area.width, area.height);
@@ -1192,7 +1339,7 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, area.width, area.height);
         let (selected_y, selected_x) =
-            find_text_cell(&text, "light ✓").expect("selected light row");
+            find_text_cell(&text, "✓ light").expect("selected light row");
         let selected_row_end = area.x + area.width.saturating_sub(1);
         assert_eq!(
             buffer[(selected_x, selected_y)].style().bg,
@@ -1213,6 +1360,7 @@ mod tests {
         app.settings.pending_light_theme_name = Some("system".to_string());
         app.settings.pending_dark_theme_name = Some("system".to_string());
         app.settings.list.selected = 2 + TerminalAccent::ALL.len();
+        app.settings.selection_active = true;
 
         let area = Rect::new(0, 0, 100, 50);
         let backend = TestBackend::new(area.width, area.height);
@@ -1255,6 +1403,7 @@ mod tests {
         app.settings.section = SettingsSection::Theme;
         app.settings.pending_theme_mode = Some(ThemeMode::Light);
         app.settings.list.selected = 3;
+        app.settings.selection_active = true;
 
         let area = Rect::new(0, 0, 100, 50);
         let backend = TestBackend::new(area.width, area.height);
@@ -1265,17 +1414,16 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, area.width, area.height);
-        let (y, x) = find_text_cell(&text, "light ✓").expect("selected light row");
-        assert_eq!(buffer[(x.saturating_sub(2), y)].symbol(), " ");
-        assert_eq!(buffer[(x.saturating_sub(1), y)].symbol(), " ");
-        assert_eq!(buffer[(x, y)].symbol(), "l");
+        let (y, x) = find_text_cell(&text, "✓ light").expect("selected light row");
+        assert_eq!(buffer[(x, y)].symbol(), "✓");
+        assert_eq!(buffer[(x.saturating_add(1), y)].symbol(), " ");
+        assert_eq!(buffer[(x.saturating_add(2), y)].symbol(), "l");
     }
 
     #[test]
-    fn agent_settings_renders_filter_chips_above_profile_rows() {
+    fn agent_settings_renders_custom_profile_management() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Agents;
-        app.settings.agent_profile_kind_filter = Some(crate::agent_profiles::AgentKind::Omp);
 
         let area = Rect::new(0, 0, 100, 40);
         let backend = TestBackend::new(area.width, area.height);
@@ -1286,11 +1434,9 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("agents"));
-        assert!(text.contains("all"));
-        assert!(text.contains("omp"));
-        assert!(text.contains("profiles"));
-        assert!(text.contains("filter"));
-        assert!(text.contains("filter shift+←→"));
+        assert!(text.contains("new custom profile"));
+        assert!(text.contains("custom profiles"));
+        assert!(!text.contains("show shift+←→"));
     }
 
     #[test]
@@ -1314,7 +1460,7 @@ mod tests {
         assert!(text.contains("omp"));
         assert!(text.contains("favorites"));
         assert!(text.contains("available"));
-        assert!(text.contains("filter shift+←→"));
+        assert!(text.contains("show shift+←→"));
     }
     #[test]
     fn agent_profile_editor_renders_numbered_steps() {
@@ -1323,6 +1469,14 @@ mod tests {
         app.settings.pending_agent_profile_name = Some("omp mk".to_string());
         app.settings.pending_agent_profile_command = Some("omp-mk".to_string());
         app.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Omp);
+        app.integration_recommendations = vec![crate::integration::IntegrationRecommendation {
+            target: crate::api::schema::IntegrationTarget::Omp,
+            label: "omp",
+            command: "omp",
+            available: true,
+            path: std::path::PathBuf::from("/tmp/hako-test-omp"),
+            state: crate::integration::IntegrationStatusKind::Current,
+        }];
 
         let area = Rect::new(0, 0, 100, 40);
         let backend = TestBackend::new(area.width, area.height);
@@ -1336,7 +1490,7 @@ mod tests {
         assert!(text.contains("1. name"));
         assert!(text.contains("label shown in menus"));
         assert!(text.contains("2. kind"));
-        assert!(text.contains("supported agents get status, restore, and integrations"));
+        assert!(text.contains("choose an installed integration family"));
         app.settings.scroll = 12;
         terminal
             .draw(|frame| render_settings_overlay(&app, frame, area))
@@ -1355,7 +1509,26 @@ mod tests {
         app.settings.pending_agent_profile_name = Some("omp mk".to_string());
         app.settings.pending_agent_profile_command = Some("omp-mk".to_string());
         app.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Codex);
+        app.integration_recommendations = vec![
+            crate::integration::IntegrationRecommendation {
+                target: crate::api::schema::IntegrationTarget::Claude,
+                label: "claude",
+                command: "claude",
+                available: true,
+                path: std::path::PathBuf::from("/tmp/hako-test-claude"),
+                state: crate::integration::IntegrationStatusKind::Current,
+            },
+            crate::integration::IntegrationRecommendation {
+                target: crate::api::schema::IntegrationTarget::Codex,
+                label: "codex",
+                command: "codex",
+                available: true,
+                path: std::path::PathBuf::from("/tmp/hako-test-codex"),
+                state: crate::integration::IntegrationStatusKind::Current,
+            },
+        ];
         app.settings.list.selected = 1;
+        app.settings.selection_active = true;
 
         let area = Rect::new(0, 0, 100, 40);
         let backend = TestBackend::new(area.width, area.height);
@@ -1367,10 +1540,10 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, area.width, area.height);
         let (selected_y, selected_x) =
-            find_text_cell(&text, "codex ✓").expect("selected codex kind");
-        let (_, claude_x) = find_text_cell(&text, "claude").expect("unselected claude kind");
+            find_text_cell(&text, "✓ codex").expect("selected codex kind");
+        let (_, claude_x) = find_text_cell(&text, "  claude").expect("unselected claude kind");
         assert_eq!(selected_x, claude_x);
-        assert_eq!(buffer[(selected_x, selected_y)].symbol(), "c");
+        assert_eq!(buffer[(selected_x, selected_y)].symbol(), "✓");
         assert_eq!(
             buffer[(selected_x, selected_y)].style().bg,
             Some(app.palette.accent)
@@ -1378,7 +1551,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_choice_tabs_use_single_row_options() {
+    fn toast_settings_render_as_value_row() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Toast;
         app.settings.pending_toast_delivery = Some(ToastDelivery::Off);
@@ -1396,27 +1569,19 @@ mod tests {
             .iter()
             .position(|line| line.contains("notification popups"))
             .expect("notification header row");
-        let off_row = lines
+        let delivery_row = lines
             .iter()
-            .position(|line| line.contains("off ✓"))
-            .expect("off choice row");
-        let hako_row = lines
+            .position(|line| line.contains("toast delivery") && line.contains("off"))
+            .expect("toast delivery row");
+        let description_row = lines
             .iter()
-            .position(|line| line.contains("inside hako"))
-            .expect("hako choice row");
-        let terminal_row = lines
-            .iter()
-            .position(|line| line.contains("via terminal"))
-            .expect("terminal choice row");
-        let system_row = lines
-            .iter()
-            .position(|line| line.contains("via system"))
-            .expect("system choice row");
+            .position(|line| line.contains("where notification popups should appear"))
+            .expect("toast delivery description row");
 
-        assert_eq!(off_row, header_row + 1);
-        assert_eq!(hako_row, off_row + 1);
-        assert_eq!(terminal_row, hako_row + 1);
-        assert_eq!(system_row, terminal_row + 1);
+        assert_eq!(delivery_row, header_row + 1);
+        assert_eq!(description_row, delivery_row + 1);
+        assert!(!text.contains("inside hako"));
+        assert!(!text.contains("via terminal"));
     }
 
     #[test]
@@ -1468,9 +1633,9 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         let tab_line = text
             .lines()
-            .find(|line| line.contains("theme") && line.contains("layout"))
+            .find(|line| line.contains("appearance") && line.contains("notifications"))
             .expect("tab line");
-        assert!(tab_line.contains("experiments"));
+        assert!(tab_line.contains("advanced"));
     }
 
     #[test]
@@ -1493,7 +1658,7 @@ mod tests {
             .expect("settings title row");
         let tab_row = lines
             .iter()
-            .position(|line| line.contains("theme") && line.contains("layout"))
+            .position(|line| line.contains("appearance") && line.contains("notifications"))
             .expect("settings tab row");
 
         assert_eq!(tab_row, title_row + 2);
@@ -1504,23 +1669,13 @@ mod tests {
         let expected = [
             (
                 SettingsSection::Theme,
-                "theme",
-                "choose custom palettes for automatic light and dark appearance",
-            ),
-            (
-                SettingsSection::Layout,
-                "layout",
-                "set sidebar width bounds",
+                "appearance",
+                "configure theme, sidebar layout, and pane appearance",
             ),
             (
                 SettingsSection::Sound,
-                "sound",
-                "choose whether hako plays terminal bell sounds",
-            ),
-            (
-                SettingsSection::Toast,
-                "toasts",
-                "choose where command and agent notifications are delivered",
+                "notifications",
+                "choose sound and toast notification behavior",
             ),
             (
                 SettingsSection::PaneLabels,
@@ -1530,7 +1685,7 @@ mod tests {
             (
                 SettingsSection::Agents,
                 "agents",
-                "create custom agent commands and manage global profile order",
+                "create custom commands and manage agent profiles",
             ),
             (
                 SettingsSection::Integrations,
@@ -1539,8 +1694,8 @@ mod tests {
             ),
             (
                 SettingsSection::Experiments,
-                "experiments",
-                "enable behavior that is useful but still being proven",
+                "advanced",
+                "configure advanced or platform-specific behavior",
             ),
         ];
 
@@ -1586,14 +1741,14 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("sidebar"));
-        assert!(text.contains("› sidebar arrangement"));
+        assert!(text.contains("sidebar arrangement"));
         assert!(text.contains("auto"));
-        assert!(text.contains("› default sidebar width"));
-        assert!(text.contains("26 columns"));
-        assert!(text.contains("› minimum sidebar width"));
-        assert!(text.contains("18 columns"));
-        assert!(text.contains("› maximum sidebar width"));
-        assert!(text.contains("36 columns"));
+        assert!(text.contains("default sidebar width"));
+        assert!(text.contains("26 cols"));
+        assert!(text.contains("minimum sidebar width"));
+        assert!(text.contains("18 cols"));
+        assert!(text.contains("maximum sidebar width"));
+        assert!(text.contains("36 cols"));
         assert!(!text.contains("worktrees"));
         assert!(!text.contains("worktree directory"));
         assert!(!text.contains("/tmp/hako-worktrees"));
@@ -1616,14 +1771,16 @@ mod tests {
         assert!(text.contains("workspace"));
         assert!(text.contains("terminal"));
         assert!(text.contains("worktrees"));
-        assert!(text.contains("› worktree directory"));
+        assert!(text.contains("worktree directory"));
         assert!(text.contains("/tmp/hako-worktrees"));
+        assert!(!text.contains("agent border labels"));
     }
     #[test]
     fn sectioned_settings_selected_text_uses_selected_foreground() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Layout;
-        app.settings.list.selected = 0;
+        app.settings.list.selected = 1;
+        app.settings.selection_active = true;
 
         let area = Rect::new(0, 0, 100, 30);
         let backend = TestBackend::new(area.width, area.height);
@@ -1651,36 +1808,11 @@ mod tests {
     }
 
     #[test]
-    fn behavior_settings_render_close_prompt_and_agent_labels() {
-        let mut app = AppState::test_new();
-        app.confirm_close = true;
-        app.prompt_new_tab_name = true;
-        app.show_agent_labels_on_pane_borders = false;
-        app.settings.section = SettingsSection::PaneLabels;
-        app.settings.list.selected = 5;
-
-        let area = Rect::new(0, 0, 100, 30);
-        let backend = TestBackend::new(area.width, area.height);
-        let mut terminal = Terminal::new(backend).expect("test backend");
-        terminal
-            .draw(|frame| render_settings_overlay(&app, frame, area))
-            .expect("render settings overlay");
-
-        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("● name new tabs"));
-        assert!(text.contains("› worktree directory"));
-        assert!(text.contains("› new terminal cwd"));
-        assert!(text.contains("follow focused pane"));
-        assert!(text.contains("› mouse wheel speed"));
-        assert!(text.contains("3 lines per wheel notch"));
-        assert!(text.contains("○ agent border labels"));
-    }
-
-    #[test]
-    fn selected_value_option_marker_uses_selected_foreground() {
+    fn settings_rows_open_without_selected_highlight() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Layout;
         app.settings.list.selected = 0;
+        app.settings.selection_active = false;
 
         let area = Rect::new(0, 0, 100, 30);
         let backend = TestBackend::new(area.width, area.height);
@@ -1690,30 +1822,53 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        let (selected_y, marker_x) =
-            find_text_cell(&text, "› sidebar arrangement").expect("selected layout row");
+        let (row, col) = find_text_cell(&text, "sidebar arrangement").expect("layout setting row");
+
+        assert_ne!(
+            terminal.backend().buffer()[(col, row)].style().fg,
+            Some(panel_contrast_fg(&app.palette))
+        );
+        assert_ne!(
+            terminal.backend().buffer()[(col, row)].style().bg,
+            Some(app.palette.accent)
+        );
+    }
+
+    #[test]
+    fn selected_value_row_uses_selected_foreground() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Layout;
+        app.settings.list.selected = 0;
+        app.settings.selection_active = true;
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        let (selected_y, selected_x) =
+            find_text_cell(&text, "sidebar arrangement").expect("selected layout row");
 
         assert_eq!(
-            terminal.backend().buffer()[(marker_x, selected_y)].symbol(),
-            "›"
-        );
-        assert_eq!(
-            terminal.backend().buffer()[(marker_x, selected_y)]
+            terminal.backend().buffer()[(selected_x, selected_y)]
                 .style()
                 .fg,
             Some(panel_contrast_fg(&app.palette))
         );
-
-        let (_, value_x) = find_text_cell(&text, "auto").expect("selected layout value");
-        assert_eq!(value_x, marker_x);
+        assert!(!text.contains("combined"));
+        assert!(text.contains("auto"));
     }
 
     #[test]
-    fn selected_disabled_section_markers_use_selected_foreground() {
+    fn selected_toggle_row_uses_selected_foreground() {
         let mut app = AppState::test_new();
         app.switch_ascii_input_source_in_prefix = false;
         app.settings.section = SettingsSection::Experiments;
         app.settings.list.selected = 0;
+        app.settings.selection_active = true;
 
         let area = Rect::new(0, 0, 100, 30);
         let backend = TestBackend::new(area.width, area.height);
@@ -1723,16 +1878,16 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        let (selected_y, marker_x) =
-            find_text_cell(&text, "○ switch to ascii input source in prefix (macOS)")
+        let (selected_y, selected_x) =
+            find_text_cell(&text, "switch to ascii input source in prefix (macOS)")
                 .expect("selected experiment row");
 
         assert_eq!(
-            terminal.backend().buffer()[(marker_x, selected_y)].symbol(),
-            "○"
+            terminal.backend().buffer()[(selected_x, selected_y)].symbol(),
+            "s"
         );
         assert_eq!(
-            terminal.backend().buffer()[(marker_x, selected_y)]
+            terminal.backend().buffer()[(selected_x, selected_y)]
                 .style()
                 .fg,
             Some(panel_contrast_fg(&app.palette))
@@ -1740,7 +1895,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_settings_tab_badge_uses_selected_foreground() {
+    fn settings_tabs_do_not_show_integration_badges() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Integrations;
         app.integration_recommendations = vec![crate::integration::IntegrationRecommendation {
@@ -1760,18 +1915,15 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        let (badge_y, badge_x) =
-            find_text_cell(&text, "● integrations").expect("selected integrations badge");
-        assert_eq!(
-            terminal.backend().buffer()[(badge_x, badge_y)].style().fg,
-            Some(panel_contrast_fg(&app.palette))
-        );
+        assert!(text.contains("integrations"));
+        assert!(!text.contains("● integrations"));
     }
     #[test]
     fn integrations_selected_row_highlight_extends_to_row_end() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Integrations;
         app.settings.list.selected = 0;
+        app.settings.selection_active = true;
         app.integration_recommendations = vec![crate::integration::IntegrationRecommendation {
             target: crate::api::schema::IntegrationTarget::Omp,
             label: "omp",
@@ -1815,6 +1967,7 @@ mod tests {
         app.switch_ascii_input_source_in_prefix = true;
         app.settings.section = SettingsSection::Experiments;
         app.settings.list.selected = 0;
+        app.settings.selection_active = true;
 
         let area = Rect::new(0, 0, 100, 30);
         let backend = TestBackend::new(area.width, area.height);
@@ -1829,7 +1982,7 @@ mod tests {
         assert!(!text.contains("resume agent sessions"));
         assert!(!text.contains("pane screen history"));
         assert!(text.contains("input"));
-        assert!(text.contains("● switch to ascii input source in prefix (macOS)"));
+        assert!(text.contains("switch to ascii input source in prefix (macOS)"));
     }
     fn assert_no_option_line(text: &str, option: &str) {
         let mut in_appearance_section = false;
@@ -1844,7 +1997,10 @@ mod tests {
                 continue;
             }
             assert!(
-                !in_appearance_section || (line != option && line != format!("{option} ✓")),
+                !in_appearance_section
+                    || (line != option
+                        && line != format!("{option} ✓")
+                        && line != format!("✓ {option}")),
                 "unexpected appearance option line {option:?} in:\n{text}"
             );
         }

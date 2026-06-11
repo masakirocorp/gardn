@@ -1557,8 +1557,10 @@ pub enum AgentPanelScope {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsSection {
     Theme,
+    #[allow(dead_code)] // Legacy standalone tab; settings now groups layout under appearance.
     Layout,
     Sound,
+    #[allow(dead_code)] // Legacy standalone tab; settings now groups toasts under notifications.
     Toast,
     PaneLabels,
     Experiments,
@@ -1571,9 +1573,7 @@ pub enum SettingsSection {
 impl SettingsSection {
     pub const ALL: &[Self] = &[
         Self::Theme,
-        Self::Layout,
         Self::Sound,
-        Self::Toast,
         Self::PaneLabels,
         Self::Agents,
         Self::Integrations,
@@ -1582,13 +1582,13 @@ impl SettingsSection {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Theme => "theme",
+            Self::Theme => "appearance",
             Self::Agents => "agents",
             Self::Layout => "layout",
-            Self::Sound => "sound",
+            Self::Sound => "notifications",
             Self::Toast => "toasts",
             Self::PaneLabels => "behavior",
-            Self::Experiments => "experiments",
+            Self::Experiments => "advanced",
             Self::Integrations => "integrations",
             Self::GroupGeneral => "general",
             Self::GroupProfiles => "profiles",
@@ -1876,6 +1876,8 @@ pub struct SettingsState {
     pub section: SettingsSection,
     /// Selected item index within the current section.
     pub list: SelectionListState,
+    /// Whether the selected item should be visibly active.
+    pub selection_active: bool,
     /// First visible row for scrollable settings sections.
     pub scroll: usize,
     /// The palette before opening settings (for cancel/restore).
@@ -2727,6 +2729,53 @@ impl AppState {
             .any(|item| item.state == crate::integration::IntegrationStatusKind::Outdated)
     }
 
+    pub(crate) fn agent_kind_integration_installed(
+        &self,
+        kind: crate::agent_profiles::AgentKind,
+    ) -> bool {
+        let Some(target) = kind.integration_target() else {
+            return false;
+        };
+        self.integration_recommendations.iter().any(|item| {
+            item.target == target
+                && matches!(
+                    item.state,
+                    crate::integration::IntegrationStatusKind::Current
+                        | crate::integration::IntegrationStatusKind::Outdated
+                )
+        })
+    }
+
+    pub(crate) fn agent_profile_launchable(
+        &self,
+        profile: &crate::agent_profiles::AgentProfile,
+    ) -> bool {
+        profile.available() && self.agent_kind_integration_installed(profile.kind)
+    }
+
+    pub(crate) fn agent_profile_kind_available(
+        &self,
+        kind: crate::agent_profiles::AgentKind,
+    ) -> bool {
+        kind == crate::agent_profiles::AgentKind::Custom
+            || self.agent_kind_integration_installed(kind)
+    }
+
+    pub(crate) fn agent_profile_kind_choices(
+        &self,
+    ) -> impl Iterator<Item = crate::agent_profiles::AgentKind> + '_ {
+        crate::agent_profiles::AgentKind::ALL
+            .iter()
+            .copied()
+            .filter(|kind| self.agent_profile_kind_available(*kind))
+    }
+
+    pub(crate) fn default_agent_profile_kind_choice(&self) -> crate::agent_profiles::AgentKind {
+        self.agent_profile_kind_choices()
+            .find(|kind| *kind != crate::agent_profiles::AgentKind::Custom)
+            .unwrap_or(crate::agent_profiles::AgentKind::Custom)
+    }
+
     pub(crate) fn global_menu_attention_badge_visible(&self) -> bool {
         self.update_available.is_some() || self.integration_updates_available()
     }
@@ -2734,10 +2783,6 @@ impl AppState {
     pub(crate) fn global_menu_item_has_badge(&self, item: &str) -> bool {
         (item == "update ready" && self.update_available.is_some())
             || (item == "settings" && self.integration_updates_available())
-    }
-
-    pub(crate) fn settings_section_has_badge(&self, section: SettingsSection) -> bool {
-        section == SettingsSection::Integrations && self.integration_updates_available()
     }
 
     pub(crate) fn focused_pane_requests_mouse_capture_from(
@@ -3046,6 +3091,7 @@ impl AppState {
             settings: SettingsState {
                 section: SettingsSection::Theme,
                 list: SelectionListState::new(0),
+                selection_active: false,
                 scroll: 0,
                 original_palette: None,
                 original_theme: None,

@@ -556,6 +556,24 @@ mod tests {
         let mut app = app_with_space();
         app.state.command_palette.query = "new agent".to_string();
 
+        app.state.integration_recommendations = vec![
+            crate::integration::IntegrationRecommendation {
+                target: crate::api::schema::IntegrationTarget::Codex,
+                label: "codex",
+                command: "codex",
+                available: true,
+                path: std::path::PathBuf::from("/tmp/hako-test-codex"),
+                state: crate::integration::IntegrationStatusKind::Current,
+            },
+            crate::integration::IntegrationRecommendation {
+                target: crate::api::schema::IntegrationTarget::Claude,
+                label: "claude",
+                command: "claude",
+                available: true,
+                path: std::path::PathBuf::from("/tmp/hako-test-claude"),
+                state: crate::integration::IntegrationStatusKind::Current,
+            },
+        ];
         app.handle_command_palette_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
 
         assert_eq!(app.state.mode, Mode::AgentProfilePicker);

@@ -72,7 +72,7 @@ pub(crate) fn agent_profile_picker_entries_for_workspace(
     let (favorite, available) = state.agent_profiles.group_sections(favorites);
     favorite
         .into_iter()
-        .filter(|profile| profile.available())
+        .filter(|profile| state.agent_profile_launchable(profile))
         .map(|profile| AgentProfilePickerEntry {
             profile_id: profile.id.clone(),
             name: profile.name.clone(),
@@ -82,7 +82,7 @@ pub(crate) fn agent_profile_picker_entries_for_workspace(
         .chain(
             available
                 .into_iter()
-                .filter(|profile| profile.available())
+                .filter(|profile| state.agent_profile_launchable(profile))
                 .map(|profile| AgentProfilePickerEntry {
                     profile_id: profile.id.clone(),
                     name: profile.name.clone(),

@@ -208,10 +208,10 @@ impl App {
                 "agent profile not found",
             ));
         };
-        if !profile.available() {
+        if !self.state.agent_profile_launchable(&profile) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "agent profile is not launchable",
+                "agent profile requires an installed integration",
             ));
         }
         let follow_cwd = self.seed_cwd_from_workspace(ws_idx);

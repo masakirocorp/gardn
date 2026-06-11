@@ -701,6 +701,7 @@ impl App {
             settings: state::SettingsState {
                 section: state::SettingsSection::Theme,
                 list: state::SelectionListState::new(0),
+                selection_active: false,
                 scroll: 0,
                 original_palette: None,
                 original_theme: None,
@@ -3054,7 +3055,7 @@ mod tests {
 
         assert!(press_handled);
         assert!(repeat_handled);
-        assert_eq!(app.state.settings.list.selected, 2);
+        assert_eq!(app.state.settings.list.selected, 1);
     }
 
     #[tokio::test]

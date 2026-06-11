@@ -482,6 +482,14 @@ mod tests {
                 }],
             },
         );
+        app.integration_recommendations = vec![crate::integration::IntegrationRecommendation {
+            target: crate::api::schema::IntegrationTarget::Omp,
+            label: "omp",
+            command: "omp",
+            available: true,
+            path: std::path::PathBuf::from("/tmp/hako-test-omp"),
+            state: crate::integration::IntegrationStatusKind::Current,
+        }];
         app.groups[0]
             .favorite_agent_profile_ids
             .push("user:shell-builtin".to_string());

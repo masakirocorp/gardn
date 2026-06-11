@@ -19,7 +19,12 @@ pub(super) fn open_new_agent_picker_for_workspace(state: &mut AppState, ws_idx: 
         .and_then(|workspace| state.group_index_by_id(&workspace.group_id))
         .and_then(|group_idx| state.groups.get(group_idx))
         .and_then(|group| group.default_agent_profile_id.as_ref())
-        .filter(|profile_id| state.agent_profiles.get(profile_id).is_some())
+        .filter(|profile_id| {
+            state
+                .agent_profiles
+                .get(profile_id)
+                .is_some_and(|profile| state.agent_profile_launchable(profile))
+        })
         .cloned()
     {
         state.request_agent_profile_tab = Some((ws_idx, default_profile_id));
@@ -468,7 +473,30 @@ mod tests {
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
+        install_all_integrations(&mut app);
         app
+    }
+
+    fn current_integration_for(
+        kind: crate::agent_profiles::AgentKind,
+    ) -> crate::integration::IntegrationRecommendation {
+        crate::integration::IntegrationRecommendation {
+            target: kind
+                .integration_target()
+                .expect("system kind has integration"),
+            label: kind.as_str(),
+            command: kind.system_command(),
+            available: true,
+            path: std::path::PathBuf::from("/tmp/hako-test-integration"),
+            state: crate::integration::IntegrationStatusKind::Current,
+        }
+    }
+
+    fn install_all_integrations(app: &mut App) {
+        app.state.integration_recommendations = crate::agent_profiles::AgentKind::SYSTEM
+            .into_iter()
+            .map(current_integration_for)
+            .collect();
     }
 
     #[test]
@@ -517,6 +545,74 @@ mod tests {
             Some((0, "system:omp".to_string()))
         );
         assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn new_agent_ignores_default_profile_without_installed_integration() {
+        let mut app = app_with_space();
+        app.state.integration_recommendations.clear();
+        app.state.groups[app.state.active_group].default_agent_profile_id =
+            Some("system:omp".to_string());
+
+        open_new_agent_picker_for_workspace(&mut app.state, 0);
+
+        assert_eq!(app.state.request_agent_profile_tab, None);
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn picker_hides_profiles_without_installed_integrations() {
+        let mut app = app_with_space();
+        app.state.integration_recommendations = vec![current_integration_for(
+            crate::agent_profiles::AgentKind::Codex,
+        )];
+
+        let entries = crate::app::agent_profile_picker::agent_profile_picker_entries(&app.state);
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].profile_id, "system:codex");
+    }
+
+    #[test]
+    fn picker_keeps_outdated_integrations_available() {
+        let mut app = app_with_space();
+        app.state.integration_recommendations =
+            vec![crate::integration::IntegrationRecommendation {
+                target: crate::api::schema::IntegrationTarget::Codex,
+                label: "codex",
+                command: "codex",
+                available: true,
+                path: std::path::PathBuf::from("/tmp/hako-test-integration"),
+                state: crate::integration::IntegrationStatusKind::Outdated,
+            }];
+
+        let entries = crate::app::agent_profile_picker::agent_profile_picker_entries(&app.state);
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].profile_id, "system:codex");
+    }
+
+    #[test]
+    fn new_agent_uses_outdated_default_profile_without_picker() {
+        let mut app = app_with_space();
+        app.state.integration_recommendations =
+            vec![crate::integration::IntegrationRecommendation {
+                target: crate::api::schema::IntegrationTarget::Omp,
+                label: "omp",
+                command: "omp",
+                available: true,
+                path: std::path::PathBuf::from("/tmp/hako-test-integration"),
+                state: crate::integration::IntegrationStatusKind::Outdated,
+            }];
+        app.state.groups[app.state.active_group].default_agent_profile_id =
+            Some("system:omp".to_string());
+
+        open_new_agent_picker_for_workspace(&mut app.state, 0);
+
+        assert_eq!(
+            app.state.request_agent_profile_tab,
+            Some((0, "system:omp".to_string()))
+        );
     }
 
     #[test]

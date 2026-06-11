@@ -90,6 +90,23 @@ impl AgentKind {
     pub fn is_supported(self) -> bool {
         self != Self::Custom
     }
+
+    pub fn integration_target(self) -> Option<crate::api::schema::IntegrationTarget> {
+        match self {
+            Self::Pi => Some(crate::api::schema::IntegrationTarget::Pi),
+            Self::Omp => Some(crate::api::schema::IntegrationTarget::Omp),
+            Self::Claude => Some(crate::api::schema::IntegrationTarget::Claude),
+            Self::Codex => Some(crate::api::schema::IntegrationTarget::Codex),
+            Self::Copilot => Some(crate::api::schema::IntegrationTarget::Copilot),
+            Self::Kimi => Some(crate::api::schema::IntegrationTarget::Kimi),
+            Self::Droid => Some(crate::api::schema::IntegrationTarget::Droid),
+            Self::Opencode => Some(crate::api::schema::IntegrationTarget::Opencode),
+            Self::Hermes => Some(crate::api::schema::IntegrationTarget::Hermes),
+            Self::Qodercli => Some(crate::api::schema::IntegrationTarget::Qodercli),
+            Self::Cursor => Some(crate::api::schema::IntegrationTarget::Cursor),
+            Self::Custom => None,
+        }
+    }
 }
 
 impl From<crate::api::schema::IntegrationTarget> for AgentKind {
