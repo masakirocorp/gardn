@@ -848,8 +848,6 @@ fn render_settings_rows(app: &AppState, frame: &mut Frame, area: Rect) {
                 }
                 let name_style = if selected {
                     selected_style
-                } else if *tone == SettingsMarkerTone::Warning {
-                    Style::default().fg(p.text)
                 } else {
                     Style::default().fg(p.text)
                 };

@@ -1674,6 +1674,24 @@ mod tests {
     #[test]
     fn workspace_context_menu_new_agent_opens_profile_picker() {
         let mut state = state_with_workspaces(&["test"]);
+        state.integration_recommendations = vec![
+            crate::integration::IntegrationRecommendation {
+                target: crate::api::schema::IntegrationTarget::Codex,
+                label: "codex",
+                command: "codex",
+                available: true,
+                path: std::path::PathBuf::from("/tmp/hako-test-codex"),
+                state: crate::integration::IntegrationStatusKind::Current,
+            },
+            crate::integration::IntegrationRecommendation {
+                target: crate::api::schema::IntegrationTarget::Claude,
+                label: "claude",
+                command: "claude",
+                available: true,
+                path: std::path::PathBuf::from("/tmp/hako-test-claude"),
+                state: crate::integration::IntegrationStatusKind::Current,
+            },
+        ];
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let menu = ContextMenuState {
             kind: ContextMenuKind::Workspace { ws_idx: 0 },

@@ -655,12 +655,12 @@ fn load_custom_agent_profile_editor(state: &mut AppState, profile_id: &str) -> b
     }
     state.settings.pending_agent_profile_id = Some(profile.id.clone());
     state.settings.pending_agent_profile_name = Some(profile.name.clone());
-    state.settings.pending_agent_profile_kind = Some(
-        state
-            .agent_profile_kind_available(profile.kind)
-            .then_some(profile.kind)
-            .unwrap_or(crate::agent_profiles::AgentKind::Custom),
-    );
+    let kind = if state.agent_profile_kind_available(profile.kind) {
+        profile.kind
+    } else {
+        crate::agent_profiles::AgentKind::Custom
+    };
+    state.settings.pending_agent_profile_kind = Some(kind);
     state.settings.pending_agent_profile_command = Some(profile.command.clone());
     state.settings.list.selected = AGENT_PROFILE_NAME_INDEX;
     state.settings.selection_active = true;
