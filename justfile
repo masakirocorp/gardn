@@ -70,6 +70,14 @@ release version:
     git push origin v{{version}}
     @echo "v{{version}} released — GitHub Actions building binaries"
 
+# Build optional real-agent smoke-test image
+agent-smoke-image:
+    docker build -t hako-agent-smoke:local ci/agent-smoke
+
+# Print versions from optional real-agent smoke-test image
+agent-smoke-doctor:
+    docker run --rm hako-agent-smoke:local
+
 # Print default config
 default-config:
     cargo run --release --locked -- --default-config
