@@ -2,7 +2,7 @@
 // managed by hako; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=opencode
-// HAKO_INTEGRATION_VERSION=3
+// HAKO_INTEGRATION_VERSION=4
 
 import net from "node:net";
 
@@ -15,11 +15,13 @@ function nextReportSeq() {
 }
 
 const sessions = new Map();
-const activeChildren = new Set();
+const busyChildren = new Set();
+const backgroundChildren = new Set();
 const activeTasks = new Set();
-const pendingPermissions = new Map();
+const pendingPermissionIDs = new Set();
+const anonymousPermissions = new Map();
 let anonymousActiveTasks = 0;
-let lastReportedState;
+let lastReportedKey;
 let primarySessionID;
 let primaryBusy = false;
 
@@ -39,9 +41,10 @@ function rememberSession(sessionID, properties) {
     return;
   }
 
-  const current = sessions.get(sessionID) ?? {};
-  const parentID = parentIDFromProperties(properties) ?? current.parentID;
-  sessions.set(sessionID, { parentID });
+  const previous = sessions.get(sessionID) ?? {};
+  const parentID = parentIDFromProperties(properties) ?? previous.parentID;
+  const status = properties?.status?.type ?? previous.status;
+  sessions.set(sessionID, { parentID, status });
 
   if (!primarySessionID && !parentID) {
     primarySessionID = sessionID;
@@ -51,6 +54,34 @@ function rememberSession(sessionID, properties) {
 function isPrimarySession(sessionID) {
   return Boolean(sessionID && primarySessionID && sessionID === primarySessionID);
 }
+function stateFromStoredStatus(status) {
+  return stateFromSessionStatus({ type: status });
+}
+
+function reconcileKnownSessionState() {
+  if (!primarySessionID) {
+    return;
+  }
+
+  const primaryState = stateFromStoredStatus(sessions.get(primarySessionID)?.status);
+  if (primaryState) {
+    primaryBusy = primaryState === "working";
+  }
+
+  for (const [sessionID, info] of sessions) {
+    if (!isChildOfPrimary(sessionID)) {
+      continue;
+    }
+    const state = stateFromStoredStatus(info.status);
+    if (state === "working") {
+      busyChildren.add(sessionID);
+    } else if (state === "idle") {
+      busyChildren.delete(sessionID);
+      backgroundChildren.delete(sessionID);
+    }
+  }
+}
+
 
 function isChildOfPrimary(sessionID) {
   if (!sessionID || !primarySessionID) {
@@ -79,10 +110,16 @@ function visibleSessionID() {
 }
 
 function visibleState() {
-  if (pendingPermissions.size > 0) {
+  if (pendingPermissionIDs.size > 0 || anonymousPermissions.size > 0) {
     return "blocked";
   }
-  if (primaryBusy || activeTasks.size > 0 || anonymousActiveTasks > 0 || activeChildren.size > 0) {
+  if (
+    primaryBusy ||
+    activeTasks.size > 0 ||
+    anonymousActiveTasks > 0 ||
+    busyChildren.size > 0 ||
+    backgroundChildren.size > 0
+  ) {
     return "working";
   }
   return "idle";
@@ -94,22 +131,43 @@ function taskKey(properties) {
   return typeof id === "string" && id ? id : undefined;
 }
 
-function incrementPermission(sessionID, properties) {
+function permissionID(properties) {
   const id = properties?.id ?? properties?.permissionID ?? properties?.permissionId;
-  const suffix = typeof id === "string" && id ? id : "permission";
-  const key = `${sessionID ?? "unknown"}:${suffix}`;
-  pendingPermissions.set(key, (pendingPermissions.get(key) ?? 0) + 1);
+  return typeof id === "string" && id ? id : undefined;
+}
+
+function anonymousPermissionKey(sessionID) {
+  return `${sessionID ?? "unknown"}\0anon`;
+}
+
+function identifiedPermissionKey(sessionID, id) {
+  return `${sessionID ?? "unknown"}\0id\0${id}`;
+}
+
+function incrementPermission(sessionID, properties) {
+  const id = permissionID(properties);
+  if (id) {
+    pendingPermissionIDs.add(identifiedPermissionKey(sessionID, id));
+    return;
+  }
+
+  const key = anonymousPermissionKey(sessionID);
+  anonymousPermissions.set(key, (anonymousPermissions.get(key) ?? 0) + 1);
 }
 
 function decrementPermission(sessionID, properties) {
-  const id = properties?.id ?? properties?.permissionID ?? properties?.permissionId;
-  const suffix = typeof id === "string" && id ? id : "permission";
-  const key = `${sessionID ?? "unknown"}:${suffix}`;
-  const count = pendingPermissions.get(key) ?? 0;
+  const id = permissionID(properties);
+  if (id) {
+    pendingPermissionIDs.delete(identifiedPermissionKey(sessionID, id));
+    return;
+  }
+
+  const key = anonymousPermissionKey(sessionID);
+  const count = anonymousPermissions.get(key) ?? 0;
   if (count <= 1) {
-    pendingPermissions.delete(key);
+    anonymousPermissions.delete(key);
   } else {
-    pendingPermissions.set(key, count - 1);
+    anonymousPermissions.set(key, count - 1);
   }
 }
 function launchEnv() {
@@ -150,7 +208,7 @@ function sendRequest(request) {
 
   return new Promise((resolve) => {
     const client = net.createConnection(socketPath, () => {
-      client.write(`${JSON.stringify(request)}\n`);
+      client.end(`${JSON.stringify(request)}\n`, resolve);
     });
 
     const finish = () => {
@@ -158,10 +216,8 @@ function sendRequest(request) {
       resolve();
     };
 
-    client.setTimeout(500, finish);
-    client.on("data", finish);
+    client.setTimeout(100, finish);
     client.on("error", finish);
-    client.on("end", finish);
     client.on("close", resolve);
   });
 }
@@ -200,6 +256,11 @@ function stateFromSessionStatus(status) {
       return undefined;
   }
 }
+function taskIsBackground(properties) {
+  const metadata = properties?.part?.state?.metadata;
+  return metadata?.background === true || metadata?.state === "running";
+}
+
 
 function idleAssistantMessage(properties) {
   const info = properties?.info;
@@ -238,11 +299,13 @@ function childSessionIDFromTask(properties) {
 
 async function recomputeAgentState() {
   const state = visibleState();
-  if (state === lastReportedState) {
+  const sessionID = visibleSessionID();
+  const reportKey = `${state}\0${sessionID ?? ""}`;
+  if (reportKey === lastReportedKey) {
     return;
   }
-  lastReportedState = state;
-  await reportAgent(state, visibleSessionID());
+  lastReportedKey = reportKey;
+  await reportAgent(state, sessionID);
 }
 
 async function handleEvent(event) {
@@ -250,8 +313,18 @@ async function handleEvent(event) {
   const properties = event?.properties ?? {};
   const sessionID = sessionIDFromProperties(properties);
 
-  if (type === "session.created" || type === "session.updated" || parentIDFromProperties(properties)) {
-    rememberSession(sessionID, properties);
+  if (
+    type === "session.created" ||
+    type === "session.updated" ||
+    type === "session.status" ||
+    type === "session.idle" ||
+    parentIDFromProperties(properties)
+  ) {
+    rememberSession(
+      sessionID,
+      type === "session.idle" ? { ...properties, status: { type: "idle" } } : properties,
+    );
+    reconcileKnownSessionState();
   }
 
   const primarySession = isPrimarySession(sessionID);
@@ -276,9 +349,10 @@ async function handleEvent(event) {
         await recomputeAgentState();
       } else if (childSession) {
         if (state === "working") {
-          activeChildren.add(sessionID);
+          busyChildren.add(sessionID);
         } else {
-          activeChildren.delete(sessionID);
+          busyChildren.delete(sessionID);
+          backgroundChildren.delete(sessionID);
         }
         await recomputeAgentState();
       }
@@ -305,8 +379,8 @@ async function handleEvent(event) {
           } else if (anonymousActiveTasks === 0) {
             anonymousActiveTasks = 1;
           }
-          if (childSessionID) {
-            activeChildren.add(childSessionID);
+          if (childSessionID && taskIsBackground(properties)) {
+            backgroundChildren.add(childSessionID);
           }
         } else if (status === "completed") {
           if (key) {
@@ -314,8 +388,8 @@ async function handleEvent(event) {
           } else if (anonymousActiveTasks > 0) {
             anonymousActiveTasks -= 1;
           }
-          if (childSessionID) {
-            activeChildren.add(childSessionID);
+          if (childSessionID && taskIsBackground(properties)) {
+            backgroundChildren.add(childSessionID);
           }
         } else if (status === "error") {
           if (key) {
@@ -324,7 +398,7 @@ async function handleEvent(event) {
             anonymousActiveTasks -= 1;
           }
           if (childSessionID) {
-            activeChildren.delete(childSessionID);
+            backgroundChildren.delete(childSessionID);
           }
         }
         await recomputeAgentState();
@@ -347,7 +421,8 @@ async function handleEvent(event) {
         primaryBusy = false;
         await recomputeAgentState();
       } else if (childSession) {
-        activeChildren.delete(sessionID);
+        busyChildren.delete(sessionID);
+        backgroundChildren.delete(sessionID);
         await recomputeAgentState();
       }
       break;
