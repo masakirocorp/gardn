@@ -54,25 +54,42 @@ pub(crate) fn branch_to_path_slug(branch: &str) -> String {
 }
 
 pub(crate) fn expand_tilde_path(path: &str) -> PathBuf {
+    expand_tilde_path_from_env(path, cfg!(windows), |key| std::env::var_os(key))
+}
+
+fn expand_tilde_path_from_env(
+    path: &str,
+    is_windows: bool,
+    env: impl Fn(&str) -> Option<OsString> + Copy,
+) -> PathBuf {
     if path == "~" {
-        return home_dir_from_env(cfg!(windows), |key| std::env::var_os(key))
-            .unwrap_or_else(|_| PathBuf::from(path));
+        return home_dir_from_env(is_windows, env).unwrap_or_else(|_| PathBuf::from(path));
     }
 
     let tilde_rest = path.strip_prefix("~/").or_else(|| {
-        if cfg!(windows) {
+        if is_windows {
             path.strip_prefix("~\\")
         } else {
             None
         }
     });
     if let Some(rest) = tilde_rest {
-        return home_dir_from_env(cfg!(windows), |key| std::env::var_os(key))
-            .map(|home| home.join(rest))
+        return home_dir_from_env(is_windows, env)
+            .map(|home| join_tilde_rest(home, rest, is_windows))
             .unwrap_or_else(|_| PathBuf::from(path));
     }
 
     PathBuf::from(path)
+}
+
+fn join_tilde_rest(home: PathBuf, rest: &str, is_windows: bool) -> PathBuf {
+    if is_windows {
+        rest.split(['/', '\\'])
+            .filter(|component| !component.is_empty())
+            .fold(home, |path, component| path.join(component))
+    } else {
+        home.join(rest)
+    }
 }
 
 fn home_dir_from_env(
@@ -337,21 +354,6 @@ pub(crate) fn list_existing_worktrees(repo_root: &Path) -> Result<Vec<ExistingWo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    struct HomeEnvGuard {
-        _env: crate::config::TestEnvVar,
-    }
-
-    impl HomeEnvGuard {
-        fn set(value: &str) -> Self {
-            Self {
-                _env: crate::config::TestEnvVar::set("HOME", value),
-            }
-        }
-    }
 
     fn unique_temp_path(name: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
@@ -500,24 +502,52 @@ prunable stale
     #[cfg(not(windows))]
     #[test]
     fn non_windows_tilde_expansion_keeps_windows_separator_literal() {
-        let _home_lock = HOME_ENV_LOCK.lock().unwrap();
-        let _home_guard = HomeEnvGuard::set("/home/me");
         assert_eq!(
-            expand_tilde_path(r"~\.hako\worktrees"),
+            expand_tilde_path_from_env(r"~\.hako\worktrees", false, |key| match key {
+                "HOME" => Some("/home/me".into()),
+                _ => None,
+            }),
             PathBuf::from(r"~\.hako\worktrees")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_tilde_expansion_normalizes_separators() {
+        fn env(key: &str) -> Option<OsString> {
+            match key {
+                "HOME" => Some("~".into()),
+                "USERPROFILE" => Some(r"C:\Users\hako".into()),
+                _ => None,
+            }
+        }
+
+        let default_path = expand_tilde_path_from_env("~/.hako/worktrees", true, env);
+        assert_eq!(
+            default_path,
+            PathBuf::from(r"C:\Users\hako\.hako\worktrees")
+        );
+        assert_eq!(
+            default_path.display().to_string(),
+            r"C:\Users\hako\.hako\worktrees"
+        );
+        assert_eq!(
+            expand_tilde_path_from_env(r"~\.hako\worktrees", true, env),
+            PathBuf::from(r"C:\Users\hako\.hako\worktrees")
         );
     }
 
     #[test]
     fn expand_tilde_path_uses_home_when_available() {
-        let _home_lock = HOME_ENV_LOCK.lock().unwrap();
-        let _home_guard = HomeEnvGuard::set("/home/me");
         assert_eq!(
-            expand_tilde_path("~/.hako/worktrees"),
+            expand_tilde_path_from_env("~/.hako/worktrees", false, |key| match key {
+                "HOME" => Some("/home/me".into()),
+                _ => None,
+            }),
             PathBuf::from("/home/me/.hako/worktrees")
         );
         assert_eq!(
-            expand_tilde_path("/tmp/worktrees"),
+            expand_tilde_path_from_env("/tmp/worktrees", false, |_| None),
             PathBuf::from("/tmp/worktrees")
         );
     }
