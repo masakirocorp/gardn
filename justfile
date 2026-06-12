@@ -3,7 +3,11 @@
 # Run local tests with incremental compilation
 test:
     cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
-    python3 -m unittest scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines
+    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines
+
+# Run one nextest filter, e.g. `just test-one codex_stale_working`
+test-one filter:
+    cargo nextest run --locked "{{filter}}" --status-level fail --final-status-level fail --failure-output final --success-output never
 
 # Run fast local lint checks
 lint:
@@ -19,7 +23,7 @@ ci: lint ci-test
 
 # Check formatting + run unit tests + maintenance script tests
 check: ci
-    python3 -m unittest scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines
+    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines
     @echo "docs reminder: if this changes user-facing behavior, update README.md or call it out before release."
 
 
@@ -30,6 +34,7 @@ build:
 # Build the vendored libghostty-vt source dist
 build-libghostty-vt:
     scripts/build_vendored_libghostty_vt.sh
+
 
 
 # Create a merge-commit PR for upstream Herdr changes

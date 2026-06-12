@@ -99,6 +99,10 @@ Supported built-in detection includes:
 - Hermes agent
 - Kilo Code CLI
 
+
+- **Manifest rules** — bundled per-agent TOML manifests define screen, OSC title, and OSC progress matching rules so detection can be updated without hardcoding every heuristic in Rust.
+- **Manifest updates** — Hako can cache newer remote manifests, reject downgrades or incompatible engine versions, and report updated detection rules through the normal toast/update path.
+
 ### Agent UI
 
 - **Activity sidebar** — shows agents grouped by state across the current workspace, current group, or all workspaces; entries sort newest activity first and show compact relative activity age.
@@ -252,6 +256,7 @@ Hako exposes the same runtime model through the CLI and local Unix socket API.
 - **`hako tab`** — manage tabs.
 - **`hako pane`** — manage panes, read output, send input, report agent state, and run commands.
 - **`hako agent`** — list, inspect, focus, read, send to, attach to, rename, and start agents.
+- **`hako agent explain`** — inspect why an agent pane is classified as idle, working, blocked, unknown, or skipped by manifest detection.
 - **`hako wait`** — wait for output matches or agent status changes.
 - **`hako integration`** — install, uninstall, and inspect agent integrations.
 - **`hako group`** — list, create, focus/switch, rename, and delete workspace groups.

@@ -2829,6 +2829,36 @@ impl AppState {
                 }
                 Vec::new()
             }
+            AppEvent::AgentDetectionManifestsUpdated { updated, status } => {
+                self.agent_manifest_update_status = status;
+                self.refresh_agent_manifest_summaries();
+                if !updated.is_empty()
+                    && matches!(
+                        self.toast_config.delivery,
+                        crate::config::ToastDelivery::Hako
+                    )
+                {
+                    let agent_list = updated
+                        .iter()
+                        .map(|item| {
+                            format!(
+                                "{} {}",
+                                crate::detect::agent_label(item.agent),
+                                item.version
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    self.toast = Some(ToastNotification {
+                        kind: ToastKind::UpdateInstalled,
+                        title: "Agent detection rules updated".to_string(),
+                        context: agent_list,
+                        position: None,
+                        target: None,
+                    });
+                }
+                Vec::new()
+            }
             AppEvent::StateChanged {
                 pane_id,
                 agent,
@@ -3027,6 +3057,27 @@ impl AppState {
         Some(update)
     }
 
+    pub(crate) fn publish_pane_process_exit_if_agent(
+        &mut self,
+        pane_id: PaneId,
+    ) -> Option<PaneStateUpdate> {
+        let observed_at = std::time::Instant::now();
+        self.update_terminal_state(pane_id, |terminal| {
+            let agent = terminal.effective_known_agent().or(terminal.detected_agent);
+            if agent.is_none() && !terminal.full_lifecycle_hook_authority_active() {
+                return None;
+            }
+            Some(terminal.set_detected_state_with_screen_signals_at(
+                agent,
+                AgentState::Idle,
+                false,
+                true,
+                false,
+                true,
+                observed_at,
+            ))
+        })
+    }
     fn apply_pane_state_change(
         &mut self,
         ws_idx: usize,
@@ -3462,8 +3513,8 @@ mod tests {
         let root = state.workspaces[0].tabs[0].root_pane;
 
         assert_eq!(
-            notification_context(&state.workspaces[0], "__herdr_projects__", 0, root),
-            "__herdr_projects__ · 1"
+            notification_context(&state.workspaces[0], "__hako_projects__", 0, root),
+            "__hako_projects__ · 1"
         );
     }
 
@@ -3550,9 +3601,9 @@ mod tests {
                 "./src/app/actions.rs:795",
             ),
             (
-                "open ../herdr-worktrees/issue-1",
-                "herdr",
-                "../herdr-worktrees/issue-1",
+                "open ../hako-worktrees/issue-1",
+                "hako",
+                "../hako-worktrees/issue-1",
             ),
             (
                 "edit src/app/actions.rs,then",
@@ -3583,7 +3634,7 @@ mod tests {
             ),
             ("refs #123 and @owner/name", "#123", "#123"),
             ("refs #123 and @owner/name", "owner", "@owner/name"),
-            ("cargo test --package=herdr", "--package", "--package=herdr"),
+            ("cargo test --package=hako", "--package", "--package=hako"),
             (
                 "cargo test app::actions::tests",
                 "app::",
@@ -3596,7 +3647,7 @@ mod tests {
             ),
             ("ERROR [worker-1] request_id=abc-123", "worker", "worker-1"),
             (
-                "tmux|newhoo|fixhoo|newmoo|notification|window_bell|herdr",
+                "tmux|newhoo|fixhoo|newmoo|notification|window_bell|hako",
                 "newhoo",
                 "newhoo",
             ),
@@ -3628,7 +3679,7 @@ mod tests {
     fn double_click_word_bounds_ignore_delimiters() {
         for (row, click) in [
             (
-                "tmux|newhoo|fixhoo|newmoo|notification|window_bell|herdr",
+                "tmux|newhoo|fixhoo|newmoo|notification|window_bell|hako",
                 "|",
             ),
             ("alpha,beta;gamma", ","),
@@ -5306,6 +5357,35 @@ mod tests {
             toast.context,
             "detach, then run `brew update && brew upgrade hako`"
         );
+    }
+
+    #[test]
+    fn agent_detection_manifest_update_event_updates_status_and_toast() {
+        let mut state = AppState::test_new();
+        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        let status = crate::detect::manifest_update::ManifestUpdateStatus {
+            last_result: Some("checked".to_string()),
+            ..Default::default()
+        };
+
+        let updates = state.handle_app_event(AppEvent::AgentDetectionManifestsUpdated {
+            updated: vec![crate::detect::manifest_update::ManifestUpdateCommit {
+                agent: Agent::Codex,
+                version: crate::detect::manifest_update::ManifestVersion::parse("2026.06.10.1")
+                    .unwrap(),
+            }],
+            status,
+        });
+
+        assert!(updates.is_empty());
+        assert_eq!(
+            state.agent_manifest_update_status.last_result.as_deref(),
+            Some("checked")
+        );
+        let toast = state.toast.as_ref().expect("manifest update toast");
+        assert_eq!(toast.kind, ToastKind::UpdateInstalled);
+        assert_eq!(toast.title, "Agent detection rules updated");
+        assert_eq!(toast.context, "codex 2026.06.10.1");
     }
 
     #[test]

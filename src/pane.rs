@@ -232,6 +232,7 @@ fn spawn_basic_detection_task(
     child_pid: Arc<AtomicU32>,
     terminal: Arc<PaneTerminal>,
     _detection_content_seq: Arc<AtomicU64>,
+    full_lifecycle_authority_active: Arc<AtomicBool>,
     state_events: mpsc::Sender<AppEvent>,
 ) -> (
     tokio::task::AbortHandle,
@@ -265,6 +266,9 @@ fn spawn_basic_detection_task(
             }
 
             let now = std::time::Instant::now();
+            if full_lifecycle_authority_active.load(Ordering::Acquire) {
+                continue;
+            }
             let pid = child_pid.load(Ordering::Acquire);
             let mut agent_changed = false;
             let mut agent = agent_presence.current_agent();
@@ -407,6 +411,7 @@ pub struct PaneRuntime {
     child_wait_completed: Option<Arc<AtomicBool>>,
     kitty_keyboard_flags: Arc<AtomicU16>,
     detection_content_seq: Arc<AtomicU64>,
+    full_lifecycle_authority_active: Arc<AtomicBool>,
     detect_reset_notify: Arc<Notify>,
     pending_release: Arc<Mutex<Option<PendingAgentRelease>>>,
     preserve_processes_on_drop: bool,
@@ -1260,11 +1265,13 @@ impl PaneRuntime {
             })?)
         };
 
+        let full_lifecycle_authority_active = Arc::new(AtomicBool::new(false));
         let (detect_handle, detect_reset_notify, pending_release) = spawn_basic_detection_task(
             pane_id,
             child_pid.clone(),
             terminal.clone(),
             detection_content_seq.clone(),
+            full_lifecycle_authority_active.clone(),
             events,
         );
 
@@ -1277,6 +1284,7 @@ impl PaneRuntime {
             child_wait_completed: None,
             kitty_keyboard_flags,
             detection_content_seq,
+            full_lifecycle_authority_active,
             detect_reset_notify,
             pending_release,
             preserve_processes_on_drop: true,
@@ -1417,6 +1425,7 @@ impl PaneRuntime {
         };
 
         // --- Detection task ---
+        let full_lifecycle_authority_active = Arc::new(AtomicBool::new(false));
         let (detect_handle, detect_reset_notify, pending_release) = {
             use crate::detect;
             use std::time::{Duration, Instant};
@@ -1432,6 +1441,7 @@ impl PaneRuntime {
             let render_notify = render_notify.clone();
             let render_dirty = render_dirty.clone();
             let detection_content_seq_for_task = detection_content_seq.clone();
+            let full_lifecycle_authority_active_for_task = full_lifecycle_authority_active.clone();
             let detect_reset_notify = Arc::new(Notify::new());
             let detect_reset = detect_reset_notify.clone();
             let pending_release = Arc::new(Mutex::new(None));
@@ -1457,6 +1467,7 @@ impl PaneRuntime {
                 let mut last_visible_signal_refresh = None;
                 let mut pending_idle = PendingIdleConfirmation::default();
                 let mut last_screen_scan_detection_content_seq = None;
+                let full_lifecycle_authority_active = full_lifecycle_authority_active_for_task;
                 let mut agent_startup_grace_until = initial_state
                     .detected_agent
                     .map(|_| Instant::now() + AGENT_STARTUP_GRACE_WINDOW);
@@ -1497,6 +1508,9 @@ impl PaneRuntime {
                     }
 
                     let now = Instant::now();
+                    if full_lifecycle_authority_active.load(Ordering::Acquire) {
+                        continue;
+                    }
                     let suppressed_agent = active_pending_release(&pending_release_for_task, now);
                     let pid = child_pid.load(Ordering::Acquire);
                     let foreground_pgid = (pid > 0 && agent_presence.current_agent().is_some())
@@ -1605,6 +1619,7 @@ impl PaneRuntime {
                         pending_idle.clear();
                         last_screen_scan_detection_content_seq = None;
                         agent_startup_grace_until = Some(now + AGENT_STARTUP_GRACE_WINDOW);
+                        terminal.clear_agent_osc_state();
                     }
 
                     let pid = child_pid.load(Ordering::Acquire);
@@ -1650,12 +1665,20 @@ impl PaneRuntime {
                             let detection = if process_exited {
                                 detect::AgentDetection {
                                     state: AgentState::Idle,
+                                    skip_state_update: false,
                                     visible_blocker: false,
                                     visible_idle: false,
                                     visible_working: false,
                                 }
                             } else {
-                                detect::detect_agent(agent, &content)
+                                let osc_title = terminal.agent_osc_title();
+                                let osc_progress = terminal.agent_osc_progress();
+                                detect::detect_agent_with_osc(
+                                    agent,
+                                    &content,
+                                    &osc_title,
+                                    &osc_progress,
+                                )
                             };
                             decide_screen_detection_publish(
                                 ScreenDetectionPublishInput {
@@ -1729,12 +1752,17 @@ impl PaneRuntime {
             child_pid,
             child_wait_completed: Some(child_wait_completed),
             kitty_keyboard_flags,
+            full_lifecycle_authority_active,
             detection_content_seq,
             detect_reset_notify,
             pending_release,
             preserve_processes_on_drop: false,
             detect_handle,
         })
+    }
+    pub fn set_full_lifecycle_authority_active(&self, active: bool) {
+        self.full_lifecycle_authority_active
+            .store(active, Ordering::Release);
     }
 
     pub fn begin_graceful_release(&self, agent: Agent) {
@@ -1745,6 +1773,14 @@ impl PaneRuntime {
             });
         }
         self.detect_reset_notify.notify_one();
+    }
+    pub fn reset_agent_detection(&self) {
+        self.detect_reset_notify.notify_one();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn agent_detection_reset_notify_for_test(&self) -> Arc<Notify> {
+        self.detect_reset_notify.clone()
     }
 
     pub(crate) fn current_size(&self) -> (u16, u16) {
@@ -1831,6 +1867,17 @@ impl PaneRuntime {
 
     pub fn visible_ansi(&self) -> String {
         self.terminal.visible_ansi()
+    }
+    pub fn detection_text(&self) -> String {
+        self.terminal.detection_text()
+    }
+
+    pub fn agent_osc_title(&self) -> String {
+        self.terminal.agent_osc_title()
+    }
+
+    pub fn agent_osc_progress(&self) -> String {
+        self.terminal.agent_osc_progress()
     }
 
     pub fn recent_text(&self, lines: usize) -> String {
@@ -2095,6 +2142,7 @@ impl PaneRuntime {
                 child_pid: Arc::new(AtomicU32::new(0)),
                 child_wait_completed: None,
                 kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
+                full_lifecycle_authority_active: Arc::new(AtomicBool::new(false)),
                 detection_content_seq: Arc::new(AtomicU64::new(0)),
                 detect_reset_notify: Arc::new(Notify::new()),
                 pending_release: Arc::new(Mutex::new(None)),
@@ -2495,6 +2543,7 @@ mod tests {
             child_pid: Arc::new(AtomicU32::new(0)),
             child_wait_completed: None,
             kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
+            full_lifecycle_authority_active: Arc::new(AtomicBool::new(false)),
             detection_content_seq: Arc::new(AtomicU64::new(0)),
             detect_reset_notify: Arc::new(Notify::new()),
             pending_release: Arc::new(Mutex::new(None)),
@@ -2523,6 +2572,7 @@ mod tests {
             child_pid: Arc::new(AtomicU32::new(0)),
             child_wait_completed: None,
             kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
+            full_lifecycle_authority_active: Arc::new(AtomicBool::new(false)),
             detection_content_seq: Arc::new(AtomicU64::new(0)),
             detect_reset_notify: Arc::new(Notify::new()),
             pending_release: Arc::new(Mutex::new(None)),

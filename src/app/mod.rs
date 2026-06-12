@@ -113,6 +113,7 @@ pub struct App {
     pub(crate) next_command_scan: Instant,
     pub(crate) next_animation_tick: Option<Instant>,
     pub(crate) next_auto_update_check: Option<Instant>,
+    pub(crate) next_agent_manifest_update_check: Option<Instant>,
     pub(crate) agent_metadata_deadline: Option<Instant>,
     pub(crate) last_api_notification_at: Option<Instant>,
     pub(crate) pending_agent_resume_deadline: Option<Instant>,
@@ -521,6 +522,8 @@ impl App {
             state::Mode::Navigate
         };
 
+        let agent_manifest_summaries = crate::detect::manifest::reload_manifests();
+
         let mut state = AppState {
             groups,
             active_group,
@@ -734,6 +737,8 @@ impl App {
                 group_settings_target: None,
             },
             integration_recommendations: crate::integration::integration_recommendations(),
+            agent_manifest_summaries,
+            agent_manifest_update_status: crate::detect::manifest_update::load_status(),
             integration_install_messages: Vec::new(),
             global_menu: state::MenuListState::new(0),
             group_menu: state::MenuListState::new(0),
@@ -771,6 +776,10 @@ impl App {
         if auto_updates_enabled(no_session) {
             let update_tx = event_tx.clone();
             std::thread::spawn(move || crate::update::auto_update(update_tx));
+            let manifest_update_tx = event_tx.clone();
+            std::thread::spawn(move || {
+                crate::detect::manifest_update::auto_update(manifest_update_tx)
+            });
         }
 
         let last_focus = state.active.and_then(|idx| {
@@ -799,6 +808,8 @@ impl App {
             next_command_scan: Instant::now(),
             next_animation_tick: None,
             next_auto_update_check: auto_updates_enabled(no_session)
+                .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL),
+            next_agent_manifest_update_check: auto_updates_enabled(no_session)
                 .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL),
             agent_metadata_deadline: None,
             last_api_notification_at: None,
@@ -854,6 +865,15 @@ impl App {
 
         let groups = groups_from_snapshot(snapshot);
         app.no_session = false;
+        if auto_updates_enabled(app.no_session) {
+            let now = Instant::now();
+            app.next_auto_update_check = app
+                .state
+                .update_available
+                .is_none()
+                .then_some(now + AUTO_UPDATE_CHECK_INTERVAL);
+            app.next_agent_manifest_update_check = Some(now + AUTO_UPDATE_CHECK_INTERVAL);
+        }
         app.state.detach_exits = false;
         app.state.pane_id_aliases = pane_id_aliases;
         app.state.groups = groups;

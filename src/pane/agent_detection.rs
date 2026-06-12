@@ -42,10 +42,12 @@ impl PendingIdleConfirmation {
         next: DetectionPublishState,
         agent_changed: bool,
         process_exited: bool,
+
         now: std::time::Instant,
     ) -> bool {
         let plain_working_to_idle = previous.state == AgentState::Working
             && next.state == AgentState::Idle
+            && !next.visible_idle
             && !next.visible_blocker
             && !next.visible_working
             && !agent_changed
@@ -54,6 +56,7 @@ impl PendingIdleConfirmation {
             self.clear();
             return false;
         }
+
         let Some(started_at) = self.started_at else {
             self.started_at = Some(now);
             self.confirmations = 0;
@@ -130,6 +133,7 @@ pub(super) struct ScreenDetectionPublishInput<'a> {
     pub(super) screen_detection: AgentDetection,
     pub(super) process_exited: bool,
     pub(super) agent_changed: bool,
+
     pub(super) now: std::time::Instant,
     pub(super) last_claude_working_at: &'a mut Option<std::time::Instant>,
 }
@@ -162,9 +166,8 @@ fn stable_visible_signal_refresh_due(
             now.duration_since(last_refresh) >= STABLE_VISIBLE_SIGNAL_REFRESH
         })
 }
-
 pub(super) fn decide_screen_detection_publish(
-    input: ScreenDetectionPublishInput<'_>,
+    input: ScreenDetectionPublishInput,
     pending_idle: &mut PendingIdleConfirmation,
 ) -> DetectionPublishDecision {
     let detection = match crate::agent_detection_policy::apply_detection_policy(
@@ -265,6 +268,7 @@ mod tests {
     fn screen_detection(state: AgentState) -> AgentDetection {
         AgentDetection {
             state,
+            skip_state_update: false,
             visible_blocker: false,
             visible_idle: state == AgentState::Idle,
             visible_working: state == AgentState::Working,
@@ -352,6 +356,7 @@ mod tests {
     }
 
     #[test]
+
     fn pending_idle_holds_working_to_plain_idle_until_confirmed() {
         let now = std::time::Instant::now();
         let previous = publish_state(AgentState::Working);
@@ -420,7 +425,7 @@ mod tests {
     }
 
     #[test]
-    fn screen_publish_can_publish_idle_without_input_taint_delay() {
+    fn screen_publish_can_publish_idle_without_input_delay() {
         let now = std::time::Instant::now();
         let mut pending_idle = PendingIdleConfirmation::default();
         let mut last_claude_working_at = None;

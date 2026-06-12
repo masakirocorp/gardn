@@ -2600,6 +2600,14 @@ impl HeadlessServer {
 
         if self
             .app
+            .next_agent_manifest_update_check
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.app.run_agent_manifest_update_check();
+        }
+
+        if self
+            .app
             .session_save_deadline
             .is_some_and(|deadline| now >= deadline)
         {
@@ -2614,7 +2622,7 @@ impl HeadlessServer {
             let previous_toast = self.app.state.toast.clone();
             for update in self.app.state.expire_agent_metadata_at(deadline, now) {
                 self.app
-                    .refresh_new_herdr_toast_context_for_update(&update, &previous_toast);
+                    .refresh_new_hako_toast_context_for_update(&update, &previous_toast);
                 self.app.emit_pane_state_update(&update);
             }
             self.app.sync_agent_metadata_deadline();

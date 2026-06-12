@@ -428,6 +428,114 @@ impl OscColorQueryResponder {
     }
 }
 
+/// Maximum retained string length for agent OSC title and progress payloads.
+/// Title text is untrusted model output; cap it to bound memory and log size.
+const AGENT_OSC_MAX_CHARS: usize = 256;
+
+/// Passive capture of OSC 0/2 title and OSC 9 progress payloads for agent detection.
+#[derive(Debug, Default)]
+pub(super) struct AgentOscStateTracker {
+    state: Osc52ForwarderState,
+    body: Vec<u8>,
+    latest_title: Option<String>,
+    latest_progress: Option<String>,
+}
+
+impl AgentOscStateTracker {
+    pub(super) fn observe(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            match self.state {
+                Osc52ForwarderState::Ground => {
+                    if byte == 0x1b {
+                        self.state = Osc52ForwarderState::Escape;
+                    }
+                }
+                Osc52ForwarderState::Escape => {
+                    if byte == b']' {
+                        self.body.clear();
+                        self.state = Osc52ForwarderState::OscBody;
+                    } else if byte == 0x1b {
+                        self.state = Osc52ForwarderState::Escape;
+                    } else {
+                        self.state = Osc52ForwarderState::Ground;
+                    }
+                }
+                Osc52ForwarderState::OscBody => match byte {
+                    0x07 => {
+                        self.finalize();
+                        self.state = Osc52ForwarderState::Ground;
+                    }
+                    0x1b => self.state = Osc52ForwarderState::OscEscape,
+                    _ => self.body.push(byte),
+                },
+                Osc52ForwarderState::OscEscape => {
+                    if byte == b'\\' {
+                        self.finalize();
+                        self.state = Osc52ForwarderState::Ground;
+                    } else {
+                        self.body.push(0x1b);
+                        self.body.push(byte);
+                        self.state = Osc52ForwarderState::OscBody;
+                    }
+                }
+            }
+
+            if self.body.len() > 4096 {
+                self.body.clear();
+                self.state = Osc52ForwarderState::Ground;
+            }
+        }
+    }
+
+    fn finalize(&mut self) {
+        if let Some((command, payload)) = parse_agent_osc_body(&self.body) {
+            match command {
+                b"0" | b"2" => {
+                    if payload.is_empty() {
+                        self.latest_title = None;
+                    } else {
+                        self.latest_title =
+                            Some(sanitize_agent_osc_string(payload, AGENT_OSC_MAX_CHARS));
+                    }
+                }
+                b"9" => {
+                    self.latest_progress =
+                        Some(sanitize_agent_osc_string(payload, AGENT_OSC_MAX_CHARS));
+                }
+                _ => {}
+            }
+        }
+        self.body.clear();
+    }
+
+    pub(super) fn latest_title(&self) -> &str {
+        self.latest_title.as_deref().unwrap_or("")
+    }
+
+    pub(super) fn latest_progress(&self) -> &str {
+        self.latest_progress.as_deref().unwrap_or("")
+    }
+
+    pub(super) fn clear_retained(&mut self) {
+        self.latest_title = None;
+        self.latest_progress = None;
+    }
+}
+
+fn parse_agent_osc_body(body: &[u8]) -> Option<(&[u8], &[u8])> {
+    let sep = body.iter().position(|&byte| byte == b';')?;
+    Some((&body[..sep], &body[sep + 1..]))
+}
+
+fn sanitize_agent_osc_string(payload: &[u8], max_chars: usize) -> String {
+    let text = String::from_utf8_lossy(payload);
+    let mut out = String::new();
+    for ch in text.chars().filter(|ch| !ch.is_control()).take(max_chars) {
+        out.push(ch);
+    }
+    out
+}
+
 const XTERM_ANSI_16: [crate::terminal_theme::RgbColor; 16] = [
     crate::terminal_theme::RgbColor {
         r: 0x00,

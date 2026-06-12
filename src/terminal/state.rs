@@ -350,6 +350,7 @@ impl TerminalState {
         let previous_presentation = self.effective_presentation_for_state_at(previous_state, now);
         let previous_detected_agent = self.detected_agent;
         let previous_session = self.current_session_identity_for_persistence();
+
         self.detected_agent = agent;
         self.fallback_state = fallback_state;
         self.fallback_visible_blocker = visible_blocker && fallback_state == AgentState::Blocked;
@@ -884,6 +885,12 @@ impl TerminalState {
         })
     }
 
+    pub fn full_lifecycle_hook_authority_active(&self) -> bool {
+        self.hook_authority.as_ref().is_some_and(|authority| {
+            crate::detect::full_lifecycle_hook_authority(&authority.source, &authority.agent_label)
+        })
+    }
+
     fn visible_blocker_overrides_hook(&self) -> bool {
         self.fallback_visible_blocker
             && self.fallback_not_older_than_hook()
@@ -1153,6 +1160,7 @@ mod tests {
             AgentState::Working,
             AgentDetection {
                 state: AgentState::Idle,
+                skip_state_update: false,
                 visible_blocker: false,
                 visible_idle: false,
                 visible_working: false,
@@ -1175,6 +1183,7 @@ mod tests {
             AgentState::Working,
             AgentDetection {
                 state: AgentState::Idle,
+                skip_state_update: false,
                 visible_blocker: false,
                 visible_idle: true,
                 visible_working: false,
@@ -1351,6 +1360,7 @@ mod tests {
     }
 
     #[test]
+
     fn visible_blocker_overrides_non_blocked_hook_for_same_agent() {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Codex), AgentState::Idle);

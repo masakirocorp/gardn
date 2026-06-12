@@ -1,4 +1,7 @@
-use crate::detect::{Agent, AgentDetection, AgentState};
+use crate::detect::{Agent, AgentDetection};
+
+#[cfg(test)]
+use crate::detect::AgentState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DetectionPolicyInput {
@@ -14,6 +17,7 @@ pub(crate) enum DetectionPolicyDecision {
     Freeze,
 }
 
+#[cfg(test)]
 fn detection(
     state: AgentState,
     visible_blocker: bool,
@@ -22,6 +26,7 @@ fn detection(
 ) -> AgentDetection {
     AgentDetection {
         state,
+        skip_state_update: false,
         visible_blocker,
         visible_idle,
         visible_working,
@@ -46,6 +51,9 @@ pub(crate) fn apply_detection_policy(input: DetectionPolicyInput) -> DetectionPo
         return DetectionPolicyDecision::Publish(input.screen_detection);
     }
 
+    if input.screen_detection.skip_state_update {
+        return DetectionPolicyDecision::Freeze;
+    }
     if input.startup_grace_active {
         return DetectionPolicyDecision::Freeze;
     }
@@ -106,6 +114,17 @@ mod tests {
         assert_eq!(
             apply_detection_policy(input(screen(AgentState::Idle))),
             DetectionPolicyDecision::Publish(screen(AgentState::Idle))
+        );
+    }
+
+    #[test]
+    fn manifest_skip_state_update_freezes_detection() {
+        let mut detection = screen(AgentState::Unknown);
+        detection.skip_state_update = true;
+
+        assert_eq!(
+            apply_detection_policy(input(detection)),
+            DetectionPolicyDecision::Freeze
         );
     }
 

@@ -315,6 +315,13 @@ impl App {
         }
 
         if self
+            .next_agent_manifest_update_check
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.run_agent_manifest_update_check();
+        }
+
+        if self
             .session_save_deadline
             .is_some_and(|deadline| now >= deadline)
         {
@@ -327,7 +334,7 @@ impl App {
         {
             let previous_toast = self.state.toast.clone();
             for update in self.state.expire_agent_metadata_at(deadline, now) {
-                self.refresh_new_herdr_toast_context_for_update(&update, &previous_toast);
+                self.refresh_new_hako_toast_context_for_update(&update, &previous_toast);
                 self.emit_pane_state_update(&update);
             }
             self.sync_agent_metadata_deadline();
@@ -520,6 +527,18 @@ impl App {
         std::thread::spawn(move || crate::update::auto_update(update_tx));
     }
 
+    pub(crate) fn run_agent_manifest_update_check(&mut self) {
+        if !auto_updates_enabled(self.no_session) {
+            self.next_agent_manifest_update_check = None;
+            return;
+        }
+
+        self.next_agent_manifest_update_check = Some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL);
+
+        let manifest_update_tx = self.event_tx.clone();
+        std::thread::spawn(move || crate::detect::manifest_update::auto_update(manifest_update_tx));
+    }
+
     pub(crate) fn start_git_status_refresh_if_due(&mut self, now: Instant) {
         let Some(deadline) = self.git_refresh_deadline() else {
             return;
@@ -604,6 +623,7 @@ impl App {
                 .then(|| self.git_refresh_deadline())
                 .flatten(),
             self.next_auto_update_check,
+            self.next_agent_manifest_update_check,
             self.agent_metadata_deadline,
             self.pending_agent_resume_deadline,
             self.session_save_deadline,

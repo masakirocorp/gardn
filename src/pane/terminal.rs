@@ -23,9 +23,9 @@ use super::{
     osc::{
         contains_scrollback_clear_sequence, current_transient_default_color_owner,
         maybe_filter_primary_screen_scrollback_clear, restore_host_terminal_theme_if_needed,
-        write_host_terminal_theme, DefaultColorEvent, DefaultColorEventTracker,
-        DefaultColorOscTracker, DefaultColorQuery, Osc52Forwarder, OscColorQueryResponder,
-        OscColorSnapshot,
+        write_host_terminal_theme, AgentOscStateTracker, DefaultColorEvent,
+        DefaultColorEventTracker, DefaultColorOscTracker, DefaultColorQuery, Osc52Forwarder,
+        OscColorQueryResponder, OscColorSnapshot,
     },
 };
 
@@ -113,6 +113,7 @@ pub(crate) struct GhosttyPaneCore {
     pub child_default_background_changed: bool,
     pub osc52_forwarder: Osc52Forwarder,
     pub osc_color_query_responder: OscColorQueryResponder,
+    pub agent_osc_state: AgentOscStateTracker,
     pub pty_response_tracker: PtyResponseTracker,
     decscusr_tracker: DecscusrTracker,
     cursor_settle_state: CursorPositionSettleState,
@@ -191,6 +192,17 @@ impl PaneTerminal {
 
     pub fn detection_text(&self) -> String {
         self.ghostty.detection_text()
+    }
+    pub fn agent_osc_title(&self) -> String {
+        self.ghostty.agent_osc_title()
+    }
+
+    pub fn agent_osc_progress(&self) -> String {
+        self.ghostty.agent_osc_progress()
+    }
+
+    pub fn clear_agent_osc_state(&self) {
+        self.ghostty.clear_agent_osc_state()
     }
 
     pub fn recent_text(&self, lines: usize) -> String {
@@ -349,6 +361,7 @@ impl GhosttyPaneTerminal {
                 osc52_forwarder: Osc52Forwarder::default(),
                 osc_color_query_responder: OscColorQueryResponder::default(),
                 pty_response_tracker: PtyResponseTracker::default(),
+                agent_osc_state: AgentOscStateTracker::default(),
                 decscusr_tracker: DecscusrTracker::default(),
                 cursor_settle_state: CursorPositionSettleState::default(),
             }),
@@ -420,6 +433,7 @@ impl GhosttyPaneTerminal {
             };
         };
 
+        core.agent_osc_state.observe(bytes);
         let default_color_observation = core.default_color_tracker.observe(bytes);
         if shell_pid > 0 && default_color_observation {
             if let Some(owner_pgid) = current_transient_default_color_owner(shell_pid) {
@@ -920,6 +934,26 @@ impl GhosttyPaneTerminal {
             .ok()
             .and_then(|core| ghostty_detection_text(&core).ok())
             .unwrap_or_default()
+    }
+
+    pub fn agent_osc_title(&self) -> String {
+        self.core
+            .lock()
+            .map(|core| core.agent_osc_state.latest_title().to_owned())
+            .unwrap_or_default()
+    }
+
+    pub fn agent_osc_progress(&self) -> String {
+        self.core
+            .lock()
+            .map(|core| core.agent_osc_state.latest_progress().to_owned())
+            .unwrap_or_default()
+    }
+
+    pub fn clear_agent_osc_state(&self) {
+        if let Ok(mut core) = self.core.lock() {
+            core.agent_osc_state.clear_retained();
+        }
     }
 
     pub fn recent_text(&self, lines: usize) -> String {
