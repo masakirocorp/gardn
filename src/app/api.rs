@@ -1198,6 +1198,62 @@ mod tests {
             api_rx,
             crate::api::EventHub::default(),
         );
+        app.state.workspaces = vec![crate::workspace::Workspace::test_new(
+            "agent-explain-claude",
+        )];
+        app.state.ensure_test_terminals();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_hook_authority(
+                "hako:claude".to_string(),
+                "claude".to_string(),
+                AgentState::Working,
+                None,
+                Some(1),
+            );
+        let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
+        app.terminal_runtimes.insert(terminal_id, runtime);
+        let target = app.public_pane_id(0, pane_id).unwrap();
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "agent_explain_claude".into(),
+            method: crate::api::schema::Method::AgentExplain(crate::api::schema::AgentTarget {
+                target,
+            }),
+        });
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+
+        assert_eq!(response["result"]["type"], "agent_explain");
+        assert_eq!(response["result"]["explain"]["agent"], "claude");
+        assert_eq!(response["result"]["explain"]["state"], "working");
+        assert_eq!(
+            response["result"]["explain"]["screen_detection_skip_reason"],
+            "full_lifecycle_hook_authority"
+        );
+        assert_eq!(
+            response["result"]["explain"]["matched_rule"],
+            serde_json::Value::Null
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn agent_explain_uses_omp_screen_working_rules_with_hook_authority() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        crate::detect::manifest::reload_manifests();
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("agent-explain-omp")];
         app.state.ensure_test_terminals();
         let pane_id = app.state.workspaces[0].tabs[0].root_pane;
@@ -1211,11 +1267,13 @@ mod tests {
             .set_hook_authority(
                 "hako:omp".to_string(),
                 "omp".to_string(),
-                AgentState::Working,
+                AgentState::Idle,
                 None,
                 Some(1),
             );
-        let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
+        let screen = "⠋ Auto context-full maintenance… (esc to cancel)";
+        let runtime =
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, screen.as_bytes());
         app.terminal_runtimes.insert(terminal_id, runtime);
         let target = app.public_pane_id(0, pane_id).unwrap();
 
@@ -1231,12 +1289,12 @@ mod tests {
         assert_eq!(response["result"]["explain"]["agent"], "omp");
         assert_eq!(response["result"]["explain"]["state"], "working");
         assert_eq!(
-            response["result"]["explain"]["screen_detection_skip_reason"],
-            "full_lifecycle_hook_authority"
+            response["result"]["explain"]["matched_rule"]["id"],
+            "context_full_maintenance"
         );
         assert_eq!(
-            response["result"]["explain"]["matched_rule"],
-            serde_json::Value::Null
+            response["result"]["explain"]["screen_detection_skipped"],
+            false
         );
     }
 

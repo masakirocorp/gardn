@@ -240,9 +240,7 @@ pub fn should_skip_state_update(agent: Option<Agent>, screen_content: &str) -> b
 pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> bool {
     matches!(
         (source, agent_label),
-        ("hako:pi", "pi")
-            | ("hako:omp", "omp")
-            | ("hako:claude", "claude")
+        ("hako:claude", "claude")
             | ("hako:codex", "codex")
             | ("hako:hermes", "hermes")
             | ("hako:opencode", "opencode")

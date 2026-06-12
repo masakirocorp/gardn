@@ -37,9 +37,7 @@ fn detection(
 pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> bool {
     matches!(
         (source, agent_label),
-        ("hako:pi", "pi")
-            | ("hako:omp", "omp")
-            | ("hako:claude", "claude")
+        ("hako:claude", "claude")
             | ("hako:codex", "codex")
             | ("hako:hermes", "hermes")
             | ("hako:opencode", "opencode")
@@ -88,8 +86,8 @@ mod tests {
 
     #[test]
     fn full_lifecycle_hook_sources_use_hako_namespace() {
-        assert!(full_lifecycle_hook_authority("hako:pi", "pi"));
-        assert!(full_lifecycle_hook_authority("hako:omp", "omp"));
+        assert!(!full_lifecycle_hook_authority("hako:pi", "pi"));
+        assert!(!full_lifecycle_hook_authority("hako:omp", "omp"));
         assert!(full_lifecycle_hook_authority("hako:claude", "claude"));
         assert!(full_lifecycle_hook_authority("hako:codex", "codex"));
         assert!(full_lifecycle_hook_authority("hako:hermes", "hermes"));
