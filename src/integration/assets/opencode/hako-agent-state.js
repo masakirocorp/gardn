@@ -17,7 +17,9 @@ function nextReportSeq() {
 const sessions = new Map();
 const activeChildren = new Set();
 const activeTasks = new Set();
-const pendingPermissions = new Set();
+const pendingPermissions = new Map();
+let anonymousActiveTasks = 0;
+let lastReportedState;
 let primarySessionID;
 let primaryBusy = false;
 
@@ -80,7 +82,7 @@ function visibleState() {
   if (pendingPermissions.size > 0) {
     return "blocked";
   }
-  if (primaryBusy || activeTasks.size > 0 || activeChildren.size > 0) {
+  if (primaryBusy || activeTasks.size > 0 || anonymousActiveTasks > 0 || activeChildren.size > 0) {
     return "working";
   }
   return "idle";
@@ -89,16 +91,26 @@ function visibleState() {
 function taskKey(properties) {
   const part = properties?.part;
   const id = part?.id ?? part?.callID ?? part?.callId ?? part?.toolCallID ?? part?.toolCallId;
-  if (typeof id === "string" && id) {
-    return id;
-  }
-  return "task";
+  return typeof id === "string" && id ? id : undefined;
 }
 
-function permissionKey(sessionID, properties) {
+function incrementPermission(sessionID, properties) {
   const id = properties?.id ?? properties?.permissionID ?? properties?.permissionId;
   const suffix = typeof id === "string" && id ? id : "permission";
-  return `${sessionID ?? "unknown"}:${suffix}`;
+  const key = `${sessionID ?? "unknown"}:${suffix}`;
+  pendingPermissions.set(key, (pendingPermissions.get(key) ?? 0) + 1);
+}
+
+function decrementPermission(sessionID, properties) {
+  const id = properties?.id ?? properties?.permissionID ?? properties?.permissionId;
+  const suffix = typeof id === "string" && id ? id : "permission";
+  const key = `${sessionID ?? "unknown"}:${suffix}`;
+  const count = pendingPermissions.get(key) ?? 0;
+  if (count <= 1) {
+    pendingPermissions.delete(key);
+  } else {
+    pendingPermissions.set(key, count - 1);
+  }
 }
 function launchEnv() {
   const env = {};
@@ -223,15 +235,15 @@ function childSessionIDFromTask(properties) {
   return typeof sessionID === "string" && sessionID ? sessionID : undefined;
 }
 
-function taskStillBackgrounded(properties) {
-  const metadata = properties?.part?.state?.metadata;
-  return metadata?.background === true || metadata?.state === "running";
-}
 
 async function recomputeAgentState() {
-  await reportAgent(visibleState(), visibleSessionID());
+  const state = visibleState();
+  if (state === lastReportedState) {
+    return;
+  }
+  lastReportedState = state;
+  await reportAgent(state, visibleSessionID());
 }
-let eventQueue = Promise.resolve();
 
 async function handleEvent(event) {
   const type = event?.type;
@@ -286,20 +298,31 @@ async function handleEvent(event) {
         }
 
         if (status === "pending" || status === "running") {
-          activeTasks.add(key);
+          if (key) {
+            activeTasks.add(key);
+          } else if (status === "pending") {
+            anonymousActiveTasks += 1;
+          } else if (anonymousActiveTasks === 0) {
+            anonymousActiveTasks = 1;
+          }
           if (childSessionID) {
             activeChildren.add(childSessionID);
           }
         } else if (status === "completed") {
-          activeTasks.delete(key);
-          if (childSessionID && !taskStillBackgrounded(properties)) {
-            activeChildren.delete(childSessionID);
+          if (key) {
+            activeTasks.delete(key);
+          } else if (anonymousActiveTasks > 0) {
+            anonymousActiveTasks -= 1;
           }
-          if (childSessionID && taskStillBackgrounded(properties)) {
+          if (childSessionID) {
             activeChildren.add(childSessionID);
           }
         } else if (status === "error") {
-          activeTasks.delete(key);
+          if (key) {
+            activeTasks.delete(key);
+          } else if (anonymousActiveTasks > 0) {
+            anonymousActiveTasks -= 1;
+          }
           if (childSessionID) {
             activeChildren.delete(childSessionID);
           }
@@ -330,13 +353,13 @@ async function handleEvent(event) {
       break;
     case "permission.asked":
       if (primarySession || childSession) {
-        pendingPermissions.add(permissionKey(sessionID, properties));
+        incrementPermission(sessionID, properties);
         await recomputeAgentState();
       }
       break;
     case "permission.replied":
       if (primarySession || childSession) {
-        pendingPermissions.delete(permissionKey(sessionID, properties));
+        decrementPermission(sessionID, properties);
         await recomputeAgentState();
       }
       break;
@@ -344,6 +367,8 @@ async function handleEvent(event) {
       break;
   }
 }
+
+let eventQueue = Promise.resolve();
 
 function queueEvent(event) {
   eventQueue = eventQueue.then(

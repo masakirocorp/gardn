@@ -87,6 +87,27 @@ await emit("session.idle", { sessionID: parent });
 await emit("session.status", { sessionID: child, status: { type: "idle" } });
 await emit("permission.asked", { sessionID: parent, id: "primary-permission" });
 await emit("permission.replied", { sessionID: parent, id: "primary-permission", reply: "reject" });
+await emit("permission.asked", { sessionID: parent });
+await emit("permission.asked", { sessionID: parent });
+await emit("permission.replied", { sessionID: parent, reply: "allow" });
+await emit("permission.replied", { sessionID: parent, reply: "allow" });
+await emit("message.part.updated", {
+  sessionID: parent,
+  part: { type: "tool", tool: "task", state: { status: "pending" } },
+});
+await emit("message.part.updated", {
+  sessionID: parent,
+  part: { type: "tool", tool: "task", state: { status: "pending" } },
+});
+await emit("session.idle", { sessionID: parent });
+await emit("message.part.updated", {
+  sessionID: parent,
+  part: { type: "tool", tool: "task", state: { status: "completed" } },
+});
+await emit("message.part.updated", {
+  sessionID: parent,
+  part: { type: "tool", tool: "task", state: { status: "completed" } },
+});
 server.close();
 
 const reports = requests.filter((request) => request.method === "pane.report_agent");
@@ -110,7 +131,7 @@ if (!sessions.length) {
 if (sessionIDs.size !== 1 || !sessionIDs.has(parent)) {
   fail(`expected only parent session id, observed ${JSON.stringify([...sessionIDs])}`);
 }
-if (states.join(",") !== "working,working,working,working,working,working,blocked,working,working,working,idle,blocked,idle") {
+if (states.join(",") !== "working,blocked,working,idle,blocked,idle,blocked,idle,working,idle") {
   fail(`unexpected state sequence ${JSON.stringify(states)}`);
 }
 
