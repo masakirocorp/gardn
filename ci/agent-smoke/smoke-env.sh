@@ -6,14 +6,17 @@ if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
   exit 64
 fi
 
-model="${HAKO_SMOKE_MODEL:-openai/gpt-4o-mini}"
+model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
+fallback_models="${HAKO_SMOKE_FALLBACK_MODELS:-poolside/laguna-xs.2:free,openai/gpt-oss-120b:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/owl-alpha}"
 openrouter_base="${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
 
+export HAKO_SMOKE_MODEL="$model"
+export HAKO_SMOKE_FALLBACK_MODELS="$fallback_models"
 export OPENROUTER_API_KEY
 export OPENAI_API_KEY="$OPENROUTER_API_KEY"
 export ANTHROPIC_AUTH_TOKEN="$OPENROUTER_API_KEY"
 export ANTHROPIC_BASE_URL="$openrouter_base"
-export ANTHROPIC_MODEL="${HAKO_SMOKE_ANTHROPIC_MODEL:-anthropic/claude-3.5-haiku}"
+export ANTHROPIC_MODEL="${HAKO_SMOKE_ANTHROPIC_MODEL:-$model}"
 export COPILOT_PROVIDER_API_KEY="$OPENROUTER_API_KEY"
 export COPILOT_PROVIDER_BASE_URL="$openrouter_base"
 export COPILOT_MODEL="$model"

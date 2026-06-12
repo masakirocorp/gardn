@@ -15,6 +15,8 @@ required_env=(
   COPILOT_PROVIDER_BASE_URL
   COPILOT_MODEL
   CODEX_HOME
+  HAKO_SMOKE_MODEL
+  HAKO_SMOKE_FALLBACK_MODELS
 )
 
 for key in "${required_env[@]}"; do
@@ -29,10 +31,13 @@ test -f "$HOME/.factory/settings.json"
 test -f "$HOME/.config/hermes-agent/config.json"
 test -f "$HOME/.qoder/settings.json"
 
+grep -q 'poolside/laguna-m.1:free' "$CODEX_HOME/config.toml"
 grep -q 'model_provider = "openrouter"' "$CODEX_HOME/config.toml"
 grep -q 'env_key = "OPENROUTER_API_KEY"' "$CODEX_HOME/config.toml"
 grep -q 'https://openrouter.ai/api/v1' "$CODEX_HOME/config.toml"
+grep -q 'poolside/laguna-m.1:free' "$HOME/.factory/settings.json"
 grep -q 'generic-chat-completion-api' "$HOME/.factory/settings.json"
+grep -q '"model": "poolside/laguna-m.1:free"' "$HOME/.config/hermes-agent/config.json"
 grep -q '"provider": "openrouter"' "$HOME/.config/hermes-agent/config.json"
 
 if [[ "$(id -un)" != "smoke" ]]; then
