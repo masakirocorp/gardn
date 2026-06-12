@@ -181,16 +181,6 @@ impl App {
         let Some(agent_label) = normalize_reported_agent_label(&params.agent) else {
             return invalid_agent(id);
         };
-        if crate::agent_resume::is_reserved_native_state_source(&params.source, &agent_label) {
-            return encode_error(
-                id,
-                "reserved_agent_state_source",
-                format!(
-                    "{} reports native session identity only; use screen detection for state",
-                    params.source
-                ),
-            );
-        }
         self.handle_internal_event(crate::events::AppEvent::HookStateReported {
             pane_id,
             session_ref: crate::agent_resume::session_ref_from_report(

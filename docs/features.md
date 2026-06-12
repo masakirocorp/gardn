@@ -109,7 +109,7 @@ Supported built-in detection includes:
 - **Agent focus** — focus agents from the activity panel, command surfaces, CLI, or socket API.
 - **Agent labels** — manual, detected, and integration-reported labels are surfaced in lists and pane borders.
 - **State notifications** — background state changes can trigger Hako toasts, terminal toasts, system toasts, and sounds.
-- **Integration authority** — installed hooks either report native session identity for restore or report state directly. Claude Code, Codex, Kimi, Droid, Cursor, and OpenCode use session identity plus screen detection for state; Pi, OMP, Hermes, Copilot, and Qoder-style integrations can report state directly.
+- **Integration authority** — installed hooks either report native session identity for restore or report state directly. Claude Code, Codex, Pi, OMP, Hermes, Copilot, and Qoder-style integrations can report state directly; Kimi, Droid, Cursor, and OpenCode use session identity plus screen detection for state.
 
 
 ### Agent profiles
@@ -238,7 +238,7 @@ Integration management supports:
 
 Integration install side effects are agent-specific: pi and OMP install extensions, Claude, Codex, Kimi, Droid, Cursor, Copilot, and Qoder-style CLIs install/update hooks or settings, OpenCode installs a plugin, and Hermes installs/enables a plugin.
 
-Claude Code, Codex, Kimi, Droid, Cursor, and OpenCode integrations report native session identity for restore; Hako reads their visible terminal UI for state. Pi, OMP, Hermes, Copilot, and Qoder-style integrations can report state directly.
+Claude Code, Codex, Pi, OMP, Hermes, Copilot, and Qoder-style integrations can report state directly. Claude and Codex hooks also report session identity for restore, so compaction, subagent starts, permissions, and stop/idle events keep activity status authoritative without relying only on visible terminal chrome.
 
 Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
 - On Windows, installable integrations are limited to CLI hook integrations with supported path layouts: Claude, Codex, Copilot, Kimi, Droid, and Qoder-style CLIs.

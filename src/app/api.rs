@@ -1120,6 +1120,72 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn pane_report_agent_accepts_claude_and_codex_lifecycle_state() {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        app.state.workspaces = vec![crate::workspace::Workspace::test_new("agent-hooks")];
+        app.state.ensure_test_terminals();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        let target = app.public_pane_id(0, pane_id).unwrap();
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "claude_working".into(),
+            method: crate::api::schema::Method::PaneReportAgent(
+                crate::api::schema::PaneReportAgentParams {
+                    pane_id: target.clone(),
+                    source: "hako:claude".into(),
+                    agent: "claude".into(),
+                    state: crate::api::schema::PaneAgentState::Working,
+                    message: None,
+                    custom_status: None,
+                    seq: Some(1),
+                    agent_session_id: Some("claude-session".into()),
+                    agent_session_path: None,
+                    launch_env: std::collections::BTreeMap::new(),
+                },
+            ),
+        });
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["result"]["type"], "ok");
+        let terminal = app.state.terminals.get(&terminal_id).unwrap();
+        assert_eq!(terminal.effective_agent_label(), Some("claude"));
+        assert_eq!(terminal.state, AgentState::Working);
+        assert!(terminal.full_lifecycle_hook_authority_active());
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "codex_idle".into(),
+            method: crate::api::schema::Method::PaneReportAgent(
+                crate::api::schema::PaneReportAgentParams {
+                    pane_id: target,
+                    source: "hako:codex".into(),
+                    agent: "codex".into(),
+                    state: crate::api::schema::PaneAgentState::Idle,
+                    message: None,
+                    custom_status: None,
+                    seq: Some(2),
+                    agent_session_id: Some("codex-session".into()),
+                    agent_session_path: None,
+                    launch_env: std::collections::BTreeMap::new(),
+                },
+            ),
+        });
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+        let terminal = app.state.terminals.get(&terminal_id).unwrap();
+        assert_eq!(terminal.effective_agent_label(), Some("codex"));
+        assert_eq!(terminal.state, AgentState::Idle);
+        assert!(terminal.full_lifecycle_hook_authority_active());
+        assert_eq!(response["result"]["type"], "ok");
+    }
     #[tokio::test(flavor = "current_thread")]
     async fn agent_explain_reports_hook_only_full_lifecycle_authority() {
         let _guard = crate::config::test_config_env_lock().lock().unwrap();

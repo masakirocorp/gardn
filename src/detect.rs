@@ -242,6 +242,8 @@ pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> 
         (source, agent_label),
         ("hako:pi", "pi")
             | ("hako:omp", "omp")
+            | ("hako:claude", "claude")
+            | ("hako:codex", "codex")
             | ("hako:hermes", "hermes")
             | ("hako:opencode", "opencode")
             | ("hako:kilo", "kilo")

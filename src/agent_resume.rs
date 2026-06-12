@@ -103,13 +103,6 @@ pub fn launch_env_from_report(
         .collect()
 }
 
-pub fn is_reserved_native_state_source(source: &str, agent: &str) -> bool {
-    matches!(
-        (source, agent),
-        ("hako:claude", "claude") | ("hako:codex", "codex")
-    )
-}
-
 pub fn session_ref_from_snapshot(
     source: &str,
     agent: &str,

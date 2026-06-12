@@ -39,9 +39,12 @@ pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> 
         (source, agent_label),
         ("hako:pi", "pi")
             | ("hako:omp", "omp")
+            | ("hako:claude", "claude")
+            | ("hako:codex", "codex")
             | ("hako:hermes", "hermes")
             | ("hako:opencode", "opencode")
             | ("hako:kilo", "kilo")
+            | ("hako:kimi", "kimi")
     )
 }
 
@@ -87,11 +90,13 @@ mod tests {
     fn full_lifecycle_hook_sources_use_hako_namespace() {
         assert!(full_lifecycle_hook_authority("hako:pi", "pi"));
         assert!(full_lifecycle_hook_authority("hako:omp", "omp"));
+        assert!(full_lifecycle_hook_authority("hako:claude", "claude"));
+        assert!(full_lifecycle_hook_authority("hako:codex", "codex"));
         assert!(full_lifecycle_hook_authority("hako:hermes", "hermes"));
         assert!(full_lifecycle_hook_authority("hako:opencode", "opencode"));
         assert!(full_lifecycle_hook_authority("hako:kilo", "kilo"));
+        assert!(full_lifecycle_hook_authority("hako:kimi", "kimi"));
         assert!(!full_lifecycle_hook_authority("herdr:pi", "pi"));
-        assert!(!full_lifecycle_hook_authority("hako:codex", "codex"));
     }
 
     #[test]

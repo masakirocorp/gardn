@@ -3,7 +3,7 @@
 # managed by hako; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HAKO_INTEGRATION_ID=claude
-# HAKO_INTEGRATION_VERSION=1
+# HAKO_INTEGRATION_VERSION=2
 
 set -eu
 
@@ -13,7 +13,7 @@ trap 'rm -f "$hook_input_file"' EXIT HUP INT TERM
 cat >"$hook_input_file" 2>/dev/null || true
 
 case "$action" in
-  session) ;;
+  session|working|idle|blocked|release) ;;
   *) exit 0 ;;
 esac
 
@@ -30,6 +30,7 @@ import socket
 import time
 
 source = "hako:claude"
+agent = "claude"
 action = os.environ.get("HAKO_ACTION", "")
 pane_id = os.environ.get("HAKO_PANE_ID")
 socket_path = os.environ.get("HAKO_SOCKET_PATH")
@@ -44,42 +45,93 @@ if hook_input_file:
         with open(hook_input_file, encoding="utf-8") as handle:
             content = handle.read()
         if content.strip():
-            hook_input = json.loads(content)
+            parsed = json.loads(content)
+            if isinstance(parsed, dict):
+                hook_input = parsed
     except Exception:
         hook_input = {}
 
-hook_event_name = str(hook_input.get("hook_event_name") or "")
-is_subagent = bool(hook_input.get("agent_id"))
+
+def first_text(*keys):
+    for key in keys:
+        value = hook_input.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+hook_event_name = first_text("hook_event_name", "hookEventName") or ""
+notification_type = first_text("notification_type", "notificationType") or ""
+is_subagent = bool(hook_input.get("agent_id")) or hook_event_name in ("SubagentStart", "SubagentStop")
+
+# Subagent completion is not parent completion. Claude can emit recap/summary
+# SubagentStop events after the parent turn is already idle; never let those
+# revive or idle the parent pane.
 if hook_event_name == "SubagentStop":
-    # SubagentStop is a completion event. Older Hako integrations mapped it
-    # to durable working, but Claude recap/away-summary can emit it after the
-    # main turn has already stopped. Never let it revive an idle pane.
+    raise SystemExit(0)
+if is_subagent and action in ("idle", "release"):
+    raise SystemExit(0)
+if action == "blocked" and notification_type and notification_type not in (
+    "permission_prompt",
+    "elicitation_dialog",
+):
+    raise SystemExit(0)
+if action == "idle" and notification_type and notification_type != "idle_prompt":
     raise SystemExit(0)
 
-request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
-report_seq = time.time_ns()
-session_id = hook_input.get("session_id")
-agent_session_id = session_id if isinstance(session_id, str) and session_id else None
+session_id = first_text("session_id", "sessionId")
+agent_session_id = session_id if session_id else None
 launch_env = {
     key: value
     for key in ("CLAUDE_CONFIG_DIR",)
     if isinstance((value := os.environ.get(key)), str) and value
 }
-if agent_session_id:
+request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
+report_seq = time.time_ns()
+
+if action == "session":
+    if not agent_session_id:
+        raise SystemExit(0)
     request = {
         "id": request_id,
         "method": "pane.report_agent_session",
         "params": {
             "pane_id": pane_id,
             "source": source,
-            "agent": "claude",
+            "agent": agent,
             "seq": report_seq,
             "agent_session_id": agent_session_id,
             "launch_env": launch_env,
         },
     }
+elif action == "release":
+    request = {
+        "id": request_id,
+        "method": "pane.release_agent",
+        "params": {
+            "pane_id": pane_id,
+            "source": source,
+            "agent": agent,
+            "seq": report_seq,
+        },
+    }
+    if agent_session_id:
+        request["params"]["agent_session_id"] = agent_session_id
 else:
-    raise SystemExit(0)
+    request = {
+        "id": request_id,
+        "method": "pane.report_agent",
+        "params": {
+            "pane_id": pane_id,
+            "source": source,
+            "agent": agent,
+            "state": action,
+            "seq": report_seq,
+            "launch_env": launch_env,
+        },
+    }
+    if agent_session_id:
+        request["params"]["agent_session_id"] = agent_session_id
 
 try:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
