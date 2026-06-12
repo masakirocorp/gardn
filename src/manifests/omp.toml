@@ -24,7 +24,7 @@ contains = ["enter submit", "esc cancel"]
 id = "context_full_maintenance"
 state = "working"
 priority = 220
-region = "whole_recent"
+region = "bottom_non_empty_lines_after_last_prompt_marker(8)"
 visible_working = true
 contains = ["context-full maintenance"]
 
@@ -32,7 +32,7 @@ contains = ["context-full maintenance"]
 id = "context_full_maintenance_spaced"
 state = "working"
 priority = 210
-region = "whole_recent"
+region = "bottom_non_empty_lines_after_last_prompt_marker(8)"
 visible_working = true
 contains = ["context full maintenance"]
 
@@ -40,7 +40,7 @@ contains = ["context full maintenance"]
 id = "compacting_context"
 state = "working"
 priority = 200
-region = "whole_recent"
+region = "bottom_non_empty_lines_after_last_prompt_marker(8)"
 visible_working = true
 contains = ["compacting context"]
 
@@ -48,7 +48,7 @@ contains = ["compacting context"]
 id = "compacting_conversation"
 state = "working"
 priority = 190
-region = "whole_recent"
+region = "bottom_non_empty_lines_after_last_prompt_marker(8)"
 visible_working = true
 contains = ["compacting conversation"]
 
@@ -56,7 +56,7 @@ contains = ["compacting conversation"]
 id = "interruptible_working"
 state = "working"
 priority = 120
-region = "whole_recent"
+region = "bottom_non_empty_lines_after_last_prompt_marker(8)"
 visible_working = true
 contains = ["esc to interrupt"]
 
@@ -64,7 +64,7 @@ contains = ["esc to interrupt"]
 id = "interruptible_cancel"
 state = "working"
 priority = 110
-region = "whole_recent"
+region = "bottom_non_empty_lines_after_last_prompt_marker(8)"
 visible_working = true
 contains = ["esc to cancel"]
 
@@ -72,6 +72,6 @@ contains = ["esc to cancel"]
 id = "working_literal"
 state = "working"
 priority = 100
-region = "whole_recent"
+region = "bottom_non_empty_lines_after_last_prompt_marker(8)"
 visible_working = true
 contains = ["Working..."]

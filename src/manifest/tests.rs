@@ -113,6 +113,67 @@ fn omp_manifest_detects_core_resume_states() {
 }
 
 #[test]
+fn omp_manifest_does_not_hold_working_from_stale_maintenance_scrollback() {
+    let idle_after_maintenance = explain(
+        Agent::OhMyPi,
+        "Auto context-full maintenance…\n\n──────────────────────────── old ──\n❯ ",
+    );
+
+    assert_eq!(idle_after_maintenance.state, AgentState::Idle);
+    assert!(!idle_after_maintenance.visible_working);
+}
+
+#[test]
+fn omp_manifest_detects_live_working_after_prompt_line() {
+    let maintenance_after_prompt = explain(
+        Agent::OhMyPi,
+        "❯ build the thing\nAuto context-full maintenance…",
+    );
+
+    assert_eq!(maintenance_after_prompt.state, AgentState::Working);
+    assert!(maintenance_after_prompt.visible_working);
+}
+
+#[test]
+fn claude_manifest_detects_compacting_and_live_working_chrome() {
+    let compacting = explain(
+        Agent::Claude,
+        "· Compacting conversation…\n  ▰▰▰▱▱▱▱▱▱▱ 7%\n  ⎿  Tip: Use /permissions",
+    );
+    assert_eq!(compacting.state, AgentState::Working);
+    assert!(compacting.visible_working);
+
+    let live_spinner = explain(
+        Agent::Claude,
+        "● Sourcing e2e build… (42s · ↓ 1.2k tokens)\n\n──────────────────────────── task ──",
+    );
+    assert_eq!(live_spinner.state, AgentState::Working);
+    assert!(live_spinner.visible_working);
+}
+
+#[test]
+fn claude_manifest_detects_live_working_after_prompt_line() {
+    let spinner_after_prompt = explain(
+        Agent::Claude,
+        "❯ build the thing\n● Sourcing e2e build… (42s · ↓ 1.2k tokens)",
+    );
+
+    assert_eq!(spinner_after_prompt.state, AgentState::Working);
+    assert!(spinner_after_prompt.visible_working);
+}
+
+#[test]
+fn claude_manifest_does_not_hold_working_from_stale_spinner_scrollback() {
+    let idle_after_spinner = explain(
+        Agent::Claude,
+        "● Sourcing e2e build… (42s · ↓ 1.2k tokens)\n\n──────────────────────────── task ──\n❯ ",
+    );
+
+    assert_eq!(idle_after_spinner.state, AgentState::Idle);
+    assert!(!idle_after_spinner.visible_working);
+}
+
+#[test]
 fn osc_only_matches_do_not_claim_visible_screen_evidence() {
     with_manifest_dirs("osc-not-visible", || {
         write_local_codex(&rules_manifest(

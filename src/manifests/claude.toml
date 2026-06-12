@@ -13,6 +13,22 @@ visible_working = true
 regex = ['^[\x{2800}-\x{28FF}] ']
 
 [[rules]]
+id = "live_spinner_working"
+state = "working"
+priority = 1090
+region = "bottom_non_empty_lines_after_last_prompt_marker(6)"
+visible_working = true
+line_regex = ['^\s*●\s+.+…\s+\(\d+s\s+·\s+↓\s+[\d.]+[kKmM]?\s+tokens?\)']
+
+[[rules]]
+id = "compacting_conversation"
+state = "working"
+priority = 1080
+region = "bottom_non_empty_lines_after_last_prompt_marker(8)"
+visible_working = true
+contains = ["compacting conversation"]
+
+[[rules]]
 id = "transcript_viewer"
 state = "unknown"
 priority = 1000

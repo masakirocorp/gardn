@@ -1081,7 +1081,9 @@ fn validate_region_name(spec: &str) -> Result<(), String> {
         | "osc_title"
         | "osc_progress" => Ok(()),
         _ if region_count(trimmed, "bottom_lines").is_some()
-            || region_count(trimmed, "bottom_non_empty_lines").is_some() =>
+            || region_count(trimmed, "bottom_non_empty_lines").is_some()
+            || region_count(trimmed, "bottom_non_empty_lines_after_last_prompt_marker")
+                .is_some() =>
         {
             Ok(())
         }
@@ -1277,6 +1279,11 @@ fn region<'a>(input: DetectionInput<'a>, spec: &str) -> &'a str {
             if let Some(count) = region_count(trimmed, "bottom_non_empty_lines") {
                 return bottom_non_empty_lines(content, count);
             }
+            if let Some(count) =
+                region_count(trimmed, "bottom_non_empty_lines_after_last_prompt_marker")
+            {
+                return bottom_non_empty_lines(after_last_input_prompt_marker(content), count);
+            }
             ""
         }
     }
@@ -1317,6 +1324,19 @@ fn after_last_prompt_marker(content: &str) -> &str {
         return content;
     };
     slice_from_line_index(content, &lines, index + 1)
+}
+
+fn after_last_input_prompt_marker(content: &str) -> &str {
+    let lines: Vec<&str> = content.lines().collect();
+    let Some(index) = lines.iter().rposition(|line| input_prompt_line(line)) else {
+        return content;
+    };
+    slice_from_line_index(content, &lines, index + 1)
+}
+
+fn input_prompt_line(line: &str) -> bool {
+    let line = line.trim_start();
+    line == "❯" || line.starts_with("❯ ") || line == "›" || line.starts_with("› ")
 }
 
 fn before_current_prompt_marker(content: &str) -> &str {
