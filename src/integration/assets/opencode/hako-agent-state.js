@@ -2,7 +2,7 @@
 // managed by hako; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=opencode
-// HAKO_INTEGRATION_VERSION=2
+// HAKO_INTEGRATION_VERSION=3
 
 import net from "node:net";
 
@@ -14,7 +14,12 @@ function nextReportSeq() {
   return reportSeq;
 }
 
+const sessions = new Map();
+const activeChildren = new Set();
+const activeTasks = new Set();
+const pendingPermissions = new Set();
 let primarySessionID;
+let primaryBusy = false;
 
 function sessionIDFromProperties(properties) {
   return typeof properties?.sessionID === "string" && properties.sessionID
@@ -22,6 +27,79 @@ function sessionIDFromProperties(properties) {
     : undefined;
 }
 
+function parentIDFromProperties(properties) {
+  const parentID = properties?.info?.parentID ?? properties?.info?.parentId;
+  return typeof parentID === "string" && parentID ? parentID : undefined;
+}
+
+function rememberSession(sessionID, properties) {
+  if (!sessionID) {
+    return;
+  }
+
+  const current = sessions.get(sessionID) ?? {};
+  const parentID = parentIDFromProperties(properties) ?? current.parentID;
+  sessions.set(sessionID, { parentID });
+
+  if (!primarySessionID && !parentID) {
+    primarySessionID = sessionID;
+  }
+}
+
+function isPrimarySession(sessionID) {
+  return Boolean(sessionID && primarySessionID && sessionID === primarySessionID);
+}
+
+function isChildOfPrimary(sessionID) {
+  if (!sessionID || !primarySessionID) {
+    return false;
+  }
+
+  let currentID = sessionID;
+  const seen = new Set();
+  while (currentID && !seen.has(currentID)) {
+    seen.add(currentID);
+    const parentID = sessions.get(currentID)?.parentID;
+    if (!parentID) {
+      return false;
+    }
+    if (parentID === primarySessionID) {
+      return true;
+    }
+    currentID = parentID;
+  }
+
+  return false;
+}
+
+function visibleSessionID() {
+  return primarySessionID;
+}
+
+function visibleState() {
+  if (pendingPermissions.size > 0) {
+    return "blocked";
+  }
+  if (primaryBusy || activeTasks.size > 0 || activeChildren.size > 0) {
+    return "working";
+  }
+  return "idle";
+}
+
+function taskKey(properties) {
+  const part = properties?.part;
+  const id = part?.id ?? part?.callID ?? part?.callId ?? part?.toolCallID ?? part?.toolCallId;
+  if (typeof id === "string" && id) {
+    return id;
+  }
+  return "task";
+}
+
+function permissionKey(sessionID, properties) {
+  const id = properties?.id ?? properties?.permissionID ?? properties?.permissionId;
+  const suffix = typeof id === "string" && id ? id : "permission";
+  return `${sessionID ?? "unknown"}:${suffix}`;
+}
 function launchEnv() {
   const env = {};
   for (const key of ["OPENCODE_CONFIG", "XDG_DATA_HOME"]) {
@@ -102,6 +180,7 @@ function reportAgent(state, sessionID) {
 function stateFromSessionStatus(status) {
   switch (status?.type) {
     case "busy":
+    case "retry":
       return "working";
     case "idle":
       return "idle";
@@ -119,13 +198,13 @@ function idleAssistantMessage(properties) {
   );
 }
 
-function taskToolIsActive(properties) {
+function taskToolStatus(properties) {
   const part = properties?.part;
-  return (
-    part?.type === "tool" &&
-    part?.tool === "task" &&
-    ["pending", "running", "completed"].includes(part?.state?.status)
-  );
+  if (part?.type !== "tool" || part?.tool !== "task") {
+    return undefined;
+  }
+  const status = part?.state?.status;
+  return typeof status === "string" ? status : undefined;
 }
 
 function stopStepFinished(properties) {
@@ -133,14 +212,145 @@ function stopStepFinished(properties) {
   return part?.type === "step-finish" && part?.reason === "stop";
 }
 
-function shouldHandlePrimarySession(sessionID) {
-  if (!sessionID) {
-    return true;
+function childSessionIDFromTask(properties) {
+  const metadata = properties?.part?.state?.metadata;
+  const sessionID =
+    metadata?.sessionID ??
+    metadata?.sessionId ??
+    metadata?.session?.id ??
+    metadata?.childSessionID ??
+    metadata?.childSessionId;
+  return typeof sessionID === "string" && sessionID ? sessionID : undefined;
+}
+
+function taskStillBackgrounded(properties) {
+  const metadata = properties?.part?.state?.metadata;
+  return metadata?.background === true || metadata?.state === "running";
+}
+
+async function recomputeAgentState() {
+  await reportAgent(visibleState(), visibleSessionID());
+}
+let eventQueue = Promise.resolve();
+
+async function handleEvent(event) {
+  const type = event?.type;
+  const properties = event?.properties ?? {};
+  const sessionID = sessionIDFromProperties(properties);
+
+  if (type === "session.created" || type === "session.updated" || parentIDFromProperties(properties)) {
+    rememberSession(sessionID, properties);
   }
-  if (!primarySessionID) {
-    primarySessionID = sessionID;
+
+  const primarySession = isPrimarySession(sessionID);
+  const childSession = isChildOfPrimary(sessionID);
+
+  switch (type) {
+    case "session.created":
+    case "session.updated":
+      if (primarySession) {
+        await reportSession(sessionID);
+      }
+      break;
+    case "session.status": {
+      const state = stateFromSessionStatus(properties.status);
+      if (!state) {
+        break;
+      }
+
+      if (primarySession) {
+        await reportSession(sessionID);
+        primaryBusy = state === "working";
+        await recomputeAgentState();
+      } else if (childSession) {
+        if (state === "working") {
+          activeChildren.add(sessionID);
+        } else {
+          activeChildren.delete(sessionID);
+        }
+        await recomputeAgentState();
+      }
+      break;
+    }
+    case "message.part.updated": {
+      if (!primarySession) {
+        break;
+      }
+
+      const status = taskToolStatus(properties);
+      if (status) {
+        const key = taskKey(properties);
+        const childSessionID = childSessionIDFromTask(properties);
+        if (childSessionID) {
+          rememberSession(childSessionID, { info: { parentID: sessionID } });
+        }
+
+        if (status === "pending" || status === "running") {
+          activeTasks.add(key);
+          if (childSessionID) {
+            activeChildren.add(childSessionID);
+          }
+        } else if (status === "completed") {
+          activeTasks.delete(key);
+          if (childSessionID && !taskStillBackgrounded(properties)) {
+            activeChildren.delete(childSessionID);
+          }
+          if (childSessionID && taskStillBackgrounded(properties)) {
+            activeChildren.add(childSessionID);
+          }
+        } else if (status === "error") {
+          activeTasks.delete(key);
+          if (childSessionID) {
+            activeChildren.delete(childSessionID);
+          }
+        }
+        await recomputeAgentState();
+      }
+
+      if (stopStepFinished(properties)) {
+        primaryBusy = false;
+        await recomputeAgentState();
+      }
+      break;
+    }
+    case "message.updated":
+      if (primarySession && idleAssistantMessage(properties)) {
+        primaryBusy = false;
+        await recomputeAgentState();
+      }
+      break;
+    case "session.idle":
+      if (primarySession) {
+        primaryBusy = false;
+        await recomputeAgentState();
+      } else if (childSession) {
+        activeChildren.delete(sessionID);
+        await recomputeAgentState();
+      }
+      break;
+    case "permission.asked":
+      if (primarySession || childSession) {
+        pendingPermissions.add(permissionKey(sessionID, properties));
+        await recomputeAgentState();
+      }
+      break;
+    case "permission.replied":
+      if (primarySession || childSession) {
+        pendingPermissions.delete(permissionKey(sessionID, properties));
+        await recomputeAgentState();
+      }
+      break;
+    default:
+      break;
   }
-  return sessionID === primarySessionID;
+}
+
+function queueEvent(event) {
+  eventQueue = eventQueue.then(
+    () => handleEvent(event),
+    () => handleEvent(event),
+  );
+  return eventQueue;
 }
 
 export const HakoAgentStatePlugin = async () => {
@@ -153,61 +363,6 @@ export const HakoAgentStatePlugin = async () => {
   }
 
   return {
-    event: async ({ event }) => {
-      const type = event?.type;
-      const properties = event?.properties ?? {};
-      const sessionID = sessionIDFromProperties(properties);
-      const primarySession = shouldHandlePrimarySession(sessionID);
-
-      switch (type) {
-        case "session.created":
-        case "session.updated":
-          if (primarySession) {
-            await reportSession(sessionID);
-          }
-          break;
-        case "session.status": {
-          if (!primarySession) {
-            break;
-          }
-          await reportSession(sessionID);
-          const state = stateFromSessionStatus(properties.status);
-          if (state) {
-            await reportAgent(state, sessionID);
-          }
-          break;
-        }
-        case "message.part.updated":
-          if (primarySession && taskToolIsActive(properties)) {
-            await reportAgent("working", sessionID);
-          }
-          if (primarySession && stopStepFinished(properties)) {
-            await reportAgent("idle", sessionID);
-          }
-          break;
-        case "message.updated":
-          if (primarySession && idleAssistantMessage(properties)) {
-            await reportAgent("idle", sessionID);
-          }
-          break;
-        case "session.idle":
-          if (primarySession) {
-            await reportAgent("idle", sessionID);
-          }
-          break;
-        case "permission.asked":
-          if (primarySession) {
-            await reportAgent("blocked", sessionID);
-          }
-          break;
-        case "permission.replied":
-          if (primarySession) {
-            await reportAgent(properties.reply === "reject" ? "idle" : "working", sessionID);
-          }
-          break;
-        default:
-          break;
-      }
-    },
+    event: async ({ event }) => queueEvent(event),
   };
 };

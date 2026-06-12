@@ -44,27 +44,49 @@ async function emit(type, properties) {
 
 const parent = "ses_parent";
 const child = "ses_child";
+const childFirst = "ses_child_first";
+const parentAfterChild = "ses_parent_after_child";
 
+await emit("session.created", {
+  sessionID: childFirst,
+  info: { id: childFirst, parentID: parentAfterChild },
+});
+await emit("session.status", { sessionID: childFirst, status: { type: "busy" } });
 await emit("session.created", { sessionID: parent, info: { id: parent } });
 await emit("session.status", { sessionID: parent, status: { type: "busy" } });
 await emit("message.part.updated", {
   sessionID: parent,
-  part: { type: "tool", tool: "task", state: { status: "pending" } },
+  part: { id: "foreground-task", type: "tool", tool: "task", state: { status: "pending" } },
 });
-await emit("session.created", { sessionID: child, info: { id: child } });
+await emit("session.created", {
+  sessionID: child,
+  info: { id: child, parentID: parent },
+});
 await emit("session.status", { sessionID: child, status: { type: "idle" } });
 await emit("session.idle", { sessionID: child });
 await emit("message.part.updated", {
   sessionID: parent,
-  part: { type: "tool", tool: "task", state: { status: "completed" } },
+  part: { id: "foreground-task", type: "tool", tool: "task", state: { status: "completed" } },
 });
+await emit("message.part.updated", {
+  sessionID: parent,
+  part: {
+    id: "background-task",
+    type: "tool",
+    tool: "task",
+    state: { status: "completed", metadata: { sessionID: child, background: true } },
+  },
+});
+await emit("permission.asked", { sessionID: child, id: "child-permission" });
+await emit("permission.replied", { sessionID: child, id: "child-permission", reply: "allow" });
 await emit("message.part.updated", {
   sessionID: parent,
   part: { type: "step-finish", reason: "stop" },
 });
-await emit("permission.asked", { sessionID: parent });
-await emit("permission.replied", { sessionID: parent, reply: "reject" });
-
+await emit("session.idle", { sessionID: parent });
+await emit("session.status", { sessionID: child, status: { type: "idle" } });
+await emit("permission.asked", { sessionID: parent, id: "primary-permission" });
+await emit("permission.replied", { sessionID: parent, id: "primary-permission", reply: "reject" });
 server.close();
 
 const reports = requests.filter((request) => request.method === "pane.report_agent");
@@ -88,7 +110,7 @@ if (!sessions.length) {
 if (sessionIDs.size !== 1 || !sessionIDs.has(parent)) {
   fail(`expected only parent session id, observed ${JSON.stringify([...sessionIDs])}`);
 }
-if (states.join(",") !== "working,working,working,idle,blocked,idle") {
+if (states.join(",") !== "working,working,working,working,working,working,blocked,working,working,working,idle,blocked,idle") {
   fail(`unexpected state sequence ${JSON.stringify(states)}`);
 }
 

@@ -238,7 +238,7 @@ Integration management supports:
 
 Integration install side effects are agent-specific: pi and OMP install extensions, Claude, Codex, Kimi, Droid, Cursor, Copilot, and Qoder-style CLIs install/update hooks or settings, OpenCode installs a plugin, and Hermes installs/enables a plugin.
 
-Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, and Qoder-style integrations can report state directly. Claude and Codex hooks also report session identity for restore, so compaction, subagent starts, permissions, and stop/idle events keep activity status authoritative without relying only on visible terminal chrome. OpenCode's plugin reports busy, idle, and permission-request states directly while preserving native session identity.
+Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, and Qoder-style integrations can report state directly. Claude and Codex hooks also report session identity for restore, so compaction, subagent starts, permissions, and stop/idle events keep activity status authoritative without relying only on visible terminal chrome. OpenCode's plugin reports busy, idle, and permission-request states directly, keeps the root pane session as the visible identity, and keeps the pane working while child/subagent sessions are still active.
 
 Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
 - On Windows, installable integrations are limited to CLI hook integrations with supported path layouts: Claude, Codex, Copilot, Kimi, Droid, and Qoder-style CLIs.
