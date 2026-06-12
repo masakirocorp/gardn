@@ -9,15 +9,14 @@ ARG OPENCODE_VERSION=1.17.4
 ARG COPILOT_VERSION=1.0.61
 ARG HERMES_VERSION=0.16.0
 ARG DROID_VERSION=0.144.2
-ARG KIMI_CODE_VERSION=1.0.11
-ARG CURSOR_AGENT_VERSION=1.0.3
-ARG OMP_REF=
+ARG PNPM_VERSION=11.6.0
+ARG OMP_REF=v15.12.3
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
-    npm_config_update_notifier=false \
-    npm_config_fund=false \
-    npm_config_audit=false \
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    PNPM_STORE_DIR=/pnpm/store \
+    pnpm_config_update_notifier=false \
     PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
 
 RUN apt-get update \
@@ -32,14 +31,38 @@ RUN apt-get update \
         tini \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g \
-        "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
-        "@openai/codex@${CODEX_VERSION}" \
-        "opencode-ai@${OPENCODE_VERSION}" \
-        "@github/copilot@${COPILOT_VERSION}" \
-        "hermes-agent@${HERMES_VERSION}" \
-        "droid@${DROID_VERSION}" \
-    && npm cache clean --force
+RUN --mount=type=cache,id=hako-agent-smoke-pnpm,target=/pnpm/store \
+    corepack enable pnpm \
+    && corepack prepare "pnpm@${PNPM_VERSION}" --activate \
+    && mkdir -p /opt/agent-smoke-node \
+    && cd /opt/agent-smoke-node \
+    && printf '%s\n' \
+        'minimumReleaseAge: 0' \
+        'allowBuilds:' \
+        '  "@anthropic-ai/claude-code": true' \
+        '  "droid": true' \
+        '  "hermes-agent": true' \
+        '  "opencode-ai": true' \
+        > pnpm-workspace.yaml \
+    && printf '%s\n' \
+        '{' \
+        '  "private": true,' \
+        '  "dependencies": {' \
+        "    \"@anthropic-ai/claude-code\": \"${CLAUDE_CODE_VERSION}\"," \
+        "    \"@openai/codex\": \"${CODEX_VERSION}\"," \
+        "    \"opencode-ai\": \"${OPENCODE_VERSION}\"," \
+        "    \"@github/copilot\": \"${COPILOT_VERSION}\"," \
+        "    \"hermes-agent\": \"${HERMES_VERSION}\"," \
+        "    \"droid\": \"${DROID_VERSION}\"" \
+        '  }' \
+        '}' \
+        > package.json \
+    && pnpm install --prod \
+    && for bin in claude codex opencode copilot hermes droid; do \
+        printf '%s\n' '#!/bin/sh' "exec /opt/agent-smoke-node/node_modules/.bin/${bin} \"\$@\"" > "/usr/local/bin/${bin}"; \
+        chmod +x "/usr/local/bin/${bin}"; \
+    done \
+    && pnpm store prune
 
 RUN KIMI_INSTALL_DIR=/opt/kimi-code KIMI_NO_MODIFY_PATH=1 \
     bash -c 'curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash' \
@@ -81,7 +104,8 @@ RUN set -eux; \
 
 COPY smoke-env.sh /usr/local/bin/hako-agent-smoke-env
 COPY doctor.sh /usr/local/bin/hako-agent-smoke-doctor
-RUN chmod +x /usr/local/bin/hako-agent-smoke-env /usr/local/bin/hako-agent-smoke-doctor \
+COPY verify-env.sh /usr/local/bin/hako-agent-smoke-verify-env
+RUN chmod +x /usr/local/bin/hako-agent-smoke-env /usr/local/bin/hako-agent-smoke-doctor /usr/local/bin/hako-agent-smoke-verify-env \
     && useradd --create-home --shell /bin/bash smoke
 
 USER smoke

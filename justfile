@@ -78,6 +78,11 @@ agent-smoke-image:
 agent-smoke-doctor:
     docker run --rm hako-agent-smoke:local
 
+
+# Verify optional real-agent smoke-test env wiring without calling providers
+agent-smoke-verify:
+    docker run --rm -e OPENROUTER_API_KEY=sk-hako-smoke-test hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-verify-env
+
 # Print default config
 default-config:
     cargo run --release --locked -- --default-config

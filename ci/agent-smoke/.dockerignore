@@ -2,3 +2,4 @@
 !Dockerfile
 !doctor.sh
 !smoke-env.sh
+!verify-env.sh
