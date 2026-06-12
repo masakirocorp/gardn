@@ -87,7 +87,7 @@ const DROID_REMOVED_LIFECYCLE_HOOK_EVENTS: [(&str, &str); 9] = [
 ];
 const OPENCODE_PLUGIN_INSTALL_NAME: &str = "hako-agent-state.js";
 const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/hako-agent-state.js");
-const OPENCODE_INTEGRATION_VERSION: u32 = 1;
+const OPENCODE_INTEGRATION_VERSION: u32 = 2;
 const HERMES_PLUGIN_INSTALL_NAME: &str = "hako-agent-state";
 const HERMES_PLUGIN_MANIFEST_INSTALL_NAME: &str = "plugin.yaml";
 const HERMES_PLUGIN_INIT_INSTALL_NAME: &str = "__init__.py";
@@ -4479,11 +4479,11 @@ mod tests {
                 .join(OPENCODE_PLUGIN_INSTALL_NAME)
         );
         assert_eq!(plugin_content, OPENCODE_PLUGIN_ASSET);
-        assert!(plugin_content.contains("HAKO_INTEGRATION_VERSION=1"));
+        assert!(plugin_content.contains("HAKO_INTEGRATION_VERSION=2"));
         assert!(plugin_content.contains("Math.max(reportSeq + 1, Date.now() * 1000)"));
         assert!(plugin_content.contains("pane.report_agent_session"));
-        assert!(!plugin_content.contains("pane.report_agent\""));
-        assert!(!plugin_content.contains("pane.release_agent"));
+        assert!(plugin_content.contains("pane.report_agent"));
+        assert!(plugin_content.contains("permission.asked"));
 
         let _ = fs::remove_dir_all(base);
     }

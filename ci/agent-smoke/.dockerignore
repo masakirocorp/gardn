@@ -4,3 +4,5 @@
 !smoke-env.sh
 !verify-env.sh
 !opencode-smoke.sh
+!opencode-status-smoke.sh
+!opencode-plugin-status-test.mjs

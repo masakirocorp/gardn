@@ -88,6 +88,10 @@ agent-smoke-verify:
 agent-smoke-opencode:
     docker run --rm -e OPENROUTER_API_KEY hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-opencode
 
+
+# Run OpenCode and verify Hako status reports from the real plugin
+agent-smoke-opencode-status:
+    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-opencode-status
 # Print default config
 default-config:
     cargo run --release --locked -- --default-config
