@@ -124,9 +124,21 @@ _Avoid_: AppState, pane metadata
 The embedded terminal-emulation engine Hako uses to turn PTY bytes into terminal state, render data, input modes, and terminal responses.
 _Avoid_: Pane, terminal runtime
 
+**Inner Terminal Identity**:
+The `TERM`/`COLORTERM` contract Hako advertises to processes running inside a pane.
+_Avoid_: Host terminal identity, outer terminal
+
 **Viewport**:
 The portion of terminal history currently visible in a pane. Scrolling changes the viewport without changing the terminal tail.
 _Avoid_: Screen, buffer
+
+**PTY Output Compatibility Rewrite**:
+A narrow mutation of PTY bytes before terminal-core processing for a named compatibility case.
+_Avoid_: Terminal emulation, fallback detection
+
+**Host Terminal Theme**:
+The foreground/background colors reported by the foreground client's outer terminal and cached by Hako for pane terminal defaults.
+_Avoid_: App theme, child OSC override
 
 **Host Graphics**:
 Image placements displayed by the user's host terminal outside normal text cells. Host graphics must stay synchronized with Hako's current workspace/tab view because repainting text does not necessarily clear terminal-managed image placements.
