@@ -1757,6 +1757,7 @@ pub(crate) fn open_settings(state: &mut AppState) {
 }
 
 pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
+    state.integration_install_messages.clear();
     state.settings.original_palette = Some(state.palette.clone());
     state.settings.original_theme = Some(state.theme_name.clone());
     state.settings.pending_theme_name = Some(state.global_theme_name.clone());
