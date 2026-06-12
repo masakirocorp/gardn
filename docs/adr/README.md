@@ -2,6 +2,15 @@
 
 ADRs record current architectural decisions that future maintainers and agents should preserve unless a later ADR supersedes them. Linear tracks ADR workflow; this directory is the source of truth for ADR content.
 
+## When to add an ADR
+
+Add an ADR only when the decision is hard to reverse, surprising without context, and the result of a real trade-off. Prefer a Linear `kind:adr` issue for tracking the work; the ADR file remains the source of truth.
+
+Use the stricter Hako bar for new ADRs: the decision should cross module or workflow boundaries, still be active, not be obvious from code alone, and be likely to be simplified incorrectly by a future maintainer or agent if the rationale is not recorded. Skip ordinary helper design, local implementation details, broad test coverage notes, and behavior already implied by an existing ADR.
+
+## Index
+
+
 - [0001 — Keep live terminal runtimes outside AppState](0001-separate-state-from-runtime.md): Hako stores workspace structure and terminal metadata in state, while live terminal runtimes stay behind `TerminalRuntimeRegistry`.
 - [0002 — Keep AppState rendering read-only](0002-keep-rendering-pure.md): `compute_view*` reconciles view/layout state, and `render*` draws from the computed `AppState` without mutating app, workspace, or layout state.
 - [0003 — Isolate reusable platform behavior behind platform APIs](0003-isolate-platform-behavior.md): reusable macOS/Linux process and host-integration behavior belongs behind `src/platform/` APIs instead of being duplicated at call sites.
@@ -48,3 +57,5 @@ ADRs record current architectural decisions that future maintainers and agents s
 - [0044 — Share modal layout and hit-test primitives](0044-share-modal-layout-and-hit-test-primitives.md): modal overlays reuse stack, list viewport, and tab-strip geometry so rendering, scrolling, and mouse hit-testing stay aligned across surfaces.
 - [0045 — Enforce testing policy with maintenance guardrails](0045-enforce-testing-policy-with-maintenance-guardrails.md): narrow maintenance tests mechanically reject high-signal weak test patterns while leaving subjective behavioral quality to review.
 - [0046 — Keep Nix optional and build-only](0046-keep-nix-optional-and-build-only.md): Nix provides flake packages, apps, checks, dev shells, and overlays for Nix users without becoming Hako's primary test, update, or release channel.
+- [0047 — Restore invalid or legacy snapshots into stable workspace shapes](0047-restore-invalid-or-legacy-snapshots-into-stable-workspace-shapes.md): restore migrates legacy snapshots, recovers missing pane cwd paths, and preserves metadata-only workspace shells when workspace identity remains valid.
+- [0048 — Layer agent state evidence by source precedence](0048-layer-agent-state-evidence-by-source-precedence.md): hook state reports, process/profile detection, terminal screen signals, and seen/unseen state compose by evidence strength instead of any single source winning unconditionally.

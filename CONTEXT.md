@@ -56,6 +56,10 @@ _Avoid_: Agent profile, launcher permission
 Presentation details reported by an integration source for a running terminal, such as title, display agent, custom status, or state labels. Agent metadata decorates an agent; it is not the agent state itself.
 _Avoid_: Pane label, agent state
 
+**Agent State Evidence**:
+Process identity, terminal-tail fallback detection, strong visible screen signals, hook state reports, and seen/unseen UI state Hako uses to decide a terminal's user-facing agent state.
+_Avoid_: Agent metadata, fallback detection
+
 **Effective Presentation**:
 The current user-facing title, display agent, custom status, and state-label set after Hako combines valid metadata with terminal and integration state.
 _Avoid_: Raw metadata, session state
@@ -231,6 +235,10 @@ _Avoid_: Empty workspace, reset snapshot
 **Session Snapshot**:
 The durable saved shape of a Hako session: groups, workspaces, tabs, panes, layout, active/selected/sidebar state, pane cwd/label/seen state, launch argv/env, and resumable agent-session refs. It excludes pane scrollback and handoff-only terminal semantics.
 _Avoid_: History, handoff snapshot
+
+**Restore Recovery**:
+The restore-time policy of preserving stable workspace identity while migrating legacy snapshots or replacing invalid saved paths with safe fallbacks.
+_Avoid_: Live handoff, factory-default save clearing
 
 **Session History**:
 Optional saved terminal scrollback used to restore pane contents when a fresh runtime is spawned.
