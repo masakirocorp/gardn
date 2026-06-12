@@ -1603,6 +1603,33 @@ fn workspace_and_pane_management_commands_work() {
     assert_eq!(reload_json["result"]["type"], "config_reload");
     assert_eq!(reload_json["result"]["status"], "applied");
 
+    let manifests = run_cli(&socket_path, &["server", "agent-manifests"]);
+    assert!(
+        manifests.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&manifests.stderr)
+    );
+    let manifests_json: serde_json::Value = serde_json::from_slice(&manifests.stdout).unwrap();
+    assert_eq!(manifests_json["result"]["type"], "agent_manifest_status");
+    assert!(manifests_json["result"]["manifests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|manifest| manifest["agent"] == "omp"));
+
+    let reloaded_manifests = run_cli(&socket_path, &["server", "reload-agent-manifests"]);
+    assert!(
+        reloaded_manifests.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&reloaded_manifests.stderr)
+    );
+    let reloaded_manifests_json: serde_json::Value =
+        serde_json::from_slice(&reloaded_manifests.stdout).unwrap();
+    assert_eq!(
+        reloaded_manifests_json["result"]["type"],
+        "agent_manifest_reload"
+    );
+
     let listed = run_cli(&socket_path, &["workspace", "list"]);
     assert!(listed.status.success());
     let listed_json: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();

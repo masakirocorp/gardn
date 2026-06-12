@@ -1073,8 +1073,10 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn agent_explain_evaluates_with_server_manifest_cache() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        crate::detect::manifest::reload_manifests();
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(
             &crate::config::Config::default(),
@@ -1118,8 +1120,10 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn agent_explain_reports_hook_only_full_lifecycle_authority() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        crate::detect::manifest::reload_manifests();
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(
             &crate::config::Config::default(),

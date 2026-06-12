@@ -63,6 +63,8 @@ fn run_server_command(args: &[String]) -> std::io::Result<Option<i32>> {
         "live-handoff" => server_live_handoff(&args[1..]).map(Some),
         "--handoff-import" => Ok(None),
         "reload-config" => server_reload_config(&args[1..]).map(Some),
+        "agent-manifests" => server_agent_manifests(&args[1..]).map(Some),
+        "reload-agent-manifests" => server_reload_agent_manifests(&args[1..]).map(Some),
         "help" | "--help" | "-h" => {
             print_server_help();
             Ok(Some(0))
@@ -920,6 +922,30 @@ fn server_reload_config(args: &[String]) -> std::io::Result<i32> {
     print_response(&send_request(&Request {
         id: "cli:server:reload-config".into(),
         method: Method::ServerReloadConfig(EmptyParams::default()),
+    })?)
+}
+
+fn server_agent_manifests(args: &[String]) -> std::io::Result<i32> {
+    if !args.is_empty() {
+        eprintln!("usage: hako server agent-manifests");
+        return Ok(2);
+    }
+
+    print_response(&send_request(&Request {
+        id: "cli:server:agent-manifests".into(),
+        method: Method::ServerAgentManifests(EmptyParams::default()),
+    })?)
+}
+
+fn server_reload_agent_manifests(args: &[String]) -> std::io::Result<i32> {
+    if !args.is_empty() {
+        eprintln!("usage: hako server reload-agent-manifests");
+        return Ok(2);
+    }
+
+    print_response(&send_request(&Request {
+        id: "cli:server:reload-agent-manifests".into(),
+        method: Method::ServerReloadAgentManifests(EmptyParams::default()),
     })?)
 }
 
@@ -3039,6 +3065,8 @@ fn print_server_help() {
     eprintln!("  hako server stop           stop the running server via the API socket");
     eprintln!("  hako server live-handoff   hand off live panes to a new local server");
     eprintln!("  hako server reload-config  reload config.toml in the running server");
+    eprintln!("  hako server agent-manifests         list active agent detection manifests");
+    eprintln!("  hako server reload-agent-manifests  reload local agent detection manifests");
 }
 
 fn print_status_help() {

@@ -251,6 +251,7 @@ const BUNDLED_MANIFESTS: &[(&str, &str)] = &[
     ("kimi", include_str!("manifests/kimi.toml")),
     ("kiro", include_str!("manifests/kiro.toml")),
     ("opencode", include_str!("manifests/opencode.toml")),
+    ("omp", include_str!("manifests/omp.toml")),
     ("pi", include_str!("manifests/pi.toml")),
     ("qodercli", include_str!("manifests/qodercli.toml")),
     ("copilot", include_str!("manifests/github-copilot.toml")),
@@ -465,6 +466,7 @@ fn evaluate_loaded_manifest(
         .then(|| remote_update_status(agent))
         .flatten();
 
+    let visible_region = visible_region(&region_name);
     DetectionExplain {
         agent: Some(agent_label(agent).to_string()),
         state,
@@ -476,9 +478,9 @@ fn evaluate_loaded_manifest(
             state,
         }),
         screen_detection_skipped: false,
-        visible_idle: rule.visible_idle && state == AgentState::Idle,
-        visible_blocker: rule.visible_blocker && state == AgentState::Blocked,
-        visible_working: rule.visible_working && state == AgentState::Working,
+        visible_idle: visible_region && rule.visible_idle && state == AgentState::Idle,
+        visible_blocker: visible_region && rule.visible_blocker && state == AgentState::Blocked,
+        visible_working: visible_region && rule.visible_working && state == AgentState::Working,
         skip_state_update: rule.skip_state_update,
         skipped_update_reason,
         fallback_reason: None,
@@ -1057,6 +1059,10 @@ fn gate_has_positive_matcher(gate: &ManifestGate) -> bool {
 
 fn gate_has_any_matcher(gate: &ManifestGate) -> bool {
     gate_has_positive_matcher(gate) || !gate.not_gate.is_empty()
+}
+
+fn visible_region(spec: &str) -> bool {
+    !matches!(spec.trim(), "osc_title" | "osc_progress")
 }
 
 fn validate_region_name(spec: &str) -> Result<(), String> {

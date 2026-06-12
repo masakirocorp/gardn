@@ -100,6 +100,52 @@ fn known_agent_no_match_defaults_to_idle_fallback() {
 }
 
 #[test]
+fn omp_manifest_detects_core_resume_states() {
+    let maintenance = explain(Agent::OhMyPi, "Auto context-full maintenance…");
+    assert_eq!(maintenance.state, AgentState::Working);
+    assert!(maintenance.visible_working);
+
+    let selector =
+        "Plan mode\n❯ Approve and execute\n  Refine plan\nup/down navigate  enter select  esc cancel";
+    let blocked = explain(Agent::OhMyPi, selector);
+    assert_eq!(blocked.state, AgentState::Blocked);
+    assert!(blocked.visible_blocker);
+}
+
+#[test]
+fn osc_only_matches_do_not_claim_visible_screen_evidence() {
+    with_manifest_dirs("osc-not-visible", || {
+        write_local_codex(&rules_manifest(
+            r#"
+[[rules]]
+id = "osc_working"
+state = "working"
+priority = 10
+region = "osc_title"
+visible_working = true
+contains = ["working"]
+"#,
+        ));
+
+        let explain = explain_with_input(
+            Agent::Codex,
+            DetectionInput {
+                screen: "",
+                osc_title: "Working on it",
+                osc_progress: "",
+            },
+        );
+
+        assert_eq!(explain.state, AgentState::Working);
+        assert_eq!(
+            explain.matched_rule.as_ref().map(|rule| rule.id.as_str()),
+            Some("osc_working")
+        );
+        assert!(!explain.visible_working);
+    });
+}
+
+#[test]
 fn rule_semantics_apply_gates_priority_and_line_regex() {
     with_manifest_dirs("rule-semantics", || {
         write_local_codex(&rules_manifest(
@@ -291,27 +337,7 @@ fn detection_uses_cached_manifest_until_explicit_reload() {
 
 #[test]
 fn all_bundled_manifests_parse_and_validate() {
-    let agents = [
-        Agent::Pi,
-        Agent::Claude,
-        Agent::Codex,
-        Agent::Gemini,
-        Agent::Cursor,
-        Agent::Antigravity,
-        Agent::Cline,
-        Agent::OpenCode,
-        Agent::GithubCopilot,
-        Agent::Kimi,
-        Agent::Kiro,
-        Agent::Droid,
-        Agent::Amp,
-        Agent::Grok,
-        Agent::Hermes,
-        Agent::Kilo,
-        Agent::Qodercli,
-    ];
-
-    for agent in agents {
+    for agent in Agent::ALL {
         assert!(
             bundled_manifest(agent).is_some(),
             "missing bundled manifest for {}",

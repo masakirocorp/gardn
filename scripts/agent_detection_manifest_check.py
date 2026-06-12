@@ -11,9 +11,9 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_BUNDLED_DIR = PROJECT_ROOT / "src" / "detect" / "manifests"
+DEFAULT_BUNDLED_DIR = PROJECT_ROOT / "src" / "manifests"
 DEFAULT_WEBSITE_DIR = PROJECT_ROOT / "website" / "agent-detection"
-ENGINE_SOURCE = PROJECT_ROOT / "src" / "detect" / "manifest_update.rs"
+ENGINE_SOURCE = PROJECT_ROOT / "src" / "manifest_update.rs"
 
 MANIFEST_KEYS = {"id", "version", "min_engine_version", "updated_at", "aliases", "rules"}
 RULE_KEYS = {
@@ -38,7 +38,7 @@ REGION_RE = re.compile(
     r"^(whole_recent|whole_recent_without_current_prompt_marker|after_last_prompt_marker|"
     r"before_current_prompt_marker|current_prompt_block_marker|after_current_prompt_block_marker|"
     r"prompt_box_body|above_prompt_box|last_non_empty_above_prompt_box|after_last_horizontal_rule|"
-    r"bottom_lines\([1-9][0-9]*\)|bottom_non_empty_lines\([1-9][0-9]*\))$"
+    r"osc_title|osc_progress|bottom_lines\([1-9][0-9]*\)|bottom_non_empty_lines\([1-9][0-9]*\))$"
 )
 VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+)*$")
 MAX_RULES_PER_MANIFEST = 128

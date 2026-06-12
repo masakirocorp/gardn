@@ -81,6 +81,14 @@ fn active_pending_release(
     }
 }
 
+fn full_lifecycle_authority_should_skip_screen_detection(
+    active: bool,
+    process_exited: bool,
+    suppressed_agent: Option<Agent>,
+) -> bool {
+    active && !process_exited && suppressed_agent.is_none()
+}
+
 async fn publish_state_changed_event(
     state_events: mpsc::Sender<AppEvent>,
     pane_id: PaneId,
@@ -1508,9 +1516,6 @@ impl PaneRuntime {
                     }
 
                     let now = Instant::now();
-                    if full_lifecycle_authority_active.load(Ordering::Acquire) {
-                        continue;
-                    }
                     let suppressed_agent = active_pending_release(&pending_release_for_task, now);
                     let pid = child_pid.load(Ordering::Acquire);
                     let foreground_pgid = (pid > 0 && agent_presence.current_agent().is_some())
@@ -1634,6 +1639,13 @@ impl PaneRuntime {
                     let process_exited = pending_foreground_shell_clear
                         && agent.is_some()
                         && !foreground_shell_exit_reported;
+                    if full_lifecycle_authority_should_skip_screen_detection(
+                        full_lifecycle_authority_active.load(Ordering::Acquire),
+                        process_exited,
+                        suppressed_agent,
+                    ) {
+                        continue;
+                    }
                     if let Some(until) = agent_startup_grace_until {
                         if now < until && !process_exited {
                             continue;
@@ -2607,6 +2619,24 @@ mod tests {
             foreground_shell_agent_action(Some(Agent::Codex), None, true, true),
             ForegroundShellAgentAction::ClearAgent
         );
+    }
+
+    #[test]
+    fn lifecycle_authority_keeps_process_exit_and_release_checks_live() {
+        assert!(full_lifecycle_authority_should_skip_screen_detection(
+            true, false, None
+        ));
+        assert!(!full_lifecycle_authority_should_skip_screen_detection(
+            true, true, None
+        ));
+        assert!(!full_lifecycle_authority_should_skip_screen_detection(
+            true,
+            false,
+            Some(Agent::OhMyPi)
+        ));
+        assert!(!full_lifecycle_authority_should_skip_screen_detection(
+            false, false, None
+        ));
     }
 
     #[test]

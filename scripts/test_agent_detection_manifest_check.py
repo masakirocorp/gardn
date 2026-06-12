@@ -101,6 +101,21 @@ class AgentDetectionManifestCheckTests(unittest.TestCase):
             with self.assertRaisesRegex(check.CheckError, "exceeds engine"):
                 check.load_manifest_dir(bundled, engine_version=1)
 
+    def test_accepts_osc_regions_used_by_bundled_manifests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundled = Path(tmp) / "bundled"
+            bundled.mkdir()
+            (bundled / "codex.toml").write_text(
+                manifest("codex", "2026.06.10.1").replace(
+                    'contains = ["ready"]',
+                    'region = "osc_title"\ncontains = ["working"]',
+                )
+            )
+
+            manifests = check.load_manifest_dir(bundled, engine_version=1)
+
+            self.assertIn("codex", manifests)
+
 
 if __name__ == "__main__":
     unittest.main()

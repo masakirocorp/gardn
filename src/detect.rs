@@ -65,8 +65,9 @@ pub enum Agent {
 }
 
 impl Agent {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::Pi,
+        Self::OhMyPi,
         Self::Claude,
         Self::Codex,
         Self::Gemini,

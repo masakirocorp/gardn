@@ -1624,7 +1624,7 @@
       "local": [
         "858f106"
       ],
-      "reason": "Ported as Hako manifest update plumbing and hako agent explain/update support without Herdr website identity."
+      "reason": "Ported as Hako manifest update plumbing, server list/reload CLI commands, and hako agent explain support without Herdr website identity."
     },
     {
       "upstream": "0b49448e1230f5727614ec36ad56921629f9d348",
@@ -1659,8 +1659,8 @@
     {
       "upstream": "f5919398444d13f6ad9c42f671668da456b35157",
       "subject": "fix: stop lifecycle authority detection thrash (#565)",
-      "status": "superseded",
-      "reason": "Hako manifest/pty detection separates lifecycle session refs from detection authority, avoiding the upstream thrash class without importing the patch directly."
+      "status": "ported",
+      "reason": "Adapted by keeping detector process-exit and release probing live while full-lifecycle hook authority suppresses ordinary screen detection."
     },
     {
       "upstream": "4c73a922eaf6ff311e6814fb31b4216d1daa46b5",

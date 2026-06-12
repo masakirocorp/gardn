@@ -100,8 +100,8 @@ Supported built-in detection includes:
 - Kilo Code CLI
 
 
-- **Manifest rules** — bundled per-agent TOML manifests define screen, OSC title, and OSC progress matching rules so detection can be updated without hardcoding every heuristic in Rust.
-- **Manifest updates** — Hako can cache newer remote manifests, reject downgrades or incompatible engine versions, and report updated detection rules through the normal toast/update path.
+- **Manifest rules** — bundled per-agent TOML manifests define screen, OSC title, and OSC progress matching rules for every built-in agent family, including OMP. Screen rules can provide strong visible evidence; OSC-only rules are fallback evidence and do not override hook authority as visible UI.
+- **Manifest updates** — Hako can cache newer remote manifests, reject downgrades or incompatible engine versions, reload local manifests through `hako server reload-agent-manifests`, and report updated detection rules through the normal toast/update path.
 
 ### Agent UI
 
