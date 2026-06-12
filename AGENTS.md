@@ -120,6 +120,10 @@ Agents may pick up `Ready` issues only when they are unblocked and have clear ac
 
 Architecture Decision Records live in `docs/adr/` and use sequential filenames like `0001-short-slug.md`. Linear tracks ADR workflow; the repository is the source of truth for ADR content. Retroactive ADRs should record current architectural decisions that still matter, distinguish observed facts from `[INFERENCE]`, and avoid inventing historical rationale.
 
+Use ADRs for architectural decisions that are hard to reverse, cross module or workflow boundaries, encode a real tradeoff, and would be easy for a future maintainer or agent to simplify incorrectly from code alone. Do not write ADRs for local helper design, ordinary implementation details, broad test coverage notes, or behavior already covered by an existing ADR.
+
+Track ADR backfill and new ADR work in Linear with `kind:adr` and `app:hako`. When adding an ADR, read the relevant source and existing ADRs first, update `docs/adr/README.md`, add durable domain terms to `CONTEXT.md` only when they help future ADR/repo reasoning, and prefer a concise record of the invariant and tradeoff over historical storytelling.
+
 ## Releases
 
 Default release flow:
