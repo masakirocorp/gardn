@@ -14,12 +14,13 @@ cat > "$workdir/opencode.json" <<EOF_CONFIG
 }
 EOF_CONFIG
 
-prompt='Reply with exactly this text and nothing else: HAKO_OPENCODE_SMOKE_OK'
+prompt='Run the shell command: printf HAKO_OPENCODE_TOOL_OK. Then reply with exactly HAKO_OPENCODE_SMOKE_OK.'
 
 timeout_seconds="${HAKO_OPENCODE_SMOKE_TIMEOUT:-120}"
 set +e
 timeout "$timeout_seconds" opencode run \
   --pure \
+  --dangerously-skip-permissions \
   --dir "$workdir" \
   --model "openrouter/$model" \
   --format json \
@@ -35,6 +36,12 @@ if (( status != 0 )); then
   echo "opencode smoke failed with exit code $status" >&2
   sed -n '1,80p' "$output" >&2
   exit "$status"
+fi
+
+if ! grep -q 'HAKO_OPENCODE_TOOL_OK' "$output"; then
+  echo "opencode smoke did not observe expected tool output marker" >&2
+  sed -n '1,120p' "$output" >&2
+  exit 1
 fi
 
 if ! grep -q 'HAKO_OPENCODE_SMOKE_OK' "$output"; then
