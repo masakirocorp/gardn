@@ -105,7 +105,8 @@ RUN set -eux; \
 COPY smoke-env.sh /usr/local/bin/hako-agent-smoke-env
 COPY doctor.sh /usr/local/bin/hako-agent-smoke-doctor
 COPY verify-env.sh /usr/local/bin/hako-agent-smoke-verify-env
-RUN chmod +x /usr/local/bin/hako-agent-smoke-env /usr/local/bin/hako-agent-smoke-doctor /usr/local/bin/hako-agent-smoke-verify-env \
+COPY opencode-smoke.sh /usr/local/bin/hako-agent-smoke-opencode
+RUN chmod +x /usr/local/bin/hako-agent-smoke-env /usr/local/bin/hako-agent-smoke-doctor /usr/local/bin/hako-agent-smoke-verify-env /usr/local/bin/hako-agent-smoke-opencode \
     && useradd --create-home --shell /bin/bash smoke
 
 USER smoke

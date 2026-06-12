@@ -20,6 +20,7 @@ export ANTHROPIC_MODEL="${HAKO_SMOKE_ANTHROPIC_MODEL:-$model}"
 export COPILOT_PROVIDER_API_KEY="$OPENROUTER_API_KEY"
 export COPILOT_PROVIDER_BASE_URL="$openrouter_base"
 export COPILOT_MODEL="$model"
+export OPENCODE_AUTH_CONTENT="{\"openrouter\":{\"type\":\"api\",\"key\":\"$OPENROUTER_API_KEY\"}}"
 
 export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 mkdir -p "$CODEX_HOME"

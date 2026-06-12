@@ -17,6 +17,7 @@ required_env=(
   CODEX_HOME
   HAKO_SMOKE_MODEL
   HAKO_SMOKE_FALLBACK_MODELS
+  OPENCODE_AUTH_CONTENT
 )
 
 for key in "${required_env[@]}"; do
@@ -39,6 +40,7 @@ grep -q 'poolside/laguna-m.1:free' "$HOME/.factory/settings.json"
 grep -q 'generic-chat-completion-api' "$HOME/.factory/settings.json"
 grep -q '"model": "poolside/laguna-m.1:free"' "$HOME/.config/hermes-agent/config.json"
 grep -q '"provider": "openrouter"' "$HOME/.config/hermes-agent/config.json"
+grep -q 'openrouter' <<<"$OPENCODE_AUTH_CONTENT"
 
 if [[ "$(id -un)" != "smoke" ]]; then
   echo "smoke checks must run as the non-root smoke user" >&2

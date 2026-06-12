@@ -83,6 +83,11 @@ agent-smoke-doctor:
 agent-smoke-verify:
     docker run --rm -e OPENROUTER_API_KEY=sk-hako-smoke-test hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-verify-env
 
+
+# Run OpenCode against the configured free OpenRouter smoke model
+agent-smoke-opencode:
+    docker run --rm -e OPENROUTER_API_KEY hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-opencode
+
 # Print default config
 default-config:
     cargo run --release --locked -- --default-config
