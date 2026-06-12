@@ -1315,88 +1315,406 @@
       "reason": "ported to Hako by dropping idle screen authority from pty-aware policy so stale idle prompts cannot override active pty signals."
     },
     {
-      "upstream": "3c2b46d",
+      "upstream": "3c2b46d24aa6c8011a1e198143752f2aa414d585",
       "subject": "feat: add native windows beta support",
       "status": "ported",
       "reason": "Adapted stable Windows primitives for Hako: platform process support, local socket abstraction, Windows release asset naming, worktree path handling, and integration platform gates without Herdr beta/preview branding."
     },
     {
-      "upstream": "b5fba2f",
+      "upstream": "b5fba2fdd15aa4cab9621c383f72b57644078fd5",
       "subject": "ci: run checks on windows branch",
       "status": "superseded",
       "reason": "Hako does not keep Herdr windows branch CI; stable release workflow now builds the Windows asset directly."
     },
     {
-      "upstream": "52e5750",
+      "upstream": "52e57507e10ee7cb2869156fb1f00e280e614736",
       "subject": "ci: tighten windows branch validation",
       "status": "superseded",
       "reason": "Herdr branch-validation workflow shape is upstream-specific; Hako release/build validation is maintained in its own GitHub Actions workflow."
     },
     {
-      "upstream": "f61ed48",
+      "upstream": "f61ed48eff622de4f970adff220603ea50292f07",
       "subject": "fix: preserve unix socket error semantics",
       "status": "ported",
       "reason": "Local socket abstraction preserves Unix stale/live socket handling and treats WouldBlock as stale while keeping owner-only Unix permissions."
     },
     {
-      "upstream": "745ce42",
+      "upstream": "745ce4254c646922d667ec13dd21963656405c12",
       "subject": "fix: handle windows worktree paths and removal",
       "status": "ported",
       "reason": "Adapted Windows home-directory expansion, Windows-style tilde handling, and dirty-worktree removal guard for Windows where Git cannot remove an active checkout cleanly."
     },
     {
-      "upstream": "0956ad8",
+      "upstream": "0956ad8c5883014ebf88664099fae41edd3fdc9e",
       "subject": "feat: add windows preview installer",
       "status": "skipped",
       "reason": "Preview installer/channel plumbing is intentionally not ported; Hako stable Windows support uses direct GitHub release assets."
     },
     {
-      "upstream": "7c7d8c8",
+      "upstream": "7c7d8c8619006b25244bcdac0abc560cd43108ab",
       "subject": "fix: gate windows updater checks",
       "status": "ported",
       "reason": "Updater now accounts for the stable Windows .exe asset name and keeps direct-update command guidance on hako update."
     },
     {
-      "upstream": "c01b947",
+      "upstream": "c01b947d0bde1663980a15727938ac666ce31f61",
       "subject": "fix: support windows agent hooks and input paths",
       "status": "ported",
       "reason": "Windows path/home handling and supported CLI-hook integration gating were adapted for Hako stable behavior."
     },
     {
-      "upstream": "3c8f8d",
+      "upstream": "3c8f8dcb7774fa07d6e8e2972e3b70cd5ca375ca",
       "subject": "fix: gate integrations by platform support",
       "status": "ported",
       "reason": "Unsupported Unix/plugin integrations are hidden/rejected on Windows while CLI hook integrations remain available."
     },
     {
-      "upstream": "6f45969",
+      "upstream": "6f459691056b68c2c99d8341b5f8dd4b811a53c1",
       "subject": "fix(update): keep windows installs on preview",
       "status": "skipped",
       "reason": "Herdr preview-channel retention is not applicable; Hako Windows updates stay on stable direct release assets."
     },
     {
-      "upstream": "4168278",
+      "upstream": "416827872a6e2c820bd58209d267685d4c07cb7d",
       "subject": "fix(update): tolerate empty windows channel env",
       "status": "skipped",
       "reason": "Preview channel environment handling is not applicable to Hako stable Windows updates."
     },
     {
-      "upstream": "fb56e64",
+      "upstream": "fb56e64537de5f93786ed121f703da2a4105badc",
       "subject": "fix: improve windows pane behavior",
-      "status": "deferred",
-      "reason": "The pane-rendering refinements are larger than the stable support cutover and remain separate from release/update/worktree/integration invariants."
+      "status": "ported",
+      "reason": "Adapted Windows cursor-position preservation and pane cursor rendering behavior in Hako without upstream preview-channel plumbing.",
+      "local": [
+        "928945a"
+      ]
     },
     {
-      "upstream": "3e2bdba",
+      "upstream": "3e2bdbab7b05c042d47caaf355be1f2f25b624fb",
       "subject": "fix: unblock windows preview updates",
       "status": "skipped",
       "reason": "Preview update unblocking is not applicable because Hako intentionally has no preview channel."
     },
     {
-      "upstream": "698eb51",
+      "upstream": "698eb51f543af47ba7a974d0d78f1bf0cca2cd53",
       "subject": "fix: migrate legacy windows bin backups",
       "status": "skipped",
       "reason": "Legacy Herdr Windows installer backup migration is not applicable to Hako stable direct installs."
+    },
+    {
+      "upstream": "9c18014c09ca419e517dc3ff5684287cd0f47d43",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "Preview manifest publishing is upstream-channel plumbing; Hako intentionally has no preview channel."
+    },
+    {
+      "upstream": "6b3f6462810e400fbbfbc21240b677732b0549ec",
+      "subject": "fix: use live workspace labels in navigator",
+      "status": "ported",
+      "reason": "Hako navigator rows already use live workspace display labels from terminal/runtime state."
+    },
+    {
+      "upstream": "b4b69b3539fc02d855c9b626cb205074e1541c78",
+      "subject": "fix: open a default workspace when sessions are empty",
+      "status": "superseded",
+      "reason": "Hako intentionally supports empty groups/spaces instead of forcing a default workspace on empty restore."
+    },
+    {
+      "upstream": "acfbb7c85a44d28432512772e4070428df60cfd6",
+      "subject": "fix: enable grapheme clusters in panes",
+      "status": "ported",
+      "reason": "Hako terminal rendering already reads Ghostty grapheme clusters for panes and protocol frames."
+    },
+    {
+      "upstream": "0f92b2f02752fcdff099dae72915cd1cc85f7fc4",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "Preview manifest publishing is upstream-channel plumbing; Hako intentionally has no preview channel."
+    },
+    {
+      "upstream": "ae3c88ab8c64931740d89623f688f7d3f408da5e",
+      "subject": "chore: add issue triage skill",
+      "status": "skipped",
+      "reason": "Repository-agent workflow docs are Hako-owned and tracked separately from upstream Herdr skills."
+    },
+    {
+      "upstream": "556b16b2df7ea2c3e9b8ad13db4ad7370c1ad838",
+      "subject": "feat: add pane navigation controls",
+      "status": "superseded",
+      "reason": "Hako pane control UX/API is product-specific; existing pane split/focus/close surfaces are maintained separately from upstream controls."
+    },
+    {
+      "upstream": "b7619db085eb4054a071b51159eda65d6b60f3fe",
+      "subject": "feat: expose pane zoom api",
+      "status": "superseded",
+      "reason": "Hako pane zoom/control API shape is maintained separately and was not imported with upstream CLI/socket API semantics."
+    },
+    {
+      "upstream": "048d8a29195d580014b24ee3fc7e89ac6bdfee8a",
+      "subject": "fix: debounce droid working detection",
+      "status": "superseded",
+      "reason": "Hako Droid integration uses session-only lifecycle reporting plus manifest/pty detection rather than upstream transient hook-driven working debounce."
+    },
+    {
+      "upstream": "0a3c9b97bce321795ee897b370dba10e74df7ac5",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "Preview manifest publishing is upstream-channel plumbing; Hako intentionally has no preview channel."
+    },
+    {
+      "upstream": "9c101b71d83941ee59d2b68f32f624afd7e2d78e",
+      "subject": "ci: mark issues released on preview",
+      "status": "skipped",
+      "reason": "Herdr preview release issue automation is not part of Hako release workflow."
+    },
+    {
+      "upstream": "970c07ea3110f114f6cb348ccbef5a6f763373ce",
+      "subject": "docs: document windows preview installs",
+      "status": "skipped",
+      "reason": "Windows preview install docs are not applicable; Hako uses stable direct release assets."
+    },
+    {
+      "upstream": "bf72154d3ada3c0bf3cc244f171b044bb4d67d75",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "Preview manifest publishing is upstream-channel plumbing; Hako intentionally has no preview channel."
+    },
+    {
+      "upstream": "0a635a3fc1e971030079945a447c73e2b24489f8",
+      "subject": "docs: hide windows beta homepage entry",
+      "status": "skipped",
+      "reason": "Hako-owned website content does not use upstream Herdr Windows beta homepage entries."
+    },
+    {
+      "upstream": "a62ecd71e6fc69c01346d85d54b6264039ab2093",
+      "subject": "chore: approve merged contributor udirom",
+      "status": "skipped",
+      "reason": "Upstream contributor approval workflow is not part of Hako product code."
+    },
+    {
+      "upstream": "23713874118390d33b8b26cfdc0cdcd7b05720a2",
+      "subject": "docs: clarify mise registry fallback",
+      "status": "skipped",
+      "reason": "Hako-owned install/docs surface is maintained separately from upstream Herdr docs."
+    },
+    {
+      "upstream": "052cff9864edffaab62f3e09dd28e5456cb1b767",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "Preview manifest publishing is upstream-channel plumbing; Hako intentionally has no preview channel."
+    },
+    {
+      "upstream": "0facd819b4747c7634040b561509137c2608b024",
+      "subject": "chore: approve merged contributor imrajyavardhan12",
+      "status": "skipped",
+      "reason": "Upstream contributor approval workflow is not part of Hako product code."
+    },
+    {
+      "upstream": "38f3b290deed3008b52c11589a1048b227702894",
+      "subject": "chore: publish agent detection manifests",
+      "status": "skipped",
+      "reason": "Upstream website-hosted manifest publishing was not imported; Hako bundles manifests and points future updates at Hako-owned endpoints."
+    },
+    {
+      "upstream": "8d13492926829c5cf0ea42c8613344cd65ff59fa",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "Preview manifest publishing is upstream-channel plumbing; Hako intentionally has no preview channel."
+    },
+    {
+      "upstream": "36a1b7f86444871f0c38ff36510a6e3c2eec48c6",
+      "subject": "feat: distribute agent detection manifests",
+      "status": "ported",
+      "local": [
+        "858f106"
+      ],
+      "reason": "Adapted as bundled Hako-owned manifests under src/manifests with Hako source identifiers."
+    },
+    {
+      "upstream": "82468a0e03360219898ebf3735bdf559182009f8",
+      "subject": "feat: add manifest-based detection engine",
+      "status": "ported",
+      "local": [
+        "858f106"
+      ],
+      "reason": "Ported as Hako manifest detection engine with screen and OSC evidence support."
+    },
+    {
+      "upstream": "09c0dabfb51d8bc48b450d84958d19b1b647d77a",
+      "subject": "chore: publish updated agent detection manifests",
+      "status": "ported",
+      "local": [
+        "858f106"
+      ],
+      "reason": "Bundled the updated manifest rules into Hako source manifests rather than upstream website publishing."
+    },
+    {
+      "upstream": "42ec7221310a4193f2a3717e2ea557c604dd07ae",
+      "subject": "feat: gate kimi integration install behind minimum agent version",
+      "status": "ported",
+      "local": [
+        "59874a6"
+      ],
+      "reason": "Adapted Kimi version gating into Hako integration install/status UI."
+    },
+    {
+      "upstream": "0c853bb47476ba8b1f5f3633de134816b66f4941",
+      "subject": "chore: apply cargo fmt",
+      "status": "superseded",
+      "reason": "Formatting was applied to Hako port commits with cargo fmt rather than porting an upstream-only formatting commit."
+    },
+    {
+      "upstream": "95036bbd4ba48a20a4626eabf684ce05530dba13",
+      "subject": "docs: clarify scrollback behavior for alternate-screen apps",
+      "status": "skipped",
+      "reason": "Hako-owned docs are maintained separately from upstream Herdr docs."
+    },
+    {
+      "upstream": "9e0dd9412f7b2b8b2dbabf5ddcd523b4d868aed2",
+      "subject": "chore: symlink CLAUDE.md to AGENTS.md",
+      "status": "skipped",
+      "reason": "Hako agent instructions are AGENTS.md-only; upstream CLAUDE.md compatibility symlink is not part of this repo policy."
+    },
+    {
+      "upstream": "0efd8eaad1620dc4b9e44c45ee16ef0a9807a200",
+      "subject": "fix: remove pty taint from agent detection",
+      "status": "ported",
+      "local": [
+        "112196f"
+      ],
+      "reason": "Ported to Hako pty-aware agent detection policy and pane runtime."
+    },
+    {
+      "upstream": "9ae03dddb94d24d02d0bd1776868a5497433abf1",
+      "subject": "test: make worktree tilde expansion env-independent",
+      "status": "ported",
+      "local": [
+        "b779196"
+      ],
+      "reason": "Adapted Hako worktree tilde tests to use explicit environment providers."
+    },
+    {
+      "upstream": "7d6eaf5f26d1fa93b9c95c0457d43183f989fab9",
+      "subject": "test: fix windows tilde env provider",
+      "status": "ported",
+      "local": [
+        "b779196"
+      ],
+      "reason": "Folded Windows tilde env-provider coverage into the Hako worktree tilde test port."
+    },
+    {
+      "upstream": "f9b67570d2e6bbfbda822ead19aed7c65b09ab08",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "Preview manifest publishing is upstream-channel plumbing; Hako intentionally has no preview channel."
+    },
+    {
+      "upstream": "1fc5e84d461ff7c3cfcc0ed134df0939665fc937",
+      "subject": "fix: stop marking codex background terminals as working",
+      "status": "ported",
+      "local": [
+        "858f106"
+      ],
+      "reason": "Codex background-state handling is covered by the manifest-based detection rules port."
+    },
+    {
+      "upstream": "f4d04fab26d8b8733868b8e394439b69ed83df75",
+      "subject": "feat: add agent manifest update command",
+      "status": "ported",
+      "local": [
+        "858f106"
+      ],
+      "reason": "Ported as Hako manifest update plumbing and hako agent explain/update support without Herdr website identity."
+    },
+    {
+      "upstream": "0b49448e1230f5727614ec36ad56921629f9d348",
+      "subject": "docs: finalize release docs and add runtime blog",
+      "status": "skipped",
+      "reason": "Upstream release docs/blog are Hako-owned documentation surface and not ported."
+    },
+    {
+      "upstream": "a965b055bcc02c5db1f6cacaeb1a631513673674",
+      "subject": "release: v0.6.9",
+      "status": "skipped",
+      "reason": "Upstream release commits are not part of Hako release history."
+    },
+    {
+      "upstream": "c242f070e4b0010380f25be6948a16ace94824be",
+      "subject": "docs: update website manifest for v0.6.9",
+      "status": "skipped",
+      "reason": "Upstream website release manifest is not part of Hako release history."
+    },
+    {
+      "upstream": "78e223b3c77dad0bf5598187458394dfda710789",
+      "subject": "docs: link windows beta docs in sidebar",
+      "status": "skipped",
+      "reason": "Windows beta docs/sidebar are upstream website content; Hako uses stable Windows release assets."
+    },
+    {
+      "upstream": "01e5a1933e1e8cc4baf0a68c6f714117311e22bd",
+      "subject": "ci: pin github actions to shas",
+      "status": "superseded",
+      "reason": "Hako CI workflow policy is maintained separately from upstream Herdr Actions pinning."
+    },
+    {
+      "upstream": "f5919398444d13f6ad9c42f671668da456b35157",
+      "subject": "fix: stop lifecycle authority detection thrash (#565)",
+      "status": "superseded",
+      "reason": "Hako manifest/pty detection separates lifecycle session refs from detection authority, avoiding the upstream thrash class without importing the patch directly."
+    },
+    {
+      "upstream": "4c73a922eaf6ff311e6814fb31b4216d1daa46b5",
+      "subject": "chore: approve merged contributor dzevs",
+      "status": "skipped",
+      "reason": "Upstream contributor approval workflow is not part of Hako product code."
+    },
+    {
+      "upstream": "5c9936e4cc3bfd91e675d0ea0069e414e58ebb3b",
+      "subject": "docs: add v0.6.10 hotfix changelog entry",
+      "status": "skipped",
+      "reason": "Upstream release changelog entries are not part of Hako release history."
+    },
+    {
+      "upstream": "8b99847619235359f4aa87215feac60ac2784499",
+      "subject": "release: v0.6.10",
+      "status": "skipped",
+      "reason": "Upstream release commits are not part of Hako release history."
+    },
+    {
+      "upstream": "1a61ea611a88ece179cf9e236b7efc68fa7a801b",
+      "subject": "docs: update website manifest for v0.6.10",
+      "status": "skipped",
+      "reason": "Upstream website release manifest is not part of Hako release history."
+    },
+    {
+      "upstream": "52bd8c193fdf4fca359ca17f7c439332abf44c52",
+      "subject": "docs: refresh website open graph cards",
+      "status": "skipped",
+      "reason": "Hako-owned website/social card assets are maintained separately from upstream Herdr."
+    },
+    {
+      "upstream": "6d763e58454e86cca953b151af1c3be303507cb4",
+      "subject": "docs: bump website open graph card url",
+      "status": "skipped",
+      "reason": "Hako-owned website/social card assets are maintained separately from upstream Herdr."
+    },
+    {
+      "upstream": "6e7ce87bab6a5d4f277613658d0f19afb114128b",
+      "subject": "fix: allow resize keys to shrink panes",
+      "status": "ported",
+      "local": [
+        "ad89b88"
+      ],
+      "reason": "Ported to Hako layout resizing with focused resize regression tests."
+    },
+    {
+      "upstream": "7ba4bfe90e7a17b11979e729d29d82723bb3b0bf",
+      "subject": "fix: stabilize windows pane cursor rendering",
+      "status": "ported",
+      "local": [
+        "928945a"
+      ],
+      "reason": "Ported to Hako pane cursor rendering and Windows cursor-position preservation."
     }
   ]
 }
