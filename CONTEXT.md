@@ -32,9 +32,17 @@ _Avoid_: Group order, ranking
 A per-group promotion of a global agent profile. Favorite profiles appear before non-favorites for that group, with both sections sorted by the global agent profile order.
 _Avoid_: Visibility, permission, policy, priority
 
+**Group Default Agent Profile**:
+The launchable group favorite Hako starts directly from New Agent for workspaces in that group.
+_Avoid_: Hidden default, global default
+
 **New Agent**:
 A launch surface for starting an agent profile as a new tab in a specific workspace or group context. New Agent starts the configured command and environment directly, uses group favorites to organize profiles, and does not edit the profile catalog.
 _Avoid_: Run command, start bot
+
+**Command Palette**:
+A contextual command surface synthesized from Hako's current app state, keybindings, and fixed app actions.
+_Avoid_: Static command registry, shell palette
 
 **Native Agent Resume**:
 The restore-time flow that launches a supported agent back into its own saved conversation session from a trusted session reference and preserved launch context.
@@ -52,6 +60,10 @@ _Avoid_: Pane label, agent state
 The current user-facing title, display agent, custom status, and state-label set after Hako combines valid metadata with terminal and integration state.
 _Avoid_: Raw metadata, session state
 
+**Maintenance Guardrail**:
+A repo-level automated check that rejects narrow, mechanically detectable maintenance or test-quality regressions.
+_Avoid_: Review checklist, full test suite
+
 **Config File**:
 The user-editable TOML file that defines Hako's persistent product settings. It is a public configuration surface, not a dump of runtime state.
 _Avoid_: Settings cache, state file
@@ -63,6 +75,10 @@ _Avoid_: Restart, migration
 **Settings Row**:
 A typed row in Hako's settings modal that defines how a setting or explanatory element renders, participates in selection, and maps between visual rows and logical options.
 _Avoid_: Config entry, raw list item
+
+**Modal Geometry Primitive**:
+A shared UI helper that defines modal layout, scrolling, tab visibility, or mouse hit-testing across overlay surfaces.
+_Avoid_: One-off modal math, settings row
 
 **Workspace**:
 A named working area that groups related tabs, panes, and terminal sessions for one project or task.
@@ -271,6 +287,10 @@ _Avoid_: Standalone when ownership matters
 **Managed Install**:
 A Hako binary installed and owned by a package manager such as Homebrew, mise, or Nix.
 _Avoid_: Direct install, self-managed install
+
+**Nix Flake Path**:
+The optional Nix-native package, app, check, dev shell, and overlay surface for users who install or develop Hako through Nix.
+_Avoid_: Release channel, direct updater
 
 **Release Asset**:
 A platform-specific Hako binary attached to a GitHub Release with the stable name Hako's updater expects for that host platform.
