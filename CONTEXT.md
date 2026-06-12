@@ -180,6 +180,10 @@ _Avoid_: Protocol version, client mode
 The numeric compatibility marker for the wire protocol. Hako currently treats protocol compatibility as an exact match between client and server protocol values.
 _Avoid_: App version, release version
 
+**Protocol Payload**:
+The length-prefixed body carried by the wire protocol or a related thin-client transport message.
+_Avoid_: Render stream, terminal bytes
+
 **Product Fork**:
 A fork that has its own product identity, release line, docs, website, update channel, and repository policy. Hako is a product fork of upstream Herdr, not a mirror.
 _Avoid_: Downstream mirror, rebrand branch
@@ -187,6 +191,14 @@ _Avoid_: Downstream mirror, rebrand branch
 **Upstream Signal**:
 An upstream Herdr change treated as candidate evidence for a Hako invariant. Upstream signal must be checked against Hako context before it becomes Hako behavior.
 _Avoid_: Upstream authority, automatic merge
+
+**Session Namespace**:
+A default or named Hako scope for a running server and persistence context.
+_Avoid_: CLI flag, workspace, app instance
+
+**Factory-Default Session State**:
+The built-in empty Hako state: no workspaces, the unrenamed default group selected, and default sidebar/group-filter presentation.
+_Avoid_: Empty workspace, reset snapshot
 
 **Session Snapshot**:
 The durable saved shape of a Hako session: groups, workspaces, tabs, panes, layout, active/selected/sidebar state, pane cwd/label/seen state, launch argv/env, and resumable agent-session refs. It excludes pane scrollback and handoff-only terminal semantics.
