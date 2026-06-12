@@ -2,7 +2,7 @@
 // managed by hako; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=opencode
-// HAKO_INTEGRATION_VERSION=4
+// HAKO_INTEGRATION_VERSION=5
 
 import net from "node:net";
 
@@ -345,6 +345,24 @@ async function recomputeAgentState() {
 
   await emitAgentState(state, sessionID, reportKey);
 }
+async function markSessionWorking(sessionID) {
+  if (!sessionID) {
+    return;
+  }
+
+  rememberSession(sessionID, { status: { type: "busy" } });
+  reconcileKnownSessionState();
+
+  if (isPrimarySession(sessionID)) {
+    await reportSession(sessionID);
+    primaryBusy = true;
+  } else if (isChildOfPrimary(sessionID)) {
+    busyChildren.add(sessionID);
+  }
+
+  await recomputeAgentState();
+}
+
 
 async function handleEvent(event) {
   const type = event?.type;
@@ -369,6 +387,9 @@ async function handleEvent(event) {
   const childSession = isChildOfPrimary(sessionID);
 
   switch (type) {
+    case "hako.session.compacting":
+      await markSessionWorking(sessionID);
+      break;
     case "session.created":
     case "session.updated":
       if (primarySession) {
@@ -502,5 +523,7 @@ export const HakoAgentStatePlugin = async () => {
 
   return {
     event: async ({ event }) => queueEvent(event),
+    "experimental.session.compacting": async (input) =>
+      queueEvent({ type: "hako.session.compacting", properties: { sessionID: input?.sessionID } }),
   };
 };

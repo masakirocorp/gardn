@@ -238,5 +238,5 @@ if "idle" in states_for("pane-opencode-subagent"):
     assert_eventually_idle("pane-opencode-subagent")
     assert_no_reactivation_after_idle("pane-opencode-subagent")
 
-print("opencode status test ok: real cli reports working/blocked/subagent; plugin harness covers idle and parent-session authority")
+print("opencode status test ok: real cli reports working/blocked/subagent; plugin harness covers compacting, idle, and parent-session authority")
 PY

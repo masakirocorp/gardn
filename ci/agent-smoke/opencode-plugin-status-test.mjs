@@ -44,13 +44,17 @@ async function runScenario(name, events, options = {}) {
   );
   const hooks = await HakoAgentStatePlugin();
 
-  async function emit(type, properties) {
-    await hooks.event({ event: { type, properties } });
+  async function emit(item) {
+    if (item.hook === "experimental.session.compacting") {
+      await hooks["experimental.session.compacting"](item.input, item.output ?? {});
+      return;
+    }
+    await hooks.event({ event: { type: item.type, properties: item.properties } });
   }
 
 
   for (const event of events) {
-    await emit(event.type, event.properties);
+    await emit(event);
   }
   await new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -216,6 +220,15 @@ assertCommon(prePrimary);
 assertOnlySession(prePrimary, parent);
 assertStates(prePrimary, ["working", "idle"]);
 
+const compacting = await runScenario("compacting", [
+  { type: "session.created", properties: { sessionID: parent, info: { id: parent } } },
+  { hook: "experimental.session.compacting", input: { sessionID: parent } },
+  { type: "session.idle", properties: { sessionID: parent } },
+]);
+assertCommon(compacting);
+assertOnlySession(compacting, parent);
+assertStates(compacting, ["working", "idle"]);
+
 const noReply = await runScenario(
   "no-reply",
   [
@@ -229,4 +242,4 @@ assertCommon(noReply);
 assertOnlySession(noReply, parent);
 assertStates(noReply, ["working", "idle"]);
 
-console.log("opencode plugin status test ok: parent/child aggregation, permissions, pre-primary replay, socket no-reply");
+console.log("opencode plugin status test ok: parent/child aggregation, permissions, compacting, pre-primary replay, socket no-reply");
