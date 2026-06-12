@@ -36,6 +36,7 @@ async function runScenario(name, events, options = {}) {
   process.env.HAKO_ENV = "1";
   process.env.HAKO_SOCKET_PATH = socketPath;
   process.env.HAKO_PANE_ID = `pane-${name}`;
+  process.env.HAKO_OPENCODE_IDLE_REPORT_DELAY_MS = "5";
   process.env.OPENCODE_CONFIG = path.join(tmp, "opencode.json");
 
   const { HakoAgentStatePlugin } = await import(
@@ -188,7 +189,7 @@ const permissions = await runScenario("permissions", [
 ]);
 assertCommon(permissions);
 assertOnlySession(permissions, parent);
-assertStates(permissions, ["idle", "blocked", "idle", "blocked", "idle", "blocked", "idle"]);
+assertStates(permissions, ["blocked", "idle"]);
 
 const anonymousTasks = await runScenario("anonymous-tasks", [
   { type: "session.created", properties: { sessionID: parent, info: { id: parent } } },
@@ -201,7 +202,7 @@ const anonymousTasks = await runScenario("anonymous-tasks", [
 ]);
 assertCommon(anonymousTasks);
 assertOnlySession(anonymousTasks, parent);
-assertStates(anonymousTasks, ["idle", "working", "idle"]);
+assertStates(anonymousTasks, ["working", "idle"]);
 
 const prePrimary = await runScenario("pre-primary", [
   { type: "session.created", properties: { sessionID: child, info: { id: child, parentID: parent } } },

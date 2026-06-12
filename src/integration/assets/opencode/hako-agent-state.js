@@ -13,6 +13,11 @@ function nextReportSeq() {
   reportSeq = Math.max(reportSeq + 1, Date.now() * 1000);
   return reportSeq;
 }
+const IDLE_REPORT_DELAY_MS = Number.parseInt(
+  process.env.HAKO_OPENCODE_IDLE_REPORT_DELAY_MS ?? "750",
+  10,
+);
+
 
 const sessions = new Map();
 const busyChildren = new Set();
@@ -22,6 +27,8 @@ const pendingPermissionIDs = new Set();
 const anonymousPermissions = new Map();
 let anonymousActiveTasks = 0;
 let lastReportedKey;
+let pendingIdleTimer;
+let pendingIdleKey;
 let primarySessionID;
 let primaryBusy = false;
 
@@ -297,15 +304,46 @@ function childSessionIDFromTask(properties) {
 }
 
 
+async function emitAgentState(state, sessionID, reportKey) {
+  lastReportedKey = reportKey;
+  await reportAgent(state, sessionID);
+}
+
+function cancelPendingIdle() {
+  if (!pendingIdleTimer) {
+    return;
+  }
+  clearTimeout(pendingIdleTimer);
+  pendingIdleTimer = undefined;
+  pendingIdleKey = undefined;
+}
+
 async function recomputeAgentState() {
   const state = visibleState();
   const sessionID = visibleSessionID();
   const reportKey = `${state}\0${sessionID ?? ""}`;
-  if (reportKey === lastReportedKey) {
+  if (state !== "idle") {
+    cancelPendingIdle();
+  }
+  if (reportKey === lastReportedKey || reportKey === pendingIdleKey) {
     return;
   }
-  lastReportedKey = reportKey;
-  await reportAgent(state, sessionID);
+
+  if (state === "idle") {
+    cancelPendingIdle();
+    pendingIdleKey = reportKey;
+    pendingIdleTimer = setTimeout(() => {
+      pendingIdleTimer = undefined;
+      pendingIdleKey = undefined;
+      if (visibleState() !== "idle" || visibleSessionID() !== sessionID) {
+        return;
+      }
+      void emitAgentState(state, sessionID, reportKey);
+    }, IDLE_REPORT_DELAY_MS);
+    return;
+  }
+
+  await emitAgentState(state, sessionID, reportKey);
 }
 
 async function handleEvent(event) {

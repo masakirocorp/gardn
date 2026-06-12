@@ -14,6 +14,8 @@ This is separate from ADR 0004, ADR 0016, and ADR 0024. ADR 0004 records how fal
 
 `[INFERENCE]` Hako layers state evidence because agent status is both operational and UX-critical: it drives sidebar state, notifications, labels, and automation-facing status. A simpler detector-only or hook-only model would be easier to reason about locally but would make stale hooks or ambiguous terminal text visible to users as wrong status.
 
+Hook integrations can emit many correct intermediate transitions while one user-visible operation is still settling. Hako therefore treats hook reports as evidence for an internal state model first, then applies presentation hysteresis only at the reporting edge. Working and blocked evidence should surface immediately because they indicate active work or needed user action. Idle evidence is delayed briefly so parent/subagent handoffs and fast tool completion bursts do not flicker the activity sidebar through transient idle states. This delay is intentionally presentation-only: newer working or blocked evidence cancels the pending idle report, while the underlying hook evidence remains exact.
+
 ## Consequences
 
 New agent integrations or detectors should identify which evidence strength they provide and how it composes with existing process, screen, OSC, hook, and seen/unseen signals. Changes must preserve terminal completion, process-exit cleanup, same-agent visible UI safeguards, lifecycle-authority process probing, and hook authority ordering while keeping agent metadata as presentation data rather than core state evidence.
