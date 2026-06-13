@@ -112,7 +112,8 @@ COPY pi-omp-plugin-status-test.mjs /usr/local/bin/hako-agent-pi-omp-plugin-statu
 COPY pi-omp-status-smoke.sh /usr/local/bin/hako-agent-smoke-pi-omp-status
 COPY claude-status-smoke.sh /usr/local/bin/hako-agent-smoke-claude-status
 COPY codex-status-smoke.sh /usr/local/bin/hako-agent-smoke-codex-status
-RUN chmod +x /usr/local/bin/hako-agent-smoke-env /usr/local/bin/hako-agent-smoke-doctor /usr/local/bin/hako-agent-smoke-verify-env /usr/local/bin/hako-agent-smoke-opencode /usr/local/bin/hako-agent-smoke-opencode-status /usr/local/bin/hako-agent-smoke-pi-omp-status /usr/local/bin/hako-agent-smoke-claude-status /usr/local/bin/hako-agent-smoke-codex-status /usr/local/bin/hako-agent-opencode-plugin-status-test /usr/local/bin/hako-agent-pi-omp-plugin-status-test \
+COPY remaining-status-smoke.sh /usr/local/bin/hako-agent-smoke-remaining-status
+RUN chmod +x /usr/local/bin/hako-agent-smoke-env /usr/local/bin/hako-agent-smoke-doctor /usr/local/bin/hako-agent-smoke-verify-env /usr/local/bin/hako-agent-smoke-opencode /usr/local/bin/hako-agent-smoke-opencode-status /usr/local/bin/hako-agent-smoke-pi-omp-status /usr/local/bin/hako-agent-smoke-claude-status /usr/local/bin/hako-agent-smoke-codex-status /usr/local/bin/hako-agent-smoke-remaining-status /usr/local/bin/hako-agent-opencode-plugin-status-test /usr/local/bin/hako-agent-pi-omp-plugin-status-test \
     && useradd --create-home --shell /bin/bash smoke
 
 USER smoke

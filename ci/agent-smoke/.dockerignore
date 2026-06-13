@@ -10,3 +10,4 @@
 !pi-omp-status-smoke.sh
 !claude-status-smoke.sh
 !codex-status-smoke.sh
+!remaining-status-smoke.sh
