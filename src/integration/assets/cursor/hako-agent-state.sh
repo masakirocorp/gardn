@@ -3,7 +3,7 @@
 # managed by hako; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HAKO_INTEGRATION_ID=cursor
-# HAKO_INTEGRATION_VERSION=1
+# HAKO_INTEGRATION_VERSION=2
 
 set -eu
 
@@ -13,7 +13,7 @@ trap 'rm -f "$hook_input_file"' EXIT HUP INT TERM
 cat >"$hook_input_file" 2>/dev/null || true
 
 case "$action" in
-  session) ;;
+  working|idle|release) ;;
   *) exit 0 ;;
 esac
 
@@ -30,6 +30,7 @@ import socket
 import time
 
 source = "hako:cursor"
+action = os.environ.get("HAKO_ACTION", "")
 pane_id = os.environ.get("HAKO_PANE_ID")
 socket_path = os.environ.get("HAKO_SOCKET_PATH")
 hook_input_file = os.environ.get("HAKO_HOOK_INPUT_FILE")
@@ -43,7 +44,9 @@ if hook_input_file:
         with open(hook_input_file, encoding="utf-8") as handle:
             content = handle.read()
         if content.strip():
-            hook_input = json.loads(content)
+            parsed = json.loads(content)
+            if isinstance(parsed, dict):
+                hook_input = parsed
     except Exception:
         hook_input = {}
 
@@ -54,39 +57,50 @@ def first_text(*keys):
             return value
     return None
 
-hook_event_name = first_text("hook_event_name", "hookEventName")
-if hook_event_name not in (None, "sessionStart"):
-    raise SystemExit(0)
-
 request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
 report_seq = time.time_ns()
-session_id = first_text("session_id", "sessionId", "conversation_id", "conversationId")
-agent_session_id = session_id if isinstance(session_id, str) and session_id else None
-if agent_session_id:
+session_id = first_text("session_id", "sessionId", "conversation_id", "conversationId", "chat_id", "chatId")
+
+def launch_env():
+    return {
+        key: value
+        for key in ("CURSOR_CONFIG_DIR",)
+        if isinstance((value := os.environ.get(key)), str) and value
+    }
+
+def send(method, params):
     request = {
         "id": request_id,
-        "method": "pane.report_agent_session",
+        "method": method,
         "params": {
             "pane_id": pane_id,
             "source": source,
             "agent": "cursor",
             "seq": report_seq,
-            "agent_session_id": agent_session_id,
+            **params,
         },
     }
-else:
-    raise SystemExit(0)
-
-try:
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    client.settimeout(0.5)
-    client.connect(socket_path)
-    client.sendall((json.dumps(request) + "\n").encode())
+    if session_id:
+        request["params"]["agent_session_id"] = session_id
     try:
-        client.recv(4096)
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.settimeout(0.5)
+        client.connect(socket_path)
+        client.sendall((json.dumps(request) + "\n").encode())
+        try:
+            client.recv(4096)
+        except Exception:
+            pass
+        client.close()
     except Exception:
         pass
-    client.close()
-except Exception:
-    pass
+
+if action == "release":
+    send("pane.release_agent", {})
+else:
+    params = {"state": action}
+    env = launch_env()
+    if env:
+        params["launch_env"] = env
+    send("pane.report_agent", params)
 PY

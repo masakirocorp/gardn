@@ -161,7 +161,13 @@ send_shell_hook qodercli pane-qoder-subagent working '{"hook_event_name":"UserPr
 send_shell_hook qodercli pane-qoder-subagent idle '{"hook_event_name":"SubagentStop","session_id":"qoder-parent","agent_id":"child"}'
 send_shell_hook qodercli pane-qoder-subagent idle '{"hook_event_name":"Stop","session_id":"qoder-parent"}'
 
-send_shell_hook cursor pane-cursor-session session '{"hook_event_name":"sessionStart","session_id":"cursor-session"}'
+send_shell_hook cursor pane-cursor-allowed idle '{"hook_event_name":"sessionStart","session_id":"cursor-session"}'
+send_shell_hook cursor pane-cursor-allowed working '{"hook_event_name":"beforeSubmitPrompt","session_id":"cursor-session"}'
+send_shell_hook cursor pane-cursor-allowed idle '{"hook_event_name":"stop","session_id":"cursor-session"}'
+send_shell_hook cursor pane-cursor-allowed release '{"hook_event_name":"sessionEnd","session_id":"cursor-session"}'
+send_shell_hook cursor pane-cursor-subagent working '{"hook_event_name":"beforeSubmitPrompt","session_id":"cursor-parent"}'
+send_shell_hook cursor pane-cursor-subagent working '{"hook_event_name":"beforeShellExecution","session_id":"cursor-parent","agent_id":"child"}'
+send_shell_hook cursor pane-cursor-subagent idle '{"hook_event_name":"stop","session_id":"cursor-parent"}'
 send_shell_hook droid pane-droid-allowed idle '{"hook_event_name":"SessionStart","session_id":"droid-session"}'
 send_shell_hook droid pane-droid-allowed working '{"hook_event_name":"UserPromptSubmit","session_id":"droid-session"}'
 send_shell_hook droid pane-droid-allowed idle '{"hook_event_name":"Stop","session_id":"droid-session"}'
@@ -244,7 +250,8 @@ for pane, agent, source in [
     ("pane-qoder-allowed", "qodercli", "hako:qodercli"),
     ("pane-qoder-blocked", "qodercli", "hako:qodercli"),
     ("pane-qoder-subagent", "qodercli", "hako:qodercli"),
-    ("pane-cursor-session", "cursor", "hako:cursor"),
+    ("pane-cursor-allowed", "cursor", "hako:cursor"),
+    ("pane-cursor-subagent", "cursor", "hako:cursor"),
     ("pane-droid-allowed", "droid", "hako:droid"),
     ("pane-droid-blocked", "droid", "hako:droid"),
     ("pane-droid-subagent", "droid", "hako:droid"),
@@ -274,6 +281,11 @@ assert_in_order("pane-qoder-subagent", ["working", "idle"])
 if states("pane-qoder-subagent").count("idle") != 1:
     raise SystemExit(f"pane-qoder-subagent: child stop should not idle parent; observed {states('pane-qoder-subagent')}")
 
+assert_in_order("pane-cursor-allowed", ["idle", "working", "idle"])
+if not by_pane(releases, "pane-cursor-allowed"):
+    raise SystemExit("pane-cursor-allowed: missing release")
+assert_in_order("pane-cursor-subagent", ["working", "idle"])
+
 assert_in_order("pane-droid-allowed", ["idle", "working", "idle"])
 if not by_pane(releases, "pane-droid-allowed"):
     raise SystemExit("pane-droid-allowed: missing release")
@@ -298,5 +310,5 @@ if not by_pane(releases, "pane-hermes-allowed"):
 assert_in_order("pane-hermes-blocked", ["working", "blocked"])
 assert_in_order("pane-hermes-compact", ["working"])
 
-print("remaining status test ok: Copilot OpenRouter real cli works; Copilot, qodercli, droid, kimi, and Hermes state hooks align; Cursor session identity hook reports")
+print("remaining status test ok: Copilot OpenRouter real cli works; Copilot, Cursor, qodercli, droid, kimi, and Hermes state hooks align")
 PY

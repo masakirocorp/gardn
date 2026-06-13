@@ -121,7 +121,7 @@ const QODERCLI_INTEGRATION_VERSION: u32 = 1;
 const QODERCLI_CONFIG_DIR_ENV_VAR: &str = "QODER_CONFIG_DIR";
 const CURSOR_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const CURSOR_HOOK_ASSET: &str = include_str!("assets/cursor/hako-agent-state.sh");
-const CURSOR_INTEGRATION_VERSION: u32 = 1;
+const CURSOR_INTEGRATION_VERSION: u32 = 2;
 const CURSOR_CONFIG_DIR_ENV_VAR: &str = "CURSOR_CONFIG_DIR";
 const INTEGRATION_VERSION_MARKER: &str = "HAKO_INTEGRATION_VERSION=";
 const INTEGRATION_ID_MARKER: &str = "HAKO_INTEGRATION_ID=";
@@ -2061,13 +2061,32 @@ pub(crate) fn install_cursor() -> io::Result<CursorInstallPaths> {
         "cursor hooks file hooks",
     )?;
     let quoted_hook_path = shell_single_quote(&hook_path.display().to_string());
-    let session_command = format!("bash {quoted_hook_path} session");
-    remove_simple_command_hook(hooks, "beforeSubmitPrompt", &session_command)?;
-    remove_simple_command_hook(hooks, "beforeShellExecution", &session_command)?;
-    remove_simple_command_hook(hooks, "beforeMCPExecution", &session_command)?;
-    remove_simple_command_hook(hooks, "stop", &session_command)?;
-    remove_simple_command_hook(hooks, "sessionEnd", &session_command)?;
+    let session_command = format!("bash {quoted_hook_path} idle");
+    let working_command = format!("bash {quoted_hook_path} working");
+    let release_command = format!("bash {quoted_hook_path} release");
+    for event in [
+        "sessionStart",
+        "beforeSubmitPrompt",
+        "beforeShellExecution",
+        "beforeMCPExecution",
+        "stop",
+        "sessionEnd",
+    ] {
+        remove_simple_command_hook(hooks, event, &format!("bash {quoted_hook_path} session"))?;
+        remove_simple_command_hook(hooks, event, &session_command)?;
+        remove_simple_command_hook(hooks, event, &working_command)?;
+        remove_simple_command_hook(hooks, event, &release_command)?;
+    }
     ensure_simple_command_hook(hooks, "sessionStart", session_command)?;
+    ensure_simple_command_hook(hooks, "beforeSubmitPrompt", working_command.clone())?;
+    ensure_simple_command_hook(hooks, "beforeShellExecution", working_command.clone())?;
+    ensure_simple_command_hook(hooks, "beforeMCPExecution", working_command)?;
+    ensure_simple_command_hook(
+        hooks,
+        "stop",
+        "bash ".to_string() + &quoted_hook_path + " idle",
+    )?;
+    ensure_simple_command_hook(hooks, "sessionEnd", release_command)?;
     fs::write(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?;
     Ok(CursorInstallPaths {
         hook_path,
@@ -4780,7 +4799,15 @@ model: auto
         assert!(hooks["hooks"]["sessionStart"][0]["command"]
             .as_str()
             .unwrap()
-            .contains(" session"));
+            .contains(" idle"));
+        assert!(hooks["hooks"]["beforeSubmitPrompt"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains(" working"));
+        assert!(hooks["hooks"]["sessionEnd"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains(" release"));
         let _ = fs::remove_dir_all(base);
     }
 
