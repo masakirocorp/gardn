@@ -13,3 +13,5 @@
 !remaining-status-smoke.sh
 !cursor-openrouter-proxy.mjs
 !cursor-proxy-status-smoke.sh
+!qoder-openrouter-proxy.mjs
+!qoder-proxy-status-smoke.sh

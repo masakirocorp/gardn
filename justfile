@@ -114,6 +114,11 @@ agent-smoke-remaining-status:
 agent-smoke-cursor-proxy-status:
     docker run --rm --user root -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -v "$PWD:/repo:ro" --add-host api2.cursor.sh:127.0.0.1 --add-host api2geo.cursor.sh:127.0.0.1 --add-host api2direct.cursor.sh:127.0.0.1 --add-host agentn.api5.cursor.sh:127.0.0.1 --add-host agent.api5.cursor.sh:127.0.0.1 hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-cursor-proxy-status
 
+
+# Run Qoder through an opt-in local OpenRouter proxy; hook states stay covered by seam smoke
+agent-smoke-qoder-proxy-status:
+    docker run --rm --user root -e OPENROUTER_API_KEY -e QODER_PERSONAL_ACCESS_TOKEN -e HAKO_SMOKE_MODEL -v "$PWD:/repo:ro" --add-host api1.qoder.sh:127.0.0.1 hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-qoder-proxy-status
+
 # Verify Pi/OMP plugin lifecycle reports without calling providers
 agent-smoke-pi-omp-plugin-status:
     docker run --rm -v "$PWD:/repo:ro" hako-agent-smoke:local node --experimental-strip-types /usr/local/bin/hako-agent-pi-omp-plugin-status-test /repo/src/integration/assets/pi/hako-agent-state.ts pi
