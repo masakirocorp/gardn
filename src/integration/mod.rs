@@ -60,20 +60,41 @@ const CODEX_HOOK_EVENTS: [(&str, &str, Option<&str>); 10] = [
 const CODEX_HOME_ENV_VAR: &str = "CODEX_HOME";
 const KIMI_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const KIMI_HOOK_ASSET: &str = include_str!("assets/kimi/hako-agent-state.sh");
-const KIMI_INTEGRATION_VERSION: u32 = 2;
+const KIMI_INTEGRATION_VERSION: u32 = 3;
 const KIMI_CODE_HOME_ENV_VAR: &str = "KIMI_CODE_HOME";
 const KIMI_CONFIG_BLOCK_BEGIN: &str = "# >>> hako kimi integration";
 const KIMI_CONFIG_BLOCK_END: &str = "# <<< hako kimi integration";
 const KIMI_MIN_VERSION: &str = "0.8.0";
-const KIMI_HOOK_EVENTS: [(&str, &str); 1] = [("SessionStart", "session")];
+const KIMI_HOOK_EVENTS: [(&str, &str); 9] = [
+    ("SessionStart", "idle"),
+    ("UserPromptSubmit", "working"),
+    ("PreToolUse", "working"),
+    ("PermissionRequest", "blocked"),
+    ("PreCompact", "working"),
+    ("PostCompact", "working"),
+    ("Stop", "idle"),
+    ("SessionEnd", "idle"),
+    ("SessionEnd", "release"),
+];
 const COPILOT_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const COPILOT_HOOK_ASSET: &str = include_str!("assets/copilot/hako-agent-state.sh");
 const COPILOT_INTEGRATION_VERSION: u32 = 1;
 const COPILOT_HOME_ENV_VAR: &str = "COPILOT_HOME";
 const DROID_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const DROID_HOOK_ASSET: &str = include_str!("assets/droid/hako-agent-state.sh");
-const DROID_INTEGRATION_VERSION: u32 = 2;
-const DROID_HOOK_EVENTS: [(&str, &str); 1] = [("SessionStart", "session")];
+const DROID_INTEGRATION_VERSION: u32 = 3;
+const DROID_HOOK_EVENTS: [(&str, &str); 10] = [
+    ("SessionStart", "idle"),
+    ("UserPromptSubmit", "working"),
+    ("PreToolUse", "working"),
+    ("PermissionRequest", "blocked"),
+    ("PostToolUse", "working"),
+    ("PostToolUseFailure", "working"),
+    ("PreCompact", "working"),
+    ("PostCompact", "working"),
+    ("Stop", "idle"),
+    ("SessionEnd", "release"),
+];
 const DROID_REMOVED_LIFECYCLE_HOOK_EVENTS: [(&str, &str); 9] = [
     ("SessionStart", "idle"),
     ("UserPromptSubmit", "working"),
@@ -4698,8 +4719,10 @@ model: auto
         );
         assert!(config.contains(KIMI_CONFIG_BLOCK_BEGIN));
         assert!(config.contains("event = \"SessionStart\""));
-        assert!(config.contains(" session"));
-        assert!(!config.contains("working"));
+        assert!(config.contains("event = \"UserPromptSubmit\""));
+        assert!(config.contains("event = \"PermissionRequest\""));
+        assert!(config.contains("event = \"PreCompact\""));
+        assert!(config.contains(" release"));
         let _ = fs::remove_dir_all(base);
     }
 
@@ -4725,7 +4748,10 @@ model: auto
             DROID_HOOK_ASSET
         );
         assert!(settings["hooks"].get("SessionStart").is_some());
-        assert!(settings["hooks"].get("UserPromptSubmit").is_none());
+        assert!(settings["hooks"].get("UserPromptSubmit").is_some());
+        assert!(settings["hooks"].get("PermissionRequest").is_some());
+        assert!(settings["hooks"].get("PreCompact").is_some());
+        assert!(settings["hooks"].get("SessionEnd").is_some());
         let _ = fs::remove_dir_all(base);
     }
 
