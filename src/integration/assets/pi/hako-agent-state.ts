@@ -214,6 +214,7 @@ export default function (pi) {
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   const blockingToolCalls = new Set<string>();
+  const permissionGateToolCalls = new Set<string>();
 
   function clearTimer(timer: ReturnType<typeof setTimeout> | undefined) {
     if (timer) {
@@ -288,20 +289,53 @@ export default function (pi) {
     retryTimer.unref?.();
   }
 
+  function enterBlocked(message: string | undefined) {
+    clearPendingTimers();
+    blockedCount += 1;
+    blockedMessage = message;
+    publishState();
+  }
+
+  function leaveBlocked() {
+    blockedCount = Math.max(0, blockedCount - 1);
+    if (blockedCount === 0) {
+      blockedMessage = undefined;
+    }
+    publishState();
+  }
+
   pi.events.on("hako:blocked", (data) => {
     if (!data?.active) {
-      blockedCount = Math.max(0, blockedCount - 1);
-      if (blockedCount === 0) {
-        blockedMessage = undefined;
-      }
-      publishState();
+      leaveBlocked();
       return;
     }
 
-    clearPendingTimers();
-    blockedCount += 1;
-    blockedMessage = data.label;
-    publishState();
+    enterBlocked(data.label);
+  });
+
+  pi.events.on("masakiro:permission_gate", (data) => {
+    const toolCallId = typeof data?.toolCallId === "string" ? data.toolCallId : undefined;
+    if (!toolCallId) {
+      return;
+    }
+
+    if (!data?.active) {
+      if (!permissionGateToolCalls.delete(toolCallId)) {
+        return;
+      }
+      leaveBlocked();
+      return;
+    }
+
+    if (permissionGateToolCalls.has(toolCallId)) {
+      return;
+    }
+
+    permissionGateToolCalls.add(toolCallId);
+    const reason = typeof data.reason === "string" && data.reason.length > 0
+      ? data.reason
+      : "waiting for permission";
+    enterBlocked(reason);
   });
 
   function isBlockingTool(event: any): boolean {
@@ -313,11 +347,7 @@ export default function (pi) {
       return false;
     }
 
-    blockedCount = Math.max(0, blockedCount - 1);
-    if (blockedCount === 0) {
-      blockedMessage = undefined;
-    }
-    publishState();
+    leaveBlocked();
     return true;
   }
 

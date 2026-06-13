@@ -175,6 +175,32 @@ pi.emit("event:hako:blocked", { active: false });
 await waitForRequests(6);
 assertContainsInOrder(["blocked", "working", "blocked", "working"]);
 
+pi.emit("event:masakiro:permission_gate", {
+  active: true,
+  toolName: "bash",
+  toolCallId: "perm-1",
+  reason: "recursive delete",
+  command: "rm -rf tmp",
+});
+await waitForRequests(7);
+pi.emit("event:masakiro:permission_gate", {
+  active: true,
+  toolName: "bash",
+  toolCallId: "perm-1",
+  reason: "duplicate permission should not overcount",
+});
+await sleep(20);
+assert.equal(states().filter((state) => state === "blocked").length, 3, JSON.stringify(states()));
+pi.emit("event:masakiro:permission_gate", {
+  active: false,
+  approved: true,
+  toolName: "bash",
+  toolCallId: "perm-1",
+  reason: "recursive delete",
+});
+await waitForRequests(8);
+assertContainsInOrder(["blocked", "working", "blocked", "working", "blocked", "working"]);
+
 pi.emit("agent_end", { messages: [] });
 await sleep(20);
 assert.equal(states().at(-1), "idle", JSON.stringify(states()));
