@@ -103,6 +103,176 @@ if "api.githubcopilot.com" in output or "api.openai.com" in output:
 PY
 }
 
+run_cursor_cli_or_auth_contract() {
+  local dir="$workdir/cursor-real"
+  mkdir -p "$dir/run"
+  if [[ -n "${CURSOR_API_KEY:-}" ]]; then
+    (
+      cd "$dir/run"
+      timeout "${HAKO_REMAINING_STATUS_SMOKE_TIMEOUT:-180}" cursor-agent \
+        --print \
+        --output-format text \
+        --trust \
+        --api-key "$CURSOR_API_KEY" \
+        --model "${HAKO_SMOKE_CURSOR_MODEL:-$model}" \
+        "Reply exactly HAKO_CURSOR_STATUS_OK" >"$dir/output.txt" 2>&1
+    )
+    python3 - "$dir/output.txt" <<'PY'
+import sys
+from pathlib import Path
+output = Path(sys.argv[1]).read_text(errors="replace")
+if "HAKO_CURSOR_STATUS_OK" not in output:
+    raise SystemExit(f"cursor real cli did not produce expected marker: {output[-1000:]}")
+PY
+    return
+  fi
+
+  set +e
+  (
+    cd "$dir/run"
+    timeout 60 cursor-agent \
+      --print \
+      --output-format text \
+      --trust \
+      --api-key "$OPENROUTER_API_KEY" \
+      --model "$model" \
+      "Reply exactly HAKO_CURSOR_STATUS_OK" >"$dir/output.txt" 2>&1
+  )
+  local code=$?
+  set -e
+  if [[ "$code" -eq 0 ]]; then
+    echo "cursor accepted OPENROUTER_API_KEY as --api-key; add real smoke coverage instead of auth-contract coverage" >&2
+    exit 1
+  fi
+  python3 - "$dir/output.txt" <<'PY'
+import sys
+from pathlib import Path
+output = Path(sys.argv[1]).read_text(errors="replace")
+if "invalid" not in output.lower() and "api key" not in output.lower():
+    raise SystemExit(f"cursor OpenRouter auth contract changed; observed: {output[-1000:]}")
+PY
+}
+
+run_qoder_cli_or_auth_contract() {
+  local dir="$workdir/qoder-real"
+  mkdir -p "$dir/run"
+  if [[ -n "${QODER_PERSONAL_ACCESS_TOKEN:-}" ]]; then
+    (
+      cd "$dir/run"
+      timeout "${HAKO_REMAINING_STATUS_SMOKE_TIMEOUT:-180}" qodercli \
+        -p \
+        --output-format json \
+        --permission-mode dont_ask \
+        --model "${HAKO_SMOKE_QODER_MODEL:-$model}" \
+        "Reply exactly HAKO_QODER_STATUS_OK" >"$dir/output.jsonl" 2>&1
+    )
+    python3 - "$dir/output.jsonl" <<'PY'
+import sys
+from pathlib import Path
+output = Path(sys.argv[1]).read_text(errors="replace")
+if "HAKO_QODER_STATUS_OK" not in output:
+    raise SystemExit(f"qodercli real cli did not produce expected marker: {output[-1000:]}")
+PY
+    return
+  fi
+
+  set +e
+  (
+    cd "$dir/run"
+    timeout 60 qodercli \
+      -p \
+      --output-format json \
+      --permission-mode dont_ask \
+      --model "$model" \
+      "Reply exactly HAKO_QODER_STATUS_OK" >"$dir/output.jsonl" 2>&1
+  )
+  local code=$?
+  set -e
+  if [[ "$code" -eq 0 ]]; then
+    echo "qodercli ran without QODER_PERSONAL_ACCESS_TOKEN; add real smoke coverage instead of auth-contract coverage" >&2
+    exit 1
+  fi
+  python3 - "$dir/output.jsonl" <<'PY'
+import sys
+from pathlib import Path
+output = Path(sys.argv[1]).read_text(errors="replace")
+if "not logged in" not in output.lower() and "login" not in output.lower():
+    raise SystemExit(f"qodercli auth contract changed; observed: {output[-1000:]}")
+PY
+}
+
+run_droid_cli() {
+  local dir="$workdir/droid-real"
+  mkdir -p "$dir/run"
+  (
+    cd "$dir/run"
+    timeout "${HAKO_REMAINING_STATUS_SMOKE_TIMEOUT:-180}" droid exec \
+      --model "$model" \
+      --output-format json \
+      --cwd "$dir/run" \
+      "Reply exactly HAKO_DROID_STATUS_OK" >"$dir/output.jsonl" 2>&1
+  )
+  python3 - "$dir/output.jsonl" <<'PY'
+import json
+import sys
+from pathlib import Path
+output = Path(sys.argv[1]).read_text(errors="replace")
+if "api.openai.com" in output:
+    raise SystemExit("droid smoke used OpenAI routing")
+for line in output.splitlines():
+    try:
+        item = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    if item.get("type") == "result" and "HAKO_DROID_STATUS_OK" in str(item.get("result", "")):
+        break
+else:
+    raise SystemExit(f"droid real cli did not produce expected marker: {output[-1000:]}")
+PY
+}
+
+run_kimi_cli() {
+  local dir="$workdir/kimi-real"
+  mkdir -p "$dir/run"
+  (
+    cd "$dir/run"
+    timeout "${HAKO_REMAINING_STATUS_SMOKE_TIMEOUT:-180}" kimi \
+      -p "Reply exactly HAKO_KIMI_STATUS_OK" \
+      --output-format text >"$dir/output.txt" 2>&1
+  )
+  python3 - "$dir/output.txt" <<'PY'
+import sys
+from pathlib import Path
+output = Path(sys.argv[1]).read_text(errors="replace")
+if "HAKO_KIMI_STATUS_OK" not in output:
+    raise SystemExit(f"kimi real cli did not produce expected marker: {output[-1000:]}")
+if "api.openai.com" in output:
+    raise SystemExit("kimi smoke used OpenAI routing")
+PY
+}
+
+run_hermes_cli() {
+  local dir="$workdir/hermes-real"
+  mkdir -p "$dir/run"
+  (
+    cd "$dir/run"
+    timeout "${HAKO_REMAINING_STATUS_SMOKE_TIMEOUT:-180}" hermes \
+      -z "Reply exactly HAKO_HERMES_STATUS_OK" \
+      --provider openrouter \
+      --model "$model" \
+      --ignore-rules >"$dir/output.txt" 2>&1
+  )
+  python3 - "$dir/output.txt" <<'PY'
+import sys
+from pathlib import Path
+output = Path(sys.argv[1]).read_text(errors="replace")
+if "HAKO_HERMES_STATUS_OK" not in output:
+    raise SystemExit(f"hermes real cli did not produce expected marker: {output[-1000:]}")
+if "api.openai.com" in output:
+    raise SystemExit("hermes smoke used OpenAI routing")
+PY
+}
+
 send_shell_hook() {
   local agent="$1"
   local pane_id="$2"
@@ -142,6 +312,11 @@ PY
 }
 
 run_copilot_cli
+run_cursor_cli_or_auth_contract
+run_qoder_cli_or_auth_contract
+run_droid_cli
+run_kimi_cli
+run_hermes_cli
 
 send_shell_hook copilot pane-copilot-allowed '' '{"hook_event_name":"SessionStart","session_id":"copilot-session","initial_prompt":"hello"}'
 send_shell_hook copilot pane-copilot-allowed '' '{"hook_event_name":"Stop","session_id":"copilot-session","stop_reason":"end_turn"}'
@@ -310,5 +485,5 @@ if not by_pane(releases, "pane-hermes-allowed"):
 assert_in_order("pane-hermes-blocked", ["working", "blocked"])
 assert_in_order("pane-hermes-compact", ["working"])
 
-print("remaining status test ok: Copilot OpenRouter real cli works; Copilot, Cursor, qodercli, droid, kimi, and Hermes state hooks align")
+print("remaining status test ok: Copilot, Droid, Kimi, and Hermes real CLIs work through OpenRouter; Cursor and qodercli auth contracts are explicit; Copilot, Cursor, qodercli, Droid, Kimi, and Hermes state hooks align")
 PY

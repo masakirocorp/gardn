@@ -46,18 +46,41 @@ cat > "$HOME/.factory/settings.json" <<EOF_FACTORY
       "provider": "generic-chat-completion-api",
       "maxOutputTokens": 4096
     }
-  ]
+  ],
+  "model": "$model",
+  "cloudSessionSync": false
 }
 EOF_FACTORY
 
-mkdir -p "$HOME/.config/hermes-agent"
-cat > "$HOME/.config/hermes-agent/config.json" <<EOF_HERMES
-{
-  "provider": "openrouter",
-  "model": "$model",
-  "api_key_env": "OPENROUTER_API_KEY",
-  "base_url": "$openrouter_base"
-}
+export KIMI_CODE_HOME="${KIMI_CODE_HOME:-$HOME/.kimi-code}"
+mkdir -p "$KIMI_CODE_HOME"
+cat > "$KIMI_CODE_HOME/config.toml" <<EOF_KIMI
+default_model = "openrouter"
+
+[providers.openrouter]
+type = "openai"
+base_url = "$openrouter_base"
+api_key = "$OPENROUTER_API_KEY"
+
+[models.openrouter]
+provider = "openrouter"
+model = "$model"
+max_context_size = 128000
+max_output_size = 4096
+capabilities = ["tool_use"]
+EOF_KIMI
+export KIMI_DISABLE_TELEMETRY=1
+export KIMI_CODE_NO_AUTO_UPDATE=1
+
+mkdir -p "$HOME/.hermes"
+cat > "$HOME/.hermes/.env" <<EOF_HERMES_ENV
+OPENROUTER_API_KEY=$OPENROUTER_API_KEY
+EOF_HERMES_ENV
+cat > "$HOME/.hermes/config.yaml" <<EOF_HERMES
+model:
+  provider: openrouter
+  default: "$model"
+  base_url: "$openrouter_base"
 EOF_HERMES
 
 mkdir -p "$HOME/.qoder"
