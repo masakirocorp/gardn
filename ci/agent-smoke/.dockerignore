@@ -7,3 +7,4 @@
 !opencode-status-smoke.sh
 !opencode-plugin-status-test.mjs
 !pi-omp-plugin-status-test.mjs
+!pi-omp-status-smoke.sh

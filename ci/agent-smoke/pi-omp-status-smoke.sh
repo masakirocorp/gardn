@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
+repo_dir="${HAKO_REPO_DIR:-/repo}"
+workdir="${HAKO_PI_OMP_STATUS_DIR:-$(mktemp -d)}"
+socket_path="$workdir/hako.sock"
+request_log="$workdir/requests.jsonl"
+
+mkdir -p "$workdir"
+rm -f "$socket_path" "$request_log"
+
+SOCKET_PATH="$socket_path" REQUEST_LOG="$request_log" python3 - <<'PY' &
+import json
+import os
+import socket
+
+socket_path = os.environ["SOCKET_PATH"]
+request_log = os.environ["REQUEST_LOG"]
+try:
+    os.unlink(socket_path)
+except FileNotFoundError:
+    pass
+
+server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+server.bind(socket_path)
+server.listen()
+while True:
+    conn, _ = server.accept()
+    data = b""
+    while not data.endswith(b"\n"):
+        chunk = conn.recv(65536)
+        if not chunk:
+            break
+        data += chunk
+    if data.strip():
+        request = json.loads(data.decode("utf-8"))
+        with open(request_log, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(request) + "\n")
+        response = {"id": request.get("id"), "result": {"type": "ok"}}
+        conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
+    conn.close()
+PY
+server_pid=$!
+trap 'kill "$server_pid" >/dev/null 2>&1 || true' EXIT
+
+for _ in $(seq 1 50); do
+  [[ -S "$socket_path" ]] && break
+  sleep 0.1
+done
+[[ -S "$socket_path" ]] || { echo "status socket did not start" >&2; exit 1; }
+
+run_agent() {
+  local agent="$1"
+  local extension="$2"
+  local pane="$3"
+  local dir="$workdir/$agent"
+  mkdir -p "$dir/config" "$dir/agent" "$dir/project"
+  (
+    cd "$dir/project"
+    HAKO_ENV=1 \
+    HAKO_SOCKET_PATH="$socket_path" \
+    HAKO_PANE_ID="$pane" \
+    PI_CONFIG_DIR="$dir/config" \
+    PI_CODING_AGENT_DIR="$dir/agent" \
+    timeout "${HAKO_PI_OMP_STATUS_TIMEOUT:-120}" "$agent" \
+      -p \
+      --model "openrouter/$model" \
+      --no-tools \
+      -e "$extension" \
+      "Reply exactly HAKO_${agent^^}_STATUS_OK" >"$dir/output.txt" 2>&1
+  )
+}
+
+run_agent omp "$repo_dir/src/integration/assets/omp/hako-agent-state.ts" pane-omp-real
+run_agent pi "$repo_dir/src/integration/assets/pi/hako-agent-state.ts" pane-pi-real
+
+REQUEST_LOG="$request_log" WORKDIR="$workdir" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+request_log = Path(os.environ["REQUEST_LOG"])
+workdir = Path(os.environ["WORKDIR"])
+requests = [json.loads(line) for line in request_log.read_text(encoding="utf-8").splitlines() if line.strip()]
+reports = [req for req in requests if req.get("method") == "pane.report_agent"]
+releases = [req for req in requests if req.get("method") == "pane.release_agent"]
+
+
+def for_pane(collection, pane_id):
+    return [req for req in collection if req.get("params", {}).get("pane_id") == pane_id]
+
+
+def states_for(pane_id):
+    return [req.get("params", {}).get("state") for req in for_pane(reports, pane_id)]
+
+
+def assert_agent(agent, pane_id):
+    output = (workdir / agent / "output.txt").read_text(encoding="utf-8")
+    marker = f"HAKO_{agent.upper()}_STATUS_OK"
+    if marker not in output:
+        raise SystemExit(f"{agent}: missing output marker {marker}; output was {output!r}")
+
+    pane_reports = for_pane(reports, pane_id)
+    pane_releases = for_pane(releases, pane_id)
+    if not pane_reports:
+        raise SystemExit(f"{agent}: no pane.report_agent calls")
+    if not pane_releases:
+        raise SystemExit(f"{agent}: no pane.release_agent calls")
+    states = states_for(pane_id)
+    if "idle" not in states or "working" not in states:
+        raise SystemExit(f"{agent}: expected idle and working states, observed {states}")
+
+    expected_source = f"hako:{agent}"
+    expected_config = str(workdir / agent / "config")
+    expected_agent_dir = str(workdir / agent / "agent")
+    session_paths = set()
+    for req in pane_reports + pane_releases:
+        params = req.get("params", {})
+        if params.get("source") != expected_source:
+            raise SystemExit(f"{agent}: wrong source in {req}")
+        if params.get("agent") != agent:
+            raise SystemExit(f"{agent}: wrong agent in {req}")
+        if not isinstance(params.get("seq"), int):
+            raise SystemExit(f"{agent}: missing numeric seq in {req}")
+        path = params.get("agent_session_path")
+        if not isinstance(path, str) or not path:
+            raise SystemExit(f"{agent}: missing agent_session_path in {req}")
+        session_paths.add(path)
+        launch_env = params.get("launch_env")
+        if launch_env != {"PI_CONFIG_DIR": expected_config, "PI_CODING_AGENT_DIR": expected_agent_dir}:
+            raise SystemExit(f"{agent}: wrong launch_env {launch_env}")
+    if len(session_paths) != 1:
+        raise SystemExit(f"{agent}: expected one session identity, observed {sorted(session_paths)}")
+
+
+assert_agent("omp", "pane-omp-real")
+assert_agent("pi", "pane-pi-real")
+print("pi/omp status test ok: real cli reports session identity, working, idle, release, and launch env")
+PY
