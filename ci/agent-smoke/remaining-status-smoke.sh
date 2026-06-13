@@ -349,11 +349,39 @@ if "api.openai.com" in output:
 PY
 }
 
+install_hermes_real_plugin() {
+  local dir="$HOME/.hermes"
+  local plugin_dir="$dir/plugins/hako-agent-state"
+  mkdir -p "$plugin_dir"
+  cp "$repo_dir/src/integration/assets/hermes/__init__.py" "$plugin_dir/__init__.py"
+  cp "$repo_dir/src/integration/assets/hermes/plugin.yaml" "$plugin_dir/plugin.yaml"
+  python3 - "$dir/config.yaml" <<'PY'
+import sys
+from pathlib import Path
+
+config_path = Path(sys.argv[1])
+content = config_path.read_text() if config_path.exists() else ""
+if "plugins:" not in content:
+    if content and not content.endswith("\n"):
+        content += "\n"
+    content += "\nplugins:\n  enabled:\n    - hako-agent-state\n"
+elif "hako-agent-state" not in content:
+    if content and not content.endswith("\n"):
+        content += "\n"
+    content += "  enabled:\n    - hako-agent-state\n"
+config_path.write_text(content)
+PY
+}
+
 run_hermes_cli() {
   local dir="$workdir/hermes-real"
   mkdir -p "$dir/run"
   (
     cd "$dir/run"
+    HAKO_ENV=1 \
+    HAKO_SOCKET_PATH="$socket_path" \
+    HAKO_PANE_ID="pane-hermes-real" \
+    HERMES_ACCEPT_HOOKS=1 \
     timeout "${HAKO_REMAINING_STATUS_SMOKE_TIMEOUT:-180}" hermes \
       -z "Reply exactly HAKO_HERMES_STATUS_OK" \
       --provider openrouter \
@@ -412,6 +440,7 @@ PY
 install_droid_real_hooks
 install_copilot_real_hooks
 install_kimi_real_hooks
+install_hermes_real_plugin
 
 run_copilot_cli
 run_cursor_cli_or_auth_contract
@@ -540,6 +569,7 @@ for pane, agent, source in [
     ("pane-kimi-real", "kimi", "hako:kimi"),
     ("pane-kimi-subagent", "kimi", "hako:kimi"),
     ("pane-kimi-compact", "kimi", "hako:kimi"),
+    ("pane-hermes-real", "hermes", "hako:hermes"),
     ("pane-hermes-allowed", "hermes", "hako:hermes"),
     ("pane-hermes-blocked", "hermes", "hako:hermes"),
     ("pane-hermes-compact", "hermes", "hako:hermes"),
@@ -592,11 +622,12 @@ if states("pane-kimi-subagent").count("idle") != 1:
     raise SystemExit(f"pane-kimi-subagent: child stop should not idle parent; observed {states('pane-kimi-subagent')}")
 assert_in_order("pane-kimi-compact", ["working"])
 
+assert_in_order("pane-hermes-real", ["idle", "working", "idle"])
 assert_in_order("pane-hermes-allowed", ["working", "idle"])
 if not by_pane(releases, "pane-hermes-allowed"):
     raise SystemExit("pane-hermes-allowed: missing release")
 assert_in_order("pane-hermes-blocked", ["working", "blocked"])
 assert_in_order("pane-hermes-compact", ["working"])
 
-print("remaining status test ok: Copilot, Droid, Kimi, and Hermes real CLIs work through OpenRouter; Copilot, Droid, and Kimi emit real Hako hooks; Cursor/qodercli proxy smokes cover their real hook paths separately; seam hooks still cover blocked/subagent/compact edges")
+print("remaining status test ok: Copilot, Droid, Kimi, and Hermes real CLIs work through OpenRouter; Copilot, Droid, Kimi, and Hermes emit real Hako hooks; Cursor/qodercli proxy smokes cover their real hook paths separately; seam hooks still cover blocked/subagent/compact edges")
 PY
