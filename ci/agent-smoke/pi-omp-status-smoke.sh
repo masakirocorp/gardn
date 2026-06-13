@@ -54,7 +54,10 @@ run_agent() {
   local agent="$1"
   local extension="$2"
   local pane="$3"
-  local dir="$workdir/$agent"
+  local scenario="$4"
+  local tools="$5"
+  local prompt="$6"
+  local dir="$workdir/$agent-$scenario"
   mkdir -p "$dir/config" "$dir/agent" "$dir/project"
   (
     cd "$dir/project"
@@ -63,17 +66,34 @@ run_agent() {
     HAKO_PANE_ID="$pane" \
     PI_CONFIG_DIR="$dir/config" \
     PI_CODING_AGENT_DIR="$dir/agent" \
-    timeout "${HAKO_PI_OMP_STATUS_TIMEOUT:-120}" "$agent" \
+    timeout "${HAKO_PI_OMP_STATUS_TIMEOUT:-180}" "$agent" \
       -p \
       --model "openrouter/$model" \
-      --no-tools \
+      --tools "$tools" \
+      --auto-approve \
       -e "$extension" \
-      "Reply exactly HAKO_${agent^^}_STATUS_OK" >"$dir/output.txt" 2>&1
+      "$prompt" >"$dir/output.txt" 2>&1
   )
 }
 
-run_agent omp "$repo_dir/src/integration/assets/omp/hako-agent-state.ts" pane-omp-real
-run_agent pi "$repo_dir/src/integration/assets/pi/hako-agent-state.ts" pane-pi-real
+run_basic_agent() {
+  local agent="$1"
+  local extension="$2"
+  local pane="$3"
+  run_agent "$agent" "$extension" "$pane" basic none "Reply exactly HAKO_${agent^^}_STATUS_OK"
+}
+
+run_subagent_agent() {
+  local agent="$1"
+  local extension="$2"
+  local pane="$3"
+  run_agent "$agent" "$extension" "$pane" subagent task,yield "Launch one subagent with assignment: reply exactly CHILD_OK. Then reply exactly HAKO_${agent^^}_SUBAGENT_OK."
+}
+
+run_basic_agent omp "$repo_dir/src/integration/assets/omp/hako-agent-state.ts" pane-omp-real
+run_basic_agent pi "$repo_dir/src/integration/assets/pi/hako-agent-state.ts" pane-pi-real
+run_subagent_agent omp "$repo_dir/src/integration/assets/omp/hako-agent-state.ts" pane-omp-subagent
+run_subagent_agent pi "$repo_dir/src/integration/assets/pi/hako-agent-state.ts" pane-pi-subagent
 
 REQUEST_LOG="$request_log" WORKDIR="$workdir" python3 - <<'PY'
 import json
@@ -95,11 +115,11 @@ def states_for(pane_id):
     return [req.get("params", {}).get("state") for req in for_pane(reports, pane_id)]
 
 
-def assert_agent(agent, pane_id):
-    output = (workdir / agent / "output.txt").read_text(encoding="utf-8")
-    marker = f"HAKO_{agent.upper()}_STATUS_OK"
+def assert_agent(agent, scenario, pane_id, marker_suffix):
+    output = (workdir / f"{agent}-{scenario}" / "output.txt").read_text(encoding="utf-8")
+    marker = f"HAKO_{agent.upper()}_{marker_suffix}"
     if marker not in output:
-        raise SystemExit(f"{agent}: missing output marker {marker}; output was {output!r}")
+        raise SystemExit(f"{agent} {scenario}: missing output marker {marker}; output was {output!r}")
 
     pane_reports = for_pane(reports, pane_id)
     pane_releases = for_pane(releases, pane_id)
@@ -112,8 +132,8 @@ def assert_agent(agent, pane_id):
         raise SystemExit(f"{agent}: expected idle and working states, observed {states}")
 
     expected_source = f"hako:{agent}"
-    expected_config = str(workdir / agent / "config")
-    expected_agent_dir = str(workdir / agent / "agent")
+    expected_config = str(workdir / f"{agent}-{scenario}" / "config")
+    expected_agent_dir = str(workdir / f"{agent}-{scenario}" / "agent")
     session_paths = set()
     for req in pane_reports + pane_releases:
         params = req.get("params", {})
@@ -134,7 +154,9 @@ def assert_agent(agent, pane_id):
         raise SystemExit(f"{agent}: expected one session identity, observed {sorted(session_paths)}")
 
 
-assert_agent("omp", "pane-omp-real")
-assert_agent("pi", "pane-pi-real")
-print("pi/omp status test ok: real cli reports session identity, working, idle, release, and launch env")
+assert_agent("omp", "basic", "pane-omp-real", "STATUS_OK")
+assert_agent("pi", "basic", "pane-pi-real", "STATUS_OK")
+assert_agent("omp", "subagent", "pane-omp-subagent", "SUBAGENT_OK")
+assert_agent("pi", "subagent", "pane-pi-subagent", "SUBAGENT_OK")
+print("pi/omp status test ok: real cli reports session identity, working, idle, release, launch env, and subagent parent identity")
 PY

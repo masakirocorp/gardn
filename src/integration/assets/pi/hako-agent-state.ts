@@ -2,7 +2,7 @@
 // managed by hako; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=pi
-// HAKO_INTEGRATION_VERSION=2
+// HAKO_INTEGRATION_VERSION=3
 // @ts-nocheck
 
 import { createConnection } from "node:net";
@@ -55,6 +55,8 @@ const retryableErrorPattern =
 let reportSeq = Date.now() * 1000;
 let currentAgentSessionId: string | undefined;
 let currentAgentSessionPath: string | undefined;
+const activeAgents = new Set<symbol>();
+
 
 function nextReportSeq(): number {
   reportSeq = Math.max(reportSeq + 1, Date.now() * 1000);
@@ -74,6 +76,10 @@ function parseDurationEnv(name: string, fallback: number): number {
 }
 
 function updateSessionRef(ctx: any): void {
+  if (currentAgentSessionPath || currentAgentSessionId) {
+    return;
+  }
+
   try {
     const file = ctx?.sessionManager?.getSessionFile?.();
     currentAgentSessionPath =
@@ -197,7 +203,7 @@ export default function (pi) {
     return;
   }
 
-  let agentActive = false;
+  const instanceId = Symbol("hako-pi-agent");
   let retryHoldActive = false;
   let failureBlocked = false;
   let failureMessage: string | undefined;
@@ -235,7 +241,7 @@ export default function (pi) {
     if (failureBlocked) {
       return { state: "blocked" as const, message: failureMessage };
     }
-    if (agentActive || retryHoldActive) {
+    if (activeAgents.size > 0 || retryHoldActive) {
       return { state: "working" as const, message: undefined };
     }
     return { state: "idle" as const, message: undefined };
@@ -339,19 +345,17 @@ export default function (pi) {
   function markWorking() {
     clearPendingTimers();
     clearFailureState();
-    agentActive = true;
+    activeAgents.add(instanceId);
     publishState();
   }
 
   function markIdle(event?: any) {
-    if (!agentActive) {
+    if (!activeAgents.delete(instanceId)) {
       // Pi can emit duplicate/late end events while auto-retry is already
       // holding the pane in Working. Do not let an unqualified duplicate end
       // cancel the retry hold and publish a false Idle.
       return;
     }
-
-    agentActive = false;
 
     const retryableMessage = retryableErrorMessage(event);
     if (retryableMessage) {
@@ -366,13 +370,15 @@ export default function (pi) {
   pi.on("session_before_compact", markWorking);
   pi.on("session.compacting", markWorking);
   pi.on("auto_compaction_start", markWorking);
-
   pi.on("agent_end", markIdle);
   pi.on("session_compact", markIdle);
   pi.on("auto_compaction_end", markIdle);
 
   pi.on("session_shutdown", async () => {
     clearPendingTimers();
-    await releaseAgent();
+    activeAgents.delete(instanceId);
+    if (activeAgents.size === 0) {
+      await releaseAgent();
+    }
   });
 }

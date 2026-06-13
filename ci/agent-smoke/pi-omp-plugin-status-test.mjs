@@ -221,6 +221,25 @@ pi.emit("agent_start");
 await waitForNewRequests(beforeBlockedRecovery);
 assert.equal(states().at(-1), "working", JSON.stringify(states()));
 
+const child = new Harness();
+plugin(child);
+child.emit("session_start", {}, context(`${root}/project/session/child.jsonl`, "child-session"));
+const beforeChildStart = requests.length;
+child.emit("agent_start");
+await waitForNewRequests(beforeChildStart);
+assert.equal(states().at(-1), "working", JSON.stringify(states()));
+child.emit("agent_end", { messages: [] });
+await sleep(20);
+assert.equal(states().at(-1), "working", "child end must not idle the parent while parent is active");
+const releasesBeforeChildShutdown = releases().length;
+child.emit("session_shutdown");
+await sleep(20);
+assert.equal(releases().length, releasesBeforeChildShutdown, "child shutdown must not release the parent pane");
+
+pi.emit("agent_end", { messages: [] });
+await sleep(20);
+assert.equal(states().at(-1), "idle", JSON.stringify(states()));
+
 const beforeShutdown = requests.length;
 pi.emit("session_shutdown");
 await waitForNewRequests(beforeShutdown);
