@@ -78,12 +78,12 @@ cat > "$HOME/.cursor/hooks.json" <<EOF_HOOKS
 {
   "version": 1,
   "hooks": {
-    "sessionStart": [{"hooks": [{"type": "command", "command": "bash $HOME/.cursor/hako-agent-state.sh idle", "timeout": 10}]}],
-    "beforeSubmitPrompt": [{"hooks": [{"type": "command", "command": "bash $HOME/.cursor/hako-agent-state.sh working", "timeout": 10}]}],
-    "beforeShellExecution": [{"hooks": [{"type": "command", "command": "bash $HOME/.cursor/hako-agent-state.sh working", "timeout": 10}]}],
-    "beforeMCPExecution": [{"hooks": [{"type": "command", "command": "bash $HOME/.cursor/hako-agent-state.sh working", "timeout": 10}]}],
-    "stop": [{"hooks": [{"type": "command", "command": "bash $HOME/.cursor/hako-agent-state.sh idle", "timeout": 10}]}],
-    "sessionEnd": [{"hooks": [{"type": "command", "command": "bash $HOME/.cursor/hako-agent-state.sh release", "timeout": 10}]}]
+    "sessionStart": [{"command": "bash $HOME/.cursor/hako-agent-state.sh working", "timeout": 10}],
+    "beforeSubmitPrompt": [{"command": "bash $HOME/.cursor/hako-agent-state.sh working", "timeout": 10}],
+    "beforeShellExecution": [{"command": "bash $HOME/.cursor/hako-agent-state.sh working", "timeout": 10}],
+    "beforeMCPExecution": [{"command": "bash $HOME/.cursor/hako-agent-state.sh working", "timeout": 10}],
+    "stop": [{"command": "bash $HOME/.cursor/hako-agent-state.sh idle", "timeout": 10}],
+    "sessionEnd": [{"command": "bash $HOME/.cursor/hako-agent-state.sh release", "timeout": 10}]
   }
 }
 EOF_HOOKS
@@ -103,7 +103,9 @@ grep -q 'cursor-proxy-listening' "$proxy_log" || { echo "cursor proxy did not st
 
 (
   cd "$workdir"
-  HAKO_SOCKET="$socket_path" \
+  HAKO_ENV=1 \
+  HAKO_SOCKET_PATH="$socket_path" \
+  HAKO_PANE_ID="pane-cursor-proxy" \
   NODE_EXTRA_CA_CERTS="$workdir/cursor.crt" \
   SSL_CERT_FILE="$workdir/cursor.crt" \
   REQUESTS_CA_BUNDLE="$workdir/cursor.crt" \
@@ -117,6 +119,62 @@ grep -q 'cursor-proxy-listening' "$proxy_log" || { echo "cursor proxy did not st
     "Reply exactly HAKO_CURSOR_PROXY_OK" >"$workdir/cursor-output.txt" 2>&1
 )
 
+before_interactive_completions="$(grep -c 'openrouter-complete' "$proxy_log" 2>/dev/null || true)"
+(
+  cd "$workdir"
+  HAKO_ENV=1 \
+  HAKO_SOCKET_PATH="$socket_path" \
+  HAKO_PANE_ID="pane-cursor-proxy-interactive" \
+  NODE_EXTRA_CA_CERTS="$workdir/cursor.crt" \
+  SSL_CERT_FILE="$workdir/cursor.crt" \
+  REQUESTS_CA_BUNDLE="$workdir/cursor.crt" \
+  CURSOR_API_KEY="$OPENROUTER_API_KEY" \
+  HAKO_CURSOR_INTERACTIVE_ARGS="$(printf '%s\n' --api-key "$OPENROUTER_API_KEY" --model "$model" "Reply exactly HAKO_CURSOR_INTERACTIVE_OK")" \
+  timeout "${HAKO_CURSOR_INTERACTIVE_STATUS_SMOKE_TIMEOUT:-120}" python3 - "$workdir/cursor-interactive-output.txt" "$proxy_log" "$before_interactive_completions" <<'PY' || true
+import os, select, signal, subprocess, sys, time
+out_path, proxy_log, before_count = sys.argv[1], sys.argv[2], int(sys.argv[3])
+args = ["cursor-agent", *os.environ["HAKO_CURSOR_INTERACTIVE_ARGS"].splitlines()]
+proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=False, preexec_fn=os.setsid)
+deadline = time.time() + 90
+buf = bytearray()
+def completions():
+    try:
+        return open(proxy_log, encoding="utf-8", errors="replace").read().count("openrouter-complete")
+    except FileNotFoundError:
+        return 0
+try:
+    while time.time() < deadline:
+        ready, _, _ = select.select([proc.stdout], [], [], 0.2)
+        if ready:
+            chunk = os.read(proc.stdout.fileno(), 4096)
+            if not chunk:
+                break
+            buf.extend(chunk)
+        if completions() > before_count:
+            break
+        if proc.poll() is not None:
+            break
+finally:
+    try:
+        proc.stdin.write(b"\x03")
+        proc.stdin.flush()
+    except Exception:
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGINT)
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except Exception:
+            pass
+open(out_path, "wb").write(buf)
+PY
+)
+
 python3 - "$workdir/cursor-output.txt" "$proxy_log" "$request_log" <<'PY'
 import json, sys
 from pathlib import Path
@@ -128,5 +186,8 @@ if 'HAKO_CURSOR_PROXY_OK' not in output:
 for needle in ['unary', 'agent-stream', 'openrouter-request', 'openrouter-complete']:
     if needle not in proxy:
         raise SystemExit(f'cursor proxy log missing {needle}: {proxy[-1000:]}')
-print('cursor proxy status test ok: real Cursor CLI completed through local OpenRouter proxy; Cursor status remains covered by hook-seam smoke because --print does not emit hooks')
+states = [req.get('params', {}).get('state') for req in requests if req.get('method') == 'pane.report_agent']
+if 'working' not in states or not any(req.get('method') == 'pane.release_agent' for req in requests):
+    raise SystemExit(f'cursor hook smoke did not observe working+release from real CLI hooks: {requests}')
+print('cursor proxy status test ok: real Cursor CLI completed through local OpenRouter proxy and emitted Hako status hooks')
 PY

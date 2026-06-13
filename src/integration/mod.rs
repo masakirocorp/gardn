@@ -2061,7 +2061,7 @@ pub(crate) fn install_cursor() -> io::Result<CursorInstallPaths> {
         "cursor hooks file hooks",
     )?;
     let quoted_hook_path = shell_single_quote(&hook_path.display().to_string());
-    let session_command = format!("bash {quoted_hook_path} idle");
+    let session_command = format!("bash {quoted_hook_path} working");
     let working_command = format!("bash {quoted_hook_path} working");
     let release_command = format!("bash {quoted_hook_path} release");
     for event in [
@@ -4799,7 +4799,7 @@ model: auto
         assert!(hooks["hooks"]["sessionStart"][0]["command"]
             .as_str()
             .unwrap()
-            .contains(" idle"));
+            .contains(" working"));
         assert!(hooks["hooks"]["beforeSubmitPrompt"][0]["command"]
             .as_str()
             .unwrap()
