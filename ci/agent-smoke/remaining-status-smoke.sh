@@ -75,11 +75,100 @@ if [[ ! -S "$socket_path" ]]; then
   exit 1
 fi
 
+install_copilot_real_hooks() {
+  local home="$workdir/copilot-real/home"
+  local hook="$home/hooks/hako-agent-state.sh"
+  mkdir -p "$home/hooks"
+  cp "$repo_dir/src/integration/assets/copilot/hako-agent-state.sh" "$hook"
+  chmod +x "$hook"
+  cat > "$home/settings.json" <<EOF_COPILOT
+{
+  "hooks": {
+    "SessionStart": [{"type": "command", "command": "bash $hook", "timeout": 10}],
+    "UserPromptSubmit": [{"type": "command", "command": "bash $hook", "timeout": 10}],
+    "PreToolUse": [{"type": "command", "command": "bash $hook", "timeout": 10}],
+    "PostToolUse": [{"type": "command", "command": "bash $hook", "timeout": 10}],
+    "PostToolUseFailure": [{"type": "command", "command": "bash $hook", "timeout": 10}],
+    "Stop": [{"type": "command", "command": "bash $hook", "timeout": 10}],
+    "agentStop": [{"type": "command", "command": "bash $hook", "timeout": 10}],
+    "SessionEnd": [{"type": "command", "command": "bash $hook", "timeout": 10}],
+    "notification": [{"matcher": "permission_prompt|elicitation_dialog|agent_idle", "type": "command", "command": "bash $hook", "timeout": 10}]
+  }
+}
+EOF_COPILOT
+}
+
+install_droid_real_hooks() {
+  local hook="$repo_dir/src/integration/assets/droid/hako-agent-state.sh"
+  local settings="${FACTORY_HOME:-$HOME/.factory}/settings.json"
+  python3 - "$settings" "$hook" <<'PY'
+import json, sys
+from pathlib import Path
+settings_path = Path(sys.argv[1])
+hook = sys.argv[2]
+settings = json.loads(settings_path.read_text())
+hooks = settings.setdefault("hooks", {})
+for event, action in [
+    ("SessionStart", "idle"),
+    ("UserPromptSubmit", "working"),
+    ("PreToolUse", "working"),
+    ("PermissionRequest", "blocked"),
+    ("PostToolUse", "working"),
+    ("PostToolUseFailure", "working"),
+    ("PreCompact", "working"),
+    ("PostCompact", "working"),
+    ("Stop", "idle"),
+    ("SessionEnd", "release"),
+]:
+    hooks[event] = [{"matcher": "*", "hooks": [{"type": "command", "command": f"bash {hook} {action}", "timeout": 10}]}]
+settings_path.write_text(json.dumps(settings, indent=2))
+PY
+}
+
+install_kimi_real_hooks() {
+  local hook="$repo_dir/src/integration/assets/kimi/hako-agent-state.sh"
+  local config="${KIMI_CODE_HOME:-$HOME/.kimi-code}/config.toml"
+  cat >> "$config" <<EOF_KIMI_HOOKS
+
+[[hooks]]
+event = "SessionStart"
+command = "bash $hook idle"
+timeout = 10
+
+[[hooks]]
+event = "UserPromptSubmit"
+command = "bash $hook working"
+timeout = 10
+
+[[hooks]]
+event = "PreToolUse"
+command = "bash $hook working"
+timeout = 10
+
+[[hooks]]
+event = "PermissionRequest"
+command = "bash $hook blocked"
+timeout = 10
+
+[[hooks]]
+event = "Stop"
+command = "bash $hook idle"
+timeout = 10
+
+[[hooks]]
+event = "SessionEnd"
+command = "bash $hook release"
+timeout = 10
+EOF_KIMI_HOOKS
+}
 run_copilot_cli() {
   local dir="$workdir/copilot-real"
   mkdir -p "$dir/run"
   (
     cd "$dir/run"
+    HAKO_ENV=1 \
+    HAKO_SOCKET_PATH="$socket_path" \
+    HAKO_PANE_ID="pane-copilot-real" \
     COPILOT_PROVIDER_BASE_URL="https://openrouter.ai/api/v1" \
     COPILOT_PROVIDER_API_KEY="$OPENROUTER_API_KEY" \
     COPILOT_MODEL="$model" \
@@ -206,6 +295,11 @@ run_droid_cli() {
   mkdir -p "$dir/run"
   (
     cd "$dir/run"
+    HAKO_ENV=1 \
+    HAKO_SOCKET_PATH="$socket_path" \
+    HAKO_PANE_ID="pane-droid-real" \
+    DROID_HOME="${DROID_HOME:-$HOME/.factory}" \
+    FACTORY_HOME="${FACTORY_HOME:-$HOME/.factory}" \
     timeout "${HAKO_REMAINING_STATUS_SMOKE_TIMEOUT:-180}" droid exec \
       --model "$model" \
       --output-format json \
@@ -236,6 +330,10 @@ run_kimi_cli() {
   mkdir -p "$dir/run"
   (
     cd "$dir/run"
+    HAKO_ENV=1 \
+    HAKO_SOCKET_PATH="$socket_path" \
+    HAKO_PANE_ID="pane-kimi-real" \
+    KIMI_CODE_HOME="${KIMI_CODE_HOME:-$HOME/.kimi-code}" \
     timeout "${HAKO_REMAINING_STATUS_SMOKE_TIMEOUT:-180}" kimi \
       -p "Reply exactly HAKO_KIMI_STATUS_OK" \
       --output-format text >"$dir/output.txt" 2>&1
@@ -310,6 +408,10 @@ spec.loader.exec_module(mod)
 getattr(mod, os.environ["HERMES_FN"])(session_id=os.environ["HERMES_SESSION_ID"])
 PY
 }
+
+install_droid_real_hooks
+install_copilot_real_hooks
+install_kimi_real_hooks
 
 run_copilot_cli
 run_cursor_cli_or_auth_contract
@@ -420,6 +522,7 @@ def assert_single_identity(pane):
 
 for pane, agent, source in [
     ("pane-copilot-allowed", "copilot", "hako:copilot"),
+    ("pane-copilot-real", "copilot", "hako:copilot"),
     ("pane-copilot-blocked", "copilot", "hako:copilot"),
     ("pane-copilot-subagent", "copilot", "hako:copilot"),
     ("pane-qoder-allowed", "qodercli", "hako:qodercli"),
@@ -428,11 +531,13 @@ for pane, agent, source in [
     ("pane-cursor-allowed", "cursor", "hako:cursor"),
     ("pane-cursor-subagent", "cursor", "hako:cursor"),
     ("pane-droid-allowed", "droid", "hako:droid"),
+    ("pane-droid-real", "droid", "hako:droid"),
     ("pane-droid-blocked", "droid", "hako:droid"),
     ("pane-droid-subagent", "droid", "hako:droid"),
     ("pane-droid-compact", "droid", "hako:droid"),
     ("pane-kimi-allowed", "kimi", "hako:kimi"),
     ("pane-kimi-blocked", "kimi", "hako:kimi"),
+    ("pane-kimi-real", "kimi", "hako:kimi"),
     ("pane-kimi-subagent", "kimi", "hako:kimi"),
     ("pane-kimi-compact", "kimi", "hako:kimi"),
     ("pane-hermes-allowed", "hermes", "hako:hermes"),
@@ -441,6 +546,8 @@ for pane, agent, source in [
 ]:
     assert_agent(pane, agent, source)
     assert_single_identity(pane)
+
+assert_in_order("pane-copilot-real", ["working", "idle"])
 
 assert_in_order("pane-copilot-allowed", ["working", "idle"])
 if not by_pane(releases, "pane-copilot-allowed"):
@@ -461,6 +568,9 @@ if not by_pane(releases, "pane-cursor-allowed"):
     raise SystemExit("pane-cursor-allowed: missing release")
 assert_in_order("pane-cursor-subagent", ["working", "idle"])
 
+assert_in_order("pane-droid-real", ["idle"])
+if not by_pane(releases, "pane-droid-real"):
+    raise SystemExit("pane-droid-real: missing release")
 assert_in_order("pane-droid-allowed", ["idle", "working", "idle"])
 if not by_pane(releases, "pane-droid-allowed"):
     raise SystemExit("pane-droid-allowed: missing release")
@@ -470,6 +580,9 @@ if states("pane-droid-subagent").count("idle") != 1:
     raise SystemExit(f"pane-droid-subagent: child stop should not idle parent; observed {states('pane-droid-subagent')}")
 assert_in_order("pane-droid-compact", ["working"])
 
+assert_in_order("pane-kimi-real", ["idle", "working", "idle"])
+if not by_pane(releases, "pane-kimi-real"):
+    raise SystemExit("pane-kimi-real: missing release")
 assert_in_order("pane-kimi-allowed", ["idle", "working", "idle"])
 if not by_pane(releases, "pane-kimi-allowed"):
     raise SystemExit("pane-kimi-allowed: missing release")
@@ -485,5 +598,5 @@ if not by_pane(releases, "pane-hermes-allowed"):
 assert_in_order("pane-hermes-blocked", ["working", "blocked"])
 assert_in_order("pane-hermes-compact", ["working"])
 
-print("remaining status test ok: Copilot, Droid, Kimi, and Hermes real CLIs work through OpenRouter; Cursor and qodercli auth contracts are explicit; Copilot, Cursor, qodercli, Droid, Kimi, and Hermes state hooks align")
+print("remaining status test ok: Copilot, Droid, Kimi, and Hermes real CLIs work through OpenRouter; Copilot, Droid, and Kimi emit real Hako hooks; Cursor/qodercli proxy smokes cover their real hook paths separately; seam hooks still cover blocked/subagent/compact edges")
 PY
