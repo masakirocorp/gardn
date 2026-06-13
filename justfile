@@ -92,6 +92,11 @@ agent-smoke-opencode:
 # Run OpenCode and verify Hako status reports from the real plugin
 agent-smoke-opencode-status:
     docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-opencode-status
+
+# Verify Pi/OMP plugin lifecycle reports without calling providers
+agent-smoke-pi-omp-status:
+    docker run --rm -v "$PWD:/repo:ro" hako-agent-smoke:local node --experimental-strip-types /usr/local/bin/hako-agent-pi-omp-plugin-status-test /repo/src/integration/assets/pi/hako-agent-state.ts pi
+    docker run --rm -v "$PWD:/repo:ro" hako-agent-smoke:local node --experimental-strip-types /usr/local/bin/hako-agent-pi-omp-plugin-status-test /repo/src/integration/assets/omp/hako-agent-state.ts omp
 # Print default config
 default-config:
     cargo run --release --locked -- --default-config

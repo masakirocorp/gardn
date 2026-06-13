@@ -2,7 +2,7 @@
 // managed by hako; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=omp
-// HAKO_INTEGRATION_VERSION=1
+// HAKO_INTEGRATION_VERSION=2
 // @ts-nocheck
 
 import { createConnection } from "node:net";
@@ -336,14 +336,14 @@ export default function (pi) {
     clearBlockingTool(event?.toolCallId);
   });
 
-  pi.on("agent_start", () => {
+  function markWorking() {
     clearPendingTimers();
     clearFailureState();
     agentActive = true;
     publishState();
-  });
+  }
 
-  pi.on("agent_end", (event) => {
+  function markIdle(event?: any) {
     if (!agentActive) {
       // Pi can emit duplicate/late end events while auto-retry is already
       // holding the pane in Working. Do not let an unqualified duplicate end
@@ -360,7 +360,16 @@ export default function (pi) {
     }
 
     scheduleIdle();
-  });
+  }
+
+  pi.on("agent_start", markWorking);
+  pi.on("session_before_compact", markWorking);
+  pi.on("session.compacting", markWorking);
+  pi.on("auto_compaction_start", markWorking);
+
+  pi.on("agent_end", markIdle);
+  pi.on("session_compact", markIdle);
+  pi.on("auto_compaction_end", markIdle);
 
   pi.on("session_shutdown", async () => {
     clearPendingTimers();
