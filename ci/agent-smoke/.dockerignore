@@ -11,3 +11,5 @@
 !claude-status-smoke.sh
 !codex-status-smoke.sh
 !remaining-status-smoke.sh
+!cursor-openrouter-proxy.mjs
+!cursor-proxy-status-smoke.sh
