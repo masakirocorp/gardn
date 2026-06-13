@@ -100,16 +100,25 @@ fn known_agent_no_match_defaults_to_idle_fallback() {
 }
 
 #[test]
-fn omp_manifest_detects_core_resume_states() {
+fn pi_omp_manifests_detect_core_resume_states() {
+    for agent in [Agent::Pi, Agent::OhMyPi] {
+        let approval = explain(
+            agent,
+            "Allow tool: bash\nReason: approval required\nApprove\nDeny",
+        );
+        assert_eq!(approval.state, AgentState::Blocked);
+        assert!(approval.visible_blocker);
+
+        let selector =
+            "Plan mode\n❯ Approve and execute\n  Refine plan\nup/down navigate  enter select  esc cancel";
+        let blocked = explain(agent, selector);
+        assert_eq!(blocked.state, AgentState::Blocked);
+        assert!(blocked.visible_blocker);
+    }
+
     let maintenance = explain(Agent::OhMyPi, "Auto context-full maintenance…");
     assert_eq!(maintenance.state, AgentState::Working);
     assert!(maintenance.visible_working);
-
-    let selector =
-        "Plan mode\n❯ Approve and execute\n  Refine plan\nup/down navigate  enter select  esc cancel";
-    let blocked = explain(Agent::OhMyPi, selector);
-    assert_eq!(blocked.state, AgentState::Blocked);
-    assert!(blocked.visible_blocker);
 }
 
 #[test]

@@ -1,7 +1,7 @@
 id = "omp"
-version = "2026.06.11.1"
+version = "2026.06.12.1"
 min_engine_version = 1
-updated_at = "2026-06-11T00:00:00Z"
+updated_at = "2026-06-12T00:00:00Z"
 aliases = ["hako:omp", "oh-my-pi"]
 
 [[rules]]
@@ -19,6 +19,14 @@ priority = 290
 region = "whole_recent"
 visible_blocker = true
 contains = ["enter submit", "esc cancel"]
+
+[[rules]]
+id = "tool_approval_prompt"
+state = "blocked"
+priority = 280
+region = "bottom_non_empty_lines_after_last_prompt_marker(12)"
+visible_blocker = true
+contains = ["Allow tool:", "Approve", "Deny"]
 
 [[rules]]
 id = "context_full_maintenance"

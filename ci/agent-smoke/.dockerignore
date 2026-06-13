@@ -8,3 +8,5 @@
 !opencode-plugin-status-test.mjs
 !pi-omp-plugin-status-test.mjs
 !pi-omp-status-smoke.sh
+!claude-status-smoke.sh
+!codex-status-smoke.sh
