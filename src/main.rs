@@ -43,6 +43,7 @@ mod layout;
 mod logging;
 mod pane;
 mod persist;
+mod native_diff;
 mod platform;
 mod ports;
 mod product_announcements;
