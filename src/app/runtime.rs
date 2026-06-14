@@ -18,6 +18,7 @@ pub(crate) struct WorkspaceGitRefreshItem {
     pub(crate) resolved_identity_cwd: std::path::PathBuf,
     pub(crate) cache_key: std::path::PathBuf,
     pub(crate) cwd_fingerprint: Vec<std::path::PathBuf>,
+    pub(crate) observed_repo_roots: Vec<std::path::PathBuf>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,6 +40,7 @@ pub(crate) struct WorkspaceGitRefreshJob {
 pub(crate) struct WorkspaceGitRefreshOutput {
     pub(crate) results: Vec<WorkspaceGitStatus>,
     pub(crate) cache_updates: Vec<(std::path::PathBuf, GitStatusCacheEntry)>,
+    pub(crate) repo_summaries: Vec<(std::path::PathBuf, crate::workspace::GitWorkSummary)>,
 }
 
 impl App {
@@ -563,6 +565,7 @@ impl App {
             let _ = event_tx.blocking_send(AppEvent::GitStatusRefreshed {
                 results: output.results,
                 cache_updates: output.cache_updates,
+                repo_summaries: output.repo_summaries,
             });
         });
     }
@@ -640,18 +643,22 @@ impl App {
         self.state
             .workspaces
             .iter()
-            .filter_map(|ws| {
+            .enumerate()
+            .filter_map(|(ws_idx, ws)| {
                 let cwd =
                     ws.resolved_identity_cwd_from(&self.state.terminals, &self.terminal_runtimes)?;
                 let cwd_fingerprint =
                     ws.git_status_cwds_from(&self.state.terminals, &self.terminal_runtimes);
                 let git_key = crate::workspace::git_status_cache_key(&cwd);
                 let cache_key = git_key.unwrap_or_else(|| cwd.clone());
+                let observed_repo_roots =
+                    self.state.observed_git_repos_for_workspace(&self.terminal_runtimes, ws_idx);
                 Some(WorkspaceGitRefreshItem {
                     workspace_id: ws.id.clone(),
                     resolved_identity_cwd: cwd,
                     cache_key,
                     cwd_fingerprint,
+                    observed_repo_roots,
                 })
             })
             .collect()
@@ -705,6 +712,12 @@ pub(crate) fn refresh_workspace_git_statuses_with_cache(
 ) -> WorkspaceGitRefreshOutput {
     let mut results = Vec::new();
     let mut cache_updates = Vec::new();
+    let mut repo_roots = items
+        .iter()
+        .flat_map(|item| item.observed_repo_roots.iter().cloned())
+        .collect::<Vec<_>>();
+    repo_roots.sort();
+    repo_roots.dedup();
 
     for job in deduplicate_git_refresh_items(items, cache) {
         let (snapshot, cache_entry) =
@@ -721,9 +734,15 @@ pub(crate) fn refresh_workspace_git_statuses_with_cache(
         }));
     }
 
+    let repo_summaries = repo_roots
+        .into_iter()
+        .filter_map(|root| Workspace::git_work_summary_for_root(&root).map(|summary| (root, summary)))
+        .collect();
+
     WorkspaceGitRefreshOutput {
         results,
         cache_updates,
+        repo_summaries,
     }
 }
 
@@ -778,12 +797,14 @@ mod tests {
                     resolved_identity_cwd: nested.clone(),
                     cache_key: repo.clone(),
                     cwd_fingerprint: vec![nested.clone()],
+                    observed_repo_roots: vec![repo.clone()],
                 },
                 WorkspaceGitRefreshItem {
                     workspace_id: "two".into(),
                     resolved_identity_cwd: other.clone(),
                     cache_key: repo.clone(),
                     cwd_fingerprint: vec![other.clone()],
+                    observed_repo_roots: vec![repo.clone()],
                 },
             ],
             &HashMap::new(),
@@ -806,6 +827,41 @@ mod tests {
         let _ = std::fs::remove_dir_all(repo);
     }
 
+    #[test]
+    fn git_refresh_items_include_direct_child_repos_for_non_git_cwd() {
+        let parent = std::env::temp_dir().join(format!(
+            "hako-git-refresh-child-repos-{}",
+            std::process::id()
+        ));
+        let child = parent.join("child");
+        std::fs::create_dir_all(&child).expect("create child repo dir");
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&child)
+            .arg("init")
+            .output()
+            .expect("run git init");
+        let mut app = super::super::App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+        let mut ws = Workspace::test_new("test");
+        ws.identity_cwd = parent.clone();
+        ws.tabs.clear();
+        app.state.workspaces.push(ws);
+
+        let items = app.workspace_git_refresh_items();
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].observed_repo_roots, vec![child.clone()]);
+        let output = refresh_workspace_git_statuses_with_cache(items, &HashMap::new());
+        assert_eq!(output.repo_summaries.len(), 1);
+        assert_eq!(output.repo_summaries[0].0, child);
+        let _ = std::fs::remove_dir_all(parent);
+    }
     #[test]
     fn git_refresh_items_use_cwd_cache_key_for_non_git_cwd() {
         let mut app = super::super::App::new(
@@ -872,6 +928,7 @@ mod tests {
         app.handle_internal_event(crate::events::AppEvent::GitStatusRefreshed {
             results: Vec::new(),
             cache_updates: Vec::new(),
+            repo_summaries: Vec::new(),
         });
 
         assert!(!app.git_refresh_in_flight);

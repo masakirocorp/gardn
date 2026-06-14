@@ -1475,6 +1475,7 @@ pub enum Mode {
     Navigator,
     CommandPalette,
     AgentProfilePicker,
+    GitRepoPicker,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2271,6 +2272,14 @@ pub struct AgentProfilePickerState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitRepoPickerState {
+    pub ws_idx: usize,
+    pub roots: Vec<std::path::PathBuf>,
+    pub selected: usize,
+    pub scroll: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandPanelAction {
     RunOrFocus(String),
     Stop(String),
@@ -2297,6 +2306,8 @@ pub struct AppState {
     pub group_filter_enabled: bool,
     pub terminals:
         std::collections::HashMap<crate::terminal::TerminalId, crate::terminal::TerminalState>,
+    pub git_repo_summaries:
+        std::collections::HashMap<std::path::PathBuf, crate::workspace::GitWorkSummary>,
     pub(crate) next_agent_activity_seq: u64,
     /// Terminal ids whose size is currently owned by a direct attach client.
     pub direct_attach_resize_locks: std::collections::HashSet<crate::terminal::TerminalId>,
@@ -2342,6 +2353,7 @@ pub struct AppState {
     pub navigator: NavigatorState,
     pub command_palette: CommandPaletteState,
     pub agent_profile_picker: AgentProfilePickerState,
+    pub git_repo_picker: GitRepoPickerState,
     pub command_catalog: Vec<crate::commands::ProjectCommand>,
     pub command_runs: std::collections::HashMap<String, crate::commands::CommandRun>,
     pub port_registry: crate::ports::PortRegistry,
@@ -2983,6 +2995,7 @@ impl AppState {
             group_filter_enabled: true,
             requested_git_diff_workspace: None,
             terminals: std::collections::HashMap::new(),
+            git_repo_summaries: std::collections::HashMap::new(),
             next_agent_activity_seq: 0,
             direct_attach_resize_locks: std::collections::HashSet::new(),
             pane_id_aliases: std::collections::HashMap::new(),
@@ -3024,6 +3037,12 @@ impl AppState {
                 ws_idx: 0,
                 query: String::new(),
                 kind_filter: None,
+                selected: 0,
+                scroll: 0,
+            },
+            git_repo_picker: GitRepoPickerState {
+                ws_idx: 0,
+                roots: Vec::new(),
                 selected: 0,
                 scroll: 0,
             },

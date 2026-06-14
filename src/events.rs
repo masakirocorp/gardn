@@ -99,5 +99,6 @@ pub enum AppEvent {
     GitStatusRefreshed {
         results: Vec<WorkspaceGitStatus>,
         cache_updates: Vec<(std::path::PathBuf, GitStatusCacheEntry)>,
+        repo_summaries: Vec<(std::path::PathBuf, crate::workspace::GitWorkSummary)>,
     },
 }

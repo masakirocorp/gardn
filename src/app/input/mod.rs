@@ -131,6 +131,7 @@ impl App {
                 }
                 Mode::CommandPalette => self.handle_command_palette_key(key_event),
                 Mode::AgentProfilePicker => self.handle_agent_profile_picker_key(key_event),
+                Mode::GitRepoPicker => self.handle_git_repo_picker_key(key_event),
                 Mode::Terminal => unreachable!(),
             },
         }
@@ -351,6 +352,69 @@ impl App {
                 _ => {}
             }
         }
+        if self.state.mode == Mode::GitRepoPicker {
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left) => {
+                    if let Some(idx) = crate::ui::git_repo_picker::git_repo_picker_index_at(
+                        &self.state,
+                        self.state.view.terminal_area,
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        self.state.git_repo_picker.selected = idx;
+                        self.handle_git_repo_picker_key(KeyEvent::new(
+                            KeyCode::Enter,
+                            KeyModifiers::empty(),
+                        ));
+                    } else {
+                        self.state.return_to_active_workspace_mode();
+                    }
+                    return;
+                }
+                MouseEventKind::ScrollDown => {
+                    let visible_repos = crate::ui::git_repo_picker::git_repo_picker_list_area(
+                        self.state.view.terminal_area,
+                        &self.state,
+                    )
+                    .map(|area| (area.height as usize).div_ceil(2).max(1))
+                    .unwrap_or(1);
+                    let max_scroll = self
+                        .state
+                        .git_repo_picker
+                        .roots
+                        .len()
+                        .saturating_sub(visible_repos);
+                    self.state.git_repo_picker.scroll = self
+                        .state
+                        .git_repo_picker
+                        .scroll
+                        .saturating_add((MODAL_WHEEL_SCROLL_ROWS as usize).div_ceil(2))
+                        .min(max_scroll);
+                    return;
+                }
+                MouseEventKind::ScrollUp => {
+                    self.state.git_repo_picker.scroll = self
+                        .state
+                        .git_repo_picker
+                        .scroll
+                        .saturating_sub((MODAL_WHEEL_SCROLL_ROWS as usize).div_ceil(2));
+                    return;
+                }
+                MouseEventKind::Moved => {
+                    if let Some(idx) = crate::ui::git_repo_picker::git_repo_picker_index_at(
+                        &self.state,
+                        self.state.view.terminal_area,
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        self.state.git_repo_picker.selected = idx;
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+
 
         if self.state.mode == Mode::AgentProfilePicker {
             match mouse.kind {
@@ -741,6 +805,47 @@ impl App {
                 Some(std::time::Instant::now() + super::PANE_COPY_HIGHLIGHT_DURATION);
         }
         copied
+    }
+
+    pub(crate) fn handle_git_repo_picker_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.state.return_to_active_workspace_mode(),
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                if let Err(err) = self
+                    .state
+                    .open_selected_git_diff_panel(&mut self.terminal_runtimes)
+                {
+                    self.state.toast = Some(crate::app::state::ToastNotification {
+                        kind: crate::app::state::ToastKind::NeedsAttention,
+                        title: "git diff failed".to_string(),
+                        context: err,
+                        position: None,
+                        target: None,
+                    });
+                }
+                self.state.return_to_active_workspace_mode();
+            }
+            KeyCode::Up => {
+                self.state.git_repo_picker.selected =
+                    self.state.git_repo_picker.selected.saturating_sub(1);
+                if self.state.git_repo_picker.selected < self.state.git_repo_picker.scroll {
+                    self.state.git_repo_picker.scroll = self.state.git_repo_picker.selected;
+                }
+            }
+            KeyCode::Down => {
+                let max = self.state.git_repo_picker.roots.len().saturating_sub(1);
+                self.state.git_repo_picker.selected =
+                    (self.state.git_repo_picker.selected + 1).min(max);
+                let visible_repos = 5;
+                if self.state.git_repo_picker.selected
+                    >= self.state.git_repo_picker.scroll + visible_repos
+                {
+                    self.state.git_repo_picker.scroll =
+                        self.state.git_repo_picker.selected + 1 - visible_repos;
+                }
+            }
+            _ => {}
+        }
     }
 }
 

@@ -74,7 +74,7 @@ pub(crate) fn git_work_summary(cwds: &[PathBuf]) -> Option<GitWorkSummary> {
     (summary.repo_count > 0).then_some(summary)
 }
 
-fn git_work_summary_for_root(root: &Path) -> Option<GitWorkSummary> {
+pub(crate) fn git_work_summary_for_root(root: &Path) -> Option<GitWorkSummary> {
     let output = std::process::Command::new("git")
         .arg("-C")
         .arg(root)

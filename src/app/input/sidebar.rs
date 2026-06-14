@@ -433,6 +433,7 @@ impl AppState {
                 | Mode::KeybindHelp
                 | Mode::CommandPalette
                 | Mode::AgentProfilePicker
+                | Mode::GitRepoPicker
         ) {
             Some(self.selected)
         } else {
@@ -787,6 +788,7 @@ impl AppState {
                 | Mode::KeybindHelp
                 | Mode::CommandPalette
                 | Mode::AgentProfilePicker
+                | Mode::GitRepoPicker
         ) {
             Some(self.selected)
         } else {

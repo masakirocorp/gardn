@@ -92,6 +92,19 @@ _Avoid_: Project, folder, session
 The source workspace, group, and cwd information Hako uses when creating a new workspace, tab, or agent-profile tab.
 _Avoid_: Global default, launch profile
 
+**Observed Repo**:
+A Git repository root Hako has learned from a workspace's own identity cwd, from a pane cwd inside that workspace, or from a direct child of such a non-Git cwd. Observed repos are user-created context, not the result of recursive filesystem crawling.
+_Avoid_: Discovered child repo, scanned repo
+
+**Observed Repo Status**:
+The cached working-tree summary for one observed repo root, refreshed in the background and read by Git action surfaces. Unknown status is not the same as clean status.
+_Avoid_: Picker status, live git status
+
+**Workspace Repo Target**:
+The Git repository Hako should use for a workspace-scoped Git action. If exactly one observed repo exists, it is the target; if several observed repos exist, the user must choose; if none exist, the action is unavailable.
+_Avoid_: Focused pane repo, random child repo
+
+
 **Workspace Group**:
 A presentation and workflow grouping for workspaces, with its own name, icon, accent, and agent-profile preferences. A workspace group filters and organizes workspaces; it is not the owner of tabs, panes, or terminal runtimes.
 _Avoid_: Workspace parent, project

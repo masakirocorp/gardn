@@ -1,0 +1,322 @@
+use ratatui::{
+    layout::{Constraint, Layout, Rect},
+    style::{Modifier, Style},
+    text::{Line, Span},
+    widgets::{List, ListItem, ListState, Paragraph},
+    Frame,
+};
+
+use crate::app::AppState;
+
+use super::{
+    scrollbar::render_scrollbar,
+    widgets::{
+        modal_hint_line_count, modal_section_heading_style, modal_stack_areas,
+        panel_contrast_fg, render_modal_description, render_modal_divider, render_modal_header_bar,
+        render_modal_hint_lines, render_modal_shell,
+    },
+};
+
+const GIT_REPO_PICKER_HINTS: &[(&str, &str)] = &[("move", "↑↓"), ("open", "space/↵")];
+const POPUP_WIDTH: u16 = 64;
+const POPUP_HEIGHT: u16 = 20;
+const HEADER_ROWS: u16 = 3;
+
+fn repo_name(path: &std::path::Path) -> String {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("repo")
+        .to_string()
+}
+
+fn display_path(path: &std::path::Path) -> String {
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = std::path::PathBuf::from(home);
+        if let Ok(rest) = path.strip_prefix(&home) {
+            return format!("~/{}", rest.display());
+        }
+    }
+    path.display().to_string()
+}
+
+fn repo_status_spans(
+    summary: crate::workspace::GitWorkSummary,
+    selected: bool,
+    palette: &crate::app::state::Palette,
+) -> Vec<Span<'static>> {
+    if summary.conflicted + summary.added + summary.modified + summary.deleted == 0 {
+        let style = if selected {
+            Style::default()
+                .fg(panel_contrast_fg(palette))
+                .bg(palette.accent)
+        } else {
+            Style::default().fg(palette.overlay0)
+        };
+        return vec![Span::styled("clean", style)];
+    }
+
+    let selected_style = || {
+        Style::default()
+            .fg(panel_contrast_fg(palette))
+            .bg(palette.accent)
+    };
+    let mut spans = Vec::new();
+    let mut push = |text: String, color| {
+        if !spans.is_empty() {
+            spans.push(Span::styled(
+                " ",
+                if selected {
+                    selected_style()
+                } else {
+                    Style::default().fg(palette.overlay0)
+                },
+            ));
+        }
+        spans.push(Span::styled(
+            text,
+            if selected {
+                selected_style()
+            } else {
+                Style::default().fg(color)
+            },
+        ));
+    };
+    if summary.conflicted > 0 {
+        push(format!("!{}", summary.conflicted), palette.red);
+    }
+    if summary.added > 0 {
+        push(format!("+{}", summary.added), palette.green);
+    }
+    if summary.modified > 0 {
+        push(format!("~{}", summary.modified), palette.yellow);
+    }
+    if summary.deleted > 0 {
+        push(format!("-{}", summary.deleted), palette.red);
+    }
+    spans
+}
+
+fn status_width(summary: crate::workspace::GitWorkSummary) -> usize {
+    if summary.conflicted + summary.added + summary.modified + summary.deleted == 0 {
+        return 5;
+    }
+
+    let mut width = 0;
+    for count in [
+        summary.conflicted,
+        summary.added,
+        summary.modified,
+        summary.deleted,
+    ] {
+        if count == 0 {
+            continue;
+        }
+        if width > 0 {
+            width += 1;
+        }
+        width += 1 + count.to_string().len();
+    }
+    width
+}
+
+pub(crate) fn git_repo_picker_popup_rect(area: Rect) -> Option<Rect> {
+    super::centered_popup_rect(area, POPUP_WIDTH, POPUP_HEIGHT)
+}
+
+pub(crate) fn git_repo_picker_inner_rect(area: Rect) -> Option<Rect> {
+    let popup = git_repo_picker_popup_rect(area)?;
+    Some(Rect::new(
+        popup.x + 1,
+        popup.y + 1,
+        popup.width.saturating_sub(2),
+        popup.height.saturating_sub(2),
+    ))
+}
+
+fn git_repo_picker_content_rows(inner: Rect) -> Option<[Rect; 5]> {
+    let footer_rows = modal_hint_line_count(inner.width, GIT_REPO_PICKER_HINTS, 2);
+    let stack = modal_stack_areas(inner, HEADER_ROWS, footer_rows, 0, 1);
+    Some(
+        Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(1),
+        ])
+        .areas::<5>(stack.content),
+    )
+}
+
+pub(crate) fn git_repo_picker_list_area(area: Rect, _app: &AppState) -> Option<Rect> {
+    let inner = git_repo_picker_inner_rect(area)?;
+    if inner.height < 12 || inner.width < 28 {
+        return None;
+    }
+    Some(git_repo_picker_content_rows(inner)?[4])
+}
+
+pub(crate) fn git_repo_picker_index_at(
+    app: &AppState,
+    area: Rect,
+    col: u16,
+    row: u16,
+) -> Option<usize> {
+    let list_area = git_repo_picker_list_area(area, app)?;
+    if col < list_area.x
+        || col >= list_area.x.saturating_add(list_area.width)
+        || row < list_area.y
+        || row >= list_area.y.saturating_add(list_area.height)
+    {
+        return None;
+    }
+    let relative_row = row.saturating_sub(list_area.y) as usize;
+    let index = app.git_repo_picker.scroll + relative_row / 2;
+    (index < app.git_repo_picker.roots.len()).then_some(index)
+}
+
+fn picker_palette(app: &AppState) -> crate::app::state::Palette {
+    let mut palette = app.palette.clone();
+    if let Some(group_idx) = app
+        .workspaces
+        .get(app.git_repo_picker.ws_idx)
+        .and_then(|workspace| app.group_index_by_id(&workspace.group_id))
+    {
+        palette.accent = app.group_accent_color(group_idx);
+    }
+    palette
+}
+
+pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) {
+    super::dim_background(frame, frame.area());
+
+    let palette = picker_palette(app);
+    let Some(inner) = render_modal_shell(frame, frame.area(), POPUP_WIDTH, POPUP_HEIGHT, &palette) else {
+        return;
+    };
+    if inner.height < 12 || inner.width < 28 {
+        return;
+    }
+
+    let footer_rows = modal_hint_line_count(inner.width, GIT_REPO_PICKER_HINTS, 2);
+    let stack = modal_stack_areas(inner, HEADER_ROWS, footer_rows, 0, 1);
+    let header_rows = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas::<3>(stack.header);
+
+    render_modal_header_bar(frame, header_rows[0], "git diff", &palette, true);
+    render_modal_divider(frame, header_rows[2], &palette);
+
+    let content_rows = git_repo_picker_content_rows(inner).unwrap();
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            " repositories",
+            modal_section_heading_style(&palette),
+        )),
+        content_rows[0],
+    );
+
+    let workspace = app
+        .workspaces
+        .get(app.git_repo_picker.ws_idx)
+        .map(|workspace| workspace.display_name())
+        .unwrap_or_else(|| "workspace".to_string());
+    render_modal_description(
+        frame,
+        content_rows[1],
+        &format!("choose which repository to diff for {workspace}"),
+        Style::default().fg(palette.overlay0),
+    );
+
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            " available",
+            modal_section_heading_style(&palette),
+        )),
+        content_rows[3],
+    );
+
+    let total_rows = app.git_repo_picker.roots.len() * 2;
+    let viewport = crate::ui::ModalListViewport::new(
+        total_rows,
+        content_rows[4].height as usize,
+        app.git_repo_picker.scroll * 2,
+    );
+    let scroll_area = viewport.scroll_area(content_rows[4]);
+    let first_repo = viewport.scroll() / 2;
+    let visible_repo_count = (scroll_area.body.height as usize).div_ceil(2);
+    let last_repo = first_repo
+        .saturating_add(visible_repo_count)
+        .min(app.git_repo_picker.roots.len());
+    let selected = app
+        .git_repo_picker
+        .selected
+        .min(app.git_repo_picker.roots.len().saturating_sub(1));
+    let list_width = scroll_area.body.width as usize;
+    let mut items = Vec::new();
+    let mut selected_row = None;
+    for (idx, root) in app.git_repo_picker.roots[first_repo..last_repo]
+        .iter()
+        .enumerate()
+    {
+        let repo_idx = first_repo + idx;
+        let selected = repo_idx == selected;
+        if selected {
+            selected_row = Some(items.len());
+        }
+        let row_style = if selected {
+            Style::default().bg(palette.accent)
+        } else {
+            Style::default()
+        };
+        let summary = app.git_repo_summaries.get(root).copied();
+        let name_text = repo_name(root);
+        let status_width = summary.map(status_width).unwrap_or(0);
+        let gap = list_width.saturating_sub(1 + name_text.len() + status_width);
+        let name_style = if selected {
+            Style::default()
+                .fg(panel_contrast_fg(&palette))
+                .bg(palette.accent)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(palette.text)
+        };
+        let mut name_spans = vec![Span::styled(format!(" {name_text}{:gap$}", ""), name_style)];
+        if let Some(summary) = summary {
+            name_spans.extend(repo_status_spans(summary, selected, &palette));
+        }
+        let path_style = if selected {
+            Style::default()
+                .fg(panel_contrast_fg(&palette))
+                .bg(palette.accent)
+        } else {
+            Style::default().fg(palette.overlay0)
+        };
+        let path = format!("   {}", display_path(root));
+        items.push(ListItem::new(Line::from(name_spans)).style(row_style));
+        items.push(ListItem::new(Line::from(Span::styled(
+            format!("{path:<list_width$}"),
+            path_style,
+        ))).style(row_style));
+    }
+    let mut list_state = ListState::default().with_selected(selected_row);
+    frame.render_stateful_widget(List::new(items), scroll_area.body, &mut list_state);
+    if let Some(track) = scroll_area.track {
+        render_scrollbar(
+            frame,
+            viewport.metrics(),
+            track,
+            palette.surface_dim,
+            palette.overlay0,
+            "▐",
+        );
+    }
+
+    if let Some(footer_area) = stack.footer {
+        render_modal_hint_lines(frame, footer_area, &palette, GIT_REPO_PICKER_HINTS, 2);
+    }
+}

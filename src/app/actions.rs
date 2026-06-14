@@ -47,6 +47,24 @@ fn hunk_diff_project_command(
     }
 }
 
+fn observed_git_repos_from_cwd(cwd: &std::path::Path) -> Vec<std::path::PathBuf> {
+    if let Some(root) = crate::workspace::git_repo_root(cwd) {
+        return vec![root];
+    }
+
+    let Ok(entries) = std::fs::read_dir(cwd) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let file_type = entry.file_type().ok()?;
+            file_type.is_dir().then(|| entry.path())
+        })
+        .filter_map(|path| crate::workspace::git_repo_root(&path))
+        .collect()
+}
+
 fn hunk_uses_terminal_color_passthrough(theme_name: &str) -> bool {
     matches!(theme_name, "system" | "terminal")
 }
@@ -854,9 +872,19 @@ impl AppState {
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
         ws_idx: usize,
     ) -> Result<(), String> {
-        let root = self
-            .git_diff_target_for_workspace(terminal_runtimes, ws_idx)
-            .ok_or_else(|| "no git repo for current space".to_string())?;
+        let roots = self.observed_git_repos_for_workspace(terminal_runtimes, ws_idx);
+        let root = match roots.as_slice() {
+            [] => return Err("no git repo for current space".to_string()),
+            [root] => root.clone(),
+            _ => {
+                self.git_repo_picker.ws_idx = ws_idx;
+                self.git_repo_picker.roots = roots;
+                self.git_repo_picker.selected = 0;
+                self.git_repo_picker.scroll = 0;
+                self.mode = Mode::GitRepoPicker;
+                return Ok(());
+            }
+        };
         let (palette, appearance, passthrough_terminal) =
             self.hunk_diff_theme_for_workspace(ws_idx);
         self.run_project_command_entry(
@@ -932,27 +960,60 @@ impl AppState {
         self.open_command_tab(terminal_runtimes, command, ws_idx)
     }
 
+    pub(crate) fn observed_git_repos_for_workspace(
+        &self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+        ws_idx: usize,
+    ) -> Vec<std::path::PathBuf> {
+        let mut roots = self
+            .workspaces
+            .get(ws_idx)
+            .into_iter()
+            .flat_map(|workspace| workspace.git_status_cwds_from(&self.terminals, terminal_runtimes))
+            .flat_map(|cwd| observed_git_repos_from_cwd(&cwd))
+            .collect::<Vec<_>>();
+        roots.sort();
+        roots.dedup();
+        roots
+    }
+
+    pub(crate) fn open_selected_git_diff_panel(
+        &mut self,
+        terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
+    ) -> Result<(), String> {
+        let Some(root) = self
+            .git_repo_picker
+            .roots
+            .get(self.git_repo_picker.selected)
+            .cloned()
+        else {
+            return Err("no git repo selected".to_string());
+        };
+        let ws_idx = self.git_repo_picker.ws_idx;
+        let (palette, appearance, passthrough_terminal) =
+            self.hunk_diff_theme_for_workspace(ws_idx);
+        self.run_project_command_entry(
+            terminal_runtimes,
+            hunk_diff_project_command(
+                root,
+                &palette,
+                appearance,
+                self.host_terminal_theme,
+                passthrough_terminal,
+            ),
+            ws_idx,
+        )
+    }
+
+    #[cfg(test)]
     fn git_diff_target_for_workspace(
         &self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
         ws_idx: usize,
     ) -> Option<std::path::PathBuf> {
-        let workspace = self.workspaces.get(ws_idx)?;
-        let mut roots = workspace
-            .git_status_cwds_from(&self.terminals, terminal_runtimes)
+        self.observed_git_repos_for_workspace(terminal_runtimes, ws_idx)
             .into_iter()
-            .filter_map(|cwd| crate::workspace::git_repo_root(&cwd))
-            .collect::<Vec<_>>();
-        roots.sort();
-        roots.dedup();
-        if roots.len() == 1 {
-            return roots.pop();
-        }
-
-        let tab = workspace.active_tab()?;
-        let pane_id = workspace.focused_pane_id().unwrap_or(tab.root_pane);
-        let cwd = tab.cwd_for_pane(pane_id, &self.terminals, terminal_runtimes)?;
-        crate::workspace::git_repo_root(&cwd)
+            .next()
     }
 
     #[cfg(test)]
@@ -3040,9 +3101,11 @@ impl AppState {
             AppEvent::GitStatusRefreshed {
                 results,
                 cache_updates,
+                repo_summaries,
             } => {
                 let _ = results;
                 let _ = cache_updates;
+                let _ = repo_summaries;
                 Vec::new()
             }
         }
@@ -3877,6 +3940,7 @@ mod tests {
             .unwrap()
             .set_detected_state(Some(Agent::Codex), AgentState::Working);
 
+
         state.open_navigator();
         state.navigator.state_filter = Some(NavigatorStateFilter::Working);
         let rows = state.navigator_rows();
@@ -3890,7 +3954,57 @@ mod tests {
             NavigatorTarget::Pane { pane_id, .. } if pane_id == shell
         )));
     }
+    #[test]
+    fn git_diff_with_multiple_observed_repos_opens_picker() {
+        let first = temp_git_repo("diff-first-observed");
+        let second = temp_git_repo("diff-second-observed");
+        let mut state = app_with_workspaces(&["multi"]);
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = first.clone();
+        let tab_idx = state.workspaces[0].test_add_tab(Some("api"));
+        let pane_id = state.workspaces[0].tabs[tab_idx].root_pane;
+        let terminal = state.workspaces[0].terminal_id(pane_id).cloned().unwrap();
+        state.ensure_test_terminals();
+        state.terminals.get_mut(&terminal).unwrap().cwd = second.clone();
 
+        state
+            .open_git_diff_panel_for_workspace(&mut terminal_runtimes, 0)
+            .expect("multi-repo diff should open picker");
+
+        assert_eq!(state.mode, Mode::GitRepoPicker);
+        assert_eq!(state.git_repo_picker.roots, vec![first, second]);
+    }
+
+
+    #[test]
+    fn git_diff_observes_direct_child_repos_from_non_git_workspace_cwd() {
+        let parent = temp_project("diff-fake-monorepo");
+        let first = parent.join("api");
+        let second = parent.join("web");
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+        for root in [&first, &second] {
+            let status = std::process::Command::new("git")
+                .arg("init")
+                .arg("-q")
+                .arg(root)
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
+        let mut state = app_with_workspaces(&["multi"]);
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = parent;
+
+        assert_eq!(
+            state.observed_git_repos_for_workspace(&terminal_runtimes, 0),
+            vec![first, second]
+        );
+    }
     #[test]
     fn git_diff_command_names_tab_after_repo_root() {
         let root = std::path::PathBuf::from("/tmp/hako-repo");

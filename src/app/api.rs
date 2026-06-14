@@ -35,12 +35,19 @@ impl App {
         if let AppEvent::GitStatusRefreshed {
             results,
             cache_updates,
+            repo_summaries,
         } = ev
         {
             self.git_refresh_in_flight = false;
             for (key, entry) in cache_updates {
                 self.git_status_cache.insert(key, entry);
             }
+            let repo_summaries_changed =
+                self.state.git_repo_summaries.len() != repo_summaries.len()
+                    || repo_summaries
+                        .iter()
+                        .any(|(root, summary)| self.state.git_repo_summaries.get(root) != Some(summary));
+            self.state.git_repo_summaries = repo_summaries.into_iter().collect();
             if self.git_refresh_due_after_in_flight {
                 self.mark_git_status_refresh_due(Instant::now());
                 self.git_refresh_due_after_in_flight = false;
@@ -50,6 +57,7 @@ impl App {
             if self
                 .state
                 .apply_workspace_git_statuses(&self.terminal_runtimes, results)
+                || repo_summaries_changed
             {
                 self.render_dirty.store(true, Ordering::Release);
                 self.render_notify.notify_one();

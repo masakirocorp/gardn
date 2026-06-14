@@ -529,6 +529,7 @@ impl App {
             active_group,
             group_filter_enabled,
             terminals: std::collections::HashMap::new(),
+            git_repo_summaries: std::collections::HashMap::new(),
             next_agent_activity_seq: 0,
             direct_attach_resize_locks: std::collections::HashSet::new(),
             pane_id_aliases: std::collections::HashMap::new(),
@@ -546,6 +547,12 @@ impl App {
             request_reload_config: false,
             request_open_git_diff: false,
             requested_git_diff_workspace: None,
+            git_repo_picker: state::GitRepoPickerState {
+                ws_idx: 0,
+                roots: Vec::new(),
+                selected: 0,
+                scroll: 0,
+            },
             request_client_config_reload: false,
             request_clipboard_write: None,
             request_command_action: None,
@@ -1722,6 +1729,9 @@ impl App {
             Mode::AgentProfilePicker => {
                 self.handle_agent_profile_picker_key(key_event);
             }
+            Mode::GitRepoPicker => {
+                self.handle_git_repo_picker_key(key_event);
+            }
             Mode::GlobalMenu => {
                 input::handle_global_menu_key(&mut self.state, key_event);
             }
@@ -2149,6 +2159,7 @@ mod tests {
         app.handle_internal_event(AppEvent::GitStatusRefreshed {
             results: Vec::new(),
             cache_updates: Vec::new(),
+            repo_summaries: Vec::new(),
         });
 
         assert!(!app.git_refresh_in_flight);
@@ -2179,6 +2190,7 @@ mod tests {
                 space: None,
             }],
             cache_updates: Vec::new(),
+            repo_summaries: Vec::new(),
         });
 
         assert!(app.render_dirty.load(Ordering::Acquire));

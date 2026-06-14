@@ -22,7 +22,7 @@ mod tab;
 #[cfg(test)]
 use self::git::git_ahead_behind;
 pub(crate) use self::git::git_repo_root;
-use self::git::git_work_summary;
+use self::git::{git_work_summary, git_work_summary_for_root as load_git_work_summary_for_root};
 pub use self::{
     git::{
         derive_label_from_cwd, git_branch, git_space_metadata, git_status_cache_key,
@@ -856,6 +856,11 @@ impl Workspace {
         } else {
             state
         }
+    }
+
+
+    pub fn git_work_summary_for_root(root: &std::path::Path) -> Option<GitWorkSummary> {
+        load_git_work_summary_for_root(root)
     }
 
     #[cfg(test)]

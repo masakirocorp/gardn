@@ -202,6 +202,7 @@ fn agent_panel_current_workspace_idx(app: &AppState) -> Option<usize> {
             | Mode::KeybindHelp
             | Mode::CommandPalette
             | Mode::AgentProfilePicker
+            | Mode::GitRepoPicker
             | Mode::ProductAnnouncement
     ) {
         Some(app.selected)
