@@ -3,16 +3,15 @@
 # Secrets are never baked in; pass OPENROUTER_API_KEY at docker run time.
 FROM node:24-bookworm-slim
 
-ARG CLAUDE_CODE_VERSION=2.1.175
-ARG CODEX_VERSION=0.139.0
-ARG OPENCODE_VERSION=1.17.4
-ARG COPILOT_VERSION=1.0.61
-ARG HERMES_VERSION=0.16.0
-ARG DROID_VERSION=0.144.2
+ARG CLAUDE_CODE_VERSION=latest
+ARG CODEX_VERSION=latest
+ARG OPENCODE_VERSION=latest
+ARG COPILOT_VERSION=latest
+ARG HERMES_VERSION=latest
+ARG DROID_VERSION=latest
 ARG PNPM_VERSION=11.6.0
-ARG KIMI_VERSION=0.14.2
-ARG OMP_REF=v15.12.3
-
+ARG KIMI_VERSION=latest
+ARG OMP_REF=
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
@@ -73,8 +72,14 @@ RUN set -eux; \
       arm64) kimi_arch=arm64 ;; \
       *) echo "unsupported Kimi arch: $arch" >&2; exit 1 ;; \
     esac; \
-    tag="@moonshot-ai/kimi-code@${KIMI_VERSION}"; \
-    base_url="https://github.com/MoonshotAI/kimi-code/releases/download/%40moonshot-ai%2Fkimi-code%40${KIMI_VERSION}"; \
+    if [ "$KIMI_VERSION" = "latest" ]; then \
+      tag="$(curl -fsSL https://api.github.com/repos/MoonshotAI/kimi-code/releases/latest | jq -r .tag_name)"; \
+      version="${tag#@moonshot-ai/kimi-code@}"; \
+    else \
+      tag="@moonshot-ai/kimi-code@${KIMI_VERSION}"; \
+      version="$KIMI_VERSION"; \
+    fi; \
+    base_url="https://github.com/MoonshotAI/kimi-code/releases/download/%40moonshot-ai%2Fkimi-code%40${version}"; \
     curl -fsSL "$base_url/kimi-code-linux-${kimi_arch}.zip" -o "/tmp/kimi-code-linux-${kimi_arch}.zip"; \
     curl -fsSL "$base_url/kimi-code-linux-${kimi_arch}.zip.sha256" -o "/tmp/kimi-code-linux-${kimi_arch}.zip.sha256"; \
     cd /tmp; \
