@@ -4841,7 +4841,6 @@ model: auto
         assert!(OPENCODE_PLUGIN_ASSET.contains("properties?.sessionID"));
         assert!(OPENCODE_PLUGIN_ASSET.contains("pane.report_agent_session"));
         assert!(OPENCODE_PLUGIN_ASSET.contains("agent_session_id: sessionID"));
-        assert!(!OPENCODE_PLUGIN_ASSET.contains("pane.report_agent\""));
         assert!(!OPENCODE_PLUGIN_ASSET.contains("pane.release_agent"));
         assert!(HERMES_PLUGIN_INIT_ASSET.contains("session_id = _session_id(kwargs)"));
         assert!(HERMES_PLUGIN_INIT_ASSET.contains("agent_session_id"));

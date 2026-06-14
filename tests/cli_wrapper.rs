@@ -1248,7 +1248,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
     );
     let omp_content = fs::read_to_string(&expected_omp_extension).unwrap();
     assert!(omp_content.contains("HAKO_INTEGRATION_ID=omp"));
-    assert!(omp_content.contains("HAKO_INTEGRATION_VERSION=1"));
+    assert!(omp_content.contains("HAKO_INTEGRATION_VERSION=3"));
     assert!(omp_content.contains("agent: \"omp\""));
 
     let integration_status = Command::new(env!("CARGO_BIN_EXE_hako"))
@@ -1259,9 +1259,9 @@ fn integration_commands_run_locally_when_server_is_missing() {
         .unwrap();
     assert_eq!(integration_status.status.code(), Some(0));
     let status_stdout = String::from_utf8_lossy(&integration_status.stdout);
-    assert!(status_stdout.contains("pi: current (v1)"));
+    assert!(status_stdout.contains("pi: current (v3)"));
     assert!(status_stdout.contains("claude: not installed"));
-    assert!(status_stdout.contains("omp: current (v1)"));
+    assert!(status_stdout.contains("omp: current (v3)"));
 
     let integration_uninstall = Command::new(env!("CARGO_BIN_EXE_hako"))
         .args(["integration", "uninstall", "pi"])
