@@ -83,6 +83,64 @@ pub(crate) fn parse_native_diff_bucket(
     parse_patch_bucket(bucket, patch)
 }
 
+
+pub(crate) fn load_native_diff_session(
+    repo_root: impl Into<PathBuf>,
+) -> Result<NativeDiffSession, NativeDiffParseError> {
+    let repo_root = repo_root.into();
+    let changed_patch = git_output(
+        &repo_root,
+        &["diff", "--no-color", "--find-renames", "--binary"],
+    )?;
+    let staged_patch = git_output(
+        &repo_root,
+        &["diff", "--cached", "--no-color", "--find-renames", "--binary"],
+    )?;
+    let mut session = parse_native_diff_session(&repo_root, &changed_patch, &staged_patch)?;
+    for (path, contents) in untracked_files(&repo_root)? {
+        let patch = synthetic_untracked_file_patch(&path, &contents)?;
+        session
+            .files
+            .extend(parse_native_diff_bucket(DiffBucket::Changed, &patch)?);
+    }
+    Ok(session)
+}
+
+fn git_output(repo_root: &Path, args: &[&str]) -> Result<Vec<u8>, NativeDiffParseError> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .args(args)
+        .output()
+        .map_err(|err| NativeDiffParseError(format!("failed to run git: {err}")))?;
+    if !output.status.success() {
+        return Err(NativeDiffParseError(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(output.stdout)
+}
+
+fn untracked_files(repo_root: &Path) -> Result<Vec<(PathBuf, Vec<u8>)>, NativeDiffParseError> {
+    let output = git_output(repo_root, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+    output
+        .split(|byte| *byte == 0)
+        .filter(|path| !path.is_empty())
+        .map(|path| {
+            let relative = PathBuf::from(String::from_utf8_lossy(path).into_owned());
+            let absolute = repo_root.join(&relative);
+            let contents = std::fs::read(&absolute).map_err(|err| {
+                NativeDiffParseError(format!(
+                    "failed to read untracked file {}: {err}",
+                    absolute.display()
+                ))
+            })?;
+            Ok((relative, contents))
+        })
+        .collect()
+}
 pub(crate) fn synthetic_untracked_file_patch(
     path: &Path,
     contents: &[u8],
@@ -244,6 +302,59 @@ fn lossy_line_text(raw: &[u8]) -> String {
 mod tests {
     use super::*;
 
+
+    #[test]
+    fn loads_changed_staged_and_untracked_files_from_git() {
+        let repo = std::env::temp_dir().join(format!(
+            "hako-native-diff-load-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(&repo).expect("create repo");
+        run_git(&repo, &["init"]);
+        run_git(&repo, &["config", "user.email", "hako@example.com"]);
+        run_git(&repo, &["config", "user.name", "Hako"]);
+        std::fs::write(repo.join("changed.txt"), "old\n").expect("write tracked");
+        std::fs::write(repo.join("staged.txt"), "old\n").expect("write staged");
+        run_git(&repo, &["add", "."]);
+        run_git(&repo, &["commit", "-m", "initial"]);
+        std::fs::write(repo.join("changed.txt"), "new\n").expect("modify tracked");
+        std::fs::write(repo.join("staged.txt"), "new\n").expect("modify staged");
+        run_git(&repo, &["add", "staged.txt"]);
+        std::fs::write(repo.join("untracked.txt"), "fresh\n").expect("write untracked");
+
+        let session = load_native_diff_session(&repo).expect("load native diff");
+
+        assert!(session.files.iter().any(|file| {
+            file.bucket == DiffBucket::Changed
+                && file.new_path.as_deref() == Some(Path::new("changed.txt"))
+        }));
+        assert!(session.files.iter().any(|file| {
+            file.bucket == DiffBucket::Staged
+                && file.new_path.as_deref() == Some(Path::new("staged.txt"))
+        }));
+        assert!(session.files.iter().any(|file| {
+            file.bucket == DiffBucket::Changed
+                && file.status == DiffFileStatus::Added
+                && file.new_path.as_deref() == Some(Path::new("untracked.txt"))
+        }));
+        let _ = std::fs::remove_dir_all(repo);
+    }
+
+    fn run_git(repo: &Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     #[test]
     fn parses_changed_and_staged_buckets() {
         let changed = b"--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,2 +1,2 @@\n fn main() {\n-    old();\n+    new();\n }\n";
