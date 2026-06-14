@@ -279,13 +279,15 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
     }
 }
 
-fn render_agent_profile_picker_filters(app: &AppState, frame: &mut Frame, row: Rect, p: &crate::app::state::Palette) {
+fn render_agent_profile_picker_filters(
+    app: &AppState,
+    frame: &mut Frame,
+    row: Rect,
+    p: &crate::app::state::Palette,
+) {
     let label_width = 7;
     frame.render_widget(
-        Paragraph::new(Span::styled(
-            "filter ",
-            Style::default().fg(p.overlay0),
-        )),
+        Paragraph::new(Span::styled("filter ", Style::default().fg(p.overlay0))),
         row,
     );
     let chip_row = Rect::new(
@@ -294,7 +296,7 @@ fn render_agent_profile_picker_filters(app: &AppState, frame: &mut Frame, row: R
         row.width.saturating_sub(label_width),
         row.height,
     );
-    
+
     let (start, end) = agent_profile_picker_visible_tab_range(app, chip_row.width);
     let mut spans = Vec::new();
 
@@ -337,7 +339,12 @@ fn agent_profile_picker_group_idx(app: &AppState) -> Option<usize> {
         .and_then(|workspace| app.group_index_by_id(&workspace.group_id))
 }
 
-fn render_agent_profile_picker_group_line(app: &AppState, frame: &mut Frame, area: Rect, palette: &crate::app::state::Palette) {
+fn render_agent_profile_picker_group_line(
+    app: &AppState,
+    frame: &mut Frame,
+    area: Rect,
+    palette: &crate::app::state::Palette,
+) {
     let (icon, name, color) = agent_profile_picker_group_idx(app)
         .and_then(|group_idx| {
             app.groups.get(group_idx).map(|group| {

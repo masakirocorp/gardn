@@ -651,8 +651,9 @@ impl App {
                     ws.git_status_cwds_from(&self.state.terminals, &self.terminal_runtimes);
                 let git_key = crate::workspace::git_status_cache_key(&cwd);
                 let cache_key = git_key.unwrap_or_else(|| cwd.clone());
-                let observed_repo_roots =
-                    self.state.observed_git_repos_for_workspace(&self.terminal_runtimes, ws_idx);
+                let observed_repo_roots = self
+                    .state
+                    .observed_git_repos_for_workspace(&self.terminal_runtimes, ws_idx);
                 Some(WorkspaceGitRefreshItem {
                     workspace_id: ws.id.clone(),
                     resolved_identity_cwd: cwd,
@@ -736,7 +737,9 @@ pub(crate) fn refresh_workspace_git_statuses_with_cache(
 
     let repo_summaries = repo_roots
         .into_iter()
-        .filter_map(|root| Workspace::git_work_summary_for_root(&root).map(|summary| (root, summary)))
+        .filter_map(|root| {
+            Workspace::git_work_summary_for_root(&root).map(|summary| (root, summary))
+        })
         .collect();
 
     WorkspaceGitRefreshOutput {

@@ -415,7 +415,6 @@ impl App {
             }
         }
 
-
         if self.state.mode == Mode::AgentProfilePicker {
             match mouse.kind {
                 MouseEventKind::Down(MouseButton::Left) => {

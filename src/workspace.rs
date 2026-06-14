@@ -305,6 +305,30 @@ impl Workspace {
         }
     }
 
+    pub fn create_native_diff_tab(
+        &mut self,
+        session: crate::native_diff::NativeDiffSession,
+    ) -> Result<usize, String> {
+        let number = self.tabs.len() + 1;
+        let Some(source_tab) = self.tabs.get(self.active_tab) else {
+            return Err("workspace has no tab to inherit render handles".to_string());
+        };
+        let tab = Tab::new_native_diff(
+            number,
+            session,
+            source_tab.events.clone(),
+            source_tab.render_notify.clone(),
+            source_tab.render_dirty.clone(),
+        );
+        let tab_idx = self.tabs.len();
+        self.public_pane_numbers
+            .insert(tab.root_pane, self.next_public_pane_number);
+        self.next_public_pane_number += 1;
+        self.tabs.push(tab);
+        self.active_tab = tab_idx;
+        Ok(tab_idx)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn create_tab_with_handles(
         &mut self,
@@ -857,7 +881,6 @@ impl Workspace {
             state
         }
     }
-
 
     pub fn git_work_summary_for_root(root: &std::path::Path) -> Option<GitWorkSummary> {
         load_git_work_summary_for_root(root)

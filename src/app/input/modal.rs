@@ -971,7 +971,12 @@ pub(super) fn apply_context_menu_action(
             state.active = Some(ws_idx);
             super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
         }
-        (ContextMenuKind::Tab { ws_idx, tab_idx, .. }, Some("agent")) => {
+        (
+            ContextMenuKind::Tab {
+                ws_idx, tab_idx, ..
+            },
+            Some("agent"),
+        ) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
@@ -1024,13 +1029,23 @@ pub(super) fn apply_context_menu_action(
                 state.close_selected_workspace_from_ui();
             }
         }
-        (ContextMenuKind::Tab { ws_idx, tab_idx, .. }, Some("tab")) => {
+        (
+            ContextMenuKind::Tab {
+                ws_idx, tab_idx, ..
+            },
+            Some("tab"),
+        ) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
             request_new_tab_from_ui(state);
         }
-        (ContextMenuKind::Tab { ws_idx, tab_idx, .. }, Some("diff")) => {
+        (
+            ContextMenuKind::Tab {
+                ws_idx, tab_idx, ..
+            },
+            Some("diff"),
+        ) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
@@ -1038,13 +1053,23 @@ pub(super) fn apply_context_menu_action(
             state.request_open_git_diff = true;
             leave_modal(state);
         }
-        (ContextMenuKind::Tab { ws_idx, tab_idx, .. }, Some("rename")) => {
+        (
+            ContextMenuKind::Tab {
+                ws_idx, tab_idx, ..
+            },
+            Some("rename"),
+        ) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
             open_rename_active_tab(state, false);
         }
-        (ContextMenuKind::Tab { ws_idx, tab_idx, .. }, Some("close")) => {
+        (
+            ContextMenuKind::Tab {
+                ws_idx, tab_idx, ..
+            },
+            Some("close"),
+        ) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);

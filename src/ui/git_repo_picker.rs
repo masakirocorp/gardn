@@ -11,8 +11,8 @@ use crate::app::AppState;
 use super::{
     scrollbar::render_scrollbar,
     widgets::{
-        modal_hint_line_count, modal_section_heading_style, modal_stack_areas,
-        panel_contrast_fg, render_modal_description, render_modal_divider, render_modal_header_bar,
+        modal_hint_line_count, modal_section_heading_style, modal_stack_areas, panel_contrast_fg,
+        render_modal_description, render_modal_divider, render_modal_header_bar,
         render_modal_hint_lines, render_modal_shell,
     },
 };
@@ -184,7 +184,8 @@ pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) 
     super::dim_background(frame, frame.area());
 
     let palette = picker_palette(app);
-    let Some(inner) = render_modal_shell(frame, frame.area(), POPUP_WIDTH, POPUP_HEIGHT, &palette) else {
+    let Some(inner) = render_modal_shell(frame, frame.area(), POPUP_WIDTH, POPUP_HEIGHT, &palette)
+    else {
         return;
     };
     if inner.height < 12 || inner.width < 28 {
@@ -290,10 +291,13 @@ pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) 
         };
         let path = format!("   {}", display_path(root));
         items.push(ListItem::new(Line::from(name_spans)).style(row_style));
-        items.push(ListItem::new(Line::from(Span::styled(
-            format!("{path:<list_width$}"),
-            path_style,
-        ))).style(row_style));
+        items.push(
+            ListItem::new(Line::from(Span::styled(
+                format!("{path:<list_width$}"),
+                path_style,
+            )))
+            .style(row_style),
+        );
     }
     let mut list_state = ListState::default().with_selected(selected_row);
     frame.render_stateful_widget(List::new(items), scroll_area.body, &mut list_state);

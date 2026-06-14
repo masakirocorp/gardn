@@ -53,6 +53,53 @@ pub(crate) struct NativeDiffLine {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct NativeDiffSelection {
+    pub(crate) bucket: DiffBucket,
+    pub(crate) file_index: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NativeDiffPaneState {
+    pub(crate) session: NativeDiffSession,
+    pub(crate) selected_file: Option<NativeDiffSelection>,
+    pub(crate) file_scroll: usize,
+    pub(crate) diff_scroll: usize,
+}
+
+impl NativeDiffPaneState {
+    pub(crate) fn new(session: NativeDiffSession) -> Self {
+        let selected_file = first_selection(&session);
+        Self {
+            session,
+            selected_file,
+            file_scroll: 0,
+            diff_scroll: 0,
+        }
+    }
+
+    pub(crate) fn selected_file(&self) -> Option<&NativeDiffFile> {
+        let selection = self.selected_file?;
+        self.session
+            .files
+            .get(selection.file_index)
+            .filter(|file| file.bucket == selection.bucket)
+    }
+}
+
+fn first_selection(session: &NativeDiffSession) -> Option<NativeDiffSelection> {
+    session
+        .files
+        .iter()
+        .enumerate()
+        .find(|(_, file)| file.bucket == DiffBucket::Changed)
+        .or_else(|| session.files.iter().enumerate().next())
+        .map(|(file_index, file)| NativeDiffSelection {
+            bucket: file.bucket,
+            file_index,
+        })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DiffLineKind {
     Context,
     Added,
@@ -83,7 +130,6 @@ pub(crate) fn parse_native_diff_bucket(
     parse_patch_bucket(bucket, patch)
 }
 
-
 pub(crate) fn load_native_diff_session(
     repo_root: impl Into<PathBuf>,
 ) -> Result<NativeDiffSession, NativeDiffParseError> {
@@ -94,7 +140,13 @@ pub(crate) fn load_native_diff_session(
     )?;
     let staged_patch = git_output(
         &repo_root,
-        &["diff", "--cached", "--no-color", "--find-renames", "--binary"],
+        &[
+            "diff",
+            "--cached",
+            "--no-color",
+            "--find-renames",
+            "--binary",
+        ],
     )?;
     let mut session = parse_native_diff_session(&repo_root, &changed_patch, &staged_patch)?;
     for (path, contents) in untracked_files(&repo_root)? {
@@ -124,7 +176,10 @@ fn git_output(repo_root: &Path, args: &[&str]) -> Result<Vec<u8>, NativeDiffPars
 }
 
 fn untracked_files(repo_root: &Path) -> Result<Vec<(PathBuf, Vec<u8>)>, NativeDiffParseError> {
-    let output = git_output(repo_root, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+    let output = git_output(
+        repo_root,
+        &["ls-files", "--others", "--exclude-standard", "-z"],
+    )?;
     output
         .split(|byte| *byte == 0)
         .filter(|path| !path.is_empty())
@@ -265,11 +320,7 @@ fn native_file_from_plain_patch(bucket: DiffBucket, patch: UnifiedPatch) -> Nati
     }
 }
 
-fn file_status(
-    old_path: Option<&Path>,
-    new_path: Option<&Path>,
-    binary: bool,
-) -> DiffFileStatus {
+fn file_status(old_path: Option<&Path>, new_path: Option<&Path>, binary: bool) -> DiffFileStatus {
     if binary {
         return DiffFileStatus::Binary;
     }
@@ -302,13 +353,10 @@ fn lossy_line_text(raw: &[u8]) -> String {
 mod tests {
     use super::*;
 
-
     #[test]
     fn loads_changed_staged_and_untracked_files_from_git() {
-        let repo = std::env::temp_dir().join(format!(
-            "hako-native-diff-load-{}",
-            std::process::id()
-        ));
+        let repo =
+            std::env::temp_dir().join(format!("hako-native-diff-load-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&repo);
         std::fs::create_dir_all(&repo).expect("create repo");
         run_git(&repo, &["init"]);
@@ -367,7 +415,10 @@ mod tests {
         assert_eq!(session.files[0].status, DiffFileStatus::Modified);
         assert_eq!(session.files[0].added, 1);
         assert_eq!(session.files[0].deleted, 1);
-        assert_eq!(session.files[0].hunks[0].lines[1].kind, DiffLineKind::Removed);
+        assert_eq!(
+            session.files[0].hunks[0].lines[1].kind,
+            DiffLineKind::Removed
+        );
         assert_eq!(session.files[1].bucket, DiffBucket::Staged);
         assert_eq!(session.files[1].status, DiffFileStatus::Added);
         assert_eq!(session.files[1].new_path, Some(PathBuf::from("README.md")));

@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::Rect,
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use super::scrollbar::{render_pane_scrollbar, should_show_scrollbar};
-use super::widgets::panel_contrast_fg;
+use super::widgets::{fill_rect, panel_contrast_fg};
 use crate::app::state::Palette;
 use crate::app::{AppState, Mode};
 use crate::layout::PaneInfo;
@@ -268,6 +268,36 @@ pub(super) fn render_panes(
     let terminal_active = app.mode == Mode::Terminal;
 
     for info in &app.view.pane_infos {
+        let pane_state = ws.pane_state(info.id);
+        if let Some(diff) = pane_state.and_then(|pane| pane.native_diff()) {
+            if multi_pane {
+                let (border_style, border_set) = if info.is_focused && terminal_active {
+                    (
+                        Style::default().fg(active_accent),
+                        ratatui::symbols::border::THICK,
+                    )
+                } else if info.is_focused {
+                    (
+                        Style::default().fg(active_accent),
+                        ratatui::symbols::border::PLAIN,
+                    )
+                } else {
+                    (
+                        Style::default().fg(app.palette.overlay0),
+                        ratatui::symbols::border::PLAIN,
+                    )
+                };
+                let block = Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(border_style)
+                    .border_set(border_set)
+                    .title(Line::from(Span::styled(" diff ", border_style)));
+                frame.render_widget(block, info.rect);
+            }
+            render_native_diff_pane(app, diff, frame, info.inner_rect, active_accent);
+            continue;
+        }
+
         if let Some(rt) = app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id) {
             if multi_pane {
                 let (border_style, border_set) = if info.is_focused && terminal_active {
@@ -291,8 +321,7 @@ pub(super) fn render_panes(
                     .borders(Borders::ALL)
                     .border_style(border_style)
                     .border_set(border_set);
-                if let Some(title) = ws
-                    .pane_state(info.id)
+                if let Some(title) = pane_state
                     .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
                     .and_then(|terminal| {
                         terminal.border_label(app.show_agent_labels_on_pane_borders)
@@ -337,6 +366,177 @@ pub(super) fn render_panes(
             render_copy_mode_cursor(app, frame, info);
         }
     }
+}
+fn render_native_diff_pane(
+    app: &AppState,
+    diff: &crate::native_diff::NativeDiffPaneState,
+    frame: &mut Frame,
+    area: Rect,
+    accent: Color,
+) {
+    fill_rect(frame, area, Style::default().bg(app.palette.panel_bg));
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(file_list_width(area.width)),
+            Constraint::Min(10),
+        ])
+        .split(area);
+    render_native_diff_file_list(app, diff, frame, chunks[0], accent);
+    render_native_diff_file_patch(app, diff, frame, chunks[1], accent);
+}
+
+fn file_list_width(total: u16) -> u16 {
+    total.clamp(28, 36).min(total.saturating_sub(10))
+}
+
+fn render_native_diff_file_list(
+    app: &AppState,
+    diff: &crate::native_diff::NativeDiffPaneState,
+    frame: &mut Frame,
+    area: Rect,
+    accent: Color,
+) {
+    let mut lines = Vec::new();
+    push_native_diff_bucket_lines(
+        &mut lines,
+        diff,
+        crate::native_diff::DiffBucket::Changed,
+        "changed",
+        accent,
+        &app.palette,
+    );
+    if !lines.is_empty() {
+        lines.push(Line::from(""));
+    }
+    push_native_diff_bucket_lines(
+        &mut lines,
+        diff,
+        crate::native_diff::DiffBucket::Staged,
+        "staged",
+        accent,
+        &app.palette,
+    );
+    if lines.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "no changes",
+            Style::default().fg(app.palette.subtext0),
+        )));
+    }
+    frame.render_widget(
+        Paragraph::new(lines).style(
+            Style::default()
+                .fg(app.palette.text)
+                .bg(app.palette.panel_bg),
+        ),
+        area,
+    );
+}
+
+fn push_native_diff_bucket_lines(
+    lines: &mut Vec<Line<'static>>,
+    diff: &crate::native_diff::NativeDiffPaneState,
+    bucket: crate::native_diff::DiffBucket,
+    label: &'static str,
+    accent: Color,
+    p: &Palette,
+) {
+    let mut bucket_files = diff
+        .session
+        .files
+        .iter()
+        .enumerate()
+        .filter(|(_, file)| file.bucket == bucket)
+        .peekable();
+    if bucket_files.peek().is_none() {
+        return;
+    }
+    lines.push(Line::from(Span::styled(
+        label,
+        Style::default().fg(accent).add_modifier(Modifier::BOLD),
+    )));
+    for (index, file) in bucket_files {
+        let selected = diff
+            .selected_file
+            .is_some_and(|selection| selection.file_index == index && selection.bucket == bucket);
+        let style = if selected {
+            Style::default()
+                .fg(panel_contrast_fg(p))
+                .bg(accent)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(p.text)
+        };
+        let path = file
+            .new_path
+            .as_ref()
+            .or(file.old_path.as_ref())
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "(unknown)".to_string());
+        let stats = format!(" +{} -{}", file.added, file.deleted);
+        lines.push(Line::from(vec![
+            Span::styled("  ", style),
+            Span::styled(path, style),
+            Span::styled(stats, style.fg(p.subtext0)),
+        ]));
+    }
+}
+
+fn render_native_diff_file_patch(
+    app: &AppState,
+    diff: &crate::native_diff::NativeDiffPaneState,
+    frame: &mut Frame,
+    area: Rect,
+    accent: Color,
+) {
+    let Some(file) = diff.selected_file() else {
+        return;
+    };
+    let mut lines = Vec::new();
+    if file.binary {
+        lines.push(Line::from(Span::styled(
+            "binary file changed",
+            Style::default().fg(app.palette.subtext0),
+        )));
+    }
+    for hunk in &file.hunks {
+        lines.push(Line::from(Span::styled(
+            format!(
+                "@@ -{},{} +{},{} @@",
+                hunk.old_start, hunk.old_count, hunk.new_start, hunk.new_count
+            ),
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+        )));
+        for line in &hunk.lines {
+            let (marker, style) = match line.kind {
+                crate::native_diff::DiffLineKind::Context => {
+                    (" ", Style::default().fg(app.palette.text))
+                }
+                crate::native_diff::DiffLineKind::Added => {
+                    ("+", Style::default().fg(app.palette.green))
+                }
+                crate::native_diff::DiffLineKind::Removed => {
+                    ("-", Style::default().fg(app.palette.red))
+                }
+            };
+            lines.push(Line::from(Span::styled(
+                format!("{marker}{}", line.text),
+                style,
+            )));
+        }
+    }
+    frame.render_widget(
+        Paragraph::new(lines).style(
+            Style::default()
+                .fg(app.palette.text)
+                .bg(app.palette.panel_bg),
+        ),
+        area,
+    );
 }
 
 fn render_copy_mode_cursor(app: &AppState, frame: &mut Frame, info: &PaneInfo) {

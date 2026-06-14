@@ -42,11 +42,11 @@ impl App {
             for (key, entry) in cache_updates {
                 self.git_status_cache.insert(key, entry);
             }
-            let repo_summaries_changed =
-                self.state.git_repo_summaries.len() != repo_summaries.len()
-                    || repo_summaries
-                        .iter()
-                        .any(|(root, summary)| self.state.git_repo_summaries.get(root) != Some(summary));
+            let repo_summaries_changed = self.state.git_repo_summaries.len()
+                != repo_summaries.len()
+                || repo_summaries.iter().any(|(root, summary)| {
+                    self.state.git_repo_summaries.get(root) != Some(summary)
+                });
             self.state.git_repo_summaries = repo_summaries.into_iter().collect();
             if self.git_refresh_due_after_in_flight {
                 self.mark_git_status_refresh_due(Instant::now());

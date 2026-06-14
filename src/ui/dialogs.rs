@@ -172,9 +172,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
                     .bg(palette.accent)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default()
-                    .fg(palette.text)
-                    .bg(palette.surface0)
+                Style::default().fg(palette.text).bg(palette.surface0)
             };
             frame.render_widget(
                 Paragraph::new(format!(" {icon} "))
@@ -245,8 +243,7 @@ pub(super) fn render_confirm_close_overlay(app: &AppState, frame: &mut Frame, ar
         Span::styled(format!(" — {pane_text}"), dim),
     ]);
 
-    let Some(inner) = render_panel_shell(frame, popup, palette.red, palette.panel_bg)
-    else {
+    let Some(inner) = render_panel_shell(frame, popup, palette.red, palette.panel_bg) else {
         return;
     };
 
@@ -322,8 +319,7 @@ pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Fr
         Span::styled(format!(" — closes {spaces}"), dim),
     ]);
 
-    let Some(inner) = render_panel_shell(frame, popup, palette.red, palette.panel_bg)
-    else {
+    let Some(inner) = render_panel_shell(frame, popup, palette.red, palette.panel_bg) else {
         return;
     };
 

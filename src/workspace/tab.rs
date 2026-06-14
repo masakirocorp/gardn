@@ -182,6 +182,34 @@ impl Tab {
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub fn new_native_diff(
+        number: usize,
+        session: crate::native_diff::NativeDiffSession,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<AtomicBool>,
+    ) -> Self {
+        let (layout, root_id) = TileLayout::new();
+        let mut panes = HashMap::new();
+        panes.insert(
+            root_id,
+            PaneState::new_native_diff(crate::native_diff::NativeDiffPaneState::new(session)),
+        );
+        Self {
+            custom_name: Some("diff".to_string()),
+            number,
+            root_pane: root_id,
+            layout,
+            panes,
+            #[cfg(test)]
+            runtimes: HashMap::new(),
+            zoomed: false,
+            events,
+            render_notify,
+            render_dirty,
+        }
+    }
+
     fn new_with_runtime(
         number: usize,
         initial_cwd: PathBuf,
@@ -501,7 +529,7 @@ impl Tab {
         }
 
         let pane = self.panes.remove(&pane_id)?;
-        let terminal_id = pane.attached_terminal_id;
+        let terminal_id = pane.terminal_id_cloned()?;
         self.zoomed = false;
         if let Some(next_root) = next_root {
             self.root_pane = next_root;
@@ -517,9 +545,7 @@ impl Tab {
     }
 
     pub fn terminal_id(&self, pane_id: PaneId) -> Option<&TerminalId> {
-        self.panes
-            .get(&pane_id)
-            .map(|pane| &pane.attached_terminal_id)
+        self.panes.get(&pane_id).and_then(PaneState::terminal_id)
     }
 
     pub fn cwd_for_pane(

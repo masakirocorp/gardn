@@ -104,7 +104,12 @@ fn settings_palette(app: &AppState) -> crate::app::state::Palette {
         .unwrap_or_else(|| app.palette.clone())
 }
 
-fn render_settings_tabs(app: &AppState, frame: &mut Frame, row: Rect, p: &crate::app::state::Palette) {
+fn render_settings_tabs(
+    app: &AppState,
+    frame: &mut Frame,
+    row: Rect,
+    p: &crate::app::state::Palette,
+) {
     let sections = settings_sections(app);
     let (start, end) = settings_visible_tab_range(app, row.width);
     let mut spans = Vec::new();
@@ -231,13 +236,7 @@ fn render_settings_section_intro(
         Style::default().fg(p.accent),
     );
     if let Some(back) = settings_agents_editor_back_button_rect(app, title_area) {
-        render_action_button(
-            frame,
-            back,
-            None,
-            "← back",
-            secondary_action_style(p),
-        );
+        render_action_button(frame, back, None, "← back", secondary_action_style(p));
     }
     render_modal_description(
         frame,
@@ -381,8 +380,14 @@ fn render_settings_theme(app: &AppState, frame: &mut Frame, area: Rect) {
     render_settings_sectioned_toggle_list(app, frame, area, &palette);
 }
 
-fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect, p: &crate::app::state::Palette) {
-    let body_area = render_settings_section_intro(app, frame, area, SettingsSection::Integrations, p);
+fn render_settings_integrations(
+    app: &AppState,
+    frame: &mut Frame,
+    area: Rect,
+    p: &crate::app::state::Palette,
+) {
+    let body_area =
+        render_settings_section_intro(app, frame, area, SettingsSection::Integrations, p);
     let [list_area, hint_area] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas::<2>(body_area);
 
@@ -440,7 +445,12 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect, p
     );
 }
 
-fn render_settings_sectioned_toggle_list(app: &AppState, frame: &mut Frame, area: Rect, p: &crate::app::state::Palette) {
+fn render_settings_sectioned_toggle_list(
+    app: &AppState,
+    frame: &mut Frame,
+    area: Rect,
+    p: &crate::app::state::Palette,
+) {
     let body_area = render_settings_section_intro(app, frame, area, app.settings.section, p);
     render_settings_rows(app, frame, body_area, p);
 }
@@ -614,7 +624,12 @@ fn settings_profile_name_line(
     ])
 }
 
-fn render_settings_rows(app: &AppState, frame: &mut Frame, area: Rect, p: &crate::app::state::Palette) {
+fn render_settings_rows(
+    app: &AppState,
+    frame: &mut Frame,
+    area: Rect,
+    p: &crate::app::state::Palette,
+) {
     let selected_style = modal_option_style(p, true);
 
     let Some(model_rows) = rows_for_section(app, app.settings.section) else {

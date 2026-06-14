@@ -2076,7 +2076,9 @@ impl ContextMenuState {
             } => &[
                 "new", "tab", "agent", "---", "manage", "rename", "---", "danger", "close",
             ],
-            ContextMenuKind::NewTabButton { can_diff: true, .. } => &["new", "tab", "agent", "diff"],
+            ContextMenuKind::NewTabButton { can_diff: true, .. } => {
+                &["new", "tab", "agent", "diff"]
+            }
             ContextMenuKind::NewTabButton {
                 can_diff: false, ..
             } => &["new", "tab", "agent"],
