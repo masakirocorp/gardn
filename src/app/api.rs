@@ -54,10 +54,12 @@ impl App {
             } else {
                 self.last_git_remote_status_refresh = Instant::now();
             }
+            let native_diff_changed = self.refresh_native_diff_panes();
             if self
                 .state
                 .apply_workspace_git_statuses(&self.terminal_runtimes, results)
                 || repo_summaries_changed
+                || native_diff_changed
             {
                 self.render_dirty.store(true, Ordering::Release);
                 self.render_notify.notify_one();
@@ -889,6 +891,39 @@ impl App {
     pub(crate) fn mark_api_notification_shown(&mut self, now: Instant) {
         self.last_api_notification_at = Some(now);
     }
+    fn refresh_native_diff_panes(&mut self) -> bool {
+        let mut changed = false;
+        for workspace in &mut self.state.workspaces {
+            for tab in &mut workspace.tabs {
+                for pane in tab.panes.values_mut() {
+                    let Some(diff) = pane.native_diff_mut() else {
+                        continue;
+                    };
+                    match crate::native_diff::load_native_diff_session(diff.session.repo_root.clone())
+                    {
+                        Ok(session) => {
+                            if session != diff.session {
+                                diff.replace_session(session);
+                                changed = true;
+                            }
+                            if diff.last_error.is_some() {
+                                diff.last_error = None;
+                                changed = true;
+                            }
+                        }
+                        Err(err) => {
+                            if diff.last_error.as_deref() != Some(err.0.as_str()) {
+                                diff.last_error = Some(err.0);
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        changed
+    }
+
 }
 
 fn sanitized_notification_text(value: &str, max_chars: usize) -> Option<String> {
