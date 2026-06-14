@@ -10,6 +10,7 @@ ARG COPILOT_VERSION=1.0.61
 ARG HERMES_VERSION=0.16.0
 ARG DROID_VERSION=0.144.2
 ARG PNPM_VERSION=11.6.0
+ARG KIMI_VERSION=0.14.2
 ARG OMP_REF=v15.12.3
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -28,6 +29,7 @@ RUN apt-get update \
         libsecret-1-0 \
         python3 \
         python3-pip \
+        unzip \
         tini \
     && rm -rf /var/lib/apt/lists/*
 
@@ -64,9 +66,24 @@ RUN --mount=type=cache,id=hako-agent-smoke-pnpm,target=/pnpm/store \
     done \
     && pnpm store prune
 
-RUN KIMI_INSTALL_DIR=/opt/kimi-code KIMI_NO_MODIFY_PATH=1 \
-    bash -c 'curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash' \
-    && ln -s /opt/kimi-code/bin/kimi /usr/local/bin/kimi
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) kimi_arch=x64 ;; \
+      arm64) kimi_arch=arm64 ;; \
+      *) echo "unsupported Kimi arch: $arch" >&2; exit 1 ;; \
+    esac; \
+    tag="@moonshot-ai/kimi-code@${KIMI_VERSION}"; \
+    base_url="https://github.com/MoonshotAI/kimi-code/releases/download/%40moonshot-ai%2Fkimi-code%40${KIMI_VERSION}"; \
+    curl -fsSL "$base_url/kimi-code-linux-${kimi_arch}.zip" -o "/tmp/kimi-code-linux-${kimi_arch}.zip"; \
+    curl -fsSL "$base_url/kimi-code-linux-${kimi_arch}.zip.sha256" -o "/tmp/kimi-code-linux-${kimi_arch}.zip.sha256"; \
+    cd /tmp; \
+    sha256sum -c "kimi-code-linux-${kimi_arch}.zip.sha256"; \
+    unzip -q "/tmp/kimi-code-linux-${kimi_arch}.zip" -d /opt/kimi-code; \
+    kimi_bin="$(find /opt/kimi-code -type f -name kimi | sort | tail -n 1)"; \
+    chmod +x "$kimi_bin"; \
+    ln -s "$kimi_bin" /usr/local/bin/kimi; \
+    rm -f "/tmp/kimi-code-linux-${kimi_arch}.zip" "/tmp/kimi-code-linux-${kimi_arch}.zip.sha256"
 
 RUN curl -fsSL https://cursor.com/install | bash \
     && mkdir -p /opt \
