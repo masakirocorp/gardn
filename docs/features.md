@@ -243,6 +243,24 @@ Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, and Qoder-style integrat
 Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
 - On Windows, installable integrations are limited to CLI hook integrations with supported path layouts: Claude, Codex, Copilot, Kimi, Droid, and Qoder-style CLIs.
 
+
+## External tools
+
+Hako is a terminal workspace manager, so some features call user-installed tools instead of bundling every backend.
+
+| Tool | Used for | Requirement |
+| --- | --- | --- |
+| `git` | Git status, repository discovery, worktree operations, and Git-aware project commands. | Required for Git-aware features. |
+| `hunk` | Interactive Git diff panes opened from the command palette. | Optional; missing installs show guidance instead of opening the diff UI. Hako uses Hunk 0.14 or newer for generated accent-aware themes. |
+| Agent CLIs such as `pi`, `omp`, `claude`, `codex`, `opencode`, `hermes`, `copilot`, `kimi`, `droid`, `qodercli`, and `cursor-agent` | Launching agent panes and installing/updating matching Hako integrations. | Required only for the agent/profile the user launches or integrates. |
+| `python3` | Installed hook scripts for agent integrations. | Required for hook-based state/session reports; hooks exit quietly when it is missing. |
+| `curl` | Update checks, release downloads, manifest refreshes, and remote bootstrap downloads. | Required for those networked update/bootstrap features. |
+| `ssh` | Remote attach, remote install, and remote client bridge. | Required for remote features. |
+| `lsof` | Local TCP listener discovery for the ports panel. | Optional; missing or failing probes produce no port observations. |
+| macOS `pbcopy`, `pbpaste`, `open`, `/usr/bin/osascript`, optional `terminal-notifier`, and optional `mdfind` | Clipboard, URL opening, and system notifications on macOS. | Platform helpers; Hako falls back where possible. |
+| Linux `xdg-open`, `notify-send`, `wl-copy`, `wl-paste`, `xclip`, and `xsel` | URL opening, system notifications, and clipboard/image paste on Linux. | Optional per feature and display server; missing helpers disable the matching bridge/fallback. |
+| macOS `afplay` | Custom sound notification playback. | Required only for custom notification sound playback on macOS. |
+
 ## CLI and socket API
 
 Hako exposes the same runtime model through the CLI and local Unix socket API.
