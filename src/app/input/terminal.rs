@@ -242,9 +242,73 @@ fn handle_native_diff_key(
             diff.scroll_diff(5);
             true
         }
+        KeyCode::Char('r') if key.modifiers.is_empty() => {
+            refresh_native_diff(diff);
+            true
+        }
+        KeyCode::Char('s') if key.modifiers.is_empty() => {
+            apply_native_diff_action(diff, NativeDiffAction::Stage);
+            true
+        }
+        KeyCode::Char('u') if key.modifiers.is_empty() => {
+            apply_native_diff_action(diff, NativeDiffAction::Unstage);
+            true
+        }
         _ => false,
     }
 }
+enum NativeDiffAction {
+    Stage,
+    Unstage,
+}
+
+fn apply_native_diff_action(
+    diff: &mut crate::native_diff::NativeDiffPaneState,
+    action: NativeDiffAction,
+) {
+    let Some(path) = diff.selected_path() else {
+        return;
+    };
+    let result = match action {
+        NativeDiffAction::Stage => run_git(&diff.session.repo_root, &["add", "--"], &path),
+        NativeDiffAction::Unstage => {
+            run_git(&diff.session.repo_root, &["restore", "--staged", "--"], &path)
+        }
+    };
+    match result {
+        Ok(()) => refresh_native_diff(diff),
+        Err(err) => diff.last_error = Some(err),
+    }
+}
+
+fn refresh_native_diff(diff: &mut crate::native_diff::NativeDiffPaneState) {
+    match crate::native_diff::load_native_diff_session(diff.session.repo_root.clone()) {
+        Ok(session) => {
+            diff.replace_session(session);
+            diff.last_error = None;
+        }
+        Err(err) => diff.last_error = Some(err.0),
+    }
+}
+
+fn run_git(
+    repo_root: &std::path::Path,
+    args: &[&str],
+    path: &std::path::Path,
+) -> Result<(), String> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .args(args)
+        .arg(path)
+        .output()
+        .map_err(|err| format!("failed to run git: {err}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+}
+
 
 
 #[cfg(test)]

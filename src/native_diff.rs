@@ -64,6 +64,7 @@ pub(crate) struct NativeDiffPaneState {
     pub(crate) selected_file: Option<NativeDiffSelection>,
     pub(crate) file_scroll: usize,
     pub(crate) diff_scroll: usize,
+    pub(crate) last_error: Option<String>,
 }
 
 impl NativeDiffPaneState {
@@ -74,6 +75,7 @@ impl NativeDiffPaneState {
             selected_file,
             file_scroll: 0,
             diff_scroll: 0,
+            last_error: None,
         }
     }
 
@@ -84,6 +86,34 @@ impl NativeDiffPaneState {
             .get(selection.file_index)
             .filter(|file| file.bucket == selection.bucket)
     }
+    pub(crate) fn selected_path(&self) -> Option<PathBuf> {
+        let file = self.selected_file()?;
+        file.new_path
+            .as_ref()
+            .or(file.old_path.as_ref())
+            .cloned()
+    }
+
+    pub(crate) fn replace_session(&mut self, session: NativeDiffSession) {
+        let previous_path = self.selected_path();
+        self.session = session;
+        self.selected_file = previous_path
+            .and_then(|path| {
+                self.session.files.iter().enumerate().find_map(|(index, file)| {
+                    let candidate = file.new_path.as_ref().or(file.old_path.as_ref())?;
+                    (candidate == &path).then_some(NativeDiffSelection {
+                        bucket: file.bucket,
+                        file_index: index,
+                    })
+                })
+            })
+            .or_else(|| first_selection(&self.session));
+        self.file_scroll = self
+            .file_scroll
+            .min(self.session.files.len().saturating_sub(1));
+        self.diff_scroll = 0;
+    }
+
     pub(crate) fn move_selection(&mut self, delta: isize) {
         if self.session.files.is_empty() {
             self.selected_file = None;

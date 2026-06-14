@@ -379,15 +379,20 @@ fn render_native_diff_pane(
         return;
     }
 
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(area);
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(file_list_width(area.width)),
+            Constraint::Length(file_list_width(vertical[0].width)),
             Constraint::Min(10),
         ])
-        .split(area);
+        .split(vertical[0]);
     render_native_diff_file_list(app, diff, frame, chunks[0], accent);
     render_native_diff_file_patch(app, diff, frame, chunks[1], accent);
+    render_native_diff_footer(app, diff, frame, vertical[1]);
 }
 
 fn file_list_width(total: u16) -> u16 {
@@ -485,6 +490,39 @@ fn push_native_diff_bucket_lines(
         ]));
     }
 }
+fn render_native_diff_footer(
+    app: &AppState,
+    diff: &crate::native_diff::NativeDiffPaneState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let line = if let Some(error) = &diff.last_error {
+        Line::from(Span::styled(
+            error.clone(),
+            Style::default().fg(app.palette.red),
+        ))
+    } else {
+        Line::from(vec![
+            Span::styled("move ", Style::default().fg(app.palette.subtext0)),
+            Span::styled("↑↓", Style::default().fg(app.palette.text)),
+            Span::styled(" · stage ", Style::default().fg(app.palette.subtext0)),
+            Span::styled("s", Style::default().fg(app.palette.text)),
+            Span::styled(" · unstage ", Style::default().fg(app.palette.subtext0)),
+            Span::styled("u", Style::default().fg(app.palette.text)),
+            Span::styled(" · refresh ", Style::default().fg(app.palette.subtext0)),
+            Span::styled("r", Style::default().fg(app.palette.text)),
+        ])
+    };
+    frame.render_widget(
+        Paragraph::new(line).style(
+            Style::default()
+                .fg(app.palette.text)
+                .bg(app.palette.panel_bg),
+        ),
+        area,
+    );
+}
+
 
 fn render_native_diff_file_patch(
     app: &AppState,
