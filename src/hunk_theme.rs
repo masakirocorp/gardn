@@ -52,9 +52,14 @@ pub(crate) fn config(
 ) -> String {
     let colors =
         HunkThemeColors::from_palette(palette, appearance, terminal_theme, passthrough_terminal);
+    let transparent_background = if passthrough_terminal {
+        "transparent_background = true\n"
+    } else {
+        ""
+    };
     format!(
         r#"theme = "custom"
-
+{transparent_background}
 [custom_theme]
 base = "{}"
 label = "Hako"
@@ -502,6 +507,30 @@ mod tests {
         assert!(config.contains("base = \"paper\""));
         assert!(config.contains("accent = \"#34548a\""));
         assert!(config.contains("text = \"#343b58\""));
+    }
+
+    #[test]
+    fn terminal_passthrough_enables_hunk_transparent_background() {
+        let config = config(
+            &Palette::terminal(),
+            ThemeAppearance::Dark,
+            TerminalTheme::default(),
+            true,
+        );
+
+        assert!(config.contains("transparent_background = true"));
+    }
+
+    #[test]
+    fn branded_theme_keeps_opaque_hunk_background() {
+        let config = config(
+            &Palette::tokyo_night(),
+            ThemeAppearance::Dark,
+            TerminalTheme::default(),
+            false,
+        );
+
+        assert!(!config.contains("transparent_background = true"));
     }
 
     #[test]
