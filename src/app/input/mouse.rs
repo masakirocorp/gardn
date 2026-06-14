@@ -441,8 +441,13 @@ impl AppState {
                 }
                 if self.on_new_tab_button(mouse.column, mouse.row) {
                     if let Some(ws_idx) = self.active {
+                        let can_diff = self
+                            .workspaces
+                            .get(ws_idx)
+                            .and_then(|workspace| workspace.cached_git_work_summary)
+                            .is_some_and(|summary| summary.repo_count > 0);
                         self.context_menu = Some(ContextMenuState {
-                            kind: ContextMenuKind::NewTabButton { ws_idx },
+                            kind: ContextMenuKind::NewTabButton { ws_idx, can_diff },
                             x: mouse.column,
                             y: mouse.row,
                             list: MenuListState::new(1),
@@ -1189,8 +1194,16 @@ impl AppState {
                 }
                 if let Some(idx) = self.workspace_at_row(mouse.row) {
                     self.selected = idx;
+                    let can_diff = self
+                        .workspaces
+                        .get(idx)
+                        .and_then(|workspace| workspace.cached_git_work_summary)
+                        .is_some_and(|summary| summary.repo_count > 0);
                     self.context_menu = Some(ContextMenuState {
-                        kind: ContextMenuKind::Workspace { ws_idx: idx },
+                        kind: ContextMenuKind::Workspace {
+                            ws_idx: idx,
+                            can_diff,
+                        },
                         x: mouse.column,
                         y: mouse.row,
                         list: MenuListState::new(1),
@@ -1216,8 +1229,17 @@ impl AppState {
                     (self.active, self.tab_at(mouse.column, mouse.row))
                 {
                     self.switch_tab(tab_idx);
+                    let can_diff = self
+                        .workspaces
+                        .get(ws_idx)
+                        .and_then(|workspace| workspace.cached_git_work_summary)
+                        .is_some_and(|summary| summary.repo_count > 0);
                     self.context_menu = Some(ContextMenuState {
-                        kind: ContextMenuKind::Tab { ws_idx, tab_idx },
+                        kind: ContextMenuKind::Tab {
+                            ws_idx,
+                            tab_idx,
+                            can_diff,
+                        },
                         x: mouse.column,
                         y: mouse.row,
                         list: MenuListState::new(1),
@@ -2073,7 +2095,10 @@ mod tests {
     fn hovering_context_menu_updates_highlight() {
         let mut app = app_for_mouse_test();
         app.state.context_menu = Some(ContextMenuState {
-            kind: ContextMenuKind::Workspace { ws_idx: 0 },
+            kind: ContextMenuKind::Workspace {
+                ws_idx: 0,
+                can_diff: false,
+            },
             x: 2,
             y: 2,
             list: MenuListState::new(0),
@@ -2527,7 +2552,10 @@ mod tests {
         app.state.mode = Mode::Terminal;
 
         app.state.context_menu = Some(ContextMenuState {
-            kind: ContextMenuKind::Workspace { ws_idx: 1 },
+            kind: ContextMenuKind::Workspace {
+                ws_idx: 1,
+                can_diff: false,
+            },
             x: 2,
             y: 2,
             list: MenuListState::new(8),
@@ -2568,7 +2596,10 @@ mod tests {
         app.state.mode = Mode::Terminal;
 
         app.state.context_menu = Some(ContextMenuState {
-            kind: ContextMenuKind::Workspace { ws_idx: 0 },
+            kind: ContextMenuKind::Workspace {
+                ws_idx: 0,
+                can_diff: false,
+            },
             x: 2,
             y: 2,
             list: MenuListState::new(8),
@@ -2610,7 +2641,10 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app.state.context_menu = Some(ContextMenuState {
-            kind: ContextMenuKind::Workspace { ws_idx: 0 },
+            kind: ContextMenuKind::Workspace {
+                ws_idx: 0,
+                can_diff: false,
+            },
             x: 2,
             y: 2,
             list: MenuListState::new(8),
@@ -2654,7 +2688,10 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app.state.context_menu = Some(ContextMenuState {
-            kind: ContextMenuKind::Workspace { ws_idx: 0 },
+            kind: ContextMenuKind::Workspace {
+                ws_idx: 0,
+                can_diff: false,
+            },
             x: 2,
             y: 2,
             list: MenuListState::new(8),

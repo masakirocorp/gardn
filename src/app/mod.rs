@@ -545,6 +545,7 @@ impl App {
             request_agent_profile_tab: None,
             request_reload_config: false,
             request_open_git_diff: false,
+            requested_git_diff_workspace: None,
             request_client_config_reload: false,
             request_clipboard_write: None,
             request_command_action: None,

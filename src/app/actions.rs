@@ -26,11 +26,17 @@ fn hunk_diff_project_command(
     terminal_theme: crate::terminal_theme::TerminalTheme,
     passthrough_terminal: bool,
 ) -> crate::commands::ProjectCommand {
+    let repo_name = root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .map(|name| format!("diff · {name}"))
+        .unwrap_or_else(|| "diff".to_string());
     crate::commands::ProjectCommand {
         id: format!("builtin:git-diff:{}", root.display()),
         root,
         source: crate::commands::CommandSource::BuiltIn,
-        name: "diff".to_string(),
+        name: repo_name,
         command: crate::hunk_theme::command(
             palette,
             appearance,
@@ -829,8 +835,27 @@ impl AppState {
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
     ) -> Result<(), String> {
-        let (root, ws_idx) = self
-            .git_diff_target(terminal_runtimes)
+        let ws_idx = self
+            .requested_git_diff_workspace
+            .take()
+            .or_else(|| {
+                if matches!(self.mode, Mode::Navigate) {
+                    Some(self.selected)
+                } else {
+                    self.active
+                }
+            })
+            .ok_or_else(|| "no git repo for current space".to_string())?;
+        self.open_git_diff_panel_for_workspace(terminal_runtimes, ws_idx)
+    }
+
+    fn open_git_diff_panel_for_workspace(
+        &mut self,
+        terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
+        ws_idx: usize,
+    ) -> Result<(), String> {
+        let root = self
+            .git_diff_target_for_workspace(terminal_runtimes, ws_idx)
             .ok_or_else(|| "no git repo for current space".to_string())?;
         let (palette, appearance, passthrough_terminal) =
             self.hunk_diff_theme_for_workspace(ws_idx);
@@ -907,6 +932,30 @@ impl AppState {
         self.open_command_tab(terminal_runtimes, command, ws_idx)
     }
 
+    fn git_diff_target_for_workspace(
+        &self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+        ws_idx: usize,
+    ) -> Option<std::path::PathBuf> {
+        let workspace = self.workspaces.get(ws_idx)?;
+        let mut roots = workspace
+            .git_status_cwds_from(&self.terminals, terminal_runtimes)
+            .into_iter()
+            .filter_map(|cwd| crate::workspace::git_repo_root(&cwd))
+            .collect::<Vec<_>>();
+        roots.sort();
+        roots.dedup();
+        if roots.len() == 1 {
+            return roots.pop();
+        }
+
+        let tab = workspace.active_tab()?;
+        let pane_id = workspace.focused_pane_id().unwrap_or(tab.root_pane);
+        let cwd = tab.cwd_for_pane(pane_id, &self.terminals, terminal_runtimes)?;
+        crate::workspace::git_repo_root(&cwd)
+    }
+
+    #[cfg(test)]
     fn git_diff_target(
         &self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
@@ -916,11 +965,8 @@ impl AppState {
         } else {
             self.active?
         };
-        let workspace = self.workspaces.get(ws_idx)?;
-        let tab = workspace.active_tab()?;
-        let pane_id = workspace.focused_pane_id().unwrap_or(tab.root_pane);
-        let cwd = tab.cwd_for_pane(pane_id, &self.terminals, terminal_runtimes)?;
-        crate::workspace::git_repo_root(&cwd).map(|root| (root, ws_idx))
+        self.git_diff_target_for_workspace(terminal_runtimes, ws_idx)
+            .map(|root| (root, ws_idx))
     }
 
     fn open_command_tab(
@@ -3843,6 +3889,36 @@ mod tests {
             row.target,
             NavigatorTarget::Pane { pane_id, .. } if pane_id == shell
         )));
+    }
+
+    #[test]
+    fn git_diff_command_names_tab_after_repo_root() {
+        let root = std::path::PathBuf::from("/tmp/hako-repo");
+
+        let command = hunk_diff_project_command(
+            root,
+            &Palette::tokyo_night(),
+            crate::terminal_theme::ThemeAppearance::Dark,
+            crate::terminal_theme::TerminalTheme::default(),
+            false,
+        );
+
+        assert_eq!(command.name, "diff · hako-repo");
+    }
+
+    #[test]
+    fn git_diff_target_can_use_non_focused_workspace_repo_cwd() {
+        let root = temp_git_repo("diff-extra-root");
+        let mut state = app_with_workspaces(&["web"]);
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = root.clone();
+
+        assert_eq!(
+            state.git_diff_target_for_workspace(&terminal_runtimes, 0),
+            Some(root)
+        );
     }
 
     #[test]

@@ -2026,13 +2026,16 @@ pub enum ContextMenuKind {
     },
     Workspace {
         ws_idx: usize,
+        can_diff: bool,
     },
     Tab {
         ws_idx: usize,
         tab_idx: usize,
+        can_diff: bool,
     },
     NewTabButton {
         ws_idx: usize,
+        can_diff: bool,
     },
     Pane {
         pane_id: PaneId,
@@ -2059,10 +2062,22 @@ impl ContextMenuState {
             ContextMenuKind::Group {
                 can_delete: false, ..
             } => &["new", "space", "group", "---", "manage", "settings"],
-            ContextMenuKind::Workspace { .. } | ContextMenuKind::Tab { .. } => &[
+            ContextMenuKind::Workspace { can_diff: true, .. }
+            | ContextMenuKind::Tab { can_diff: true, .. } => &[
+                "new", "tab", "agent", "diff", "---", "manage", "rename", "---", "danger", "close",
+            ],
+            ContextMenuKind::Workspace {
+                can_diff: false, ..
+            }
+            | ContextMenuKind::Tab {
+                can_diff: false, ..
+            } => &[
                 "new", "tab", "agent", "---", "manage", "rename", "---", "danger", "close",
             ],
-            ContextMenuKind::NewTabButton { .. } => &["new", "tab", "agent"],
+            ContextMenuKind::NewTabButton { can_diff: true, .. } => &["new", "tab", "agent", "diff"],
+            ContextMenuKind::NewTabButton {
+                can_diff: false, ..
+            } => &["new", "tab", "agent"],
             ContextMenuKind::Pane {
                 has_manual_label: true,
                 ..
@@ -2148,9 +2163,40 @@ pub enum ToastKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+
 pub struct ToastTarget {
     pub workspace_id: String,
     pub pane_id: PaneId,
+}
+
+#[cfg(test)]
+mod context_menu_tests {
+    use super::*;
+
+    #[test]
+    fn workspace_context_menu_shows_diff_only_when_git_repo_available() {
+        let with_diff = ContextMenuState {
+            kind: ContextMenuKind::Workspace {
+                ws_idx: 0,
+                can_diff: true,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(1),
+        };
+        let without_diff = ContextMenuState {
+            kind: ContextMenuKind::Workspace {
+                ws_idx: 0,
+                can_diff: false,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(1),
+        };
+
+        assert!(with_diff.items().contains(&"diff"));
+        assert!(!without_diff.items().contains(&"diff"));
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2255,6 +2301,7 @@ pub struct AppState {
     /// Terminal ids whose size is currently owned by a direct attach client.
     pub direct_attach_resize_locks: std::collections::HashSet<crate::terminal::TerminalId>,
     pub(crate) pane_id_aliases: std::collections::HashMap<u32, PaneId>,
+    pub requested_git_diff_workspace: Option<usize>,
     pub workspaces: Vec<Workspace>,
     pub active: Option<usize>,
     pub(crate) previous_pane_focus: Option<PaneFocusTarget>,
@@ -2934,6 +2981,7 @@ impl AppState {
             groups: vec![Group::default_group()],
             active_group: 0,
             group_filter_enabled: true,
+            requested_git_diff_workspace: None,
             terminals: std::collections::HashMap::new(),
             next_agent_activity_seq: 0,
             direct_attach_resize_locks: std::collections::HashSet::new(),

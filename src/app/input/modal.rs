@@ -966,33 +966,41 @@ pub(super) fn apply_context_menu_action(
             state.switch_group(group_idx);
             open_new_group_dialog(state);
         }
-        (ContextMenuKind::Workspace { ws_idx }, Some("agent")) => {
+        (ContextMenuKind::Workspace { ws_idx, .. }, Some("agent")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
         }
-        (ContextMenuKind::Tab { ws_idx, tab_idx }, Some("agent")) => {
+        (ContextMenuKind::Tab { ws_idx, tab_idx, .. }, Some("agent")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
             super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
         }
-        (ContextMenuKind::Workspace { ws_idx }, Some("tab")) => {
+        (ContextMenuKind::Workspace { ws_idx, .. }, Some("tab")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             request_new_tab_from_ui(state);
         }
-        (ContextMenuKind::NewTabButton { ws_idx }, Some("tab")) => {
+        (ContextMenuKind::NewTabButton { ws_idx, .. }, Some("tab")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             request_new_tab_from_ui(state);
         }
-        (ContextMenuKind::NewTabButton { ws_idx }, Some("agent")) => {
+        (ContextMenuKind::NewTabButton { ws_idx, .. }, Some("agent")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
         }
-        (ContextMenuKind::Workspace { ws_idx }, Some("rename")) => {
+        (ContextMenuKind::Workspace { ws_idx, .. }, Some("diff"))
+        | (ContextMenuKind::NewTabButton { ws_idx, .. }, Some("diff")) => {
+            state.selected = ws_idx;
+            state.active = Some(ws_idx);
+            state.requested_git_diff_workspace = Some(ws_idx);
+            state.request_open_git_diff = true;
+            leave_modal(state);
+        }
+        (ContextMenuKind::Workspace { ws_idx, .. }, Some("rename")) => {
             open_rename_workspace(state, terminal_runtimes, ws_idx);
         }
         (ContextMenuKind::Group { group_idx, .. }, Some("settings")) => {
@@ -1008,7 +1016,7 @@ pub(super) fn apply_context_menu_action(
         ) => {
             open_confirm_delete_group(state, group_idx);
         }
-        (ContextMenuKind::Workspace { ws_idx }, Some("close")) => {
+        (ContextMenuKind::Workspace { ws_idx, .. }, Some("close")) => {
             state.selected = ws_idx;
             if state.confirm_close {
                 open_confirm_close(state);
@@ -1016,19 +1024,27 @@ pub(super) fn apply_context_menu_action(
                 state.close_selected_workspace_from_ui();
             }
         }
-        (ContextMenuKind::Tab { ws_idx, tab_idx }, Some("tab")) => {
+        (ContextMenuKind::Tab { ws_idx, tab_idx, .. }, Some("tab")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
             request_new_tab_from_ui(state);
         }
-        (ContextMenuKind::Tab { ws_idx, tab_idx }, Some("rename")) => {
+        (ContextMenuKind::Tab { ws_idx, tab_idx, .. }, Some("diff")) => {
+            state.selected = ws_idx;
+            state.active = Some(ws_idx);
+            state.switch_tab(tab_idx);
+            state.requested_git_diff_workspace = Some(ws_idx);
+            state.request_open_git_diff = true;
+            leave_modal(state);
+        }
+        (ContextMenuKind::Tab { ws_idx, tab_idx, .. }, Some("rename")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
             open_rename_active_tab(state, false);
         }
-        (ContextMenuKind::Tab { ws_idx, tab_idx }, Some("close")) => {
+        (ContextMenuKind::Tab { ws_idx, tab_idx, .. }, Some("close")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
@@ -1694,7 +1710,10 @@ mod tests {
         ];
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let menu = ContextMenuState {
-            kind: ContextMenuKind::Workspace { ws_idx: 0 },
+            kind: ContextMenuKind::Workspace {
+                ws_idx: 0,
+                can_diff: false,
+            },
             x: 0,
             y: 0,
             list: MenuListState::new(1),
@@ -1714,6 +1733,7 @@ mod tests {
             kind: ContextMenuKind::Tab {
                 ws_idx: 0,
                 tab_idx: 0,
+                can_diff: false,
             },
             x: 0,
             y: 0,
