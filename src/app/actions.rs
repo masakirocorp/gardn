@@ -853,16 +853,15 @@ impl AppState {
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
     ) -> Result<(), String> {
+        let fallback_ws_idx = if matches!(self.mode, Mode::Navigate) {
+            Some(self.selected)
+        } else {
+            self.active
+        };
         let ws_idx = self
             .requested_git_diff_workspace
             .take()
-            .or_else(|| {
-                if matches!(self.mode, Mode::Navigate) {
-                    Some(self.selected)
-                } else {
-                    self.active
-                }
-            })
+            .or(fallback_ws_idx)
             .ok_or_else(|| "no git repo for current space".to_string())?;
         self.open_git_diff_panel_for_workspace(terminal_runtimes, ws_idx)
     }
