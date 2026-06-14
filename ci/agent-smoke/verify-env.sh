@@ -29,7 +29,7 @@ done
 
 test -f "$CODEX_HOME/config.toml"
 test -f "$HOME/.factory/settings.json"
-test -f "$HOME/.config/hermes-agent/config.json"
+test -f "$HOME/.hermes/config.yaml"
 test -f "$HOME/.qoder/settings.json"
 
 grep -q 'poolside/laguna-m.1:free' "$CODEX_HOME/config.toml"
@@ -38,8 +38,8 @@ grep -q 'env_key = "OPENROUTER_API_KEY"' "$CODEX_HOME/config.toml"
 grep -q 'https://openrouter.ai/api/v1' "$CODEX_HOME/config.toml"
 grep -q 'poolside/laguna-m.1:free' "$HOME/.factory/settings.json"
 grep -q 'generic-chat-completion-api' "$HOME/.factory/settings.json"
-grep -q '"model": "poolside/laguna-m.1:free"' "$HOME/.config/hermes-agent/config.json"
-grep -q '"provider": "openrouter"' "$HOME/.config/hermes-agent/config.json"
+grep -q 'provider: openrouter' "$HOME/.hermes/config.yaml"
+grep -q "default: \"poolside/laguna-m.1:free\"" "$HOME/.hermes/config.yaml"
 grep -q 'openrouter' <<<"$OPENCODE_AUTH_CONTENT"
 
 if [[ "$(id -un)" != "smoke" ]]; then

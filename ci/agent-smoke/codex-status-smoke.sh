@@ -84,6 +84,13 @@ if [[ ! -S "$socket_path" ]]; then
   exit 1
 fi
 
+# TODO: Replace the seam-driven status assertions below with real `codex exec`
+# hook assertions once upstream dispatches hooks in exec mode. Codex currently
+# documents hooks for config layers, but openai/codex#26452 and #26383 track
+# that `codex exec` does not dispatch valid hooks.json/config.toml hooks. Until
+# that is fixed upstream, this smoke can only prove real Codex OpenRouter
+# transport plus Hako's hook-script behavior through direct invocation.
+
 run_codex_cli() {
   local dir="$workdir/real-cli"
   mkdir -p "$dir/codex" "$dir/run"
