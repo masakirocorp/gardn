@@ -195,10 +195,7 @@ impl App {
         }
     }
 }
-fn handle_native_diff_key(
-    state: &mut crate::app::state::AppState,
-    key: TerminalKey,
-) -> bool {
+fn handle_native_diff_key(state: &mut crate::app::state::AppState, key: TerminalKey) -> bool {
     let Some(ws_idx) = state.active else {
         return false;
     };
@@ -271,9 +268,11 @@ fn apply_native_diff_action(
     };
     let result = match action {
         NativeDiffAction::Stage => run_git(&diff.session.repo_root, &["add", "--"], &path),
-        NativeDiffAction::Unstage => {
-            run_git(&diff.session.repo_root, &["restore", "--staged", "--"], &path)
-        }
+        NativeDiffAction::Unstage => run_git(
+            &diff.session.repo_root,
+            &["restore", "--staged", "--"],
+            &path,
+        ),
     };
     match result {
         Ok(()) => refresh_native_diff(diff),
@@ -308,8 +307,6 @@ fn run_git(
     }
     Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
 }
-
-
 
 #[cfg(test)]
 mod tests {

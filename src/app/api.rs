@@ -899,8 +899,9 @@ impl App {
                     let Some(diff) = pane.native_diff_mut() else {
                         continue;
                     };
-                    match crate::native_diff::load_native_diff_session(diff.session.repo_root.clone())
-                    {
+                    match crate::native_diff::load_native_diff_session(
+                        diff.session.repo_root.clone(),
+                    ) {
                         Ok(session) => {
                             if session != diff.session {
                                 diff.replace_session(session);
@@ -923,7 +924,6 @@ impl App {
         }
         changed
     }
-
 }
 
 fn sanitized_notification_text(value: &str, max_chars: usize) -> Option<String> {

@@ -523,7 +523,6 @@ fn render_native_diff_footer(
     );
 }
 
-
 fn render_native_diff_file_patch(
     app: &AppState,
     diff: &crate::native_diff::NativeDiffPaneState,

@@ -88,10 +88,7 @@ impl NativeDiffPaneState {
     }
     pub(crate) fn selected_path(&self) -> Option<PathBuf> {
         let file = self.selected_file()?;
-        file.new_path
-            .as_ref()
-            .or(file.old_path.as_ref())
-            .cloned()
+        file.new_path.as_ref().or(file.old_path.as_ref()).cloned()
     }
 
     pub(crate) fn replace_session(&mut self, session: NativeDiffSession) {
@@ -99,13 +96,17 @@ impl NativeDiffPaneState {
         self.session = session;
         self.selected_file = previous_path
             .and_then(|path| {
-                self.session.files.iter().enumerate().find_map(|(index, file)| {
-                    let candidate = file.new_path.as_ref().or(file.old_path.as_ref())?;
-                    (candidate == &path).then_some(NativeDiffSelection {
-                        bucket: file.bucket,
-                        file_index: index,
+                self.session
+                    .files
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, file)| {
+                        let candidate = file.new_path.as_ref().or(file.old_path.as_ref())?;
+                        (candidate == &path).then_some(NativeDiffSelection {
+                            bucket: file.bucket,
+                            file_index: index,
+                        })
                     })
-                })
             })
             .or_else(|| first_selection(&self.session));
         self.file_scroll = self
@@ -135,7 +136,6 @@ impl NativeDiffPaneState {
     pub(crate) fn scroll_diff(&mut self, delta: isize) {
         self.diff_scroll = self.diff_scroll.saturating_add_signed(delta);
     }
-
 }
 
 fn first_selection(session: &NativeDiffSession) -> Option<NativeDiffSelection> {
