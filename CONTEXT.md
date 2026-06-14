@@ -100,6 +100,22 @@ _Avoid_: Discovered child repo, scanned repo
 The cached working-tree summary for one observed repo root, refreshed in the background and read by Git action surfaces. Unknown status is not the same as clean status.
 _Avoid_: Picker status, live git status
 
+**Diff Source**:
+The Git-native bucket Hako asks Git to render inside a native diff session: changed worktree files, staged index files, or explicit compare changes. The source determines which patch operations are valid.
+_Avoid_: Review type, PR mode
+
+**Changed Files**:
+Unstaged tracked edits plus untracked files in a repo. These can be viewed, staged, or destructively discarded through Git's worktree restore semantics.
+_Avoid_: Dirty changes, unstaged-only changes
+
+**Staged Files**:
+Index changes that would be committed. These can be viewed and unstaged through Git's index restore semantics; unstage does not delete the user's edits.
+_Avoid_: Cached diff, commit preview when referring to mutable state
+
+**Compare Changes**:
+A read-only diff between refs, usually a base branch and `HEAD`. Compare changes can span commits/history and are a separate explicit diff mode, not part of the default changed/staged session.
+_Avoid_: PR review, branch mode
+
 **Workspace Repo Target**:
 The Git repository Hako should use for a workspace-scoped Git action. If exactly one observed repo exists, it is the target; if several observed repos exist, the user must choose; if none exist, the action is unavailable.
 _Avoid_: Focused pane repo, random child repo
