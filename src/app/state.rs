@@ -2039,6 +2039,7 @@ pub enum ContextMenuKind {
         can_diff: bool,
     },
     Pane {
+        ws_idx: usize,
         pane_id: PaneId,
         has_manual_label: bool,
     },

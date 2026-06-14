@@ -1255,8 +1255,10 @@ impl AppState {
                         .and_then(|pane| self.terminals.get(&pane.attached_terminal_id))
                         .and_then(|terminal| terminal.manual_label.as_ref())
                         .is_some();
+                    let ws_idx = self.active.unwrap_or(self.selected);
                     self.context_menu = Some(ContextMenuState {
                         kind: ContextMenuKind::Pane {
+                            ws_idx,
                             pane_id: info.id,
                             has_manual_label,
                         },
@@ -2734,6 +2736,7 @@ mod tests {
         let runtime_count = app.terminal_runtimes.len();
         app.state.context_menu = Some(ContextMenuState {
             kind: ContextMenuKind::Pane {
+                ws_idx: 0,
                 pane_id,
                 has_manual_label: false,
             },

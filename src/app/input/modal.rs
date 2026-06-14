@@ -1769,6 +1769,7 @@ mod tests {
         let pane_id = state.workspaces[0].tabs[0].root_pane;
         let menu = ContextMenuState {
             kind: ContextMenuKind::Pane {
+                ws_idx: 0,
                 pane_id,
                 has_manual_label: false,
             },

@@ -721,12 +721,27 @@ pub(super) fn render_resize_overlay(app: &AppState, frame: &mut Frame, area: Rec
     render_bottom_bar(frame, overlay_area, line, app.palette.panel_bg);
 }
 
+fn context_menu_palette(app: &AppState, menu: &ContextMenuState) -> crate::app::state::Palette {
+    match menu.kind {
+        crate::app::state::ContextMenuKind::Group { group_idx, .. } => {
+            app.palette_for_group(group_idx)
+        }
+        crate::app::state::ContextMenuKind::Workspace { ws_idx, .. }
+        | crate::app::state::ContextMenuKind::Tab { ws_idx, .. }
+        | crate::app::state::ContextMenuKind::NewTabButton { ws_idx, .. }
+        | crate::app::state::ContextMenuKind::Pane { ws_idx, .. } => {
+            app.palette_for_workspace(ws_idx)
+        }
+    }
+}
+
 pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
     let Some(menu) = &app.context_menu else {
         return;
     };
 
-    let p = &app.palette;
+    let palette = context_menu_palette(app, menu);
+    let p = &palette;
     let Some(menu_rect) = app.context_menu_rect() else {
         return;
     };
