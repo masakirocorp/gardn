@@ -59,7 +59,7 @@ run_agent() {
   local prompt="$6"
   local dir="$workdir/$agent-$scenario"
   mkdir -p "$dir/config" "$dir/agent" "$dir/project"
-  (
+  if ! (
     cd "$dir/project"
     HAKO_ENV=1 \
     HAKO_SOCKET_PATH="$socket_path" \
@@ -73,7 +73,11 @@ run_agent() {
       --auto-approve \
       -e "$extension" \
       "$prompt" >"$dir/output.txt" 2>&1
-  )
+  ); then
+    printf '%s\n' "$agent $scenario smoke failed; output:" >&2
+    sed -n '1,200p' "$dir/output.txt" >&2
+    return 1
+  fi
 }
 
 run_basic_agent() {
