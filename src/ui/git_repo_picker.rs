@@ -177,15 +177,7 @@ pub(crate) fn git_repo_picker_index_at(
 }
 
 fn picker_palette(app: &AppState) -> crate::app::state::Palette {
-    let mut palette = app.palette.clone();
-    if let Some(group_idx) = app
-        .workspaces
-        .get(app.git_repo_picker.ws_idx)
-        .and_then(|workspace| app.group_index_by_id(&workspace.group_id))
-    {
-        palette.accent = app.group_accent_color(group_idx);
-    }
-    palette
+    app.palette_for_workspace(app.git_repo_picker.ws_idx)
 }
 
 pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) {

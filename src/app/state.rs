@@ -2602,6 +2602,23 @@ impl AppState {
             .unwrap_or(DEFAULT_GROUP_ICON)
     }
 
+    pub fn palette_for_group(&self, group_idx: usize) -> Palette {
+        let mut palette = self.palette.clone();
+        palette.accent = self.group_accent_color(group_idx);
+        palette
+    }
+
+    pub fn palette_for_workspace(&self, ws_idx: usize) -> Palette {
+        let mut palette = self.palette.clone();
+        palette.accent = self
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| self.group_index_by_id(&workspace.group_id))
+            .map(|group_idx| self.group_accent_color(group_idx))
+            .unwrap_or_else(|| self.active_workspace_accent_color());
+        palette
+    }
+
     pub fn group_accent_color(&self, group_idx: usize) -> Color {
         self.groups
             .get(group_idx)

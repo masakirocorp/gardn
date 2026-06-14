@@ -87,6 +87,20 @@ pub(crate) fn group_icon_picker_rects(inner: Rect) -> Vec<(Rect, &'static str)> 
         .collect()
 }
 
+fn rename_palette(app: &AppState) -> crate::app::state::Palette {
+    match app.mode {
+        Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane => app
+            .active
+            .map(|ws_idx| app.palette_for_workspace(ws_idx))
+            .unwrap_or_else(|| app.palette.clone()),
+        Mode::RenameGroup if !app.creating_new_group => app
+            .rename_group_target
+            .map(|group_idx| app.palette_for_group(group_idx))
+            .unwrap_or_else(|| app.palette_for_group(app.active_group)),
+        _ => app.palette.clone(),
+    }
+}
+
 pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     super::dim_background(frame, area);
 
@@ -101,8 +115,9 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         _ => return,
     };
 
+    let palette = rename_palette(app);
     let (popup_w, popup_h) = rename_modal_size(app);
-    let Some(inner) = render_modal_shell(frame, area, popup_w, popup_h, &app.palette) else {
+    let Some(inner) = render_modal_shell(frame, area, popup_w, popup_h, &palette) else {
         return;
     };
     if inner.height < 4 {
@@ -118,22 +133,22 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
     ])
     .areas::<5>(inner);
 
-    render_modal_header_bar(frame, rows[0], title, &app.palette, true);
+    render_modal_header_bar(frame, rows[0], title, &palette, true);
     if matches!(app.mode, Mode::RenameGroup) {
-        render_modal_subtitle(frame, rows[1], " name + icon", &app.palette);
+        render_modal_subtitle(frame, rows[1], " name + icon", &palette);
     }
 
     let input_rect = if matches!(app.mode, Mode::RenameGroup) {
         let icon_rect = group_icon_button_rect(inner);
         let icon_style = if app.group_icon_picker_open {
             Style::default()
-                .fg(panel_contrast_fg(&app.palette))
-                .bg(app.palette.accent)
+                .fg(panel_contrast_fg(&palette))
+                .bg(palette.accent)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
-                .fg(app.palette.text)
-                .bg(app.palette.surface0)
+                .fg(palette.text)
+                .bg(palette.surface0)
                 .add_modifier(Modifier::BOLD)
         };
         frame.render_widget(
@@ -146,20 +161,20 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
     } else {
         Rect::new(rows[2].x, rows[2].y, rows[2].width, 1)
     };
-    render_modal_text_input(frame, input_rect, &app.name_input, &app.palette);
+    render_modal_text_input(frame, input_rect, &app.name_input, &palette);
 
     if matches!(app.mode, Mode::RenameGroup) && app.group_icon_picker_open {
         for (rect, icon) in group_icon_picker_rects(inner) {
             let selected = app.group_icon_input == icon;
             let style = if selected {
                 Style::default()
-                    .fg(panel_contrast_fg(&app.palette))
-                    .bg(app.palette.accent)
+                    .fg(panel_contrast_fg(&palette))
+                    .bg(palette.accent)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
-                    .fg(app.palette.text)
-                    .bg(app.palette.surface0)
+                    .fg(palette.text)
+                    .bg(palette.surface0)
             };
             frame.render_widget(
                 Paragraph::new(format!(" {icon} "))
@@ -177,14 +192,14 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         save_rect,
         Some("↵"),
         "save",
-        primary_action_style(&app.palette),
+        primary_action_style(&palette),
     );
     render_action_button(
         frame,
         clear_rect,
         Some("^c"),
         "clear",
-        secondary_action_style(&app.palette),
+        secondary_action_style(&palette),
     );
 }
 
@@ -212,10 +227,11 @@ pub(super) fn render_confirm_close_overlay(app: &AppState, frame: &mut Frame, ar
         return;
     };
 
+    let palette = app.palette_for_workspace(app.selected);
     let warn = Style::default()
-        .fg(app.palette.red)
+        .fg(palette.red)
         .add_modifier(Modifier::BOLD);
-    let dim = Style::default().fg(app.palette.overlay0);
+    let dim = Style::default().fg(palette.overlay0);
 
     let title_line = Line::from(vec![Span::styled(" close workspace?", warn)]);
 
@@ -223,13 +239,13 @@ pub(super) fn render_confirm_close_overlay(app: &AppState, frame: &mut Frame, ar
         Span::styled(
             format!(" {ws_name}"),
             Style::default()
-                .fg(app.palette.text)
+                .fg(palette.text)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(format!(" — {pane_text}"), dim),
     ]);
 
-    let Some(inner) = render_panel_shell(frame, popup, app.palette.red, app.palette.panel_bg)
+    let Some(inner) = render_panel_shell(frame, popup, palette.red, palette.panel_bg)
     else {
         return;
     };
@@ -251,14 +267,14 @@ pub(super) fn render_confirm_close_overlay(app: &AppState, frame: &mut Frame, ar
             confirm_rect,
             Some("↵"),
             "confirm",
-            danger_action_style(&app.palette),
+            danger_action_style(&palette),
         );
         render_action_button(
             frame,
             cancel_rect,
             Some("esc"),
             "cancel",
-            secondary_action_style(&app.palette),
+            secondary_action_style(&palette),
         );
     }
 }
@@ -289,10 +305,11 @@ pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Fr
         return;
     };
 
+    let palette = app.palette_for_group(group_idx);
     let warn = Style::default()
-        .fg(app.palette.red)
+        .fg(palette.red)
         .add_modifier(Modifier::BOLD);
-    let dim = Style::default().fg(app.palette.overlay0);
+    let dim = Style::default().fg(palette.overlay0);
 
     let title_line = Line::from(vec![Span::styled(" delete group?", warn)]);
     let detail_line = Line::from(vec![
@@ -305,7 +322,7 @@ pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Fr
         Span::styled(format!(" — closes {spaces}"), dim),
     ]);
 
-    let Some(inner) = render_panel_shell(frame, popup, app.palette.red, app.palette.panel_bg)
+    let Some(inner) = render_panel_shell(frame, popup, palette.red, palette.panel_bg)
     else {
         return;
     };
@@ -327,14 +344,14 @@ pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Fr
             confirm_rect,
             Some("↵"),
             "confirm",
-            danger_action_style(&app.palette),
+            danger_action_style(&palette),
         );
         render_action_button(
             frame,
             cancel_rect,
             Some("esc"),
             "cancel",
-            secondary_action_style(&app.palette),
+            secondary_action_style(&palette),
         );
     }
 }

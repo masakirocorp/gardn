@@ -12,6 +12,8 @@ Hako exposes public IDs separate from internal raw IDs. Workspaces expose `Works
 
 Restore and handoff preserve this split. `SessionSnapshot` stores groups separately from workspaces; each workspace snapshot stores its own `group_id`. `groups_from_snapshot` preserves saved group ids, names, accents, and agent-profile preferences, normalizes icons, and backfills missing groups for workspaces that reference unknown group ids. ADR 0009 covers which structural fields belong in durable snapshots versus history/handoff-only state; this ADR records the identity model inside that structural snapshot. During live handoff, `handoff_pane_aliases` maps previous raw pane ids, saved env pane ids, and prior aliases to fresh `PaneId`s where the pane survived recreation, so legacy raw `p_` targets can keep resolving where possible.
 
+Accent scope follows the same identity split. App-wide and cross-scope surfaces use the global accent. Surfaces that mutate, confirm, or launch into one concrete workspace/group use that target's effective group accent for modal chrome, selected rows, and primary controls. Cross-scope lists may keep global chrome while coloring each row's group-specific content with that row's group accent.
+
 ## Current rationale
 
 `[INFERENCE]` Groups are not parents because Hako needs all-groups navigation, drag reorder, filtering, per-group presentation, and workspace movement without changing workspace identity or terminal ownership. Public IDs are not raw runtime IDs because panes can be recreated during restore or handoff, while CLI/API users need handles that are scoped by workspace and stable enough for interactive use.

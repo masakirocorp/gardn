@@ -125,15 +125,20 @@ pub(crate) fn agent_profile_picker_list_area(area: Rect) -> Option<Rect> {
     ))
 }
 
+fn agent_profile_picker_palette(app: &AppState) -> crate::app::state::Palette {
+    app.palette_for_workspace(app.agent_profile_picker.ws_idx)
+}
+
 pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Frame) {
     super::dim_background(frame, frame.area());
 
+    let palette = agent_profile_picker_palette(app);
     let Some(inner) = render_modal_shell(
         frame,
         frame.area(),
         60,
         agent_profile_picker_height(frame.area()),
-        &app.palette,
+        &palette,
     ) else {
         return;
     };
@@ -160,29 +165,29 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
     ])
     .areas::<14>(inner);
 
-    render_modal_header_bar(frame, rows[0], "new agent", &app.palette, true);
-    render_agent_profile_picker_filters(app, frame, rows[2]);
-    render_modal_divider(frame, rows[3], &app.palette);
-    render_agent_profile_picker_group_line(app, frame, rows[4]);
+    render_modal_header_bar(frame, rows[0], "new agent", &palette, true);
+    render_agent_profile_picker_filters(app, frame, rows[2], &palette);
+    render_modal_divider(frame, rows[3], &palette);
+    render_agent_profile_picker_group_line(app, frame, rows[4], &palette);
     render_modal_subtitle(
         frame,
         rows[5],
         "choose an agent profile for this group",
-        &app.palette,
+        &palette,
     );
 
     frame.render_widget(
         Paragraph::new(Span::styled(
             " search",
-            modal_section_heading_style(&app.palette),
+            modal_section_heading_style(&palette),
         )),
         rows[7],
     );
 
     let input = Rect::new(rows[8].x, rows[8].y, rows[8].width, 1);
-    render_modal_text_input(frame, input, &app.agent_profile_picker.query, &app.palette);
+    render_modal_text_input(frame, input, &app.agent_profile_picker.query, &palette);
 
-    render_modal_hint_lines(frame, rows[12], &app.palette, AGENT_PROFILE_PICKER_HINTS, 2);
+    render_modal_hint_lines(frame, rows[12], &palette, AGENT_PROFILE_PICKER_HINTS, 2);
 
     let (start_rect, _) = agent_profile_picker_button_rects(inner);
     render_action_button(
@@ -190,13 +195,13 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
         start_rect,
         Some("↵"),
         "start",
-        primary_action_style(&app.palette),
+        primary_action_style(&palette),
     );
 
     let entries = agent_profile_picker_filtered_entries(app);
     if entries.is_empty() {
         frame.render_widget(
-            Paragraph::new(" no agent profiles").style(Style::default().fg(app.palette.overlay1)),
+            Paragraph::new(" no agent profiles").style(Style::default().fg(palette.overlay1)),
             rows[10],
         );
         return;
@@ -223,29 +228,29 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
             AgentProfilePickerRow::Spacer => Line::raw(""),
             AgentProfilePickerRow::Header(section) => Line::from(Span::styled(
                 format!(" {section}"),
-                modal_section_heading_style(&app.palette),
+                modal_section_heading_style(&palette),
             )),
             AgentProfilePickerRow::Entry(idx, entry, shortcut, default) => {
                 let selected = *idx == selected;
                 let row_style = if selected {
-                    Style::default().bg(app.palette.accent)
+                    Style::default().bg(palette.accent)
                 } else {
                     Style::default()
                 };
                 let title_style = if selected {
                     Style::default()
-                        .fg(panel_contrast_fg(&app.palette))
-                        .bg(app.palette.accent)
+                        .fg(panel_contrast_fg(&palette))
+                        .bg(palette.accent)
                         .add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(app.palette.text)
+                    Style::default().fg(palette.text)
                 };
                 let shortcut_style = if selected {
                     Style::default()
-                        .fg(panel_contrast_fg(&app.palette))
-                        .bg(app.palette.accent)
+                        .fg(panel_contrast_fg(&palette))
+                        .bg(palette.accent)
                 } else {
-                    Style::default().fg(app.palette.text)
+                    Style::default().fg(palette.text)
                 };
                 agent_profile_picker_entry_line(
                     &entry.name,
@@ -267,19 +272,19 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
             frame,
             metrics,
             track,
-            app.palette.surface_dim,
-            app.palette.overlay0,
+            palette.surface_dim,
+            palette.overlay0,
             "▐",
         );
     }
 }
 
-fn render_agent_profile_picker_filters(app: &AppState, frame: &mut Frame, row: Rect) {
+fn render_agent_profile_picker_filters(app: &AppState, frame: &mut Frame, row: Rect, p: &crate::app::state::Palette) {
     let label_width = 7;
     frame.render_widget(
         Paragraph::new(Span::styled(
             "filter ",
-            Style::default().fg(app.palette.overlay0),
+            Style::default().fg(p.overlay0),
         )),
         row,
     );
@@ -289,7 +294,7 @@ fn render_agent_profile_picker_filters(app: &AppState, frame: &mut Frame, row: R
         row.width.saturating_sub(label_width),
         row.height,
     );
-    let p = &app.palette;
+    
     let (start, end) = agent_profile_picker_visible_tab_range(app, chip_row.width);
     let mut spans = Vec::new();
 
@@ -332,7 +337,7 @@ fn agent_profile_picker_group_idx(app: &AppState) -> Option<usize> {
         .and_then(|workspace| app.group_index_by_id(&workspace.group_id))
 }
 
-fn render_agent_profile_picker_group_line(app: &AppState, frame: &mut Frame, area: Rect) {
+fn render_agent_profile_picker_group_line(app: &AppState, frame: &mut Frame, area: Rect, palette: &crate::app::state::Palette) {
     let (icon, name, color) = agent_profile_picker_group_idx(app)
         .and_then(|group_idx| {
             app.groups.get(group_idx).map(|group| {
@@ -343,14 +348,14 @@ fn render_agent_profile_picker_group_line(app: &AppState, frame: &mut Frame, are
                 )
             })
         })
-        .unwrap_or(("•", "current", app.palette.accent));
+        .unwrap_or(("•", "current", palette.accent));
 
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
                 " group: ",
                 Style::default()
-                    .fg(app.palette.overlay1)
+                    .fg(palette.overlay1)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
