@@ -428,7 +428,7 @@ fn render_native_diff_file_list(
         )));
     }
     frame.render_widget(
-        Paragraph::new(lines).style(
+        Paragraph::new(lines.into_iter().skip(diff.file_scroll).collect::<Vec<_>>()).style(
             Style::default()
                 .fg(app.palette.text)
                 .bg(app.palette.panel_bg),
@@ -530,7 +530,7 @@ fn render_native_diff_file_patch(
         }
     }
     frame.render_widget(
-        Paragraph::new(lines).style(
+        Paragraph::new(lines.into_iter().skip(diff.diff_scroll).collect::<Vec<_>>()).style(
             Style::default()
                 .fg(app.palette.text)
                 .bg(app.palette.panel_bg),

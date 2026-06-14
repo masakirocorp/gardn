@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyModifiers};
 use tracing::{debug, warn};
 
 use crate::{
@@ -87,6 +87,10 @@ impl App {
         }
 
         let ws_idx = self.state.active?;
+        if handle_native_diff_key(&mut self.state, key) {
+            return None;
+        }
+
         let ws = self.state.workspaces.get(ws_idx)?;
         let pane_id = ws.focused_pane_id()?;
         let rt =
@@ -191,6 +195,57 @@ impl App {
         }
     }
 }
+fn handle_native_diff_key(
+    state: &mut crate::app::state::AppState,
+    key: TerminalKey,
+) -> bool {
+    let Some(ws_idx) = state.active else {
+        return false;
+    };
+    let Some(pane_id) = state
+        .workspaces
+        .get(ws_idx)
+        .and_then(|workspace| workspace.focused_pane_id())
+    else {
+        return false;
+    };
+    let Some(diff) = state
+        .workspaces
+        .get_mut(ws_idx)
+        .and_then(|workspace| workspace.pane_state_mut(pane_id))
+        .and_then(|pane| pane.native_diff_mut())
+    else {
+        return false;
+    };
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') if key.modifiers.is_empty() => {
+            diff.move_selection(-1);
+            true
+        }
+        KeyCode::Down | KeyCode::Char('j') if key.modifiers.is_empty() => {
+            diff.move_selection(1);
+            true
+        }
+        KeyCode::PageUp => {
+            diff.scroll_diff(-10);
+            true
+        }
+        KeyCode::PageDown => {
+            diff.scroll_diff(10);
+            true
+        }
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            diff.scroll_diff(-5);
+            true
+        }
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            diff.scroll_diff(5);
+            true
+        }
+        _ => false,
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

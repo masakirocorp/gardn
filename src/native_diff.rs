@@ -84,6 +84,28 @@ impl NativeDiffPaneState {
             .get(selection.file_index)
             .filter(|file| file.bucket == selection.bucket)
     }
+    pub(crate) fn move_selection(&mut self, delta: isize) {
+        if self.session.files.is_empty() {
+            self.selected_file = None;
+            return;
+        }
+        let current = self
+            .selected_file
+            .map(|selection| selection.file_index)
+            .unwrap_or(0);
+        let next = current
+            .saturating_add_signed(delta)
+            .min(self.session.files.len().saturating_sub(1));
+        self.selected_file = Some(NativeDiffSelection {
+            bucket: self.session.files[next].bucket,
+            file_index: next,
+        });
+    }
+
+    pub(crate) fn scroll_diff(&mut self, delta: isize) {
+        self.diff_scroll = self.diff_scroll.saturating_add_signed(delta);
+    }
+
 }
 
 fn first_selection(session: &NativeDiffSession) -> Option<NativeDiffSelection> {

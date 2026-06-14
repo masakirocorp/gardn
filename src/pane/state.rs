@@ -75,4 +75,10 @@ impl PaneState {
             PaneContent::Terminal => None,
         }
     }
+    pub fn native_diff_mut(&mut self) -> Option<&mut NativeDiffPaneState> {
+        match &mut self.content {
+            PaneContent::NativeDiff(diff) => Some(diff),
+            PaneContent::Terminal => None,
+        }
+    }
 }
