@@ -136,6 +136,44 @@ impl NativeDiffPaneState {
     pub(crate) fn scroll_diff(&mut self, delta: isize) {
         self.diff_scroll = self.diff_scroll.saturating_add_signed(delta);
     }
+    pub(crate) fn select_visible_file_row(&mut self, visible_row: usize) -> bool {
+        let target_row = self.file_scroll.saturating_add(visible_row);
+        let mut row = 0;
+        for bucket in [DiffBucket::Changed, DiffBucket::Staged] {
+            let files = self
+                .session
+                .files
+                .iter()
+                .enumerate()
+                .filter(|(_, file)| file.bucket == bucket);
+            let mut saw_bucket = false;
+            for (file_index, file) in files {
+                if !saw_bucket {
+                    if row == target_row {
+                        return false;
+                    }
+                    row += 1;
+                    saw_bucket = true;
+                }
+                if row == target_row {
+                    self.selected_file = Some(NativeDiffSelection {
+                        bucket: file.bucket,
+                        file_index,
+                    });
+                    return true;
+                }
+                row += 1;
+            }
+            if saw_bucket {
+                row += 1;
+            }
+        }
+        false
+    }
+
+    pub(crate) fn scroll_file_list(&mut self, delta: isize) {
+        self.file_scroll = self.file_scroll.saturating_add_signed(delta);
+    }
 }
 
 fn first_selection(session: &NativeDiffSession) -> Option<NativeDiffSelection> {

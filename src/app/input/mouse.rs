@@ -712,6 +712,12 @@ impl AppState {
                         self.mode = Mode::Terminal;
                     }
 
+                    if self.handle_native_diff_mouse_down(&info, mouse) {
+                        self.selection = None;
+                        self.selection_autoscroll = None;
+                        return None;
+                    }
+
                     if self.forward_pane_mouse_button(terminal_runtimes, &info, mouse) {
                         self.selection = None;
                         self.selection_autoscroll = None;
@@ -1690,6 +1696,10 @@ impl AppState {
 
         if let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() {
             self.focus_pane(info.id);
+            if self.handle_native_diff_wheel(&info, mouse) {
+                return;
+            }
+
             if self.forward_pane_wheel(terminal_runtimes, &info, mouse) {
                 return;
             }
@@ -1728,6 +1738,56 @@ impl AppState {
                 }
             }
         }
+    }
+
+    pub(super) fn handle_native_diff_mouse_down(
+        &mut self,
+        info: &PaneInfo,
+        mouse: MouseEvent,
+    ) -> bool {
+        let Some(diff) = self
+            .active
+            .and_then(|ws_idx| self.workspaces.get_mut(ws_idx))
+            .and_then(|workspace| workspace.pane_state_mut(info.id))
+            .and_then(|pane| pane.native_diff_mut())
+        else {
+            return false;
+        };
+        let file_width = Self::native_diff_file_list_width(info.inner_rect.width);
+        let local_col = mouse.column.saturating_sub(info.inner_rect.x);
+        let local_row = mouse.row.saturating_sub(info.inner_rect.y);
+        if local_col >= file_width || local_row >= info.inner_rect.height.saturating_sub(1) {
+            return true;
+        }
+        diff.select_visible_file_row(local_row as usize)
+    }
+
+    pub(super) fn handle_native_diff_wheel(&mut self, info: &PaneInfo, mouse: MouseEvent) -> bool {
+        let Some(diff) = self
+            .active
+            .and_then(|ws_idx| self.workspaces.get_mut(ws_idx))
+            .and_then(|workspace| workspace.pane_state_mut(info.id))
+            .and_then(|pane| pane.native_diff_mut())
+        else {
+            return false;
+        };
+        let delta = match mouse.kind {
+            MouseEventKind::ScrollUp => -3,
+            MouseEventKind::ScrollDown => 3,
+            _ => return false,
+        };
+        let file_width = Self::native_diff_file_list_width(info.inner_rect.width);
+        let local_col = mouse.column.saturating_sub(info.inner_rect.x);
+        if local_col < file_width {
+            diff.scroll_file_list(delta);
+        } else {
+            diff.scroll_diff(delta);
+        }
+        true
+    }
+
+    fn native_diff_file_list_width(total: u16) -> u16 {
+        total.clamp(28, 36).min(total.saturating_sub(10))
     }
 
     pub(super) fn forward_pane_mouse_button(
@@ -2051,6 +2111,59 @@ mod tests {
         detect::{Agent, AgentState},
         workspace::Workspace,
     };
+
+    fn native_diff_file(path: &str) -> crate::native_diff::NativeDiffFile {
+        crate::native_diff::NativeDiffFile {
+            bucket: crate::native_diff::DiffBucket::Changed,
+            old_path: Some(std::path::PathBuf::from(path)),
+            new_path: Some(std::path::PathBuf::from(path)),
+            status: crate::native_diff::DiffFileStatus::Modified,
+            added: 1,
+            deleted: 0,
+            hunks: Vec::new(),
+            binary: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn native_diff_click_selects_visible_file_row() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        ws.create_native_diff_tab(crate::native_diff::NativeDiffSession {
+            repo_root: std::path::PathBuf::from("/tmp/repo"),
+            files: vec![native_diff_file("first.rs"), native_diff_file("second.rs")],
+        })
+        .unwrap();
+        let pane_id = ws.active_tab().unwrap().root_pane;
+        let pane_infos = ws
+            .active_tab()
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
+        let info = pane_infos[0].clone();
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.view.pane_infos = pane_infos;
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            info.inner_rect.x + 2,
+            info.inner_rect.y + 2,
+        ));
+
+        let diff = app.state.workspaces[0]
+            .pane_state(pane_id)
+            .unwrap()
+            .native_diff()
+            .unwrap();
+        assert_eq!(
+            diff.selected_path().unwrap(),
+            std::path::PathBuf::from("second.rs")
+        );
+        assert!(app.state.selection.is_none());
+    }
 
     #[tokio::test]
     async fn terminal_wheel_uses_configured_mouse_scroll_lines() {
