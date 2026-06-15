@@ -8,6 +8,7 @@ use ratatui::{
 mod agent_profile_picker;
 mod command_palette;
 mod dialogs;
+pub(crate) mod diff_agent_picker;
 pub(crate) mod git_repo_picker;
 mod keybind_help;
 mod menus;
@@ -29,6 +30,7 @@ use self::command_palette::render_command_palette_overlay;
 use self::dialogs::{
     render_confirm_close_overlay, render_confirm_delete_group_overlay, render_rename_overlay,
 };
+use self::diff_agent_picker::render_diff_agent_picker_overlay;
 use self::git_repo_picker::render_git_repo_picker_overlay;
 use self::keybind_help::render_keybind_help_overlay;
 use self::menus::{
@@ -549,6 +551,7 @@ pub fn render_with_runtime_registry(
         Mode::Navigator => render_navigator_overlay(app, frame),
         Mode::CommandPalette => render_command_palette_overlay(app, frame),
         Mode::AgentProfilePicker => render_agent_profile_picker_overlay(app, frame),
+        Mode::DiffAgentPicker => render_diff_agent_picker_overlay(app, frame),
         Mode::GitRepoPicker => render_git_repo_picker_overlay(app, frame),
         Mode::Terminal => {}
     }

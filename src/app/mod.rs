@@ -546,6 +546,7 @@ impl App {
             request_agent_profile_tab: None,
             request_reload_config: false,
             request_open_git_diff: false,
+            pending_agent_prompt: None,
             requested_git_diff_workspace: None,
             git_repo_picker: state::GitRepoPickerState {
                 ws_idx: 0,
@@ -591,6 +592,7 @@ impl App {
                 selected: 0,
                 scroll: 0,
             },
+            diff_agent_picker: None,
             navigator: state::NavigatorState::default(),
             command_catalog: Vec::new(),
             command_runs: HashMap::new(),
@@ -1001,21 +1003,117 @@ impl App {
         let Some((ws_idx, profile_id)) = self.state.request_agent_profile_tab.take() else {
             return false;
         };
-
         let previous_toast = self.state.toast.clone();
-        if let Err(err) = self.create_agent_profile_tab(ws_idx, &profile_id) {
-            tracing::warn!(profile = %profile_id, err = %err, "failed to launch agent profile");
-            self.state.toast = Some(crate::app::state::ToastNotification {
-                kind: crate::app::state::ToastKind::NeedsAttention,
-                title: "agent launch failed".to_string(),
-                context: err.to_string(),
-                position: None,
-                target: None,
-            });
-            self.sync_toast_deadline(previous_toast);
+
+        let pending_prompt = self.state.pending_agent_prompt.take();
+        match self.create_agent_profile_tab(ws_idx, &profile_id) {
+            Ok(tab_idx) => {
+                if let Some(prompt) = pending_prompt {
+                    if let Some(pane_id) = self
+                        .state
+                        .workspaces
+                        .get(ws_idx)
+                        .and_then(|workspace| workspace.tabs.get(tab_idx))
+                        .map(|tab| tab.root_pane)
+                    {
+                        self.send_text_to_agent_pane(ws_idx, pane_id, &prompt);
+                    }
+                }
+            }
+            Err(err) => {
+                tracing::warn!(profile = %profile_id, err = %err, "failed to launch agent profile");
+                self.state.pending_agent_prompt = pending_prompt;
+                self.state.toast = Some(crate::app::state::ToastNotification {
+                    kind: crate::app::state::ToastKind::NeedsAttention,
+                    title: "agent launch failed".to_string(),
+                    context: err.to_string(),
+                    position: None,
+                    target: None,
+                });
+                self.sync_toast_deadline(previous_toast);
+            }
         }
 
         true
+    }
+
+    fn send_text_to_agent_pane(&mut self, ws_idx: usize, pane_id: crate::layout::PaneId, text: &str) {
+        let Some(runtime) = self
+            .state
+            .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
+        else {
+            return;
+        };
+        let payload = if runtime
+            .input_state()
+            .map(|state| state.bracketed_paste)
+            .unwrap_or(false)
+        {
+            format!("\x1b[200~{text}\x1b[201~\r")
+        } else {
+            format!("{text}\r")
+        };
+        if let Err(err) = runtime.try_send_bytes(bytes::Bytes::from(payload)) {
+            tracing::warn!(pane = pane_id.raw(), err = %err, "failed to send diff prompt to agent");
+        }
+    }
+
+    fn handle_diff_agent_picker_key(&mut self, key: crossterm::event::KeyEvent) {
+        use crossterm::event::KeyCode;
+        match key.code {
+            KeyCode::Esc => {
+                self.state.diff_agent_picker = None;
+                self.state.return_to_active_workspace_mode();
+            }
+            KeyCode::Up => {
+                let len = crate::ui::diff_agent_picker::diff_agent_picker_options(&self.state)
+                    .into_iter()
+                    .filter(|option| !option.header)
+                    .count();
+                if let Some(picker) = self.state.diff_agent_picker.as_mut() {
+                    picker.selected = picker.selected.saturating_sub(1).min(len.saturating_sub(1));
+                }
+            }
+            KeyCode::Down => {
+                let len = crate::ui::diff_agent_picker::diff_agent_picker_options(&self.state)
+                    .into_iter()
+                    .filter(|option| !option.header)
+                    .count();
+                if let Some(picker) = self.state.diff_agent_picker.as_mut() {
+                    picker.selected = picker.selected.saturating_add(1).min(len.saturating_sub(1));
+                }
+            }
+            KeyCode::Enter => {
+                self.accept_diff_agent_picker();
+            }
+            _ => {}
+        }
+    }
+
+    fn accept_diff_agent_picker(&mut self) {
+        let Some(picker) = self.state.diff_agent_picker.clone() else {
+            return;
+        };
+        let options = crate::ui::diff_agent_picker::diff_agent_picker_options(&self.state)
+            .into_iter()
+            .filter(|option| !option.header)
+            .collect::<Vec<_>>();
+        let Some(option) = options.get(picker.selected).cloned() else {
+            return;
+        };
+        self.state.diff_agent_picker = None;
+        if option.new_agent {
+            self.state.pending_agent_prompt = Some(picker.payload);
+            crate::app::input::agent_profile_picker::open_new_agent_picker_for_workspace(
+                &mut self.state,
+                picker.ws_idx,
+            );
+            return;
+        }
+        if let Some((ws_idx, pane_id)) = option.target {
+            self.send_text_to_agent_pane(ws_idx, pane_id, &picker.payload);
+        }
+        self.state.return_to_active_workspace_mode();
     }
 
     pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
@@ -1182,6 +1280,7 @@ impl App {
 
         // Save session on exit (skip in --no-session mode)
         if !self.no_session {
+
             self.save_session_now();
         }
 
@@ -1728,6 +1827,9 @@ impl App {
             }
             Mode::AgentProfilePicker => {
                 self.handle_agent_profile_picker_key(key_event);
+            }
+            Mode::DiffAgentPicker => {
+                self.handle_diff_agent_picker_key(key_event);
             }
             Mode::GitRepoPicker => {
                 self.handle_git_repo_picker_key(key_event);

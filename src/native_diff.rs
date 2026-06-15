@@ -6,6 +6,7 @@ use patchkit::unified::{HunkLine, PlainOrBinaryPatch, UnifiedPatch};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DiffBucket {
     Changed,
+    Untracked,
     Staged,
 }
 
@@ -303,10 +304,38 @@ impl NativeDiffPaneState {
             Err(err) => self.last_error = Some(err),
         }
     }
+    pub(crate) fn selected_agent_payload(&self) -> Option<String> {
+        let file = self.selected_file()?;
+        let path = file
+            .new_path
+            .as_ref()
+            .or(file.old_path.as_ref())
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "(unknown)".to_string());
+        let mut payload = String::new();
+        payload.push_str("Review this diff from Hako.\n\n");
+        payload.push_str(&format!("Repo: {}\n", self.session.repo_root.display()));
+        payload.push_str(&format!("File: {path}\n"));
+        if let Some(hunk_index) = self.selected_hunk {
+            if let Some(hunk) = file.hunks.get(hunk_index) {
+                payload.push_str(&format!(
+                    "Hunk: -{},{} +{},{}\n",
+                    hunk.old_start, hunk.old_count, hunk.new_start, hunk.new_count
+                ));
+                payload.push('\n');
+                push_agent_hunk_patch(&mut payload, file, hunk);
+                return Some(payload);
+            }
+        }
+        payload.push('\n');
+        push_agent_file_patch(&mut payload, file);
+        Some(payload)
+    }
+
 
     pub(crate) fn file_list_row_count(&self) -> usize {
         let mut rows = 0;
-        for bucket in [DiffBucket::Changed, DiffBucket::Staged] {
+        for bucket in [DiffBucket::Changed, DiffBucket::Untracked, DiffBucket::Staged] {
             let count = self
                 .session
                 .files
@@ -478,7 +507,7 @@ impl NativeDiffPaneState {
     pub(crate) fn select_visible_file_row(&mut self, visible_row: usize) -> bool {
         let target_row = self.file_scroll.saturating_add(visible_row);
         let mut row = 0;
-        for bucket in [DiffBucket::Changed, DiffBucket::Staged] {
+        for bucket in [DiffBucket::Changed, DiffBucket::Untracked, DiffBucket::Staged] {
             let files = self
                 .session
                 .files
@@ -491,6 +520,7 @@ impl NativeDiffPaneState {
                     if row == target_row {
                         return false;
                     }
+
                     row += 1;
                     saw_bucket = true;
                 }
@@ -516,6 +546,53 @@ impl NativeDiffPaneState {
             .file_scroll
             .saturating_add_signed(delta)
             .min(max_scroll);
+    }
+}
+
+fn push_agent_file_patch(payload: &mut String, file: &NativeDiffFile) {
+    payload.push_str("```diff\n");
+    push_file_patch_header(payload, file);
+    for hunk in &file.hunks {
+        push_hunk_patch_body(payload, hunk);
+    }
+    payload.push_str("```\n");
+}
+
+fn push_agent_hunk_patch(payload: &mut String, file: &NativeDiffFile, hunk: &NativeDiffHunk) {
+    payload.push_str("```diff\n");
+    push_file_patch_header(payload, file);
+    push_hunk_patch_body(payload, hunk);
+    payload.push_str("```\n");
+}
+
+fn push_file_patch_header(payload: &mut String, file: &NativeDiffFile) {
+    let old = file
+        .old_path
+        .as_ref()
+        .map(|path| format!("a/{}", path.display()))
+        .unwrap_or_else(|| "/dev/null".to_string());
+    let new = file
+        .new_path
+        .as_ref()
+        .map(|path| format!("b/{}", path.display()))
+        .unwrap_or_else(|| "/dev/null".to_string());
+    payload.push_str(&format!("--- {old}\n+++ {new}\n"));
+}
+
+fn push_hunk_patch_body(payload: &mut String, hunk: &NativeDiffHunk) {
+    payload.push_str(&format!(
+        "@@ -{},{} +{},{} @@\n",
+        hunk.old_start, hunk.old_count, hunk.new_start, hunk.new_count
+    ));
+    for line in &hunk.lines {
+        let marker = match line.kind {
+            DiffLineKind::Added => '+',
+            DiffLineKind::Removed => '-',
+            DiffLineKind::Context => ' ',
+        };
+        payload.push(marker);
+        payload.push_str(&line.text);
+        payload.push('\n');
     }
 }
 
@@ -666,7 +743,7 @@ pub(crate) fn load_native_diff_session(
         let patch = synthetic_untracked_file_patch(&path, &contents)?;
         session
             .files
-            .extend(parse_native_diff_bucket(DiffBucket::Changed, &patch)?);
+            .extend(parse_native_diff_bucket(DiffBucket::Untracked, &patch)?);
     }
     Ok(session)
 }
@@ -896,7 +973,7 @@ mod tests {
                 && file.new_path.as_deref() == Some(Path::new("staged.txt"))
         }));
         assert!(session.files.iter().any(|file| {
-            file.bucket == DiffBucket::Changed
+            file.bucket == DiffBucket::Untracked
                 && file.status == DiffFileStatus::Added
                 && file.new_path.as_deref() == Some(Path::new("untracked.txt"))
         }));

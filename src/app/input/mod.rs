@@ -45,7 +45,7 @@ fn modified_url_click_modifier_matches_platform_primary_modifier() {
     assert_eq!(modified_url_click_modifier(), KeyModifiers::CONTROL);
 }
 
-mod agent_profile_picker;
+pub(super) mod agent_profile_picker;
 mod command_palette;
 mod copy_mode;
 mod modal;
@@ -131,6 +131,7 @@ impl App {
                 }
                 Mode::CommandPalette => self.handle_command_palette_key(key_event),
                 Mode::AgentProfilePicker => self.handle_agent_profile_picker_key(key_event),
+                Mode::DiffAgentPicker => self.handle_diff_agent_picker_key(key_event),
                 Mode::GitRepoPicker => self.handle_git_repo_picker_key(key_event),
                 Mode::Terminal => unreachable!(),
             },
@@ -177,16 +178,11 @@ impl App {
         }
     }
 
+
     pub(crate) fn handle_onboarding_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Right | KeyCode::Char('l') => self.open_settings_from_onboarding(),
-            _ => {
-                if let Some(ModalAction::Continue) =
-                    modal_action_from_key(&key, ONBOARDING_WELCOME_ACTIONS)
-                {
-                    self.open_settings_from_onboarding();
-                }
-            }
+        if let Some(ModalAction::Continue) = modal_action_from_key(&key, ONBOARDING_WELCOME_ACTIONS)
+        {
+            self.open_settings_from_onboarding();
         }
     }
 
@@ -352,6 +348,47 @@ impl App {
                 _ => {}
             }
         }
+        if self.state.mode == Mode::DiffAgentPicker {
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left) => {
+                    if let Some(idx) = crate::ui::diff_agent_picker::diff_agent_picker_index_at(
+                        &self.state,
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        if let Some(picker) = self.state.diff_agent_picker.as_mut() {
+                            picker.selected = idx;
+                        }
+                        self.handle_diff_agent_picker_key(KeyEvent::new(
+                            KeyCode::Enter,
+                            KeyModifiers::empty(),
+                        ));
+                    } else if !crate::ui::diff_agent_picker::diff_agent_picker_contains_point(
+                        &self.state,
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        self.state.diff_agent_picker = None;
+                        self.state.return_to_active_workspace_mode();
+                    }
+                    return;
+                }
+                MouseEventKind::Moved => {
+                    if let Some(idx) = crate::ui::diff_agent_picker::diff_agent_picker_index_at(
+                        &self.state,
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        if let Some(picker) = self.state.diff_agent_picker.as_mut() {
+                            picker.selected = idx;
+                        }
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         if self.state.mode == Mode::GitRepoPicker {
             match mouse.kind {
                 MouseEventKind::Down(MouseButton::Left) => {

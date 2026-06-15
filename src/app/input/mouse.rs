@@ -178,7 +178,10 @@ impl AppState {
 
         if matches!(
             self.mode,
-            Mode::CommandPalette | Mode::AgentProfilePicker | Mode::GitRepoPicker
+            Mode::CommandPalette
+                | Mode::AgentProfilePicker
+                | Mode::DiffAgentPicker
+                | Mode::GitRepoPicker
         ) {
             return None;
         }

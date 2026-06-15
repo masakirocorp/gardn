@@ -902,7 +902,7 @@ impl AppState {
             let name = root
                 .file_name()
                 .and_then(|name| name.to_str())
-                .map_or_else(|| "diff".to_string(), |name| format!("{name} diff"));
+                .map_or_else(|| "diff".to_string(), |name| format!("diff {name}"));
             tab.set_custom_name(name);
         }
         self.switch_workspace(ws_idx);

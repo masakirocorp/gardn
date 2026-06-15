@@ -427,7 +427,18 @@ fn render_native_diff_file_list(
         &mut lines,
         diff,
         crate::native_diff::DiffBucket::Changed,
-        "changed",
+        "unstaged",
+        accent,
+        &app.palette,
+    );
+    if !lines.is_empty() {
+        lines.push(Line::from(""));
+    }
+    push_native_diff_bucket_lines(
+        &mut lines,
+        diff,
+        crate::native_diff::DiffBucket::Untracked,
+        "untracked",
         accent,
         &app.palette,
     );

@@ -12,7 +12,7 @@ use crate::app::{
 
 use super::{modal::modal_action_from_buttons, modal::ModalAction, ScrollbarClickTarget};
 
-pub(super) fn open_new_agent_picker_for_workspace(state: &mut AppState, ws_idx: usize) {
+pub(crate) fn open_new_agent_picker_for_workspace(state: &mut AppState, ws_idx: usize) {
     if let Some(default_profile_id) = state
         .workspaces
         .get(ws_idx)

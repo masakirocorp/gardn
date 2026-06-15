@@ -1475,6 +1475,7 @@ pub enum Mode {
     Navigator,
     CommandPalette,
     AgentProfilePicker,
+    DiffAgentPicker,
     GitRepoPicker,
 }
 
@@ -2087,6 +2088,9 @@ impl ContextMenuState {
                 can_diff: false, ..
             } => &["new", "tab", "agent"],
             ContextMenuKind::NativeDiff { .. } => &[
+                "send to agent",
+                "copy for agent",
+                "---",
                 "stage file",
                 "unstage file",
                 "stage hunk",
@@ -2286,6 +2290,14 @@ pub struct AgentProfilePickerState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffAgentPickerState {
+    pub ws_idx: usize,
+    pub source_pane_id: PaneId,
+    pub payload: String,
+    pub selected: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitRepoPickerState {
     pub ws_idx: usize,
     pub roots: Vec<std::path::PathBuf>,
@@ -2341,6 +2353,7 @@ pub struct AppState {
     pub request_new_workspace: bool,
     pub request_new_tab: bool,
     pub request_agent_profile_tab: Option<(usize, String)>,
+    pub pending_agent_prompt: Option<String>,
     pub request_reload_config: bool,
     pub request_open_git_diff: bool,
     /// Set when the headless server should ask attached clients to reload
@@ -2367,6 +2380,7 @@ pub struct AppState {
     pub navigator: NavigatorState,
     pub command_palette: CommandPaletteState,
     pub agent_profile_picker: AgentProfilePickerState,
+    pub diff_agent_picker: Option<DiffAgentPickerState>,
     pub git_repo_picker: GitRepoPickerState,
     pub command_catalog: Vec<crate::commands::ProjectCommand>,
     pub command_runs: std::collections::HashMap<String, crate::commands::CommandRun>,
@@ -3040,6 +3054,7 @@ impl AppState {
             request_new_workspace: false,
             request_new_tab: false,
             request_agent_profile_tab: None,
+            pending_agent_prompt: None,
             request_reload_config: false,
             request_open_git_diff: false,
             request_client_config_reload: false,
@@ -3071,6 +3086,7 @@ impl AppState {
                 selected: 0,
                 scroll: 0,
             },
+            diff_agent_picker: None,
             git_repo_picker: GitRepoPickerState {
                 ws_idx: 0,
                 roots: Vec::new(),

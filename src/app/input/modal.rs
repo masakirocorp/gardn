@@ -925,6 +925,45 @@ pub(super) fn confirm_delete_group_cancel(state: &mut AppState) {
     state.confirm_delete_group = None;
     state.mode = Mode::Navigate;
 }
+fn native_diff_agent_payload(
+    state: &AppState,
+    ws_idx: usize,
+    pane_id: crate::layout::PaneId,
+) -> Option<String> {
+    state
+        .workspaces
+        .get(ws_idx)
+        .and_then(|workspace| workspace.pane_state(pane_id))
+        .and_then(|pane| pane.native_diff())
+        .and_then(|diff| diff.selected_agent_payload())
+}
+
+fn native_diff_existing_agent_count(state: &AppState) -> usize {
+    state
+        .workspaces
+        .iter()
+        .flat_map(|workspace| {
+            workspace.tabs.iter().flat_map(move |tab| {
+                tab.panes.values().filter_map(move |pane| {
+                    state
+                        .terminals
+                        .get(&pane.attached_terminal_id)
+                        .filter(|terminal| terminal.is_agent_terminal())
+                })
+            })
+        })
+        .count()
+}
+
+fn native_diff_has_launchable_agent_profile(state: &AppState) -> bool {
+    state
+        .agent_profiles
+        .profiles()
+        .iter()
+        .any(|profile| state.agent_profile_launchable(profile))
+}
+
+
 
 pub(crate) fn handle_confirm_close_key(state: &mut AppState, key: KeyEvent) {
     match modal_action_from_key(&key, CONFIRM_CLOSE_ACTIONS) {
@@ -1075,6 +1114,33 @@ pub(super) fn apply_context_menu_action(
             state.switch_tab(tab_idx);
             if !state.close_tab() {
                 state.return_to_active_workspace_mode();
+            }
+        }
+        (ContextMenuKind::NativeDiff { ws_idx, pane_id }, Some("copy for agent")) => {
+            if let Some(payload) = native_diff_agent_payload(state, ws_idx, pane_id) {
+                state.request_clipboard_write = Some(payload.into_bytes());
+            }
+            state.mode = Mode::Terminal;
+        }
+        (ContextMenuKind::NativeDiff { ws_idx, pane_id }, Some("send to agent")) => {
+            if let Some(payload) = native_diff_agent_payload(state, ws_idx, pane_id) {
+                if native_diff_existing_agent_count(state) > 0 {
+                    state.diff_agent_picker = Some(crate::app::state::DiffAgentPickerState {
+                        ws_idx,
+                        source_pane_id: pane_id,
+                        payload,
+                        selected: 0,
+                    });
+                    state.mode = Mode::DiffAgentPicker;
+                } else if native_diff_has_launchable_agent_profile(state) {
+                    state.pending_agent_prompt = Some(payload);
+                    super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
+                } else {
+                    state.request_clipboard_write = Some(payload.into_bytes());
+                    state.mode = Mode::Terminal;
+                }
+            } else {
+                state.mode = Mode::Terminal;
             }
         }
         (ContextMenuKind::NativeDiff { ws_idx, pane_id }, Some("stage file")) => {
