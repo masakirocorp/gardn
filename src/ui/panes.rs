@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -848,7 +850,15 @@ fn push_native_diff_unified_lines(
                                 },
                                 marker_style.bg(bg),
                             ),
-                            Span::styled(pad_truncate_label(&chunk, text_width), text_style.bg(bg)),
+                            native_diff_content_span(
+                                app,
+                                file,
+                                line.kind,
+                                &chunk,
+                                text_width,
+                                text_style.bg(bg),
+                                bg,
+                            ),
                         ]));
                     }
                 }
@@ -943,7 +953,15 @@ fn push_native_diff_split_lines(
                                 if first && removed { " -" } else { "  " },
                                 Style::default().fg(app.palette.red).bg(left_struct_bg),
                             ),
-                            Span::styled(pad_truncate_label(&left_chunk, left_width), left_style),
+                            native_diff_content_span(
+                                app,
+                                file,
+                                line.kind,
+                                &left_chunk,
+                                left_width,
+                                left_style,
+                                left_bg,
+                            ),
                             Span::styled("│", Style::default().fg(app.palette.surface_dim)),
                             native_diff_split_rail_span(app, line.kind, false, right_struct_bg),
                             Span::styled(
@@ -958,9 +976,14 @@ fn push_native_diff_split_lines(
                                 if first && added { " +" } else { "  " },
                                 Style::default().fg(app.palette.green).bg(right_struct_bg),
                             ),
-                            Span::styled(
-                                pad_truncate_label(&right_chunk, right_width),
+                            native_diff_content_span(
+                                app,
+                                file,
+                                line.kind,
+                                &right_chunk,
+                                right_width,
                                 right_style,
+                                right_bg,
                             ),
                         ]));
                     }
@@ -1097,6 +1120,116 @@ fn push_native_diff_hunk_header(
             .bg(bg)
             .add_modifier(Modifier::BOLD),
     )]));
+}
+
+fn native_diff_content_span(
+    app: &AppState,
+    file: &crate::native_diff::NativeDiffFile,
+    kind: crate::native_diff::DiffLineKind,
+    text: &str,
+    width: usize,
+    base: Style,
+    bg: Color,
+) -> Span<'static> {
+    let mut rendered = truncate_label(text, width);
+    let pad = width.saturating_sub(rendered.chars().count());
+    if pad > 0 {
+        rendered.push_str(&" ".repeat(pad));
+    }
+    let mut style = syntax_style_for_text(app, file, text)
+        .unwrap_or(base)
+        .bg(bg);
+    if word_level_should_emphasize(text, kind) {
+        style = match kind {
+            crate::native_diff::DiffLineKind::Added => {
+                style.fg(app.palette.green).add_modifier(Modifier::BOLD)
+            }
+            crate::native_diff::DiffLineKind::Removed => {
+                style.fg(app.palette.red).add_modifier(Modifier::BOLD)
+            }
+            crate::native_diff::DiffLineKind::Context => style,
+        };
+    }
+    Span::styled(rendered, style)
+}
+
+fn word_level_should_emphasize(text: &str, kind: crate::native_diff::DiffLineKind) -> bool {
+    kind != crate::native_diff::DiffLineKind::Context
+        && text.chars().any(|ch| ch.is_alphanumeric())
+        && text
+            .chars()
+            .any(|ch| matches!(ch, '_' | '-' | '"' | '\'' | ':' | '='))
+}
+
+fn syntax_style_for_text(
+    app: &AppState,
+    file: &crate::native_diff::NativeDiffFile,
+    text: &str,
+) -> Option<Style> {
+    if text.trim().is_empty() {
+        return None;
+    }
+    let syntax = native_diff_syntax_for_file(file)?;
+    let syntax_set = native_diff_syntax_set();
+    let theme = native_diff_syntax_theme();
+    let mut highlighter = syntect::easy::HighlightLines::new(syntax, theme);
+    let line = format!("{text}\n");
+    let ranges = highlighter.highlight_line(&line, syntax_set).ok()?;
+    let style = ranges
+        .iter()
+        .find(|(_, segment)| segment.trim().chars().any(|ch| ch.is_alphanumeric()))
+        .map(|(style, _)| *style)?;
+    Some(map_syntect_style(app, style))
+}
+
+fn native_diff_syntax_for_file(
+    file: &crate::native_diff::NativeDiffFile,
+) -> Option<&'static syntect::parsing::SyntaxReference> {
+    let path = file.new_path.as_ref().or(file.old_path.as_ref())?;
+    native_diff_syntax_set()
+        .find_syntax_for_file(path)
+        .ok()
+        .flatten()
+}
+
+fn native_diff_syntax_set() -> &'static syntect::parsing::SyntaxSet {
+    static SYNTAX_SET: OnceLock<syntect::parsing::SyntaxSet> = OnceLock::new();
+    SYNTAX_SET.get_or_init(syntect::parsing::SyntaxSet::load_defaults_newlines)
+}
+
+fn native_diff_syntax_theme() -> &'static syntect::highlighting::Theme {
+    static THEME: OnceLock<syntect::highlighting::Theme> = OnceLock::new();
+    THEME.get_or_init(|| {
+        let themes = syntect::highlighting::ThemeSet::load_defaults();
+        themes
+            .themes
+            .get("base16-ocean.dark")
+            .cloned()
+            .or_else(|| themes.themes.values().next().cloned())
+            .unwrap_or_default()
+    })
+}
+
+fn map_syntect_style(app: &AppState, style: syntect::highlighting::Style) -> Style {
+    let fg = style.foreground;
+    let max = fg.r.max(fg.g).max(fg.b);
+    let min = fg.r.min(fg.g).min(fg.b);
+    let color = if max.saturating_sub(min) < 24 {
+        app.palette.text
+    } else if fg.g > fg.r && fg.g >= fg.b {
+        app.palette.green
+    } else if fg.r > fg.g && fg.r >= fg.b {
+        if fg.b > fg.g {
+            app.palette.mauve
+        } else {
+            app.palette.red
+        }
+    } else if fg.b > fg.r && fg.b >= fg.g {
+        app.palette.teal
+    } else {
+        app.palette.text
+    };
+    Style::default().fg(color)
 }
 
 fn native_diff_rail_span(app: &AppState, kind: crate::native_diff::DiffLineKind) -> Span<'static> {
