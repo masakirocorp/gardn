@@ -445,6 +445,28 @@ fn restore_tab(
         let saved_seen = saved_pane.is_none_or(|p| p.seen);
         let saved_env_pane_id = saved_pane.and_then(|p| p.env_pane_id).or(old_id.copied());
         let saved_terminal_semantics = saved_pane.and_then(|p| p.terminal_semantics.clone());
+        let saved_native_diff = saved_pane.and_then(|p| p.native_diff.as_ref());
+        if let Some(native_diff) = saved_native_diff {
+            let diff =
+                match crate::native_diff::load_native_diff_session(native_diff.repo_root.clone()) {
+                    Ok(session) => crate::native_diff::NativeDiffPaneState::new(session),
+                    Err(err) => {
+                        let mut state = crate::native_diff::NativeDiffPaneState::new(
+                            crate::native_diff::NativeDiffSession {
+                                repo_root: native_diff.repo_root.clone(),
+                                files: Vec::new(),
+                            },
+                        );
+                        state.last_error = Some(err.0);
+                        state
+                    }
+                };
+            let mut pane = PaneState::new_native_diff(diff);
+            pane.env_pane_id_raw = saved_env_pane_id;
+            pane.seen = saved_seen;
+            panes.insert(*id, pane);
+            continue;
+        }
         let saved_history =
             old_id.and_then(|old_id| history.and_then(|history| history.panes.get(old_id)));
         let startup = {
@@ -890,6 +912,128 @@ mod tests {
     use super::*;
 
     #[test]
+    fn restore_native_diff_pane_reloads_repo_contents() {
+        let repo = unique_temp_path("native-diff-restore");
+        std::fs::create_dir_all(&repo).expect("create repo");
+        run_git(&repo, &["init", "--quiet"]);
+        run_git(&repo, &["config", "user.email", "hako@example.invalid"]);
+        run_git(&repo, &["config", "user.name", "Hako Test"]);
+        std::fs::write(repo.join("changed.txt"), "old\n").expect("write tracked");
+        run_git(&repo, &["add", "."]);
+        run_git(&repo, &["commit", "-m", "initial"]);
+        std::fs::write(repo.join("changed.txt"), "new\n").expect("modify tracked");
+
+        let snapshot = SessionSnapshot {
+            version: super::super::snapshot::SNAPSHOT_VERSION,
+            groups: vec![super::super::snapshot::GroupSnapshot {
+                id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
+                name: "group 1".to_string(),
+                icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
+                accent: None,
+                favorite_agent_profile_ids: Vec::new(),
+                default_agent_profile_id: None,
+            }],
+            active_group: 0,
+            group_filter_enabled: true,
+            workspaces: vec![WorkspaceSnapshot {
+                id: Some("space".to_string()),
+                custom_name: None,
+                group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
+                identity_cwd: repo.clone(),
+                tabs: vec![TabSnapshot {
+                    custom_name: Some("hako diff".to_string()),
+                    layout: LayoutSnapshot::Pane(1),
+                    panes: HashMap::from([(
+                        1,
+                        super::super::snapshot::PaneSnapshot {
+                            cwd: repo.clone(),
+                            env_pane_id: None,
+                            label: None,
+                            agent_name: None,
+                            agent_session: None,
+                            launch_argv: None,
+                            launch_env: Vec::new(),
+                            seen: true,
+                            terminal_semantics: None,
+                            native_diff: Some(super::super::snapshot::NativeDiffPaneSnapshot {
+                                repo_root: repo.clone(),
+                            }),
+                        },
+                    )]),
+                    zoomed: false,
+                    focused: Some(1),
+                    root_pane: Some(1),
+                }],
+                active_tab: 0,
+            }],
+            active: Some(0),
+            selected: 0,
+            ui: super::super::snapshot::SessionUiSnapshot::default(),
+            pane_id_aliases: HashMap::new(),
+            agent_panel_scope: crate::app::state::AgentPanelScope::CurrentWorkspace,
+            sidebar_width: Some(26),
+            sidebar_collapsed: false,
+            sidebar_section_split: Some(0.6),
+            right_sidebar_width: Some(30),
+            right_sidebar_collapsed: false,
+        };
+
+        let (events, _) = mpsc::channel(1);
+        let (workspaces, terminals, runtimes) = restore(
+            &snapshot,
+            None,
+            24,
+            80,
+            0,
+            "sh",
+            crate::config::ShellModeConfig::NonLogin,
+            false,
+            events,
+            Arc::new(Notify::new()),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        let pane = workspaces[0].tabs[0]
+            .panes
+            .values()
+            .next()
+            .expect("restored pane");
+        let diff = pane.native_diff().expect("native diff restored");
+        assert!(terminals.is_empty());
+        assert!(runtimes.is_empty());
+        assert!(diff.session.files.iter().any(|file| {
+            file.new_path.as_deref() == Some(std::path::Path::new("changed.txt"))
+                && file.added == 1
+                && file.deleted == 1
+        }));
+
+        let _ = std::fs::remove_dir_all(repo);
+    }
+
+    fn unique_temp_path(name: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("hako-{name}-{}-{nanos}", std::process::id()))
+    }
+
+    fn run_git(repo: &std::path::Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
     fn capture_and_restore_node_round_trip() {
         let node = Node::Split {
             direction: Direction::Horizontal,
@@ -951,6 +1095,7 @@ mod tests {
                             launch_env: Vec::new(),
                             seen: true,
                             terminal_semantics: None,
+                            native_diff: None,
                         },
                     )]),
                     zoomed: false,
@@ -1059,6 +1204,7 @@ mod tests {
                             launch_env: Vec::new(),
                             seen: true,
                             terminal_semantics: None,
+                            native_diff: None,
                         },
                     )]),
                     zoomed: false,
@@ -1297,6 +1443,7 @@ mod tests {
                             launch_env: vec![("CODEX_HOME".into(), "/profiles/codex".into())],
                             seen: true,
                             terminal_semantics: None,
+                            native_diff: None,
                         },
                     )]),
                     zoomed: false,
@@ -1651,6 +1798,7 @@ mod tests {
                             launch_env: Vec::new(),
                             seen: true,
                             terminal_semantics: None,
+                            native_diff: None,
                         },
                     )]),
                     zoomed: false,
@@ -1747,6 +1895,7 @@ mod tests {
                             launch_env: Vec::new(),
                             seen: true,
                             terminal_semantics: None,
+                            native_diff: None,
                         },
                     )]),
                     zoomed: false,
@@ -1926,6 +2075,7 @@ mod tests {
                 launch_env: Vec::new(),
                 seen: true,
                 terminal_semantics: None,
+                native_diff: None,
             },
         );
         SessionSnapshot {

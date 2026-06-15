@@ -2,11 +2,11 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
 
-use super::scrollbar::{render_pane_scrollbar, should_show_scrollbar};
+use super::scrollbar::{render_pane_scrollbar, render_scrollbar, should_show_scrollbar};
 use super::widgets::{fill_rect, panel_contrast_fg};
 use crate::app::state::Palette;
 use crate::app::{AppState, Mode};
@@ -383,16 +383,34 @@ fn render_native_diff_pane(
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(area);
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(file_list_width(vertical[0].width)),
-            Constraint::Min(10),
-        ])
-        .split(vertical[0]);
-    render_native_diff_file_list(app, diff, frame, chunks[0], accent);
-    render_native_diff_file_patch(app, diff, frame, chunks[1], accent);
+    if diff.show_file_list {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(file_list_width(vertical[0].width)),
+                Constraint::Length(1),
+                Constraint::Min(10),
+            ])
+            .split(vertical[0]);
+        render_native_diff_file_list(app, diff, frame, chunks[0], accent);
+        render_native_diff_separator(app, frame, chunks[1]);
+        render_native_diff_file_patch(app, diff, frame, chunks[2], accent);
+    } else {
+        render_native_diff_file_patch(app, diff, frame, vertical[0], accent);
+    }
     render_native_diff_footer(app, diff, frame, vertical[1]);
+}
+fn render_native_diff_separator(app: &AppState, frame: &mut Frame, area: Rect) {
+    let buf = frame.buffer_mut();
+    for y in area.y..area.y + area.height {
+        let cell = &mut buf[(area.x, y)];
+        cell.set_symbol("│");
+        cell.set_style(
+            Style::default()
+                .fg(app.palette.surface_dim)
+                .bg(app.palette.panel_bg),
+        );
+    }
 }
 
 fn file_list_width(total: u16) -> u16 {
@@ -432,14 +450,33 @@ fn render_native_diff_file_list(
             Style::default().fg(app.palette.subtext0),
         )));
     }
+    let metrics = scroll_metrics(lines.len(), area.height as usize, diff.file_scroll);
+    let (body, track) = split_scrollbar_area(area, metrics);
     frame.render_widget(
-        Paragraph::new(lines.into_iter().skip(diff.file_scroll).collect::<Vec<_>>()).style(
+        Paragraph::new(
+            lines
+                .into_iter()
+                .skip(diff.file_scroll)
+                .take(body.height as usize)
+                .collect::<Vec<_>>(),
+        )
+        .style(
             Style::default()
                 .fg(app.palette.text)
                 .bg(app.palette.panel_bg),
         ),
-        area,
+        body,
     );
+    if let Some(track) = track {
+        render_scrollbar(
+            frame,
+            metrics,
+            track,
+            app.palette.surface_dim,
+            app.palette.overlay1,
+            "▐",
+        );
+    }
 }
 
 fn push_native_diff_bucket_lines(
@@ -468,28 +505,82 @@ fn push_native_diff_bucket_lines(
         let selected = diff
             .selected_file
             .is_some_and(|selection| selection.file_index == index && selection.bucket == bucket);
-        let style = if selected {
-            Style::default()
-                .fg(panel_contrast_fg(p))
-                .bg(accent)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(p.text)
-        };
         let path = file
             .new_path
             .as_ref()
             .or(file.old_path.as_ref())
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "(unknown)".to_string());
-        let stats = format!(" +{} -{}", file.added, file.deleted);
-        lines.push(Line::from(vec![
-            Span::styled("  ", style),
-            Span::styled(path, style),
-            Span::styled(stats, style.fg(p.subtext0)),
-        ]));
+        let row_bg = selected.then_some(p.surface0);
+        let bg = row_bg.unwrap_or(p.panel_bg);
+        let path_style = if selected {
+            Style::default()
+                .fg(accent)
+                .bg(bg)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(p.text)
+        };
+        let marker_style = Style::default()
+            .fg(file_status_color(file, p))
+            .bg(bg)
+            .add_modifier(Modifier::BOLD);
+        let mut spans = vec![
+            Span::styled(" ", Style::default().bg(bg)),
+            Span::styled(file_status_marker(file), marker_style),
+            Span::styled(" ", Style::default().bg(bg)),
+            Span::styled(path, path_style),
+        ];
+        spans.extend(native_diff_stats_spans(file.added, file.deleted, p, row_bg));
+        lines.push(Line::from(spans));
     }
 }
+fn file_status_marker(file: &crate::native_diff::NativeDiffFile) -> &'static str {
+    match file.status {
+        crate::native_diff::DiffFileStatus::Added => "+",
+        crate::native_diff::DiffFileStatus::Deleted => "-",
+        crate::native_diff::DiffFileStatus::Renamed => "→",
+        crate::native_diff::DiffFileStatus::Binary => "■",
+        crate::native_diff::DiffFileStatus::Modified => "~",
+    }
+}
+
+fn file_status_color(file: &crate::native_diff::NativeDiffFile, p: &Palette) -> Color {
+    match file.status {
+        crate::native_diff::DiffFileStatus::Added => p.green,
+        crate::native_diff::DiffFileStatus::Deleted => p.red,
+        crate::native_diff::DiffFileStatus::Renamed => p.teal,
+        crate::native_diff::DiffFileStatus::Binary => p.mauve,
+        crate::native_diff::DiffFileStatus::Modified => p.yellow,
+    }
+}
+
+fn native_diff_stats_spans(
+    added: usize,
+    deleted: usize,
+    p: &Palette,
+    bg: Option<Color>,
+) -> Vec<Span<'static>> {
+    let bg = bg.unwrap_or(p.panel_bg);
+    let mut spans = vec![Span::styled(" ", Style::default().bg(bg))];
+    if added > 0 {
+        spans.push(Span::styled(
+            format!("+{added}"),
+            Style::default().fg(p.green).bg(bg),
+        ));
+    }
+    if added > 0 && deleted > 0 {
+        spans.push(Span::styled(" ", Style::default().bg(bg)));
+    }
+    if deleted > 0 {
+        spans.push(Span::styled(
+            format!("-{deleted}"),
+            Style::default().fg(p.red).bg(bg),
+        ));
+    }
+    spans
+}
+
 fn render_native_diff_footer(
     app: &AppState,
     diff: &crate::native_diff::NativeDiffPaneState,
@@ -505,10 +596,36 @@ fn render_native_diff_footer(
         Line::from(vec![
             Span::styled("move ", Style::default().fg(app.palette.subtext0)),
             Span::styled("↑↓", Style::default().fg(app.palette.text)),
+            Span::styled(" · hunk ", Style::default().fg(app.palette.subtext0)),
+            Span::styled("[]", Style::default().fg(app.palette.text)),
             Span::styled(" · stage ", Style::default().fg(app.palette.subtext0)),
             Span::styled("s", Style::default().fg(app.palette.text)),
             Span::styled(" · unstage ", Style::default().fg(app.palette.subtext0)),
             Span::styled("u", Style::default().fg(app.palette.text)),
+            Span::styled(
+                if diff.show_file_list {
+                    " · hide files "
+                } else {
+                    " · show files "
+                },
+                Style::default().fg(app.palette.subtext0),
+            ),
+            Span::styled("b", Style::default().fg(app.palette.text)),
+            Span::styled(
+                if diff.wrap_lines {
+                    " · nowrap "
+                } else {
+                    " · wrap "
+                },
+                Style::default().fg(app.palette.subtext0),
+            ),
+            Span::styled("w", Style::default().fg(app.palette.text)),
+            Span::styled(" · mode ", Style::default().fg(app.palette.subtext0)),
+            Span::styled(
+                native_diff_mode_label(diff),
+                Style::default().fg(app.palette.text),
+            ),
+            Span::styled(" m", Style::default().fg(app.palette.text)),
             Span::styled(" · refresh ", Style::default().fg(app.palette.subtext0)),
             Span::styled("r", Style::default().fg(app.palette.text)),
         ])
@@ -533,47 +650,600 @@ fn render_native_diff_file_patch(
     let Some(file) = diff.selected_file() else {
         return;
     };
+    let split = native_diff_uses_split_mode(diff, area.width);
+    let mut lines = native_diff_patch_lines(app, diff, file, accent, area.width);
+    let header = lines.first().cloned().unwrap_or_else(|| Line::from(""));
+    let body_lines = if lines.is_empty() {
+        Vec::new()
+    } else {
+        lines.split_off(1)
+    };
+    let header_area = Rect::new(area.x, area.y, area.width, area.height.min(1));
+    frame.render_widget(
+        Paragraph::new(vec![header]).style(
+            Style::default()
+                .fg(app.palette.text)
+                .bg(app.palette.panel_bg),
+        ),
+        header_area,
+    );
+    let body_area = Rect::new(
+        area.x,
+        area.y.saturating_add(1),
+        area.width,
+        area.height.saturating_sub(1),
+    );
+    let effective_scroll = diff
+        .diff_scroll
+        .min(body_lines.len().saturating_sub(body_area.height as usize));
+    let metrics = scroll_metrics(
+        body_lines.len(),
+        body_area.height as usize,
+        effective_scroll,
+    );
+    let (body, track) = split_scrollbar_area(body_area, metrics);
+    let paragraph = Paragraph::new(
+        body_lines
+            .into_iter()
+            .skip(effective_scroll)
+            .take(body.height as usize)
+            .collect::<Vec<_>>(),
+    )
+    .style(
+        Style::default()
+            .fg(app.palette.text)
+            .bg(app.palette.panel_bg),
+    );
+    let paragraph = if diff.wrap_lines && !split {
+        paragraph.wrap(Wrap { trim: false })
+    } else {
+        paragraph
+    };
+    frame.render_widget(paragraph, body);
+    if split {
+        render_native_diff_split_divider(app, frame, body);
+    }
+    if let Some(track) = track {
+        render_scrollbar(
+            frame,
+            metrics,
+            track,
+            app.palette.surface_dim,
+            app.palette.overlay1,
+            "▐",
+        );
+    }
+}
+fn native_diff_uses_split_mode(
+    diff: &crate::native_diff::NativeDiffPaneState,
+    area_width: u16,
+) -> bool {
+    match diff.view_mode {
+        crate::native_diff::NativeDiffViewMode::Unified => false,
+        crate::native_diff::NativeDiffViewMode::Split => true,
+        crate::native_diff::NativeDiffViewMode::Auto => area_width >= 110,
+    }
+}
+
+fn render_native_diff_split_divider(app: &AppState, frame: &mut Frame, area: Rect) {
+    let divider_x = area.x.saturating_add(area.width / 2);
+    if divider_x >= area.x.saturating_add(area.width) {
+        return;
+    }
+    let buf = frame.buffer_mut();
+    for y in area.y..area.y.saturating_add(area.height) {
+        let cell = &mut buf[(divider_x, y)];
+        cell.set_symbol("│");
+        cell.set_style(
+            Style::default()
+                .fg(app.palette.surface_dim)
+                .bg(app.palette.panel_bg),
+        );
+    }
+}
+
+fn native_diff_mode_label(diff: &crate::native_diff::NativeDiffPaneState) -> &'static str {
+    match diff.view_mode {
+        crate::native_diff::NativeDiffViewMode::Unified => "unified",
+        crate::native_diff::NativeDiffViewMode::Split => "split",
+        crate::native_diff::NativeDiffViewMode::Auto => "auto",
+    }
+}
+
+fn native_diff_patch_lines(
+    app: &AppState,
+    diff: &crate::native_diff::NativeDiffPaneState,
+    file: &crate::native_diff::NativeDiffFile,
+    accent: Color,
+    area_width: u16,
+) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
+    let path = native_diff_header_path(file);
+    let mut header_spans = vec![Span::styled(
+        path,
+        Style::default()
+            .fg(app.palette.text)
+            .add_modifier(Modifier::BOLD),
+    )];
+    if file.deleted > 0 {
+        header_spans.push(Span::styled(
+            format!(" -{}", file.deleted),
+            Style::default().fg(app.palette.red),
+        ));
+    }
+    if file.added > 0 {
+        header_spans.push(Span::styled(
+            format!(" +{}", file.added),
+            Style::default().fg(app.palette.green),
+        ));
+    }
+    lines.push(Line::from(header_spans));
     if file.binary {
         lines.push(Line::from(Span::styled(
             "binary file changed",
             Style::default().fg(app.palette.subtext0),
         )));
     }
-    for hunk in &file.hunks {
-        lines.push(Line::from(Span::styled(
-            format!(
-                "@@ -{},{} +{},{} @@",
-                hunk.old_start, hunk.old_count, hunk.new_start, hunk.new_count
-            ),
-            Style::default().fg(accent).add_modifier(Modifier::BOLD),
-        )));
-        for line in &hunk.lines {
-            let (marker, style) = match line.kind {
-                crate::native_diff::DiffLineKind::Context => {
-                    (" ", Style::default().fg(app.palette.text))
+    let split = native_diff_uses_split_mode(diff, area_width);
+    if split {
+        push_native_diff_split_lines(&mut lines, app, diff, file, accent, area_width);
+    } else {
+        push_native_diff_unified_lines(&mut lines, app, diff, file, accent, area_width);
+    }
+    lines
+}
+
+fn push_native_diff_unified_lines(
+    lines: &mut Vec<Line<'static>>,
+    app: &AppState,
+    diff: &crate::native_diff::NativeDiffPaneState,
+    file: &crate::native_diff::NativeDiffFile,
+    accent: Color,
+    area_width: u16,
+) {
+    let gutter_width = line_number_gutter_width(file);
+    let text_width = (area_width as usize).saturating_sub(gutter_width * 2 + 4);
+    for (hunk_index, hunk) in file.hunks.iter().enumerate() {
+        push_native_diff_hunk_header(lines, app, diff, hunk_index, hunk, accent, area_width);
+        for row in native_diff_hunk_rows(diff, hunk_index, hunk) {
+            match row {
+                RenderDiffRow::Line(line) => {
+                    let (marker, marker_style, text_style) =
+                        native_diff_line_styles(app, line.kind);
+                    let bg = native_diff_line_bg(app, line.kind);
+                    let chunks = if diff.wrap_lines {
+                        wrap_native_diff_text(&line.text, text_width)
+                    } else {
+                        vec![truncate_label(&line.text, text_width)]
+                    };
+                    for (index, chunk) in chunks.into_iter().enumerate() {
+                        let first = index == 0;
+                        lines.push(Line::from(vec![
+                            native_diff_rail_span(app, line.kind),
+                            Span::styled(
+                                if first {
+                                    format_line_number(line.old_line, gutter_width)
+                                } else {
+                                    " ".repeat(gutter_width)
+                                },
+                                native_diff_gutter_style(app, line.kind, true).bg(bg),
+                            ),
+                            Span::styled(
+                                if first {
+                                    format_line_number(line.new_line, gutter_width)
+                                } else {
+                                    " ".repeat(gutter_width)
+                                },
+                                native_diff_gutter_style(app, line.kind, false).bg(bg),
+                            ),
+                            Span::styled(
+                                if first {
+                                    format!(" {marker}")
+                                } else {
+                                    "  ".to_string()
+                                },
+                                marker_style.bg(bg),
+                            ),
+                            Span::styled(pad_truncate_label(&chunk, text_width), text_style.bg(bg)),
+                        ]));
+                    }
                 }
-                crate::native_diff::DiffLineKind::Added => {
-                    ("+", Style::default().fg(app.palette.green))
+                RenderDiffRow::Fold { key, count } => {
+                    push_native_diff_fold_line(lines, app, key, count, area_width);
                 }
-                crate::native_diff::DiffLineKind::Removed => {
-                    ("-", Style::default().fg(app.palette.red))
-                }
-            };
-            lines.push(Line::from(Span::styled(
-                format!("{marker}{}", line.text),
-                style,
-            )));
+            }
         }
     }
-    frame.render_widget(
-        Paragraph::new(lines.into_iter().skip(diff.diff_scroll).collect::<Vec<_>>()).style(
-            Style::default()
-                .fg(app.palette.text)
-                .bg(app.palette.panel_bg),
-        ),
-        area,
+}
+
+fn push_native_diff_split_lines(
+    lines: &mut Vec<Line<'static>>,
+    app: &AppState,
+    diff: &crate::native_diff::NativeDiffPaneState,
+    file: &crate::native_diff::NativeDiffFile,
+    accent: Color,
+    area_width: u16,
+) {
+    let gutter_width = line_number_gutter_width(file);
+    let left_width = split_left_text_width(area_width, gutter_width);
+    let right_width = split_right_text_width(area_width, gutter_width);
+    for (hunk_index, hunk) in file.hunks.iter().enumerate() {
+        push_native_diff_hunk_header(lines, app, diff, hunk_index, hunk, accent, area_width);
+        for row in native_diff_hunk_rows(diff, hunk_index, hunk) {
+            match row {
+                RenderDiffRow::Line(line) => {
+                    let removed = line.kind == crate::native_diff::DiffLineKind::Removed;
+                    let added = line.kind == crate::native_diff::DiffLineKind::Added;
+                    let left_text = if added { "" } else { &line.text };
+                    let right_text = if removed { "" } else { &line.text };
+                    let left_bg = if removed {
+                        native_diff_removed_bg(app)
+                    } else if added {
+                        app.palette.surface_dim
+                    } else {
+                        app.palette.panel_bg
+                    };
+                    let right_bg = if added {
+                        native_diff_added_bg(app)
+                    } else if removed {
+                        app.palette.surface_dim
+                    } else {
+                        app.palette.panel_bg
+                    };
+                    let left_style = if removed {
+                        Style::default().fg(app.palette.red).bg(left_bg)
+                    } else {
+                        Style::default().fg(app.palette.text).bg(left_bg)
+                    };
+                    let right_style = if added {
+                        Style::default().fg(app.palette.green).bg(right_bg)
+                    } else {
+                        Style::default().fg(app.palette.text).bg(right_bg)
+                    };
+                    let left_chunks = if diff.wrap_lines {
+                        wrap_native_diff_text(left_text, left_width)
+                    } else {
+                        vec![truncate_label(left_text, left_width)]
+                    };
+                    let right_chunks = if diff.wrap_lines {
+                        wrap_native_diff_text(right_text, right_width)
+                    } else {
+                        vec![truncate_label(right_text, right_width)]
+                    };
+                    let rows = left_chunks.len().max(right_chunks.len()).max(1);
+                    for index in 0..rows {
+                        let first = index == 0;
+                        let left_chunk = left_chunks.get(index).cloned().unwrap_or_default();
+                        let right_chunk = right_chunks.get(index).cloned().unwrap_or_default();
+                        lines.push(Line::from(vec![
+                            native_diff_rail_span(app, line.kind),
+                            Span::styled(
+                                if first {
+                                    format_line_number(line.old_line, gutter_width)
+                                } else {
+                                    " ".repeat(gutter_width)
+                                },
+                                native_diff_gutter_style(app, line.kind, true).bg(left_bg),
+                            ),
+                            Span::styled(
+                                if first && removed { " -" } else { "  " },
+                                Style::default().fg(app.palette.red).bg(left_bg),
+                            ),
+                            Span::styled(pad_truncate_label(&left_chunk, left_width), left_style),
+                            Span::styled(" ", Style::default().bg(left_bg)),
+                            Span::styled(" ", Style::default().bg(right_bg)),
+                            Span::styled(
+                                if first {
+                                    format_line_number(line.new_line, gutter_width)
+                                } else {
+                                    " ".repeat(gutter_width)
+                                },
+                                native_diff_gutter_style(app, line.kind, false).bg(right_bg),
+                            ),
+                            Span::styled(
+                                if first && added { " +" } else { "  " },
+                                Style::default().fg(app.palette.green).bg(right_bg),
+                            ),
+                            Span::styled(
+                                pad_truncate_label(&right_chunk, right_width),
+                                right_style,
+                            ),
+                        ]));
+                    }
+                }
+                RenderDiffRow::Fold { key, count } => {
+                    push_native_diff_fold_line(lines, app, key, count, area_width);
+                }
+            }
+        }
+    }
+}
+
+enum RenderDiffRow<'a> {
+    Line(&'a crate::native_diff::NativeDiffLine),
+    Fold {
+        key: crate::native_diff::NativeDiffContextKey,
+        count: usize,
+    },
+}
+
+fn native_diff_hunk_rows<'a>(
+    diff: &crate::native_diff::NativeDiffPaneState,
+    hunk_index: usize,
+    hunk: &'a crate::native_diff::NativeDiffHunk,
+) -> Vec<RenderDiffRow<'a>> {
+    const CONTEXT_EDGE: usize = 3;
+    const MIN_FOLD: usize = CONTEXT_EDGE * 2 + 4;
+
+    let mut rows = Vec::new();
+    let mut index = 0;
+    let mut run_index = 0;
+    while index < hunk.lines.len() {
+        if hunk.lines[index].kind != crate::native_diff::DiffLineKind::Context {
+            rows.push(RenderDiffRow::Line(&hunk.lines[index]));
+
+            index += 1;
+            continue;
+        }
+
+        let start = index;
+        while index < hunk.lines.len()
+            && hunk.lines[index].kind == crate::native_diff::DiffLineKind::Context
+        {
+            index += 1;
+        }
+        let count = index - start;
+        let key = crate::native_diff::NativeDiffContextKey {
+            file_index: diff
+                .selected_file
+                .map(|selection| selection.file_index)
+                .unwrap_or_default(),
+            hunk_index,
+            run_index,
+        };
+        run_index += 1;
+        if count >= MIN_FOLD && !diff.context_expanded(key) {
+            for line in &hunk.lines[start..start + CONTEXT_EDGE] {
+                rows.push(RenderDiffRow::Line(line));
+            }
+            rows.push(RenderDiffRow::Fold {
+                key,
+                count: count - CONTEXT_EDGE * 2,
+            });
+            for line in &hunk.lines[index - CONTEXT_EDGE..index] {
+                rows.push(RenderDiffRow::Line(line));
+            }
+        } else {
+            for line in &hunk.lines[start..index] {
+                rows.push(RenderDiffRow::Line(line));
+            }
+        }
+    }
+    rows
+}
+
+fn native_diff_header_path(file: &crate::native_diff::NativeDiffFile) -> String {
+    match (&file.old_path, &file.new_path) {
+        (Some(old), Some(new)) if old != new => format!("{} → {}", old.display(), new.display()),
+        _ => file
+            .new_path
+            .as_ref()
+            .or(file.old_path.as_ref())
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "(unknown)".to_string()),
+    }
+}
+
+fn push_native_diff_hunk_header(
+    lines: &mut Vec<Line<'static>>,
+    app: &AppState,
+    diff: &crate::native_diff::NativeDiffPaneState,
+    hunk_index: usize,
+    hunk: &crate::native_diff::NativeDiffHunk,
+    accent: Color,
+    area_width: u16,
+) {
+    let bg = if diff.selected_hunk == Some(hunk_index) {
+        app.palette.surface0
+    } else {
+        app.palette.surface_dim
+    };
+    let text = format!(
+        " @@ -{},{} +{},{} @@",
+        hunk.old_start, hunk.old_count, hunk.new_start, hunk.new_count
     );
+    lines.push(Line::from(vec![Span::styled(
+        pad_truncate_label(&text, area_width as usize),
+        Style::default()
+            .fg(accent)
+            .bg(bg)
+            .add_modifier(Modifier::BOLD),
+    )]));
+}
+
+fn native_diff_rail_span(app: &AppState, kind: crate::native_diff::DiffLineKind) -> Span<'static> {
+    match kind {
+        crate::native_diff::DiffLineKind::Added => Span::styled(
+            "▌",
+            Style::default()
+                .fg(app.palette.green)
+                .bg(native_diff_added_bg(app)),
+        ),
+        crate::native_diff::DiffLineKind::Removed => Span::styled(
+            "▌",
+            Style::default()
+                .fg(app.palette.red)
+                .bg(native_diff_removed_bg(app)),
+        ),
+        crate::native_diff::DiffLineKind::Context => {
+            Span::styled(" ", Style::default().bg(app.palette.panel_bg))
+        }
+    }
+}
+
+fn native_diff_line_bg(app: &AppState, kind: crate::native_diff::DiffLineKind) -> Color {
+    match kind {
+        crate::native_diff::DiffLineKind::Added => native_diff_added_bg(app),
+        crate::native_diff::DiffLineKind::Removed => native_diff_removed_bg(app),
+        crate::native_diff::DiffLineKind::Context => app.palette.panel_bg,
+    }
+}
+
+fn native_diff_added_bg(app: &AppState) -> Color {
+    mix_palette_color(app.palette.panel_bg, app.palette.green, 0.16)
+}
+
+fn native_diff_removed_bg(app: &AppState) -> Color {
+    mix_palette_color(app.palette.panel_bg, app.palette.red, 0.18)
+}
+
+fn mix_palette_color(base: Color, tint: Color, amount: f32) -> Color {
+    match (base, tint) {
+        (Color::Rgb(base_r, base_g, base_b), Color::Rgb(tint_r, tint_g, tint_b)) => Color::Rgb(
+            mix_channel(base_r, tint_r, amount),
+            mix_channel(base_g, tint_g, amount),
+            mix_channel(base_b, tint_b, amount),
+        ),
+        _ => base,
+    }
+}
+
+fn mix_channel(base: u8, tint: u8, amount: f32) -> u8 {
+    let base = base as f32;
+    let tint = tint as f32;
+    (base + (tint - base) * amount).round().clamp(0.0, 255.0) as u8
+}
+
+fn push_native_diff_fold_line(
+    lines: &mut Vec<Line<'static>>,
+    app: &AppState,
+    key: crate::native_diff::NativeDiffContextKey,
+    count: usize,
+    area_width: u16,
+) {
+    let marker = if count == 1 { "line" } else { "lines" };
+    let text = format!("  ⌄ {count} unmodified {marker}");
+    let _ = key;
+    lines.push(Line::from(vec![Span::styled(
+        pad_truncate_label(&text, area_width as usize),
+        Style::default()
+            .fg(app.palette.subtext0)
+            .bg(app.palette.surface0),
+    )]));
+}
+
+fn split_left_text_width(area_width: u16, gutter_width: usize) -> usize {
+    (area_width as usize / 2).saturating_sub(gutter_width + 5)
+}
+
+fn split_right_text_width(area_width: u16, gutter_width: usize) -> usize {
+    (area_width as usize)
+        .saturating_sub(area_width as usize / 2)
+        .saturating_sub(gutter_width + 4)
+}
+
+fn wrap_native_diff_text(text: &str, width: usize) -> Vec<String> {
+    if text.is_empty() {
+        return vec![String::new()];
+    }
+    let width = width.max(1);
+    let chars = text.chars().collect::<Vec<_>>();
+    chars
+        .chunks(width)
+        .map(|chunk| chunk.iter().collect::<String>())
+        .collect()
+}
+
+fn native_diff_gutter_style(
+    app: &AppState,
+    kind: crate::native_diff::DiffLineKind,
+    old_side: bool,
+) -> Style {
+    match (kind, old_side) {
+        (crate::native_diff::DiffLineKind::Removed, true) => Style::default().fg(app.palette.red),
+        (crate::native_diff::DiffLineKind::Added, false) => Style::default().fg(app.palette.green),
+        _ => Style::default().fg(app.palette.overlay0),
+    }
+}
+
+fn pad_truncate_label(text: &str, width: usize) -> String {
+    let truncated = truncate_label(text, width);
+    let pad = width.saturating_sub(truncated.chars().count());
+    format!("{truncated}{}", " ".repeat(pad))
+}
+
+fn native_diff_line_styles(
+    app: &AppState,
+    kind: crate::native_diff::DiffLineKind,
+) -> (&'static str, Style, Style) {
+    match kind {
+        crate::native_diff::DiffLineKind::Context => (
+            " ",
+            Style::default().fg(app.palette.overlay0),
+            Style::default().fg(app.palette.text),
+        ),
+        crate::native_diff::DiffLineKind::Added => (
+            "+",
+            Style::default()
+                .fg(app.palette.green)
+                .add_modifier(Modifier::BOLD),
+            Style::default().fg(app.palette.green),
+        ),
+        crate::native_diff::DiffLineKind::Removed => (
+            "-",
+            Style::default()
+                .fg(app.palette.red)
+                .add_modifier(Modifier::BOLD),
+            Style::default().fg(app.palette.red),
+        ),
+    }
+}
+
+fn line_number_gutter_width(file: &crate::native_diff::NativeDiffFile) -> usize {
+    let max_line = file
+        .hunks
+        .iter()
+        .flat_map(|hunk| hunk.lines.iter())
+        .flat_map(|line| [line.old_line, line.new_line])
+        .flatten()
+        .max()
+        .unwrap_or(0);
+    max_line.to_string().len().max(2) + 1
+}
+
+fn format_line_number(line: Option<usize>, width: usize) -> String {
+    match line {
+        Some(line) => format!("{line:>width$}"),
+        None => " ".repeat(width),
+    }
+}
+
+fn scroll_metrics(
+    total_rows: usize,
+    viewport_rows: usize,
+    scroll_top: usize,
+) -> crate::pane::ScrollMetrics {
+    let max_offset = total_rows.saturating_sub(viewport_rows);
+    crate::pane::ScrollMetrics {
+        offset_from_bottom: max_offset.saturating_sub(scroll_top.min(max_offset)),
+        max_offset_from_bottom: max_offset,
+        viewport_rows,
+    }
+}
+
+fn split_scrollbar_area(area: Rect, metrics: crate::pane::ScrollMetrics) -> (Rect, Option<Rect>) {
+    if metrics.max_offset_from_bottom == 0 || area.width <= 1 {
+        return (area, None);
+    }
+    (
+        Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height),
+        Some(Rect::new(
+            area.x + area.width.saturating_sub(1),
+            area.y,
+            1,
+            area.height,
+        )),
+    )
 }
 
 fn render_copy_mode_cursor(app: &AppState, frame: &mut Frame, info: &PaneInfo) {
@@ -896,6 +1566,76 @@ mod tests {
             text.push('\n');
         }
         text
+    }
+    #[test]
+    fn native_diff_render_includes_line_numbers_and_scrollbars() {
+        let app = AppState::test_new();
+        let mut diff =
+            crate::native_diff::NativeDiffPaneState::new(crate::native_diff::NativeDiffSession {
+                repo_root: std::path::PathBuf::from("/repo"),
+                files: vec![crate::native_diff::NativeDiffFile {
+                    bucket: crate::native_diff::DiffBucket::Changed,
+                    old_path: Some(std::path::PathBuf::from("src/lib.rs")),
+                    new_path: Some(std::path::PathBuf::from("src/lib.rs")),
+                    status: crate::native_diff::DiffFileStatus::Modified,
+                    added: 2,
+                    deleted: 1,
+                    binary: false,
+                    hunks: vec![crate::native_diff::NativeDiffHunk {
+                        old_start: 10,
+                        old_count: 3,
+                        new_start: 10,
+                        new_count: 4,
+                        lines: vec![
+                            crate::native_diff::NativeDiffLine {
+                                kind: crate::native_diff::DiffLineKind::Context,
+                                old_line: Some(10),
+                                new_line: Some(10),
+                                text: "fn demo() {".to_string(),
+                            },
+                            crate::native_diff::NativeDiffLine {
+                                kind: crate::native_diff::DiffLineKind::Removed,
+                                old_line: Some(11),
+                                new_line: None,
+                                text: "old();".to_string(),
+                            },
+                            crate::native_diff::NativeDiffLine {
+                                kind: crate::native_diff::DiffLineKind::Added,
+                                old_line: None,
+                                new_line: Some(11),
+                                text: "new();".to_string(),
+                            },
+                            crate::native_diff::NativeDiffLine {
+                                kind: crate::native_diff::DiffLineKind::Added,
+                                old_line: None,
+                                new_line: Some(12),
+                                text: "again();".to_string(),
+                            },
+                        ],
+                    }],
+                }],
+            });
+        diff.diff_scroll = 2;
+        let backend = TestBackend::new(60, 6);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        terminal
+            .draw(|frame| {
+                render_native_diff_pane(
+                    &app,
+                    &diff,
+                    frame,
+                    Rect::new(0, 0, 60, 6),
+                    app.palette.accent,
+                )
+            })
+            .expect("render native diff");
+
+        let text = buffer_text(terminal.backend().buffer(), 60, 6);
+        assert!(text.contains("src/lib.rs"));
+        assert!(text.contains("11    -old();"));
+        assert!(text.contains("   11 +new();"));
+        assert!(text.contains("▐"));
     }
 
     #[tokio::test]

@@ -1254,6 +1254,27 @@ impl AppState {
             MouseEventKind::Down(MouseButton::Right) if !in_chrome => {
                 if let Some(info) = self.pane_mouse_target(mouse.column, mouse.row).cloned() {
                     self.focus_pane(info.id);
+                    let ws_idx = self.active.unwrap_or(self.selected);
+                    let is_native_diff = self
+                        .workspaces
+                        .get(ws_idx)
+                        .and_then(|ws| ws.pane_state(info.id))
+                        .and_then(|pane| pane.native_diff())
+                        .is_some();
+                    if is_native_diff {
+                        let _ = self.handle_native_diff_mouse_down(&info, mouse);
+                        self.context_menu = Some(ContextMenuState {
+                            kind: ContextMenuKind::NativeDiff {
+                                ws_idx,
+                                pane_id: info.id,
+                            },
+                            x: mouse.column,
+                            y: mouse.row,
+                            list: MenuListState::new(0),
+                        });
+                        self.mode = Mode::ContextMenu;
+                        return None;
+                    }
                     let has_manual_label = self
                         .active
                         .and_then(|ws_idx| self.workspaces.get(ws_idx))
@@ -1261,7 +1282,6 @@ impl AppState {
                         .and_then(|pane| self.terminals.get(&pane.attached_terminal_id))
                         .and_then(|terminal| terminal.manual_label.as_ref())
                         .is_some();
-                    let ws_idx = self.active.unwrap_or(self.selected);
                     self.context_menu = Some(ContextMenuState {
                         kind: ContextMenuKind::Pane {
                             ws_idx,
@@ -1753,13 +1773,23 @@ impl AppState {
         else {
             return false;
         };
-        let file_width = Self::native_diff_file_list_width(info.inner_rect.width);
+        let file_width = if diff.show_file_list {
+            Self::native_diff_file_list_width(info.inner_rect.width)
+        } else {
+            0
+        };
         let local_col = mouse.column.saturating_sub(info.inner_rect.x);
         let local_row = mouse.row.saturating_sub(info.inner_rect.y);
-        if local_col >= file_width || local_row >= info.inner_rect.height.saturating_sub(1) {
+        if local_row >= info.inner_rect.height.saturating_sub(1) {
             return true;
         }
-        diff.select_visible_file_row(local_row as usize)
+        if local_col < file_width {
+            return diff.select_visible_file_row(local_row as usize);
+        }
+        if !diff.toggle_visible_context_row(local_row as usize) {
+            diff.select_visible_diff_row(local_row as usize);
+        }
+        true
     }
 
     pub(super) fn handle_native_diff_wheel(&mut self, info: &PaneInfo, mouse: MouseEvent) -> bool {
@@ -1776,12 +1806,16 @@ impl AppState {
             MouseEventKind::ScrollDown => 3,
             _ => return false,
         };
-        let file_width = Self::native_diff_file_list_width(info.inner_rect.width);
+        let file_width = if diff.show_file_list {
+            Self::native_diff_file_list_width(info.inner_rect.width)
+        } else {
+            0
+        };
         let local_col = mouse.column.saturating_sub(info.inner_rect.x);
         if local_col < file_width {
-            diff.scroll_file_list(delta);
+            diff.scroll_file_list(delta, info.inner_rect.height.saturating_sub(1) as usize);
         } else {
-            diff.scroll_diff(delta);
+            diff.scroll_diff(delta, info.inner_rect.height.saturating_sub(2) as usize);
         }
         true
     }

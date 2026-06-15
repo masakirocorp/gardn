@@ -729,7 +729,8 @@ fn context_menu_palette(app: &AppState, menu: &ContextMenuState) -> crate::app::
         crate::app::state::ContextMenuKind::Workspace { ws_idx, .. }
         | crate::app::state::ContextMenuKind::Tab { ws_idx, .. }
         | crate::app::state::ContextMenuKind::NewTabButton { ws_idx, .. }
-        | crate::app::state::ContextMenuKind::Pane { ws_idx, .. } => {
+        | crate::app::state::ContextMenuKind::Pane { ws_idx, .. }
+        | crate::app::state::ContextMenuKind::NativeDiff { ws_idx, .. } => {
             app.palette_for_workspace(ws_idx)
         }
     }

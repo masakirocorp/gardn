@@ -1077,6 +1077,61 @@ pub(super) fn apply_context_menu_action(
                 state.return_to_active_workspace_mode();
             }
         }
+        (ContextMenuKind::NativeDiff { ws_idx, pane_id }, Some("stage file")) => {
+            if let Some(diff) = state
+                .workspaces
+                .get_mut(ws_idx)
+                .and_then(|workspace| workspace.pane_state_mut(pane_id))
+                .and_then(|pane| pane.native_diff_mut())
+            {
+                diff.stage_selected_file();
+            }
+            state.mode = Mode::Terminal;
+        }
+        (ContextMenuKind::NativeDiff { ws_idx, pane_id }, Some("unstage file")) => {
+            if let Some(diff) = state
+                .workspaces
+                .get_mut(ws_idx)
+                .and_then(|workspace| workspace.pane_state_mut(pane_id))
+                .and_then(|pane| pane.native_diff_mut())
+            {
+                diff.unstage_selected_file();
+            }
+            state.mode = Mode::Terminal;
+        }
+        (ContextMenuKind::NativeDiff { ws_idx, pane_id }, Some("stage hunk")) => {
+            if let Some(diff) = state
+                .workspaces
+                .get_mut(ws_idx)
+                .and_then(|workspace| workspace.pane_state_mut(pane_id))
+                .and_then(|pane| pane.native_diff_mut())
+            {
+                diff.stage_selected_hunk();
+            }
+            state.mode = Mode::Terminal;
+        }
+        (ContextMenuKind::NativeDiff { ws_idx, pane_id }, Some("unstage hunk")) => {
+            if let Some(diff) = state
+                .workspaces
+                .get_mut(ws_idx)
+                .and_then(|workspace| workspace.pane_state_mut(pane_id))
+                .and_then(|pane| pane.native_diff_mut())
+            {
+                diff.unstage_selected_hunk();
+            }
+            state.mode = Mode::Terminal;
+        }
+        (ContextMenuKind::NativeDiff { ws_idx, pane_id }, Some("refresh")) => {
+            if let Some(diff) = state
+                .workspaces
+                .get_mut(ws_idx)
+                .and_then(|workspace| workspace.pane_state_mut(pane_id))
+                .and_then(|pane| pane.native_diff_mut())
+            {
+                diff.refresh();
+            }
+            state.mode = Mode::Terminal;
+        }
         (ContextMenuKind::Pane { pane_id, .. }, Some("rename pane")) => {
             open_rename_pane(state, pane_id);
         }

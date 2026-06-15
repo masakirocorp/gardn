@@ -2043,6 +2043,10 @@ pub enum ContextMenuKind {
         pane_id: PaneId,
         has_manual_label: bool,
     },
+    NativeDiff {
+        ws_idx: usize,
+        pane_id: PaneId,
+    },
 }
 
 /// Right-click context menu state.
@@ -2082,6 +2086,13 @@ impl ContextMenuState {
             ContextMenuKind::NewTabButton {
                 can_diff: false, ..
             } => &["new", "tab", "agent"],
+            ContextMenuKind::NativeDiff { .. } => &[
+                "stage file",
+                "unstage file",
+                "stage hunk",
+                "unstage hunk",
+                "refresh",
+            ],
             ContextMenuKind::Pane {
                 has_manual_label: true,
                 ..

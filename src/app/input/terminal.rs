@@ -206,6 +206,11 @@ fn handle_native_diff_key(state: &mut crate::app::state::AppState, key: Terminal
     else {
         return false;
     };
+    let diff_viewport_rows = state
+        .pane_info_by_id(pane_id)
+        .map(|info| info.inner_rect.height.saturating_sub(2) as usize)
+        .unwrap_or(1)
+        .max(1);
     let Some(diff) = state
         .workspaces
         .get_mut(ws_idx)
@@ -223,89 +228,64 @@ fn handle_native_diff_key(state: &mut crate::app::state::AppState, key: Terminal
             diff.move_selection(1);
             true
         }
+        KeyCode::Char('[') if key.modifiers.is_empty() => {
+            diff.move_hunk_selection(-1);
+            true
+        }
+        KeyCode::Char(']') if key.modifiers.is_empty() => {
+            diff.move_hunk_selection(1);
+            true
+        }
         KeyCode::PageUp => {
-            diff.scroll_diff(-10);
+            diff.scroll_diff(-10, diff_viewport_rows);
             true
         }
         KeyCode::PageDown => {
-            diff.scroll_diff(10);
+            diff.scroll_diff(10, diff_viewport_rows);
             true
         }
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            diff.scroll_diff(-5);
+            diff.scroll_diff(-5, diff_viewport_rows);
             true
         }
         KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            diff.scroll_diff(5);
+            diff.scroll_diff(5, diff_viewport_rows);
             true
         }
         KeyCode::Char('r') if key.modifiers.is_empty() => {
-            refresh_native_diff(diff);
+            diff.refresh();
+            true
+        }
+        KeyCode::Char('b') if key.modifiers.is_empty() => {
+            diff.toggle_file_list();
+            true
+        }
+        KeyCode::Char('w') if key.modifiers.is_empty() => {
+            diff.toggle_wrap_lines();
+            true
+        }
+        KeyCode::Char('m') if key.modifiers.is_empty() => {
+            diff.cycle_view_mode();
+            true
+        }
+        KeyCode::Char('S') | KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            diff.stage_selected_hunk();
+            true
+        }
+        KeyCode::Char('U') | KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            diff.unstage_selected_hunk();
             true
         }
         KeyCode::Char('s') if key.modifiers.is_empty() => {
-            apply_native_diff_action(diff, NativeDiffAction::Stage);
+            diff.stage_selected_file();
             true
         }
         KeyCode::Char('u') if key.modifiers.is_empty() => {
-            apply_native_diff_action(diff, NativeDiffAction::Unstage);
+            diff.unstage_selected_file();
             true
         }
         _ => false,
     }
-}
-enum NativeDiffAction {
-    Stage,
-    Unstage,
-}
-
-fn apply_native_diff_action(
-    diff: &mut crate::native_diff::NativeDiffPaneState,
-    action: NativeDiffAction,
-) {
-    let Some(path) = diff.selected_path() else {
-        return;
-    };
-    let result = match action {
-        NativeDiffAction::Stage => run_git(&diff.session.repo_root, &["add", "--"], &path),
-        NativeDiffAction::Unstage => run_git(
-            &diff.session.repo_root,
-            &["restore", "--staged", "--"],
-            &path,
-        ),
-    };
-    match result {
-        Ok(()) => refresh_native_diff(diff),
-        Err(err) => diff.last_error = Some(err),
-    }
-}
-
-fn refresh_native_diff(diff: &mut crate::native_diff::NativeDiffPaneState) {
-    match crate::native_diff::load_native_diff_session(diff.session.repo_root.clone()) {
-        Ok(session) => {
-            diff.replace_session(session);
-            diff.last_error = None;
-        }
-        Err(err) => diff.last_error = Some(err.0),
-    }
-}
-
-fn run_git(
-    repo_root: &std::path::Path,
-    args: &[&str],
-    path: &std::path::Path,
-) -> Result<(), String> {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo_root)
-        .args(args)
-        .arg(path)
-        .output()
-        .map_err(|err| format!("failed to run git: {err}"))?;
-    if output.status.success() {
-        return Ok(());
-    }
-    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
 }
 
 #[cfg(test)]
