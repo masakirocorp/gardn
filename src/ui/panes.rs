@@ -407,11 +407,7 @@ fn render_native_diff_separator(app: &AppState, frame: &mut Frame, area: Rect) {
     for y in area.y..area.y + area.height {
         let cell = &mut buf[(area.x, y)];
         cell.set_symbol("│");
-        cell.set_style(
-            Style::default()
-                .fg(app.palette.surface_dim)
-                .bg(app.palette.panel_bg),
-        );
+        cell.set_style(native_diff_divider_style(app));
     }
 }
 
@@ -736,15 +732,12 @@ fn render_native_diff_split_divider(app: &AppState, frame: &mut Frame, area: Rec
     if divider_x >= area.x.saturating_add(area.width) {
         return;
     }
+    let style = native_diff_divider_style(app);
     let buf = frame.buffer_mut();
-    for y in area.y..area.y.saturating_add(area.height) {
+    for y in area.y..area.y + area.height {
         let cell = &mut buf[(divider_x, y)];
         cell.set_symbol("│");
-        cell.set_style(
-            Style::default()
-                .fg(app.palette.surface_dim)
-                .bg(app.palette.panel_bg),
-        );
+        cell.set_style(style);
     }
 }
 
@@ -824,7 +817,7 @@ fn push_native_diff_unified_lines(
                     };
                     for (index, chunk) in chunks.into_iter().enumerate() {
                         let first = index == 0;
-                        lines.push(Line::from(vec![
+                        let mut row = vec![
                             native_diff_rail_span(app, line.kind),
                             Span::styled(
                                 if first {
@@ -850,16 +843,17 @@ fn push_native_diff_unified_lines(
                                 },
                                 marker_style.bg(bg),
                             ),
-                            native_diff_content_span(
-                                app,
-                                file,
-                                line.kind,
-                                &chunk,
-                                text_width,
-                                text_style.bg(bg),
-                                bg,
-                            ),
-                        ]));
+                        ];
+                        row.extend(native_diff_content_spans(
+                            app,
+                            file,
+                            line.kind,
+                            &chunk,
+                            text_width,
+                            text_style.bg(bg),
+                            bg,
+                        ));
+                        lines.push(Line::from(row));
                     }
                 }
                 RenderDiffRow::Fold {
@@ -914,16 +908,8 @@ fn push_native_diff_split_lines(
                     } else {
                         right_bg
                     };
-                    let left_style = if removed {
-                        Style::default().fg(app.palette.red).bg(left_bg)
-                    } else {
-                        Style::default().fg(app.palette.text).bg(left_bg)
-                    };
-                    let right_style = if added {
-                        Style::default().fg(app.palette.green).bg(right_bg)
-                    } else {
-                        Style::default().fg(app.palette.text).bg(right_bg)
-                    };
+                    let left_style = Style::default().fg(app.palette.text).bg(left_bg);
+                    let right_style = Style::default().fg(app.palette.text).bg(right_bg);
                     let left_chunks = if diff.wrap_lines {
                         wrap_native_diff_text(left_text, left_width)
                     } else {
@@ -939,7 +925,7 @@ fn push_native_diff_split_lines(
                         let first = index == 0;
                         let left_chunk = left_chunks.get(index).cloned().unwrap_or_default();
                         let right_chunk = right_chunks.get(index).cloned().unwrap_or_default();
-                        lines.push(Line::from(vec![
+                        let mut row = vec![
                             native_diff_split_rail_span(app, line.kind, true, left_struct_bg),
                             Span::styled(
                                 if first {
@@ -953,39 +939,48 @@ fn push_native_diff_split_lines(
                                 if first && removed { " -" } else { "  " },
                                 Style::default().fg(app.palette.red).bg(left_struct_bg),
                             ),
-                            native_diff_content_span(
-                                app,
-                                file,
-                                line.kind,
-                                &left_chunk,
-                                left_width,
-                                left_style,
-                                left_bg,
-                            ),
-                            Span::styled("│", Style::default().fg(app.palette.surface_dim)),
-                            native_diff_split_rail_span(app, line.kind, false, right_struct_bg),
-                            Span::styled(
-                                if first {
-                                    format_line_number(line.new_line, gutter_width)
-                                } else {
-                                    " ".repeat(gutter_width)
-                                },
-                                native_diff_gutter_style(app, line.kind, false).bg(right_struct_bg),
-                            ),
-                            Span::styled(
-                                if first && added { " +" } else { "  " },
-                                Style::default().fg(app.palette.green).bg(right_struct_bg),
-                            ),
-                            native_diff_content_span(
-                                app,
-                                file,
-                                line.kind,
-                                &right_chunk,
-                                right_width,
-                                right_style,
-                                right_bg,
-                            ),
-                        ]));
+                        ];
+                        row.extend(native_diff_content_spans(
+                            app,
+                            file,
+                            line.kind,
+                            &left_chunk,
+                            left_width,
+                            left_style,
+                            left_bg,
+                        ));
+                        row.push(Span::styled(
+                            "│",
+                            native_diff_divider_style(app),
+                        ));
+                        row.push(native_diff_split_rail_span(
+                            app,
+                            line.kind,
+                            false,
+                            right_struct_bg,
+                        ));
+                        row.push(Span::styled(
+                            if first {
+                                format_line_number(line.new_line, gutter_width)
+                            } else {
+                                " ".repeat(gutter_width)
+                            },
+                            native_diff_gutter_style(app, line.kind, false).bg(right_struct_bg),
+                        ));
+                        row.push(Span::styled(
+                            if first && added { " +" } else { "  " },
+                            Style::default().fg(app.palette.green).bg(right_struct_bg),
+                        ));
+                        row.extend(native_diff_content_spans(
+                            app,
+                            file,
+                            line.kind,
+                            &right_chunk,
+                            right_width,
+                            right_style,
+                            right_bg,
+                        ));
+                        lines.push(Line::from(row));
                     }
                 }
                 RenderDiffRow::Fold {
@@ -1122,7 +1117,7 @@ fn push_native_diff_hunk_header(
     )]));
 }
 
-fn native_diff_content_span(
+fn native_diff_content_spans(
     app: &AppState,
     file: &crate::native_diff::NativeDiffFile,
     kind: crate::native_diff::DiffLineKind,
@@ -1130,42 +1125,35 @@ fn native_diff_content_span(
     width: usize,
     base: Style,
     bg: Color,
-) -> Span<'static> {
-    let mut rendered = truncate_label(text, width);
-    let pad = width.saturating_sub(rendered.chars().count());
-    if pad > 0 {
-        rendered.push_str(&" ".repeat(pad));
+) -> Vec<Span<'static>> {
+    let mut spans = syntax_spans_for_text(app, file, text, width, base, bg)
+        .unwrap_or_else(|| vec![Span::styled(truncate_label(text, width), base.bg(bg))]);
+    let used = spans
+        .iter()
+        .map(|span| span.content.chars().count())
+        .sum::<usize>();
+    if used < width {
+        spans.push(Span::styled(" ".repeat(width - used), base.bg(bg)));
     }
-    let mut style = syntax_style_for_text(app, file, text)
-        .unwrap_or(base)
-        .bg(bg);
-    if word_level_should_emphasize(text, kind) {
-        style = match kind {
-            crate::native_diff::DiffLineKind::Added => {
-                style.fg(app.palette.green).add_modifier(Modifier::BOLD)
-            }
-            crate::native_diff::DiffLineKind::Removed => {
-                style.fg(app.palette.red).add_modifier(Modifier::BOLD)
-            }
-            crate::native_diff::DiffLineKind::Context => style,
-        };
+    if kind == crate::native_diff::DiffLineKind::Context {
+        return spans;
     }
-    Span::styled(rendered, style)
+    spans
 }
 
-fn word_level_should_emphasize(text: &str, kind: crate::native_diff::DiffLineKind) -> bool {
-    kind != crate::native_diff::DiffLineKind::Context
-        && text.chars().any(|ch| ch.is_alphanumeric())
-        && text
-            .chars()
-            .any(|ch| matches!(ch, '_' | '-' | '"' | '\'' | ':' | '='))
-}
 
-fn syntax_style_for_text(
+
+fn syntax_spans_for_text(
     app: &AppState,
     file: &crate::native_diff::NativeDiffFile,
     text: &str,
-) -> Option<Style> {
+    width: usize,
+    base: Style,
+    bg: Color,
+) -> Option<Vec<Span<'static>>> {
+    if width == 0 {
+        return Some(Vec::new());
+    }
     if text.trim().is_empty() {
         return None;
     }
@@ -1175,21 +1163,63 @@ fn syntax_style_for_text(
     let mut highlighter = syntect::easy::HighlightLines::new(syntax, theme);
     let line = format!("{text}\n");
     let ranges = highlighter.highlight_line(&line, syntax_set).ok()?;
-    let style = ranges
-        .iter()
-        .find(|(_, segment)| segment.trim().chars().any(|ch| ch.is_alphanumeric()))
-        .map(|(style, _)| *style)?;
-    Some(map_syntect_style(app, style))
+    let mut spans = Vec::new();
+    let mut remaining = width;
+    for (style, segment) in ranges {
+        if remaining == 0 {
+            break;
+        }
+        let segment = segment.trim_end_matches('\n');
+        if segment.is_empty() {
+            continue;
+        }
+        let chunk = take_chars(segment, remaining);
+        remaining = remaining.saturating_sub(chunk.chars().count());
+        spans.push(Span::styled(
+            chunk,
+            merge_native_diff_syntax_style(base, map_syntect_color(app, style), bg),
+        ));
+    }
+    if spans.is_empty() {
+        None
+    } else {
+        Some(spans)
+    }
+}
+
+fn take_chars(text: &str, width: usize) -> String {
+    text.chars().take(width).collect()
 }
 
 fn native_diff_syntax_for_file(
     file: &crate::native_diff::NativeDiffFile,
 ) -> Option<&'static syntect::parsing::SyntaxReference> {
     let path = file.new_path.as_ref().or(file.old_path.as_ref())?;
-    native_diff_syntax_set()
+    let syntax_set = native_diff_syntax_set();
+    syntax_set
         .find_syntax_for_file(path)
         .ok()
         .flatten()
+        .or_else(|| {
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .and_then(|extension| syntax_set.find_syntax_by_extension(extension))
+        })
+        .or_else(|| {
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .and_then(|extension| match extension {
+                    "ts" | "tsx" => syntax_set.find_syntax_by_extension("js"),
+                    "rs" => syntax_set.find_syntax_by_extension("rust"),
+                    _ => None,
+                })
+        })
+}
+
+fn native_diff_divider_style(app: &AppState) -> Style {
+    Style::default()
+        .fg(app.palette.overlay0)
+        .bg(app.palette.panel_bg)
 }
 
 fn native_diff_syntax_set() -> &'static syntect::parsing::SyntaxSet {
@@ -1210,26 +1240,41 @@ fn native_diff_syntax_theme() -> &'static syntect::highlighting::Theme {
     })
 }
 
-fn map_syntect_style(app: &AppState, style: syntect::highlighting::Style) -> Style {
+fn map_syntect_color(app: &AppState, style: syntect::highlighting::Style) -> Color {
     let fg = style.foreground;
     let max = fg.r.max(fg.g).max(fg.b);
     let min = fg.r.min(fg.g).min(fg.b);
-    let color = if max.saturating_sub(min) < 24 {
-        app.palette.text
-    } else if fg.g > fg.r && fg.g >= fg.b {
-        app.palette.green
-    } else if fg.r > fg.g && fg.r >= fg.b {
-        if fg.b > fg.g {
+    if max.saturating_sub(min) < 18 {
+        return app.palette.text;
+    }
+
+    if fg.r >= fg.g && fg.r >= fg.b {
+        if fg.g > fg.b.saturating_add(24) {
+            app.palette.yellow
+        } else if fg.b > fg.g.saturating_add(18) {
             app.palette.mauve
         } else {
             app.palette.red
         }
-    } else if fg.b > fg.r && fg.b >= fg.g {
-        app.palette.teal
+    } else if fg.g >= fg.r && fg.g >= fg.b {
+        if fg.b > fg.r.saturating_add(18) {
+            app.palette.teal
+        } else {
+            app.palette.green
+        }
+    } else if fg.b >= fg.r && fg.b >= fg.g {
+        if fg.r > fg.g.saturating_add(18) {
+            app.palette.mauve
+        } else {
+            app.palette.blue
+        }
     } else {
         app.palette.text
-    };
-    Style::default().fg(color)
+    }
+}
+
+fn merge_native_diff_syntax_style(base: Style, fg: Color, bg: Color) -> Style {
+    base.fg(fg).bg(bg)
 }
 
 fn native_diff_rail_span(app: &AppState, kind: crate::native_diff::DiffLineKind) -> Span<'static> {
@@ -1251,6 +1296,7 @@ fn native_diff_rail_span(app: &AppState, kind: crate::native_diff::DiffLineKind)
         }
     }
 }
+
 fn native_diff_split_rail_span(
     app: &AppState,
     kind: crate::native_diff::DiffLineKind,
@@ -1281,21 +1327,57 @@ fn native_diff_line_bg(app: &AppState, kind: crate::native_diff::DiffLineKind) -
 }
 
 fn native_diff_added_bg(app: &AppState) -> Color {
-    mix_palette_color(app.palette.panel_bg, app.palette.green, 0.16)
+    mix_palette_color(diff_tint_base(app), app.palette.green, 0.18)
 }
 
 fn native_diff_removed_bg(app: &AppState) -> Color {
-    mix_palette_color(app.palette.panel_bg, app.palette.red, 0.18)
+    mix_palette_color(diff_tint_base(app), app.palette.red, 0.20)
+}
+
+fn diff_tint_base(app: &AppState) -> Color {
+    match app.palette.panel_bg {
+        Color::Reset => match app.palette.surface_dim {
+            Color::Rgb(_, _, _) => app.palette.surface_dim,
+            _ => Color::Rgb(36, 34, 40),
+        },
+        color => color,
+    }
 }
 
 fn mix_palette_color(base: Color, tint: Color, amount: f32) -> Color {
-    match (base, tint) {
-        (Color::Rgb(base_r, base_g, base_b), Color::Rgb(tint_r, tint_g, tint_b)) => Color::Rgb(
-            mix_channel(base_r, tint_r, amount),
-            mix_channel(base_g, tint_g, amount),
-            mix_channel(base_b, tint_b, amount),
-        ),
-        _ => base,
+    let Some((base_r, base_g, base_b)) = color_rgb(base) else {
+        return tint;
+    };
+    let Some((tint_r, tint_g, tint_b)) = color_rgb(tint) else {
+        return base;
+    };
+    Color::Rgb(
+        mix_channel(base_r, tint_r, amount),
+        mix_channel(base_g, tint_g, amount),
+        mix_channel(base_b, tint_b, amount),
+    )
+}
+
+fn color_rgb(color: Color) -> Option<(u8, u8, u8)> {
+    match color {
+        Color::Rgb(r, g, b) => Some((r, g, b)),
+        Color::Black => Some((0, 0, 0)),
+        Color::Red => Some((205, 49, 49)),
+        Color::Green => Some((13, 188, 121)),
+        Color::Yellow => Some((229, 229, 16)),
+        Color::Blue => Some((36, 114, 200)),
+        Color::Magenta => Some((188, 63, 188)),
+        Color::Cyan => Some((17, 168, 205)),
+        Color::Gray => Some((102, 102, 102)),
+        Color::DarkGray => Some((59, 59, 59)),
+        Color::LightRed => Some((241, 76, 76)),
+        Color::LightGreen => Some((35, 209, 139)),
+        Color::LightYellow => Some((245, 245, 67)),
+        Color::LightBlue => Some((59, 142, 234)),
+        Color::LightMagenta => Some((214, 112, 214)),
+        Color::LightCyan => Some((41, 184, 219)),
+        Color::White => Some((229, 229, 229)),
+        _ => None,
     }
 }
 
@@ -1381,14 +1463,14 @@ fn native_diff_line_styles(
             Style::default()
                 .fg(app.palette.green)
                 .add_modifier(Modifier::BOLD),
-            Style::default().fg(app.palette.green),
+            Style::default().fg(app.palette.text),
         ),
         crate::native_diff::DiffLineKind::Removed => (
             "-",
             Style::default()
                 .fg(app.palette.red)
                 .add_modifier(Modifier::BOLD),
-            Style::default().fg(app.palette.red),
+            Style::default().fg(app.palette.text),
         ),
     }
 }
