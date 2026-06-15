@@ -419,7 +419,13 @@ impl NativeDiffPaneState {
                     run_index,
                 };
                 run_index += 1;
-                if count >= MIN_FOLD && !self.context_expanded(key) {
+                if count >= MIN_FOLD && self.context_expanded(key) {
+                    if row == target_row {
+                        matched = Some(key);
+                        break;
+                    }
+                    row += 1 + count;
+                } else if count >= MIN_FOLD {
                     row += CONTEXT_EDGE;
                     if row == target_row {
                         matched = Some(key);
@@ -1004,6 +1010,28 @@ mod tests {
         state.scroll_diff(100, 3);
 
         assert_eq!(state.diff_scroll, 4);
+    }
+
+    #[test]
+    fn toggles_collapsed_and_expanded_context_rows() {
+        let patch =
+            b"--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,12 +1,12 @@\n one\n two\n three\n four\n five\n six\n seven\n eight\n nine\n ten\n-old\n+new\n twelve\n";
+        let mut state = NativeDiffPaneState::new(
+            parse_native_diff_session("/repo", patch, b"").expect("parse"),
+        );
+
+        assert!(state.toggle_visible_context_row(5));
+        assert!(state.context_expanded(NativeDiffContextKey {
+            file_index: 0,
+            hunk_index: 0,
+            run_index: 0,
+        }));
+        assert!(state.toggle_visible_context_row(2));
+        assert!(!state.context_expanded(NativeDiffContextKey {
+            file_index: 0,
+            hunk_index: 0,
+            run_index: 0,
+        }));
     }
 
     #[test]

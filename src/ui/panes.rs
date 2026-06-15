@@ -598,10 +598,14 @@ fn render_native_diff_footer(
             Span::styled("↑↓", Style::default().fg(app.palette.text)),
             Span::styled(" · hunk ", Style::default().fg(app.palette.subtext0)),
             Span::styled("[]", Style::default().fg(app.palette.text)),
-            Span::styled(" · stage ", Style::default().fg(app.palette.subtext0)),
-            Span::styled("s", Style::default().fg(app.palette.text)),
-            Span::styled(" · unstage ", Style::default().fg(app.palette.subtext0)),
-            Span::styled("u", Style::default().fg(app.palette.text)),
+            Span::styled(" · file ", Style::default().fg(app.palette.subtext0)),
+            Span::styled("stage s", Style::default().fg(app.palette.text)),
+            Span::styled(" / ", Style::default().fg(app.palette.subtext0)),
+            Span::styled("unstage u", Style::default().fg(app.palette.text)),
+            Span::styled(" · hunk ", Style::default().fg(app.palette.subtext0)),
+            Span::styled("stage S", Style::default().fg(app.palette.text)),
+            Span::styled(" / ", Style::default().fg(app.palette.subtext0)),
+            Span::styled("unstage U", Style::default().fg(app.palette.text)),
             Span::styled(
                 if diff.show_file_list {
                     " · hide files "
@@ -848,8 +852,12 @@ fn push_native_diff_unified_lines(
                         ]));
                     }
                 }
-                RenderDiffRow::Fold { key, count } => {
-                    push_native_diff_fold_line(lines, app, key, count, area_width);
+                RenderDiffRow::Fold {
+                    key,
+                    count,
+                    expanded,
+                } => {
+                    push_native_diff_fold_line(lines, app, key, count, expanded, area_width);
                 }
             }
         }
@@ -890,6 +898,12 @@ fn push_native_diff_split_lines(
                     } else {
                         app.palette.panel_bg
                     };
+                    let left_struct_bg = if added { app.palette.panel_bg } else { left_bg };
+                    let right_struct_bg = if removed {
+                        app.palette.panel_bg
+                    } else {
+                        right_bg
+                    };
                     let left_style = if removed {
                         Style::default().fg(app.palette.red).bg(left_bg)
                     } else {
@@ -916,33 +930,33 @@ fn push_native_diff_split_lines(
                         let left_chunk = left_chunks.get(index).cloned().unwrap_or_default();
                         let right_chunk = right_chunks.get(index).cloned().unwrap_or_default();
                         lines.push(Line::from(vec![
-                            native_diff_rail_span(app, line.kind),
+                            native_diff_split_rail_span(app, line.kind, true, left_struct_bg),
                             Span::styled(
                                 if first {
                                     format_line_number(line.old_line, gutter_width)
                                 } else {
                                     " ".repeat(gutter_width)
                                 },
-                                native_diff_gutter_style(app, line.kind, true).bg(left_bg),
+                                native_diff_gutter_style(app, line.kind, true).bg(left_struct_bg),
                             ),
                             Span::styled(
                                 if first && removed { " -" } else { "  " },
-                                Style::default().fg(app.palette.red).bg(left_bg),
+                                Style::default().fg(app.palette.red).bg(left_struct_bg),
                             ),
                             Span::styled(pad_truncate_label(&left_chunk, left_width), left_style),
-                            Span::styled(" ", Style::default().bg(left_bg)),
-                            Span::styled(" ", Style::default().bg(right_bg)),
+                            Span::styled("│", Style::default().fg(app.palette.surface_dim)),
+                            native_diff_split_rail_span(app, line.kind, false, right_struct_bg),
                             Span::styled(
                                 if first {
                                     format_line_number(line.new_line, gutter_width)
                                 } else {
                                     " ".repeat(gutter_width)
                                 },
-                                native_diff_gutter_style(app, line.kind, false).bg(right_bg),
+                                native_diff_gutter_style(app, line.kind, false).bg(right_struct_bg),
                             ),
                             Span::styled(
                                 if first && added { " +" } else { "  " },
-                                Style::default().fg(app.palette.green).bg(right_bg),
+                                Style::default().fg(app.palette.green).bg(right_struct_bg),
                             ),
                             Span::styled(
                                 pad_truncate_label(&right_chunk, right_width),
@@ -951,8 +965,12 @@ fn push_native_diff_split_lines(
                         ]));
                     }
                 }
-                RenderDiffRow::Fold { key, count } => {
-                    push_native_diff_fold_line(lines, app, key, count, area_width);
+                RenderDiffRow::Fold {
+                    key,
+                    count,
+                    expanded,
+                } => {
+                    push_native_diff_fold_line(lines, app, key, count, expanded, area_width);
                 }
             }
         }
@@ -964,6 +982,7 @@ enum RenderDiffRow<'a> {
     Fold {
         key: crate::native_diff::NativeDiffContextKey,
         count: usize,
+        expanded: bool,
     },
 }
 
@@ -1002,13 +1021,23 @@ fn native_diff_hunk_rows<'a>(
             run_index,
         };
         run_index += 1;
-        if count >= MIN_FOLD && !diff.context_expanded(key) {
+        if count >= MIN_FOLD && diff.context_expanded(key) {
+            rows.push(RenderDiffRow::Fold {
+                key,
+                count,
+                expanded: true,
+            });
+            for line in &hunk.lines[start..index] {
+                rows.push(RenderDiffRow::Line(line));
+            }
+        } else if count >= MIN_FOLD {
             for line in &hunk.lines[start..start + CONTEXT_EDGE] {
                 rows.push(RenderDiffRow::Line(line));
             }
             rows.push(RenderDiffRow::Fold {
                 key,
                 count: count - CONTEXT_EDGE * 2,
+                expanded: false,
             });
             for line in &hunk.lines[index - CONTEXT_EDGE..index] {
                 rows.push(RenderDiffRow::Line(line));
@@ -1048,9 +1077,18 @@ fn push_native_diff_hunk_header(
     } else {
         app.palette.surface_dim
     };
+    let marker = if diff.selected_hunk == Some(hunk_index) {
+        "▸"
+    } else {
+        "›"
+    };
     let text = format!(
-        " @@ -{},{} +{},{} @@",
-        hunk.old_start, hunk.old_count, hunk.new_start, hunk.new_count
+        " {marker} hunk {}  -{},{} +{},{}",
+        hunk_index + 1,
+        hunk.old_start,
+        hunk.old_count,
+        hunk.new_start,
+        hunk.new_count
     );
     lines.push(Line::from(vec![Span::styled(
         pad_truncate_label(&text, area_width as usize),
@@ -1078,6 +1116,26 @@ fn native_diff_rail_span(app: &AppState, kind: crate::native_diff::DiffLineKind)
         crate::native_diff::DiffLineKind::Context => {
             Span::styled(" ", Style::default().bg(app.palette.panel_bg))
         }
+    }
+}
+fn native_diff_split_rail_span(
+    app: &AppState,
+    kind: crate::native_diff::DiffLineKind,
+    old_side: bool,
+    bg: Color,
+) -> Span<'static> {
+    match (kind, old_side) {
+        (crate::native_diff::DiffLineKind::Removed, true) => {
+            Span::styled("█", Style::default().fg(app.palette.red).bg(bg))
+        }
+        (crate::native_diff::DiffLineKind::Added, false) => {
+            Span::styled("█", Style::default().fg(app.palette.green).bg(bg))
+        }
+        (crate::native_diff::DiffLineKind::Added, true)
+        | (crate::native_diff::DiffLineKind::Removed, false) => {
+            Span::styled("█", Style::default().fg(app.palette.surface_dim).bg(bg))
+        }
+        _ => Span::styled(" ", Style::default().bg(bg)),
     }
 }
 
@@ -1119,10 +1177,13 @@ fn push_native_diff_fold_line(
     app: &AppState,
     key: crate::native_diff::NativeDiffContextKey,
     count: usize,
+    expanded: bool,
     area_width: u16,
 ) {
     let marker = if count == 1 { "line" } else { "lines" };
-    let text = format!("  ⌄ {count} unmodified {marker}");
+    let arrow = if expanded { "⌃" } else { "⌄" };
+    let action = if expanded { "collapse" } else { "expand" };
+    let text = format!("  {arrow} {action} {count} unmodified {marker}");
     let _ = key;
     lines.push(Line::from(vec![Span::styled(
         pad_truncate_label(&text, area_width as usize),
@@ -1133,7 +1194,7 @@ fn push_native_diff_fold_line(
 }
 
 fn split_left_text_width(area_width: u16, gutter_width: usize) -> usize {
-    (area_width as usize / 2).saturating_sub(gutter_width + 5)
+    (area_width as usize / 2).saturating_sub(gutter_width + 3)
 }
 
 fn split_right_text_width(area_width: u16, gutter_width: usize) -> usize {
