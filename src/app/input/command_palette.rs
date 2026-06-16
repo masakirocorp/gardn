@@ -171,10 +171,10 @@ pub(super) fn scroll_command_palette_rows(state: &mut AppState, delta: i16) {
 }
 
 pub(super) fn hover_command_palette_selection(state: &mut AppState, col: u16, row: u16) {
-    let Some((list_area, rows, viewport)) = command_palette_viewport(state) else {
+    let Some((list, rows)) = command_palette_viewport(state) else {
         return;
     };
-    let Some(row_idx) = viewport.hit_visual_row(list_area, col, row) else {
+    let Some(row_idx) = list.hit_visual_row(col, row) else {
         return;
     };
 
@@ -234,31 +234,33 @@ pub(super) fn set_command_palette_offset_from_bottom(
     state: &mut AppState,
     offset_from_bottom: usize,
 ) {
-    let Some((_, _, viewport)) = command_palette_viewport(state) else {
+    let Some((list, _)) = command_palette_viewport(state) else {
         state.command_palette.scroll = 0;
         return;
     };
-    state.command_palette.scroll = viewport.scroll_from_offset_from_bottom(offset_from_bottom);
+    state.command_palette.scroll = list
+        .viewport
+        .scroll_from_offset_from_bottom(offset_from_bottom);
 }
 
 fn command_palette_scroll_metrics(state: &AppState) -> Option<crate::pane::ScrollMetrics> {
-    let (_, _, viewport) = command_palette_viewport(state)?;
-    Some(viewport.metrics())
+    let (list, _) = command_palette_viewport(state)?;
+    Some(list.metrics())
 }
 
 fn command_palette_max_scroll(state: &AppState) -> usize {
     command_palette_viewport(state)
-        .map(|(_, _, viewport)| viewport.max_scroll())
+        .map(|(list, _)| list.viewport.max_scroll())
         .unwrap_or(0)
 }
 
 fn command_palette_scrollbar_track(state: &AppState) -> Option<Rect> {
-    let (list_area, _, viewport) = command_palette_viewport(state)?;
-    viewport.scroll_area(list_area).track
+    let (list, _) = command_palette_viewport(state)?;
+    list.scroll_area.track
 }
 
 fn ensure_command_palette_selection_visible(state: &mut AppState) {
-    let Some((_, rows, viewport)) = command_palette_viewport(state) else {
+    let Some((list, rows)) = command_palette_viewport(state) else {
         state.command_palette.scroll = 0;
         return;
     };
@@ -267,34 +269,31 @@ fn ensure_command_palette_selection_visible(state: &mut AppState) {
         .iter()
         .position(|row| *row == Some(state.command_palette.selected))
     else {
-        state.command_palette.scroll = viewport.scroll();
+        state.command_palette.scroll = list.viewport.scroll();
         return;
     };
 
     let first_section_row = selected_row
         .checked_sub(1)
         .filter(|idx| rows.get(*idx).is_some_and(Option::is_none));
-    state.command_palette.scroll = viewport.ensure_visible(selected_row, first_section_row);
+    state.command_palette.scroll = list
+        .viewport
+        .ensure_visible(selected_row, first_section_row);
 }
 
 fn command_palette_viewport(
     state: &AppState,
-) -> Option<(Rect, Vec<Option<usize>>, crate::ui::ModalListViewport)> {
-    let (list_area, rows) = command_palette_rows_for_input(state)?;
-    let viewport = crate::ui::ModalListViewport::new(
+) -> Option<(crate::ui::ModalListGeometry, Vec<Option<usize>>)> {
+    let rows = command_palette_rows_for_input(state)?;
+    let list = crate::ui::command_palette_list_geometry(
+        state.screen_rect(),
         rows.len(),
-        list_area.height as usize,
         state.command_palette.scroll,
-    );
-    Some((list_area, rows, viewport))
+    )?;
+    Some((list, rows))
 }
 
-fn command_palette_rows_for_input(state: &AppState) -> Option<(Rect, Vec<Option<usize>>)> {
-    let list_area = command_palette_list_area(state)?;
-    if list_area.height == 0 {
-        return None;
-    }
-
+fn command_palette_rows_for_input(state: &AppState) -> Option<Vec<Option<usize>>> {
     let commands = command_palette_visible_commands(state);
     if commands.is_empty() {
         return None;
@@ -312,31 +311,12 @@ fn command_palette_rows_for_input(state: &AppState) -> Option<(Rect, Vec<Option<
         rows.push(Some(idx));
     }
 
-    Some((list_area, rows))
+    Some(rows)
 }
 
-fn command_palette_list_area(state: &AppState) -> Option<Rect> {
-    let inner = command_palette_inner_rect(state)?;
-    if inner.height < 6 || inner.width < 20 {
-        return None;
-    }
-
-    Some(Rect::new(
-        inner.x,
-        inner.y + 3,
-        inner.width,
-        inner.height.saturating_sub(6),
-    ))
-}
 
 fn command_palette_inner_rect(state: &AppState) -> Option<Rect> {
-    let popup = command_palette_popup_rect(state)?;
-    Some(Rect::new(
-        popup.x + 1,
-        popup.y + 1,
-        popup.width.saturating_sub(2),
-        popup.height.saturating_sub(2),
-    ))
+    crate::ui::command_palette_inner_rect(state.screen_rect())
 }
 
 fn command_palette_popup_rect(state: &AppState) -> Option<Rect> {

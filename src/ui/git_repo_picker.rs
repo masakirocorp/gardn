@@ -13,7 +13,7 @@ use super::{
     widgets::{
         modal_hint_line_count, modal_section_heading_style, modal_stack_areas, panel_contrast_fg,
         render_modal_description, render_modal_divider, render_modal_header_bar,
-        render_modal_hint_lines, render_modal_shell,
+        render_modal_hint_lines, render_modal_shell, ModalListGeometry,
     },
 };
 
@@ -149,31 +149,44 @@ fn git_repo_picker_content_rows(inner: Rect) -> Option<[Rect; 5]> {
     )
 }
 
-pub(crate) fn git_repo_picker_list_area(area: Rect, _app: &AppState) -> Option<Rect> {
-    let inner = git_repo_picker_inner_rect(area)?;
+pub(crate) fn git_repo_picker_list_geometry(app: &AppState) -> Option<ModalListGeometry> {
+    let layout = git_repo_picker_layout(app)?;
+    Some(layout.list)
+}
+
+pub(crate) fn git_repo_picker_index_at(app: &AppState, col: u16, row: u16) -> Option<usize> {
+    let layout = git_repo_picker_layout(app)?;
+    let visual_row = layout.list.hit_visual_row(col, row)?;
+    let index = visual_row / 2;
+    (index < app.git_repo_picker.roots.len()).then_some(index)
+}
+
+struct GitRepoPickerLayout {
+    inner: Rect,
+    stack: super::widgets::ModalStackAreas,
+    content_rows: [Rect; 5],
+    list: ModalListGeometry,
+}
+
+fn git_repo_picker_layout(app: &AppState) -> Option<GitRepoPickerLayout> {
+    let inner = git_repo_picker_inner_rect(app.screen_rect())?;
     if inner.height < 12 || inner.width < 28 {
         return None;
     }
-    Some(git_repo_picker_content_rows(inner)?[4])
-}
-
-pub(crate) fn git_repo_picker_index_at(
-    app: &AppState,
-    area: Rect,
-    col: u16,
-    row: u16,
-) -> Option<usize> {
-    let list_area = git_repo_picker_list_area(area, app)?;
-    if col < list_area.x
-        || col >= list_area.x.saturating_add(list_area.width)
-        || row < list_area.y
-        || row >= list_area.y.saturating_add(list_area.height)
-    {
-        return None;
-    }
-    let relative_row = row.saturating_sub(list_area.y) as usize;
-    let index = app.git_repo_picker.scroll + relative_row / 2;
-    (index < app.git_repo_picker.roots.len()).then_some(index)
+    let footer_rows = modal_hint_line_count(inner.width, GIT_REPO_PICKER_HINTS, 2);
+    let stack = modal_stack_areas(inner, HEADER_ROWS, footer_rows, 0, 1);
+    let content_rows = git_repo_picker_content_rows(inner)?;
+    let list = ModalListGeometry::new(
+        content_rows[4],
+        app.git_repo_picker.roots.len() * 2,
+        app.git_repo_picker.scroll * 2,
+    );
+    Some(GitRepoPickerLayout {
+        inner,
+        stack,
+        content_rows,
+        list,
+    })
 }
 
 fn picker_palette(app: &AppState) -> crate::app::state::Palette {
@@ -184,16 +197,23 @@ pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) 
     super::dim_background(frame, frame.area());
 
     let palette = picker_palette(app);
-    let Some(inner) = render_modal_shell(frame, frame.area(), POPUP_WIDTH, POPUP_HEIGHT, &palette)
-    else {
+    let Some(layout) = git_repo_picker_layout(app) else {
         return;
     };
-    if inner.height < 12 || inner.width < 28 {
+    let Some(inner) = render_modal_shell(
+        frame,
+        app.screen_rect(),
+        POPUP_WIDTH,
+        POPUP_HEIGHT,
+        &palette,
+    ) else {
+        return;
+    };
+    if inner != layout.inner {
         return;
     }
 
-    let footer_rows = modal_hint_line_count(inner.width, GIT_REPO_PICKER_HINTS, 2);
-    let stack = modal_stack_areas(inner, HEADER_ROWS, footer_rows, 0, 1);
+    let stack = layout.stack;
     let header_rows = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
@@ -204,7 +224,7 @@ pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) 
     render_modal_header_bar(frame, header_rows[0], "git diff", &palette, true);
     render_modal_divider(frame, header_rows[2], &palette);
 
-    let content_rows = git_repo_picker_content_rows(inner).unwrap();
+    let content_rows = layout.content_rows;
     frame.render_widget(
         Paragraph::new(Span::styled(
             " repositories",
@@ -233,14 +253,9 @@ pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) 
         content_rows[3],
     );
 
-    let total_rows = app.git_repo_picker.roots.len() * 2;
-    let viewport = crate::ui::ModalListViewport::new(
-        total_rows,
-        content_rows[4].height as usize,
-        app.git_repo_picker.scroll * 2,
-    );
-    let scroll_area = viewport.scroll_area(content_rows[4]);
-    let first_repo = viewport.scroll() / 2;
+    let list = layout.list;
+    let scroll_area = list.scroll_area;
+    let first_repo = list.viewport.scroll() / 2;
     let visible_repo_count = (scroll_area.body.height as usize).div_ceil(2);
     let last_repo = first_repo
         .saturating_add(visible_repo_count)
@@ -304,7 +319,7 @@ pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) 
     if let Some(track) = scroll_area.track {
         render_scrollbar(
             frame,
-            viewport.metrics(),
+            list.metrics(),
             track,
             palette.surface_dim,
             palette.overlay0,
@@ -314,5 +329,45 @@ pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) 
 
     if let Some(footer_area) = stack.footer {
         render_modal_hint_lines(frame, footer_area, &palette, GIT_REPO_PICKER_HINTS, 2);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{backend::TestBackend, Terminal};
+
+    use super::*;
+
+    #[test]
+    fn git_repo_picker_hit_test_uses_rendered_repo_row() {
+        let mut app = AppState::test_new();
+        crate::ui::compute_view(&mut app, Rect::new(0, 0, 119, 24));
+        app.workspaces = vec![crate::workspace::Workspace::test_new("fake mono")];
+        app.git_repo_picker.ws_idx = 0;
+        app.git_repo_picker.roots = vec![
+            std::path::PathBuf::from("/tmp/fake-mono/api"),
+            std::path::PathBuf::from("/tmp/fake-mono/web"),
+        ];
+
+        let backend = TestBackend::new(119, 24);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_git_repo_picker_overlay(&app, frame))
+            .expect("render git repo picker");
+        let buffer = terminal.backend().buffer();
+        let (web_x, web_y) = (0..24)
+            .find_map(|y| {
+                (0..116).find_map(|x| {
+                    ["w", "e", "b"]
+                        .iter()
+                        .enumerate()
+                        .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == *ch)
+                        .then_some((x, y))
+                })
+            })
+            .expect("rendered repo");
+
+        assert_eq!(git_repo_picker_index_at(&app, web_x, web_y), Some(1));
+        assert_eq!(git_repo_picker_index_at(&app, web_x, web_y + 1), Some(1));
     }
 }

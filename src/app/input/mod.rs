@@ -393,7 +393,6 @@ impl App {
                 MouseEventKind::Down(MouseButton::Left) => {
                     if let Some(idx) = crate::ui::git_repo_picker::git_repo_picker_index_at(
                         &self.state,
-                        self.state.view.terminal_area,
                         mouse.column,
                         mouse.row,
                     ) {
@@ -408,12 +407,10 @@ impl App {
                     return;
                 }
                 MouseEventKind::ScrollDown => {
-                    let visible_repos = crate::ui::git_repo_picker::git_repo_picker_list_area(
-                        self.state.view.terminal_area,
-                        &self.state,
-                    )
-                    .map(|area| (area.height as usize).div_ceil(2).max(1))
-                    .unwrap_or(1);
+                    let visible_repos =
+                        crate::ui::git_repo_picker::git_repo_picker_list_geometry(&self.state)
+                            .map(|list| (list.scroll_area.body.height as usize).div_ceil(2).max(1))
+                            .unwrap_or(1);
                     let max_scroll = self
                         .state
                         .git_repo_picker
@@ -439,7 +436,6 @@ impl App {
                 MouseEventKind::Moved => {
                     if let Some(idx) = crate::ui::git_repo_picker::git_repo_picker_index_at(
                         &self.state,
-                        self.state.view.terminal_area,
                         mouse.column,
                         mouse.row,
                     ) {

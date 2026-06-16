@@ -323,15 +323,22 @@ fn settings_section_list_rect(state: &AppState, section: SettingsSection) -> Rec
     }
 }
 
+fn settings_section_list_geometry(
+    state: &AppState,
+    section: SettingsSection,
+) -> crate::ui::ModalListGeometry {
+    crate::ui::ModalListGeometry::new(
+        settings_section_list_rect(state, section),
+        settings_section_scroll_len(state, section),
+        state.settings.scroll,
+    )
+}
+
 fn settings_section_viewport(
     state: &AppState,
     section: SettingsSection,
 ) -> crate::ui::ModalListViewport {
-    crate::ui::ModalListViewport::new(
-        settings_section_scroll_len(state, section),
-        settings_section_list_rect(state, section).height as usize,
-        state.settings.scroll,
-    )
+    settings_section_list_geometry(state, section).viewport
 }
 
 fn settings_theme_viewport(state: &AppState) -> crate::ui::ModalListViewport {
@@ -1921,9 +1928,8 @@ impl AppState {
 
         match self.settings.section {
             SettingsSection::Theme => {
-                let list_area = settings_section_list_rect(self, SettingsSection::Theme);
-                let visual_row =
-                    settings_theme_viewport(self).hit_visual_row(list_area, col, row)?;
+                let list = settings_section_list_geometry(self, SettingsSection::Theme);
+                let visual_row = list.hit_visual_row(col, row)?;
                 theme_selection_for_visual_row(self, visual_row)
             }
             SettingsSection::Layout
@@ -1933,17 +1939,10 @@ impl AppState {
             | SettingsSection::Experiments
             | SettingsSection::Agents
             | SettingsSection::GroupGeneral
-            | SettingsSection::GroupProfiles => {
-                let list_area = settings_section_list_rect(self, self.settings.section);
-                let visual_row = settings_section_viewport(self, self.settings.section)
-                    .hit_visual_row(list_area, col, row)?;
-                let rows = rows_for_section(self, self.settings.section)?;
-                option_index_for_visual_row(&rows, visual_row)
-            }
-            SettingsSection::Integrations => {
-                let list_area = settings_section_list_rect(self, self.settings.section);
-                let visual_row = settings_section_viewport(self, self.settings.section)
-                    .hit_visual_row(list_area, col, row)?;
+            | SettingsSection::GroupProfiles
+            | SettingsSection::Integrations => {
+                let list = settings_section_list_geometry(self, self.settings.section);
+                let visual_row = list.hit_visual_row(col, row)?;
                 let rows = rows_for_section(self, self.settings.section)?;
                 option_index_for_visual_row(&rows, visual_row)
             }
@@ -1958,10 +1957,9 @@ impl AppState {
         if self.settings.section != SettingsSection::Theme {
             return None;
         }
-        let list_area = crate::ui::settings_section_list_rect(self.settings_content_rect());
-        let viewport = settings_theme_viewport(self);
-        let metrics = viewport.metrics();
-        let track = viewport.scroll_area(list_area).track?;
+        let list = settings_section_list_geometry(self, SettingsSection::Theme);
+        let metrics = list.metrics();
+        let track = list.scroll_area.track?;
         if !(col >= track.x
             && col < track.x + track.width
             && row >= track.y
@@ -1982,10 +1980,9 @@ impl AppState {
         if self.settings.section != SettingsSection::Theme {
             return None;
         }
-        let list_area = crate::ui::settings_section_list_rect(self.settings_content_rect());
-        let viewport = settings_theme_viewport(self);
-        let metrics = viewport.metrics();
-        let track = viewport.scroll_area(list_area).track?;
+        let list = settings_section_list_geometry(self, SettingsSection::Theme);
+        let metrics = list.metrics();
+        let track = list.scroll_area.track?;
         Some(crate::ui::scrollbar_offset_from_drag_row(
             metrics,
             track,

@@ -19,7 +19,7 @@ use super::{
         action_button_row_rects, modal_scroll_hint_line_count, modal_section_heading_style,
         panel_contrast_fg, primary_action_style, render_action_button, render_modal_header_bar,
         render_modal_scroll_hints, render_modal_shell, render_modal_subtitle,
-        render_modal_text_input, ActionButtonSpec,
+        render_modal_text_input, ActionButtonSpec, ModalListGeometry,
     },
 };
 
@@ -33,6 +33,45 @@ fn command_palette_height(area: Rect) -> u16 {
 
 pub(crate) fn command_palette_popup_rect(area: Rect) -> Option<Rect> {
     super::centered_popup_rect(area, 76, command_palette_height(area))
+}
+
+pub(crate) fn command_palette_inner_rect(area: Rect) -> Option<Rect> {
+    let popup = command_palette_popup_rect(area)?;
+    Some(Rect::new(
+        popup.x + 1,
+        popup.y + 1,
+        popup.width.saturating_sub(2),
+        popup.height.saturating_sub(2),
+    ))
+}
+
+pub(crate) fn command_palette_content_rows(inner: Rect) -> Option<[Rect; 7]> {
+    if inner.height < 6 || inner.width < 20 {
+        return None;
+    }
+    let hint_rows = modal_scroll_hint_line_count(inner.width, 2);
+    Some(
+        Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
+            Constraint::Length(hint_rows),
+            Constraint::Length(1),
+        ])
+        .areas::<7>(inner),
+    )
+}
+
+pub(crate) fn command_palette_list_geometry(
+    area: Rect,
+    total_rows: usize,
+    scroll: usize,
+) -> Option<ModalListGeometry> {
+    let inner = command_palette_inner_rect(area)?;
+    let rows = command_palette_content_rows(inner)?;
+    Some(ModalListGeometry::new(rows[3], total_rows, scroll))
 }
 
 pub(crate) fn command_palette_button_rects(inner: Rect) -> (Rect, Rect) {
@@ -53,30 +92,20 @@ pub(crate) fn command_palette_button_rects(inner: Rect) -> (Rect, Rect) {
 pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) {
     super::dim_background(frame, frame.area());
 
-    let Some(inner) = render_modal_shell(
-        frame,
-        frame.area(),
-        76,
-        command_palette_height(frame.area()),
-        &app.palette,
-    ) else {
+    let screen = app.screen_rect();
+    let area = if screen.width >= 4 && screen.height >= 4 {
+        screen
+    } else {
+        frame.area()
+    };
+    let Some(inner) =
+        render_modal_shell(frame, area, 76, command_palette_height(area), &app.palette)
+    else {
         return;
     };
-    if inner.height < 6 || inner.width < 20 {
+    let Some(rows) = command_palette_content_rows(inner) else {
         return;
-    }
-
-    let hint_rows = modal_scroll_hint_line_count(inner.width, 2);
-    let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Min(1),
-        Constraint::Length(1),
-        Constraint::Length(hint_rows),
-        Constraint::Length(1),
-    ])
-    .areas::<7>(inner);
+    };
 
     render_modal_header_bar(frame, rows[0], "command palette", &app.palette, true);
     render_modal_subtitle(frame, rows[1], "type to filter commands", &app.palette);
@@ -109,14 +138,14 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
         .selected
         .min(commands.len().saturating_sub(1));
     let palette_rows = command_palette_rows(&commands);
-    let viewport = crate::ui::ModalListViewport::new(
-        palette_rows.len(),
-        rows[3].height as usize,
-        app.command_palette.scroll,
-    );
-    let visible_range = viewport.visible_range();
-    let metrics = viewport.metrics();
-    let scroll_area = viewport.scroll_area(rows[3]);
+    let Some(list) =
+        command_palette_list_geometry(area, palette_rows.len(), app.command_palette.scroll)
+    else {
+        return;
+    };
+    let visible_range = list.visible_range();
+    let metrics = list.metrics();
+    let scroll_area = list.scroll_area;
     let list_width =
         (scroll_area.body.width as usize).saturating_sub(COMMAND_PALETTE_KEY_HINT_RIGHT_PADDING);
 
