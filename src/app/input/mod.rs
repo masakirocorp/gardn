@@ -178,7 +178,6 @@ impl App {
         }
     }
 
-
     pub(crate) fn handle_onboarding_key(&mut self, key: KeyEvent) {
         if let Some(ModalAction::Continue) = modal_action_from_key(&key, ONBOARDING_WELCOME_ACTIONS)
         {

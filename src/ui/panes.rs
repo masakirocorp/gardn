@@ -960,10 +960,7 @@ fn push_native_diff_split_lines(
                             left_style,
                             left_bg,
                         ));
-                        row.push(Span::styled(
-                            "│",
-                            native_diff_divider_style(app),
-                        ));
+                        row.push(Span::styled("│", native_diff_divider_style(app)));
                         row.push(native_diff_split_rail_span(
                             app,
                             line.kind,
@@ -1151,8 +1148,6 @@ fn native_diff_content_spans(
     }
     spans
 }
-
-
 
 fn syntax_spans_for_text(
     app: &AppState,

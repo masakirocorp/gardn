@@ -229,10 +229,10 @@ pub(super) fn agent_profile_picker_contains_point(state: &AppState, col: u16, ro
 }
 
 pub(super) fn hover_agent_profile_picker_selection(state: &mut AppState, col: u16, row: u16) {
-    let Some((list_area, rows, viewport)) = agent_profile_picker_viewport(state) else {
+    let Some((list, rows)) = agent_profile_picker_viewport(state) else {
         return;
     };
-    let Some(row_idx) = viewport.hit_visual_row(list_area, col, row) else {
+    let Some(row_idx) = list.hit_visual_row(col, row) else {
         return;
     };
 
@@ -300,11 +300,13 @@ pub(super) fn set_agent_profile_picker_offset_from_bottom(
     state: &mut AppState,
     offset_from_bottom: usize,
 ) {
-    let Some((_, _, viewport)) = agent_profile_picker_viewport(state) else {
+    let Some((list, _)) = agent_profile_picker_viewport(state) else {
         state.agent_profile_picker.scroll = 0;
         return;
     };
-    state.agent_profile_picker.scroll = viewport.scroll_from_offset_from_bottom(offset_from_bottom);
+    state.agent_profile_picker.scroll = list
+        .viewport
+        .scroll_from_offset_from_bottom(offset_from_bottom);
 }
 
 fn clamp_agent_profile_picker_selection(state: &mut AppState) {
@@ -358,7 +360,7 @@ fn move_agent_profile_picker_tab(state: &mut AppState, forward: bool) {
 }
 
 fn ensure_agent_profile_picker_selection_visible(state: &mut AppState) {
-    let Some((_, rows, viewport)) = agent_profile_picker_viewport(state) else {
+    let Some((list, rows)) = agent_profile_picker_viewport(state) else {
         state.agent_profile_picker.scroll = 0;
         return;
     };
@@ -367,33 +369,30 @@ fn ensure_agent_profile_picker_selection_visible(state: &mut AppState) {
         .iter()
         .position(|row| *row == Some(state.agent_profile_picker.selected))
     else {
-        state.agent_profile_picker.scroll = viewport.scroll();
+        state.agent_profile_picker.scroll = list.viewport.scroll();
         return;
     };
     let first_section_row = selected_row
         .checked_sub(1)
         .filter(|idx| rows.get(*idx).is_some_and(Option::is_none));
-    state.agent_profile_picker.scroll = viewport.ensure_visible(selected_row, first_section_row);
+    state.agent_profile_picker.scroll = list
+        .viewport
+        .ensure_visible(selected_row, first_section_row);
 }
 
 fn agent_profile_picker_viewport(
     state: &AppState,
-) -> Option<(Rect, Vec<Option<usize>>, crate::ui::ModalListViewport)> {
-    let (list_area, rows) = agent_profile_picker_rows_for_input(state)?;
-    let viewport = crate::ui::ModalListViewport::new(
+) -> Option<(crate::ui::ModalListGeometry, Vec<Option<usize>>)> {
+    let rows = agent_profile_picker_rows_for_input(state)?;
+    let list = crate::ui::agent_profile_picker_list_geometry(
+        state.screen_rect(),
         rows.len(),
-        list_area.height as usize,
         state.agent_profile_picker.scroll,
-    );
-    Some((list_area, rows, viewport))
+    )?;
+    Some((list, rows))
 }
 
-fn agent_profile_picker_rows_for_input(state: &AppState) -> Option<(Rect, Vec<Option<usize>>)> {
-    let list_area = agent_profile_picker_list_area(state)?;
-    if list_area.height == 0 {
-        return None;
-    }
-
+fn agent_profile_picker_rows_for_input(state: &AppState) -> Option<Vec<Option<usize>>> {
     let entries = agent_profile_picker_filtered_entries(state);
     if entries.is_empty() {
         return None;
@@ -411,11 +410,7 @@ fn agent_profile_picker_rows_for_input(state: &AppState) -> Option<(Rect, Vec<Op
         rows.push(Some(idx));
     }
 
-    Some((list_area, rows))
-}
-
-fn agent_profile_picker_list_area(state: &AppState) -> Option<Rect> {
-    crate::ui::agent_profile_picker_list_area(state.screen_rect())
+    Some(rows)
 }
 
 fn agent_profile_picker_tab_row(state: &AppState) -> Option<Rect> {
@@ -438,19 +433,19 @@ fn agent_profile_picker_popup_rect(state: &AppState) -> Option<Rect> {
 }
 
 fn agent_profile_picker_scroll_metrics(state: &AppState) -> Option<crate::pane::ScrollMetrics> {
-    let (_, _, viewport) = agent_profile_picker_viewport(state)?;
-    Some(viewport.metrics())
+    let (list, _) = agent_profile_picker_viewport(state)?;
+    Some(list.metrics())
 }
 
 fn agent_profile_picker_max_scroll(state: &AppState) -> usize {
     agent_profile_picker_viewport(state)
-        .map(|(_, _, viewport)| viewport.max_scroll())
+        .map(|(list, _)| list.viewport.max_scroll())
         .unwrap_or(0)
 }
 
 fn agent_profile_picker_scrollbar_track(state: &AppState) -> Option<Rect> {
-    let (list_area, _, viewport) = agent_profile_picker_viewport(state)?;
-    viewport.scroll_area(list_area).track
+    let (list, _) = agent_profile_picker_viewport(state)?;
+    list.scroll_area.track
 }
 
 #[cfg(test)]
@@ -763,6 +758,57 @@ mod tests {
         }
 
         assert!(clicked_non_selected_tab);
+    }
+
+    #[test]
+    fn picker_hover_highlights_rendered_profile_row() {
+        let mut app = app_with_space();
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 156, 48));
+        open_new_agent_picker_for_workspace(&mut app.state, 0);
+
+        let backend = ratatui::backend::TestBackend::new(156, 48);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render agent picker");
+
+        let buffer = terminal.backend().buffer();
+        let (omp_x, omp_y) = (0..48)
+            .flat_map(|y| {
+                (0..153).filter_map(move |x| {
+                    ["o", "m", "p"]
+                        .iter()
+                        .enumerate()
+                        .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == *ch)
+                        .then_some((x, y))
+                })
+            })
+            .last()
+            .expect("omp profile");
+        let omp_idx = agent_profile_picker_filtered_entries(&app.state)
+            .iter()
+            .position(|entry| entry.profile_id == "system:omp")
+            .expect("omp profile index");
+
+        app.handle_mouse(super::super::mouse(
+            crossterm::event::MouseEventKind::Moved,
+            omp_x,
+            omp_y,
+        ));
+
+        assert_eq!(app.state.agent_profile_picker.selected, omp_idx);
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render hovered agent picker");
+        let hovered = terminal.backend().buffer();
+        assert_eq!(
+            hovered[(omp_x, omp_y)].style().bg,
+            Some(app.state.palette_for_workspace(0).accent)
+        );
+        assert_ne!(
+            hovered[(omp_x, omp_y.saturating_add(1))].style().bg,
+            Some(app.state.palette_for_workspace(0).accent)
+        );
     }
 
     #[test]

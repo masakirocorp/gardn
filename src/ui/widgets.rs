@@ -272,6 +272,37 @@ pub(super) fn danger_action_style(p: &Palette) -> Style {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub(crate) struct ModalListGeometry {
+    pub rect: Rect,
+    pub viewport: ModalListViewport,
+    pub scroll_area: ModalScrollArea,
+}
+
+impl ModalListGeometry {
+    pub(crate) fn new(rect: Rect, total_rows: usize, scroll: usize) -> Self {
+        let viewport = ModalListViewport::new(total_rows, rect.height as usize, scroll);
+        let scroll_area = viewport.scroll_area(rect);
+        Self {
+            rect,
+            viewport,
+            scroll_area,
+        }
+    }
+
+    pub(crate) fn visible_range(self) -> Range<usize> {
+        self.viewport.visible_range()
+    }
+
+    pub(crate) fn hit_visual_row(self, col: u16, row: u16) -> Option<usize> {
+        self.viewport.hit_visual_row(self.rect, col, row)
+    }
+
+    pub(crate) fn metrics(self) -> crate::pane::ScrollMetrics {
+        self.viewport.metrics()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct ModalScrollArea {
     pub body: Rect,
     pub track: Option<Rect>,

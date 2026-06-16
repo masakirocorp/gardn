@@ -332,10 +332,13 @@ impl NativeDiffPaneState {
         Some(payload)
     }
 
-
     pub(crate) fn file_list_row_count(&self) -> usize {
         let mut rows = 0;
-        for bucket in [DiffBucket::Changed, DiffBucket::Untracked, DiffBucket::Staged] {
+        for bucket in [
+            DiffBucket::Changed,
+            DiffBucket::Untracked,
+            DiffBucket::Staged,
+        ] {
             let count = self
                 .session
                 .files
@@ -507,7 +510,11 @@ impl NativeDiffPaneState {
     pub(crate) fn select_visible_file_row(&mut self, visible_row: usize) -> bool {
         let target_row = self.file_scroll.saturating_add(visible_row);
         let mut row = 0;
-        for bucket in [DiffBucket::Changed, DiffBucket::Untracked, DiffBucket::Staged] {
+        for bucket in [
+            DiffBucket::Changed,
+            DiffBucket::Untracked,
+            DiffBucket::Staged,
+        ] {
             let files = self
                 .session
                 .files

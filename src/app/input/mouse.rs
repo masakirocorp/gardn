@@ -1387,7 +1387,7 @@ impl AppState {
         );
     }
 
-    pub(super) fn screen_rect(&self) -> Rect {
+    pub(crate) fn screen_rect(&self) -> Rect {
         let sidebar = self.view.sidebar_rect;
         let right_sidebar = self.view.right_sidebar_rect;
         let terminal = self.view.terminal_area;

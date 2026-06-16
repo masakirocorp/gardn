@@ -6,36 +6,39 @@ use ratatui::{
     Frame,
 };
 
-use super::widgets::{
-    modal_hint_line_count, modal_stack_areas, panel_contrast_fg, render_modal_divider,
-    render_modal_header_bar, render_modal_hint_lines, render_panel_shell,
+use super::{
+    scrollbar::render_scrollbar,
+    widgets::{
+        modal_hint_line_count, modal_stack_areas, panel_contrast_fg, render_modal_divider,
+        render_modal_header_bar, render_modal_hint_lines, render_panel_shell, ModalListGeometry,
+    },
 };
 use crate::app::{state::Mode, AppState};
 
-const DIFF_AGENT_PICKER_HINTS: &[(&str, &str)] = &[
-    ("move", "↑↓"),
-    ("send", "↵"),
-    ("close", "esc"),
-];
+const DIFF_AGENT_PICKER_HINTS: &[(&str, &str)] = &[("move", "↑↓"), ("send", "↵"), ("close", "esc")];
 
 pub(crate) fn render_diff_agent_picker_overlay(app: &AppState, frame: &mut Frame) {
     let Some(picker) = app.diff_agent_picker.as_ref() else {
         return;
     };
-    let Some(popup) = diff_agent_picker_popup_rect(frame.area()) else {
+    let Some(layout) = diff_agent_picker_layout(app) else {
         return;
     };
 
     super::dim_background(frame, frame.area());
-    let Some(inner) = render_panel_shell(frame, popup, app.palette.accent, app.palette.panel_bg)
-    else {
+    let Some(inner) = render_panel_shell(
+        frame,
+        layout.popup,
+        app.palette.accent,
+        app.palette.panel_bg,
+    ) else {
         return;
     };
     if inner.height < 8 || inner.width < 20 {
         return;
     }
 
-    let stack = diff_agent_picker_stack(inner);
+    let stack = layout.stack;
     let header_rows = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
@@ -44,7 +47,13 @@ pub(crate) fn render_diff_agent_picker_overlay(app: &AppState, frame: &mut Frame
     ])
     .areas::<4>(stack.header);
 
-    render_modal_header_bar(frame, header_rows[0], "send diff to agent", &app.palette, true);
+    render_modal_header_bar(
+        frame,
+        header_rows[0],
+        "send diff to agent",
+        &app.palette,
+        true,
+    );
     frame.render_widget(
         Paragraph::new(" choose an existing agent or start a new one")
             .style(Style::default().fg(app.palette.overlay1))
@@ -53,7 +62,7 @@ pub(crate) fn render_diff_agent_picker_overlay(app: &AppState, frame: &mut Frame
     );
     render_modal_divider(frame, header_rows[3], &app.palette);
 
-    render_diff_agent_picker_options(app, picker.selected, frame, stack.content);
+    render_diff_agent_picker_options(app, picker.selected, frame, layout.list);
 
     if let Some(footer_area) = stack.footer {
         render_modal_hint_lines(frame, footer_area, &app.palette, DIFF_AGENT_PICKER_HINTS, 2);
@@ -61,40 +70,36 @@ pub(crate) fn render_diff_agent_picker_overlay(app: &AppState, frame: &mut Frame
 }
 
 pub(crate) fn diff_agent_picker_contains_point(app: &AppState, col: u16, row: u16) -> bool {
-    diff_agent_picker_popup_rect(app.view.terminal_area)
-        .is_some_and(|area| point_in_rect(col, row, area))
+    diff_agent_picker_layout(app).is_some_and(|layout| point_in_rect(col, row, layout.popup))
 }
 
 pub(crate) fn diff_agent_picker_index_at(app: &AppState, col: u16, row: u16) -> Option<usize> {
-    let popup = diff_agent_picker_popup_rect(app.view.terminal_area)?;
+    let layout = diff_agent_picker_layout(app)?;
+    let row_idx = layout.list.hit_visual_row(col, row)?;
+    diff_agent_picker_rows(app).get(row_idx).copied().flatten()
+}
+
+struct DiffAgentPickerLayout {
+    popup: Rect,
+    stack: super::widgets::ModalStackAreas,
+    list: ModalListGeometry,
+}
+
+fn diff_agent_picker_layout(app: &AppState) -> Option<DiffAgentPickerLayout> {
+    let popup = diff_agent_picker_popup_rect(app.screen_rect())?;
     let inner = Rect::new(
         popup.x.saturating_add(1),
         popup.y.saturating_add(1),
         popup.width.saturating_sub(2),
         popup.height.saturating_sub(2),
     );
-    let content = diff_agent_picker_stack(inner).content;
-    if !point_in_rect(col, row, content) {
+    if inner.height < 8 || inner.width < 20 {
         return None;
     }
-    let local_row = row.saturating_sub(content.y) as usize;
-    let mut visual_row = 0usize;
-    let mut selectable_idx = 0usize;
-    for option in diff_agent_picker_options(app) {
-        if option.header {
-            if visual_row > 0 {
-                visual_row += 1;
-            }
-            visual_row += 1;
-            continue;
-        }
-        if visual_row == local_row {
-            return Some(selectable_idx);
-        }
-        selectable_idx += 1;
-        visual_row += 1;
-    }
-    None
+    let stack = diff_agent_picker_stack(inner);
+    let rows = diff_agent_picker_rows(app);
+    let list = ModalListGeometry::new(stack.content, rows.len(), 0);
+    Some(DiffAgentPickerLayout { popup, stack, list })
 }
 
 fn diff_agent_picker_popup_rect(area: Rect) -> Option<Rect> {
@@ -117,9 +122,11 @@ fn render_diff_agent_picker_options(
     app: &AppState,
     selected: usize,
     frame: &mut Frame,
-    area: ratatui::layout::Rect,
+    list: ModalListGeometry,
 ) {
     let options = diff_agent_picker_options(app);
+    let list_width = list.scroll_area.body.width as usize;
+    let visible_range = list.visible_range();
     let mut lines = Vec::new();
     let mut selectable_idx = 0;
     for option in &options {
@@ -159,16 +166,44 @@ fn render_diff_agent_picker_options(
             Span::styled("  ", Style::default().bg(bg)),
             Span::styled(option.meta.clone(), Style::default().fg(meta_fg).bg(bg)),
             Span::styled(
-                " ".repeat(area.width.saturating_sub(4) as usize),
+                " ".repeat(list_width.saturating_sub(4)),
                 Style::default().bg(bg),
             ),
         ]));
     }
 
     frame.render_widget(
-        Paragraph::new(lines).style(Style::default().bg(app.palette.panel_bg)),
-        area,
+        Paragraph::new(lines[visible_range].to_vec())
+            .style(Style::default().bg(app.palette.panel_bg)),
+        list.scroll_area.body,
     );
+    if let Some(track) = list.scroll_area.track {
+        render_scrollbar(
+            frame,
+            list.metrics(),
+            track,
+            app.palette.surface_dim,
+            app.palette.overlay0,
+            "▐",
+        );
+    }
+}
+
+fn diff_agent_picker_rows(app: &AppState) -> Vec<Option<usize>> {
+    let mut rows = Vec::new();
+    let mut selectable_idx = 0;
+    for option in diff_agent_picker_options(app) {
+        if option.header {
+            if !rows.is_empty() {
+                rows.push(None);
+            }
+            rows.push(None);
+        } else {
+            rows.push(Some(selectable_idx));
+            selectable_idx += 1;
+        }
+    }
+    rows
 }
 
 #[derive(Clone)]

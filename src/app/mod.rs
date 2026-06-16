@@ -1037,10 +1037,15 @@ impl App {
         true
     }
 
-    fn send_text_to_agent_pane(&mut self, ws_idx: usize, pane_id: crate::layout::PaneId, text: &str) {
-        let Some(runtime) = self
-            .state
-            .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
+    fn send_text_to_agent_pane(
+        &mut self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+        text: &str,
+    ) {
+        let Some(runtime) =
+            self.state
+                .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
         else {
             return;
         };
@@ -1280,7 +1285,6 @@ impl App {
 
         // Save session on exit (skip in --no-session mode)
         if !self.no_session {
-
             self.save_session_now();
         }
 

@@ -67,7 +67,7 @@ use self::widgets::fill_rect;
 pub(crate) use self::{
     agent_profile_picker::{
         agent_profile_picker_button_rects, agent_profile_picker_inner_rect,
-        agent_profile_picker_list_area, agent_profile_picker_popup_rect,
+        agent_profile_picker_list_geometry, agent_profile_picker_popup_rect,
         agent_profile_picker_tab_chevron_at, agent_profile_picker_tab_hit_areas,
     },
     command_palette::{command_palette_button_rects, command_palette_popup_rect},
@@ -113,7 +113,10 @@ pub(crate) use self::{
     panes::pane_is_scrolled_back,
     sidebar::port_panel_entry_at_row,
     tabs::compute_tab_bar_view,
-    widgets::{centered_popup_rect, modal_scroll_metrics, modal_stack_areas, ModalListViewport},
+    widgets::{
+        centered_popup_rect, modal_scroll_metrics, modal_stack_areas, ModalListGeometry,
+        ModalListViewport,
+    },
 };
 use crate::app::state::ViewLayout;
 use crate::app::{AppState, Mode};

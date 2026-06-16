@@ -20,7 +20,7 @@ use super::{
         action_button_row_rects, modal_hint_line_count, modal_section_heading_style,
         panel_contrast_fg, primary_action_style, render_action_button, render_modal_divider,
         render_modal_header_bar, render_modal_hint_lines, render_modal_shell,
-        render_modal_subtitle, render_modal_text_input, ActionButtonSpec,
+        render_modal_subtitle, render_modal_text_input, ActionButtonSpec, ModalListGeometry,
     },
 };
 
@@ -110,44 +110,23 @@ fn agent_profile_picker_tab_width(tab: Option<crate::agent_profiles::AgentKind>)
     (agent_profile_picker_tab_label(tab).chars().count() as u16).saturating_add(2)
 }
 
-pub(crate) fn agent_profile_picker_list_area(area: Rect) -> Option<Rect> {
+pub(crate) fn agent_profile_picker_list_geometry(
+    area: Rect,
+    total_rows: usize,
+    scroll: usize,
+) -> Option<ModalListGeometry> {
     let inner = agent_profile_picker_inner_rect(area)?;
     if inner.height < 13 || inner.width < 20 {
         return None;
     }
 
     let hint_rows = agent_profile_picker_hint_rows(inner.width);
-    Some(Rect::new(
-        inner.x,
-        inner.y + 10,
-        inner.width,
-        inner.height.saturating_sub(12 + hint_rows),
-    ))
+    let rows = agent_profile_picker_content_rows(inner, hint_rows);
+    Some(ModalListGeometry::new(rows[10], total_rows, scroll))
 }
 
-fn agent_profile_picker_palette(app: &AppState) -> crate::app::state::Palette {
-    app.palette_for_workspace(app.agent_profile_picker.ws_idx)
-}
-
-pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Frame) {
-    super::dim_background(frame, frame.area());
-
-    let palette = agent_profile_picker_palette(app);
-    let Some(inner) = render_modal_shell(
-        frame,
-        frame.area(),
-        60,
-        agent_profile_picker_height(frame.area()),
-        &palette,
-    ) else {
-        return;
-    };
-    if inner.height < 13 || inner.width < 20 {
-        return;
-    }
-
-    let hint_rows = agent_profile_picker_hint_rows(inner.width);
-    let rows = Layout::vertical([
+fn agent_profile_picker_content_rows(inner: Rect, hint_rows: u16) -> [Rect; 14] {
+    Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
@@ -163,7 +142,34 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
         Constraint::Length(hint_rows),
         Constraint::Length(1),
     ])
-    .areas::<14>(inner);
+    .areas::<14>(inner)
+}
+
+fn agent_profile_picker_palette(app: &AppState) -> crate::app::state::Palette {
+    app.palette_for_workspace(app.agent_profile_picker.ws_idx)
+}
+
+pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Frame) {
+    super::dim_background(frame, frame.area());
+
+    let palette = agent_profile_picker_palette(app);
+    let screen = app.screen_rect();
+    let area = if screen.width >= 4 && screen.height >= 4 {
+        screen
+    } else {
+        frame.area()
+    };
+    let Some(inner) =
+        render_modal_shell(frame, area, 60, agent_profile_picker_height(area), &palette)
+    else {
+        return;
+    };
+    if inner.height < 13 || inner.width < 20 {
+        return;
+    }
+
+    let hint_rows = agent_profile_picker_hint_rows(inner.width);
+    let rows = agent_profile_picker_content_rows(inner, hint_rows);
 
     render_modal_header_bar(frame, rows[0], "new agent", &palette, true);
     render_agent_profile_picker_filters(app, frame, rows[2], &palette);
@@ -212,14 +218,16 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
         .selected
         .min(entries.len().saturating_sub(1));
     let picker_rows = agent_profile_picker_rows(app, &entries);
-    let viewport = crate::ui::ModalListViewport::new(
+    let Some(list) = agent_profile_picker_list_geometry(
+        area,
         picker_rows.len(),
-        rows[10].height as usize,
         app.agent_profile_picker.scroll,
-    );
-    let visible_range = viewport.visible_range();
-    let metrics = viewport.metrics();
-    let scroll_area = viewport.scroll_area(rows[10]);
+    ) else {
+        return;
+    };
+    let visible_range = list.visible_range();
+    let metrics = list.metrics();
+    let scroll_area = list.scroll_area;
     let list_width = (scroll_area.body.width as usize)
         .saturating_sub(AGENT_PROFILE_PICKER_KEY_HINT_RIGHT_PADDING);
     let lines = picker_rows[visible_range]

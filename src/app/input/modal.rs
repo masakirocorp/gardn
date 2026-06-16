@@ -963,8 +963,6 @@ fn native_diff_has_launchable_agent_profile(state: &AppState) -> bool {
         .any(|profile| state.agent_profile_launchable(profile))
 }
 
-
-
 pub(crate) fn handle_confirm_close_key(state: &mut AppState, key: KeyEvent) {
     match modal_action_from_key(&key, CONFIRM_CLOSE_ACTIONS) {
         Some(ModalAction::Confirm) => confirm_close_accept(state),
