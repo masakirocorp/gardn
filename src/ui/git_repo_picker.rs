@@ -12,8 +12,8 @@ use super::{
     scrollbar::render_scrollbar,
     widgets::{
         modal_hint_line_count, modal_section_heading_style, modal_stack_areas, panel_contrast_fg,
-        render_modal_description, render_modal_divider, render_modal_header_bar,
-        render_modal_hint_lines, render_modal_shell, ModalListGeometry,
+        render_modal_description, render_modal_divider, render_modal_frame, ModalFrameSpec,
+        ModalListGeometry,
     },
 };
 
@@ -200,16 +200,24 @@ pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) 
     let Some(layout) = git_repo_picker_layout(app) else {
         return;
     };
-    let Some(inner) = render_modal_shell(
+    let Some(frame_areas) = render_modal_frame(
         frame,
         app.screen_rect(),
-        POPUP_WIDTH,
-        POPUP_HEIGHT,
         &palette,
+        ModalFrameSpec {
+            title: "git diff",
+            width: POPUP_WIDTH,
+            height: POPUP_HEIGHT,
+            header_rows: HEADER_ROWS,
+            footer_hints: GIT_REPO_PICKER_HINTS,
+            footer_max_rows: 2,
+            reserve_footer_gap: 1,
+            show_close: true,
+        },
     ) else {
         return;
     };
-    if inner != layout.inner {
+    if frame_areas.inner != layout.inner {
         return;
     }
 
@@ -220,8 +228,6 @@ pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) 
         Constraint::Length(1),
     ])
     .areas::<3>(stack.header);
-
-    render_modal_header_bar(frame, header_rows[0], "git diff", &palette, true);
     render_modal_divider(frame, header_rows[2], &palette);
 
     let content_rows = layout.content_rows;
@@ -325,10 +331,6 @@ pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) 
             palette.overlay0,
             "▐",
         );
-    }
-
-    if let Some(footer_area) = stack.footer {
-        render_modal_hint_lines(frame, footer_area, &palette, GIT_REPO_PICKER_HINTS, 2);
     }
 }
 

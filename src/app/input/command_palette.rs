@@ -314,7 +314,6 @@ fn command_palette_rows_for_input(state: &AppState) -> Option<Vec<Option<usize>>
     Some(rows)
 }
 
-
 fn command_palette_inner_rect(state: &AppState) -> Option<Rect> {
     crate::ui::command_palette_inner_rect(state.screen_rect())
 }

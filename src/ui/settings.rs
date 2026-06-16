@@ -9,10 +9,9 @@ use unicode_width::UnicodeWidthStr;
 
 use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    action_button_width, centered_popup_rect, modal_hint_line_count, modal_section_heading_style,
-    modal_stack_areas, panel_contrast_fg, render_action_button, render_modal_description,
-    render_modal_divider, render_modal_header_bar, render_modal_hint_lines, render_panel_shell,
-    secondary_action_style,
+    action_button_width, modal_hint_line_count, modal_section_heading_style, modal_stack_areas,
+    panel_contrast_fg, render_action_button, render_modal_description, render_modal_divider,
+    render_modal_frame, secondary_action_style, ModalFrameSpec,
 };
 use crate::{
     app::{
@@ -303,15 +302,26 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
 
     let palette = settings_palette(app);
     let p = &palette;
-    let Some(popup) = centered_popup_rect(area, 92, 26) else {
-        return;
-    };
-
     super::dim_background(frame, area);
 
-    let Some(inner) = render_panel_shell(frame, popup, p.accent, p.panel_bg) else {
+    let Some(frame_areas) = render_modal_frame(
+        frame,
+        area,
+        p,
+        ModalFrameSpec {
+            title: settings_title(app),
+            width: 92,
+            height: 26,
+            header_rows: 4,
+            footer_hints: settings_footer_hints(app, group_settings),
+            footer_max_rows: 2,
+            reserve_footer_gap: 1,
+            show_close: true,
+        },
+    ) else {
         return;
     };
+    let inner = frame_areas.inner;
     if inner.height < 4 || inner.width < 10 {
         return;
     }
@@ -324,8 +334,6 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         Constraint::Length(1),
     ])
     .areas::<4>(stack.header);
-
-    render_modal_header_bar(frame, header_rows[0], settings_title(app), p, true);
     render_settings_tabs(app, frame, header_rows[2], p);
     render_modal_divider(frame, header_rows[3], p);
 
@@ -344,16 +352,6 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
             render_settings_sectioned_toggle_list(app, frame, content_area, p);
         }
         SettingsSection::Integrations => render_settings_integrations(app, frame, content_area, p),
-    }
-
-    if let Some(footer_area) = stack.footer {
-        render_modal_hint_lines(
-            frame,
-            footer_area,
-            p,
-            settings_footer_hints(app, group_settings),
-            2,
-        );
     }
 }
 
@@ -1811,7 +1809,7 @@ mod tests {
             .draw(|frame| render_settings_overlay(&app, frame, area))
             .expect("render settings overlay");
 
-        let popup = centered_popup_rect(area, 92, 26).expect("popup");
+        let popup = crate::ui::widgets::centered_popup_rect(area, 92, 26).expect("popup");
         let inner = Rect::new(
             popup.x + 1,
             popup.y + 1,

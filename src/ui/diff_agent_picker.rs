@@ -10,7 +10,7 @@ use super::{
     scrollbar::render_scrollbar,
     widgets::{
         modal_hint_line_count, modal_stack_areas, panel_contrast_fg, render_modal_divider,
-        render_modal_header_bar, render_modal_hint_lines, render_panel_shell, ModalListGeometry,
+        render_modal_frame, ModalFrameSpec, ModalListGeometry,
     },
 };
 use crate::app::{state::Mode, AppState};
@@ -26,15 +26,24 @@ pub(crate) fn render_diff_agent_picker_overlay(app: &AppState, frame: &mut Frame
     };
 
     super::dim_background(frame, frame.area());
-    let Some(inner) = render_panel_shell(
+    let Some(frame_areas) = render_modal_frame(
         frame,
-        layout.popup,
-        app.palette.accent,
-        app.palette.panel_bg,
+        app.screen_rect(),
+        &app.palette,
+        ModalFrameSpec {
+            title: "send diff to agent",
+            width: 68,
+            height: 22,
+            header_rows: 4,
+            footer_hints: DIFF_AGENT_PICKER_HINTS,
+            footer_max_rows: 2,
+            reserve_footer_gap: 1,
+            show_close: true,
+        },
     ) else {
         return;
     };
-    if inner.height < 8 || inner.width < 20 {
+    if frame_areas.inner.height < 8 || frame_areas.inner.width < 20 {
         return;
     }
 
@@ -47,13 +56,6 @@ pub(crate) fn render_diff_agent_picker_overlay(app: &AppState, frame: &mut Frame
     ])
     .areas::<4>(stack.header);
 
-    render_modal_header_bar(
-        frame,
-        header_rows[0],
-        "send diff to agent",
-        &app.palette,
-        true,
-    );
     frame.render_widget(
         Paragraph::new(" choose an existing agent or start a new one")
             .style(Style::default().fg(app.palette.overlay1))
@@ -63,10 +65,6 @@ pub(crate) fn render_diff_agent_picker_overlay(app: &AppState, frame: &mut Frame
     render_modal_divider(frame, header_rows[3], &app.palette);
 
     render_diff_agent_picker_options(app, picker.selected, frame, layout.list);
-
-    if let Some(footer_area) = stack.footer {
-        render_modal_hint_lines(frame, footer_area, &app.palette, DIFF_AGENT_PICKER_HINTS, 2);
-    }
 }
 
 pub(crate) fn diff_agent_picker_contains_point(app: &AppState, col: u16, row: u16) -> bool {

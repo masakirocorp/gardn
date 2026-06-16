@@ -16,19 +16,20 @@ use crate::app::{
 use super::{
     scrollbar::render_scrollbar,
     widgets::{
-        action_button_row_rects, modal_scroll_hint_line_count, modal_section_heading_style,
-        panel_contrast_fg, primary_action_style, render_action_button, render_modal_header_bar,
-        render_modal_scroll_hints, render_modal_shell, render_modal_subtitle,
-        render_modal_text_input, ActionButtonSpec, ModalListGeometry,
+        action_button_row_rects, modal_hint_line_count, modal_section_heading_style,
+        panel_contrast_fg, primary_action_style, render_action_button, render_modal_frame,
+        render_modal_hint_lines, render_modal_subtitle, render_modal_text_input, ActionButtonSpec,
+        ModalFrameSpec, ModalListGeometry,
     },
 };
 
 const COMMAND_PALETTE_KEY_HINT_RIGHT_PADDING: usize = 1;
+const COMMAND_PALETTE_HINTS: &[(&str, &str)] = &[("scroll", "wheel ↑↓"), ("jump", "pgup / pgdn")];
 
 fn command_palette_height(area: Rect) -> u16 {
     let popup_width = 76.min(area.width.saturating_sub(4));
     let inner_width = popup_width.saturating_sub(2);
-    17 + modal_scroll_hint_line_count(inner_width, 2)
+    17 + modal_hint_line_count(inner_width, COMMAND_PALETTE_HINTS, 2)
 }
 
 pub(crate) fn command_palette_popup_rect(area: Rect) -> Option<Rect> {
@@ -49,7 +50,7 @@ pub(crate) fn command_palette_content_rows(inner: Rect) -> Option<[Rect; 7]> {
     if inner.height < 6 || inner.width < 20 {
         return None;
     }
-    let hint_rows = modal_scroll_hint_line_count(inner.width, 2);
+    let hint_rows = modal_hint_line_count(inner.width, COMMAND_PALETTE_HINTS, 2);
     Some(
         Layout::vertical([
             Constraint::Length(1),
@@ -98,22 +99,33 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
     } else {
         frame.area()
     };
-    let Some(inner) =
-        render_modal_shell(frame, area, 76, command_palette_height(area), &app.palette)
-    else {
+    let Some(frame_areas) = render_modal_frame(
+        frame,
+        area,
+        &app.palette,
+        ModalFrameSpec {
+            title: "command palette",
+            width: 76,
+            height: command_palette_height(area),
+            header_rows: 1,
+            footer_hints: &[],
+            footer_max_rows: 2,
+            reserve_footer_gap: 1,
+            show_close: true,
+        },
+    ) else {
         return;
     };
+    let inner = frame_areas.inner;
     let Some(rows) = command_palette_content_rows(inner) else {
         return;
     };
-
-    render_modal_header_bar(frame, rows[0], "command palette", &app.palette, true);
     render_modal_subtitle(frame, rows[1], "type to filter commands", &app.palette);
 
     let input = Rect::new(rows[2].x, rows[2].y, rows[2].width, 1);
     render_modal_text_input(frame, input, &app.command_palette.query, &app.palette);
 
-    render_modal_scroll_hints(frame, rows[5], &app.palette);
+    render_modal_hint_lines(frame, rows[5], &app.palette, COMMAND_PALETTE_HINTS, 2);
 
     let (run_rect, _) = command_palette_button_rects(inner);
     render_action_button(

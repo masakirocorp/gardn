@@ -75,6 +75,75 @@ pub(super) fn render_modal_shell(
     render_panel_shell(frame, popup, p.accent, p.panel_bg)
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ModalFrameAreas {
+    pub popup: Rect,
+    pub inner: Rect,
+    pub header: Rect,
+    pub footer: Option<Rect>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ModalFrameSpec<'a> {
+    pub title: &'a str,
+    pub width: u16,
+    pub height: u16,
+    pub header_rows: u16,
+    pub footer_hints: &'a [(&'a str, &'a str)],
+    pub footer_max_rows: u16,
+    pub reserve_footer_gap: u16,
+    pub show_close: bool,
+}
+
+pub(crate) fn modal_frame_areas(area: Rect, spec: ModalFrameSpec<'_>) -> Option<ModalFrameAreas> {
+    let popup = centered_popup_rect(area, spec.width, spec.height)?;
+    if popup.width < 4 || popup.height < 4 {
+        return None;
+    }
+    let inner = Rect::new(
+        popup.x + 1,
+        popup.y + 1,
+        popup.width.saturating_sub(2),
+        popup.height.saturating_sub(2),
+    );
+    let footer_rows = modal_hint_line_count(inner.width, spec.footer_hints, spec.footer_max_rows);
+    let stack = modal_stack_areas(
+        inner,
+        spec.header_rows,
+        footer_rows,
+        0,
+        spec.reserve_footer_gap,
+    );
+    Some(ModalFrameAreas {
+        popup,
+        inner,
+        header: stack.header,
+        footer: stack.footer,
+    })
+}
+
+pub(crate) fn render_modal_frame(
+    frame: &mut Frame,
+    area: Rect,
+    palette: &Palette,
+    spec: ModalFrameSpec<'_>,
+) -> Option<ModalFrameAreas> {
+    let areas = modal_frame_areas(area, spec)?;
+    render_panel_shell(frame, areas.popup, palette.accent, palette.panel_bg)?;
+    let header = Rect::new(areas.header.x, areas.header.y, areas.header.width, 1);
+    render_modal_header_bar(frame, header, spec.title, palette, spec.show_close);
+    if let Some(footer) = areas.footer {
+        render_modal_hint_lines(
+            frame,
+            footer,
+            palette,
+            spec.footer_hints,
+            spec.footer_max_rows,
+        );
+    }
+    Some(areas)
+}
+
 pub(super) fn render_modal_header(frame: &mut Frame, area: Rect, title: &str, p: &Palette) {
     let line = Line::from(vec![Span::styled(
         format!(" {title}"),
