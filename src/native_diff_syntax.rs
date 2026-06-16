@@ -1,9 +1,8 @@
 use std::path::Path;
 use std::sync::LazyLock;
 
-use syntect::easy::HighlightLines;
-use syntect::highlighting::{Style as SyntectStyle, Theme, ThemeSet};
-use syntect::parsing::{SyntaxReference, SyntaxSet};
+use syntect::easy::ScopeRegionIterator;
+use syntect::parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet};
 use tree_sitter_highlight::{Highlight, HighlightConfiguration, HighlightEvent, Highlighter};
 
 const MAX_SYNTAX_BYTES: usize = 512 * 1024;
@@ -489,14 +488,16 @@ fn char_col(bytes: &[u8]) -> usize {
 fn analyze_syntect(path: &Path, source: &[u8]) -> Option<NativeDiffSyntaxDocument> {
     let syntax = syntect_syntax_for_path(path)?;
     let source_text = std::str::from_utf8(source).ok()?;
-    let mut highlighter = HighlightLines::new(syntax, &SYNTAX_THEME);
+    let mut parse_state = ParseState::new(syntax);
+    let mut scope_stack = ScopeStack::new();
     let mut ranges = Vec::new();
     for (line_idx, line) in source_text.lines().enumerate() {
-        let highlighted = highlighter.highlight_line(line, &SYNTAX_SET).ok()?;
+        let ops = parse_state.parse_line(line, &SYNTAX_SET).ok()?;
         let mut col = 0;
-        for (style, segment) in highlighted {
+        for (segment, op) in ScopeRegionIterator::new(&ops, line) {
+            scope_stack.apply(op).ok()?;
             let len = segment.chars().count();
-            let role = syntect_role(style);
+            let role = syntect_role(scope_stack.as_slice());
             if role != NativeDiffSyntaxRole::Text && len > 0 {
                 ranges.push(NativeDiffHighlightRange {
                     line: line_idx + 1,
@@ -516,15 +517,6 @@ fn analyze_syntect(path: &Path, source: &[u8]) -> Option<NativeDiffSyntaxDocumen
 }
 
 static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(two_face::syntax::extra_newlines);
-static SYNTAX_THEME: LazyLock<Theme> = LazyLock::new(|| {
-    let themes = ThemeSet::load_defaults();
-    themes
-        .themes
-        .get("base16-ocean.dark")
-        .cloned()
-        .or_else(|| themes.themes.values().next().cloned())
-        .unwrap_or_default()
-});
 
 fn syntect_syntax_for_path(path: &Path) -> Option<&'static SyntaxReference> {
     SYNTAX_SET
@@ -551,23 +543,39 @@ fn syntect_syntax_for_special_name(file_name: &str) -> Option<&'static SyntaxRef
     None
 }
 
-fn syntect_role(style: SyntectStyle) -> NativeDiffSyntaxRole {
-    let fg = style.foreground;
-    let max = fg.r.max(fg.g).max(fg.b);
-    let min = fg.r.min(fg.g).min(fg.b);
-    if max.saturating_sub(min) < 18 {
-        return NativeDiffSyntaxRole::Text;
-    }
-    if fg.r >= fg.g && fg.r >= fg.b {
-        if fg.g > fg.b.saturating_add(24) {
-            NativeDiffSyntaxRole::String
-        } else {
-            NativeDiffSyntaxRole::Keyword
-        }
-    } else if fg.g >= fg.r && fg.g >= fg.b {
-        NativeDiffSyntaxRole::Function
-    } else if fg.b >= fg.r && fg.b >= fg.g {
+fn syntect_role(scopes: &[syntect::parsing::Scope]) -> NativeDiffSyntaxRole {
+    let has = |needle: &str| {
+        scopes
+            .iter()
+            .any(|scope| format!("{scope}").contains(needle))
+    };
+    if has("comment") {
+        NativeDiffSyntaxRole::Comment
+    } else if has("string") {
+        NativeDiffSyntaxRole::String
+    } else if has("constant.numeric") || has("constant.language") {
+        NativeDiffSyntaxRole::Number
+    } else if has("keyword") || has("storage") || has("operator") {
+        NativeDiffSyntaxRole::Keyword
+    } else if has("entity.name.type")
+        || has("support.type")
+        || has("entity.name.class")
+        || has("entity.name.struct")
+        || has("entity.name.enum")
+    {
         NativeDiffSyntaxRole::Type
+    } else if has("entity.name.function") || has("support.function") {
+        NativeDiffSyntaxRole::Function
+    } else if has("variable.parameter")
+        || has("variable.other.member")
+        || has("variable.other.property")
+        || has("meta.object-literal.key")
+    {
+        NativeDiffSyntaxRole::Property
+    } else if has("punctuation") {
+        NativeDiffSyntaxRole::Punctuation
+    } else if has("markup") || has("entity.name.tag") {
+        NativeDiffSyntaxRole::Markup
     } else {
         NativeDiffSyntaxRole::Text
     }
