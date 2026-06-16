@@ -1137,7 +1137,8 @@ fn native_diff_content_spans(
     if width == 0 {
         return Vec::new();
     }
-    let text = truncate_label(text, width);
+    let text = truncate_display_width(text, width);
+    let text_width = unicode_width::UnicodeWidthStr::width(text.as_str());
     let Some(source_line) = source_line else {
         return padded_native_diff_plain_spans(text, width, base.bg(bg));
     };
@@ -1146,12 +1147,12 @@ fn native_diff_content_spans(
     };
     let mut spans = Vec::new();
     let mut col = 0;
-    for range in syntax.ranges_for_line(source_line, start_col, start_col + text.chars().count()) {
+    for range in syntax.ranges_for_line(source_line, start_col, start_col + text_width) {
         if range.start_col > col {
-            let plain = slice_chars(&text, col, range.start_col);
+            let plain = slice_display_cols(&text, col, range.start_col);
             spans.push(Span::styled(plain, base.bg(bg)));
         }
-        let styled = slice_chars(&text, range.start_col, range.end_col);
+        let styled = slice_display_cols(&text, range.start_col, range.end_col);
         if !styled.is_empty() {
             spans.push(Span::styled(
                 styled,
@@ -1161,13 +1162,15 @@ fn native_diff_content_spans(
         }
         col = range.end_col;
     }
-    let text_len = text.chars().count();
-    if col < text_len {
-        spans.push(Span::styled(slice_chars(&text, col, text_len), base.bg(bg)));
+    if col < text_width {
+        spans.push(Span::styled(
+            slice_display_cols(&text, col, text_width),
+            base.bg(bg),
+        ));
     }
     let used = spans
         .iter()
-        .map(|span| span.content.chars().count())
+        .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
         .sum::<usize>();
     if used < width {
         spans.push(Span::styled(" ".repeat(width - used), base.bg(bg)));
@@ -1176,7 +1179,7 @@ fn native_diff_content_spans(
 }
 
 fn padded_native_diff_plain_spans(text: String, width: usize, style: Style) -> Vec<Span<'static>> {
-    let used = text.chars().count();
+    let used = unicode_width::UnicodeWidthStr::width(text.as_str());
     let mut spans = vec![Span::styled(text, style)];
     if used < width {
         spans.push(Span::styled(" ".repeat(width - used), style));
@@ -1225,11 +1228,18 @@ fn native_diff_syntax_role_color(
     }
 }
 
-fn slice_chars(text: &str, start: usize, end: usize) -> String {
-    text.chars()
-        .skip(start)
-        .take(end.saturating_sub(start))
-        .collect()
+fn slice_display_cols(text: &str, start: usize, end: usize) -> String {
+    let mut out = String::new();
+    let mut col = 0;
+    for ch in text.chars() {
+        let width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        let next = col + width;
+        if next > start && col < end {
+            out.push(ch);
+        }
+        col = next;
+    }
+    out
 }
 
 fn native_diff_divider_style(app: &AppState) -> Style {
@@ -1384,12 +1394,40 @@ fn wrap_native_diff_text(text: &str, width: usize) -> Vec<(usize, String)> {
         return vec![(0, String::new())];
     }
     let width = width.max(1);
-    let chars = text.chars().collect::<Vec<_>>();
-    chars
-        .chunks(width)
-        .enumerate()
-        .map(|(index, chunk)| (index * width, chunk.iter().collect::<String>()))
-        .collect()
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    let mut current_width = 0;
+    let mut start_col = 0;
+    let mut next_col = 0;
+    for ch in text.chars() {
+        let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if current_width > 0 && current_width + ch_width > width {
+            chunks.push((start_col, std::mem::take(&mut current)));
+            start_col = next_col;
+            current_width = 0;
+        }
+        current.push(ch);
+        current_width += ch_width;
+        next_col += ch_width;
+    }
+    if !current.is_empty() {
+        chunks.push((start_col, current));
+    }
+    chunks
+}
+
+fn truncate_display_width(text: &str, width: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0;
+    for ch in text.chars() {
+        let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + ch_width > width {
+            break;
+        }
+        out.push(ch);
+        used += ch_width;
+    }
+    out
 }
 
 fn native_diff_gutter_style(

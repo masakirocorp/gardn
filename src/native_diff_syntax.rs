@@ -452,8 +452,8 @@ fn push_byte_range(
         if cursor < segment_end {
             ranges.push(NativeDiffHighlightRange {
                 line: line_index + 1,
-                start_col: char_col(&source[line_start..cursor]),
-                end_col: char_col(&source[line_start..segment_end]),
+                start_col: display_col(&source[line_start..cursor]),
+                end_col: display_col(&source[line_start..segment_end]),
                 role,
             });
         }
@@ -481,8 +481,8 @@ fn line_index_for_byte(line_starts: &[usize], byte: usize) -> usize {
         .saturating_sub(1)
 }
 
-fn char_col(bytes: &[u8]) -> usize {
-    String::from_utf8_lossy(bytes).chars().count()
+fn display_col(bytes: &[u8]) -> usize {
+    unicode_width::UnicodeWidthStr::width(String::from_utf8_lossy(bytes).as_ref())
 }
 
 fn analyze_syntect(path: &Path, source: &[u8]) -> Option<NativeDiffSyntaxDocument> {
@@ -496,7 +496,7 @@ fn analyze_syntect(path: &Path, source: &[u8]) -> Option<NativeDiffSyntaxDocumen
         let mut col = 0;
         for (segment, op) in ScopeRegionIterator::new(&ops, line) {
             scope_stack.apply(op).ok()?;
-            let len = segment.chars().count();
+            let len = unicode_width::UnicodeWidthStr::width(segment);
             let role = syntect_role(scope_stack.as_slice());
             if role != NativeDiffSyntaxRole::Text && len > 0 {
                 ranges.push(NativeDiffHighlightRange {
