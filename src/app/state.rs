@@ -1921,6 +1921,14 @@ pub struct SettingsState {
     pub pending_worktree_directory: Option<String>,
     /// Pending agent border label setting while settings is open.
     pub pending_agent_border_labels: Option<bool>,
+    /// Pending native diff indicator style while settings is open.
+    pub pending_native_diff_indicators: Option<crate::config::NativeDiffIndicatorConfig>,
+    /// Pending native diff row background setting while settings is open.
+    pub pending_native_diff_backgrounds: Option<bool>,
+    /// Pending native diff line wrap default while settings is open.
+    pub pending_native_diff_wrap_lines: Option<bool>,
+    /// Pending native diff line number setting while settings is open.
+    pub pending_native_diff_line_numbers: Option<bool>,
     /// Pending macOS prefix input source switching setting while settings is open.
     pub pending_switch_ascii_input_source_in_prefix: Option<bool>,
     /// Checked group accent while group settings is open; hover cursor is separate.
@@ -2448,6 +2456,10 @@ pub struct AppState {
     pub mouse_scroll_lines: usize,
     pub confirm_close: bool,
     pub prompt_new_tab_name: bool,
+    pub native_diff_indicators: crate::config::NativeDiffIndicatorConfig,
+    pub native_diff_backgrounds: bool,
+    pub native_diff_wrap_lines: bool,
+    pub native_diff_line_numbers: bool,
     pub show_agent_labels_on_pane_borders: bool,
     pub pane_history_persistence: bool,
     pub resume_agents_on_restore: bool,
@@ -2823,6 +2835,10 @@ impl AppState {
         self.prompt_new_tab_name
     }
 
+    pub fn native_diff_backgrounds_enabled(&self) -> bool {
+        self.native_diff_backgrounds
+    }
+
     pub fn agent_border_labels_enabled(&self) -> bool {
         self.show_agent_labels_on_pane_borders
     }
@@ -3169,6 +3185,10 @@ impl AppState {
             confirm_close: true,
             prompt_new_tab_name: true,
             copy_feedback: None,
+            native_diff_indicators: crate::config::NativeDiffIndicatorConfig::Bars,
+            native_diff_backgrounds: true,
+            native_diff_wrap_lines: false,
+            native_diff_line_numbers: true,
             show_agent_labels_on_pane_borders: false,
             mobile_width_threshold: crate::config::DEFAULT_MOBILE_WIDTH_THRESHOLD,
             pane_history_persistence: true,
@@ -3234,6 +3254,10 @@ impl AppState {
                 pending_sidebar_min_width: None,
                 pending_sidebar_max_width: None,
                 pending_worktree_directory: None,
+                pending_native_diff_indicators: None,
+                pending_native_diff_backgrounds: None,
+                pending_native_diff_wrap_lines: None,
+                pending_native_diff_line_numbers: None,
                 pending_agent_border_labels: None,
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,

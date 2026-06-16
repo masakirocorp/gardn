@@ -904,6 +904,13 @@ impl AppState {
                 .and_then(|name| name.to_str())
                 .map_or_else(|| "diff".to_string(), |name| format!("diff {name}"));
             tab.set_custom_name(name);
+            if let Some(diff) = tab
+                .panes
+                .values_mut()
+                .find_map(|pane| pane.native_diff_mut())
+            {
+                diff.wrap_lines = self.native_diff_wrap_lines;
+            }
         }
         self.switch_workspace(ws_idx);
         self.switch_tab(tab_idx);

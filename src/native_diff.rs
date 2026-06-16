@@ -16,6 +16,42 @@ pub(crate) enum NativeDiffViewMode {
     Split,
     Auto,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NativeDiffScope {
+    All,
+    Unstaged,
+    Untracked,
+    Staged,
+}
+
+impl NativeDiffScope {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Unstaged => "unstaged",
+            Self::Untracked => "untracked",
+            Self::Staged => "staged",
+        }
+    }
+
+    pub(crate) fn includes(self, bucket: DiffBucket) -> bool {
+        match self {
+            Self::All => true,
+            Self::Unstaged => bucket == DiffBucket::Changed,
+            Self::Untracked => bucket == DiffBucket::Untracked,
+            Self::Staged => bucket == DiffBucket::Staged,
+        }
+    }
+
+    fn next(self) -> Self {
+        match self {
+            Self::All => Self::Unstaged,
+            Self::Unstaged => Self::Untracked,
+            Self::Untracked => Self::Staged,
+            Self::Staged => Self::All,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct NativeDiffContextKey {
@@ -176,9 +212,12 @@ pub(crate) struct NativeDiffPaneState {
     pub(crate) selected_hunk: Option<usize>,
     pub(crate) file_scroll: usize,
     pub(crate) diff_scroll: usize,
+    pub(crate) diff_col_scroll: usize,
     pub(crate) show_file_list: bool,
     pub(crate) wrap_lines: bool,
+    pub(crate) word_diff: bool,
     pub(crate) view_mode: NativeDiffViewMode,
+    pub(crate) scope: NativeDiffScope,
     pub(crate) expanded_context: BTreeSet<NativeDiffContextKey>,
     pub(crate) last_error: Option<String>,
 }
@@ -194,7 +233,8 @@ impl NativeDiffPaneState {
     }
 
     fn new_with_syntax(session: NativeDiffSession, syntax: NativeDiffSyntaxCache) -> Self {
-        let selected_file = first_selection(&session);
+        let selected_file = first_selection_for_scope(&session, NativeDiffScope::All);
+        let show_file_list = session.files.len() != 1;
         Self {
             syntax,
             session,
@@ -202,9 +242,12 @@ impl NativeDiffPaneState {
             selected_hunk: None,
             file_scroll: 0,
             diff_scroll: 0,
-            show_file_list: true,
+            diff_col_scroll: 0,
+            show_file_list,
             wrap_lines: false,
+            word_diff: false,
             view_mode: NativeDiffViewMode::Auto,
+            scope: NativeDiffScope::All,
             expanded_context: BTreeSet::new(),
             last_error: None,
         }
@@ -225,6 +268,15 @@ impl NativeDiffPaneState {
     fn selected_key(&self) -> Option<(DiffBucket, PathBuf)> {
         let selection = self.selected_file?;
         Some((selection.bucket, self.selected_path()?))
+    }
+
+    fn visible_file_indices(&self) -> Vec<(usize, &NativeDiffFile)> {
+        self.session
+            .files
+            .iter()
+            .enumerate()
+            .filter(|(_, file)| self.scope.includes(file.bucket))
+            .collect()
     }
 
     pub(crate) fn replace_session(
@@ -267,21 +319,41 @@ impl NativeDiffPaneState {
     }
 
     pub(crate) fn move_selection(&mut self, delta: isize) {
-        if self.session.files.is_empty() {
+        let visible = self.visible_file_indices();
+        if visible.is_empty() {
             self.selected_file = None;
             return;
         }
         let current = self
             .selected_file
-            .map(|selection| selection.file_index)
+            .and_then(|selection| {
+                visible.iter().position(|(index, file)| {
+                    *index == selection.file_index && file.bucket == selection.bucket
+                })
+            })
             .unwrap_or(0);
         let next = current
             .saturating_add_signed(delta)
-            .min(self.session.files.len().saturating_sub(1));
+            .min(visible.len().saturating_sub(1));
+        let (file_index, file) = visible[next];
         self.selected_file = Some(NativeDiffSelection {
-            bucket: self.session.files[next].bucket,
-            file_index: next,
+            bucket: file.bucket,
+            file_index,
         });
+        self.diff_col_scroll = 0;
+    }
+
+    pub(crate) fn cycle_scope(&mut self) {
+        self.scope = self.scope.next();
+        if self
+            .selected_file
+            .is_none_or(|selection| !self.scope.includes(selection.bucket))
+        {
+            self.selected_file = first_selection_for_scope(&self.session, self.scope);
+        }
+        self.file_scroll = 0;
+        self.diff_scroll = 0;
+        self.diff_col_scroll = 0;
     }
 
     pub(crate) fn move_hunk_selection(&mut self, delta: isize) {
@@ -315,8 +387,11 @@ impl NativeDiffPaneState {
             .iter()
             .position(|row| row.id == target)
         {
-            self.diff_scroll = row_index;
+            self.diff_scroll = row_index.saturating_sub(1);
         }
+    }
+    pub(crate) fn toggle_word_diff(&mut self) {
+        self.word_diff = !self.word_diff;
     }
 
     pub(crate) fn refresh(&mut self) {
@@ -354,6 +429,9 @@ impl NativeDiffPaneState {
 
     pub(crate) fn toggle_wrap_lines(&mut self) {
         self.wrap_lines = !self.wrap_lines;
+        if self.wrap_lines {
+            self.diff_col_scroll = 0;
+        }
     }
 
     pub(crate) fn context_expanded(&self, key: NativeDiffContextKey) -> bool {
@@ -372,6 +450,7 @@ impl NativeDiffPaneState {
             NativeDiffViewMode::Split => NativeDiffViewMode::Auto,
             NativeDiffViewMode::Auto => NativeDiffViewMode::Unified,
         };
+        self.diff_col_scroll = 0;
     }
 
     fn apply_selected_hunk(&mut self, reverse: bool) {
@@ -438,6 +517,9 @@ impl NativeDiffPaneState {
             DiffBucket::Untracked,
             DiffBucket::Staged,
         ] {
+            if !self.scope.includes(bucket) {
+                continue;
+            }
             let count = self
                 .session
                 .files
@@ -602,6 +684,32 @@ impl NativeDiffPaneState {
             .min(max_scroll);
     }
 
+    pub(crate) fn scroll_diff_columns(&mut self, delta: isize, viewport_cols: usize) {
+        if self.wrap_lines {
+            self.diff_col_scroll = 0;
+            return;
+        }
+        let max_scroll = self.max_diff_col_scroll(viewport_cols);
+        self.diff_col_scroll = self
+            .diff_col_scroll
+            .saturating_add_signed(delta)
+            .min(max_scroll);
+    }
+
+    pub(crate) fn max_diff_col_scroll(&self, viewport_cols: usize) -> usize {
+        if self.wrap_lines {
+            return 0;
+        }
+        let max_width = self
+            .selected_file()
+            .into_iter()
+            .flat_map(|file| file.hunks.iter())
+            .flat_map(|hunk| hunk.lines.iter())
+            .map(|line| unicode_width::UnicodeWidthStr::width(line.text.as_str()))
+            .max()
+            .unwrap_or(0);
+        max_width.saturating_sub(viewport_cols)
+    }
     fn max_diff_scroll(&self, viewport_rows: usize) -> usize {
         let body_rows = self.visible_diff_rows().len().saturating_sub(1);
         body_rows.saturating_sub(viewport_rows)
@@ -614,6 +722,9 @@ impl NativeDiffPaneState {
             DiffBucket::Untracked,
             DiffBucket::Staged,
         ] {
+            if !self.scope.includes(bucket) {
+                continue;
+            }
             let files = self
                 .session
                 .files
@@ -703,12 +814,25 @@ fn push_hunk_patch_body(payload: &mut String, hunk: &NativeDiffHunk) {
 }
 
 fn first_selection(session: &NativeDiffSession) -> Option<NativeDiffSelection> {
+    first_selection_for_scope(session, NativeDiffScope::All)
+}
+
+fn first_selection_for_scope(
+    session: &NativeDiffSession,
+    scope: NativeDiffScope,
+) -> Option<NativeDiffSelection> {
     session
         .files
         .iter()
         .enumerate()
-        .find(|(_, file)| file.bucket == DiffBucket::Changed)
-        .or_else(|| session.files.iter().enumerate().next())
+        .find(|(_, file)| file.bucket == DiffBucket::Changed && scope.includes(file.bucket))
+        .or_else(|| {
+            session
+                .files
+                .iter()
+                .enumerate()
+                .find(|(_, file)| scope.includes(file.bucket))
+        })
         .map(|(file_index, file)| NativeDiffSelection {
             bucket: file.bucket,
             file_index,
@@ -1419,6 +1543,35 @@ mod tests {
     }
 
     #[test]
+    fn native_diff_horizontal_scroll_is_disabled_when_wrapping() {
+        let patch = b"--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1 +1 @@\n-old\n+new\n";
+        let mut state = NativeDiffPaneState::new(
+            parse_native_diff_session("/repo", patch, b"").expect("parse patch"),
+        );
+
+        state.scroll_diff_columns(12, 1);
+        assert_eq!(state.diff_col_scroll, 2);
+
+        state.toggle_wrap_lines();
+        assert_eq!(state.diff_col_scroll, 0);
+
+        state.scroll_diff_columns(12, 1);
+        assert_eq!(state.diff_col_scroll, 0);
+    }
+
+    #[test]
+    fn native_diff_horizontal_scroll_clamps_to_visible_text() {
+        let patch = b"--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1 +1 @@\n-old\n+abcdefghijkl\n";
+        let mut state = NativeDiffPaneState::new(
+            parse_native_diff_session("/repo", patch, b"").expect("parse patch"),
+        );
+
+        state.scroll_diff_columns(40, 5);
+
+        assert_eq!(state.diff_col_scroll, 7);
+    }
+
+    #[test]
     fn moving_hunk_selection_scrolls_to_selected_hunk() {
         let patch = b"--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1 +1 @@\n-old_one\n+new_one\n@@ -20 +20 @@\n-old_two\n+new_two\n@@ -40 +40 @@\n-old_three\n+new_three\n";
         let mut state = NativeDiffPaneState::new(
@@ -1430,7 +1583,7 @@ mod tests {
         let rows = state.visible_diff_rows();
         assert_eq!(state.selected_hunk, Some(1));
         assert!(matches!(
-            rows[state.diff_scroll].id,
+            rows[state.diff_scroll + 1].id,
             NativeDiffRowId::Hunk { hunk_index: 1, .. }
         ));
 
@@ -1439,7 +1592,7 @@ mod tests {
         let rows = state.visible_diff_rows();
         assert_eq!(state.selected_hunk, Some(2));
         assert!(matches!(
-            rows[state.diff_scroll].id,
+            rows[state.diff_scroll + 1].id,
             NativeDiffRowId::Hunk { hunk_index: 2, .. }
         ));
     }
@@ -1545,5 +1698,49 @@ mod tests {
         assert!(staged.contains("line two"));
         assert!(!staged.contains("line nineteen"));
         let _ = std::fs::remove_dir_all(repo);
+    }
+
+    #[test]
+    fn scope_cycle_filters_file_selection() {
+        let mut state = NativeDiffPaneState::new(NativeDiffSession {
+            repo_root: PathBuf::from("/repo"),
+            files: vec![
+                NativeDiffFile {
+                    bucket: DiffBucket::Changed,
+                    old_path: Some(PathBuf::from("changed.rs")),
+                    new_path: Some(PathBuf::from("changed.rs")),
+                    status: DiffFileStatus::Modified,
+                    added: 1,
+                    deleted: 0,
+                    hunks: Vec::new(),
+                    binary: false,
+                },
+                NativeDiffFile {
+                    bucket: DiffBucket::Untracked,
+                    old_path: None,
+                    new_path: Some(PathBuf::from("new.rs")),
+                    status: DiffFileStatus::Added,
+                    added: 1,
+                    deleted: 0,
+                    hunks: Vec::new(),
+                    binary: false,
+                },
+            ],
+        });
+
+        state.cycle_scope();
+        assert_eq!(state.scope, NativeDiffScope::Unstaged);
+        assert_eq!(
+            state.selected_file().map(|file| file.bucket),
+            Some(DiffBucket::Changed)
+        );
+
+        state.cycle_scope();
+        assert_eq!(state.scope, NativeDiffScope::Untracked);
+        assert_eq!(
+            state.selected_file().map(|file| file.bucket),
+            Some(DiffBucket::Untracked)
+        );
+        assert_eq!(state.file_list_row_count(), 2);
     }
 }

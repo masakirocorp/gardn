@@ -1087,7 +1087,12 @@ impl AppState {
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
                 if !in_chrome && self.scroll_selection_with_wheel(terminal_runtimes, mouse) => {}
 
-            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown if !in_chrome => {
+            MouseEventKind::ScrollUp
+            | MouseEventKind::ScrollDown
+            | MouseEventKind::ScrollLeft
+            | MouseEventKind::ScrollRight
+                if !in_chrome =>
+            {
                 self.selection = None;
                 self.selection_autoscroll = None;
                 self.handle_terminal_wheel(terminal_runtimes, mouse);
@@ -1797,6 +1802,7 @@ impl AppState {
     }
 
     pub(super) fn handle_native_diff_wheel(&mut self, info: &PaneInfo, mouse: MouseEvent) -> bool {
+        let line_numbers = self.native_diff_line_numbers;
         let Some(diff) = self
             .active
             .and_then(|ws_idx| self.workspaces.get_mut(ws_idx))
@@ -1805,9 +1811,19 @@ impl AppState {
         else {
             return false;
         };
+        let horizontal = matches!(
+            mouse.kind,
+            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight
+        ) || mouse
+            .modifiers
+            .contains(crossterm::event::KeyModifiers::SHIFT);
         let delta = match mouse.kind {
+            MouseEventKind::ScrollUp if horizontal => -8,
+            MouseEventKind::ScrollDown if horizontal => 8,
             MouseEventKind::ScrollUp => -3,
             MouseEventKind::ScrollDown => 3,
+            MouseEventKind::ScrollLeft => -8,
+            MouseEventKind::ScrollRight => 8,
             _ => return false,
         };
         let file_width = if diff.show_file_list {
@@ -1818,11 +1834,67 @@ impl AppState {
         let local_col = mouse.column.saturating_sub(info.inner_rect.x);
         let file_list_start = info.inner_rect.width.saturating_sub(file_width);
         if file_width > 0 && local_col >= file_list_start {
+            if horizontal {
+                return true;
+            }
             diff.scroll_file_list(delta, info.inner_rect.height.saturating_sub(1) as usize);
+        } else if horizontal {
+            let viewport_cols = Self::native_diff_mouse_col_viewport(
+                diff,
+                info.inner_rect.width,
+                info.inner_rect.height.saturating_sub(2) as usize,
+                line_numbers,
+            );
+            diff.scroll_diff_columns(delta, viewport_cols);
         } else {
             diff.scroll_diff(delta, info.inner_rect.height.saturating_sub(2) as usize);
         }
         true
+    }
+
+    fn native_diff_mouse_col_viewport(
+        diff: &crate::native_diff::NativeDiffPaneState,
+        pane_width: u16,
+        diff_viewport_rows: usize,
+        line_numbers: bool,
+    ) -> usize {
+        let file_width = if diff.show_file_list {
+            crate::native_diff::native_diff_file_list_width(pane_width)
+        } else {
+            0
+        };
+        let patch_width = pane_width
+            .saturating_sub(file_width)
+            .saturating_sub(u16::from(file_width > 0));
+        let gutter_width = if line_numbers {
+            diff.selected_file()
+                .map(crate::ui::native_diff_line_number_gutter_width)
+                .unwrap_or(4)
+        } else {
+            0
+        };
+        let body_rows = diff.visible_diff_rows().len().saturating_sub(1);
+        let horizontal_scrollbar_rows = usize::from(diff.max_diff_col_scroll(1) > 0);
+        let effective_rows = diff_viewport_rows
+            .saturating_sub(horizontal_scrollbar_rows)
+            .max(1);
+        let patch_width = patch_width.saturating_sub(u16::from(body_rows > effective_rows));
+        let split = match diff.view_mode {
+            crate::native_diff::NativeDiffViewMode::Unified => false,
+            crate::native_diff::NativeDiffViewMode::Split => true,
+            crate::native_diff::NativeDiffViewMode::Auto => patch_width >= 110,
+        };
+        if split {
+            let half = patch_width as usize / 2;
+            let left = half.saturating_sub(gutter_width + 4);
+            let right = (patch_width as usize)
+                .saturating_sub(half)
+                .saturating_sub(gutter_width + 5);
+            left.min(right)
+        } else {
+            (patch_width as usize).saturating_sub(gutter_width * 2 + 4)
+        }
+        .max(1)
     }
 
     pub(super) fn forward_pane_mouse_button(

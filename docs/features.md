@@ -183,7 +183,7 @@ Hako can discover and run project commands. The command palette is also a genera
 - Command status sections include running, failed, unknown, and stopped commands.
 - Custom keybindings can launch shell helpers or pane commands.
 - **Panel actions** — command rows can run, focus, expand, or stop commands from the right sidebar.
-- **Git diff command** — the command palette can open a Git diff panel when the current context is inside a Git repository. When Hunk 0.14 or newer is installed, Hako launches it with a generated custom theme based on the target workspace/group accent.
+- **Git diff panels** — command palette and contextual Git actions can open Hako's native Git diff panel for repository review. The panel supports file navigation, hunk navigation, split/unified/auto display, wrapping or horizontal panning, staging/unstaging files and hunks, and configurable diff indicators/background tints. When Hunk 0.14 or newer is installed, legacy Hunk launch paths use a generated custom theme based on the target workspace/group accent.
 - **Command discovery** — Hako discovers VS Code tasks, package scripts, just recipes, Make targets, and defaults for common Cargo, Go, Java, Python, .NET, PHP, and Ruby projects.
 - **Managed reruns** — rerunning a managed command focuses an existing run or restarts a stopped/failed run in the same pane instead of spawning duplicates.
 
@@ -251,7 +251,7 @@ Hako is a terminal workspace manager, so some features call user-installed tools
 | Tool | Used for | Requirement |
 | --- | --- | --- |
 | `git` | Git status, repository discovery, worktree operations, and Git-aware project commands. | Required for Git-aware features. |
-| `hunk` | Interactive Git diff panes opened from the command palette. | Optional; missing installs show guidance instead of opening the diff UI. Hako uses Hunk 0.14 or newer for generated accent-aware themes. |
+| `hunk` | Legacy external interactive Git diff panes. | Optional; Hako includes a native Git diff panel. When Hunk is installed, legacy Hunk launch paths use Hunk 0.14 or newer for generated accent-aware themes. |
 | Agent CLIs such as `pi`, `omp`, `claude`, `codex`, `opencode`, `hermes`, `copilot`, `kimi`, `droid`, `qodercli`, and `cursor-agent` | Launching agent panes and installing/updating matching Hako integrations. | Required only for the agent/profile the user launches or integrates. |
 | `python3` | Installed hook scripts for agent integrations. | Required for hook-based state/session reports; hooks exit quietly when it is missing. |
 | `curl` | Update checks, release downloads, manifest refreshes, and remote bootstrap downloads. | Required for those networked update/bootstrap features. |

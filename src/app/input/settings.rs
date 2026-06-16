@@ -42,6 +42,10 @@ pub(super) enum SettingsAction {
         sidebar_max_width: u16,
         sidebar_arrangement: SidebarArrangementConfig,
         worktree_directory: Option<String>,
+        native_diff_indicators: crate::config::NativeDiffIndicatorConfig,
+        native_diff_backgrounds: bool,
+        native_diff_wrap_lines: bool,
+        native_diff_line_numbers: bool,
         agent_border_labels: bool,
     },
     SaveSwitchAsciiInputSourceInPrefix(bool),
@@ -81,6 +85,10 @@ impl App {
                     sidebar_min_width,
                     sidebar_max_width,
                     sidebar_arrangement,
+                    native_diff_indicators,
+                    native_diff_backgrounds,
+                    native_diff_wrap_lines,
+                    native_diff_line_numbers,
                     agent_border_labels,
                     worktree_directory,
                 } => {
@@ -102,6 +110,12 @@ impl App {
                         self.save_worktree_directory(&directory);
                     }
                     self.save_toast_delivery(toast_delivery);
+                    self.save_native_diff_display(
+                        native_diff_indicators,
+                        native_diff_backgrounds,
+                        native_diff_wrap_lines,
+                        native_diff_line_numbers,
+                    );
                     self.save_agent_border_labels(agent_border_labels);
                 }
                 SettingsAction::SaveGroupAccent { group_idx, accent } => {
@@ -896,6 +910,33 @@ fn pending_agent_border_labels(state: &AppState) -> bool {
         .unwrap_or_else(|| state.agent_border_labels_enabled())
 }
 
+fn pending_native_diff_indicators(state: &AppState) -> crate::config::NativeDiffIndicatorConfig {
+    state
+        .settings
+        .pending_native_diff_indicators
+        .unwrap_or(state.native_diff_indicators)
+}
+
+fn pending_native_diff_backgrounds(state: &AppState) -> bool {
+    state
+        .settings
+        .pending_native_diff_backgrounds
+        .unwrap_or_else(|| state.native_diff_backgrounds_enabled())
+}
+fn pending_native_diff_wrap_lines(state: &AppState) -> bool {
+    state
+        .settings
+        .pending_native_diff_wrap_lines
+        .unwrap_or(state.native_diff_wrap_lines)
+}
+
+fn pending_native_diff_line_numbers(state: &AppState) -> bool {
+    state
+        .settings
+        .pending_native_diff_line_numbers
+        .unwrap_or(state.native_diff_line_numbers)
+}
+
 fn selected_global_theme_name_for_mode(state: &AppState) -> String {
     match pending_theme_mode(state) {
         ThemeMode::Light => pending_light_theme_name(state),
@@ -1107,6 +1148,10 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_sidebar_arrangement = None;
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
+    state.settings.pending_native_diff_indicators = None;
+    state.settings.pending_native_diff_backgrounds = None;
+    state.settings.pending_native_diff_wrap_lines = None;
+    state.settings.pending_native_diff_line_numbers = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.pending_group_accent_choice = None;
     state.settings.pending_group_name = None;
@@ -1135,6 +1180,10 @@ fn current_settings_action(state: &AppState) -> SettingsAction {
         sidebar_max_width: pending_sidebar_max_width(state),
         sidebar_arrangement: pending_sidebar_arrangement(state),
         worktree_directory: state.settings.pending_worktree_directory.clone(),
+        native_diff_indicators: pending_native_diff_indicators(state),
+        native_diff_backgrounds: pending_native_diff_backgrounds(state),
+        native_diff_wrap_lines: pending_native_diff_wrap_lines(state),
+        native_diff_line_numbers: pending_native_diff_line_numbers(state),
         agent_border_labels: pending_agent_border_labels(state),
     }
 }
@@ -1235,6 +1284,29 @@ fn select_pending_appearance_setting(state: &mut AppState) -> Option<SettingsAct
     match appearance_selected {
         0..=3 => select_pending_layout_setting_at(state, appearance_selected),
         4 => {
+            state.settings.pending_native_diff_indicators =
+                Some(match pending_native_diff_indicators(state) {
+                    crate::config::NativeDiffIndicatorConfig::Bars => {
+                        crate::config::NativeDiffIndicatorConfig::Signs
+                    }
+                    crate::config::NativeDiffIndicatorConfig::Signs => {
+                        crate::config::NativeDiffIndicatorConfig::Bars
+                    }
+                });
+        }
+        5 => {
+            state.settings.pending_native_diff_backgrounds =
+                Some(!pending_native_diff_backgrounds(state));
+        }
+        6 => {
+            state.settings.pending_native_diff_wrap_lines =
+                Some(!pending_native_diff_wrap_lines(state));
+        }
+        7 => {
+            state.settings.pending_native_diff_line_numbers =
+                Some(!pending_native_diff_line_numbers(state));
+        }
+        8 => {
             state.settings.pending_agent_border_labels = Some(!pending_agent_border_labels(state));
         }
         _ => {}
@@ -1785,6 +1857,10 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
     state.settings.pending_sidebar_arrangement = Some(state.sidebar_arrangement);
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = Some(state.agent_border_labels_enabled());
+    state.settings.pending_native_diff_indicators = Some(state.native_diff_indicators);
+    state.settings.pending_native_diff_backgrounds = Some(state.native_diff_backgrounds_enabled());
+    state.settings.pending_native_diff_wrap_lines = Some(state.native_diff_wrap_lines);
+    state.settings.pending_native_diff_line_numbers = Some(state.native_diff_line_numbers);
     state.settings.pending_agent_profile_id = None;
     state.settings.pending_agent_profile_name = None;
     state.settings.pending_agent_profile_kind = Some(state.default_agent_profile_kind_choice());
@@ -3128,6 +3204,10 @@ mod tests {
                 sidebar_max_width: 36,
                 sidebar_arrangement: SidebarArrangementConfig::Auto,
                 worktree_directory: None,
+                native_diff_indicators: crate::config::NativeDiffIndicatorConfig::Bars,
+                native_diff_backgrounds: true,
+                native_diff_wrap_lines: false,
+                native_diff_line_numbers: true,
                 agent_border_labels: false,
             })
         );

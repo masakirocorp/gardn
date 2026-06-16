@@ -616,6 +616,10 @@ impl App {
                         sidebar_max_width,
                         sidebar_arrangement,
                         worktree_directory,
+                        native_diff_indicators,
+                        native_diff_backgrounds,
+                        native_diff_wrap_lines,
+                        native_diff_line_numbers,
                         agent_border_labels,
                     } => {
                         self.save_theme(
@@ -640,6 +644,12 @@ impl App {
                             self.save_worktree_directory(&directory);
                         }
                         self.save_toast_delivery(toast_delivery);
+                        self.save_native_diff_display(
+                            native_diff_indicators,
+                            native_diff_backgrounds,
+                            native_diff_wrap_lines,
+                            native_diff_line_numbers,
+                        );
                         self.save_agent_border_labels(agent_border_labels);
                     }
                     SettingsAction::SaveGroupAccent { group_idx, accent } => {

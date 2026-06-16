@@ -669,6 +669,10 @@ impl App {
             mouse_scroll_lines: config.ui.mouse_scroll_lines(),
             confirm_close: config.ui.confirm_close,
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
+            native_diff_indicators: config.ui.native_diff_indicators,
+            native_diff_backgrounds: config.ui.native_diff_backgrounds,
+            native_diff_wrap_lines: config.ui.native_diff_wrap_lines,
+            native_diff_line_numbers: config.ui.native_diff_line_numbers,
             show_agent_labels_on_pane_borders: config.ui.show_agent_labels_on_pane_borders,
             pane_history_persistence: config.experimental.pane_history,
             resume_agents_on_restore: config.session.resume_agents_on_restore,
@@ -736,6 +740,10 @@ impl App {
                 pending_sidebar_arrangement: None,
                 pending_worktree_directory: None,
                 pending_agent_border_labels: None,
+                pending_native_diff_indicators: None,
+                pending_native_diff_backgrounds: None,
+                pending_native_diff_wrap_lines: None,
+                pending_native_diff_line_numbers: None,
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,
                 pending_group_name: None,
@@ -1532,6 +1540,10 @@ impl App {
                 self.state.mouse_scroll_lines = config.ui.mouse_scroll_lines();
                 self.state.confirm_close = config.ui.confirm_close;
                 self.state.prompt_new_tab_name = config.ui.prompt_new_tab_name;
+                self.state.native_diff_indicators = config.ui.native_diff_indicators;
+                self.state.native_diff_backgrounds = config.ui.native_diff_backgrounds;
+                self.state.native_diff_wrap_lines = config.ui.native_diff_wrap_lines;
+                self.state.native_diff_line_numbers = config.ui.native_diff_line_numbers;
                 self.state.show_agent_labels_on_pane_borders =
                     config.ui.show_agent_labels_on_pane_borders;
                 self.state.agent_panel_scope =

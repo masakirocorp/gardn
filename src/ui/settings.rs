@@ -1200,7 +1200,7 @@ mod tests {
         app.settings.list.selected = 3;
         app.settings.selection_active = true;
 
-        let area = Rect::new(0, 0, 100, 50);
+        let area = Rect::new(0, 0, 100, 80);
         let backend = TestBackend::new(area.width, area.height);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
