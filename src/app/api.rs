@@ -899,11 +899,15 @@ impl App {
                     let Some(diff) = pane.native_diff_mut() else {
                         continue;
                     };
-                    match crate::native_diff::load_native_diff_session(
+                    match crate::native_diff::load_native_diff_session_metadata(
                         diff.session.repo_root.clone(),
                     ) {
-                        Ok(session) => {
+                        Ok(mut session) => {
                             if session != diff.session {
+                                crate::native_diff::load_syntax_for_session(
+                                    &session.repo_root.clone(),
+                                    &mut session,
+                                );
                                 diff.replace_session(session);
                                 changed = true;
                             }

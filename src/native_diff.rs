@@ -30,7 +30,7 @@ pub(crate) struct NativeDiffSession {
     pub(crate) files: Vec<NativeDiffFile>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub(crate) struct NativeDiffFile {
     pub(crate) bucket: DiffBucket,
     pub(crate) old_path: Option<PathBuf>,
@@ -40,7 +40,24 @@ pub(crate) struct NativeDiffFile {
     pub(crate) deleted: usize,
     pub(crate) hunks: Vec<NativeDiffHunk>,
     pub(crate) binary: bool,
+    pub(crate) old_syntax: Option<crate::native_diff_syntax::NativeDiffSyntaxDocument>,
+    pub(crate) new_syntax: Option<crate::native_diff_syntax::NativeDiffSyntaxDocument>,
 }
+
+impl PartialEq for NativeDiffFile {
+    fn eq(&self, other: &Self) -> bool {
+        self.bucket == other.bucket
+            && self.old_path == other.old_path
+            && self.new_path == other.new_path
+            && self.status == other.status
+            && self.added == other.added
+            && self.deleted == other.deleted
+            && self.hunks == other.hunks
+            && self.binary == other.binary
+    }
+}
+
+impl Eq for NativeDiffFile {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DiffFileStatus {
@@ -157,20 +174,28 @@ impl NativeDiffPaneState {
         file.new_path.as_ref().or(file.old_path.as_ref()).cloned()
     }
 
+    fn selected_key(&self) -> Option<(DiffBucket, PathBuf)> {
+        let selection = self.selected_file?;
+        Some((selection.bucket, self.selected_path()?))
+    }
+
     pub(crate) fn replace_session(&mut self, session: NativeDiffSession) {
-        let previous_path = self.selected_path();
+        let previous_key = self.selected_key();
         let previous_top_row = self
             .visible_diff_rows()
             .get(self.diff_scroll)
             .map(|row| row.id);
         self.session = session;
-        self.selected_file = previous_path
-            .and_then(|path| {
+        self.selected_file = previous_key
+            .and_then(|(bucket, path)| {
                 self.session
                     .files
                     .iter()
                     .enumerate()
                     .find_map(|(index, file)| {
+                        if file.bucket != bucket {
+                            return None;
+                        }
                         let candidate = file.new_path.as_ref().or(file.old_path.as_ref())?;
                         (candidate == &path).then_some(NativeDiffSelection {
                             bucket: file.bucket,
@@ -224,9 +249,12 @@ impl NativeDiffPaneState {
     }
 
     pub(crate) fn refresh(&mut self) {
-        match load_native_diff_session(self.session.repo_root.clone()) {
-            Ok(session) => {
-                self.replace_session(session);
+        match load_native_diff_session_metadata(self.session.repo_root.clone()) {
+            Ok(mut session) => {
+                if session != self.session {
+                    load_syntax_for_session(&session.repo_root.clone(), &mut session);
+                    self.replace_session(session);
+                }
                 self.last_error = None;
             }
             Err(err) => self.last_error = Some(err.0),
@@ -706,6 +734,10 @@ pub(crate) enum DiffLineKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NativeDiffParseError(pub(crate) String);
 
+pub(crate) fn native_diff_file_list_width(total: u16) -> u16 {
+    total.clamp(28, 36).min(total.saturating_sub(10))
+}
+
 pub(crate) fn parse_native_diff_session(
     repo_root: impl Into<PathBuf>,
     changed_patch: &[u8],
@@ -730,6 +762,14 @@ pub(crate) fn parse_native_diff_bucket(
 pub(crate) fn load_native_diff_session(
     repo_root: impl Into<PathBuf>,
 ) -> Result<NativeDiffSession, NativeDiffParseError> {
+    let mut session = load_native_diff_session_metadata(repo_root)?;
+    load_syntax_for_session(&session.repo_root.clone(), &mut session);
+    Ok(session)
+}
+
+pub(crate) fn load_native_diff_session_metadata(
+    repo_root: impl Into<PathBuf>,
+) -> Result<NativeDiffSession, NativeDiffParseError> {
     let repo_root = repo_root.into();
     let changed_patch = git_output(
         &repo_root,
@@ -748,9 +788,8 @@ pub(crate) fn load_native_diff_session(
     let mut session = parse_native_diff_session(&repo_root, &changed_patch, &staged_patch)?;
     for (path, contents) in untracked_files(&repo_root)? {
         let patch = synthetic_untracked_file_patch(&path, &contents)?;
-        session
-            .files
-            .extend(parse_native_diff_bucket(DiffBucket::Untracked, &patch)?);
+        let files = parse_native_diff_bucket(DiffBucket::Untracked, &patch)?;
+        session.files.extend(files);
     }
     Ok(session)
 }
@@ -770,6 +809,133 @@ fn git_output(repo_root: &Path, args: &[&str]) -> Result<Vec<u8>, NativeDiffPars
         )));
     }
     Ok(output.stdout)
+}
+
+const MAX_SYNTAX_SIDES_PER_SESSION: usize = 96;
+const MAX_SYNTAX_BYTES_PER_SESSION: usize = 4 * 1024 * 1024;
+
+struct SyntaxAnalysisBudget {
+    sides_remaining: usize,
+    bytes_remaining: usize,
+}
+
+impl SyntaxAnalysisBudget {
+    fn new() -> Self {
+        Self {
+            sides_remaining: MAX_SYNTAX_SIDES_PER_SESSION,
+            bytes_remaining: MAX_SYNTAX_BYTES_PER_SESSION,
+        }
+    }
+
+    fn reserve(&mut self, bytes: usize) -> bool {
+        if self.sides_remaining == 0 || bytes > self.bytes_remaining {
+            return false;
+        }
+        self.sides_remaining -= 1;
+        self.bytes_remaining -= bytes;
+        true
+    }
+
+    fn exhausted(&self) -> bool {
+        self.sides_remaining == 0 || self.bytes_remaining == 0
+    }
+}
+
+pub(crate) fn load_syntax_for_session(repo_root: &Path, session: &mut NativeDiffSession) {
+    let mut budget = SyntaxAnalysisBudget::new();
+    for file in &mut session.files {
+        if file.binary {
+            continue;
+        }
+        if file.old_syntax.is_none() {
+            file.old_syntax = load_syntax_side(repo_root, file, true, &mut budget);
+        }
+        if file.new_syntax.is_none() {
+            file.new_syntax = load_syntax_side(repo_root, file, false, &mut budget);
+        }
+    }
+}
+
+fn load_syntax_side(
+    repo_root: &Path,
+    file: &NativeDiffFile,
+    old_side: bool,
+    budget: &mut SyntaxAnalysisBudget,
+) -> Option<crate::native_diff_syntax::NativeDiffSyntaxDocument> {
+    if budget.exhausted() {
+        return Some(crate::native_diff_syntax::NativeDiffSyntaxDocument::plain(
+            true,
+        ));
+    }
+    let size = source_side_size(repo_root, file, old_side)?;
+    if !budget.reserve(size) {
+        return Some(crate::native_diff_syntax::NativeDiffSyntaxDocument::plain(
+            true,
+        ));
+    }
+    let (path, contents) = load_source_side(repo_root, file, old_side)?;
+    Some(crate::native_diff_syntax::analyze_source(&path, &contents))
+}
+
+fn source_side_size(repo_root: &Path, file: &NativeDiffFile, old_side: bool) -> Option<usize> {
+    let path = if old_side {
+        file.old_path.as_ref()?
+    } else {
+        file.new_path.as_ref()?
+    };
+    match (file.bucket, old_side) {
+        (DiffBucket::Changed | DiffBucket::Untracked, false) => {
+            std::fs::metadata(repo_root.join(path))
+                .ok()?
+                .len()
+                .try_into()
+                .ok()
+        }
+        (DiffBucket::Changed, true) | (DiffBucket::Staged, true) | (DiffBucket::Staged, false) => {
+            let rev_path = source_side_rev_path(file, path, old_side)?;
+            let output = git_output(repo_root, &["cat-file", "-s", &rev_path]).ok()?;
+            String::from_utf8_lossy(&output).trim().parse().ok()
+        }
+        (DiffBucket::Untracked, true) => None,
+    }
+}
+
+fn source_side_rev_path(file: &NativeDiffFile, path: &Path, old_side: bool) -> Option<String> {
+    match (file.bucket, old_side) {
+        (DiffBucket::Changed, true) => Some(format!(":0:{}", path.display())),
+        (DiffBucket::Staged, true) => Some(format!("HEAD:{}", path.display())),
+        (DiffBucket::Staged, false) => Some(format!(":0:{}", path.display())),
+        _ => None,
+    }
+}
+
+fn load_source_side(
+    repo_root: &Path,
+    file: &NativeDiffFile,
+    old_side: bool,
+) -> Option<(PathBuf, Vec<u8>)> {
+    let path = if old_side {
+        file.old_path.as_ref()?
+    } else {
+        file.new_path.as_ref()?
+    };
+    let contents = match (file.bucket, old_side) {
+        (DiffBucket::Changed | DiffBucket::Untracked, false) => {
+            std::fs::read(repo_root.join(path)).ok()?
+        }
+        (DiffBucket::Changed, true) | (DiffBucket::Staged, true) | (DiffBucket::Staged, false) => {
+            git_blob(repo_root, &source_side_rev_path(file, path, old_side)?).ok()?
+        }
+        (DiffBucket::Untracked, true) => return None,
+    };
+    Some((path.clone(), contents))
+}
+
+fn git_blob(repo_root: &Path, rev_path: &str) -> Result<Vec<u8>, NativeDiffParseError> {
+    git_output(
+        repo_root,
+        &["show", "--no-ext-diff", "--no-textconv", rev_path],
+    )
 }
 
 fn untracked_files(repo_root: &Path) -> Result<Vec<(PathBuf, Vec<u8>)>, NativeDiffParseError> {
@@ -840,6 +1006,8 @@ fn native_file_from_patch(
             deleted: 0,
             hunks: Vec::new(),
             binary: true,
+            old_syntax: None,
+            new_syntax: None,
         }),
     }
 }
@@ -914,6 +1082,8 @@ fn native_file_from_plain_patch(bucket: DiffBucket, patch: UnifiedPatch) -> Nati
         deleted,
         hunks,
         binary: false,
+        old_syntax: None,
+        new_syntax: None,
     }
 }
 
@@ -999,6 +1169,118 @@ mod tests {
             "git {} failed: {}",
             args.join(" "),
             String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn source_side_loading_matches_git_bucket_storage() {
+        let repo =
+            std::env::temp_dir().join(format!("hako-native-diff-sources-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(&repo).expect("create repo");
+        run_git(&repo, &["init"]);
+        run_git(&repo, &["config", "user.email", "hako@example.com"]);
+        run_git(&repo, &["config", "user.name", "Hako"]);
+        std::fs::write(repo.join("changed.rs"), "fn base_changed() {}\n").expect("write changed");
+        std::fs::write(repo.join("staged.rs"), "fn base_staged() {}\n").expect("write staged");
+        run_git(&repo, &["add", "."]);
+        run_git(&repo, &["commit", "-m", "initial"]);
+        std::fs::write(repo.join("changed.rs"), "fn worktree_changed() {}\n")
+            .expect("modify changed");
+        std::fs::write(repo.join("staged.rs"), "fn index_staged() {}\n").expect("modify staged");
+        run_git(&repo, &["add", "staged.rs"]);
+        std::fs::write(repo.join("untracked.rs"), "fn untracked_new() {}\n")
+            .expect("write untracked");
+
+        let session = load_native_diff_session(&repo).expect("load native diff");
+        let changed = session
+            .files
+            .iter()
+            .find(|file| file.bucket == DiffBucket::Changed)
+            .expect("changed file");
+        let staged = session
+            .files
+            .iter()
+            .find(|file| file.bucket == DiffBucket::Staged)
+            .expect("staged file");
+        let untracked = session
+            .files
+            .iter()
+            .find(|file| file.bucket == DiffBucket::Untracked)
+            .expect("untracked file");
+
+        let (_, changed_old) = load_source_side(&repo, changed, true).expect("changed old");
+        let (_, changed_new) = load_source_side(&repo, changed, false).expect("changed new");
+        let (_, staged_old) = load_source_side(&repo, staged, true).expect("staged old");
+        let (_, staged_new) = load_source_side(&repo, staged, false).expect("staged new");
+        let (_, untracked_new) = load_source_side(&repo, untracked, false).expect("untracked new");
+
+        assert_eq!(
+            String::from_utf8_lossy(&changed_old),
+            "fn base_changed() {}\n"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&changed_new),
+            "fn worktree_changed() {}\n"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&staged_old),
+            "fn base_staged() {}\n"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&staged_new),
+            "fn index_staged() {}\n"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&untracked_new),
+            "fn untracked_new() {}\n"
+        );
+        assert!(load_source_side(&repo, untracked, true).is_none());
+        let _ = std::fs::remove_dir_all(repo);
+    }
+
+    #[test]
+    fn syntax_cache_does_not_change_diff_identity() {
+        let patch = b"--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1 +1 @@\n-old\n+new\n";
+        let mut left = parse_native_diff_session("/repo", patch, b"").expect("parse left");
+        let right = parse_native_diff_session("/repo", patch, b"").expect("parse right");
+        left.files[0].new_syntax = Some(crate::native_diff_syntax::NativeDiffSyntaxDocument {
+            engine: crate::native_diff_syntax::NativeDiffSyntaxEngine::TreeSitter,
+            degraded: false,
+            ranges: vec![crate::native_diff_syntax::NativeDiffHighlightRange {
+                line: 1,
+                start_col: 0,
+                end_col: 3,
+                role: crate::native_diff_syntax::NativeDiffSyntaxRole::Keyword,
+            }],
+        });
+
+        assert_eq!(left, right);
+    }
+
+    #[test]
+    fn replace_session_preserves_bucket_when_path_exists_in_multiple_sources() {
+        let patch = b"--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1 +1 @@\n-old\n+new\n";
+        let mut state = NativeDiffPaneState::new(
+            parse_native_diff_session("/repo", patch, patch).expect("parse initial"),
+        );
+        let staged_index = state
+            .session
+            .files
+            .iter()
+            .position(|file| file.bucket == DiffBucket::Staged)
+            .expect("staged copy");
+        state.selected_file = Some(NativeDiffSelection {
+            bucket: DiffBucket::Staged,
+            file_index: staged_index,
+        });
+
+        state
+            .replace_session(parse_native_diff_session("/repo", patch, patch).expect("parse next"));
+
+        assert_eq!(
+            state.selected_file().map(|file| file.bucket),
+            Some(DiffBucket::Staged)
         );
     }
     #[test]

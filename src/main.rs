@@ -42,6 +42,7 @@ mod kitty_graphics;
 mod layout;
 mod logging;
 mod native_diff;
+mod native_diff_syntax;
 mod pane;
 mod persist;
 mod platform;

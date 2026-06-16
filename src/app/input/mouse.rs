@@ -1777,16 +1777,17 @@ impl AppState {
             return false;
         };
         let file_width = if diff.show_file_list {
-            Self::native_diff_file_list_width(info.inner_rect.width)
+            crate::native_diff::native_diff_file_list_width(info.inner_rect.width)
         } else {
             0
         };
         let local_col = mouse.column.saturating_sub(info.inner_rect.x);
         let local_row = mouse.row.saturating_sub(info.inner_rect.y);
+        let file_list_start = info.inner_rect.width.saturating_sub(file_width);
         if local_row >= info.inner_rect.height.saturating_sub(1) {
             return true;
         }
-        if local_col < file_width {
+        if file_width > 0 && local_col >= file_list_start {
             return diff.select_visible_file_row(local_row as usize);
         }
         if !diff.toggle_visible_context_row(local_row as usize) {
@@ -1810,21 +1811,18 @@ impl AppState {
             _ => return false,
         };
         let file_width = if diff.show_file_list {
-            Self::native_diff_file_list_width(info.inner_rect.width)
+            crate::native_diff::native_diff_file_list_width(info.inner_rect.width)
         } else {
             0
         };
         let local_col = mouse.column.saturating_sub(info.inner_rect.x);
-        if local_col < file_width {
+        let file_list_start = info.inner_rect.width.saturating_sub(file_width);
+        if file_width > 0 && local_col >= file_list_start {
             diff.scroll_file_list(delta, info.inner_rect.height.saturating_sub(1) as usize);
         } else {
             diff.scroll_diff(delta, info.inner_rect.height.saturating_sub(2) as usize);
         }
         true
-    }
-
-    fn native_diff_file_list_width(total: u16) -> u16 {
-        total.clamp(28, 36).min(total.saturating_sub(10))
     }
 
     pub(super) fn forward_pane_mouse_button(
@@ -2159,6 +2157,8 @@ mod tests {
             deleted: 0,
             hunks: Vec::new(),
             binary: false,
+            old_syntax: None,
+            new_syntax: None,
         }
     }
 
@@ -2186,7 +2186,9 @@ mod tests {
 
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            info.inner_rect.x + 2,
+            info.inner_rect.x + info.inner_rect.width
+                - crate::native_diff::native_diff_file_list_width(info.inner_rect.width)
+                + 2,
             info.inner_rect.y + 2,
         ));
 

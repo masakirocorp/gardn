@@ -1,5 +1,3 @@
-use std::sync::OnceLock;
-
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -389,14 +387,14 @@ fn render_native_diff_pane(
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Length(file_list_width(vertical[0].width)),
-                Constraint::Length(1),
                 Constraint::Min(10),
+                Constraint::Length(1),
+                Constraint::Length(crate::native_diff::native_diff_file_list_width(area.width)),
             ])
             .split(vertical[0]);
-        render_native_diff_file_list(app, diff, frame, chunks[0], accent);
+        render_native_diff_file_patch(app, diff, frame, chunks[0], accent);
         render_native_diff_separator(app, frame, chunks[1]);
-        render_native_diff_file_patch(app, diff, frame, chunks[2], accent);
+        render_native_diff_file_list(app, diff, frame, chunks[2], accent);
     } else {
         render_native_diff_file_patch(app, diff, frame, vertical[0], accent);
     }
@@ -409,10 +407,6 @@ fn render_native_diff_separator(app: &AppState, frame: &mut Frame, area: Rect) {
         cell.set_symbol("│");
         cell.set_style(native_diff_divider_style(app));
     }
-}
-
-fn file_list_width(total: u16) -> u16 {
-    total.clamp(28, 36).min(total.saturating_sub(10))
 }
 
 fn render_native_diff_file_list(
@@ -824,9 +818,9 @@ fn push_native_diff_unified_lines(
                     let chunks = if diff.wrap_lines {
                         wrap_native_diff_text(&line.text, text_width)
                     } else {
-                        vec![truncate_label(&line.text, text_width)]
+                        vec![(0, truncate_label(&line.text, text_width))]
                     };
-                    for (index, chunk) in chunks.into_iter().enumerate() {
+                    for (index, (start_col, chunk)) in chunks.into_iter().enumerate() {
                         let first = index == 0;
                         let mut row = vec![
                             native_diff_rail_span(app, line.kind),
@@ -857,8 +851,9 @@ fn push_native_diff_unified_lines(
                         ];
                         row.extend(native_diff_content_spans(
                             app,
-                            file,
-                            line.kind,
+                            native_diff_syntax_for_unified_line(file, line),
+                            native_diff_line_number_for_unified_line(line),
+                            start_col,
                             &chunk,
                             text_width,
                             text_style.bg(bg),
@@ -924,18 +919,20 @@ fn push_native_diff_split_lines(
                     let left_chunks = if diff.wrap_lines {
                         wrap_native_diff_text(left_text, left_width)
                     } else {
-                        vec![truncate_label(left_text, left_width)]
+                        vec![(0, truncate_label(left_text, left_width))]
                     };
                     let right_chunks = if diff.wrap_lines {
                         wrap_native_diff_text(right_text, right_width)
                     } else {
-                        vec![truncate_label(right_text, right_width)]
+                        vec![(0, truncate_label(right_text, right_width))]
                     };
                     let rows = left_chunks.len().max(right_chunks.len()).max(1);
                     for index in 0..rows {
                         let first = index == 0;
-                        let left_chunk = left_chunks.get(index).cloned().unwrap_or_default();
-                        let right_chunk = right_chunks.get(index).cloned().unwrap_or_default();
+                        let (left_col, left_chunk) =
+                            left_chunks.get(index).cloned().unwrap_or_default();
+                        let (right_col, right_chunk) =
+                            right_chunks.get(index).cloned().unwrap_or_default();
                         let mut row = vec![
                             native_diff_split_rail_span(app, line.kind, true, left_struct_bg),
                             Span::styled(
@@ -953,8 +950,9 @@ fn push_native_diff_split_lines(
                         ];
                         row.extend(native_diff_content_spans(
                             app,
-                            file,
-                            line.kind,
+                            file.old_syntax.as_ref(),
+                            line.old_line,
+                            left_col,
                             &left_chunk,
                             left_width,
                             left_style,
@@ -981,8 +979,9 @@ fn push_native_diff_split_lines(
                         ));
                         row.extend(native_diff_content_spans(
                             app,
-                            file,
-                            line.kind,
+                            file.new_syntax.as_ref(),
+                            line.new_line,
+                            right_col,
                             &right_chunk,
                             right_width,
                             right_style,
@@ -1127,15 +1126,45 @@ fn push_native_diff_hunk_header(
 
 fn native_diff_content_spans(
     app: &AppState,
-    file: &crate::native_diff::NativeDiffFile,
-    kind: crate::native_diff::DiffLineKind,
+    syntax: Option<&crate::native_diff_syntax::NativeDiffSyntaxDocument>,
+    source_line: Option<usize>,
+    start_col: usize,
     text: &str,
     width: usize,
     base: Style,
     bg: Color,
 ) -> Vec<Span<'static>> {
-    let mut spans = syntax_spans_for_text(app, file, text, width, base, bg)
-        .unwrap_or_else(|| vec![Span::styled(truncate_label(text, width), base.bg(bg))]);
+    if width == 0 {
+        return Vec::new();
+    }
+    let text = truncate_label(text, width);
+    let Some(source_line) = source_line else {
+        return padded_native_diff_plain_spans(text, width, base.bg(bg));
+    };
+    let Some(syntax) = syntax else {
+        return padded_native_diff_plain_spans(text, width, base.bg(bg));
+    };
+    let mut spans = Vec::new();
+    let mut col = 0;
+    for range in syntax.ranges_for_line(source_line, start_col, start_col + text.chars().count()) {
+        if range.start_col > col {
+            let plain = slice_chars(&text, col, range.start_col);
+            spans.push(Span::styled(plain, base.bg(bg)));
+        }
+        let styled = slice_chars(&text, range.start_col, range.end_col);
+        if !styled.is_empty() {
+            spans.push(Span::styled(
+                styled,
+                base.fg(native_diff_syntax_role_color(app, range.role))
+                    .bg(bg),
+            ));
+        }
+        col = range.end_col;
+    }
+    let text_len = text.chars().count();
+    if col < text_len {
+        spans.push(Span::styled(slice_chars(&text, col, text_len), base.bg(bg)));
+    }
     let used = spans
         .iter()
         .map(|span| span.content.chars().count())
@@ -1143,144 +1172,70 @@ fn native_diff_content_spans(
     if used < width {
         spans.push(Span::styled(" ".repeat(width - used), base.bg(bg)));
     }
-    if kind == crate::native_diff::DiffLineKind::Context {
-        return spans;
+    spans
+}
+
+fn padded_native_diff_plain_spans(text: String, width: usize, style: Style) -> Vec<Span<'static>> {
+    let used = text.chars().count();
+    let mut spans = vec![Span::styled(text, style)];
+    if used < width {
+        spans.push(Span::styled(" ".repeat(width - used), style));
     }
     spans
 }
 
-fn syntax_spans_for_text(
+fn native_diff_syntax_for_unified_line<'a>(
+    file: &'a crate::native_diff::NativeDiffFile,
+    line: &crate::native_diff::NativeDiffLine,
+) -> Option<&'a crate::native_diff_syntax::NativeDiffSyntaxDocument> {
+    match line.kind {
+        crate::native_diff::DiffLineKind::Removed => file.old_syntax.as_ref(),
+        crate::native_diff::DiffLineKind::Added => file.new_syntax.as_ref(),
+        crate::native_diff::DiffLineKind::Context => {
+            file.new_syntax.as_ref().or(file.old_syntax.as_ref())
+        }
+    }
+}
+
+fn native_diff_line_number_for_unified_line(
+    line: &crate::native_diff::NativeDiffLine,
+) -> Option<usize> {
+    match line.kind {
+        crate::native_diff::DiffLineKind::Removed => line.old_line,
+        crate::native_diff::DiffLineKind::Added => line.new_line,
+        crate::native_diff::DiffLineKind::Context => line.new_line.or(line.old_line),
+    }
+}
+
+fn native_diff_syntax_role_color(
     app: &AppState,
-    file: &crate::native_diff::NativeDiffFile,
-    text: &str,
-    width: usize,
-    base: Style,
-    bg: Color,
-) -> Option<Vec<Span<'static>>> {
-    if width == 0 {
-        return Some(Vec::new());
-    }
-    if text.trim().is_empty() {
-        return None;
-    }
-    let syntax = native_diff_syntax_for_file(file)?;
-    let syntax_set = native_diff_syntax_set();
-    let theme = native_diff_syntax_theme();
-    let mut highlighter = syntect::easy::HighlightLines::new(syntax, theme);
-    let line = format!("{text}\n");
-    let ranges = highlighter.highlight_line(&line, syntax_set).ok()?;
-    let mut spans = Vec::new();
-    let mut remaining = width;
-    for (style, segment) in ranges {
-        if remaining == 0 {
-            break;
-        }
-        let segment = segment.trim_end_matches('\n');
-        if segment.is_empty() {
-            continue;
-        }
-        let chunk = take_chars(segment, remaining);
-        remaining = remaining.saturating_sub(chunk.chars().count());
-        spans.push(Span::styled(
-            chunk,
-            merge_native_diff_syntax_style(base, map_syntect_color(app, style), bg),
-        ));
-    }
-    if spans.is_empty() {
-        None
-    } else {
-        Some(spans)
+    role: crate::native_diff_syntax::NativeDiffSyntaxRole,
+) -> Color {
+    match role {
+        crate::native_diff_syntax::NativeDiffSyntaxRole::Text => app.palette.text,
+        crate::native_diff_syntax::NativeDiffSyntaxRole::Comment => app.palette.overlay0,
+        crate::native_diff_syntax::NativeDiffSyntaxRole::Keyword => app.palette.mauve,
+        crate::native_diff_syntax::NativeDiffSyntaxRole::String => app.palette.green,
+        crate::native_diff_syntax::NativeDiffSyntaxRole::Number => app.palette.peach,
+        crate::native_diff_syntax::NativeDiffSyntaxRole::Type => app.palette.yellow,
+        crate::native_diff_syntax::NativeDiffSyntaxRole::Function => app.palette.blue,
+        crate::native_diff_syntax::NativeDiffSyntaxRole::Property => app.palette.teal,
+        crate::native_diff_syntax::NativeDiffSyntaxRole::Punctuation => app.palette.subtext0,
+        crate::native_diff_syntax::NativeDiffSyntaxRole::Markup => app.palette.accent,
     }
 }
 
-fn take_chars(text: &str, width: usize) -> String {
-    text.chars().take(width).collect()
-}
-
-fn native_diff_syntax_for_file(
-    file: &crate::native_diff::NativeDiffFile,
-) -> Option<&'static syntect::parsing::SyntaxReference> {
-    let path = file.new_path.as_ref().or(file.old_path.as_ref())?;
-    let syntax_set = native_diff_syntax_set();
-    syntax_set
-        .find_syntax_for_file(path)
-        .ok()
-        .flatten()
-        .or_else(|| {
-            path.extension()
-                .and_then(|extension| extension.to_str())
-                .and_then(|extension| syntax_set.find_syntax_by_extension(extension))
-        })
-        .or_else(|| {
-            path.extension()
-                .and_then(|extension| extension.to_str())
-                .and_then(|extension| match extension {
-                    "ts" | "tsx" => syntax_set.find_syntax_by_extension("js"),
-                    "rs" => syntax_set.find_syntax_by_extension("rust"),
-                    _ => None,
-                })
-        })
+fn slice_chars(text: &str, start: usize, end: usize) -> String {
+    text.chars()
+        .skip(start)
+        .take(end.saturating_sub(start))
+        .collect()
 }
 
 fn native_diff_divider_style(app: &AppState) -> Style {
     Style::default()
         .fg(app.palette.overlay0)
         .bg(app.palette.panel_bg)
-}
-
-fn native_diff_syntax_set() -> &'static syntect::parsing::SyntaxSet {
-    static SYNTAX_SET: OnceLock<syntect::parsing::SyntaxSet> = OnceLock::new();
-    SYNTAX_SET.get_or_init(syntect::parsing::SyntaxSet::load_defaults_newlines)
-}
-
-fn native_diff_syntax_theme() -> &'static syntect::highlighting::Theme {
-    static THEME: OnceLock<syntect::highlighting::Theme> = OnceLock::new();
-    THEME.get_or_init(|| {
-        let themes = syntect::highlighting::ThemeSet::load_defaults();
-        themes
-            .themes
-            .get("base16-ocean.dark")
-            .cloned()
-            .or_else(|| themes.themes.values().next().cloned())
-            .unwrap_or_default()
-    })
-}
-
-fn map_syntect_color(app: &AppState, style: syntect::highlighting::Style) -> Color {
-    let fg = style.foreground;
-    let max = fg.r.max(fg.g).max(fg.b);
-    let min = fg.r.min(fg.g).min(fg.b);
-    if max.saturating_sub(min) < 18 {
-        return app.palette.text;
-    }
-
-    if fg.r >= fg.g && fg.r >= fg.b {
-        if fg.g > fg.b.saturating_add(24) {
-            app.palette.yellow
-        } else if fg.b > fg.g.saturating_add(18) {
-            app.palette.mauve
-        } else {
-            app.palette.red
-        }
-    } else if fg.g >= fg.r && fg.g >= fg.b {
-        if fg.b > fg.r.saturating_add(18) {
-            app.palette.teal
-        } else {
-            app.palette.green
-        }
-    } else if fg.b >= fg.r && fg.b >= fg.g {
-        if fg.r > fg.g.saturating_add(18) {
-            app.palette.mauve
-        } else {
-            app.palette.blue
-        }
-    } else {
-        app.palette.text
-    }
-}
-
-fn merge_native_diff_syntax_style(base: Style, fg: Color, bg: Color) -> Style {
-    base.fg(fg).bg(bg)
 }
 
 fn native_diff_rail_span(app: &AppState, kind: crate::native_diff::DiffLineKind) -> Span<'static> {
@@ -1424,15 +1379,16 @@ fn split_right_text_width(area_width: u16, gutter_width: usize) -> usize {
         .saturating_sub(gutter_width + 4)
 }
 
-fn wrap_native_diff_text(text: &str, width: usize) -> Vec<String> {
+fn wrap_native_diff_text(text: &str, width: usize) -> Vec<(usize, String)> {
     if text.is_empty() {
-        return vec![String::new()];
+        return vec![(0, String::new())];
     }
     let width = width.max(1);
     let chars = text.chars().collect::<Vec<_>>();
     chars
         .chunks(width)
-        .map(|chunk| chunk.iter().collect::<String>())
+        .enumerate()
+        .map(|(index, chunk)| (index * width, chunk.iter().collect::<String>()))
         .collect()
 }
 
@@ -1482,14 +1438,15 @@ fn native_diff_line_styles(
 }
 
 fn line_number_gutter_width(file: &crate::native_diff::NativeDiffFile) -> usize {
-    let max_line = file
-        .hunks
-        .iter()
-        .flat_map(|hunk| hunk.lines.iter())
-        .flat_map(|line| [line.old_line, line.new_line])
-        .flatten()
-        .max()
-        .unwrap_or(0);
+    let max_line =
+        file.hunks
+            .iter()
+            .flat_map(|hunk| hunk.lines.iter())
+            .fold(0, |max_line, line| {
+                max_line
+                    .max(line.old_line.unwrap_or(0))
+                    .max(line.new_line.unwrap_or(0))
+            });
     max_line.to_string().len().max(2) + 1
 }
 
@@ -1895,6 +1852,8 @@ mod tests {
                             },
                         ],
                     }],
+                    old_syntax: None,
+                    new_syntax: None,
                 }],
             });
         diff.diff_scroll = 2;
@@ -1918,6 +1877,74 @@ mod tests {
         assert!(text.contains("11    -old();"));
         assert!(text.contains("   11 +new();"));
         assert!(text.contains("▐"));
+    }
+
+    #[test]
+    fn native_diff_render_keeps_syntax_color_on_content_cells() {
+        let app = AppState::test_new();
+        let diff =
+            crate::native_diff::NativeDiffPaneState::new(crate::native_diff::NativeDiffSession {
+                repo_root: std::path::PathBuf::from("/repo"),
+                files: vec![crate::native_diff::NativeDiffFile {
+                    bucket: crate::native_diff::DiffBucket::Changed,
+                    old_path: Some(std::path::PathBuf::from("src/main.ts")),
+                    new_path: Some(std::path::PathBuf::from("src/main.ts")),
+                    status: crate::native_diff::DiffFileStatus::Modified,
+                    added: 1,
+                    deleted: 0,
+                    binary: false,
+                    old_syntax: None,
+                    new_syntax: Some(crate::native_diff_syntax::NativeDiffSyntaxDocument {
+                        engine: crate::native_diff_syntax::NativeDiffSyntaxEngine::TreeSitter,
+                        degraded: false,
+                        ranges: vec![crate::native_diff_syntax::NativeDiffHighlightRange {
+                            line: 1,
+                            start_col: 0,
+                            end_col: 6,
+                            role: crate::native_diff_syntax::NativeDiffSyntaxRole::Keyword,
+                        }],
+                    }),
+                    hunks: vec![crate::native_diff::NativeDiffHunk {
+                        old_start: 1,
+                        old_count: 0,
+                        new_start: 1,
+                        new_count: 1,
+                        lines: vec![crate::native_diff::NativeDiffLine {
+                            kind: crate::native_diff::DiffLineKind::Added,
+                            old_line: None,
+                            new_line: Some(1),
+                            text: "import { renderDashboard } from './components/dashboard';"
+                                .to_string(),
+                        }],
+                    }],
+                }],
+            });
+        let backend = TestBackend::new(100, 6);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        terminal
+            .draw(|frame| {
+                render_native_diff_pane(
+                    &app,
+                    &diff,
+                    frame,
+                    Rect::new(0, 0, 100, 6),
+                    app.palette.accent,
+                )
+            })
+            .expect("render native diff");
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, 100, 6);
+        let import_col = text
+            .lines()
+            .enumerate()
+            .find_map(|(row, line)| line.find("import").map(|col| (row as u16, col as u16)))
+            .expect("rendered import keyword");
+        let style = buffer[(import_col.1, import_col.0)].style();
+
+        assert_ne!(style.fg, Some(app.palette.text));
+        assert_eq!(style.bg, Some(native_diff_added_bg(&app)));
     }
 
     #[tokio::test]

@@ -104,6 +104,14 @@ _Avoid_: Picker status, live git status
 The Git-native bucket Hako asks Git to render inside a native diff session: changed worktree files, staged index files, or explicit compare changes. The source determines which patch operations are valid.
 _Avoid_: Review type, PR mode
 
+**Native Diff Analysis**:
+Render-neutral source-side analysis attached to a native diff session during refresh. It records syntax roles for old and new file contents so rendering stays theme-aware and does no syntax parsing on frame draw.
+_Avoid_: Render highlight, syntax theme
+
+**Syntax Role**:
+A Hako-owned semantic color role such as keyword, string, comment, type, function, property, punctuation, or markup. Syntax engines map source ranges to roles; Hako themes map roles to terminal colors.
+_Avoid_: Tree-sitter capture, Syntect scope
+
 **Changed Files**:
 Unstaged tracked edits plus untracked files in a repo. These can be viewed, staged, or destructively discarded through Git's worktree restore semantics.
 _Avoid_: Dirty changes, unstaged-only changes
