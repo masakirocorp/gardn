@@ -10,6 +10,16 @@ pub(crate) enum DiffBucket {
     Staged,
 }
 
+impl DiffBucket {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Changed => "unstaged",
+            Self::Untracked => "untracked",
+            Self::Staged => "staged",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NativeDiffViewMode {
     Unified,
@@ -221,6 +231,10 @@ pub(crate) struct NativeDiffPaneState {
     pub(crate) expanded_context: BTreeSet<NativeDiffContextKey>,
     pub(crate) last_error: Option<String>,
 }
+
+const AGENT_PAYLOAD_MAX_PATCH_BYTES: usize = 24 * 1024;
+const AGENT_PAYLOAD_MAX_HUNK_BYTES: usize = 12 * 1024;
+const AGENT_PAYLOAD_MAX_UNTRACKED_BYTES: usize = 16 * 1024;
 
 impl NativeDiffPaneState {
     pub(crate) fn new(session: NativeDiffSession) -> Self {
@@ -482,31 +496,41 @@ impl NativeDiffPaneState {
             Err(err) => self.last_error = Some(err),
         }
     }
+
     pub(crate) fn selected_agent_payload(&self) -> Option<String> {
         let file = self.selected_file()?;
-        let path = file
-            .new_path
-            .as_ref()
-            .or(file.old_path.as_ref())
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "(unknown)".to_string());
+        let path = native_diff_file_path_label(file);
         let mut payload = String::new();
-        payload.push_str("Review this diff from Hako.\n\n");
-        payload.push_str(&format!("Repo: {}\n", self.session.repo_root.display()));
-        payload.push_str(&format!("File: {path}\n"));
+        push_agent_payload_header(&mut payload, self, file, &path);
         if let Some(hunk_index) = self.selected_hunk {
             if let Some(hunk) = file.hunks.get(hunk_index) {
-                payload.push_str(&format!(
-                    "Hunk: -{},{} +{},{}\n",
-                    hunk.old_start, hunk.old_count, hunk.new_start, hunk.new_count
-                ));
-                payload.push('\n');
-                push_agent_hunk_patch(&mut payload, file, hunk);
+                let patch = agent_hunk_patch(file, hunk);
+                if patch.len() <= AGENT_PAYLOAD_MAX_HUNK_BYTES
+                    && !large_untracked_file(file, patch.len())
+                {
+                    payload.push_str(&format!(
+                        "Shape: selected hunk\nHunk: -{},{} +{},{}\n\n",
+                        hunk.old_start, hunk.old_count, hunk.new_start, hunk.new_count
+                    ));
+                    payload.push_str(&patch);
+                    return Some(payload);
+                }
+                payload.push_str("Shape: summary\n");
+                push_agent_large_diff_notice(&mut payload, file, patch.len());
+                push_agent_file_summary(&mut payload, file);
                 return Some(payload);
             }
         }
-        payload.push('\n');
-        push_agent_file_patch(&mut payload, file);
+        let patch = agent_file_patch(file);
+        if patch.len() <= AGENT_PAYLOAD_MAX_PATCH_BYTES && !large_untracked_file(file, patch.len())
+        {
+            payload.push_str("Shape: selected file\n\n");
+            payload.push_str(&patch);
+        } else {
+            payload.push_str("Shape: summary\n");
+            push_agent_large_diff_notice(&mut payload, file, patch.len());
+            push_agent_file_summary(&mut payload, file);
+        }
         Some(payload)
     }
 
@@ -766,20 +790,82 @@ impl NativeDiffPaneState {
     }
 }
 
-fn push_agent_file_patch(payload: &mut String, file: &NativeDiffFile) {
+fn agent_file_patch(file: &NativeDiffFile) -> String {
+    let mut payload = String::new();
     payload.push_str("```diff\n");
-    push_file_patch_header(payload, file);
+    push_file_patch_header(&mut payload, file);
     for hunk in &file.hunks {
-        push_hunk_patch_body(payload, hunk);
+        push_hunk_patch_body(&mut payload, hunk);
     }
     payload.push_str("```\n");
+    payload
 }
 
-fn push_agent_hunk_patch(payload: &mut String, file: &NativeDiffFile, hunk: &NativeDiffHunk) {
+fn agent_hunk_patch(file: &NativeDiffFile, hunk: &NativeDiffHunk) -> String {
+    let mut payload = String::new();
     payload.push_str("```diff\n");
-    push_file_patch_header(payload, file);
-    push_hunk_patch_body(payload, hunk);
+    push_file_patch_header(&mut payload, file);
+    push_hunk_patch_body(&mut payload, hunk);
     payload.push_str("```\n");
+    payload
+}
+
+fn native_diff_file_path_label(file: &NativeDiffFile) -> String {
+    file.new_path
+        .as_ref()
+        .or(file.old_path.as_ref())
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "(unknown)".to_string())
+}
+
+fn push_agent_payload_header(
+    payload: &mut String,
+    diff: &NativeDiffPaneState,
+    file: &NativeDiffFile,
+    path: &str,
+) {
+    payload.push_str("Review this diff from Hako.\n\n");
+    payload.push_str(&format!("Repo: {}\n", diff.session.repo_root.display()));
+    payload.push_str(&format!("File: {path}\n"));
+    payload.push_str(&format!("Bucket: {}\n", file.bucket.label()));
+    payload.push_str(&format!(
+        "Status: {}\n",
+        diff_file_status_label(file.status)
+    ));
+}
+
+fn diff_file_status_label(status: DiffFileStatus) -> &'static str {
+    match status {
+        DiffFileStatus::Added => "added",
+        DiffFileStatus::Deleted => "deleted",
+        DiffFileStatus::Renamed => "renamed",
+        DiffFileStatus::Binary => "binary",
+        DiffFileStatus::Modified => "modified",
+    }
+}
+
+fn large_untracked_file(file: &NativeDiffFile, patch_bytes: usize) -> bool {
+    file.bucket == DiffBucket::Untracked && patch_bytes > AGENT_PAYLOAD_MAX_UNTRACKED_BYTES
+}
+
+fn push_agent_large_diff_notice(payload: &mut String, file: &NativeDiffFile, patch_bytes: usize) {
+    let limit = if file.bucket == DiffBucket::Untracked {
+        AGENT_PAYLOAD_MAX_UNTRACKED_BYTES
+    } else {
+        AGENT_PAYLOAD_MAX_PATCH_BYTES
+    };
+    payload.push_str(&format!(
+        "Patch omitted: {} bytes exceeds {} byte agent payload limit.\n\n",
+        patch_bytes, limit
+    ));
+}
+
+fn push_agent_file_summary(payload: &mut String, file: &NativeDiffFile) {
+    payload.push_str("Summary:\n");
+    payload.push_str(&format!("- added lines: {}\n", file.added));
+    payload.push_str(&format!("- deleted lines: {}\n", file.deleted));
+    payload.push_str(&format!("- hunks: {}\n", file.hunks.len()));
+    payload.push_str("- Send a smaller selected hunk/file if exact patch review is required.\n");
 }
 
 fn push_file_patch_header(payload: &mut String, file: &NativeDiffFile) {
@@ -1742,5 +1828,122 @@ mod tests {
             Some(DiffBucket::Untracked)
         );
         assert_eq!(state.file_list_row_count(), 2);
+    }
+
+    #[test]
+    fn selected_agent_payload_uses_hunk_shape_when_small() {
+        let mut state = NativeDiffPaneState::new(NativeDiffSession {
+            repo_root: PathBuf::from("/repo"),
+            files: vec![NativeDiffFile {
+                bucket: DiffBucket::Changed,
+                old_path: Some(PathBuf::from("src/main.rs")),
+                new_path: Some(PathBuf::from("src/main.rs")),
+                status: DiffFileStatus::Modified,
+                added: 1,
+                deleted: 1,
+                binary: false,
+                hunks: vec![NativeDiffHunk {
+                    old_start: 1,
+                    old_count: 1,
+                    new_start: 1,
+                    new_count: 1,
+                    lines: vec![
+                        NativeDiffLine {
+                            kind: DiffLineKind::Removed,
+                            old_line: Some(1),
+                            new_line: None,
+                            text: "old".to_string(),
+                        },
+                        NativeDiffLine {
+                            kind: DiffLineKind::Added,
+                            old_line: None,
+                            new_line: Some(1),
+                            text: "new".to_string(),
+                        },
+                    ],
+                }],
+            }],
+        });
+        state.selected_hunk = Some(0);
+
+        let payload = state.selected_agent_payload().expect("payload");
+
+        assert!(payload.contains("Shape: selected hunk"));
+        assert!(payload.contains("Bucket: unstaged"));
+        assert!(payload.contains("Status: modified"));
+        assert!(payload.contains("-old"));
+        assert!(payload.contains("+new"));
+    }
+
+    #[test]
+    fn selected_agent_payload_summarizes_large_patch() {
+        let huge_line = "x".repeat(AGENT_PAYLOAD_MAX_PATCH_BYTES + 1);
+        let state = NativeDiffPaneState::new(NativeDiffSession {
+            repo_root: PathBuf::from("/repo"),
+            files: vec![NativeDiffFile {
+                bucket: DiffBucket::Changed,
+                old_path: Some(PathBuf::from("large.txt")),
+                new_path: Some(PathBuf::from("large.txt")),
+                status: DiffFileStatus::Modified,
+                added: 1,
+                deleted: 0,
+                binary: false,
+                hunks: vec![NativeDiffHunk {
+                    old_start: 1,
+                    old_count: 0,
+                    new_start: 1,
+                    new_count: 1,
+                    lines: vec![NativeDiffLine {
+                        kind: DiffLineKind::Added,
+                        old_line: None,
+                        new_line: Some(1),
+                        text: huge_line,
+                    }],
+                }],
+            }],
+        });
+
+        let payload = state.selected_agent_payload().expect("payload");
+
+        assert!(payload.contains("Shape: summary"));
+        assert!(payload.contains("Patch omitted:"));
+        assert!(payload.contains("- added lines: 1"));
+        assert!(!payload.contains("```diff"));
+    }
+
+    #[test]
+    fn selected_agent_payload_summarizes_large_untracked_file() {
+        let huge_line = "x".repeat(AGENT_PAYLOAD_MAX_UNTRACKED_BYTES + 1);
+        let state = NativeDiffPaneState::new(NativeDiffSession {
+            repo_root: PathBuf::from("/repo"),
+            files: vec![NativeDiffFile {
+                bucket: DiffBucket::Untracked,
+                old_path: None,
+                new_path: Some(PathBuf::from("fresh.txt")),
+                status: DiffFileStatus::Added,
+                added: 1,
+                deleted: 0,
+                binary: false,
+                hunks: vec![NativeDiffHunk {
+                    old_start: 0,
+                    old_count: 0,
+                    new_start: 1,
+                    new_count: 1,
+                    lines: vec![NativeDiffLine {
+                        kind: DiffLineKind::Added,
+                        old_line: None,
+                        new_line: Some(1),
+                        text: huge_line,
+                    }],
+                }],
+            }],
+        });
+
+        let payload = state.selected_agent_payload().expect("payload");
+
+        assert!(payload.contains("Bucket: untracked"));
+        assert!(payload.contains("Shape: summary"));
+        assert!(payload.contains("exceeds 16384 byte agent payload limit"));
+        assert!(!payload.contains("```diff"));
     }
 }
