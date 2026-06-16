@@ -902,13 +902,10 @@ impl App {
                     match crate::native_diff::load_native_diff_session_metadata(
                         diff.session.repo_root.clone(),
                     ) {
-                        Ok(mut session) => {
+                        Ok(session) => {
                             if session != diff.session {
-                                crate::native_diff::load_syntax_for_session(
-                                    &session.repo_root.clone(),
-                                    &mut session,
-                                );
-                                diff.replace_session(session);
+                                let syntax = crate::native_diff::load_syntax_for_session(&session);
+                                diff.replace_session(session, syntax);
                                 changed = true;
                             }
                             if diff.last_error.is_some() {

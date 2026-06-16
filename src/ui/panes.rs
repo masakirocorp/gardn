@@ -851,7 +851,7 @@ fn push_native_diff_unified_lines(
                         ];
                         row.extend(native_diff_content_spans(
                             app,
-                            native_diff_syntax_for_unified_line(file, line),
+                            native_diff_syntax_for_unified_line(diff, file, line),
                             native_diff_line_number_for_unified_line(line),
                             start_col,
                             &chunk,
@@ -950,7 +950,7 @@ fn push_native_diff_split_lines(
                         ];
                         row.extend(native_diff_content_spans(
                             app,
-                            file.old_syntax.as_ref(),
+                            diff.syntax.get(file, true),
                             line.old_line,
                             left_col,
                             &left_chunk,
@@ -979,7 +979,7 @@ fn push_native_diff_split_lines(
                         ));
                         row.extend(native_diff_content_spans(
                             app,
-                            file.new_syntax.as_ref(),
+                            diff.syntax.get(file, false),
                             line.new_line,
                             right_col,
                             &right_chunk,
@@ -1188,15 +1188,17 @@ fn padded_native_diff_plain_spans(text: String, width: usize, style: Style) -> V
 }
 
 fn native_diff_syntax_for_unified_line<'a>(
+    diff: &'a crate::native_diff::NativeDiffPaneState,
     file: &'a crate::native_diff::NativeDiffFile,
     line: &crate::native_diff::NativeDiffLine,
 ) -> Option<&'a crate::native_diff_syntax::NativeDiffSyntaxDocument> {
     match line.kind {
-        crate::native_diff::DiffLineKind::Removed => file.old_syntax.as_ref(),
-        crate::native_diff::DiffLineKind::Added => file.new_syntax.as_ref(),
-        crate::native_diff::DiffLineKind::Context => {
-            file.new_syntax.as_ref().or(file.old_syntax.as_ref())
-        }
+        crate::native_diff::DiffLineKind::Removed => diff.syntax.get(file, true),
+        crate::native_diff::DiffLineKind::Added => diff.syntax.get(file, false),
+        crate::native_diff::DiffLineKind::Context => diff
+            .syntax
+            .get(file, false)
+            .or_else(|| diff.syntax.get(file, true)),
     }
 }
 
@@ -1890,8 +1892,6 @@ mod tests {
                             },
                         ],
                     }],
-                    old_syntax: None,
-                    new_syntax: None,
                 }],
             });
         diff.diff_scroll = 2;
@@ -1920,7 +1920,7 @@ mod tests {
     #[test]
     fn native_diff_render_keeps_syntax_color_on_content_cells() {
         let app = AppState::test_new();
-        let diff =
+        let mut diff =
             crate::native_diff::NativeDiffPaneState::new(crate::native_diff::NativeDiffSession {
                 repo_root: std::path::PathBuf::from("/repo"),
                 files: vec![crate::native_diff::NativeDiffFile {
@@ -1931,17 +1931,6 @@ mod tests {
                     added: 1,
                     deleted: 0,
                     binary: false,
-                    old_syntax: None,
-                    new_syntax: Some(crate::native_diff_syntax::NativeDiffSyntaxDocument {
-                        engine: crate::native_diff_syntax::NativeDiffSyntaxEngine::TreeSitter,
-                        degraded: false,
-                        ranges: vec![crate::native_diff_syntax::NativeDiffHighlightRange {
-                            line: 1,
-                            start_col: 0,
-                            end_col: 6,
-                            role: crate::native_diff_syntax::NativeDiffSyntaxRole::Keyword,
-                        }],
-                    }),
                     hunks: vec![crate::native_diff::NativeDiffHunk {
                         old_start: 1,
                         old_count: 0,
@@ -1957,6 +1946,21 @@ mod tests {
                     }],
                 }],
             });
+        let file = diff.session.files[0].clone();
+        diff.syntax.insert(
+            &file,
+            false,
+            crate::native_diff_syntax::NativeDiffSyntaxDocument {
+                engine: crate::native_diff_syntax::NativeDiffSyntaxEngine::TreeSitter,
+                degraded: false,
+                ranges: vec![crate::native_diff_syntax::NativeDiffHighlightRange {
+                    line: 1,
+                    start_col: 0,
+                    end_col: 6,
+                    role: crate::native_diff_syntax::NativeDiffSyntaxRole::Keyword,
+                }],
+            },
+        );
         let backend = TestBackend::new(100, 6);
         let mut terminal = Terminal::new(backend).expect("test backend");
 

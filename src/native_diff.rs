@@ -1,9 +1,9 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use patchkit::unified::{HunkLine, PlainOrBinaryPatch, UnifiedPatch};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum DiffBucket {
     Changed,
     Untracked,
@@ -30,7 +30,7 @@ pub(crate) struct NativeDiffSession {
     pub(crate) files: Vec<NativeDiffFile>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NativeDiffFile {
     pub(crate) bucket: DiffBucket,
     pub(crate) old_path: Option<PathBuf>,
@@ -40,24 +40,61 @@ pub(crate) struct NativeDiffFile {
     pub(crate) deleted: usize,
     pub(crate) hunks: Vec<NativeDiffHunk>,
     pub(crate) binary: bool,
-    pub(crate) old_syntax: Option<crate::native_diff_syntax::NativeDiffSyntaxDocument>,
-    pub(crate) new_syntax: Option<crate::native_diff_syntax::NativeDiffSyntaxDocument>,
 }
 
-impl PartialEq for NativeDiffFile {
-    fn eq(&self, other: &Self) -> bool {
-        self.bucket == other.bucket
-            && self.old_path == other.old_path
-            && self.new_path == other.new_path
-            && self.status == other.status
-            && self.added == other.added
-            && self.deleted == other.deleted
-            && self.hunks == other.hunks
-            && self.binary == other.binary
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct NativeDiffSyntaxKey {
+    bucket: DiffBucket,
+    path: PathBuf,
+    old_side: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct NativeDiffSyntaxCache {
+    entries: BTreeMap<NativeDiffSyntaxKey, crate::native_diff_syntax::NativeDiffSyntaxDocument>,
+}
+
+impl NativeDiffSyntaxCache {
+    pub(crate) fn get(
+        &self,
+        file: &NativeDiffFile,
+        old_side: bool,
+    ) -> Option<&crate::native_diff_syntax::NativeDiffSyntaxDocument> {
+        let path = if old_side {
+            file.old_path.as_ref()?
+        } else {
+            file.new_path.as_ref()?
+        };
+        self.entries.get(&NativeDiffSyntaxKey {
+            bucket: file.bucket,
+            path: path.clone(),
+            old_side,
+        })
+    }
+
+    pub(crate) fn insert(
+        &mut self,
+        file: &NativeDiffFile,
+        old_side: bool,
+        document: crate::native_diff_syntax::NativeDiffSyntaxDocument,
+    ) {
+        let path = if old_side {
+            file.old_path.as_ref()
+        } else {
+            file.new_path.as_ref()
+        };
+        if let Some(path) = path {
+            self.entries.insert(
+                NativeDiffSyntaxKey {
+                    bucket: file.bucket,
+                    path: path.clone(),
+                    old_side,
+                },
+                document,
+            );
+        }
     }
 }
-
-impl Eq for NativeDiffFile {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DiffFileStatus {
@@ -134,6 +171,7 @@ pub(crate) struct NativeDiffSelection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NativeDiffPaneState {
     pub(crate) session: NativeDiffSession,
+    pub(crate) syntax: NativeDiffSyntaxCache,
     pub(crate) selected_file: Option<NativeDiffSelection>,
     pub(crate) selected_hunk: Option<usize>,
     pub(crate) file_scroll: usize,
@@ -147,8 +185,18 @@ pub(crate) struct NativeDiffPaneState {
 
 impl NativeDiffPaneState {
     pub(crate) fn new(session: NativeDiffSession) -> Self {
+        Self::new_with_syntax(session, NativeDiffSyntaxCache::default())
+    }
+
+    pub(crate) fn with_syntax(session: NativeDiffSession) -> Self {
+        let syntax = load_syntax_for_session(&session);
+        Self::new_with_syntax(session, syntax)
+    }
+
+    fn new_with_syntax(session: NativeDiffSession, syntax: NativeDiffSyntaxCache) -> Self {
         let selected_file = first_selection(&session);
         Self {
+            syntax,
             session,
             selected_file,
             selected_hunk: None,
@@ -179,13 +227,18 @@ impl NativeDiffPaneState {
         Some((selection.bucket, self.selected_path()?))
     }
 
-    pub(crate) fn replace_session(&mut self, session: NativeDiffSession) {
+    pub(crate) fn replace_session(
+        &mut self,
+        session: NativeDiffSession,
+        syntax: NativeDiffSyntaxCache,
+    ) {
         let previous_key = self.selected_key();
         let previous_top_row = self
             .visible_diff_rows()
             .get(self.diff_scroll)
             .map(|row| row.id);
         self.session = session;
+        self.syntax = syntax;
         self.selected_file = previous_key
             .and_then(|(bucket, path)| {
                 self.session
@@ -250,10 +303,10 @@ impl NativeDiffPaneState {
 
     pub(crate) fn refresh(&mut self) {
         match load_native_diff_session_metadata(self.session.repo_root.clone()) {
-            Ok(mut session) => {
+            Ok(session) => {
                 if session != self.session {
-                    load_syntax_for_session(&session.repo_root.clone(), &mut session);
-                    self.replace_session(session);
+                    let syntax = load_syntax_for_session(&session);
+                    self.replace_session(session, syntax);
                 }
                 self.last_error = None;
             }
@@ -762,9 +815,7 @@ pub(crate) fn parse_native_diff_bucket(
 pub(crate) fn load_native_diff_session(
     repo_root: impl Into<PathBuf>,
 ) -> Result<NativeDiffSession, NativeDiffParseError> {
-    let mut session = load_native_diff_session_metadata(repo_root)?;
-    load_syntax_for_session(&session.repo_root.clone(), &mut session);
-    Ok(session)
+    load_native_diff_session_metadata(repo_root)
 }
 
 pub(crate) fn load_native_diff_session_metadata(
@@ -841,19 +892,21 @@ impl SyntaxAnalysisBudget {
     }
 }
 
-pub(crate) fn load_syntax_for_session(repo_root: &Path, session: &mut NativeDiffSession) {
+pub(crate) fn load_syntax_for_session(session: &NativeDiffSession) -> NativeDiffSyntaxCache {
     let mut budget = SyntaxAnalysisBudget::new();
-    for file in &mut session.files {
+    let mut cache = NativeDiffSyntaxCache::default();
+    for file in &session.files {
         if file.binary {
             continue;
         }
-        if file.old_syntax.is_none() {
-            file.old_syntax = load_syntax_side(repo_root, file, true, &mut budget);
+        if let Some(document) = load_syntax_side(&session.repo_root, file, true, &mut budget) {
+            cache.insert(file, true, document);
         }
-        if file.new_syntax.is_none() {
-            file.new_syntax = load_syntax_side(repo_root, file, false, &mut budget);
+        if let Some(document) = load_syntax_side(&session.repo_root, file, false, &mut budget) {
+            cache.insert(file, false, document);
         }
     }
+    cache
 }
 
 fn load_syntax_side(
@@ -1006,8 +1059,6 @@ fn native_file_from_patch(
             deleted: 0,
             hunks: Vec::new(),
             binary: true,
-            old_syntax: None,
-            new_syntax: None,
         }),
     }
 }
@@ -1082,8 +1133,6 @@ fn native_file_from_plain_patch(bucket: DiffBucket, patch: UnifiedPatch) -> Nati
         deleted,
         hunks,
         binary: false,
-        old_syntax: None,
-        new_syntax: None,
     }
 }
 
@@ -1240,22 +1289,26 @@ mod tests {
     }
 
     #[test]
-    fn syntax_cache_does_not_change_diff_identity() {
+    fn syntax_cache_lives_outside_diff_identity() {
         let patch = b"--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1 +1 @@\n-old\n+new\n";
-        let mut left = parse_native_diff_session("/repo", patch, b"").expect("parse left");
-        let right = parse_native_diff_session("/repo", patch, b"").expect("parse right");
-        left.files[0].new_syntax = Some(crate::native_diff_syntax::NativeDiffSyntaxDocument {
-            engine: crate::native_diff_syntax::NativeDiffSyntaxEngine::TreeSitter,
-            degraded: false,
-            ranges: vec![crate::native_diff_syntax::NativeDiffHighlightRange {
-                line: 1,
-                start_col: 0,
-                end_col: 3,
-                role: crate::native_diff_syntax::NativeDiffSyntaxRole::Keyword,
-            }],
-        });
+        let session = parse_native_diff_session("/repo", patch, b"").expect("parse");
+        let mut state = NativeDiffPaneState::new(session.clone());
+        state.syntax.insert(
+            &session.files[0],
+            false,
+            crate::native_diff_syntax::NativeDiffSyntaxDocument {
+                engine: crate::native_diff_syntax::NativeDiffSyntaxEngine::TreeSitter,
+                degraded: false,
+                ranges: vec![crate::native_diff_syntax::NativeDiffHighlightRange {
+                    line: 1,
+                    start_col: 0,
+                    end_col: 3,
+                    role: crate::native_diff_syntax::NativeDiffSyntaxRole::Keyword,
+                }],
+            },
+        );
 
-        assert_eq!(left, right);
+        assert_eq!(state.session, session);
     }
 
     #[test]
@@ -1275,8 +1328,10 @@ mod tests {
             file_index: staged_index,
         });
 
-        state
-            .replace_session(parse_native_diff_session("/repo", patch, patch).expect("parse next"));
+        state.replace_session(
+            parse_native_diff_session("/repo", patch, patch).expect("parse next"),
+            NativeDiffSyntaxCache::default(),
+        );
 
         assert_eq!(
             state.selected_file().map(|file| file.bucket),
@@ -1359,7 +1414,10 @@ mod tests {
             .expect("removed row");
 
         let updated = b"--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,3 +1,4 @@\n one\n-two\n+deux\n three\n+four\n";
-        state.replace_session(parse_native_diff_session("/repo", updated, b"").expect("parse"));
+        state.replace_session(
+            parse_native_diff_session("/repo", updated, b"").expect("parse"),
+            NativeDiffSyntaxCache::default(),
+        );
 
         let top = state.visible_diff_rows()[state.diff_scroll];
         assert_eq!(top.old_line, Some(2));

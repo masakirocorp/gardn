@@ -449,7 +449,7 @@ fn restore_tab(
         if let Some(native_diff) = saved_native_diff {
             let diff =
                 match crate::native_diff::load_native_diff_session(native_diff.repo_root.clone()) {
-                    Ok(session) => crate::native_diff::NativeDiffPaneState::new(session),
+                    Ok(session) => crate::native_diff::NativeDiffPaneState::with_syntax(session),
                     Err(err) => {
                         let mut state = crate::native_diff::NativeDiffPaneState::new(
                             crate::native_diff::NativeDiffSession {

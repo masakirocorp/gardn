@@ -2157,8 +2157,6 @@ mod tests {
             deleted: 0,
             hunks: Vec::new(),
             binary: false,
-            old_syntax: None,
-            new_syntax: None,
         }
     }
 

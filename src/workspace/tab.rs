@@ -193,7 +193,9 @@ impl Tab {
         let mut panes = HashMap::new();
         panes.insert(
             root_id,
-            PaneState::new_native_diff(crate::native_diff::NativeDiffPaneState::new(session)),
+            PaneState::new_native_diff(crate::native_diff::NativeDiffPaneState::with_syntax(
+                session,
+            )),
         );
         Self {
             custom_name: Some("diff".to_string()),
