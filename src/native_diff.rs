@@ -294,11 +294,29 @@ impl NativeDiffPaneState {
             return;
         }
         let current = self.selected_hunk.unwrap_or(0);
-        self.selected_hunk = Some(
-            current
-                .saturating_add_signed(delta)
-                .min(file.hunks.len().saturating_sub(1)),
-        );
+        let next = current
+            .saturating_add_signed(delta)
+            .min(file.hunks.len().saturating_sub(1));
+        self.selected_hunk = Some(next);
+        self.scroll_to_hunk(next);
+    }
+
+    fn scroll_to_hunk(&mut self, hunk_index: usize) {
+        let Some(selection) = self.selected_file else {
+            return;
+        };
+        let target = NativeDiffRowId::Hunk {
+            bucket: selection.bucket,
+            file_index: selection.file_index,
+            hunk_index,
+        };
+        if let Some(row_index) = self
+            .visible_diff_rows()
+            .iter()
+            .position(|row| row.id == target)
+        {
+            self.diff_scroll = row_index;
+        }
     }
 
     pub(crate) fn refresh(&mut self) {
@@ -1398,6 +1416,32 @@ mod tests {
         assert_eq!(files[0].new_path, Some(PathBuf::from("notes/todo.txt")));
         assert_eq!(files[0].added, 2);
         assert_eq!(files[0].hunks[0].lines[0].text, "first");
+    }
+
+    #[test]
+    fn moving_hunk_selection_scrolls_to_selected_hunk() {
+        let patch = b"--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1 +1 @@\n-old_one\n+new_one\n@@ -20 +20 @@\n-old_two\n+new_two\n@@ -40 +40 @@\n-old_three\n+new_three\n";
+        let mut state = NativeDiffPaneState::new(
+            parse_native_diff_session("/repo", patch, b"").expect("parse patch"),
+        );
+
+        state.move_hunk_selection(1);
+
+        let rows = state.visible_diff_rows();
+        assert_eq!(state.selected_hunk, Some(1));
+        assert!(matches!(
+            rows[state.diff_scroll].id,
+            NativeDiffRowId::Hunk { hunk_index: 1, .. }
+        ));
+
+        state.move_hunk_selection(1);
+
+        let rows = state.visible_diff_rows();
+        assert_eq!(state.selected_hunk, Some(2));
+        assert!(matches!(
+            rows[state.diff_scroll].id,
+            NativeDiffRowId::Hunk { hunk_index: 2, .. }
+        ));
     }
 
     #[test]
