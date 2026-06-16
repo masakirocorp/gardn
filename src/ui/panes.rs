@@ -1989,6 +1989,123 @@ mod tests {
         assert_eq!(style.bg, Some(native_diff_added_bg(&app)));
     }
 
+    #[test]
+    fn native_diff_split_mode_uses_old_and_new_syntax_sides() {
+        let app = AppState::test_new();
+        let mut diff =
+            crate::native_diff::NativeDiffPaneState::new(crate::native_diff::NativeDiffSession {
+                repo_root: std::path::PathBuf::from("/repo"),
+                files: vec![crate::native_diff::NativeDiffFile {
+                    bucket: crate::native_diff::DiffBucket::Changed,
+                    old_path: Some(std::path::PathBuf::from("src/main.ts")),
+                    new_path: Some(std::path::PathBuf::from("src/main.ts")),
+                    status: crate::native_diff::DiffFileStatus::Modified,
+                    added: 1,
+                    deleted: 1,
+                    binary: false,
+                    hunks: vec![crate::native_diff::NativeDiffHunk {
+                        old_start: 1,
+                        old_count: 1,
+                        new_start: 1,
+                        new_count: 1,
+                        lines: vec![
+                            crate::native_diff::NativeDiffLine {
+                                kind: crate::native_diff::DiffLineKind::Removed,
+                                old_line: Some(1),
+                                new_line: None,
+                                text: "oldCall();".to_string(),
+                            },
+                            crate::native_diff::NativeDiffLine {
+                                kind: crate::native_diff::DiffLineKind::Added,
+                                old_line: None,
+                                new_line: Some(1),
+                                text: "newCall();".to_string(),
+                            },
+                        ],
+                    }],
+                }],
+            });
+        let file = diff.session.files[0].clone();
+        diff.view_mode = crate::native_diff::NativeDiffViewMode::Split;
+        diff.syntax.insert(
+            &file,
+            true,
+            crate::native_diff_syntax::NativeDiffSyntaxDocument {
+                engine: crate::native_diff_syntax::NativeDiffSyntaxEngine::TreeSitter,
+                degraded: false,
+                ranges: vec![crate::native_diff_syntax::NativeDiffHighlightRange {
+                    line: 1,
+                    start_col: 0,
+                    end_col: 7,
+                    role: crate::native_diff_syntax::NativeDiffSyntaxRole::String,
+                }],
+            },
+        );
+        diff.syntax.insert(
+            &file,
+            false,
+            crate::native_diff_syntax::NativeDiffSyntaxDocument {
+                engine: crate::native_diff_syntax::NativeDiffSyntaxEngine::TreeSitter,
+                degraded: false,
+                ranges: vec![crate::native_diff_syntax::NativeDiffHighlightRange {
+                    line: 1,
+                    start_col: 0,
+                    end_col: 7,
+                    role: crate::native_diff_syntax::NativeDiffSyntaxRole::Keyword,
+                }],
+            },
+        );
+        let backend = TestBackend::new(140, 8);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        terminal
+            .draw(|frame| {
+                render_native_diff_pane(
+                    &app,
+                    &diff,
+                    frame,
+                    Rect::new(0, 0, 140, 8),
+                    app.palette.accent,
+                )
+            })
+            .expect("render native diff");
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, 140, 8);
+        let old_col = text
+            .lines()
+            .enumerate()
+            .find_map(|(row, line)| line.find("oldCall").map(|col| (row as u16, col as u16)))
+            .expect("rendered removed line");
+        let new_col = text
+            .lines()
+            .enumerate()
+            .find_map(|(row, line)| line.find("newCall").map(|col| (row as u16, col as u16)))
+            .expect("rendered added line");
+
+        assert_eq!(
+            buffer[(old_col.1, old_col.0)].style().fg,
+            Some(app.palette.green)
+        );
+        assert_eq!(
+            buffer[(new_col.1, new_col.0)].style().fg,
+            Some(app.palette.mauve)
+        );
+    }
+
+    #[test]
+    fn native_diff_wrapping_respects_display_width() {
+        assert_eq!(
+            wrap_native_diff_text("a界b", 2),
+            vec![
+                (0, "a".to_string()),
+                (1, "界".to_string()),
+                (3, "b".to_string())
+            ]
+        );
+        assert_eq!(truncate_display_width("a界b", 3), "a界");
+    }
+
     #[tokio::test]
     async fn zoomed_pane_scrollbar_gutter_is_reserved_before_scrollback_exists() {
         let mut app = AppState::test_new();

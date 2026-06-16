@@ -603,6 +603,22 @@ mod tests {
     }
 
     #[test]
+    fn syntect_fallback_maps_scopes_to_hako_roles() {
+        let doc = analyze_source(
+            Path::new("lib/example.rb"),
+            b"class Greeter\n  def call(name)\n    \"hello #{name}\"\n  end\nend\n",
+        );
+
+        assert_eq!(doc.engine, NativeDiffSyntaxEngine::Syntect);
+        assert!(
+            doc.ranges
+                .iter()
+                .any(|range| range.role == NativeDiffSyntaxRole::String),
+            "expected Ruby string scope to map to Hako string role"
+        );
+    }
+
+    #[test]
     fn syntax_budget_degrades_to_plain_text() {
         let source = vec![b'a'; MAX_SYNTAX_BYTES + 1];
         let doc = analyze_source(Path::new("src/main.rs"), &source);
