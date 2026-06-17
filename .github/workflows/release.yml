@@ -120,17 +120,17 @@ jobs:
         run: |
           cat > "$RUNNER_TEMP/aarch64-linux-musl-zigcc" <<'EOF'
           #!/usr/bin/env bash
-          args=("-target" "aarch64-linux-musl")
+          args=()
           for arg in "$@"; do
             case "$arg" in
               --target=aarch64-unknown-linux-musl) args+=("--target=aarch64-linux-musl") ;;
               *) args+=("$arg") ;;
             esac
           done
-          exec zig cc "${args[@]}"
+          exec zig cc -target aarch64-linux-musl "${args[@]}"
           EOF
           chmod +x "$RUNNER_TEMP/aarch64-linux-musl-zigcc"
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=$RUNNER_TEMP/aarch64-linux-musl-zigcc" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld" >> "$GITHUB_ENV"
           echo "CC_aarch64_unknown_linux_musl=$RUNNER_TEMP/aarch64-linux-musl-zigcc" >> "$GITHUB_ENV"
 
       - name: Cache Rust artifacts
