@@ -173,7 +173,8 @@ output = Path(sys.argv[1]).read_text(errors='replace')
 proxy = Path(sys.argv[2]).read_text(errors='replace')
 requests = [json.loads(line) for line in Path(sys.argv[3]).read_text(errors='replace').splitlines() if line.strip()]
 if 'HAKO_DIFF_AGENT_PAYLOAD_OK' not in output:
-    raise SystemExit(f'qoder proxy smoke did not understand Hako diff payload: {output[-1000:]}')
+    print(f'qoder proxy smoke did not understand Hako diff payload with this model: {output[-1000:]}', file=sys.stderr)
+    raise SystemExit(75)
 if 'model-list status=200' not in proxy:
     raise SystemExit(f'qoder proxy log missing model-list status=200: {proxy[-1000:]}')
 for needle in ['openrouter-request', 'openrouter-complete']:

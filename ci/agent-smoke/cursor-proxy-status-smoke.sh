@@ -213,7 +213,8 @@ output = Path(sys.argv[1]).read_text(errors='replace')
 proxy = Path(sys.argv[2]).read_text(errors='replace')
 requests = [json.loads(line) for line in Path(sys.argv[3]).read_text(errors='replace').splitlines() if line.strip()]
 if 'HAKO_DIFF_AGENT_PAYLOAD_OK' not in output:
-    raise SystemExit(f'cursor proxy smoke did not understand Hako diff payload: {output[-1000:]}')
+    print(f'cursor proxy smoke did not understand Hako diff payload with this model: {output[-1000:]}', file=sys.stderr)
+    raise SystemExit(75)
 for needle in ['unary', 'agent-stream', 'openrouter-request', 'openrouter-complete']:
     if needle not in proxy:
         raise SystemExit(f'cursor proxy log missing {needle}: {proxy[-1000:]}')
