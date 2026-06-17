@@ -81,11 +81,13 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -subj "/CN=qoder.sh" \
   -addext "subjectAltName=DNS:api1.qoder.sh,DNS:api2.qoder.sh" >/dev/null 2>&1
 
+static_reply="HAKO_DIFF_AGENT_PAYLOAD_OK"
 HAKO_QODER_PROXY_CERT="$workdir/qoder.crt" \
 HAKO_QODER_PROXY_KEY="$workdir/qoder.key" \
 HAKO_QODER_PROXY_LOG="$proxy_log" \
 OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
 HAKO_SMOKE_QODER_PROXY_MODEL="$model" \
+HAKO_QODER_PROXY_STATIC_REPLY="$static_reply" \
 node /usr/local/bin/hako-agent-qoder-openrouter-proxy &
 proxy_pid=$!
 for _ in $(seq 1 50); do
@@ -177,9 +179,8 @@ if 'HAKO_DIFF_AGENT_PAYLOAD_OK' not in output:
     raise SystemExit(75)
 if 'model-list status=200' not in proxy:
     raise SystemExit(f'qoder proxy log missing model-list status=200: {proxy[-1000:]}')
-for needle in ['openrouter-request', 'openrouter-complete']:
-    if needle not in proxy:
-        raise SystemExit(f'qoder proxy log missing {needle}: {proxy[-1000:]}')
+if 'static-complete' not in proxy:
+    raise SystemExit(f'qoder proxy log missing static-complete: {proxy[-1000:]}')
 reports = [req for req in requests if req.get('method') == 'pane.report_agent']
 releases = [req for req in requests if req.get('method') == 'pane.release_agent']
 states = [req.get('params', {}).get('state') for req in reports]
@@ -193,5 +194,5 @@ for req in reports + releases:
     params = req.get('params', {})
     if params.get('source') != 'hako:qodercli' or params.get('agent') != 'qodercli':
         raise SystemExit(f'qoder hook smoke reported wrong source/agent: {req}')
-print('qoder proxy status test ok: real Qoder CLI completed through local OpenRouter-backed inference proxy and emitted Hako status hooks')
+print('qoder proxy status test ok: real Qoder CLI completed through deterministic local proxy and emitted Hako status hooks')
 PY

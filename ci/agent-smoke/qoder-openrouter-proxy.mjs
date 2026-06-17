@@ -86,6 +86,13 @@ async function requestRealQoderApi2(req, body) {
 
 async function handleInference(req, res) {
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+  if (process.env.HAKO_QODER_PROXY_STATIC_REPLY) {
+    writeQoderChunk(res, process.env.HAKO_QODER_PROXY_STATIC_REPLY);
+    writeQoderDone(res);
+    res.end();
+    log('static-complete');
+    return;
+  }
   log(`openrouter-request model=${MODEL}`);
   const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',

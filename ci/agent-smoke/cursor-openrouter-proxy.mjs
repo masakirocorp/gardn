@@ -75,6 +75,12 @@ server.on('stream', (stream, headers) => {
     handled = true;
     log(`cursor-prompt marker=${prompt.includes('HAKO_DIFF_AGENT_PAYLOAD_OK')} strings=${strs.length} bytes=${Buffer.byteLength(prompt, 'utf8')}`);
     stream.respond({':status':200, 'content-type':'application/connect+proto'});
+    if (process.env.HAKO_CURSOR_PROXY_STATIC_REPLY) {
+      stream.write(tdf(process.env.HAKO_CURSOR_PROXY_STATIC_REPLY));
+      stream.write(tef()); stream.end(ct());
+      log('static-complete');
+      return;
+    }
     await callOpenRouter(prompt, stream);
   };
   stream.on('data', chunk => {

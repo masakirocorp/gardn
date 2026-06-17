@@ -6,7 +6,7 @@ status: accepted
 
 Hako's optional real-agent smoke image installs the current release of each supported coding-agent CLI by default. The image keeps build tooling pinned where needed, such as pnpm, but does not pin the agent CLIs themselves. Push builds verify that the image still builds, that provider configuration wiring is sane, and publish the image to GHCR for scheduled/manual compatibility probes. Scheduled and manually dispatched runs exercise the real agent CLIs through that image and configured provider secrets.
 
-Real-agent smokes use OpenRouter-backed model configuration with an ordered free-model fallback list. A single unavailable, removed, rate-limited, or timed-out model is provider volatility, not a Hako result. Smoke scripts may retry whole smoke scenarios with the next candidate model before they reach Hako assertions. Once a CLI run produces a valid provider response, missing status reports, wrong state ordering, missing native-diff payload understanding, bad hook metadata, or missing proxy routing remain hard test failures.
+Real-agent smokes use OpenRouter-backed model configuration with an ordered free-model fallback list where the CLI supports a usable BYOK/provider path. A single unavailable, removed, rate-limited, or timed-out model is provider volatility, not a Hako result. Smoke scripts may retry whole smoke scenarios with the next candidate model before they reach Hako assertions. Once a CLI run produces a valid provider response, missing status reports, wrong state ordering, missing native-diff payload understanding, bad hook metadata, or missing proxy routing remain hard test failures. Cursor and Qoder are explicit exceptions: their CI coverage uses a deterministic local inference proxy because their current CLIs do not expose the same direct OpenRouter path Hako can drive for the other agents. Those rows prove real CLI launch, hook execution, and proxy route shape, not upstream model obedience.
 
 This is separate from ADR 0016's agent profile and integration authority boundary, ADR 0048's state-evidence precedence, and ADR 0050's native Git diff sessions. Those ADRs record how Hako interprets agent reports and diff state once they arrive. This ADR records which upstream CLI versions and provider behavior the smoke workflow treats as the compatibility target.
 
@@ -25,8 +25,8 @@ The smoke workflow must be explicit about coverage level per agent. A row is not
 | Droid | real CLI + hooks | real CLI | BYOK/OpenRouter provider path. |
 | Kimi | real CLI + hooks | real CLI | BYOK/OpenRouter provider path. |
 | Hermes | real CLI + plugin | real CLI | BYOK/OpenRouter provider path. |
-| Cursor | proxy/auth contract + hook proxy | proxy CLI | Requires Cursor-specific proxy handling; the smoke verifies the proxied CLI understands Hako diff payloads. |
-| Qoder | proxy/auth contract + hook proxy | proxy CLI | Requires Qoder token/proxy handling; the smoke verifies the proxied CLI understands Hako diff payloads. |
+| Cursor | proxy/auth contract + hook proxy | proxy CLI | Requires Cursor-specific proxy handling; the smoke verifies real Cursor CLI launch, Hako hooks, and deterministic proxied response delivery. |
+| Qoder | proxy/auth contract + hook proxy | proxy CLI | Requires Qoder token/proxy handling; the smoke verifies real Qoder CLI launch, Hako hooks, and deterministic proxied response delivery. |
 | Kiro | install/version check; optional API-key diff smoke | optional real CLI | Kiro does not use OpenRouter BYOK. Live CI coverage requires `KIRO_API_KEY`, a paid Kiro API-key credential. |
 
 ## Current rationale

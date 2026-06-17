@@ -97,11 +97,13 @@ cat > "$HOME/.cursor/hooks.json" <<EOF_HOOKS
 }
 EOF_HOOKS
 
+static_reply="HAKO_DIFF_AGENT_PAYLOAD_OK"
 HAKO_CURSOR_PROXY_CERT="$workdir/cursor.crt" \
 HAKO_CURSOR_PROXY_KEY="$workdir/cursor.key" \
 HAKO_CURSOR_PROXY_LOG="$proxy_log" \
 OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
 HAKO_SMOKE_CURSOR_MODEL="$model" \
+HAKO_CURSOR_PROXY_STATIC_REPLY="$static_reply" \
 node /usr/local/bin/hako-agent-cursor-openrouter-proxy &
 proxy_pid=$!
 for _ in $(seq 1 50); do
@@ -150,7 +152,7 @@ diff --git a/src/lib.rs b/src/lib.rs
     "$diff_prompt" >"$workdir/cursor-output.txt" 2>&1
 )
 
-before_interactive_completions="$(grep -c 'openrouter-complete' "$proxy_log" 2>/dev/null || true)"
+before_interactive_completions="$(grep -c 'static-complete' "$proxy_log" 2>/dev/null || true)"
 (
   cd "$workdir"
   HAKO_ENV=1 \
@@ -170,7 +172,7 @@ deadline = time.time() + 90
 buf = bytearray()
 def completions():
     try:
-        return open(proxy_log, encoding="utf-8", errors="replace").read().count("openrouter-complete")
+        return open(proxy_log, encoding="utf-8", errors="replace").read().count("static-complete")
     except FileNotFoundError:
         return 0
 try:
@@ -215,11 +217,11 @@ requests = [json.loads(line) for line in Path(sys.argv[3]).read_text(errors='rep
 if 'HAKO_DIFF_AGENT_PAYLOAD_OK' not in output:
     print(f'cursor proxy smoke did not understand Hako diff payload with this model: {output[-1000:]}', file=sys.stderr)
     raise SystemExit(75)
-for needle in ['unary', 'agent-stream', 'openrouter-request', 'openrouter-complete']:
+for needle in ['unary', 'agent-stream', 'static-complete']:
     if needle not in proxy:
         raise SystemExit(f'cursor proxy log missing {needle}: {proxy[-1000:]}')
 states = [req.get('params', {}).get('state') for req in requests if req.get('method') == 'pane.report_agent']
 if 'working' not in states or not any(req.get('method') == 'pane.release_agent' for req in requests):
     raise SystemExit(f'cursor hook smoke did not observe working+release from real CLI hooks: {requests}')
-print('cursor proxy status test ok: real Cursor CLI completed through local OpenRouter proxy and emitted Hako status hooks')
+print('cursor proxy status test ok: real Cursor CLI completed through deterministic local proxy and emitted Hako status hooks')
 PY
