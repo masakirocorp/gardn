@@ -851,11 +851,7 @@ fn render_native_diff_horizontal_scrollbar(
         .max(1)
         .min(track_width);
     let max_thumb_left = track_width.saturating_sub(thumb_width);
-    let thumb_left = if max_col_scroll == 0 {
-        0
-    } else {
-        col_scroll.min(max_col_scroll) * max_thumb_left / max_col_scroll
-    };
+    let thumb_left = col_scroll.min(max_col_scroll) * max_thumb_left / max_col_scroll;
     let buf = frame.buffer_mut();
     for x in 0..area.width {
         let idx = x as usize;
@@ -1373,9 +1369,11 @@ fn native_diff_changed_word_ranges(text: &str, counterpart: &str) -> Vec<std::op
         suffix += width;
     }
     let end = text_width.saturating_sub(suffix);
-    (prefix < end)
-        .then_some(std::iter::once(prefix..end).collect())
-        .unwrap_or_default()
+    if prefix < end {
+        std::iter::once(prefix..end).collect()
+    } else {
+        Vec::new()
+    }
 }
 
 fn native_diff_content_spans(
