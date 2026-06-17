@@ -91,7 +91,7 @@ run_claude() {
   cat > "$workdir/$agent/settings.json" <<EOF_CONFIG
 {"env":{"ANTHROPIC_BASE_URL":"https://openrouter.ai/api","ANTHROPIC_AUTH_TOKEN":"${OPENROUTER_API_KEY}","ANTHROPIC_API_KEY":"","ANTHROPIC_MODEL":"${model}","CLAUDE_CONFIG_DIR":"${config_dir}"}}
 EOF_CONFIG
-  (cd "$workdir/$agent/run" && timeout "${HAKO_DIFF_AGENT_SMOKE_TIMEOUT:-180}" claude -p --settings "$workdir/$agent/settings.json" --model "$model" --output-format text --name hako-diff-agent-payload "$prompt" >"$output_file" 2>&1)
+  (cd "$workdir/$agent/run" && timeout "${HAKO_DIFF_AGENT_SMOKE_TIMEOUT:-180}" claude -p --settings "$workdir/$agent/settings.json" --model "$model" --output-format stream-json --verbose --name hako-diff-agent-payload "$prompt" >"$output_file" 2>&1)
 }
 
 run_codex() {
