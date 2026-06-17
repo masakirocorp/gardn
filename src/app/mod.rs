@@ -547,6 +547,7 @@ impl App {
             request_reload_config: false,
             request_open_git_diff: false,
             pending_agent_prompt: None,
+            pending_agent_prompts_by_pane: std::collections::HashMap::new(),
             requested_git_diff_workspace: None,
             git_repo_picker: state::GitRepoPickerState {
                 ws_idx: 0,
@@ -1024,7 +1025,9 @@ impl App {
                         .and_then(|workspace| workspace.tabs.get(tab_idx))
                         .map(|tab| tab.root_pane)
                     {
-                        self.send_text_to_agent_pane(ws_idx, pane_id, &prompt);
+                        self.state
+                            .pending_agent_prompts_by_pane
+                            .insert(pane_id, prompt);
                     }
                 }
             }
@@ -1050,12 +1053,12 @@ impl App {
         ws_idx: usize,
         pane_id: crate::layout::PaneId,
         text: &str,
-    ) {
+    ) -> bool {
         let Some(runtime) =
             self.state
                 .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
         else {
-            return;
+            return false;
         };
         let payload = if runtime
             .input_state()
@@ -1068,6 +1071,29 @@ impl App {
         };
         if let Err(err) = runtime.try_send_bytes(bytes::Bytes::from(payload)) {
             tracing::warn!(pane = pane_id.raw(), err = %err, "failed to send diff prompt to agent");
+            return false;
+        }
+        true
+    }
+
+    fn send_pending_agent_prompts_for_updates(
+        &mut self,
+        updates: &[crate::app::actions::PaneStateUpdate],
+    ) {
+        let pending_panes = updates
+            .iter()
+            .filter(|update| update.known_agent.is_some())
+            .filter_map(|update| {
+                self.state
+                    .pending_agent_prompts_by_pane
+                    .get(&update.pane_id)
+                    .map(|prompt| (update.ws_idx, update.pane_id, prompt.clone()))
+            })
+            .collect::<Vec<_>>();
+        for (ws_idx, pane_id, prompt) in pending_panes {
+            if self.send_text_to_agent_pane(ws_idx, pane_id, &prompt) {
+                self.state.pending_agent_prompts_by_pane.remove(&pane_id);
+            }
         }
     }
 
@@ -3632,6 +3658,271 @@ mod tests {
 
         assert_eq!(resolved.pane_id, pane);
         assert_eq!(resolved.terminal_id, terminal_id);
+    }
+
+    #[tokio::test]
+    async fn diff_agent_picker_enter_sends_payload_to_selected_agent_runtime() {
+        let mut app = test_app();
+        let workspace = Workspace::test_new("diff-target");
+        let pane = workspace.tabs[0].root_pane;
+        let terminal_id = workspace.terminal_id(pane).unwrap().clone();
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::DiffAgentPicker;
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_detected_state(Some(Agent::Codex), AgentState::Idle);
+        let (runtime, mut rx) = TerminalRuntime::test_with_channel(80, 24);
+        app.terminal_runtimes.insert(terminal_id, runtime);
+        app.state.diff_agent_picker = Some(state::DiffAgentPickerState {
+            ws_idx: 0,
+            source_pane_id: pane,
+            payload: "Review this selected hunk.".to_string(),
+            selected: 1,
+        });
+
+        app.accept_diff_agent_picker();
+
+        let sent = rx.try_recv().expect("agent prompt");
+        assert_eq!(&sent[..], b"Review this selected hunk.\r");
+        assert!(app.state.diff_agent_picker.is_none());
+
+        let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
+        for (_terminal_id, runtime) in runtimes {
+            runtime.shutdown();
+        }
+    }
+
+    #[tokio::test]
+    async fn pending_diff_prompt_waits_until_new_agent_reports_ready() {
+        let mut app = test_app();
+        let workspace = Workspace::test_new("diff-new-agent");
+        let pane = workspace.tabs[0].root_pane;
+        let terminal_id = workspace.terminal_id(pane).unwrap().clone();
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        let (runtime, mut rx) = TerminalRuntime::test_with_channel(80, 24);
+        app.terminal_runtimes.insert(terminal_id, runtime);
+        app.state
+            .pending_agent_prompts_by_pane
+            .insert(pane, "Review this selected hunk.".to_string());
+
+        assert!(rx.try_recv().is_err());
+
+        app.handle_internal_event(crate::events::AppEvent::StateChanged {
+            pane_id: pane,
+            agent: Some(Agent::OhMyPi),
+            state: AgentState::Idle,
+            visible_blocker: false,
+            visible_idle: true,
+            visible_working: false,
+            process_exited: false,
+            observed_at: std::time::Instant::now(),
+        });
+
+        let sent = rx.try_recv().expect("queued prompt");
+        assert_eq!(&sent[..], b"Review this selected hunk.\r");
+        assert!(!app.state.pending_agent_prompts_by_pane.contains_key(&pane));
+
+        let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
+        for (_terminal_id, runtime) in runtimes {
+            runtime.shutdown();
+        }
+    }
+
+    #[tokio::test]
+    async fn pending_diff_prompt_reaches_new_agent_process_after_readiness() {
+        let dir =
+            std::env::temp_dir().join(format!("hako-pending-agent-prompt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let script = dir.join("fake-omp");
+        let received = dir.join("received.txt");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nIFS= read -r line\nprintf '%s' \"$line\" > '{}'\nsleep 1\n",
+                received.display()
+            ),
+        )
+        .expect("write fake agent");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&script)
+                .expect("script metadata")
+                .permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&script, perms).expect("chmod fake agent");
+        }
+
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("diff-new-agent-process")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.integration_recommendations =
+            vec![crate::integration::IntegrationRecommendation {
+                target: crate::api::schema::IntegrationTarget::Omp,
+                label: "omp",
+                command: "omp",
+                available: true,
+                path: script.clone(),
+                state: crate::integration::IntegrationStatusKind::Current,
+            }];
+        app.state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:fake-omp".to_string()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "fake-omp".to_string(),
+                    name: "fake omp".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Omp,
+                    command: script.display().to_string(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }],
+            },
+        );
+        app.state.request_agent_profile_tab = Some((0, "user:fake-omp".to_string()));
+        app.state.pending_agent_prompt = Some("Review this selected hunk.".to_string());
+
+        assert!(app.process_deferred_workspace_requests());
+        let pane = app.state.workspaces[0].active_tab().expect("tab").root_pane;
+        assert!(!received.exists());
+
+        app.handle_internal_event(crate::events::AppEvent::StateChanged {
+            pane_id: pane,
+            agent: Some(Agent::OhMyPi),
+            state: AgentState::Idle,
+            visible_blocker: false,
+            visible_idle: true,
+            visible_working: false,
+            process_exited: false,
+            observed_at: std::time::Instant::now(),
+        });
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while std::time::Instant::now() < deadline && !received.exists() {
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        let received_text = std::fs::read_to_string(&received).expect("agent received prompt");
+        assert_eq!(received_text, "Review this selected hunk.");
+
+        let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
+        for (_terminal_id, runtime) in runtimes {
+            runtime.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn pending_diff_prompt_reaches_each_default_agent_process_after_readiness() {
+        let _guard = config_env_lock().lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "hako-pending-default-agent-prompts-{}",
+            std::process::id()
+        ));
+        let bin_dir = dir.join("bin");
+        let fake_shell = dir.join("fake-shell");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&bin_dir).expect("create fake bin dir");
+        std::fs::write(&fake_shell, "#!/bin/sh\nexec /bin/sh -c \"$2\"\n")
+            .expect("write fake shell");
+        for kind in crate::agent_profiles::AgentKind::SYSTEM {
+            let script = bin_dir.join(kind.system_command());
+            let received = dir.join(format!("{}.received", kind.as_str()));
+            std::fs::write(
+                &script,
+                format!(
+                    "#!/bin/sh\nIFS= read -r line\nprintf '%s' \"$line\" > '{}'\nsleep 1\n",
+                    received.display()
+                ),
+            )
+            .expect("write fake agent command");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                for path in [&script, &fake_shell] {
+                    let mut perms = std::fs::metadata(path)
+                        .expect("script metadata")
+                        .permissions();
+                    perms.set_mode(0o755);
+                    std::fs::set_permissions(path, perms).expect("chmod fake command");
+                }
+            }
+        }
+        let previous_path = std::env::var_os("PATH").unwrap_or_default();
+        let mut path_parts = vec![bin_dir.clone()];
+        path_parts.extend(std::env::split_paths(&previous_path));
+        let joined_path = std::env::join_paths(path_parts).expect("join path");
+        let _path_env = crate::config::TestEnvVar::set("PATH", joined_path);
+
+        for kind in crate::agent_profiles::AgentKind::SYSTEM {
+            let received = dir.join(format!("{}.received", kind.as_str()));
+            let mut app = test_app();
+            app.state.workspaces = vec![Workspace::test_new(kind.as_str())];
+            app.state.ensure_test_terminals();
+            app.state.active = Some(0);
+            app.state.selected = 0;
+            app.state.default_shell = fake_shell.display().to_string();
+            app.state.integration_recommendations =
+                vec![crate::integration::IntegrationRecommendation {
+                    target: kind
+                        .integration_target()
+                        .expect("system integration target"),
+                    label: kind.as_str(),
+                    command: kind.system_command(),
+                    available: true,
+                    path: bin_dir.join(kind.system_command()),
+                    state: crate::integration::IntegrationStatusKind::Current,
+                }];
+            app.state.request_agent_profile_tab = Some((0, kind.system_id()));
+            let prompt = format!("Review this {} selected hunk.", kind.as_str());
+            app.state.pending_agent_prompt = Some(prompt.clone());
+            app.state
+                .agent_profiles
+                .profiles()
+                .iter()
+                .find(|profile| profile.id == kind.system_id())
+                .expect("default profile exists");
+
+            assert!(app.process_deferred_workspace_requests());
+            let pane = app.state.workspaces[0].active_tab().expect("tab").root_pane;
+            assert!(
+                !received.exists(),
+                "{} prompt should wait for readiness",
+                kind.as_str()
+            );
+
+            app.handle_internal_event(crate::events::AppEvent::StateChanged {
+                pane_id: pane,
+                agent: Some(Agent::OhMyPi),
+                state: AgentState::Idle,
+                visible_blocker: false,
+                visible_idle: true,
+                visible_working: false,
+                process_exited: false,
+                observed_at: std::time::Instant::now(),
+            });
+
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            while std::time::Instant::now() < deadline && !received.exists() {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            let received_text = std::fs::read_to_string(&received)
+                .unwrap_or_else(|err| panic!("{} did not receive prompt: {err}", kind.as_str()));
+            assert_eq!(received_text, prompt, "{} received prompt", kind.as_str());
+
+            let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
+            for (_terminal_id, runtime) in runtimes {
+                runtime.shutdown();
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

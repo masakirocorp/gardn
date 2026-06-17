@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source /usr/local/lib/hako-agent-smoke-models.sh
+primary_model="${HAKO_OPENCODE_SMOKE_MODEL:-openrouter/openrouter/free}"
+if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" ]]; then
+  hako_smoke_unique_candidates "$primary_model" "${HAKO_SMOKE_FALLBACK_MODELS:-}" \
+    | hako_smoke_opencode_candidates \
+    | hako_smoke_run_with_fallbacks "$0" HAKO_OPENCODE_SMOKE_MODEL "$@"
+  exit $?
+fi
 
-model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
+model="$HAKO_SMOKE_ACTIVE_MODEL"
 repo_dir="${HAKO_REPO_DIR:-/repo}"
 plugin_path="$repo_dir/src/integration/assets/opencode/hako-agent-state.js"
 workdir="${HAKO_OPENCODE_STATUS_SMOKE_DIR:-$(mktemp -d)}"
 socket_path="$workdir/hako.sock"
 request_log="$workdir/hako-requests.jsonl"
+
 
 if [[ ! -f "$plugin_path" ]]; then
   echo "opencode status test needs hako repo mounted at $repo_dir" >&2
@@ -90,29 +99,39 @@ run_opencode() {
   cat > "$dir/opencode.json" <<EOF_CONFIG
 {
   "\$schema": "https://opencode.ai/config.json",
-  "model": "openrouter/$model",
-  "small_model": "openrouter/$model",
+  "model": "$model",
+  "small_model": "$model",
   "plugin": ["file://$plugin_path"],
   "permission": { "bash": { "*": "$bash_permission" } },
   "agent": {
     "general": {
       "mode": "subagent",
-      "model": "openrouter/$model",
+      "model": "$model",
       "tools": { "bash": true, "task": true }
     }
   }
 }
 EOF_CONFIG
 
+  set +e
   HAKO_ENV=1 \
   HAKO_SOCKET_PATH="$socket_path" \
   HAKO_PANE_ID="$pane_id" \
   timeout "${HAKO_OPENCODE_STATUS_SMOKE_TIMEOUT:-180}" opencode run \
     --dir "$dir" \
-    --model "openrouter/$model" \
+    --model "$model" \
     --format json \
     --title "$title" \
     "$prompt" >"$dir/output.jsonl" 2>&1
+  local status=$?
+  set -e
+  if [[ "$status" -ne 0 ]]; then
+    if hako_smoke_retryable_status_or_output "$status" "$dir/output.jsonl"; then
+      echo "$pane_id: retryable OpenCode provider/model failure with $model" >&2
+      exit 75
+    fi
+    return "$status"
+  fi
 }
 
 run_opencode \

@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source /usr/local/lib/hako-agent-smoke-models.sh
+primary_model="${HAKO_SMOKE_CURSOR_MODEL:-${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}}"
+if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" ]]; then
+  hako_smoke_unique_candidates "$primary_model" "${HAKO_SMOKE_FALLBACK_MODELS:-}" \
+    | hako_smoke_openrouter_bare_candidates \
+    | hako_smoke_run_with_fallbacks "$0" HAKO_SMOKE_CURSOR_MODEL "$@"
+  exit $?
+fi
 
-model="${HAKO_SMOKE_CURSOR_MODEL:-${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}}"
+model="$HAKO_SMOKE_ACTIVE_MODEL"
 repo_dir="${HAKO_REPO_DIR:-/repo}"
 workdir="${HAKO_CURSOR_PROXY_STATUS_SMOKE_DIR:-$(mktemp -d)}"
 socket_path="$workdir/hako.sock"
 request_log="$workdir/hako-requests.jsonl"
 proxy_log="$workdir/cursor-proxy.log"
+
 
 if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
   echo "cursor proxy status test needs OPENROUTER_API_KEY" >&2

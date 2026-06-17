@@ -7,10 +7,11 @@ if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
 fi
 
 model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
-fallback_models="${HAKO_SMOKE_FALLBACK_MODELS:-poolside/laguna-xs.2:free,openai/gpt-oss-120b:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/owl-alpha}"
+fallback_models="${HAKO_SMOKE_FALLBACK_MODELS:-openrouter/free,openai/gpt-oss-120b:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/owl-alpha}"
 openrouter_base="${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
 
 export HAKO_SMOKE_MODEL="$model"
+export HAKO_OPENCODE_SMOKE_MODEL="${HAKO_OPENCODE_SMOKE_MODEL:-openrouter/openrouter/free}"
 export HAKO_SMOKE_FALLBACK_MODELS="$fallback_models"
 export OPENROUTER_API_KEY
 export OPENAI_API_KEY="$OPENROUTER_API_KEY"

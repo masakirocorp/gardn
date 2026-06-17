@@ -2420,6 +2420,7 @@ pub struct AppState {
     pub request_new_tab: bool,
     pub request_agent_profile_tab: Option<(usize, String)>,
     pub pending_agent_prompt: Option<String>,
+    pub pending_agent_prompts_by_pane: std::collections::HashMap<PaneId, String>,
     pub request_reload_config: bool,
     pub request_open_git_diff: bool,
     /// Set when the headless server should ask attached clients to reload
@@ -3130,6 +3131,7 @@ impl AppState {
             request_new_tab: false,
             request_agent_profile_tab: None,
             pending_agent_prompt: None,
+            pending_agent_prompts_by_pane: std::collections::HashMap::new(),
             request_reload_config: false,
             request_open_git_diff: false,
             request_client_config_reload: false,

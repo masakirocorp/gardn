@@ -86,38 +86,43 @@ agent-smoke-verify:
 
 # Run OpenCode against the configured free OpenRouter smoke model
 agent-smoke-opencode:
-    docker run --rm -e OPENROUTER_API_KEY hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-opencode
+    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_FALLBACK_MODELS -e HAKO_OPENCODE_SMOKE_MODEL hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-opencode
 
 
 # Run OpenCode and verify Hako status reports from the real plugin
 agent-smoke-opencode-status:
-    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-opencode-status
+    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -e HAKO_OPENCODE_SMOKE_MODEL -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-opencode-status
+
+
+# Run OpenCode and verify a live agent understands Hako native-diff payloads
+agent-smoke-opencode-diff-agent:
+    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -e HAKO_OPENCODE_SMOKE_MODEL hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-opencode-diff-agent
 
 # Run Pi/OMP and verify Hako status reports from the real plugin
 agent-smoke-pi-omp-status:
-    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-pi-omp-status
+    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-pi-omp-status
 
 # Run Claude through OpenRouter and verify Hako status reports from the real hook
 agent-smoke-claude-status:
-    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-claude-status
+    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-claude-status
 
 # Run Codex through OpenRouter and verify Hako status reports from the real hook
 agent-smoke-codex-status:
-    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-codex-status
+    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-codex-status
 
 # Run remaining installed agents and verify Hako status reports where hooks exist
 agent-smoke-remaining-status:
-    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-remaining-status
+    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-remaining-status
 
 
 # Run Cursor through an opt-in local OpenRouter proxy; hook states stay covered by seam smoke
 agent-smoke-cursor-proxy-status:
-    docker run --rm --user root -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -v "$PWD:/repo:ro" --add-host api2.cursor.sh:127.0.0.1 --add-host api2geo.cursor.sh:127.0.0.1 --add-host api2direct.cursor.sh:127.0.0.1 --add-host agentn.api5.cursor.sh:127.0.0.1 --add-host agent.api5.cursor.sh:127.0.0.1 hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-cursor-proxy-status
+    docker run --rm --user root -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -e HAKO_SMOKE_CURSOR_MODEL -v "$PWD:/repo:ro" --add-host api2.cursor.sh:127.0.0.1 --add-host api2geo.cursor.sh:127.0.0.1 --add-host api2direct.cursor.sh:127.0.0.1 --add-host agentn.api5.cursor.sh:127.0.0.1 --add-host agent.api5.cursor.sh:127.0.0.1 hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-cursor-proxy-status
 
 
 # Run Qoder through an opt-in local OpenRouter proxy; hook states stay covered by seam smoke
 agent-smoke-qoder-proxy-status:
-    docker run --rm --user root -e OPENROUTER_API_KEY -e QODER_PERSONAL_ACCESS_TOKEN -e HAKO_SMOKE_MODEL -v "$PWD:/repo:ro" --add-host api1.qoder.sh:127.0.0.1 hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-qoder-proxy-status
+    docker run --rm --user root -e OPENROUTER_API_KEY -e QODER_PERSONAL_ACCESS_TOKEN -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -e HAKO_SMOKE_QODER_PROXY_MODEL -v "$PWD:/repo:ro" --add-host api1.qoder.sh:127.0.0.1 hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-qoder-proxy-status
 
 # Verify Pi/OMP plugin lifecycle reports without calling providers
 agent-smoke-pi-omp-plugin-status:

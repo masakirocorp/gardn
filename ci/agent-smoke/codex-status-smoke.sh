@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source /usr/local/lib/hako-agent-smoke-models.sh
+primary_model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
+if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" ]]; then
+  hako_smoke_unique_candidates "$primary_model" "${HAKO_SMOKE_FALLBACK_MODELS:-}" \
+    | hako_smoke_openrouter_bare_candidates \
+    | hako_smoke_non_openai_candidates \
+    | hako_smoke_run_with_fallbacks "$0" HAKO_SMOKE_MODEL "$@"
+  exit $?
+fi
 
-model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
+model="$HAKO_SMOKE_ACTIVE_MODEL"
 repo_dir="${HAKO_REPO_DIR:-/repo}"
 hook_path="$repo_dir/src/integration/assets/codex/hako-agent-state.sh"
 workdir="${HAKO_CODEX_STATUS_SMOKE_DIR:-$(mktemp -d)}"
 socket_path="$workdir/hako.sock"
 request_log="$workdir/hako-requests.jsonl"
+
 
 if [[ ! -f "$hook_path" ]]; then
   echo "codex status test needs hako repo mounted at $repo_dir" >&2

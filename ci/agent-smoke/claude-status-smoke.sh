@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source /usr/local/lib/hako-agent-smoke-models.sh
+primary_model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
+if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" ]]; then
+  hako_smoke_unique_candidates "$primary_model" "${HAKO_SMOKE_FALLBACK_MODELS:-}" \
+    | hako_smoke_openrouter_bare_candidates \
+    | hako_smoke_non_anthropic_candidates \
+    | hako_smoke_run_with_fallbacks "$0" HAKO_SMOKE_MODEL "$@"
+  exit $?
+fi
 
-model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
+model="$HAKO_SMOKE_ACTIVE_MODEL"
 repo_dir="${HAKO_REPO_DIR:-/repo}"
 hook_path="$repo_dir/src/integration/assets/claude/hako-agent-state.sh"
 workdir="${HAKO_CLAUDE_STATUS_SMOKE_DIR:-$(mktemp -d)}"
 socket_path="$workdir/hako.sock"
 request_log="$workdir/hako-requests.jsonl"
+
 
 if [[ ! -f "$hook_path" ]]; then
   echo "claude status test needs hako repo mounted at $repo_dir" >&2
@@ -128,6 +138,7 @@ run_claude() {
 
   mkdir -p "$dir/config" "$dir/run"
   write_settings "$dir/settings.json" "$dir/config"
+  set +e
   (
     cd "$dir/run"
     HAKO_ENV=1 \
@@ -144,6 +155,15 @@ run_claude() {
       --name "$title" \
       "$prompt" >"$dir/output.jsonl" 2>&1
   )
+  local status=$?
+  set -e
+  if [[ "$status" -ne 0 ]]; then
+    if hako_smoke_retryable_status_or_output "$status" "$dir/output.jsonl"; then
+      echo "$pane_id: retryable Claude/OpenRouter provider failure with $model" >&2
+      exit 75
+    fi
+    return "$status"
+  fi
   if grep -E 'api\.anthropic\.com|"model":"anthropic/|"model":"claude' "$dir/output.jsonl" >/dev/null; then
     echo "$pane_id: Claude smoke used Anthropic routing/model" >&2
     exit 1

@@ -926,29 +926,29 @@ pub(super) fn confirm_delete_group_cancel(state: &mut AppState) {
     state.mode = Mode::Navigate;
 }
 fn native_diff_file_agent_payload(
-    state: &AppState,
+    state: &mut AppState,
     ws_idx: usize,
     pane_id: crate::layout::PaneId,
 ) -> Option<String> {
-    state
+    let diff = state
         .workspaces
-        .get(ws_idx)
-        .and_then(|workspace| workspace.pane_state(pane_id))
-        .and_then(|pane| pane.native_diff())
-        .and_then(|diff| diff.selected_file_agent_payload())
+        .get_mut(ws_idx)
+        .and_then(|workspace| workspace.pane_state_mut(pane_id))
+        .and_then(|pane| pane.native_diff_mut())?;
+    diff.refreshed_selected_file_agent_payload()
 }
 
 fn native_diff_hunk_agent_payload(
-    state: &AppState,
+    state: &mut AppState,
     ws_idx: usize,
     pane_id: crate::layout::PaneId,
 ) -> Option<String> {
-    state
+    let diff = state
         .workspaces
-        .get(ws_idx)
-        .and_then(|workspace| workspace.pane_state(pane_id))
-        .and_then(|pane| pane.native_diff())
-        .and_then(|diff| diff.selected_hunk_agent_payload())
+        .get_mut(ws_idx)
+        .and_then(|workspace| workspace.pane_state_mut(pane_id))
+        .and_then(|pane| pane.native_diff_mut())?;
+    diff.refreshed_selected_hunk_agent_payload()
 }
 
 fn send_native_diff_payload(

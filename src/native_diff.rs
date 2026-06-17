@@ -497,6 +497,16 @@ impl NativeDiffPaneState {
         }
     }
 
+    pub(crate) fn refreshed_selected_file_agent_payload(&mut self) -> Option<String> {
+        self.refresh();
+        self.selected_file_agent_payload()
+    }
+
+    pub(crate) fn refreshed_selected_hunk_agent_payload(&mut self) -> Option<String> {
+        self.refresh();
+        self.selected_hunk_agent_payload()
+    }
+
     pub(crate) fn selected_file_agent_payload(&self) -> Option<String> {
         let file = self.selected_file()?;
         Some(self.agent_payload_for_file(file))
@@ -1938,6 +1948,35 @@ mod tests {
             Some(DiffBucket::Untracked)
         );
         assert_eq!(state.file_list_row_count(), 2);
+    }
+
+    #[test]
+    fn refreshed_agent_payload_reads_latest_worktree_diff() {
+        let repo =
+            std::env::temp_dir().join(format!("hako-native-diff-refresh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(&repo).expect("create repo");
+        run_git(&repo, &["init"]);
+        run_git(&repo, &["config", "user.email", "hako@example.com"]);
+        run_git(&repo, &["config", "user.name", "Hako"]);
+        std::fs::write(repo.join("file.txt"), "old\n").expect("write file");
+        run_git(&repo, &["add", "."]);
+        run_git(&repo, &["commit", "-m", "initial"]);
+        std::fs::write(repo.join("file.txt"), "first\n").expect("first edit");
+        let mut state = NativeDiffPaneState::new(load_native_diff_session(&repo).expect("load"));
+        assert!(state
+            .selected_file_agent_payload()
+            .expect("stale payload")
+            .contains("+first"));
+
+        std::fs::write(repo.join("file.txt"), "second\n").expect("second edit");
+
+        let payload = state
+            .refreshed_selected_file_agent_payload()
+            .expect("refreshed payload");
+        assert!(payload.contains("+second"));
+        assert!(!payload.contains("+first"));
+        let _ = std::fs::remove_dir_all(repo);
     }
 
     #[test]

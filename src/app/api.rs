@@ -162,6 +162,7 @@ impl App {
             }
         }
         self.sync_full_lifecycle_authority_detection_pauses();
+        self.send_pending_agent_prompts_for_updates(&pane_updates);
         for update in &pane_updates {
             self.refresh_new_hako_toast_context_for_update(update, &previous_toast);
             self.emit_pane_state_update(update);

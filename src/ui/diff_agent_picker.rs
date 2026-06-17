@@ -318,3 +318,83 @@ fn push_agent_section<F>(
         out.pop();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        app::state::{DiffAgentPickerState, Group, Mode},
+        detect::{Agent, AgentState},
+        workspace::Workspace,
+    };
+    use ratatui::layout::Direction;
+
+    fn mark_agent(app: &mut AppState, ws_idx: usize, pane_id: crate::layout::PaneId, name: &str) {
+        let terminal_id = app.workspaces[ws_idx]
+            .pane_state(pane_id)
+            .expect("pane")
+            .attached_terminal_id
+            .clone();
+        let terminal = app.terminals.get_mut(&terminal_id).expect("terminal");
+        terminal.set_detected_state(Some(Agent::Codex), AgentState::Idle);
+        terminal.set_agent_name(name.to_string());
+    }
+
+    #[test]
+    fn diff_agent_picker_orders_targets_nearest_to_farthest_with_new_first() {
+        let mut app = AppState::test_new();
+        let other_group = Group {
+            id: "other".to_string(),
+            name: "other".to_string(),
+            icon: "◇".to_string(),
+            accent: None,
+            favorite_agent_profile_ids: Vec::new(),
+            default_agent_profile_id: None,
+        };
+        app.groups.push(other_group);
+
+        let mut source = Workspace::test_new("source");
+        let source_pane = source.tabs[0].root_pane;
+        let same_tab_pane = source.test_split(Direction::Horizontal);
+        let same_space_tab = source.test_add_tab(Some("review"));
+        let same_space_pane = source.tabs[same_space_tab].root_pane;
+
+        let same_group = Workspace::test_new("same group");
+        let same_group_pane = same_group.tabs[0].root_pane;
+
+        let mut other_group_ws = Workspace::test_new("other group");
+        other_group_ws.group_id = "other".to_string();
+        let other_group_pane = other_group_ws.tabs[0].root_pane;
+
+        app.workspaces = vec![source, same_group, other_group_ws];
+        app.ensure_test_terminals();
+        mark_agent(&mut app, 0, same_tab_pane, "same-tab");
+        mark_agent(&mut app, 0, same_space_pane, "same-space");
+        mark_agent(&mut app, 1, same_group_pane, "same-group");
+        mark_agent(&mut app, 2, other_group_pane, "other-group");
+        app.mode = Mode::DiffAgentPicker;
+        app.diff_agent_picker = Some(DiffAgentPickerState {
+            ws_idx: 0,
+            source_pane_id: source_pane,
+            payload: "review this diff".to_string(),
+            selected: 0,
+        });
+
+        let labels = diff_agent_picker_options(&app)
+            .into_iter()
+            .filter(|option| !option.header)
+            .map(|option| option.label)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            labels,
+            vec![
+                "new agent",
+                "same-tab",
+                "same-space",
+                "same-group",
+                "other-group",
+            ]
+        );
+    }
+}
