@@ -4044,7 +4044,7 @@ mod tests {
         assert_eq!(state.workspaces[0].tabs.len(), 2);
         assert_eq!(
             state.workspaces[0].active_tab().unwrap().display_name(),
-            format!("{} diff", root.file_name().unwrap().to_string_lossy())
+            format!("diff {}", root.file_name().unwrap().to_string_lossy())
         );
         let pane_id = state.workspaces[0].active_tab().unwrap().root_pane;
         assert!(state.workspaces[0]

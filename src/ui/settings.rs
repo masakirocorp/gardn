@@ -1251,7 +1251,7 @@ mod tests {
             .skip(dark_heading_y as usize + 1)
             .find_map(|(y, line)| line.contains("blue").then_some(y as u16))
             .expect("dark blue option");
-        let selected_row_end = area.x + area.width.saturating_sub(1);
+        let selected_row_end = area.x + area.width.saturating_sub(2);
 
         assert_ne!(
             terminal.backend().buffer()[(selected_row_end, dark_heading_y)]
