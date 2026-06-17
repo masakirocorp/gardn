@@ -3,6 +3,7 @@
 // traffic real, intercept the entitlement-gated inference stream, and emit the
 // same Qoder SSE envelope shape the CLI expects.
 import https from 'node:https';
+import dns from 'node:dns/promises';
 import { appendFileSync, readFileSync } from 'node:fs';
 
 const LOG = process.env.HAKO_QODER_PROXY_LOG || '/tmp/hako-qoder-proxy.log';
@@ -45,21 +46,42 @@ const server = https.createServer({ cert: readFileSync(CERT), key: readFileSync(
 });
 
 async function forwardModelList(req, res, body) {
+  const upstream = await requestRealQoderApi2(req, body);
+  log(`model-list status=${upstream.status}`);
+  res.writeHead(upstream.status, { 'content-type': upstream.contentType || 'application/json' });
+  res.end(upstream.body);
+}
+
+async function requestRealQoderApi2(req, body) {
+  const addresses = await dns.resolve4('api2.qoder.sh');
+  const host = addresses[0];
   const headers = {};
   for (const [key, value] of Object.entries(req.headers)) {
     if (key === 'host' || key === 'connection' || key === 'content-length') continue;
     headers[key] = value;
   }
   headers.host = 'api2.qoder.sh';
-  const upstream = await fetch(`https://api2.qoder.sh${req.url}`, {
-    method: req.method,
-    headers,
-    body: body.length ? body : undefined,
+  if (body.length) headers['content-length'] = body.length;
+  return await new Promise((resolve, reject) => {
+    const upstream = https.request({
+      host,
+      servername: 'api2.qoder.sh',
+      path: req.url,
+      method: req.method,
+      headers,
+    }, response => {
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('end', () => resolve({
+        status: response.statusCode || 502,
+        contentType: response.headers['content-type'],
+        body: Buffer.concat(chunks),
+      }));
+    });
+    upstream.on('error', reject);
+    if (body.length) upstream.write(body);
+    upstream.end();
   });
-  const text = await upstream.text();
-  log(`model-list status=${upstream.status}`);
-  res.writeHead(upstream.status, { 'content-type': upstream.headers.get('content-type') || 'application/json' });
-  res.end(text);
 }
 
 async function handleInference(req, res) {

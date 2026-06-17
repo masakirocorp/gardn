@@ -78,8 +78,8 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -keyout "$workdir/qoder.key" \
   -out "$workdir/qoder.crt" \
   -days 1 \
-  -subj "/CN=api1.qoder.sh" \
-  -addext "subjectAltName=DNS:api1.qoder.sh" >/dev/null 2>&1
+  -subj "/CN=qoder.sh" \
+  -addext "subjectAltName=DNS:api1.qoder.sh,DNS:api2.qoder.sh" >/dev/null 2>&1
 
 HAKO_QODER_PROXY_CERT="$workdir/qoder.crt" \
 HAKO_QODER_PROXY_KEY="$workdir/qoder.key" \
@@ -113,6 +113,7 @@ cat > "$home/.qoder/settings.json" <<EOF_HOOKS
   }
 }
 EOF_HOOKS
+set +e
 (
   cd "$workdir"
   HOME="$home" \
@@ -129,6 +130,19 @@ EOF_HOOKS
     --model "${HAKO_SMOKE_QODER_CLI_MODEL:-Qwen3.7-Max}" \
     "Reply exactly HAKO_QODER_PROXY_OK" >"$workdir/qoder-output.jsonl" 2>&1
 )
+status=$?
+set -e
+if [[ "$status" -ne 0 ]]; then
+  python3 - "$workdir/qoder-output.jsonl" "$proxy_log" <<'PY' >&2
+import sys
+from pathlib import Path
+for path in sys.argv[1:]:
+    text = Path(path).read_text(errors='replace') if Path(path).exists() else ''
+    print(f'--- {path} ---')
+    print('\n'.join(text.splitlines()[:160]))
+PY
+  exit "$status"
+fi
 
 python3 - "$workdir/qoder-output.jsonl" "$proxy_log" "$request_log" <<'PY'
 import json, sys
@@ -140,10 +154,9 @@ if 'HAKO_QODER_PROXY_OK' not in output:
     raise SystemExit(f'qoder proxy smoke did not produce marker: {output[-1000:]}')
 if 'model-list status=200' not in proxy:
     raise SystemExit(f'qoder proxy log missing model-list status=200: {proxy[-1000:]}')
-if 'openrouter-request' not in proxy:
-    print('warning: qodercli completed without hitting the local inference proxy; validating real hook status only')
-elif 'openrouter-complete' not in proxy:
-    raise SystemExit(f'qoder proxy log missing openrouter-complete: {proxy[-1000:]}')
+for needle in ['openrouter-request', 'openrouter-complete']:
+    if needle not in proxy:
+        raise SystemExit(f'qoder proxy log missing {needle}: {proxy[-1000:]}')
 reports = [req for req in requests if req.get('method') == 'pane.report_agent']
 releases = [req for req in requests if req.get('method') == 'pane.release_agent']
 states = [req.get('params', {}).get('state') for req in reports]
@@ -157,5 +170,5 @@ for req in reports + releases:
     params = req.get('params', {})
     if params.get('source') != 'hako:qodercli' or params.get('agent') != 'qodercli':
         raise SystemExit(f'qoder hook smoke reported wrong source/agent: {req}')
-print('qoder proxy status test ok: real Qoder CLI emitted Hako status hooks; local proxy verifies Qoder routing when this CLI build uses the intercepted inference endpoint')
+print('qoder proxy status test ok: real Qoder CLI completed through local OpenRouter-backed inference proxy and emitted Hako status hooks')
 PY
