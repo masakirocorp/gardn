@@ -7,6 +7,7 @@
 !opencode-smoke.sh
 !opencode-status-smoke.sh
 !opencode-diff-agent-smoke.sh
+!diff-agent-smoke.sh
 !opencode-plugin-status-test.mjs
 !pi-omp-plugin-status-test.mjs
 !pi-omp-status-smoke.sh

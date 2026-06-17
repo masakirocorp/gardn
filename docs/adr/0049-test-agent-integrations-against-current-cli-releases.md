@@ -4,13 +4,36 @@ status: accepted
 
 # Test agent integrations against current CLI releases
 
-Hako's optional real-agent smoke image installs the current release of each supported coding-agent CLI by default. The image keeps build tooling pinned where needed, such as pnpm, but does not pin the agent CLIs themselves. Push builds verify that the image still builds and that provider configuration wiring is sane. Scheduled and manually dispatched runs exercise the real agent CLIs through the published image and configured provider secrets.
+Hako's optional real-agent smoke image installs the current release of each supported coding-agent CLI by default. The image keeps build tooling pinned where needed, such as pnpm, but does not pin the agent CLIs themselves. Push builds verify that the image still builds, that provider configuration wiring is sane, and publish the image to GHCR for scheduled/manual compatibility probes. Scheduled and manually dispatched runs exercise the real agent CLIs through that image and configured provider secrets.
 
-This is separate from ADR 0016's agent profile and integration authority boundary, and ADR 0048's state-evidence precedence. Those ADRs record how Hako interprets agent reports once they arrive. This ADR records which upstream CLI versions the smoke workflow treats as the compatibility target.
+Real-agent smokes use OpenRouter-backed model configuration with an ordered free-model fallback list. A single unavailable, removed, rate-limited, or timed-out model is provider volatility, not a Hako result. Smoke scripts may retry whole smoke scenarios with the next candidate model before they reach Hako assertions. Once a CLI run produces a valid provider response, missing status reports, wrong state ordering, missing native-diff payload understanding, bad hook metadata, or missing proxy routing remain hard test failures.
+
+This is separate from ADR 0016's agent profile and integration authority boundary, ADR 0048's state-evidence precedence, and ADR 0050's native Git diff sessions. Those ADRs record how Hako interprets agent reports and diff state once they arrive. This ADR records which upstream CLI versions and provider behavior the smoke workflow treats as the compatibility target.
+
+## Current coverage contract
+
+The smoke workflow must be explicit about coverage level per agent. A row is not "covered" unless the workflow exercises that exact behavior against the real CLI or the documented proxy seam.
+
+| Agent | status/lifecycle smoke | native diff-send smoke | Notes |
+|---|---|---|---|
+| OpenCode | real CLI + plugin | real CLI | OpenRouter model syntax uses OpenCode's `openrouter/...` form. |
+| Pi | real CLI + extension | real CLI | Uses the Pi extension seam. |
+| OMP | real CLI + extension | real CLI | Uses the OMP extension seam. |
+| Claude | real CLI + hooks | real CLI | Routed through OpenRouter-compatible Anthropic env. |
+| Codex | real CLI transport + hook seam | real CLI | Codex `exec` still limits hook assertions; payload understanding is real CLI. |
+| Copilot | real CLI + hooks | real CLI | BYOK/OpenRouter provider path. |
+| Droid | real CLI + hooks | real CLI | BYOK/OpenRouter provider path. |
+| Kimi | real CLI + hooks | real CLI | BYOK/OpenRouter provider path. |
+| Hermes | real CLI + plugin | real CLI | BYOK/OpenRouter provider path. |
+| Cursor | proxy/auth contract + hook proxy | proxy CLI | Requires Cursor-specific proxy handling; the smoke verifies the proxied CLI understands Hako diff payloads. |
+| Qoder | proxy/auth contract + hook proxy | proxy CLI | Requires Qoder token/proxy handling; the smoke verifies the proxied CLI understands Hako diff payloads. |
+| Kiro | install/version check; optional API-key diff smoke | optional real CLI | Kiro does not use OpenRouter BYOK. Live CI coverage requires `KIRO_API_KEY`, a paid Kiro API-key credential. |
 
 ## Current rationale
 
 The supported coding agents are fast-moving developer tools. Users normally run recently updated CLIs, not the exact versions Hako tested when a commit landed. Pinning every smoke image agent version would make CI stable but would prove compatibility with stale surfaces and delay detection when an agent changes hook shape, environment requirements, model configuration, or status behavior.
+
+Provider availability is a separate volatile dependency. Free OpenRouter models can disappear, timeout, or reject a route independently of Hako. Retrying complete smoke scenarios against an ordered fallback list preserves the compatibility signal while keeping the assertion boundary honest: retry before Hako receives a provider-backed answer, fail after Hako-observable behavior is wrong.
 
 The smoke workflow intentionally accepts some external volatility. A current-agent smoke failure may be caused by Hako, by an upstream CLI change, or by provider availability. That is acceptable because these checks are optional scheduled/manual compatibility probes, not the core deterministic `just check` gate.
 
@@ -20,8 +43,15 @@ The smoke workflow intentionally accepts some external volatility. A current-age
 - Float all build tooling and agent CLIs. Rejected because installer/tooling churn would make the image itself noisy for reasons unrelated to agent behavior.
 - Pin image tooling but install current agent CLIs by default. Accepted because it keeps the container construction mostly reproducible while making the tested agent surfaces match the current user-facing ecosystem.
 
+- Use one hardcoded free model and fail on any provider issue. Rejected because removed or unavailable free models would make the smoke harness noisy without proving anything about Hako.
+- Retry complete smoke scenarios through an ordered free-model fallback list, but do not retry assertion failures. Accepted because it separates provider volatility from Hako behavior while avoiding partial-run mixed-model state.
+
 ## Consequences
 
 Smoke failures must be triaged as compatibility signals, not automatically treated as Hako regressions. When an upstream CLI change breaks Hako integration behavior, prefer updating the integration or smoke setup over pinning the old CLI unless the new upstream release is clearly broken and temporary quarantine is needed.
+
+Fallback model lists should be explicit, printed in logs, and routed through the same CLI configuration path the smoke is validating. A script may transform model identifiers only when a CLI requires its own provider/model syntax, such as OpenCode's `openrouter/...` model ids.
+
+Smokes that proxy a CLI to OpenRouter must assert that the intended network route was actually exercised when that is the feature under test. It is acceptable to preserve the real vendor catalog/auth path if the proxy bypasses local host overrides safely and still verifies the intercepted inference route.
 
 If a specific agent temporarily needs a version override for diagnosis, the Dockerfile build args may still be used deliberately. Such overrides should not become the default without recording why current releases are no longer the desired compatibility target.

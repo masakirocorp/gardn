@@ -90,6 +90,21 @@ RUN set -eux; \
     ln -s "$kimi_bin" /usr/local/bin/kimi; \
     rm -f "/tmp/kimi-code-linux-${kimi_arch}.zip" "/tmp/kimi-code-linux-${kimi_arch}.zip.sha256"
 
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) kiro_arch=x86_64 ;; \
+      arm64) kiro_arch=aarch64 ;; \
+      *) echo "unsupported Kiro arch: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl --proto '=https' --tlsv1.2 -fsSL "https://desktop-release.q.us-east-1.amazonaws.com/latest/kirocli-${kiro_arch}-linux.zip" -o /tmp/kirocli.zip; \
+    unzip -q /tmp/kirocli.zip -d /opt/kiro-cli; \
+    kiro_bin="$(find /opt/kiro-cli -type f -name kiro-cli | sort | tail -n 1)"; \
+    chmod +x "$kiro_bin"; \
+    ln -s "$kiro_bin" /usr/local/bin/kiro-cli; \
+    ln -s "$kiro_bin" /usr/local/bin/kiro; \
+    rm -f /tmp/kirocli.zip
+
 RUN curl -fsSL https://cursor.com/install | bash \
     && mkdir -p /opt \
     && cp -a /root/.local/share/cursor-agent /opt/cursor-agent \
@@ -131,6 +146,7 @@ COPY opencode-smoke.sh /usr/local/bin/hako-agent-smoke-opencode
 COPY smoke-models.sh /usr/local/lib/hako-agent-smoke-models.sh
 COPY opencode-status-smoke.sh /usr/local/bin/hako-agent-smoke-opencode-status
 COPY opencode-diff-agent-smoke.sh /usr/local/bin/hako-agent-smoke-opencode-diff-agent
+COPY diff-agent-smoke.sh /usr/local/bin/hako-agent-smoke-diff-agent
 COPY opencode-plugin-status-test.mjs /usr/local/bin/hako-agent-opencode-plugin-status-test
 COPY pi-omp-plugin-status-test.mjs /usr/local/bin/hako-agent-pi-omp-plugin-status-test
 COPY pi-omp-status-smoke.sh /usr/local/bin/hako-agent-smoke-pi-omp-status
@@ -141,7 +157,7 @@ COPY cursor-openrouter-proxy.mjs /usr/local/bin/hako-agent-cursor-openrouter-pro
 COPY cursor-proxy-status-smoke.sh /usr/local/bin/hako-agent-smoke-cursor-proxy-status
 COPY qoder-openrouter-proxy.mjs /usr/local/bin/hako-agent-qoder-openrouter-proxy
 COPY qoder-proxy-status-smoke.sh /usr/local/bin/hako-agent-smoke-qoder-proxy-status
-RUN chmod +x /usr/local/bin/hako-agent-smoke-env /usr/local/bin/hako-agent-smoke-doctor /usr/local/bin/hako-agent-smoke-verify-env /usr/local/bin/hako-agent-smoke-opencode /usr/local/bin/hako-agent-smoke-opencode-status /usr/local/bin/hako-agent-smoke-opencode-diff-agent /usr/local/bin/hako-agent-smoke-pi-omp-status /usr/local/bin/hako-agent-smoke-claude-status /usr/local/bin/hako-agent-smoke-codex-status /usr/local/bin/hako-agent-smoke-remaining-status /usr/local/bin/hako-agent-smoke-cursor-proxy-status /usr/local/bin/hako-agent-smoke-qoder-proxy-status /usr/local/bin/hako-agent-cursor-openrouter-proxy /usr/local/bin/hako-agent-qoder-openrouter-proxy /usr/local/bin/hako-agent-opencode-plugin-status-test /usr/local/bin/hako-agent-pi-omp-plugin-status-test \
+RUN chmod +x /usr/local/bin/hako-agent-smoke-env /usr/local/bin/hako-agent-smoke-doctor /usr/local/bin/hako-agent-smoke-verify-env /usr/local/bin/hako-agent-smoke-opencode /usr/local/bin/hako-agent-smoke-opencode-status /usr/local/bin/hako-agent-smoke-opencode-diff-agent /usr/local/bin/hako-agent-smoke-diff-agent /usr/local/bin/hako-agent-smoke-pi-omp-status /usr/local/bin/hako-agent-smoke-claude-status /usr/local/bin/hako-agent-smoke-codex-status /usr/local/bin/hako-agent-smoke-remaining-status /usr/local/bin/hako-agent-smoke-cursor-proxy-status /usr/local/bin/hako-agent-smoke-qoder-proxy-status /usr/local/bin/hako-agent-cursor-openrouter-proxy /usr/local/bin/hako-agent-qoder-openrouter-proxy /usr/local/bin/hako-agent-opencode-plugin-status-test /usr/local/bin/hako-agent-pi-omp-plugin-status-test \
     && useradd --create-home --shell /bin/bash smoke
 
 USER smoke

@@ -113,6 +113,28 @@ cat > "$home/.qoder/settings.json" <<EOF_HOOKS
   }
 }
 EOF_HOOKS
+diff_prompt='You are receiving a Hako native diff payload that was sent to an agent pane.
+If the selected hunk changes the Rust function return value from "before" to "after", reply exactly HAKO_DIFF_AGENT_PAYLOAD_OK and nothing else.
+
+Repo: /tmp/hako-diff-agent-smoke
+Branch: main
+Scope: all
+File: src/lib.rs
+Bucket: unstaged
+Status: modified
+Shape: selected hunk
+
+```diff
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1,3 +1,3 @@
+ pub fn label() -> '\''static str {
+-    "before"
++    "after"
+ }
+```'
+
 set +e
 (
   cd "$workdir"
@@ -128,7 +150,7 @@ set +e
     --output-format json \
     --permission-mode dont_ask \
     --model "${HAKO_SMOKE_QODER_CLI_MODEL:-Qwen3.7-Max}" \
-    "Reply exactly HAKO_QODER_PROXY_OK" >"$workdir/qoder-output.jsonl" 2>&1
+    "$diff_prompt" >"$workdir/qoder-output.jsonl" 2>&1
 )
 status=$?
 set -e
@@ -150,8 +172,8 @@ from pathlib import Path
 output = Path(sys.argv[1]).read_text(errors='replace')
 proxy = Path(sys.argv[2]).read_text(errors='replace')
 requests = [json.loads(line) for line in Path(sys.argv[3]).read_text(errors='replace').splitlines() if line.strip()]
-if 'HAKO_QODER_PROXY_OK' not in output:
-    raise SystemExit(f'qoder proxy smoke did not produce marker: {output[-1000:]}')
+if 'HAKO_DIFF_AGENT_PAYLOAD_OK' not in output:
+    raise SystemExit(f'qoder proxy smoke did not understand Hako diff payload: {output[-1000:]}')
 if 'model-list status=200' not in proxy:
     raise SystemExit(f'qoder proxy log missing model-list status=200: {proxy[-1000:]}')
 for needle in ['openrouter-request', 'openrouter-complete']:

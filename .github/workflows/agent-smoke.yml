@@ -105,6 +105,37 @@ jobs:
           hako-agent-smoke:ci
           hako-agent-smoke-env hako-agent-smoke-opencode-diff-agent
 
+      - name: Run live diff-agent smoke matrix
+        if: ${{ github.event_name == 'schedule' || inputs.run_real_smokes }}
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          for agent in pi omp claude codex copilot droid kimi hermes; do
+            docker run --rm \
+              -e OPENROUTER_API_KEY \
+              -e HAKO_SMOKE_MODEL \
+              -e HAKO_SMOKE_FALLBACK_MODELS \
+              -e HAKO_OPENCODE_SMOKE_MODEL \
+              -v "${{ github.workspace }}:/repo:ro" \
+              hako-agent-smoke:ci \
+              hako-agent-smoke-env hako-agent-smoke-diff-agent "$agent"
+            sleep 20
+          done
+
+      - name: Run Kiro diff-agent smoke
+        if: ${{ github.event_name == 'schedule' || inputs.run_real_smokes }}
+        env:
+          KIRO_API_KEY: ${{ secrets.KIRO_API_KEY }}
+        run: |
+          if [ -z "${KIRO_API_KEY:-}" ]; then
+            echo "KIRO_API_KEY is not configured; skipping Kiro live diff-agent smoke" >&2
+            exit 0
+          fi
+          docker run --rm \
+            -e KIRO_API_KEY \
+            hako-agent-smoke:ci \
+            hako-agent-smoke-env hako-agent-smoke-diff-agent kiro
+
       - name: Cool down provider quota
         if: ${{ github.event_name == 'schedule' || inputs.run_real_smokes }}
         run: sleep 20
