@@ -63,16 +63,27 @@ server.on('stream', (stream, headers) => {
   if (!path.includes('/agent.v1.AgentService/')) return;
   log(`agent-stream ${path}`);
   let handled = false;
-  stream.on('data', async chunk => {
+  const chunks = [];
+  const handle = async (force = false) => {
     if (handled) return;
-    handled = true;
     const strs = [];
-    try { xstr(chunk.length > 5 ? chunk.subarray(5) : chunk, strs); } catch {}
+    try {
+      for (const chunk of chunks) xstr(chunk.length > 5 ? chunk.subarray(5) : chunk, strs);
+    } catch {}
     const prompt = selectPrompt(strs);
-    log(`cursor-prompt marker=${prompt.includes('HAKO_DIFF_AGENT_PAYLOAD_OK')} bytes=${Buffer.byteLength(prompt, 'utf8')}`);
+    if (!force && !prompt.includes('HAKO_DIFF_AGENT_PAYLOAD_OK') && !prompt.includes('Hako native diff payload') && chunks.length < 8) return;
+    handled = true;
+    log(`cursor-prompt marker=${prompt.includes('HAKO_DIFF_AGENT_PAYLOAD_OK')} strings=${strs.length} bytes=${Buffer.byteLength(prompt, 'utf8')}`);
     stream.respond({':status':200, 'content-type':'application/connect+proto'});
     await callOpenRouter(prompt, stream);
+  };
+  stream.on('data', chunk => {
+    if (handled) return;
+    chunks.push(chunk);
+    void handle();
   });
+  stream.on('end', () => { void handle(true); });
+  setTimeout(() => { void handle(true); }, 1000).unref();
 });
 
 function selectPrompt(strs) {
