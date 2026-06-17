@@ -151,7 +151,7 @@ set +e
     -p \
     --output-format json \
     --permission-mode dont_ask \
-    --model "${HAKO_SMOKE_QODER_CLI_MODEL:-Qwen3.7-Max}" \
+    --model "${HAKO_SMOKE_QODER_CLI_MODEL:-qmodel}" \
     "$diff_prompt" >"$workdir/qoder-output.jsonl" 2>&1
 )
 status=$?
@@ -180,6 +180,7 @@ if 'HAKO_DIFF_AGENT_PAYLOAD_OK' not in output:
 if 'model-list status=200' not in proxy:
     raise SystemExit(f'qoder proxy log missing model-list status=200: {proxy[-1000:]}')
 if 'static-complete' not in proxy:
+    print('qoder output:', output[-2000:], file=sys.stderr)
     raise SystemExit(f'qoder proxy log missing static-complete: {proxy[-1000:]}')
 reports = [req for req in requests if req.get('method') == 'pane.report_agent']
 releases = [req for req in requests if req.get('method') == 'pane.release_agent']
