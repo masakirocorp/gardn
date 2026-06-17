@@ -497,30 +497,22 @@ impl NativeDiffPaneState {
         }
     }
 
-    pub(crate) fn selected_agent_payload(&self) -> Option<String> {
+    pub(crate) fn selected_file_agent_payload(&self) -> Option<String> {
         let file = self.selected_file()?;
+        Some(self.agent_payload_for_file(file))
+    }
+
+    pub(crate) fn selected_hunk_agent_payload(&self) -> Option<String> {
+        let file = self.selected_file()?;
+        let hunk_index = self.selected_hunk?;
+        let hunk = file.hunks.get(hunk_index)?;
+        Some(self.agent_payload_for_hunk(file, hunk))
+    }
+
+    fn agent_payload_for_file(&self, file: &NativeDiffFile) -> String {
         let path = native_diff_file_path_label(file);
         let mut payload = String::new();
         push_agent_payload_header(&mut payload, self, file, &path);
-        if let Some(hunk_index) = self.selected_hunk {
-            if let Some(hunk) = file.hunks.get(hunk_index) {
-                let patch = agent_hunk_patch(file, hunk);
-                if patch.len() <= AGENT_PAYLOAD_MAX_HUNK_BYTES
-                    && !large_untracked_file(file, patch.len())
-                {
-                    payload.push_str(&format!(
-                        "Shape: selected hunk\nHunk: -{},{} +{},{}\n\n",
-                        hunk.old_start, hunk.old_count, hunk.new_start, hunk.new_count
-                    ));
-                    payload.push_str(&patch);
-                    return Some(payload);
-                }
-                payload.push_str("Shape: summary\n");
-                push_agent_large_diff_notice(&mut payload, file, patch.len());
-                push_agent_file_summary(&mut payload, file);
-                return Some(payload);
-            }
-        }
         let patch = agent_file_patch(file);
         if patch.len() <= AGENT_PAYLOAD_MAX_PATCH_BYTES && !large_untracked_file(file, patch.len())
         {
@@ -528,10 +520,39 @@ impl NativeDiffPaneState {
             payload.push_str(&patch);
         } else {
             payload.push_str("Shape: summary\n");
-            push_agent_large_diff_notice(&mut payload, file, patch.len());
+            push_agent_large_diff_notice(
+                &mut payload,
+                file,
+                patch.len(),
+                AGENT_PAYLOAD_MAX_PATCH_BYTES,
+            );
             push_agent_file_summary(&mut payload, file);
         }
-        Some(payload)
+        payload
+    }
+
+    fn agent_payload_for_hunk(&self, file: &NativeDiffFile, hunk: &NativeDiffHunk) -> String {
+        let path = native_diff_file_path_label(file);
+        let mut payload = String::new();
+        push_agent_payload_header(&mut payload, self, file, &path);
+        let patch = agent_hunk_patch(file, hunk);
+        if patch.len() <= AGENT_PAYLOAD_MAX_HUNK_BYTES && !large_untracked_file(file, patch.len()) {
+            payload.push_str(&format!(
+                "Shape: selected hunk\nHunk: -{},{} +{},{}\n\n",
+                hunk.old_start, hunk.old_count, hunk.new_start, hunk.new_count
+            ));
+            payload.push_str(&patch);
+        } else {
+            payload.push_str("Shape: summary\n");
+            push_agent_large_diff_notice(
+                &mut payload,
+                file,
+                patch.len(),
+                AGENT_PAYLOAD_MAX_HUNK_BYTES,
+            );
+            push_agent_file_summary(&mut payload, file);
+        }
+        payload
     }
 
     pub(crate) fn file_list_row_count(&self) -> usize {
@@ -683,21 +704,89 @@ impl NativeDiffPaneState {
     }
 
     pub(crate) fn select_visible_diff_row(&mut self, visible_row: usize) -> bool {
+        if let Some(hunk_index) = self.hunk_at_visible_diff_row(visible_row) {
+            self.selected_hunk = Some(hunk_index);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn clear_selected_hunk(&mut self) {
+        self.selected_hunk = None;
+    }
+
+    fn hunk_at_visible_diff_row(&self, visible_row: usize) -> Option<usize> {
+        const CONTEXT_EDGE: usize = 3;
+        const MIN_FOLD: usize = CONTEXT_EDGE * 2 + 4;
+
         if visible_row == 0 {
-            return false;
+            return None;
         }
         let target_row = self
             .diff_scroll
             .saturating_add(visible_row.saturating_sub(1));
-        let Some(NativeDiffRow {
-            id: NativeDiffRowId::Hunk { hunk_index, .. },
-            ..
-        }) = self.visible_diff_rows().get(target_row).copied()
-        else {
-            return false;
-        };
-        self.selected_hunk = Some(hunk_index);
-        true
+        let selection = self.selected_file?;
+        let file = self.selected_file()?;
+        let mut row = 0;
+        for (hunk_index, hunk) in file.hunks.iter().enumerate() {
+            if row == target_row {
+                return Some(hunk_index);
+            }
+            row += 1;
+            let mut index = 0;
+            let mut run_index = 0;
+            while index < hunk.lines.len() {
+                if hunk.lines[index].kind != DiffLineKind::Context {
+                    if row == target_row {
+                        return Some(hunk_index);
+                    }
+                    row += 1;
+                    index += 1;
+                    continue;
+                }
+                let start = index;
+                while index < hunk.lines.len() && hunk.lines[index].kind == DiffLineKind::Context {
+                    index += 1;
+                }
+                let count = index - start;
+                let key = NativeDiffContextKey {
+                    file_index: selection.file_index,
+                    hunk_index,
+                    run_index,
+                };
+                run_index += 1;
+                if count >= MIN_FOLD && self.context_expanded(key) {
+                    if row == target_row {
+                        return Some(hunk_index);
+                    }
+                    row += 1;
+                    if target_row < row + count {
+                        return Some(hunk_index);
+                    }
+                    row += count;
+                } else if count >= MIN_FOLD {
+                    if target_row < row + CONTEXT_EDGE {
+                        return Some(hunk_index);
+                    }
+                    row += CONTEXT_EDGE;
+                    if row == target_row {
+                        return Some(hunk_index);
+                    }
+                    row += 1;
+                    if target_row < row + CONTEXT_EDGE {
+                        return Some(hunk_index);
+                    }
+                    row += CONTEXT_EDGE;
+                } else {
+                    if target_row < row + count {
+                        return Some(hunk_index);
+                    }
+                    row += count;
+                }
+            }
+        }
+        None
     }
 
     pub(crate) fn scroll_diff(&mut self, delta: isize, viewport_rows: usize) {
@@ -766,6 +855,7 @@ impl NativeDiffPaneState {
                     saw_bucket = true;
                 }
                 if row == target_row {
+                    self.selected_hunk = None;
                     self.selected_file = Some(NativeDiffSelection {
                         bucket: file.bucket,
                         file_index,
@@ -848,11 +938,16 @@ fn large_untracked_file(file: &NativeDiffFile, patch_bytes: usize) -> bool {
     file.bucket == DiffBucket::Untracked && patch_bytes > AGENT_PAYLOAD_MAX_UNTRACKED_BYTES
 }
 
-fn push_agent_large_diff_notice(payload: &mut String, file: &NativeDiffFile, patch_bytes: usize) {
+fn push_agent_large_diff_notice(
+    payload: &mut String,
+    file: &NativeDiffFile,
+    patch_bytes: usize,
+    scoped_limit: usize,
+) {
     let limit = if file.bucket == DiffBucket::Untracked {
         AGENT_PAYLOAD_MAX_UNTRACKED_BYTES
     } else {
-        AGENT_PAYLOAD_MAX_PATCH_BYTES
+        scoped_limit
     };
     payload.push_str(&format!(
         "Patch omitted: {} bytes exceeds {} byte agent payload limit.\n\n",
@@ -1831,7 +1926,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_agent_payload_uses_hunk_shape_when_small() {
+    fn selected_hunk_agent_payload_uses_hunk_shape_when_small() {
         let mut state = NativeDiffPaneState::new(NativeDiffSession {
             repo_root: PathBuf::from("/repo"),
             files: vec![NativeDiffFile {
@@ -1866,7 +1961,7 @@ mod tests {
         });
         state.selected_hunk = Some(0);
 
-        let payload = state.selected_agent_payload().expect("payload");
+        let payload = state.selected_hunk_agent_payload().expect("payload");
 
         assert!(payload.contains("Shape: selected hunk"));
         assert!(payload.contains("Bucket: unstaged"));
@@ -1876,7 +1971,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_agent_payload_summarizes_large_patch() {
+    fn selected_file_agent_payload_summarizes_large_patch() {
         let huge_line = "x".repeat(AGENT_PAYLOAD_MAX_PATCH_BYTES + 1);
         let state = NativeDiffPaneState::new(NativeDiffSession {
             repo_root: PathBuf::from("/repo"),
@@ -1903,7 +1998,7 @@ mod tests {
             }],
         });
 
-        let payload = state.selected_agent_payload().expect("payload");
+        let payload = state.selected_file_agent_payload().expect("payload");
 
         assert!(payload.contains("Shape: summary"));
         assert!(payload.contains("Patch omitted:"));
@@ -1912,7 +2007,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_agent_payload_summarizes_large_untracked_file() {
+    fn selected_file_agent_payload_summarizes_large_untracked_file() {
         let huge_line = "x".repeat(AGENT_PAYLOAD_MAX_UNTRACKED_BYTES + 1);
         let state = NativeDiffPaneState::new(NativeDiffSession {
             repo_root: PathBuf::from("/repo"),
@@ -1939,7 +2034,7 @@ mod tests {
             }],
         });
 
-        let payload = state.selected_agent_payload().expect("payload");
+        let payload = state.selected_file_agent_payload().expect("payload");
 
         assert!(payload.contains("Bucket: untracked"));
         assert!(payload.contains("Shape: summary"));

@@ -2055,6 +2055,7 @@ pub enum ContextMenuKind {
     NativeDiff {
         ws_idx: usize,
         pane_id: PaneId,
+        hunk_target: bool,
     },
 }
 
@@ -2095,14 +2096,24 @@ impl ContextMenuState {
             ContextMenuKind::NewTabButton {
                 can_diff: false, ..
             } => &["new", "tab", "agent"],
-            ContextMenuKind::NativeDiff { .. } => &[
-                "send to agent",
-                "copy for agent",
+            ContextMenuKind::NativeDiff {
+                hunk_target: true, ..
+            } => &[
+                "send hunk to agent",
+                "copy hunk for agent",
+                "---",
+                "stage hunk",
+                "unstage hunk",
+                "refresh",
+            ],
+            ContextMenuKind::NativeDiff {
+                hunk_target: false, ..
+            } => &[
+                "send file diff to agent",
+                "copy file diff for agent",
                 "---",
                 "stage file",
                 "unstage file",
-                "stage hunk",
-                "unstage hunk",
                 "refresh",
             ],
             ContextMenuKind::Pane {
@@ -2223,6 +2234,53 @@ mod context_menu_tests {
 
         assert!(with_diff.items().contains(&"diff"));
         assert!(!without_diff.items().contains(&"diff"));
+    }
+
+    #[test]
+    fn native_diff_context_menu_labels_match_target_scope() {
+        let file_menu = ContextMenuState {
+            kind: ContextMenuKind::NativeDiff {
+                ws_idx: 0,
+                pane_id: PaneId::from_raw(1),
+                hunk_target: false,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(0),
+        };
+        assert_eq!(
+            file_menu.items(),
+            &[
+                "send file diff to agent",
+                "copy file diff for agent",
+                "---",
+                "stage file",
+                "unstage file",
+                "refresh",
+            ]
+        );
+
+        let hunk_menu = ContextMenuState {
+            kind: ContextMenuKind::NativeDiff {
+                ws_idx: 0,
+                pane_id: PaneId::from_raw(1),
+                hunk_target: true,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(0),
+        };
+        assert_eq!(
+            hunk_menu.items(),
+            &[
+                "send hunk to agent",
+                "copy hunk for agent",
+                "---",
+                "stage hunk",
+                "unstage hunk",
+                "refresh",
+            ]
+        );
     }
 }
 
@@ -2404,6 +2462,7 @@ pub struct AppState {
     // View geometry (computed before render, consumed by render + mouse)
     pub view: ViewState,
     pub(crate) drag: Option<DragState>,
+
     pub(crate) workspace_press: Option<WorkspacePressState>,
     pub(crate) group_press: Option<GroupPressState>,
     pub(crate) tab_press: Option<TabPressState>,

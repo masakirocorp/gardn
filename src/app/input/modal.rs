@@ -925,7 +925,7 @@ pub(super) fn confirm_delete_group_cancel(state: &mut AppState) {
     state.confirm_delete_group = None;
     state.mode = Mode::Navigate;
 }
-fn native_diff_agent_payload(
+fn native_diff_file_agent_payload(
     state: &AppState,
     ws_idx: usize,
     pane_id: crate::layout::PaneId,
@@ -935,7 +935,43 @@ fn native_diff_agent_payload(
         .get(ws_idx)
         .and_then(|workspace| workspace.pane_state(pane_id))
         .and_then(|pane| pane.native_diff())
-        .and_then(|diff| diff.selected_agent_payload())
+        .and_then(|diff| diff.selected_file_agent_payload())
+}
+
+fn native_diff_hunk_agent_payload(
+    state: &AppState,
+    ws_idx: usize,
+    pane_id: crate::layout::PaneId,
+) -> Option<String> {
+    state
+        .workspaces
+        .get(ws_idx)
+        .and_then(|workspace| workspace.pane_state(pane_id))
+        .and_then(|pane| pane.native_diff())
+        .and_then(|diff| diff.selected_hunk_agent_payload())
+}
+
+fn send_native_diff_payload(
+    state: &mut AppState,
+    ws_idx: usize,
+    pane_id: crate::layout::PaneId,
+    payload: String,
+) {
+    if native_diff_existing_agent_count(state) > 0 {
+        state.diff_agent_picker = Some(crate::app::state::DiffAgentPickerState {
+            ws_idx,
+            source_pane_id: pane_id,
+            payload,
+            selected: 0,
+        });
+        state.mode = Mode::DiffAgentPicker;
+    } else if native_diff_has_launchable_agent_profile(state) {
+        state.pending_agent_prompt = Some(payload);
+        super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
+    } else {
+        state.request_clipboard_write = Some(payload.into_bytes());
+        state.mode = Mode::Terminal;
+    }
 }
 
 fn native_diff_existing_agent_count(state: &AppState) -> usize {
@@ -1114,34 +1150,66 @@ pub(super) fn apply_context_menu_action(
                 state.return_to_active_workspace_mode();
             }
         }
-        (ContextMenuKind::NativeDiff { ws_idx, pane_id }, Some("copy for agent")) => {
-            if let Some(payload) = native_diff_agent_payload(state, ws_idx, pane_id) {
+        (
+            ContextMenuKind::NativeDiff {
+                ws_idx,
+                pane_id,
+                hunk_target: false,
+            },
+            Some("copy file diff for agent"),
+        ) => {
+            if let Some(payload) = native_diff_file_agent_payload(state, ws_idx, pane_id) {
                 state.request_clipboard_write = Some(payload.into_bytes());
             }
             state.mode = Mode::Terminal;
         }
-        (ContextMenuKind::NativeDiff { ws_idx, pane_id }, Some("send to agent")) => {
-            if let Some(payload) = native_diff_agent_payload(state, ws_idx, pane_id) {
-                if native_diff_existing_agent_count(state) > 0 {
-                    state.diff_agent_picker = Some(crate::app::state::DiffAgentPickerState {
-                        ws_idx,
-                        source_pane_id: pane_id,
-                        payload,
-                        selected: 0,
-                    });
-                    state.mode = Mode::DiffAgentPicker;
-                } else if native_diff_has_launchable_agent_profile(state) {
-                    state.pending_agent_prompt = Some(payload);
-                    super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
-                } else {
-                    state.request_clipboard_write = Some(payload.into_bytes());
-                    state.mode = Mode::Terminal;
-                }
+        (
+            ContextMenuKind::NativeDiff {
+                ws_idx,
+                pane_id,
+                hunk_target: true,
+            },
+            Some("copy hunk for agent"),
+        ) => {
+            if let Some(payload) = native_diff_hunk_agent_payload(state, ws_idx, pane_id) {
+                state.request_clipboard_write = Some(payload.into_bytes());
+            }
+            state.mode = Mode::Terminal;
+        }
+        (
+            ContextMenuKind::NativeDiff {
+                ws_idx,
+                pane_id,
+                hunk_target: false,
+            },
+            Some("send file diff to agent"),
+        ) => {
+            if let Some(payload) = native_diff_file_agent_payload(state, ws_idx, pane_id) {
+                send_native_diff_payload(state, ws_idx, pane_id, payload);
             } else {
                 state.mode = Mode::Terminal;
             }
         }
-        (ContextMenuKind::NativeDiff { ws_idx, pane_id }, Some("stage file")) => {
+        (
+            ContextMenuKind::NativeDiff {
+                ws_idx,
+                pane_id,
+                hunk_target: true,
+            },
+            Some("send hunk to agent"),
+        ) => {
+            if let Some(payload) = native_diff_hunk_agent_payload(state, ws_idx, pane_id) {
+                send_native_diff_payload(state, ws_idx, pane_id, payload);
+            } else {
+                state.mode = Mode::Terminal;
+            }
+        }
+        (
+            ContextMenuKind::NativeDiff {
+                ws_idx, pane_id, ..
+            },
+            Some("stage file"),
+        ) => {
             if let Some(diff) = state
                 .workspaces
                 .get_mut(ws_idx)
@@ -1152,7 +1220,12 @@ pub(super) fn apply_context_menu_action(
             }
             state.mode = Mode::Terminal;
         }
-        (ContextMenuKind::NativeDiff { ws_idx, pane_id }, Some("unstage file")) => {
+        (
+            ContextMenuKind::NativeDiff {
+                ws_idx, pane_id, ..
+            },
+            Some("unstage file"),
+        ) => {
             if let Some(diff) = state
                 .workspaces
                 .get_mut(ws_idx)
@@ -1163,7 +1236,12 @@ pub(super) fn apply_context_menu_action(
             }
             state.mode = Mode::Terminal;
         }
-        (ContextMenuKind::NativeDiff { ws_idx, pane_id }, Some("stage hunk")) => {
+        (
+            ContextMenuKind::NativeDiff {
+                ws_idx, pane_id, ..
+            },
+            Some("stage hunk"),
+        ) => {
             if let Some(diff) = state
                 .workspaces
                 .get_mut(ws_idx)
@@ -1174,7 +1252,12 @@ pub(super) fn apply_context_menu_action(
             }
             state.mode = Mode::Terminal;
         }
-        (ContextMenuKind::NativeDiff { ws_idx, pane_id }, Some("unstage hunk")) => {
+        (
+            ContextMenuKind::NativeDiff {
+                ws_idx, pane_id, ..
+            },
+            Some("unstage hunk"),
+        ) => {
             if let Some(diff) = state
                 .workspaces
                 .get_mut(ws_idx)
@@ -1185,7 +1268,12 @@ pub(super) fn apply_context_menu_action(
             }
             state.mode = Mode::Terminal;
         }
-        (ContextMenuKind::NativeDiff { ws_idx, pane_id }, Some("refresh")) => {
+        (
+            ContextMenuKind::NativeDiff {
+                ws_idx, pane_id, ..
+            },
+            Some("refresh"),
+        ) => {
             if let Some(diff) = state
                 .workspaces
                 .get_mut(ws_idx)

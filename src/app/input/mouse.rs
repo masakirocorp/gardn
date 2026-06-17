@@ -1270,11 +1270,12 @@ impl AppState {
                         .and_then(|pane| pane.native_diff())
                         .is_some();
                     if is_native_diff {
-                        let _ = self.handle_native_diff_mouse_down(&info, mouse);
+                        let hunk_target = self.handle_native_diff_mouse_down(&info, mouse);
                         self.context_menu = Some(ContextMenuState {
                             kind: ContextMenuKind::NativeDiff {
                                 ws_idx,
                                 pane_id: info.id,
+                                hunk_target,
                             },
                             x: mouse.column,
                             y: mouse.row,
@@ -1793,7 +1794,15 @@ impl AppState {
             return true;
         }
         if file_width > 0 && local_col >= file_list_start {
-            return diff.select_visible_file_row(local_row as usize);
+            let selected = diff.select_visible_file_row(local_row as usize);
+            return selected && !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right));
+        }
+        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right)) {
+            let selected = diff.select_visible_diff_row(local_row as usize);
+            if !selected {
+                diff.clear_selected_hunk();
+            }
+            return selected;
         }
         if !diff.toggle_visible_context_row(local_row as usize) {
             diff.select_visible_diff_row(local_row as usize);
