@@ -68,18 +68,27 @@ server.on('stream', (stream, headers) => {
     handled = true;
     const strs = [];
     try { xstr(chunk.length > 5 ? chunk.subarray(5) : chunk, strs); } catch {}
-    const prompt = strs.find(s => s.length > 0 && s.length < 1000 && !/^[a-f0-9]{8}-/.test(s)) || 'Reply exactly HAKO_CURSOR_PROXY_OK';
+    const prompt = selectPrompt(strs);
+    log(`cursor-prompt marker=${prompt.includes('HAKO_DIFF_AGENT_PAYLOAD_OK')} bytes=${Buffer.byteLength(prompt, 'utf8')}`);
     stream.respond({':status':200, 'content-type':'application/connect+proto'});
     await callOpenRouter(prompt, stream);
   });
 });
+
+function selectPrompt(strs) {
+  const useful = strs.filter(s => s.length > 0 && s.length < 10000 && !/^[a-f0-9]{8}-/.test(s));
+  return useful.find(s => s.includes('HAKO_DIFF_AGENT_PAYLOAD_OK'))
+    || useful.find(s => s.includes('Hako native diff payload'))
+    || useful.sort((a, b) => b.length - a.length)[0]
+    || 'Reply exactly HAKO_CURSOR_PROXY_OK';
+}
 
 async function callOpenRouter(prompt, stream) {
   log(`openrouter-request model=${MODEL}`);
   const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${OPENROUTER_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: MODEL, messages: [{role:'user', content: prompt}], stream: true }),
+    body: JSON.stringify({ model: MODEL, messages: [{role:'user', content: prompt}], temperature: 0, max_tokens: 32, stream: true }),
   });
   if (!r.ok) {
     const err = await r.text().catch(() => '');
