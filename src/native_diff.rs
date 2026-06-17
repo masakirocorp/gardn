@@ -916,12 +916,27 @@ fn push_agent_payload_header(
 ) {
     payload.push_str("Review this diff from Hako.\n\n");
     payload.push_str(&format!("Repo: {}\n", diff.session.repo_root.display()));
+    payload.push_str(&format!(
+        "Branch: {}\n",
+        native_diff_branch_label(&diff.session.repo_root)
+    ));
+    payload.push_str(&format!("Scope: {}\n", diff.scope.label()));
     payload.push_str(&format!("File: {path}\n"));
     payload.push_str(&format!("Bucket: {}\n", file.bucket.label()));
     payload.push_str(&format!(
         "Status: {}\n",
         diff_file_status_label(file.status)
     ));
+}
+
+fn native_diff_branch_label(repo_root: &Path) -> String {
+    git_output(repo_root, &["branch", "--show-current"])
+        .ok()
+        .and_then(|output| {
+            let branch = String::from_utf8_lossy(&output).trim().to_string();
+            (!branch.is_empty()).then_some(branch)
+        })
+        .unwrap_or_else(|| "(detached)".to_string())
 }
 
 fn diff_file_status_label(status: DiffFileStatus) -> &'static str {
@@ -1962,6 +1977,10 @@ mod tests {
         state.selected_hunk = Some(0);
 
         let payload = state.selected_hunk_agent_payload().expect("payload");
+        assert!(payload.contains("Repo: /repo"));
+        assert!(payload.contains("Branch: (detached)"));
+        assert!(payload.contains("Scope: all"));
+        assert!(payload.contains("File: src/main.rs"));
 
         assert!(payload.contains("Shape: selected hunk"));
         assert!(payload.contains("Bucket: unstaged"));
