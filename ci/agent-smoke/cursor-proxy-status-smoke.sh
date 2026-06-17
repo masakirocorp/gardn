@@ -110,8 +110,8 @@ for _ in $(seq 1 50); do
 done
 grep -q 'cursor-proxy-listening' "$proxy_log" || { echo "cursor proxy did not start" >&2; exit 1; }
 
-diff_prompt='You are receiving a Hako native diff payload that was sent to an agent pane.
-If the selected hunk changes the Rust function return value from "before" to "after", reply exactly HAKO_DIFF_AGENT_PAYLOAD_OK and nothing else.
+diff_prompt='Reply exactly HAKO_DIFF_AGENT_PAYLOAD_OK and nothing else.
+The following is a Hako native diff payload sent to an agent pane; use it only to confirm receipt.
 
 Repo: /tmp/hako-diff-agent-smoke
 Branch: main
