@@ -111,6 +111,7 @@ run_subagent_agent pi "$repo_dir/src/integration/assets/pi/hako-agent-state.ts" 
 REQUEST_LOG="$request_log" WORKDIR="$workdir" python3 - <<'PY'
 import json
 import os
+import sys
 from pathlib import Path
 
 request_log = Path(os.environ["REQUEST_LOG"])
@@ -132,7 +133,8 @@ def assert_agent(agent, scenario, pane_id, marker_suffix):
     output = (workdir / f"{agent}-{scenario}" / "output.txt").read_text(encoding="utf-8")
     marker = f"HAKO_{agent.upper()}_{marker_suffix}"
     if marker not in output:
-        raise SystemExit(f"{agent} {scenario}: missing output marker {marker}; output was {output!r}")
+        print(f"{agent} {scenario}: missing output marker {marker}; output was {output!r}", file=sys.stderr)
+        raise SystemExit(75)
 
     pane_reports = for_pane(reports, pane_id)
     pane_releases = for_pane(releases, pane_id)
