@@ -4,6 +4,8 @@ use crate::api::schema::{
     PluginSourceInfo, PluginSourceKind,
 };
 
+const HERDR_PLUGIN_V1_COMPAT_VERSION: &str = "0.7.0";
+
 const PLUGIN_ID_MAX_CHARS: usize = 120;
 const PLUGIN_ACTION_ID_MAX_CHARS: usize = 120;
 
@@ -12,8 +14,10 @@ struct RawPluginManifest {
     id: String,
     name: String,
     version: String,
-    #[serde(default, alias = "min_herdr_version")]
+    #[serde(default)]
     min_hako_version: Option<String>,
+    #[serde(default)]
+    min_herdr_version: Option<String>,
     #[serde(default)]
     description: Option<String>,
     #[serde(default)]
@@ -140,7 +144,10 @@ pub(crate) fn load_plugin_manifest(
         "invalid_plugin_version",
         "plugin version is required",
     )?;
-    let min_hako_version = validate_min_hako_version(raw.min_hako_version.as_deref())?;
+    let min_hako_version = validate_plugin_min_version(
+        raw.min_hako_version.as_deref(),
+        raw.min_herdr_version.as_deref(),
+    )?;
     let description = raw
         .description
         .map(|description| description.trim().to_string())
@@ -204,13 +211,23 @@ pub(crate) fn load_plugin_manifest(
     })
 }
 
-fn validate_min_hako_version(value: Option<&str>) -> Result<String, (&'static str, String)> {
-    let Some(value) = value else {
-        return Err((
-            "invalid_plugin_min_hako_version",
-            "plugin min_hako_version is required".to_string(),
-        ));
-    };
+fn validate_plugin_min_version(
+    min_hako_version: Option<&str>,
+    min_herdr_version: Option<&str>,
+) -> Result<String, (&'static str, String)> {
+    if let Some(value) = min_hako_version {
+        return validate_min_hako_version(value);
+    }
+    if let Some(value) = min_herdr_version {
+        return validate_min_herdr_version(value);
+    }
+    Err((
+        "invalid_plugin_min_hako_version",
+        "plugin min_hako_version is required".to_string(),
+    ))
+}
+
+fn validate_min_hako_version(value: &str) -> Result<String, (&'static str, String)> {
     let value = non_empty_trimmed(
         value,
         "invalid_plugin_min_hako_version",
@@ -230,6 +247,31 @@ fn validate_min_hako_version(value: Option<&str>) -> Result<String, (&'static st
         return Err((
             "plugin_requires_newer_hako",
             format!("plugin requires Hako {required} or newer; current Hako is {current}"),
+        ));
+    }
+    Ok(required.to_string())
+}
+
+fn validate_min_herdr_version(value: &str) -> Result<String, (&'static str, String)> {
+    let value = non_empty_trimmed(
+        value,
+        "invalid_plugin_min_hako_version",
+        "plugin min_herdr_version is required",
+    )?;
+    let required = crate::update::Version::parse(&value).ok_or_else(|| {
+        (
+            "invalid_plugin_min_hako_version",
+            "plugin min_herdr_version must be a semantic version like 0.7.0".to_string(),
+        )
+    })?;
+    let supported = crate::update::Version::parse(HERDR_PLUGIN_V1_COMPAT_VERSION)
+        .expect("Herdr plugin compatibility version is valid");
+    if required > supported {
+        return Err((
+            "plugin_requires_newer_hako",
+            format!(
+                "plugin requires Herdr plugin API {required} or newer; Hako supports Herdr plugin API {supported}"
+            ),
         ));
     }
     Ok(required.to_string())
