@@ -404,7 +404,6 @@ fn workspace_list_and_create_round_trip() {
     assert_eq!(created["result"]["workspace"]["tab_count"], 1);
     assert_eq!(created["result"]["tab"]["tab_id"], active_tab_id);
     assert_eq!(created["result"]["root_pane"]["tab_id"], active_tab_id);
-    assert_eq!(active_tab_id, format!("{workspace_id}:1"));
 
     let listed = send_request(
         &socket_path,
@@ -565,7 +564,6 @@ fn tab_methods_round_trip_over_socket() {
         .as_str()
         .unwrap()
         .to_string();
-    assert_eq!(first_tab_id, format!("{workspace_id}:1"));
 
     let tab_created = send_request(
         &socket_path,
@@ -1306,7 +1304,9 @@ fn events_subscribe_streams_workspace_tab_and_agent_events() {
     let workspace_focused = event_by_kind(&initial_events, "workspace_focused");
     assert_eq!(workspace_focused["data"]["workspace_id"], workspace_id);
 
-    let first_tab_id = format!("{workspace_id}:1");
+    let first_tab_id = created["result"]["workspace"]["active_tab_id"]
+        .as_str()
+        .unwrap();
     let tab_created = event_by_kind(&initial_events, "tab_created");
     assert_eq!(tab_created["data"]["tab"]["tab_id"], first_tab_id);
     let tab_focused = event_by_kind(&initial_events, "tab_focused");

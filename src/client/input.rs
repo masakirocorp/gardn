@@ -37,12 +37,56 @@ pub fn stdin_reader_loop(
 ) {
     #[cfg(windows)]
     {
-        let _ = host_color_query_sent;
-        return windows_stdin_reader_loop(event_tx, should_quit);
+        return windows_stdin_reader_loop(event_tx, should_quit, host_color_query_sent);
     }
 
     #[cfg(unix)]
     unix_stdin_reader_loop(event_tx, should_quit, host_color_query_sent);
+}
+
+#[cfg(windows)]
+fn windows_stdin_reader_loop(
+    event_tx: mpsc::Sender<ClientLoopEvent>,
+    should_quit: &Arc<AtomicBool>,
+    host_color_query_sent: bool,
+) {
+    let stdin = io::stdin();
+    let mut reader = stdin.lock();
+    let mut scratch = [0u8; 4096];
+    let mut framer = crate::raw_input::RawInputByteFramer::default();
+    if host_color_query_sent {
+        framer.host_color_query_sent();
+    }
+
+    while !should_quit.load(Ordering::Acquire) {
+        match reader.read(&mut scratch) {
+            Ok(0) => break,
+            Ok(n) => {
+                for data in framer.push(&scratch[..n]) {
+                    if event_tx
+                        .blocking_send(ClientLoopEvent::StdinInput(data))
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+                for data in framer.flush_timeout() {
+                    if event_tx
+                        .blocking_send(ClientLoopEvent::StdinInput(data))
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+            }
+            Err(err) => {
+                if err.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                break;
+            }
+        }
+    }
 }
 
 #[cfg(unix)]

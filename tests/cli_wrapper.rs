@@ -2159,7 +2159,6 @@ fn tab_management_commands_work() {
         .as_str()
         .unwrap()
         .to_string();
-    assert_eq!(second_tab_id, format!("{workspace_id}:2"));
 
     let listed_tabs = run_cli(&socket_path, &["tab", "list", "--workspace", &workspace_id]);
     assert!(listed_tabs.status.success());
@@ -2671,7 +2670,7 @@ fn closing_workspace_terminates_processes_inside_it() {
 }
 
 #[test]
-fn workspace_ids_are_stable_and_pane_numbers_stay_compact() {
+fn workspace_ids_are_stable_and_pane_aliases_stay_compact() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
@@ -2688,24 +2687,28 @@ fn workspace_ids_are_stable_and_pane_numbers_stay_compact() {
         .as_str()
         .unwrap()
         .to_string();
+    let ws1_root_pane_id = ws1_json["result"]["root_pane"]["pane_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let split_12_json = run_cli_json(
         &socket_path,
         &["pane", "split", "1-1", "--direction", "right", "--no-focus"],
     );
-    assert_eq!(
-        split_12_json["result"]["pane"]["pane_id"],
-        format!("{ws1_id}-2")
-    );
+    let split_12_id = split_12_json["result"]["pane"]["pane_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let split_13_json = run_cli_json(
         &socket_path,
         &["pane", "split", "1-1", "--direction", "down", "--no-focus"],
     );
-    assert_eq!(
-        split_13_json["result"]["pane"]["pane_id"],
-        format!("{ws1_id}-3")
-    );
+    let split_13_id = split_13_json["result"]["pane"]["pane_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let ws2_json = run_cli_json(
         &socket_path,
@@ -2729,8 +2732,8 @@ fn workspace_ids_are_stable_and_pane_numbers_stay_compact() {
         &["pane", "split", "2-1", "--direction", "right", "--no-focus"],
     );
     assert_eq!(
-        ws2_split_json["result"]["pane"]["pane_id"],
-        format!("{ws2_id}-2")
+        ws2_split_json["result"]["pane"]["workspace_id"],
+        ws2_json["result"]["workspace"]["workspace_id"]
     );
 
     let ws3_json = run_cli_json(
@@ -2773,12 +2776,9 @@ fn workspace_ids_are_stable_and_pane_numbers_stay_compact() {
     assert_ne!(new_ws_id, ws3_id);
 
     let ws3_panes_json = run_cli_json(&socket_path, &["pane", "list", "--workspace", &ws3_id]);
-    assert_eq!(
-        ws3_panes_json["result"]["panes"][0]["pane_id"],
-        format!("{ws3_id}-1")
-    );
+    assert_eq!(ws3_panes_json["result"]["panes"][0]["workspace_id"], ws3_id);
 
-    let close_middle = run_cli(&socket_path, &["pane", "close", &format!("{ws1_id}-2")]);
+    let close_middle = run_cli(&socket_path, &["pane", "close", &split_12_id]);
     assert!(
         close_middle.status.success(),
         "stderr: {}",
@@ -2792,7 +2792,7 @@ fn workspace_ids_are_stable_and_pane_numbers_stay_compact() {
         .iter()
         .map(|pane| pane["pane_id"].as_str().unwrap().to_string())
         .collect();
-    assert_eq!(pane_ids, vec![format!("{ws1_id}-1"), format!("{ws1_id}-2")]);
+    assert_eq!(pane_ids, vec![ws1_root_pane_id, split_13_id]);
 
     cleanup_spawned_hako(hako, base);
 }
@@ -2836,7 +2836,7 @@ fn pane_shell_gets_hako_socket_and_pane_env() {
     while Instant::now() < deadline {
         if env_capture.exists() {
             text = fs::read_to_string(&env_capture).unwrap();
-            if text.contains(&socket_path.display().to_string()) && text.contains("p_") {
+            if text.contains(&socket_path.display().to_string()) && text.contains(":p") {
                 break;
             }
         }
@@ -2847,7 +2847,7 @@ fn pane_shell_gets_hako_socket_and_pane_env() {
         text.contains(&socket_path.display().to_string()),
         "env file was: {text:?}"
     );
-    assert!(text.contains("p_"), "env file was: {text:?}");
+    assert!(text.contains(":p"), "env file was: {text:?}");
 
     cleanup_spawned_hako(hako, base);
 }
@@ -2948,6 +2948,7 @@ fn plugin_link_list_unlink_cli_smoke_test() {
 id = "example.layout"
 name = "Layout"
 version = "0.1.0"
+min_hako_version = "0.2.0"
 description = "Apply a preferred Hako layout"
 
 [[actions]]
@@ -2974,6 +2975,7 @@ command = ["sh", "-c", "sleep 5"]
 id = "example.should-not-load"
 name = "Legacy Alias"
 version = "0.1.0"
+min_herdr_version = "0.7.0"
 "#,
     )
     .unwrap();
@@ -2985,6 +2987,7 @@ version = "0.1.0"
 id = "example.legacy-alias"
 name = "Legacy Alias"
 version = "0.1.0"
+min_herdr_version = "0.7.0"
 "#,
     )
     .unwrap();
@@ -3114,6 +3117,7 @@ id = "example.worktree-bootstrap"
 name = "Worktree Bootstrap"
 version = "0.1.0"
 platforms = ["linux", "macos", "windows"]
+min_hako_version = "0.2.0"
 
 [[build]]
 command = ["sh", "-c", "echo built > built.txt; if [ -n \"$HAKO_SESSION\" ]; then echo \"$HAKO_SESSION\" > leaked-session.txt; fi"]
