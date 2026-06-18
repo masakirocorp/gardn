@@ -105,6 +105,7 @@ impl App {
     pub(super) fn start_agent(
         &mut self,
         params: AgentStartParams,
+        extra_env: Vec<(String, String)>,
     ) -> Result<(crate::api::schema::AgentInfo, Vec<String>), AgentStartError> {
         let name = params.name.trim().to_string();
         if name.is_empty() {
@@ -153,6 +154,7 @@ impl App {
                 params.split.unwrap_or(SplitDirection::Right),
                 cwd,
                 &argv,
+                extra_env,
                 focus,
             )?
         } else if let Some(workspace_id) = params.workspace_id {
@@ -169,10 +171,11 @@ impl App {
                 params.split.unwrap_or(SplitDirection::Right),
                 cwd,
                 &argv,
+                extra_env,
                 focus,
             )?
         } else if self.state.workspaces.is_empty() {
-            self.spawn_agent_workspace(cwd, rows, cols, &argv, focus)?
+            self.spawn_agent_workspace(cwd, rows, cols, &argv, extra_env, focus)?
         } else {
             let ws_idx = self.state.active.unwrap_or(0);
             let tab_idx = self.state.workspaces[ws_idx].active_tab;
@@ -183,6 +186,7 @@ impl App {
                 params.split.unwrap_or(SplitDirection::Right),
                 cwd,
                 &argv,
+                extra_env,
                 focus,
             )?
         };
@@ -322,19 +326,20 @@ impl App {
         rows: u16,
         cols: u16,
         argv: &[String],
+        extra_env: Vec<(String, String)>,
         focus: bool,
     ) -> Result<(usize, usize, crate::layout::PaneId), AgentStartError> {
-        let (ws, terminal, runtime) = crate::workspace::Workspace::new_argv_command(
+        let (ws, terminal, runtime) = crate::workspace::Workspace::new_argv_command_with_extra_env(
             cwd,
             rows,
             cols,
             argv,
-            &[],
             self.state.pane_scrollback_limit_bytes,
             self.state.host_terminal_theme,
             self.event_tx.clone(),
             self.render_notify.clone(),
             self.render_dirty.clone(),
+            extra_env,
         )
         .map_err(|err| AgentStartError::SpawnFailed(err.to_string()))?;
         self.terminal_runtimes.insert(terminal.id.clone(), runtime);
@@ -359,6 +364,7 @@ impl App {
         split: SplitDirection,
         cwd: PathBuf,
         argv: &[String],
+        extra_env: Vec<(String, String)>,
         focus: bool,
     ) -> Result<(usize, usize, crate::layout::PaneId), AgentStartError> {
         let (rows, cols) = self.state.estimate_pane_size();
@@ -366,6 +372,7 @@ impl App {
             SplitDirection::Right => ratatui::layout::Direction::Horizontal,
             SplitDirection::Down => ratatui::layout::Direction::Vertical,
         };
+        let previous_focus = self.state.current_pane_focus_target();
         let result = self
             .state
             .workspaces
@@ -378,6 +385,7 @@ impl App {
                     cols,
                     Some(cwd),
                     argv,
+                    extra_env,
                     self.state.pane_scrollback_limit_bytes,
                     self.state.host_terminal_theme,
                     focus,
@@ -398,6 +406,8 @@ impl App {
             self.state.switch_workspace(ws_idx);
             self.state.switch_tab(result.0);
             self.state.mode = Mode::Terminal;
+            self.state
+                .record_pane_focus_change(previous_focus, ws_idx, result.1.pane_id);
         }
         self.schedule_session_save();
         Ok((ws_idx, result.0, result.1.pane_id))

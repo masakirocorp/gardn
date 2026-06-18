@@ -187,6 +187,25 @@ fn run_named_cli_with_socket_override(
     args: &[&str],
     socket_override: Option<&Path>,
 ) -> std::process::Output {
+    run_named_cli_with_env_and_socket_override(config_home, runtime_dir, args, &[], socket_override)
+}
+
+fn run_named_cli_with_env(
+    config_home: &Path,
+    runtime_dir: &Path,
+    args: &[&str],
+    envs: &[(&str, &Path)],
+) -> std::process::Output {
+    run_named_cli_with_env_and_socket_override(config_home, runtime_dir, args, envs, None)
+}
+
+fn run_named_cli_with_env_and_socket_override(
+    config_home: &Path,
+    runtime_dir: &Path,
+    args: &[&str],
+    envs: &[(&str, &Path)],
+    socket_override: Option<&Path>,
+) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_hako"));
     command
         .args(args)
@@ -194,6 +213,9 @@ fn run_named_cli_with_socket_override(
         .env("XDG_RUNTIME_DIR", runtime_dir)
         .env_remove("HAKO_CLIENT_SOCKET_PATH")
         .env_remove("HAKO_ENV");
+    for (key, value) in envs {
+        command.env(key, value);
+    }
     if let Some(socket_override) = socket_override {
         command.env("HAKO_SOCKET_PATH", socket_override);
     } else {
@@ -509,7 +531,29 @@ fn run_copilot_hook(hook_input: &str) -> Option<serde_json::Value> {
     )
 }
 
+fn run_devin_hook(
+    action: &str,
+    hook_input: &str,
+    envs: &[(&str, &str)],
+) -> Option<serde_json::Value> {
+    run_shell_hook_with_env(
+        "src/integration/assets/devin/hako-agent-state.sh",
+        &[action],
+        hook_input,
+        envs,
+    )
+}
+
 fn run_shell_hook(asset_path: &str, args: &[&str], hook_input: &str) -> Option<serde_json::Value> {
+    run_shell_hook_with_env(asset_path, args, hook_input, &[])
+}
+
+fn run_shell_hook_with_env(
+    asset_path: &str,
+    args: &[&str],
+    hook_input: &str,
+    envs: &[(&str, &str)],
+) -> Option<serde_json::Value> {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
     let socket_path = base.join("hako.sock");
@@ -539,7 +583,8 @@ fn run_shell_hook(asset_path: &str, args: &[&str], hook_input: &str) -> Option<s
     });
 
     let hook_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(asset_path);
-    let mut child = Command::new("bash")
+    let mut command = Command::new("bash");
+    command
         .arg(hook_path)
         .args(args)
         .env("HAKO_ENV", "1")
@@ -547,9 +592,11 @@ fn run_shell_hook(asset_path: &str, args: &[&str], hook_input: &str) -> Option<s
         .env("HAKO_PANE_ID", "p_test")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+        .stderr(Stdio::piped());
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    let mut child = command.spawn().unwrap();
     let mut stdin = child.stdin.take().unwrap();
     stdin.write_all(hook_input.as_bytes()).unwrap();
     drop(stdin);
@@ -720,6 +767,55 @@ fn copilot_hook_releases_on_user_exit_only() {
     assert_eq!(request["method"], "pane.release_agent");
 }
 
+#[test]
+fn devin_hook_reports_session_identity_without_lifecycle_state() {
+    let request = run_devin_hook(
+        "session",
+        r#"{"hook_event_name":"SessionStart","session_id":"devin-session","source":"startup"}"#,
+        &[("HAKO_DEVIN_LIST_JSON", r#"[{"id":"older-session"}]"#)],
+    )
+    .expect("session start should report devin session identity");
+
+    assert_eq!(request["method"], "pane.report_agent_session");
+    assert_eq!(request["params"]["source"], "hako:devin");
+    assert_eq!(request["params"]["agent"], "devin");
+    assert_eq!(request["params"]["agent_session_id"], "devin-session");
+    assert!(request["params"].get("state").is_none());
+}
+
+#[test]
+fn devin_hook_uses_session_list_only_for_non_prompt_events() {
+    let request = run_devin_hook(
+        "session",
+        r#"{"hook_event_name":"PreToolUse","tool_name":"exec"}"#,
+        &[
+            ("DEVIN_PROJECT_DIR", "/tmp/project"),
+            (
+                "HAKO_DEVIN_LIST_JSON",
+                r#"[{"id":"other-session","working_directory":"/tmp/other"},{"id":"devin-session","working_directory":"/tmp/project"}]"#,
+            ),
+        ],
+    )
+    .expect("tool event should resolve session from devin list");
+
+    assert_eq!(request["method"], "pane.report_agent_session");
+    assert_eq!(request["params"]["agent_session_id"], "devin-session");
+    assert!(
+        run_devin_hook(
+            "session",
+            r#"{"hook_event_name":"UserPromptSubmit","prompt":"run tests"}"#,
+            &[
+                ("DEVIN_PROJECT_DIR", "/tmp/project"),
+                (
+                    "HAKO_DEVIN_LIST_JSON",
+                    r#"[{"id":"devin-session","working_directory":"/tmp/project"}]"#,
+                ),
+            ],
+        )
+        .is_none(),
+        "prompt events must not fall back to potentially stale devin list output"
+    );
+}
 #[test]
 fn pane_run_sends_one_send_input_request_with_enter_key() {
     let base = unique_test_dir();
@@ -2825,6 +2921,7 @@ fn wait_agent_status_exits_when_idle_status_matches() {
     );
     let waited_json: serde_json::Value = serde_json::from_slice(&waited.stdout).unwrap();
     assert_eq!(waited_json["event"], "pane.agent_status_changed");
+
     assert!(
         matches!(
             waited_json["data"]["agent_status"].as_str(),
@@ -2837,6 +2934,298 @@ fn wait_agent_status_exits_when_idle_status_matches() {
     cleanup_spawned_hako(hako, base);
 }
 
+#[test]
+fn plugin_link_list_unlink_cli_smoke_test() {
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let socket_path = runtime_dir.join("hako.sock");
+    let plugin_dir = base.join("plugins").join("layout");
+    fs::create_dir_all(&plugin_dir).unwrap();
+    fs::write(
+        plugin_dir.join("hako-plugin.toml"),
+        r#"
+id = "example.layout"
+name = "Layout"
+version = "0.1.0"
+description = "Apply a preferred Hako layout"
+
+[[actions]]
+id = "apply"
+title = "Apply layout"
+contexts = ["workspace"]
+command = ["sh", "-c", "echo layout"]
+
+[[events]]
+on = "worktree.created"
+command = ["sh", "-c", "echo worktree"]
+
+[[panes]]
+id = "board"
+title = "Board"
+placement = "tab"
+command = ["sh", "-c", "sleep 5"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        plugin_dir.join("herdr-plugin.toml"),
+        r#"
+id = "example.should-not-load"
+name = "Legacy Alias"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    let alias_dir = base.join("plugins").join("legacy-alias");
+    fs::create_dir_all(&alias_dir).unwrap();
+    fs::write(
+        alias_dir.join("herdr-plugin.toml"),
+        r#"
+id = "example.legacy-alias"
+name = "Legacy Alias"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+
+    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    wait_for_socket(&socket_path, Duration::from_secs(5));
+    let workspace = run_cli_json(
+        &socket_path,
+        &[
+            "workspace",
+            "create",
+            "--cwd",
+            base.to_str().unwrap(),
+            "--focus",
+        ],
+    );
+    assert_eq!(workspace["result"]["type"], "workspace_created");
+
+    let linked = run_cli_json_in_dir(&socket_path, &["plugin", "link", "plugins/layout"], &base);
+    assert_eq!(linked["result"]["type"], "plugin_linked");
+    assert_eq!(linked["result"]["plugin"]["plugin_id"], "example.layout");
+    assert_eq!(linked["result"]["plugin"]["actions"][0]["id"], "apply");
+    assert_eq!(
+        linked["result"]["plugin"]["events"][0]["on"],
+        "worktree.created"
+    );
+    assert_eq!(linked["result"]["plugin"]["panes"][0]["id"], "board");
+
+    let alias_linked = run_cli_json_in_dir(
+        &socket_path,
+        &["plugin", "link", "plugins/legacy-alias"],
+        &base,
+    );
+    assert_eq!(alias_linked["result"]["type"], "plugin_linked");
+    assert_eq!(
+        alias_linked["result"]["plugin"]["plugin_id"],
+        "example.legacy-alias"
+    );
+
+    let listed_human = run_cli(&socket_path, &["plugin", "list"]);
+    assert!(listed_human.status.success());
+    assert!(String::from_utf8_lossy(&listed_human.stdout).contains("example.layout"));
+
+    let listed = run_cli_json(&socket_path, &["plugin", "list", "--json"]);
+    assert_eq!(listed["result"]["type"], "plugin_list");
+    let plugin_ids: Vec<_> = listed["result"]["plugins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|plugin| plugin["plugin_id"].as_str())
+        .collect();
+    assert!(plugin_ids.contains(&"example.layout"));
+    assert!(plugin_ids.contains(&"example.legacy-alias"));
+    assert!(!plugin_ids.contains(&"example.should-not-load"));
+
+    let invoked = run_cli_json(
+        &socket_path,
+        &[
+            "plugin",
+            "action",
+            "invoke",
+            "apply",
+            "--plugin",
+            "example.layout",
+        ],
+    );
+    assert_eq!(invoked["result"]["type"], "plugin_action_invoked");
+    assert_eq!(invoked["result"]["action"]["action_id"], "apply");
+
+    let pane = run_cli_json(
+        &socket_path,
+        &[
+            "plugin",
+            "pane",
+            "open",
+            "--plugin",
+            "example.layout",
+            "--entrypoint",
+            "board",
+            "--env",
+            "HAKO_ROLE=board",
+            "--no-focus",
+        ],
+    );
+    assert_eq!(pane["result"]["type"], "plugin_pane_opened");
+    assert_eq!(pane["result"]["plugin_pane"]["entrypoint"], "board");
+
+    let missing_plugin_value = run_cli(&socket_path, &["plugin", "list", "--plugin"]);
+    assert_eq!(missing_plugin_value.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&missing_plugin_value.stderr)
+        .contains("missing value for --plugin"));
+
+    let invalid_limit = run_cli(
+        &socket_path,
+        &["plugin", "log", "list", "--limit", "not-a-number"],
+    );
+    assert_eq!(invalid_limit.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&invalid_limit.stderr).contains("invalid --limit value"));
+
+    let unlinked = run_cli_json(&socket_path, &["plugin", "unlink", "example.layout"]);
+    assert_eq!(unlinked["result"]["type"], "plugin_unlinked");
+    assert_eq!(unlinked["result"]["removed"], true);
+
+    let unlinked_alias = run_cli_json(&socket_path, &["plugin", "unlink", "example.legacy-alias"]);
+    assert_eq!(unlinked_alias["result"]["type"], "plugin_unlinked");
+    assert_eq!(unlinked_alias["result"]["removed"], true);
+
+    let listed = run_cli_json(&socket_path, &["plugin", "list", "--json"]);
+    assert!(listed["result"]["plugins"].as_array().unwrap().is_empty());
+
+    cleanup_spawned_hako(hako, base);
+}
+
+#[test]
+fn plugin_install_list_uninstall_offline_cli_smoke_test() {
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let source_repo = base.join("source-repo");
+    let plugin_dir = source_repo.join("worktree-bootstrap");
+    fs::create_dir_all(&plugin_dir).unwrap();
+    create_committed_repo(&source_repo);
+    fs::write(
+        plugin_dir.join("hako-plugin.toml"),
+        r#"
+id = "example.worktree-bootstrap"
+name = "Worktree Bootstrap"
+version = "0.1.0"
+platforms = ["linux", "macos", "windows"]
+
+[[build]]
+command = ["sh", "-c", "echo built > built.txt; if [ -n \"$HAKO_SESSION\" ]; then echo \"$HAKO_SESSION\" > leaked-session.txt; fi"]
+
+[[actions]]
+id = "bootstrap"
+title = "Bootstrap"
+command = ["sh", "-c", "echo bootstrap"]
+"#,
+    )
+    .unwrap();
+    run_git(
+        &source_repo,
+        &["add", "worktree-bootstrap/hako-plugin.toml"],
+    );
+    run_git(&source_repo, &["commit", "--quiet", "-m", "add plugin"]);
+
+    fs::create_dir_all(&config_home).unwrap();
+    fs::create_dir_all(&runtime_dir).unwrap();
+    let git_config = base.join("gitconfig");
+    fs::write(
+        &git_config,
+        format!(
+            "[url \"file://{}\"]\n    insteadOf = https://github.com/ogulcancelik/hako-plugin-examples.git\n",
+            source_repo.display()
+        ),
+    )
+    .unwrap();
+
+    let install = run_named_cli_with_env(
+        &config_home,
+        &runtime_dir,
+        &[
+            "--session",
+            "plugins",
+            "plugin",
+            "install",
+            "ogulcancelik/hako-plugin-examples/worktree-bootstrap",
+            "--yes",
+        ],
+        &[
+            ("GIT_CONFIG_GLOBAL", &git_config),
+            ("HAKO_SESSION", Path::new("leaked-session")),
+        ],
+    );
+    assert!(
+        install.status.success(),
+        "install failed\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&install.stdout),
+        String::from_utf8_lossy(&install.stderr)
+    );
+
+    let listed = run_named_cli_json(
+        &config_home,
+        &runtime_dir,
+        &["--session", "plugins", "plugin", "list", "--json"],
+    );
+    let plugin = &listed["result"]["plugins"][0];
+    assert_eq!(plugin["plugin_id"], "example.worktree-bootstrap");
+    assert_eq!(plugin["source"]["kind"], "github");
+    assert_eq!(plugin["source"]["owner"], "ogulcancelik");
+    assert_eq!(plugin["source"]["repo"], "hako-plugin-examples");
+    assert_eq!(plugin["source"]["subdir"], "worktree-bootstrap");
+    assert!(plugin["source"]["resolved_commit"].as_str().is_some());
+    let managed_path = PathBuf::from(plugin["source"]["managed_path"].as_str().unwrap());
+    assert!(managed_path.exists(), "managed checkout should exist");
+    assert!(
+        managed_path
+            .join("worktree-bootstrap")
+            .join("built.txt")
+            .exists(),
+        "build artifact should be preserved in managed checkout"
+    );
+    assert!(
+        !managed_path
+            .join("worktree-bootstrap")
+            .join("leaked-session.txt")
+            .exists(),
+        "build command should not inherit HAKO_SESSION"
+    );
+
+    let uninstall = run_named_cli(
+        &config_home,
+        &runtime_dir,
+        &[
+            "--session",
+            "plugins",
+            "plugin",
+            "uninstall",
+            "example.worktree-bootstrap",
+        ],
+    );
+    assert!(
+        uninstall.status.success(),
+        "uninstall failed\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&uninstall.stdout),
+        String::from_utf8_lossy(&uninstall.stderr)
+    );
+    assert!(
+        !managed_path.exists(),
+        "managed checkout should be deleted on uninstall"
+    );
+
+    let listed = run_named_cli_json(
+        &config_home,
+        &runtime_dir,
+        &["--session", "plugins", "plugin", "list", "--json"],
+    );
+    assert!(listed["result"]["plugins"].as_array().unwrap().is_empty());
+
+    cleanup_test_base(&base);
+}
 #[test]
 fn wait_agent_status_exits_when_background_agent_finishes() {
     let base = unique_test_dir();

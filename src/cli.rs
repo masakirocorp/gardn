@@ -6,17 +6,30 @@ use crate::api;
 use crate::api::client::{ApiClient, ApiClientError};
 use crate::api::schema::{
     AgentReadParams, AgentRenameParams, AgentSendParams, AgentStartParams, AgentStatus,
-    AgentTarget, EmptyParams, GroupCreateParams, GroupRenameParams, GroupTarget, IntegrationTarget,
-    Method, NotificationShowParams, NotificationShowSound, OutputMatch, PaneAgentState,
-    PaneListParams, PaneReadParams, PaneRenameParams, PaneReportAgentParams,
-    PaneReportMetadataParams, PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams,
-    PaneSplitParams, PaneTarget, PaneWaitForOutputParams, PingParams, ReadFormat, ReadSource,
-    Request, ServerLiveHandoffParams, SplitDirection, Subscription, TabCreateParams, TabListParams,
-    TabRenameParams, TabTarget, WorkspaceCreateParams, WorkspaceMoveToGroupParams,
-    WorkspaceRenameParams, WorkspaceTarget,
+    AgentTarget, ClientWindowTitleSetParams, EmptyParams, GroupCreateParams, GroupRenameParams,
+    GroupTarget, IntegrationTarget, Method, NotificationShowParams, NotificationShowSound,
+    OutputMatch, PaneAgentState, PaneTarget, PaneWaitForOutputParams, PingParams, ReadFormat,
+    ReadSource, Request, ServerLiveHandoffParams, SplitDirection, Subscription,
 };
 
+mod pane;
+mod plugin;
+mod tab;
+mod workspace;
 mod worktree;
+
+pub(crate) fn parse_env_assignment(raw: &str) -> Result<(String, String), String> {
+    let Some((key, value)) = raw.split_once('=') else {
+        return Err("env must use KEY=VALUE".into());
+    };
+    if key.is_empty() {
+        return Err("env key must not be empty".into());
+    }
+    if key.contains('\0') || value.contains('\0') {
+        return Err("env must not contain NUL bytes".into());
+    }
+    Ok((key.to_string(), value.to_string()))
+}
 pub enum CommandOutcome {
     Handled(i32),
     NotCli,
@@ -37,13 +50,14 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
         "status" => run_status_command(&args[2..])?,
         "group" => run_group_command(&args[2..])?,
         "config" => run_config_command(&args[2..])?,
-        "workspace" => run_workspace_command(&args[2..])?,
+        "workspace" => workspace::run_workspace_command(&args[2..])?,
         "worktree" => worktree::run_worktree_command(&args[2..])?,
         "notification" => run_notification_command(&args[2..])?,
-        "tab" => run_tab_command(&args[2..])?,
+        "tab" => tab::run_tab_command(&args[2..])?,
         "agent" => run_agent_command(&args[2..])?,
         "terminal" => run_terminal_command(&args[2..])?,
-        "pane" => run_pane_command(&args[2..])?,
+        "pane" => pane::run_pane_command(&args[2..])?,
+        "plugin" => plugin::run_plugin_command(&args[2..])?,
         "wait" => run_wait_command(&args[2..])?,
         "integration" => run_integration_command(&args[2..])?,
         "session" => run_session_command(&args[2..])?,
@@ -531,31 +545,6 @@ fn parse_notification_sound(value: &str) -> std::io::Result<NotificationShowSoun
     }
 }
 
-fn run_workspace_command(args: &[String]) -> std::io::Result<i32> {
-    let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
-        print_workspace_help();
-        return Ok(2);
-    };
-
-    match subcommand {
-        "list" => workspace_list(&args[1..]),
-        "create" => workspace_create(&args[1..]),
-        "get" => workspace_get(&args[1..]),
-        "focus" => workspace_focus(&args[1..]),
-        "rename" => workspace_rename(&args[1..]),
-        "move-to-group" => workspace_move_to_group(&args[1..]),
-        "close" => workspace_close(&args[1..]),
-        "help" | "--help" | "-h" => {
-            print_workspace_help();
-            Ok(0)
-        }
-        _ => {
-            print_workspace_help();
-            Ok(2)
-        }
-    }
-}
-
 fn run_group_command(args: &[String]) -> std::io::Result<i32> {
     let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
         print_group_help();
@@ -574,30 +563,6 @@ fn run_group_command(args: &[String]) -> std::io::Result<i32> {
         }
         _ => {
             print_group_help();
-            Ok(2)
-        }
-    }
-}
-
-fn run_tab_command(args: &[String]) -> std::io::Result<i32> {
-    let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
-        print_tab_help();
-        return Ok(2);
-    };
-
-    match subcommand {
-        "list" => tab_list(&args[1..]),
-        "create" => tab_create(&args[1..]),
-        "get" => tab_get(&args[1..]),
-        "focus" => tab_focus(&args[1..]),
-        "rename" => tab_rename(&args[1..]),
-        "close" => tab_close(&args[1..]),
-        "help" | "--help" | "-h" => {
-            print_tab_help();
-            Ok(0)
-        }
-        _ => {
-            print_tab_help();
             Ok(2)
         }
     }
@@ -851,6 +816,7 @@ fn run_terminal_command(args: &[String]) -> std::io::Result<i32> {
 
     match subcommand {
         "attach" => terminal_attach(&args[1..]),
+        "title" => terminal_title(&args[1..]),
         "help" | "--help" | "-h" => {
             print_terminal_help();
             Ok(0)
@@ -1091,18 +1057,6 @@ fn session_delete(args: &[String]) -> std::io::Result<i32> {
     }
 }
 
-fn workspace_list(args: &[String]) -> std::io::Result<i32> {
-    if !args.is_empty() {
-        eprintln!("usage: hako workspace list");
-        return Ok(2);
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:workspace:list".into(),
-        method: Method::WorkspaceList(EmptyParams::default()),
-    })?)
-}
-
 fn group_list(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
         eprintln!("usage: hako group list");
@@ -1176,290 +1130,6 @@ fn group_delete(args: &[String]) -> std::io::Result<i32> {
         id: "cli:group:delete".into(),
         method: Method::GroupDelete(GroupTarget {
             group_id: normalize_group_id(raw_group_id),
-        }),
-    })?)
-}
-
-fn workspace_create(args: &[String]) -> std::io::Result<i32> {
-    let mut cwd = None;
-    let mut focus = false;
-    let mut label = None;
-
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--cwd" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --cwd");
-                    return Ok(2);
-                };
-                cwd = Some(value.clone());
-                index += 2;
-            }
-            "--label" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --label");
-                    return Ok(2);
-                };
-                label = Some(value.clone());
-                index += 2;
-            }
-            "--focus" => {
-                focus = true;
-                index += 1;
-            }
-            "--no-focus" => {
-                focus = false;
-                index += 1;
-            }
-            other => {
-                eprintln!("unknown option: {other}");
-                return Ok(2);
-            }
-        }
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:workspace:create".into(),
-        method: Method::WorkspaceCreate(WorkspaceCreateParams { cwd, focus, label }),
-    })?)
-}
-
-fn workspace_get(args: &[String]) -> std::io::Result<i32> {
-    let Some(raw_workspace_id) = args.first() else {
-        eprintln!("usage: hako workspace get <workspace_id>");
-        return Ok(2);
-    };
-    if args.len() != 1 {
-        eprintln!("usage: hako workspace get <workspace_id>");
-        return Ok(2);
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:workspace:get".into(),
-        method: Method::WorkspaceGet(WorkspaceTarget {
-            workspace_id: normalize_workspace_id(raw_workspace_id),
-        }),
-    })?)
-}
-
-fn workspace_focus(args: &[String]) -> std::io::Result<i32> {
-    let Some(raw_workspace_id) = args.first() else {
-        eprintln!("usage: hako workspace focus <workspace_id>");
-        return Ok(2);
-    };
-    if args.len() != 1 {
-        eprintln!("usage: hako workspace focus <workspace_id>");
-        return Ok(2);
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:workspace:focus".into(),
-        method: Method::WorkspaceFocus(WorkspaceTarget {
-            workspace_id: normalize_workspace_id(raw_workspace_id),
-        }),
-    })?)
-}
-
-fn workspace_rename(args: &[String]) -> std::io::Result<i32> {
-    if args.len() < 2 {
-        eprintln!("usage: hako workspace rename <workspace_id> <label>");
-        return Ok(2);
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:workspace:rename".into(),
-        method: Method::WorkspaceRename(WorkspaceRenameParams {
-            workspace_id: normalize_workspace_id(&args[0]),
-            label: args[1..].join(" "),
-        }),
-    })?)
-}
-
-fn workspace_move_to_group(args: &[String]) -> std::io::Result<i32> {
-    if args.len() != 2 {
-        eprintln!("usage: hako workspace move-to-group <workspace_id> <group_id>");
-        return Ok(2);
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:workspace:move-to-group".into(),
-        method: Method::WorkspaceMoveToGroup(WorkspaceMoveToGroupParams {
-            workspace_id: normalize_workspace_id(&args[0]),
-            group_id: normalize_group_id(&args[1]),
-        }),
-    })?)
-}
-
-fn workspace_close(args: &[String]) -> std::io::Result<i32> {
-    let Some(raw_workspace_id) = args.first() else {
-        eprintln!("usage: hako workspace close <workspace_id>");
-        return Ok(2);
-    };
-    if args.len() != 1 {
-        eprintln!("usage: hako workspace close <workspace_id>");
-        return Ok(2);
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:workspace:close".into(),
-        method: Method::WorkspaceClose(WorkspaceTarget {
-            workspace_id: normalize_workspace_id(raw_workspace_id),
-        }),
-    })?)
-}
-
-fn tab_list(args: &[String]) -> std::io::Result<i32> {
-    let mut workspace_id = None;
-
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--workspace" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --workspace");
-                    return Ok(2);
-                };
-                workspace_id = Some(normalize_workspace_id(value));
-                index += 2;
-            }
-            other => {
-                eprintln!("unknown option: {other}");
-                return Ok(2);
-            }
-        }
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:tab:list".into(),
-        method: Method::TabList(TabListParams { workspace_id }),
-    })?)
-}
-
-fn tab_create(args: &[String]) -> std::io::Result<i32> {
-    let mut workspace_id = None;
-    let mut cwd = None;
-    let mut focus = false;
-    let mut label = None;
-
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--workspace" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --workspace");
-                    return Ok(2);
-                };
-                workspace_id = Some(normalize_workspace_id(value));
-                index += 2;
-            }
-            "--cwd" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --cwd");
-                    return Ok(2);
-                };
-                cwd = Some(value.clone());
-                index += 2;
-            }
-            "--label" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --label");
-                    return Ok(2);
-                };
-                label = Some(value.clone());
-                index += 2;
-            }
-            "--focus" => {
-                focus = true;
-                index += 1;
-            }
-            "--no-focus" => {
-                focus = false;
-                index += 1;
-            }
-            other => {
-                eprintln!("unknown option: {other}");
-                return Ok(2);
-            }
-        }
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:tab:create".into(),
-        method: Method::TabCreate(TabCreateParams {
-            workspace_id,
-            cwd,
-            focus,
-            label,
-        }),
-    })?)
-}
-
-fn tab_get(args: &[String]) -> std::io::Result<i32> {
-    let Some(raw_tab_id) = args.first() else {
-        eprintln!("usage: hako tab get <tab_id>");
-        return Ok(2);
-    };
-    if args.len() != 1 {
-        eprintln!("usage: hako tab get <tab_id>");
-        return Ok(2);
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:tab:get".into(),
-        method: Method::TabGet(TabTarget {
-            tab_id: normalize_tab_id(raw_tab_id),
-        }),
-    })?)
-}
-
-fn tab_focus(args: &[String]) -> std::io::Result<i32> {
-    let Some(raw_tab_id) = args.first() else {
-        eprintln!("usage: hako tab focus <tab_id>");
-        return Ok(2);
-    };
-    if args.len() != 1 {
-        eprintln!("usage: hako tab focus <tab_id>");
-        return Ok(2);
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:tab:focus".into(),
-        method: Method::TabFocus(TabTarget {
-            tab_id: normalize_tab_id(raw_tab_id),
-        }),
-    })?)
-}
-
-fn tab_rename(args: &[String]) -> std::io::Result<i32> {
-    if args.len() < 2 {
-        eprintln!("usage: hako tab rename <tab_id> <label>");
-        return Ok(2);
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:tab:rename".into(),
-        method: Method::TabRename(TabRenameParams {
-            tab_id: normalize_tab_id(&args[0]),
-            label: args[1..].join(" "),
-        }),
-    })?)
-}
-
-fn tab_close(args: &[String]) -> std::io::Result<i32> {
-    let Some(raw_tab_id) = args.first() else {
-        eprintln!("usage: hako tab close <tab_id>");
-        return Ok(2);
-    };
-    if args.len() != 1 {
-        eprintln!("usage: hako tab close <tab_id>");
-        return Ok(2);
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:tab:close".into(),
-        method: Method::TabClose(TabTarget {
-            tab_id: normalize_tab_id(raw_tab_id),
         }),
     })?)
 }
@@ -1544,6 +1214,7 @@ fn agent_start(args: &[String]) -> std::io::Result<i32> {
             tab_id,
             split,
             focus,
+            env: Default::default(),
             argv: args[separator + 1..].to_vec(),
         }),
     })?)
@@ -1729,6 +1400,43 @@ fn terminal_attach(args: &[String]) -> std::io::Result<i32> {
     Ok(0)
 }
 
+fn terminal_title(args: &[String]) -> std::io::Result<i32> {
+    match args.first().map(|arg| arg.as_str()) {
+        Some("set") => {
+            if args.len() != 2 {
+                eprintln!("usage: hako terminal title set <title>");
+                return Ok(2);
+            }
+            print_response(&send_request(&Request {
+                id: "cli:terminal:title:set".into(),
+                method: Method::ClientWindowTitleSet(ClientWindowTitleSetParams {
+                    title: args[1].clone(),
+                }),
+            })?)
+        }
+        Some("clear") => {
+            if args.len() != 1 {
+                eprintln!("usage: hako terminal title clear");
+                return Ok(2);
+            }
+            print_response(&send_request(&Request {
+                id: "cli:terminal:title:clear".into(),
+                method: Method::ClientWindowTitleClear(EmptyParams::default()),
+            })?)
+        }
+        Some("help" | "--help" | "-h") => {
+            eprintln!("usage: hako terminal title set <title>");
+            eprintln!("       hako terminal title clear");
+            Ok(0)
+        }
+        _ => {
+            eprintln!("usage: hako terminal title set <title>");
+            eprintln!("       hako terminal title clear");
+            Ok(2)
+        }
+    }
+}
+
 pub(super) fn parse_attach_target(args: &[String], usage: &str) -> Result<(String, bool), i32> {
     let Some(target) = args.first() else {
         eprintln!("{usage}");
@@ -1853,596 +1561,6 @@ fn agent_read(args: &[String]) -> std::io::Result<i32> {
     })?)
 }
 
-fn run_pane_command(args: &[String]) -> std::io::Result<i32> {
-    match args.first().map(|arg| arg.as_str()) {
-        Some("list") => pane_list(&args[1..]),
-        Some("get") => pane_get(&args[1..]),
-        Some("rename") => pane_rename(&args[1..]),
-        Some("read") => pane_read(&args[1..]),
-        Some("split") => pane_split(&args[1..]),
-        Some("close") => pane_close(&args[1..]),
-        Some("send-text") => pane_send_text(&args[1..]),
-        Some("send-keys") => pane_send_keys(&args[1..]),
-        Some("run") => pane_run(&args[1..]),
-        Some("report-agent") => pane_report_agent(&args[1..]),
-        Some("report-metadata") => pane_report_metadata(&args[1..]),
-        Some("help" | "--help" | "-h") => {
-            print_pane_help();
-            Ok(0)
-        }
-        _ => {
-            print_pane_help();
-            Ok(2)
-        }
-    }
-}
-
-fn pane_list(args: &[String]) -> std::io::Result<i32> {
-    let mut workspace_id = None;
-
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--workspace" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --workspace");
-                    return Ok(2);
-                };
-                workspace_id = Some(normalize_workspace_id(value));
-                index += 2;
-            }
-            other => {
-                eprintln!("unknown option: {other}");
-                return Ok(2);
-            }
-        }
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:pane:list".into(),
-        method: Method::PaneList(PaneListParams { workspace_id }),
-    })?)
-}
-
-fn pane_get(args: &[String]) -> std::io::Result<i32> {
-    let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane get <pane_id>");
-        return Ok(2);
-    };
-    if args.len() != 1 {
-        eprintln!("usage: hako pane get <pane_id>");
-        return Ok(2);
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:pane:get".into(),
-        method: Method::PaneGet(PaneTarget {
-            pane_id: normalize_pane_id(raw_pane_id),
-        }),
-    })?)
-}
-
-fn pane_rename(args: &[String]) -> std::io::Result<i32> {
-    let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane rename <pane_id> <label>|--clear");
-        return Ok(2);
-    };
-    if args.len() < 2 {
-        eprintln!("usage: hako pane rename <pane_id> <label>|--clear");
-        return Ok(2);
-    }
-    let label = if args.len() == 2 && args[1] == "--clear" {
-        None
-    } else {
-        Some(args[1..].join(" "))
-    };
-
-    print_response(&send_request(&Request {
-        id: "cli:pane:rename".into(),
-        method: Method::PaneRename(PaneRenameParams {
-            pane_id: normalize_pane_id(raw_pane_id),
-            label,
-        }),
-    })?)
-}
-
-fn pane_read(args: &[String]) -> std::io::Result<i32> {
-    let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
-        return Ok(2);
-    };
-
-    let pane_id = normalize_pane_id(raw_pane_id);
-    let mut source = ReadSource::Recent;
-    let mut lines = None;
-    let mut format = ReadFormat::Text;
-    let mut strip_ansi = true;
-
-    let mut index = 1;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--source" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --source");
-                    return Ok(2);
-                };
-                source = parse_read_source(value)?;
-                index += 2;
-            }
-            "--lines" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --lines");
-                    return Ok(2);
-                };
-                lines = Some(parse_u32_flag("--lines", value)?);
-                index += 2;
-            }
-            "--format" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --format");
-                    return Ok(2);
-                };
-                format = parse_read_format(value)?;
-                index += 2;
-            }
-            "--ansi" => {
-                format = ReadFormat::Ansi;
-                index += 1;
-            }
-            "--raw" => {
-                format = ReadFormat::Ansi;
-                strip_ansi = false;
-                index += 1;
-            }
-            other => {
-                eprintln!("unknown option: {other}");
-                return Ok(2);
-            }
-        }
-    }
-
-    let response = send_request(&Request {
-        id: "cli:pane:read".into(),
-        method: Method::PaneRead(PaneReadParams {
-            pane_id,
-            source,
-            lines,
-            format,
-            strip_ansi,
-        }),
-    })?;
-
-    if let Some(error) = response.get("error") {
-        eprintln!("{}", serde_json::to_string(error).unwrap());
-        return Ok(1);
-    }
-
-    if let Some(text) = response["result"]["read"]["text"].as_str() {
-        print!("{text}");
-    }
-    Ok(0)
-}
-
-fn pane_split(args: &[String]) -> std::io::Result<i32> {
-    let Some(raw_pane_id) = args.first() else {
-        eprintln!(
-            "usage: hako pane split <pane_id> --direction right|down [--cwd PATH] [--focus] [--no-focus]"
-        );
-        return Ok(2);
-    };
-
-    let pane_id = normalize_pane_id(raw_pane_id);
-    let mut direction = None;
-    let mut cwd = None;
-    let mut focus = false;
-
-    let mut index = 1;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--direction" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --direction");
-                    return Ok(2);
-                };
-                direction = Some(parse_split_direction(value)?);
-                index += 2;
-            }
-            "--cwd" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --cwd");
-                    return Ok(2);
-                };
-                cwd = Some(value.clone());
-                index += 2;
-            }
-            "--focus" => {
-                focus = true;
-                index += 1;
-            }
-            "--no-focus" => {
-                focus = false;
-                index += 1;
-            }
-            other => {
-                eprintln!("unknown option: {other}");
-                return Ok(2);
-            }
-        }
-    }
-
-    let Some(direction) = direction else {
-        eprintln!("missing required --direction");
-        return Ok(2);
-    };
-
-    print_response(&send_request(&Request {
-        id: "cli:pane:split".into(),
-        method: Method::PaneSplit(PaneSplitParams {
-            workspace_id: None,
-            target_pane_id: pane_id,
-            direction,
-            cwd,
-            focus,
-        }),
-    })?)
-}
-
-fn pane_close(args: &[String]) -> std::io::Result<i32> {
-    let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane close <pane_id>");
-        return Ok(2);
-    };
-    if args.len() != 1 {
-        eprintln!("usage: hako pane close <pane_id>");
-        return Ok(2);
-    }
-
-    print_response(&send_request(&Request {
-        id: "cli:pane:close".into(),
-        method: Method::PaneClose(PaneTarget {
-            pane_id: normalize_pane_id(raw_pane_id),
-        }),
-    })?)
-}
-
-fn pane_send_text(args: &[String]) -> std::io::Result<i32> {
-    if args.len() < 2 {
-        eprintln!("usage: hako pane send-text <pane_id> <text>");
-        return Ok(2);
-    }
-
-    let pane_id = normalize_pane_id(&args[0]);
-    let text = args[1..].join(" ");
-    send_ok_request(Method::PaneSendText(PaneSendTextParams { pane_id, text }))
-}
-
-fn pane_send_keys(args: &[String]) -> std::io::Result<i32> {
-    if args.len() < 2 {
-        eprintln!("usage: hako pane send-keys <pane_id> <key> [key ...]");
-        return Ok(2);
-    }
-
-    let pane_id = normalize_pane_id(&args[0]);
-    let keys = args[1..].to_vec();
-    send_ok_request(Method::PaneSendKeys(PaneSendKeysParams { pane_id, keys }))
-}
-
-fn pane_run(args: &[String]) -> std::io::Result<i32> {
-    if args.len() < 2 {
-        eprintln!("usage: hako pane run <pane_id> <command>");
-        return Ok(2);
-    }
-
-    let pane_id = normalize_pane_id(&args[0]);
-    let text = args[1..].join(" ");
-    send_ok_request(Method::PaneSendInput(PaneSendInputParams {
-        pane_id,
-        text,
-        keys: vec!["Enter".into()],
-    }))
-}
-
-fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
-    let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
-        return Ok(2);
-    };
-
-    let pane_id = normalize_pane_id(raw_pane_id);
-    let mut source = None;
-    let mut agent = None;
-    let mut state = None;
-    let mut message = None;
-    let mut custom_status = None;
-    let mut seq = None;
-    let mut agent_session_id = None;
-    let mut agent_session_path = None;
-
-    let mut index = 1;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--source" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --source");
-                    return Ok(2);
-                };
-                source = Some(value.clone());
-                index += 2;
-            }
-            "--agent" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --agent");
-                    return Ok(2);
-                };
-                agent = Some(value.clone());
-                index += 2;
-            }
-            "--state" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --state");
-                    return Ok(2);
-                };
-                state = Some(parse_pane_agent_state(value)?);
-                index += 2;
-            }
-            "--message" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --message");
-                    return Ok(2);
-                };
-                message = Some(value.clone());
-                index += 2;
-            }
-            "--custom-status" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --custom-status");
-                    return Ok(2);
-                };
-                custom_status = Some(value.clone());
-                index += 2;
-            }
-            "--seq" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --seq");
-                    return Ok(2);
-                };
-                seq = Some(parse_u64_flag("--seq", value)?);
-                index += 2;
-            }
-            "--agent-session-id" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --agent-session-id");
-                    return Ok(2);
-                };
-                agent_session_id = Some(value.clone());
-                index += 2;
-            }
-            "--agent-session-path" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --agent-session-path");
-                    return Ok(2);
-                };
-                agent_session_path = Some(value.clone());
-                index += 2;
-            }
-            other => {
-                eprintln!("unknown option: {other}");
-                return Ok(2);
-            }
-        }
-    }
-
-    let Some(source) = source else {
-        eprintln!("missing required --source");
-        return Ok(2);
-    };
-    let Some(agent) = agent else {
-        eprintln!("missing required --agent");
-        return Ok(2);
-    };
-    let Some(state) = state else {
-        eprintln!("missing required --state");
-        return Ok(2);
-    };
-
-    send_ok_request(Method::PaneReportAgent(PaneReportAgentParams {
-        pane_id,
-        source,
-        agent,
-        state,
-        message,
-        custom_status,
-        seq,
-        agent_session_id,
-        agent_session_path,
-        launch_env: std::collections::BTreeMap::new(),
-    }))
-}
-
-fn pane_report_metadata(args: &[String]) -> std::io::Result<i32> {
-    let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane report-metadata <pane_id> --source ID [--agent LABEL] [--applies-to-source ID] [--title TEXT|--clear-title] [--display-agent TEXT|--clear-display-agent] [--custom-status TEXT|--clear-custom-status] [--state-label STATUS=TEXT] [--clear-state-labels] [--seq N] [--ttl-ms N]");
-        return Ok(2);
-    };
-
-    let pane_id = normalize_pane_id(raw_pane_id);
-    let mut source = None;
-    let mut agent = None;
-    let mut applies_to_source = None;
-    let mut title = None;
-    let mut display_agent = None;
-    let mut custom_status = None;
-    let mut state_labels = std::collections::HashMap::new();
-    let mut clear_title = false;
-    let mut clear_display_agent = false;
-    let mut clear_custom_status = false;
-    let mut clear_state_labels = false;
-    let mut seq = None;
-    let mut ttl_ms = None;
-
-    let mut index = 1;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--source" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --source");
-                    return Ok(2);
-                };
-                source = Some(value.clone());
-                index += 2;
-            }
-            "--agent" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --agent");
-                    return Ok(2);
-                };
-                agent = Some(value.clone());
-                index += 2;
-            }
-            "--applies-to-source" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --applies-to-source");
-                    return Ok(2);
-                };
-                applies_to_source = Some(value.clone());
-                index += 2;
-            }
-            "--title" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --title");
-                    return Ok(2);
-                };
-                title = Some(value.clone());
-                index += 2;
-            }
-            "--clear-title" => {
-                clear_title = true;
-                index += 1;
-            }
-            "--display-agent" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --display-agent");
-                    return Ok(2);
-                };
-                display_agent = Some(value.clone());
-                index += 2;
-            }
-            "--clear-display-agent" => {
-                clear_display_agent = true;
-                index += 1;
-            }
-            "--custom-status" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --custom-status");
-                    return Ok(2);
-                };
-                custom_status = Some(value.clone());
-                index += 2;
-            }
-            "--clear-custom-status" => {
-                clear_custom_status = true;
-                index += 1;
-            }
-            "--state-label" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --state-label");
-                    return Ok(2);
-                };
-                let Some((status, label)) = value.split_once('=') else {
-                    eprintln!("expected --state-label STATUS=TEXT");
-                    return Ok(2);
-                };
-                let status = status.trim().to_ascii_lowercase();
-                if !matches!(
-                    status.as_str(),
-                    "idle" | "working" | "blocked" | "done" | "unknown"
-                ) {
-                    eprintln!("unknown state label: {status}");
-                    return Ok(2);
-                }
-                state_labels.insert(status, label.to_string());
-                index += 2;
-            }
-            "--clear-state-labels" => {
-                clear_state_labels = true;
-                index += 1;
-            }
-            "--seq" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --seq");
-                    return Ok(2);
-                };
-                seq = Some(parse_u64_flag("--seq", value)?);
-                index += 2;
-            }
-            "--ttl-ms" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --ttl-ms");
-                    return Ok(2);
-                };
-                ttl_ms = Some(parse_u64_flag("--ttl-ms", value)?);
-                index += 2;
-            }
-            other => {
-                eprintln!("unknown option: {other}");
-                return Ok(2);
-            }
-        }
-    }
-
-    let Some(source) = source.and_then(|source| {
-        let source = source.trim().to_string();
-        (!source.is_empty()).then_some(source)
-    }) else {
-        eprintln!("missing required --source");
-        return Ok(2);
-    };
-    if applies_to_source
-        .as_deref()
-        .is_some_and(|source| source.trim().is_empty())
-    {
-        eprintln!("missing value for --applies-to-source");
-        return Ok(2);
-    }
-    if title.is_some() && clear_title
-        || display_agent.is_some() && clear_display_agent
-        || custom_status.is_some() && clear_custom_status
-        || !state_labels.is_empty() && clear_state_labels
-    {
-        eprintln!("cannot set and clear the same metadata field");
-        return Ok(2);
-    }
-    if title.is_none()
-        && display_agent.is_none()
-        && custom_status.is_none()
-        && state_labels.is_empty()
-        && !clear_title
-        && !clear_display_agent
-        && !clear_custom_status
-        && !clear_state_labels
-    {
-        eprintln!("missing metadata field to set or clear");
-        return Ok(2);
-    }
-
-    send_ok_request(Method::PaneReportMetadata(PaneReportMetadataParams {
-        pane_id,
-        source,
-        agent,
-        applies_to_source,
-        title,
-        display_agent,
-        custom_status,
-        state_labels,
-        clear_title,
-        clear_display_agent,
-        clear_custom_status,
-        clear_state_labels,
-        seq,
-        ttl_ms,
-    }))
-}
-
 fn run_integration_command(args: &[String]) -> std::io::Result<i32> {
     match args.first().map(|arg| arg.as_str()) {
         Some("status") => integration_status(&args[1..]),
@@ -2542,11 +1660,11 @@ fn parse_integration_target(
     action: &str,
 ) -> std::io::Result<Option<IntegrationTarget>> {
     let Some(target) = args.first().map(|arg| arg.as_str()) else {
-        eprintln!("usage: hako integration {action} <pi|omp|claude|codex|opencode|hermes>");
+        eprintln!("usage: hako integration {action} <pi|omp|claude|codex|devin|opencode|hermes>");
         return Ok(None);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako integration {action} <pi|omp|claude|codex|opencode|hermes>");
+        eprintln!("usage: hako integration {action} <pi|omp|claude|codex|devin|opencode|hermes>");
         return Ok(None);
     }
 
@@ -2556,13 +1674,14 @@ fn parse_integration_target(
         "claude" => IntegrationTarget::Claude,
         "codex" => IntegrationTarget::Codex,
         "copilot" => IntegrationTarget::Copilot,
+        "devin" => IntegrationTarget::Devin,
         "opencode" => IntegrationTarget::Opencode,
         "hermes" => IntegrationTarget::Hermes,
         "qodercli" => IntegrationTarget::Qodercli,
         _ => {
             eprintln!("unknown integration target: {target}");
             eprintln!(
-                "currently supported: pi, omp, claude, codex, copilot, opencode, hermes, qodercli"
+                "currently supported: pi, omp, claude, codex, devin, copilot, opencode, hermes, qodercli"
             );
             return Ok(None);
         }
@@ -3080,17 +2199,6 @@ fn print_config_help() {
     eprintln!("  hako config reset-keys  back up config.toml and remove custom keybindings");
 }
 
-fn print_workspace_help() {
-    eprintln!("hako workspace commands:");
-    eprintln!("  hako workspace list");
-    eprintln!("  hako workspace create [--cwd PATH] [--label TEXT] [--focus] [--no-focus]");
-    eprintln!("  hako workspace get <workspace_id>");
-    eprintln!("  hako workspace focus <workspace_id>");
-    eprintln!("  hako workspace rename <workspace_id> <label>");
-    eprintln!("  hako workspace move-to-group <workspace_id> <group_id>");
-    eprintln!("  hako workspace close <workspace_id>");
-}
-
 fn print_group_help() {
     eprintln!("hako group commands:");
     eprintln!("  hako group list");
@@ -3099,18 +2207,6 @@ fn print_group_help() {
     eprintln!("  hako group switch <group_id>");
     eprintln!("  hako group rename <group_id> <name>");
     eprintln!("  hako group delete <group_id>");
-}
-
-fn print_tab_help() {
-    eprintln!("hako tab commands:");
-    eprintln!("  hako tab list [--workspace <workspace_id>]");
-    eprintln!(
-        "  hako tab create [--workspace <workspace_id>] [--cwd PATH] [--label TEXT] [--focus] [--no-focus]"
-    );
-    eprintln!("  hako tab get <tab_id>");
-    eprintln!("  hako tab focus <tab_id>");
-    eprintln!("  hako tab rename <tab_id> <label>");
-    eprintln!("  hako tab close <tab_id>");
 }
 
 fn print_agent_help() {
@@ -3134,25 +2230,11 @@ fn print_agent_help() {
 fn print_terminal_help() {
     eprintln!("hako terminal commands:");
     eprintln!("  hako terminal attach <terminal_id> [--takeover]");
+    eprintln!("  hako terminal title set <title>");
+    eprintln!("  hako terminal title clear");
     eprintln!("  detach from direct attach with ctrl+b q; send literal ctrl+b with ctrl+b ctrl+b");
 }
 
-fn print_pane_help() {
-    eprintln!("hako pane commands:");
-    eprintln!("  hako pane list [--workspace <workspace_id>]");
-    eprintln!("  hako pane get <pane_id>");
-    eprintln!("  hako pane rename <pane_id> <label>|--clear");
-    eprintln!("  hako pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
-    eprintln!(
-        "  hako pane split <pane_id> --direction right|down [--cwd PATH] [--focus] [--no-focus]"
-    );
-    eprintln!("  hako pane close <pane_id>");
-    eprintln!("  hako pane send-text <pane_id> <text>");
-    eprintln!("  hako pane send-keys <pane_id> <key> [key ...]");
-    eprintln!("  hako pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
-    eprintln!("  hako pane report-metadata <pane_id> --source ID [--agent LABEL] [--applies-to-source ID] [--title TEXT|--clear-title] [--display-agent TEXT|--clear-display-agent] [--custom-status TEXT|--clear-custom-status] [--state-label STATUS=TEXT] [--clear-state-labels] [--seq N] [--ttl-ms N]");
-    eprintln!("  hako pane run <pane_id> <command>");
-}
 fn print_wait_help() {
     eprintln!("hako wait commands:");
     eprintln!("  hako wait output <pane_id> --match <text> [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--regex] [--raw]");
@@ -3191,4 +2273,21 @@ fn _print_json<T: Serialize>(value: &T) {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+
+    #[test]
+    fn parse_env_assignment_accepts_empty_values() {
+        assert_eq!(
+            super::parse_env_assignment("HAKO_ROLE=").unwrap(),
+            ("HAKO_ROLE".to_string(), String::new())
+        );
+    }
+
+    #[test]
+    fn parse_env_assignment_requires_key_value_separator() {
+        assert_eq!(
+            super::parse_env_assignment("HAKO_ROLE").unwrap_err(),
+            "env must use KEY=VALUE"
+        );
+    }
+}

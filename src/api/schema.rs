@@ -13,8 +13,11 @@ pub struct Request {
     pub method: Method,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params")]
+// Request enums are short-lived wire values; keeping variants direct preserves
+// the simple serde shape and avoids boxing churn across every caller.
+#[allow(clippy::large_enum_variant)]
 pub enum Method {
     #[serde(rename = "ping")]
     Ping(PingParams),
@@ -40,6 +43,10 @@ pub enum Method {
     GroupRename(GroupRenameParams),
     #[serde(rename = "group.delete")]
     GroupDelete(GroupTarget),
+    #[serde(rename = "client.window_title.set")]
+    ClientWindowTitleSet(ClientWindowTitleSetParams),
+    #[serde(rename = "client.window_title.clear")]
+    ClientWindowTitleClear(EmptyParams),
     #[serde(rename = "workspace.create")]
     WorkspaceCreate(WorkspaceCreateParams),
     #[serde(rename = "workspace.list")]
@@ -92,8 +99,32 @@ pub enum Method {
     AgentStart(AgentStartParams),
     #[serde(rename = "pane.split")]
     PaneSplit(PaneSplitParams),
+    #[serde(rename = "pane.swap")]
+    PaneSwap(PaneSwapParams),
+    #[serde(rename = "pane.move")]
+    PaneMove(PaneMoveParams),
+    #[serde(rename = "pane.zoom")]
+    PaneZoom(PaneZoomParams),
+    #[serde(rename = "pane.layout")]
+    PaneLayout(PaneLayoutParams),
+    #[serde(rename = "pane.process_info")]
+    PaneProcessInfo(PaneProcessInfoParams),
+    #[serde(rename = "layout.export")]
+    LayoutExport(LayoutExportParams),
+    #[serde(rename = "layout.apply")]
+    LayoutApply(LayoutApplyParams),
+    #[serde(rename = "pane.neighbor")]
+    PaneNeighbor(PaneNeighborParams),
+    #[serde(rename = "pane.edges")]
+    PaneEdges(PaneEdgesParams),
+    #[serde(rename = "pane.focus_direction")]
+    PaneFocusDirection(PaneFocusDirectionParams),
+    #[serde(rename = "pane.resize")]
+    PaneResize(PaneResizeParams),
     #[serde(rename = "pane.list")]
     PaneList(PaneListParams),
+    #[serde(rename = "pane.current")]
+    PaneCurrent(PaneCurrentParams),
     #[serde(rename = "pane.get")]
     PaneGet(PaneTarget),
     #[serde(rename = "pane.rename")]
@@ -128,6 +159,28 @@ pub enum Method {
     IntegrationInstall(IntegrationInstallParams),
     #[serde(rename = "integration.uninstall")]
     IntegrationUninstall(IntegrationUninstallParams),
+    #[serde(rename = "plugin.link")]
+    PluginLink(PluginLinkParams),
+    #[serde(rename = "plugin.list")]
+    PluginList(PluginListParams),
+    #[serde(rename = "plugin.unlink")]
+    PluginUnlink(PluginUnlinkParams),
+    #[serde(rename = "plugin.enable")]
+    PluginEnable(PluginSetEnabledParams),
+    #[serde(rename = "plugin.disable")]
+    PluginDisable(PluginSetEnabledParams),
+    #[serde(rename = "plugin.action.list")]
+    PluginActionList(PluginActionListParams),
+    #[serde(rename = "plugin.action.invoke")]
+    PluginActionInvoke(PluginActionInvokeParams),
+    #[serde(rename = "plugin.log.list")]
+    PluginLogList(PluginLogListParams),
+    #[serde(rename = "plugin.pane.open")]
+    PluginPaneOpen(PluginPaneOpenParams),
+    #[serde(rename = "plugin.pane.focus")]
+    PluginPaneFocus(PluginPaneFocusParams),
+    #[serde(rename = "plugin.pane.close")]
+    PluginPaneClose(PluginPaneCloseParams),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -180,6 +233,14 @@ pub enum NotificationShowReason {
     Busy,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClientWindowTitleReason {
+    Set,
+    Cleared,
+    NoForegroundClient,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceTarget {
     pub workspace_id: String,
@@ -201,6 +262,11 @@ pub struct TabTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientWindowTitleSetParams {
+    pub title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceCreateParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
@@ -208,6 +274,8 @@ pub struct WorkspaceCreateParams {
     pub focus: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub env: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -292,6 +360,8 @@ pub struct TabCreateParams {
     pub focus: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub env: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -349,19 +419,26 @@ pub struct AgentStartParams {
     pub split: Option<SplitDirection>,
     #[serde(default)]
     pub focus: bool,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub env: HashMap<String, String>,
     pub argv: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaneSplitParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
-    pub target_pane_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_pane_id: Option<String>,
     pub direction: SplitDirection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ratio: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
     #[serde(default)]
     pub focus: bool,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub env: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -371,10 +448,190 @@ pub enum SplitDirection {
     Down,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PaneDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PaneSwapParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<PaneDirection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_pane_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_pane_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneMoveParams {
+    pub pane_id: String,
+    pub destination: PaneMoveDestination,
+    #[serde(default)]
+    pub focus: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PaneMoveDestination {
+    Tab {
+        tab_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_pane_id: Option<String>,
+        split: SplitDirection,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ratio: Option<f32>,
+    },
+    NewTab {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        workspace_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+    },
+    NewWorkspace {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tab_label: Option<String>,
+    },
+}
+
+impl Eq for PaneMoveParams {}
+impl Eq for PaneMoveDestination {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PaneZoomParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
+    #[serde(default)]
+    pub mode: PaneZoomMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PaneZoomMode {
+    #[default]
+    Toggle,
+    On,
+    Off,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PaneLayoutParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PaneProcessInfoParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct LayoutExportParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayoutApplyParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_label: Option<String>,
+    #[serde(default)]
+    pub focus: bool,
+    pub root: LayoutNode,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayoutDescription {
+    pub workspace_id: String,
+    pub tab_id: String,
+    pub zoomed: bool,
+    pub focused_pane_id: String,
+    pub root: LayoutNode,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LayoutNode {
+    Pane {
+        #[serde(flatten)]
+        pane: LayoutPane,
+    },
+    Split {
+        direction: SplitDirection,
+        ratio: f32,
+        first: Box<LayoutNode>,
+        second: Box<LayoutNode>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct LayoutPane {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub env: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaneNeighborParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
+    pub direction: PaneDirection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PaneEdgesParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaneFocusDirectionParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
+    pub direction: PaneDirection,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneResizeParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
+    pub direction: PaneDirection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amount: Option<f32>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct PaneListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PaneCurrentParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caller_pane_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -549,6 +806,12 @@ pub enum Subscription {
     WorkspaceClosed {},
     #[serde(rename = "workspace.focused")]
     WorkspaceFocused {},
+    #[serde(rename = "worktree.created")]
+    WorktreeCreated {},
+    #[serde(rename = "worktree.opened")]
+    WorktreeOpened {},
+    #[serde(rename = "worktree.removed")]
+    WorktreeRemoved {},
     #[serde(rename = "tab.created")]
     TabCreated {},
     #[serde(rename = "tab.closed")]
@@ -563,6 +826,8 @@ pub enum Subscription {
     PaneClosed {},
     #[serde(rename = "pane.focused")]
     PaneFocused {},
+    #[serde(rename = "pane.moved")]
+    PaneMoved {},
     #[serde(rename = "pane.exited")]
     PaneExited {},
     #[serde(rename = "pane.agent_detected")]
@@ -623,12 +888,347 @@ pub enum IntegrationTarget {
     Claude,
     Codex,
     Copilot,
+    Devin,
     Kimi,
     Droid,
     Opencode,
     Hermes,
     Qodercli,
     Cursor,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginLinkParams {
+    pub path: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<PluginSourceInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PluginListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginUnlinkParams {
+    pub plugin_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginSetEnabledParams {
+    pub plugin_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstalledPluginInfo {
+    pub plugin_id: String,
+    pub name: String,
+    pub version: String,
+    pub min_hako_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub manifest_path: String,
+    pub plugin_root: String,
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platforms: Option<Vec<PluginPlatform>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub build: Vec<PluginManifestBuild>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<PluginManifestAction>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<PluginManifestEventHook>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub panes: Vec<PluginManifestPane>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub link_handlers: Vec<PluginManifestLinkHandler>,
+    #[serde(default)]
+    pub source: PluginSourceInfo,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginSourceInfo {
+    #[serde(default)]
+    pub kind: PluginSourceKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subdir: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub managed_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installed_unix_ms: Option<u64>,
+}
+
+impl Default for PluginSourceInfo {
+    fn default() -> Self {
+        Self {
+            kind: PluginSourceKind::Local,
+            owner: None,
+            repo: None,
+            subdir: None,
+            requested_ref: None,
+            resolved_commit: None,
+            managed_path: None,
+            installed_unix_ms: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginSourceKind {
+    #[default]
+    Local,
+    Github,
+}
+
+pub(crate) fn plugin_managed_path_component(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginManifestBuild {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platforms: Option<Vec<PluginPlatform>>,
+    pub command: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginManifestAction {
+    pub id: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contexts: Vec<PluginActionContext>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platforms: Option<Vec<PluginPlatform>>,
+    pub command: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginManifestEventHook {
+    pub on: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platforms: Option<Vec<PluginPlatform>>,
+    pub command: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginManifestPane {
+    pub id: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platforms: Option<Vec<PluginPlatform>>,
+    #[serde(default)]
+    pub placement: PluginPanePlacement,
+    pub command: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginManifestLinkHandler {
+    pub id: String,
+    pub title: String,
+    pub pattern: String,
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platforms: Option<Vec<PluginPlatform>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PluginActionListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PluginLogListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginActionInvokeParams {
+    pub action_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<PluginInvocationContext>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginCommandLogInfo {
+    pub log_id: String,
+    pub plugin_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<String>,
+    pub command: Vec<String>,
+    pub status: PluginCommandStatus,
+    pub started_unix_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_unix_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdout: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stderr: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginCommandStatus {
+    Running,
+    Succeeded,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginPlatform {
+    Linux,
+    Macos,
+    Windows,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginActionContext {
+    Global,
+    Workspace,
+    Tab,
+    Pane,
+    Selection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginInvocationContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<WorkspaceWorktreeInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_pane_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_pane_cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_pane_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_pane_status: Option<AgentStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invocation_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clicked_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_handler_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginActionInfo {
+    pub plugin_id: String,
+    pub action_id: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contexts: Vec<PluginActionContext>,
+    pub command: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platforms: Option<Vec<PluginPlatform>>,
+}
+
+impl PluginActionInfo {
+    pub fn qualified_id(&self) -> String {
+        format!("{}.{}", self.plugin_id, self.action_id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginPaneOpenParams {
+    pub plugin_id: String,
+    pub entrypoint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<PluginPanePlacement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_pane_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<SplitDirection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub focus: bool,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub env: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginPanePlacement {
+    #[default]
+    Overlay,
+    Split,
+    Tab,
+    Zoomed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginPaneFocusParams {
+    pub pane_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginPaneCloseParams {
+    pub pane_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginPaneInfo {
+    pub plugin_id: String,
+    pub entrypoint: String,
+    pub pane: PaneInfo,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -688,6 +1288,9 @@ pub enum EventMatch {
     PaneFocused {
         pane_id: String,
     },
+    PaneMoved {
+        pane_id: String,
+    },
     PaneOutputChanged {
         pane_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -715,6 +1318,9 @@ pub enum EventKind {
     WorkspaceClosed,
     WorkspaceRenamed,
     WorkspaceFocused,
+    WorktreeCreated,
+    WorktreeOpened,
+    WorktreeRemoved,
     TabCreated,
     TabClosed,
     TabRenamed,
@@ -722,13 +1328,71 @@ pub enum EventKind {
     PaneCreated,
     PaneClosed,
     PaneFocused,
+    PaneMoved,
     PaneOutputChanged,
     PaneExited,
     PaneAgentDetected,
     PaneAgentStatusChanged,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl EventKind {
+    pub fn dot_name(self) -> &'static str {
+        match self {
+            EventKind::WorkspaceCreated => "workspace.created",
+            EventKind::WorkspaceUpdated => "workspace.updated",
+            EventKind::WorkspaceClosed => "workspace.closed",
+            EventKind::WorkspaceRenamed => "workspace.renamed",
+            EventKind::WorkspaceFocused => "workspace.focused",
+            EventKind::WorktreeCreated => "worktree.created",
+            EventKind::WorktreeOpened => "worktree.opened",
+            EventKind::WorktreeRemoved => "worktree.removed",
+            EventKind::TabCreated => "tab.created",
+            EventKind::TabClosed => "tab.closed",
+            EventKind::TabRenamed => "tab.renamed",
+            EventKind::TabFocused => "tab.focused",
+            EventKind::PaneCreated => "pane.created",
+            EventKind::PaneClosed => "pane.closed",
+            EventKind::PaneFocused => "pane.focused",
+            EventKind::PaneMoved => "pane.moved",
+            EventKind::PaneOutputChanged => "pane.output_changed",
+            EventKind::PaneExited => "pane.exited",
+            EventKind::PaneAgentDetected => "pane.agent_detected",
+            EventKind::PaneAgentStatusChanged => "pane.agent_status_changed",
+        }
+    }
+}
+
+pub const PLUGIN_HOOK_EVENT_KINDS: &[EventKind] = &[
+    EventKind::WorkspaceCreated,
+    EventKind::WorkspaceUpdated,
+    EventKind::WorkspaceClosed,
+    EventKind::WorkspaceRenamed,
+    EventKind::WorkspaceFocused,
+    EventKind::WorktreeCreated,
+    EventKind::WorktreeOpened,
+    EventKind::WorktreeRemoved,
+    EventKind::TabCreated,
+    EventKind::TabClosed,
+    EventKind::TabRenamed,
+    EventKind::TabFocused,
+    EventKind::PaneCreated,
+    EventKind::PaneClosed,
+    EventKind::PaneFocused,
+    EventKind::PaneMoved,
+    EventKind::PaneExited,
+    EventKind::PaneAgentDetected,
+    EventKind::PaneAgentStatusChanged,
+];
+
+pub fn plugin_hook_event_names() -> Vec<&'static str> {
+    PLUGIN_HOOK_EVENT_KINDS
+        .iter()
+        .copied()
+        .map(EventKind::dot_name)
+        .collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SuccessResponse {
     pub id: String,
     pub result: ResponseResult,
@@ -751,7 +1415,7 @@ pub struct ServerCapabilities {
     pub live_handoff: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResponseResult {
     Pong {
@@ -825,6 +1489,42 @@ pub enum ResponseResult {
     PaneList {
         panes: Vec<PaneInfo>,
     },
+    PaneCurrent {
+        pane: PaneInfo,
+    },
+    PaneSwap {
+        swap: PaneSwapResult,
+    },
+    PaneZoom {
+        zoom: PaneZoomResult,
+    },
+    PaneLayout {
+        layout: PaneLayoutSnapshot,
+    },
+    PaneProcessInfo {
+        process_info: PaneProcessInfo,
+    },
+    LayoutExport {
+        layout: LayoutDescription,
+    },
+    LayoutApply {
+        layout: LayoutDescription,
+    },
+    PaneNeighbor {
+        neighbor: PaneNeighborResult,
+    },
+    PaneEdges {
+        edges: PaneEdgesResult,
+    },
+    PaneFocusDirection {
+        focus: PaneFocusDirectionResult,
+    },
+    PaneResize {
+        resize: PaneResizeResult,
+    },
+    PaneMove {
+        move_result: PaneMoveResult,
+    },
     PaneRead {
         read: PaneReadResult,
     },
@@ -845,6 +1545,10 @@ pub enum ResponseResult {
         shown: bool,
         reason: NotificationShowReason,
     },
+    ClientWindowTitle {
+        changed: bool,
+        reason: ClientWindowTitleReason,
+    },
     IntegrationInstall {
         target: IntegrationTarget,
         details: IntegrationInstallResult,
@@ -862,6 +1566,42 @@ pub enum ResponseResult {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         last_result: Option<String>,
         manifests: Vec<AgentManifestInfo>,
+    },
+    PluginLinked {
+        plugin: InstalledPluginInfo,
+    },
+    PluginList {
+        plugins: Vec<InstalledPluginInfo>,
+    },
+    PluginUnlinked {
+        plugin_id: String,
+        removed: bool,
+    },
+    PluginEnabled {
+        plugin: InstalledPluginInfo,
+    },
+    PluginDisabled {
+        plugin: InstalledPluginInfo,
+    },
+    PluginActionList {
+        actions: Vec<PluginActionInfo>,
+    },
+    PluginActionInvoked {
+        action: PluginActionInfo,
+        context: PluginInvocationContext,
+        log: PluginCommandLogInfo,
+    },
+    PluginLogList {
+        logs: Vec<PluginCommandLogInfo>,
+    },
+    PluginPaneOpened {
+        plugin_pane: PluginPaneInfo,
+    },
+    PluginPaneFocused {
+        plugin_pane: PluginPaneInfo,
+    },
+    PluginPaneClosed {
+        pane_id: String,
     },
     ConfigReload {
         status: crate::config::ConfigReloadStatus,
@@ -1028,6 +1768,215 @@ pub struct AgentSessionInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaneProcessInfo {
+    pub pane_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell_pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foreground_process_group_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tty: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub foreground_processes: Vec<PaneProcessInfoProcess>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaneProcessInfoProcess {
+    pub pid: u32,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub argv0: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub argv: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmdline: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneSwapResult {
+    pub changed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<PaneSwapReason>,
+    pub source_pane_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_pane_id: Option<String>,
+    pub focused_pane_id: String,
+    pub layout: PaneLayoutSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PaneSwapReason {
+    NoNeighbor,
+    SamePane,
+    NotFound,
+    CrossTab,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneMoveResult {
+    pub changed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<PaneMoveReason>,
+    pub previous_pane_id: String,
+    pub previous_workspace_id: String,
+    pub previous_tab_id: String,
+    pub pane: Box<PaneInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_layout: Option<Box<PaneLayoutSnapshot>>,
+    pub target_layout: Box<PaneLayoutSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_workspace: Option<WorkspaceInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_tab: Option<TabInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed_workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed_tab_id: Option<String>,
+    pub focused_pane_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PaneMoveReason {
+    SameTab,
+    ZoomedTab,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneLayoutSnapshot {
+    pub workspace_id: String,
+    pub tab_id: String,
+    pub zoomed: bool,
+    pub area: PaneLayoutRect,
+    pub focused_pane_id: String,
+    pub panes: Vec<PaneLayoutPane>,
+    pub splits: Vec<PaneLayoutSplit>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaneLayoutRect {
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,
+    pub height: u16,
+}
+
+impl From<ratatui::prelude::Rect> for PaneLayoutRect {
+    fn from(rect: ratatui::prelude::Rect) -> Self {
+        Self {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+        }
+    }
+}
+
+impl From<ratatui::prelude::Direction> for SplitDirection {
+    fn from(direction: ratatui::prelude::Direction) -> Self {
+        match direction {
+            ratatui::prelude::Direction::Horizontal => SplitDirection::Right,
+            ratatui::prelude::Direction::Vertical => SplitDirection::Down,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaneLayoutPane {
+    pub pane_id: String,
+    pub focused: bool,
+    pub rect: PaneLayoutRect,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneLayoutSplit {
+    pub id: String,
+    pub direction: SplitDirection,
+    pub ratio: f32,
+    pub rect: PaneLayoutRect,
+}
+
+impl Eq for PaneMoveResult {}
+impl Eq for PaneLayoutSnapshot {}
+impl Eq for PaneLayoutSplit {}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneZoomResult {
+    pub changed: bool,
+    pub zoom_changed: bool,
+    pub focus_changed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<PaneZoomReason>,
+    pub pane_id: String,
+    pub focused_pane_id: String,
+    pub zoomed: bool,
+    pub layout: PaneLayoutSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PaneZoomReason {
+    SinglePane,
+    AlreadyZoomed,
+    AlreadyUnzoomed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneNeighborResult {
+    pub pane_id: String,
+    pub direction: PaneDirection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub neighbor_pane_id: Option<String>,
+    pub layout: PaneLayoutSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneEdgesResult {
+    pub pane_id: String,
+    pub left: bool,
+    pub right: bool,
+    pub up: bool,
+    pub down: bool,
+    pub layout: PaneLayoutSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneFocusDirectionResult {
+    pub changed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<PaneFocusDirectionReason>,
+    pub source_pane_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_pane_id: Option<String>,
+    pub layout: PaneLayoutSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PaneFocusDirectionReason {
+    NoNeighbor,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneResizeResult {
+    pub changed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<PaneResizeReason>,
+    pub pane_id: String,
+    pub focused_pane_id: String,
+    pub layout: PaneLayoutSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PaneResizeReason {
+    Unchanged,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaneReadResult {
     pub pane_id: String,
     pub workspace_id: String,
@@ -1111,6 +2060,8 @@ pub enum EventData {
     },
     WorkspaceClosed {
         workspace_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        workspace: Option<WorkspaceInfo>,
     },
     WorkspaceRenamed {
         workspace_id: String,
@@ -1118,6 +2069,20 @@ pub enum EventData {
     },
     WorkspaceFocused {
         workspace_id: String,
+    },
+    WorktreeCreated {
+        workspace: WorkspaceInfo,
+        worktree: WorktreeInfo,
+    },
+    WorktreeOpened {
+        workspace: WorkspaceInfo,
+        worktree: WorktreeInfo,
+        already_open: bool,
+    },
+    WorktreeRemoved {
+        workspace_id: String,
+        worktree: WorktreeInfo,
+        forced: bool,
     },
     TabCreated {
         tab: TabInfo,
@@ -1146,6 +2111,20 @@ pub enum EventData {
         pane_id: String,
         workspace_id: String,
     },
+    PaneMoved {
+        previous_pane_id: String,
+        previous_workspace_id: String,
+        previous_tab_id: String,
+        pane: Box<PaneInfo>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        created_workspace: Option<WorkspaceInfo>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        created_tab: Option<TabInfo>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        closed_workspace_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        closed_tab_id: Option<String>,
+    },
     PaneOutputChanged {
         pane_id: String,
         workspace_id: String,
@@ -1165,6 +2144,8 @@ pub enum EventData {
         pane_id: String,
         workspace_id: String,
         agent_status: AgentStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1362,6 +2343,7 @@ mod tests {
                 cwd: Some("/tmp".into()),
                 focus: true,
                 label: Some("api".into()),
+                env: HashMap::new(),
             }),
         };
 
@@ -1791,5 +2773,56 @@ mod tests {
                 agent_status: AgentStatus::Done,
             }
         );
+    }
+
+    #[test]
+    fn plugin_request_and_response_round_trip() {
+        let request = Request {
+            id: "plugin_link".into(),
+            method: Method::PluginLink(PluginLinkParams {
+                path: "/plugins/worktree-bootstrap".into(),
+                enabled: true,
+                source: None,
+            }),
+        };
+        let json = serde_json::to_value(&request).unwrap();
+        assert_eq!(json["method"], "plugin.link");
+        assert_eq!(json["params"]["path"], "/plugins/worktree-bootstrap");
+        let restored: Request = serde_json::from_value(json).unwrap();
+        assert_eq!(restored, request);
+
+        let plugin = InstalledPluginInfo {
+            plugin_id: "example.worktree-bootstrap".into(),
+            name: "Worktree Bootstrap".into(),
+            version: "1.0.0".into(),
+            min_hako_version: "0.1.0".into(),
+            description: Some("Create useful worktrees".into()),
+            manifest_path: "/plugins/worktree-bootstrap/hako-plugin.toml".into(),
+            plugin_root: "/plugins/worktree-bootstrap".into(),
+            enabled: true,
+            platforms: None,
+            build: Vec::new(),
+            actions: vec![PluginManifestAction {
+                id: "bootstrap".into(),
+                title: "Bootstrap".into(),
+                description: None,
+                contexts: vec![PluginActionContext::Workspace],
+                platforms: None,
+                command: vec!["hako".into(), "worktree".into(), "create".into()],
+            }],
+            events: Vec::new(),
+            panes: Vec::new(),
+            link_handlers: Vec::new(),
+            source: PluginSourceInfo::default(),
+            warnings: Vec::new(),
+        };
+        let response = SuccessResponse {
+            id: "plugin_link".into(),
+            result: ResponseResult::PluginLinked { plugin },
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("\"type\":\"plugin_linked\""));
+        let restored: SuccessResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, response);
     }
 }

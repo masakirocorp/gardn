@@ -269,14 +269,42 @@ impl AppState {
         self.navigator.selected = self.current_navigator_row_index().unwrap_or(0);
         self.ensure_navigator_selection_visible();
     }
+    #[cfg(test)]
+    pub(crate) fn open_navigator_from(
+        &mut self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    ) {
+        self.navigator.query.clear();
+        self.navigator.search_focused = false;
+        self.navigator.state_filter = None;
+        self.navigator.scroll = 0;
+        self.navigator.expanded_workspaces.clear();
+
+        for ws in &self.workspaces {
+            self.navigator.expanded_workspaces.insert(ws.id.clone());
+        }
+
+        self.mode = Mode::Navigator;
+        self.navigator.selected = self
+            .current_navigator_row_index_from(terminal_runtimes)
+            .unwrap_or(0);
+        self.ensure_navigator_selection_visible();
+    }
 
     pub(crate) fn navigator_rows(&self) -> Vec<NavigatorRow> {
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        self.navigator_rows_from(&terminal_runtimes)
+    }
+
+    pub(crate) fn navigator_rows_from(
+        &self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    ) -> Vec<NavigatorRow> {
         let query = self.navigator.query.trim().to_lowercase();
         let query_kind = navigator_query_kind(&query, self.navigator.state_filter);
-        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let mut rows = Vec::new();
         for (ws_idx, ws) in self.workspaces.iter().enumerate() {
-            let workspace_label = ws.display_name_from(&self.terminals, &terminal_runtimes);
+            let workspace_label = ws.display_name_from(&self.terminals, terminal_runtimes);
             let activity = workspace_activity_summary(ws, &self.terminals);
             let workspace_search_text = format!("{workspace_label} {activity}").to_lowercase();
             let workspace_matches = match query_kind {
@@ -470,7 +498,15 @@ impl AppState {
     }
 
     fn current_navigator_row_index(&self) -> Option<usize> {
-        let rows = self.navigator_rows();
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        self.current_navigator_row_index_from(&terminal_runtimes)
+    }
+
+    fn current_navigator_row_index_from(
+        &self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    ) -> Option<usize> {
+        let rows = self.navigator_rows_from(terminal_runtimes);
         rows.iter()
             .position(|row| matches!(row.target, NavigatorTarget::Pane { .. }) && row.is_current)
             .or_else(|| rows.iter().position(|row| row.is_current))
@@ -1110,13 +1146,28 @@ impl AppState {
                 tab.render_dirty.clone(),
             )
         };
+        let launch_env = self
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| {
+                let tab_number = workspace.public_tab_number(tab_idx)?;
+                let pane_number = workspace.public_pane_number(pane_id)?;
+                Some(
+                    crate::pane::PaneLaunchEnv::from_extra(Vec::new()).with_identity(
+                        workspace.id.clone(),
+                        crate::workspace::public_tab_id_for_number(&workspace.id, tab_number),
+                        crate::workspace::public_pane_id_for_number(&workspace.id, pane_number),
+                    ),
+                )
+            })
+            .ok_or_else(|| "command pane identity disappeared".to_string())?;
         let runtime = crate::terminal::TerminalRuntime::spawn_shell_command(
             pane_id,
             rows.max(4),
             cols.max(10),
             command.root.clone(),
             &command.command,
-            &[],
+            &launch_env,
             self.pane_scrollback_limit_bytes,
             self.host_terminal_theme,
             events,
@@ -2042,6 +2093,15 @@ impl AppState {
             .collect()
     }
 
+    pub(crate) fn pane_ids_for_workspace(&self, ws_idx: usize) -> Vec<PaneId> {
+        self.workspaces
+            .get(ws_idx)
+            .into_iter()
+            .flat_map(|ws| &ws.tabs)
+            .flat_map(|tab| tab.layout.pane_ids())
+            .collect()
+    }
+
     pub(crate) fn terminal_ids_for_tab(
         &self,
         ws_idx: usize,
@@ -2054,6 +2114,14 @@ impl AppState {
             .flat_map(|tab| tab.panes.values())
             .map(|pane| pane.attached_terminal_id.clone())
             .collect()
+    }
+
+    pub(crate) fn pane_ids_for_tab(&self, ws_idx: usize, tab_idx: usize) -> Vec<PaneId> {
+        self.workspaces
+            .get(ws_idx)
+            .and_then(|ws| ws.tabs.get(tab_idx))
+            .map(|tab| tab.layout.pane_ids())
+            .unwrap_or_default()
     }
 
     pub(crate) fn terminal_id_for_pane(
@@ -2129,6 +2197,15 @@ impl AppState {
         self.close_selected_workspace();
     }
 
+    pub(crate) fn remove_plugin_pane_records(
+        &mut self,
+        pane_ids: impl IntoIterator<Item = PaneId>,
+    ) {
+        for pane_id in pane_ids {
+            self.plugin_panes.remove(&pane_id);
+        }
+    }
+
     pub fn close_selected_workspace(&mut self) {
         if self.workspaces.is_empty() {
             return;
@@ -2156,12 +2233,15 @@ impl AppState {
             .unwrap_or_else(|| vec![self.selected]);
 
         let mut terminal_ids = Vec::new();
+        let mut pane_ids = Vec::new();
         for idx in &close_indices {
             terminal_ids.extend(self.terminal_ids_for_workspace(*idx));
+            pane_ids.extend(self.pane_ids_for_workspace(*idx));
             if let Some(workspace_id) = self.workspaces.get(*idx).map(|ws| ws.id.clone()) {
                 crate::logging::workspace_closed(&workspace_id);
             }
         }
+        self.remove_plugin_pane_records(pane_ids);
         for idx in close_indices.iter().rev() {
             self.workspaces.remove(*idx);
         }
@@ -2386,9 +2466,14 @@ impl AppState {
             .and_then(|(i, pane_id)| self.terminal_id_for_pane(i, pane_id))
             .into_iter()
             .collect::<Vec<_>>();
+        let pane_ids = active
+            .and_then(|i| self.workspaces.get(i).and_then(|ws| ws.focused_pane_id()))
+            .into_iter()
+            .collect::<Vec<_>>();
         let should_close_workspace = active
             .and_then(|i| self.workspaces.get_mut(i))
             .is_some_and(|ws| ws.close_focused());
+        self.remove_plugin_pane_records(pane_ids);
         if should_close_workspace {
             if let Some(active) = active {
                 self.selected = active;
@@ -2429,18 +2514,23 @@ impl AppState {
         }
         self.selection = None;
         self.selection_autoscroll = None;
+        let terminal_ids = self.terminal_ids_for_tab(ws_idx, tab_idx);
+        let pane_ids = self.pane_ids_for_tab(ws_idx, tab_idx);
         let Some(ws) = self.workspaces.get(ws_idx) else {
             return false;
         };
-        let terminal_ids = self.terminal_ids_for_tab(ws_idx, tab_idx);
         let workspace_id = ws.id.clone();
-        let closing_tab_id = format!("{}:{}", workspace_id, tab_idx + 1);
+        let closing_tab_id = ws
+            .public_tab_number(tab_idx)
+            .map(|number| crate::workspace::public_tab_id_for_number(&workspace_id, number))
+            .unwrap_or_else(|| format!("{}:{}", workspace_id, tab_idx + 1));
         let Some(ws) = self.workspaces.get_mut(ws_idx) else {
             return false;
         };
         if !ws.close_tab_allow_empty(tab_idx) {
             return false;
         }
+        self.remove_plugin_pane_records(pane_ids);
         self.remove_unattached_terminal_ids(terminal_ids);
         crate::logging::tab_closed(&workspace_id, &closing_tab_id);
         self.mark_session_dirty();
@@ -3131,6 +3221,7 @@ impl AppState {
                 let _ = repo_summaries;
                 Vec::new()
             }
+            AppEvent::PluginCommandFinished { .. } => Vec::new(),
         }
     }
 
@@ -3443,6 +3534,7 @@ impl AppState {
         exit_success: bool,
     ) {
         self.pending_agent_notifications.remove(&pane_id);
+        self.plugin_panes.remove(&pane_id);
         let ws_idx = self
             .workspaces
             .iter()
@@ -3870,6 +3962,68 @@ mod tests {
                 tab_idx: 1
             }
         )));
+    }
+
+    #[tokio::test]
+    async fn navigator_rows_match_live_root_runtime_cwd_workspace_label() {
+        let unique = format!(
+            "hako-navigator-runtime-cwd-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let root = std::env::temp_dir().join(unique);
+        let stale_cwd = root.join("issue-264-nix-support");
+        let live_cwd = root.join("hako");
+        std::fs::create_dir_all(stale_cwd.join(".git")).unwrap();
+        std::fs::create_dir_all(live_cwd.join(".git")).unwrap();
+
+        let mut state = AppState::test_new();
+        let mut workspace = Workspace::test_new("stale-name");
+        workspace.custom_name = None;
+        workspace.identity_cwd = stale_cwd.clone();
+        let pane = workspace.tabs[0].root_pane;
+        state.workspaces = vec![workspace];
+        state.ensure_test_terminals();
+        let terminal_id = state.workspaces[0].terminal_id(pane).cloned().unwrap();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = stale_cwd;
+
+        let (events, _) = tokio::sync::mpsc::channel(4);
+        let runtime = crate::terminal::TerminalRuntime::spawn(
+            pane,
+            24,
+            80,
+            live_cwd.clone(),
+            0,
+            crate::terminal_theme::TerminalTheme::default(),
+            crate::pane::PaneShellConfig::new("/bin/sh", crate::config::ShellModeConfig::NonLogin),
+            &crate::pane::PaneLaunchEnv::default(),
+            events,
+            std::sync::Arc::new(tokio::sync::Notify::new()),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while runtime.cwd() != Some(live_cwd.clone()) && std::time::Instant::now() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        let mut runtime_registry = crate::terminal::TerminalRuntimeRegistry::new();
+        runtime_registry.insert(terminal_id, runtime);
+        state.open_navigator_from(&runtime_registry);
+        state.navigator.query = "hako".into();
+        let rows = state.navigator_rows_from(&runtime_registry);
+
+        for (_, runtime) in runtime_registry.drain() {
+            runtime.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(root);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].label, "hako (1)");
     }
 
     #[test]
@@ -5659,11 +5813,19 @@ mod tests {
     #[test]
     fn close_pane_removes_from_workspace() {
         let mut state = app_with_workspaces(&["test"]);
-        state.workspaces[0].test_split(Direction::Horizontal);
+        let closed = state.workspaces[0].test_split(Direction::Horizontal);
         assert_eq!(state.workspaces[0].panes.len(), 2);
+        state.plugin_panes.insert(
+            closed,
+            crate::app::state::PluginPaneRecord {
+                plugin_id: "example.pane".into(),
+                entrypoint: "board".into(),
+            },
+        );
 
         state.close_pane();
         assert_eq!(state.workspaces[0].panes.len(), 1);
+        assert!(!state.plugin_panes.contains_key(&closed));
     }
 
     #[test]
@@ -5687,23 +5849,38 @@ mod tests {
         let pane_id = state.workspaces[0].tabs[tab_idx].root_pane;
         let terminal_id = state.terminal_id_for_pane(0, pane_id).unwrap();
         state.session_dirty = false;
+        state.plugin_panes.insert(
+            pane_id,
+            crate::app::state::PluginPaneRecord {
+                plugin_id: "example.pane".into(),
+                entrypoint: "board".into(),
+            },
+        );
 
         state.close_tab();
 
         assert!(!state.terminals.contains_key(&terminal_id));
+        assert!(!state.plugin_panes.contains_key(&pane_id));
         assert!(state.session_dirty);
     }
 
     #[test]
     fn close_workspace_removes_unattached_terminal_states() {
         let mut state = app_with_workspaces(&["one", "two"]);
-        let terminal_id = state
-            .terminal_id_for_pane(0, state.workspaces[0].tabs[0].root_pane)
-            .unwrap();
+        let pane_id = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.terminal_id_for_pane(0, pane_id).unwrap();
+        state.plugin_panes.insert(
+            pane_id,
+            crate::app::state::PluginPaneRecord {
+                plugin_id: "example.pane".into(),
+                entrypoint: "board".into(),
+            },
+        );
 
         state.close_selected_workspace();
 
         assert!(!state.terminals.contains_key(&terminal_id));
+        assert!(!state.plugin_panes.contains_key(&pane_id));
     }
 
     #[test]

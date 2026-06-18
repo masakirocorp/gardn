@@ -123,6 +123,40 @@ impl TileLayout {
         new_id
     }
 
+    /// Split the focused pane with an explicit first-pane ratio.
+    pub fn split_focused_with_ratio(&mut self, direction: Direction, ratio: f32) -> PaneId {
+        let new_id = PaneId::alloc();
+        let placeholder = PaneId::from_raw(0);
+        let old = std::mem::replace(&mut self.root, Node::Pane(placeholder));
+        self.root = split_at_with_ratio(old, self.focus, direction, new_id, ratio.clamp(0.1, 0.9));
+        self.focus = new_id;
+        new_id
+    }
+
+    /// Insert an existing pane id next to a target pane without allocating a new pane.
+    pub fn insert_pane_near(
+        &mut self,
+        target: PaneId,
+        moved: PaneId,
+        direction: Direction,
+        ratio: f32,
+    ) -> bool {
+        let ids = self.pane_ids();
+        if !ids.contains(&target) || ids.contains(&moved) {
+            return false;
+        }
+
+        let placeholder = PaneId::from_raw(0);
+        let old = std::mem::replace(&mut self.root, Node::Pane(placeholder));
+        let (new_root, inserted) =
+            insert_existing_pane(old, target, moved, direction, ratio.clamp(0.1, 0.9));
+        self.root = new_root;
+        if inserted {
+            self.focus = moved;
+        }
+        inserted
+    }
+
     /// Close the focused pane. Returns false if it's the last pane.
     pub fn close_focused(&mut self) -> bool {
         if self.pane_count() <= 1 {
@@ -393,6 +427,99 @@ fn split_at(node: Node, target: PaneId, direction: Direction, new_id: PaneId) ->
             first: Box::new(split_at(*first, target, direction, new_id)),
             second: Box::new(split_at(*second, target, direction, new_id)),
         },
+    }
+}
+
+fn split_at_with_ratio(
+    node: Node,
+    target: PaneId,
+    direction: Direction,
+    new_id: PaneId,
+    split_ratio: f32,
+) -> Node {
+    match node {
+        Node::Pane(id) if id == target => Node::Split {
+            direction,
+            ratio: split_ratio,
+            first: Box::new(Node::Pane(id)),
+            second: Box::new(Node::Pane(new_id)),
+        },
+        Node::Pane(_) => node,
+        Node::Split {
+            direction: d,
+            ratio,
+            first,
+            second,
+        } => Node::Split {
+            direction: d,
+            ratio,
+            first: Box::new(split_at_with_ratio(
+                *first,
+                target,
+                direction,
+                new_id,
+                split_ratio,
+            )),
+            second: Box::new(split_at_with_ratio(
+                *second,
+                target,
+                direction,
+                new_id,
+                split_ratio,
+            )),
+        },
+    }
+}
+
+fn insert_existing_pane(
+    node: Node,
+    target: PaneId,
+    moved: PaneId,
+    direction: Direction,
+    new_ratio: f32,
+) -> (Node, bool) {
+    match node {
+        Node::Pane(id) if id == target => (
+            Node::Split {
+                direction,
+                ratio: new_ratio,
+                first: Box::new(Node::Pane(id)),
+                second: Box::new(Node::Pane(moved)),
+            },
+            true,
+        ),
+        Node::Pane(_) => (node, false),
+        Node::Split {
+            direction: d,
+            ratio,
+            first,
+            second,
+        } => {
+            let (first_node, inserted) =
+                insert_existing_pane(*first, target, moved, direction, new_ratio);
+            if inserted {
+                return (
+                    Node::Split {
+                        direction: d,
+                        ratio,
+                        first: Box::new(first_node),
+                        second,
+                    },
+                    true,
+                );
+            }
+            let (second_node, inserted) =
+                insert_existing_pane(*second, target, moved, direction, new_ratio);
+            (
+                Node::Split {
+                    direction: d,
+                    ratio,
+                    first: Box::new(first_node),
+                    second: Box::new(second_node),
+                },
+                inserted,
+            )
+        }
     }
 }
 

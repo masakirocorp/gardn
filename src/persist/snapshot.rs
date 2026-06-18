@@ -133,6 +133,14 @@ pub struct WorkspaceSnapshot {
     #[serde(default = "default_group_id")]
     pub group_id: String,
     pub identity_cwd: PathBuf,
+    #[serde(default)]
+    pub public_pane_numbers: HashMap<u32, usize>,
+    #[serde(default)]
+    pub next_public_pane_number: usize,
+    #[serde(default)]
+    pub public_tab_numbers: Vec<usize>,
+    #[serde(default)]
+    pub next_public_tab_number: usize,
     pub tabs: Vec<TabSnapshot>,
     #[serde(default)]
     pub active_tab: usize,
@@ -282,6 +290,10 @@ impl From<LegacyWorkspaceSnapshot> for WorkspaceSnapshot {
             custom_name: snap.custom_name,
             group_id: default_group_id(),
             identity_cwd,
+            public_pane_numbers: HashMap::new(),
+            next_public_pane_number: 0,
+            public_tab_numbers: Vec::new(),
+            next_public_tab_number: 0,
             tabs: vec![tab],
             active_tab: 0,
         }
@@ -553,6 +565,14 @@ fn capture_workspace(
         custom_name: ws.custom_name.clone(),
         group_id: ws.group_id.clone(),
         identity_cwd: ws.identity_cwd.clone(),
+        public_pane_numbers: ws
+            .public_pane_numbers
+            .iter()
+            .map(|(pane_id, number)| (pane_id.raw(), *number))
+            .collect(),
+        next_public_pane_number: ws.next_public_pane_number,
+        public_tab_numbers: ws.tabs.iter().map(|tab| tab.number).collect(),
+        next_public_tab_number: ws.next_public_tab_number,
         tabs: ws
             .tabs
             .iter()
@@ -953,6 +973,30 @@ mod tests {
         assert_eq!(semantics.metadata_report_sequences["hako:omp:metadata"], 9);
     }
 
+    #[test]
+    fn capture_tracks_public_identity_counters() {
+        let mut state = state_with_workspaces(&["one"]);
+        let second = state.workspaces[0].test_split(Direction::Horizontal);
+        let third = state.workspaces[0].test_split(Direction::Vertical);
+        let second_tab = state.workspaces[0].test_add_tab(None);
+
+        state.workspaces[0].close_pane(second);
+
+        let snapshot = capture_from_state(&state);
+        let workspace = &snapshot.workspaces[0];
+        assert_eq!(
+            workspace.public_pane_numbers,
+            HashMap::from([
+                (state.workspaces[0].tabs[0].root_pane.raw(), 1),
+                (third.raw(), 3),
+                (state.workspaces[0].tabs[second_tab].root_pane.raw(), 4),
+            ])
+        );
+        assert_eq!(workspace.next_public_pane_number, 5);
+        assert_eq!(workspace.public_tab_numbers, vec![1, 2]);
+        assert_eq!(workspace.next_public_tab_number, 3);
+    }
+
     fn root_split_ratio(tab: &TabSnapshot) -> Option<f32> {
         match &tab.layout {
             LayoutSnapshot::Split { ratio, .. } => Some(*ratio),
@@ -1086,6 +1130,10 @@ mod tests {
                 custom_name: Some("pi-mono".to_string()),
                 group_id: default_group_id(),
                 identity_cwd: PathBuf::from("/home/can/Projects/hako"),
+                public_pane_numbers: HashMap::from([(0, 1), (1, 2)]),
+                next_public_pane_number: 3,
+                public_tab_numbers: vec![1],
+                next_public_tab_number: 2,
                 tabs: vec![TabSnapshot {
                     custom_name: Some("api".to_string()),
                     layout: LayoutSnapshot::Split {

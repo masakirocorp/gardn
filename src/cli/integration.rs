@@ -103,13 +103,13 @@ fn parse_integration_target(
 ) -> std::io::Result<Option<IntegrationTarget>> {
     let Some(target) = args.first().map(|arg| arg.as_str()) else {
         eprintln!(
-            "usage: hako integration {action} <pi|omp|claude|codex|kimi|droid|copilot|opencode|hermes|qodercli|cursor>"
+            "usage: hako integration {action} <pi|omp|claude|codex|devin|kimi|droid|copilot|opencode|hermes|qodercli|cursor>"
         );
         return Ok(None);
     };
     if args.len() != 1 {
         eprintln!(
-            "usage: hako integration {action} <pi|omp|claude|codex|kimi|droid|copilot|opencode|hermes|qodercli|cursor>"
+            "usage: hako integration {action} <pi|omp|claude|codex|devin|kimi|droid|copilot|opencode|hermes|qodercli|cursor>"
         );
         return Ok(None);
     }
@@ -120,6 +120,7 @@ fn parse_integration_target(
         "claude" => IntegrationTarget::Claude,
         "codex" => IntegrationTarget::Codex,
         "copilot" => IntegrationTarget::Copilot,
+        "devin" => IntegrationTarget::Devin,
         "kimi" => IntegrationTarget::Kimi,
         "droid" => IntegrationTarget::Droid,
         "opencode" => IntegrationTarget::Opencode,
@@ -128,7 +129,7 @@ fn parse_integration_target(
         "cursor" => IntegrationTarget::Cursor,
         _ => {
             eprintln!("unknown integration target: {target}");
-            eprintln!("currently supported: pi, omp, claude, codex, kimi, droid, copilot, opencode, hermes, qodercli, cursor");
+            eprintln!("currently supported: pi, omp, claude, codex, devin, kimi, droid, copilot, opencode, hermes, qodercli, cursor");
             return Ok(None);
         }
     };
@@ -142,6 +143,7 @@ fn print_integration_help() {
     eprintln!("  hako integration install omp");
     eprintln!("  hako integration install claude");
     eprintln!("  hako integration install codex");
+    eprintln!("  hako integration install devin");
     eprintln!("  hako integration install kimi");
     eprintln!("  hako integration install droid");
     eprintln!("  hako integration install opencode");
@@ -152,6 +154,7 @@ fn print_integration_help() {
     eprintln!("  hako integration uninstall omp");
     eprintln!("  hako integration uninstall claude");
     eprintln!("  hako integration uninstall codex");
+    eprintln!("  hako integration uninstall devin");
     eprintln!("  hako integration uninstall kimi");
     eprintln!("  hako integration uninstall droid");
     eprintln!("  hako integration uninstall opencode");

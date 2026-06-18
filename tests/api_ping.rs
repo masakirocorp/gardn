@@ -6,6 +6,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -991,6 +992,184 @@ fn agent_methods_round_trip_over_socket() {
 }
 
 #[test]
+fn pane_move_round_trips_over_socket() {
+    let _lock = test_lock();
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let socket_path = runtime_dir.join("hako.sock");
+
+    let child = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    wait_for_socket(&socket_path, Duration::from_secs(5));
+
+    let created = send_request(
+        &socket_path,
+        &format!(
+            r#"{{"id":"req_pm_1","method":"workspace.create","params":{{"cwd":"{}","focus":true}}}}"#,
+            base.display()
+        ),
+    );
+    let workspace_id = created["result"]["workspace"]["workspace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let source_tab_id = created["result"]["workspace"]["active_tab_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let source_pane_id = created["result"]["root_pane"]["pane_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let source_terminal_id = created["result"]["root_pane"]["terminal_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let tab_created = send_request(
+        &socket_path,
+        &format!(
+            r#"{{"id":"req_pm_2","method":"tab.create","params":{{"workspace_id":"{}","focus":false}}}}"#,
+            workspace_id
+        ),
+    );
+    let target_tab_id = tab_created["result"]["tab"]["tab_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let target_pane_id = tab_created["result"]["root_pane"]["pane_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let moved = send_request(
+        &socket_path,
+        &format!(
+            r#"{{"id":"req_pm_3","method":"pane.move","params":{{"pane_id":"{}","destination":{{"type":"tab","tab_id":"{}","target_pane_id":"{}","split":"right","ratio":0.25}},"focus":true}}}}"#,
+            source_pane_id, target_tab_id, target_pane_id
+        ),
+    );
+
+    assert_eq!(moved["result"]["type"], "pane_move");
+    assert_eq!(moved["result"]["move_result"]["changed"], true);
+    assert_eq!(
+        moved["result"]["move_result"]["previous_pane_id"],
+        source_pane_id
+    );
+    assert_eq!(
+        moved["result"]["move_result"]["previous_tab_id"],
+        source_tab_id
+    );
+    assert_eq!(
+        moved["result"]["move_result"]["pane"]["pane_id"],
+        source_pane_id
+    );
+    assert_eq!(
+        moved["result"]["move_result"]["pane"]["tab_id"],
+        target_tab_id
+    );
+    assert_eq!(
+        moved["result"]["move_result"]["pane"]["terminal_id"],
+        source_terminal_id
+    );
+    assert_eq!(
+        moved["result"]["move_result"]["closed_tab_id"],
+        source_tab_id
+    );
+    assert_eq!(
+        moved["result"]["move_result"]["target_layout"]["panes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
+    cleanup_spawned_hako(child, base);
+}
+
+#[test]
+fn pane_move_cli_round_trips_over_socket() {
+    let _lock = test_lock();
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let socket_path = runtime_dir.join("hako.sock");
+
+    let child = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    wait_for_socket(&socket_path, Duration::from_secs(5));
+
+    let created = send_request(
+        &socket_path,
+        &format!(
+            r#"{{"id":"req_pm_cli_1","method":"workspace.create","params":{{"cwd":"{}","focus":true}}}}"#,
+            base.display()
+        ),
+    );
+    let workspace_id = created["result"]["workspace"]["workspace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let source_pane_id = created["result"]["root_pane"]["pane_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let tab_created = send_request(
+        &socket_path,
+        &format!(
+            r#"{{"id":"req_pm_cli_2","method":"tab.create","params":{{"workspace_id":"{}","focus":false}}}}"#,
+            workspace_id
+        ),
+    );
+    let target_tab_id = tab_created["result"]["tab"]["tab_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let target_pane_id = tab_created["result"]["root_pane"]["pane_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_hako"))
+        .args([
+            "pane",
+            "move",
+            &source_pane_id,
+            "--tab",
+            &target_tab_id,
+            "--target-pane",
+            &target_pane_id,
+            "--split",
+            "right",
+            "--ratio",
+            "0.25",
+            "--focus",
+        ])
+        .env("HAKO_SOCKET_PATH", &socket_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let moved: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    assert_eq!(moved["result"]["type"], "pane_move");
+    assert_eq!(moved["result"]["move_result"]["changed"], true);
+    assert_eq!(
+        moved["result"]["move_result"]["pane"]["pane_id"],
+        source_pane_id
+    );
+    assert_eq!(
+        moved["result"]["move_result"]["pane"]["tab_id"],
+        target_tab_id
+    );
+
+    cleanup_spawned_hako(child, base);
+}
+
+#[test]
 fn tab_create_with_no_focus_preserves_active_tab() {
     let _lock = test_lock();
     let base = unique_test_dir();
@@ -1029,7 +1208,6 @@ fn tab_create_with_no_focus_preserves_active_tab() {
         .as_str()
         .unwrap()
         .to_string();
-    assert_eq!(second_tab_id, format!("{workspace_id}:2"));
     assert_eq!(tab_created["result"]["tab"]["focused"], false);
 
     let tab_list = send_request(
@@ -1537,7 +1715,7 @@ fn pane_report_agent_updates_effective_state() {
     );
     assert_eq!(
         blank_source_metadata["error"]["code"],
-        "invalid_metadata_request"
+        "invalid_metadata_source"
     );
 
     let blank_title_clear_metadata = send_request(
@@ -1561,7 +1739,7 @@ fn pane_report_agent_updates_effective_state() {
     );
     assert_eq!(
         blank_authority_source_metadata["error"]["code"],
-        "invalid_metadata_request"
+        "invalid_metadata_source"
     );
 
     cleanup_spawned_hako(child, base);
@@ -2063,7 +2241,10 @@ fn pane_info_and_subscriptions_expose_done_agent_status() {
         .as_str()
         .unwrap()
         .to_string();
-    let background_pane_id = format!("{}-1", workspace_id);
+    let background_pane_id = created["result"]["root_pane"]["pane_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let tab_created = send_request(
         &socket_path,

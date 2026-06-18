@@ -25,23 +25,13 @@ const TAB_DRAG_THRESHOLD: u16 = 1;
 const MODAL_WHEEL_SCROLL_ROWS: i16 = 3;
 const MODAL_PAGE_SCROLL_ROWS: i16 = 8;
 
-#[cfg(target_os = "macos")]
-fn modified_url_click_modifier() -> KeyModifiers {
-    KeyModifiers::SUPER
-}
-
-#[cfg(not(target_os = "macos"))]
 fn modified_url_click_modifier() -> KeyModifiers {
     KeyModifiers::CONTROL
 }
 
 #[cfg(test)]
 #[test]
-fn modified_url_click_modifier_matches_platform_primary_modifier() {
-    #[cfg(target_os = "macos")]
-    assert_eq!(modified_url_click_modifier(), KeyModifiers::SUPER);
-
-    #[cfg(not(target_os = "macos"))]
+fn modified_url_click_modifier_matches_terminal_mouse_reporting() {
     assert_eq!(modified_url_click_modifier(), KeyModifiers::CONTROL);
 }
 
@@ -749,6 +739,13 @@ impl App {
         };
 
         self.last_pane_click = None;
+        match self.invoke_plugin_link_handler_for_url(&url, info.id) {
+            Ok(true) => return true,
+            Ok(false) => {}
+            Err(err) => {
+                tracing::warn!(err = %err, url = %url, "failed to invoke plugin link handler");
+            }
+        }
         if let Err(err) = crate::platform::open_url(&url) {
             tracing::warn!(err = %err, url = %url, "failed to open pane URL");
         }
@@ -963,6 +960,7 @@ impl AppState {
             self.pane_scrollback_limit_bytes,
             self.host_terminal_theme,
             crate::pane::PaneShellConfig::new(&self.default_shell, self.shell_mode),
+            Vec::new(),
         ) else {
             return;
         };

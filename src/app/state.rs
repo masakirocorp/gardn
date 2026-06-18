@@ -14,6 +14,15 @@ use crate::layout::{PaneId, PaneInfo, SplitBorder};
 use crate::selection::Selection;
 use crate::terminal_theme::{TerminalTheme, ThemeAppearance};
 
+pub(crate) type InstalledPluginRegistry =
+    std::collections::HashMap<String, crate::api::schema::InstalledPluginInfo>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PluginPaneRecord {
+    pub plugin_id: String,
+    pub entrypoint: String,
+}
+
 // ---------------------------------------------------------------------------
 // Selection autoscroll types
 // ---------------------------------------------------------------------------
@@ -2404,6 +2413,7 @@ pub struct AppState {
     /// Terminal ids whose size is currently owned by a direct attach client.
     pub direct_attach_resize_locks: std::collections::HashSet<crate::terminal::TerminalId>,
     pub(crate) pane_id_aliases: std::collections::HashMap<u32, PaneId>,
+    pub(crate) public_pane_id_aliases: std::collections::HashMap<String, PaneId>,
     pub requested_git_diff_workspace: Option<usize>,
     pub workspaces: Vec<Workspace>,
     pub active: Option<usize>,
@@ -2583,6 +2593,14 @@ pub struct AppState {
     pub agent_manifest_update_status: crate::detect::manifest_update::ManifestUpdateStatus,
     /// Result messages from the latest integration install action.
     pub integration_install_messages: Vec<String>,
+    /// Installed or linked plugins known to this running Hako instance.
+    pub(crate) installed_plugins: InstalledPluginRegistry,
+    /// Pane ids opened through the plugin pane API.
+    pub(crate) plugin_panes: std::collections::HashMap<PaneId, PluginPaneRecord>,
+    /// Recent plugin action/event command executions.
+    pub(crate) plugin_command_logs: Vec<crate::api::schema::PluginCommandLogInfo>,
+    pub(crate) next_plugin_command_log_id: u64,
+    pub(crate) plugin_commands_in_flight: usize,
     /// Highlight state for the bottom-right global launcher menu.
     pub global_menu: MenuListState,
     /// Highlight state for the sidebar group switcher menu.
@@ -3120,6 +3138,7 @@ impl AppState {
             next_agent_activity_seq: 0,
             direct_attach_resize_locks: std::collections::HashSet::new(),
             pane_id_aliases: std::collections::HashMap::new(),
+            public_pane_id_aliases: std::collections::HashMap::new(),
             workspaces: Vec::new(),
             active: None,
             selected: 0,
@@ -3335,6 +3354,11 @@ impl AppState {
             agent_manifest_update_status:
                 crate::detect::manifest_update::ManifestUpdateStatus::default(),
             integration_install_messages: Vec::new(),
+            installed_plugins: std::collections::HashMap::new(),
+            plugin_panes: std::collections::HashMap::new(),
+            plugin_command_logs: Vec::new(),
+            next_plugin_command_log_id: 1,
+            plugin_commands_in_flight: 0,
             global_menu: MenuListState::new(0),
             group_menu: MenuListState::new(0),
             agent_menu: MenuListState::new(0),

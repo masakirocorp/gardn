@@ -65,6 +65,185 @@ pub enum ClientLaunchMode {
     TerminalAttach,
 }
 
+/// Source of a direct terminal-attach scroll request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AttachScrollSource {
+    Wheel,
+    Keyboard,
+    Scrollbar,
+}
+
+/// Direction of a direct terminal-attach scroll request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AttachScrollDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+/// Serializable key code sent by clients that can produce semantic input events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClientKeyCode {
+    Backspace,
+    Enter,
+    Left,
+    Right,
+    Up,
+    Down,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    Tab,
+    BackTab,
+    Delete,
+    Insert,
+    F(u8),
+    Char(char),
+    Null,
+    Esc,
+}
+
+impl ClientKeyCode {
+    fn to_crossterm(self) -> crossterm::event::KeyCode {
+        match self {
+            Self::Backspace => crossterm::event::KeyCode::Backspace,
+            Self::Enter => crossterm::event::KeyCode::Enter,
+            Self::Left => crossterm::event::KeyCode::Left,
+            Self::Right => crossterm::event::KeyCode::Right,
+            Self::Up => crossterm::event::KeyCode::Up,
+            Self::Down => crossterm::event::KeyCode::Down,
+            Self::Home => crossterm::event::KeyCode::Home,
+            Self::End => crossterm::event::KeyCode::End,
+            Self::PageUp => crossterm::event::KeyCode::PageUp,
+            Self::PageDown => crossterm::event::KeyCode::PageDown,
+            Self::Tab => crossterm::event::KeyCode::Tab,
+            Self::BackTab => crossterm::event::KeyCode::BackTab,
+            Self::Delete => crossterm::event::KeyCode::Delete,
+            Self::Insert => crossterm::event::KeyCode::Insert,
+            Self::F(n) => crossterm::event::KeyCode::F(n),
+            Self::Char(ch) => crossterm::event::KeyCode::Char(ch),
+            Self::Null => crossterm::event::KeyCode::Null,
+            Self::Esc => crossterm::event::KeyCode::Esc,
+        }
+    }
+}
+
+/// Serializable key event kind sent by clients that can produce semantic input events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClientKeyKind {
+    Press,
+    Repeat,
+    Release,
+}
+
+impl ClientKeyKind {
+    fn to_crossterm(self) -> crossterm::event::KeyEventKind {
+        match self {
+            Self::Press => crossterm::event::KeyEventKind::Press,
+            Self::Repeat => crossterm::event::KeyEventKind::Repeat,
+            Self::Release => crossterm::event::KeyEventKind::Release,
+        }
+    }
+}
+
+/// Serializable mouse button sent by clients that can produce semantic input events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClientMouseButton {
+    Left,
+    Right,
+    Middle,
+}
+
+impl ClientMouseButton {
+    fn to_crossterm(self) -> crossterm::event::MouseButton {
+        match self {
+            Self::Left => crossterm::event::MouseButton::Left,
+            Self::Right => crossterm::event::MouseButton::Right,
+            Self::Middle => crossterm::event::MouseButton::Middle,
+        }
+    }
+}
+
+/// Serializable mouse event kind sent by clients that can produce semantic input events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClientMouseKind {
+    Down(ClientMouseButton),
+    Up(ClientMouseButton),
+    Drag(ClientMouseButton),
+    Moved,
+    ScrollUp,
+    ScrollDown,
+    ScrollLeft,
+    ScrollRight,
+}
+
+impl ClientMouseKind {
+    fn to_crossterm(self) -> crossterm::event::MouseEventKind {
+        match self {
+            Self::Down(button) => crossterm::event::MouseEventKind::Down(button.to_crossterm()),
+            Self::Up(button) => crossterm::event::MouseEventKind::Up(button.to_crossterm()),
+            Self::Drag(button) => crossterm::event::MouseEventKind::Drag(button.to_crossterm()),
+            Self::Moved => crossterm::event::MouseEventKind::Moved,
+            Self::ScrollUp => crossterm::event::MouseEventKind::ScrollUp,
+            Self::ScrollDown => crossterm::event::MouseEventKind::ScrollDown,
+            Self::ScrollLeft => crossterm::event::MouseEventKind::ScrollLeft,
+            Self::ScrollRight => crossterm::event::MouseEventKind::ScrollRight,
+        }
+    }
+}
+
+/// Serializable client-side input event.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClientInputEvent {
+    Key {
+        code: ClientKeyCode,
+        modifiers: u8,
+        kind: ClientKeyKind,
+    },
+    Mouse {
+        kind: ClientMouseKind,
+        column: u16,
+        row: u16,
+        modifiers: u8,
+    },
+    Paste(String),
+    FocusGained,
+    FocusLost,
+}
+
+impl ClientInputEvent {
+    pub fn to_raw_input_event(&self) -> crate::raw_input::RawInputEvent {
+        match self {
+            Self::Key {
+                code,
+                modifiers,
+                kind,
+            } => crate::raw_input::RawInputEvent::Key(
+                crate::input::TerminalKey::new(
+                    code.to_crossterm(),
+                    crossterm::event::KeyModifiers::from_bits_truncate(*modifiers),
+                )
+                .with_kind(kind.to_crossterm()),
+            ),
+            Self::Mouse {
+                kind,
+                column,
+                row,
+                modifiers,
+            } => crate::raw_input::RawInputEvent::Mouse(crossterm::event::MouseEvent {
+                kind: kind.to_crossterm(),
+                column: *column,
+                row: *row,
+                modifiers: crossterm::event::KeyModifiers::from_bits_truncate(*modifiers),
+            }),
+            Self::Paste(text) => crate::raw_input::RawInputEvent::Paste(text.clone()),
+            Self::FocusGained => crate::raw_input::RawInputEvent::OuterFocusGained,
+            Self::FocusLost => crate::raw_input::RawInputEvent::OuterFocusLost,
+        }
+    }
+}
 /// Messages sent from the client to the server over the client protocol socket.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMessage {
@@ -124,6 +303,19 @@ pub enum ClientMessage {
         /// Replace an existing writable attach owner for this terminal.
         takeover: bool,
     },
+
+    /// Scroll a direct terminal-attach client without sending escape bytes to the PTY.
+    AttachScroll {
+        source: AttachScrollSource,
+        direction: AttachScrollDirection,
+        lines: u16,
+        column: Option<u16>,
+        row: Option<u16>,
+        modifiers: u8,
+    },
+
+    /// Semantic input events from clients that can parse host input locally.
+    InputEvents { events: Vec<ClientInputEvent> },
 }
 
 // ---------------------------------------------------------------------------
@@ -354,6 +546,12 @@ pub enum ServerMessage {
     Clipboard {
         /// Base64-encoded clipboard data.
         data: String,
+    },
+
+    /// Set the foreground client's outer terminal window title.
+    WindowTitle {
+        /// Sanitized title to write with OSC 0. `None` restores Hako's default title.
+        title: Option<String>,
     },
 
     /// Client-local runtime config changed on disk; refresh it without reconnecting.
@@ -639,7 +837,7 @@ mod tests {
             "error should expose found variant {found}: {msg}"
         );
         assert!(
-            msg.contains("expected variant index 0 <= i < 6"),
+            msg.contains("expected variant index 0 <= i < 8"),
             "error should expose allowed ClientMessage variant range: {msg}"
         );
     }
@@ -670,6 +868,128 @@ mod tests {
             data: vec![0x1b, 0x5b, 0x41], // ESC [ A (up arrow)
         };
         assert_bincode_bytes(&msg, &[0x01, 0x03, 0x1b, 0x5b, 0x41]);
+    }
+
+    #[test]
+    fn client_message_wire_tags_preserve_protocol_14_order() {
+        fn tag(msg: &ClientMessage) -> u8 {
+            *bincode::serde::encode_to_vec(msg, bincode::config::standard())
+                .unwrap()
+                .first()
+                .expect("encoded client message should include enum tag")
+        }
+
+        assert_eq!(
+            tag(&ClientMessage::Hello {
+                version: PROTOCOL_VERSION,
+                cols: 80,
+                rows: 24,
+                cell_width_px: 8,
+                cell_height_px: 16,
+                requested_encoding: RenderEncoding::SemanticFrame,
+                keybindings: ClientKeybindings::Server,
+                launch_mode: ClientLaunchMode::App,
+            }),
+            0
+        );
+        assert_eq!(tag(&ClientMessage::Input { data: Vec::new() }), 1);
+        assert_eq!(
+            tag(&ClientMessage::ClipboardImage {
+                extension: "png".to_owned(),
+                data: Vec::new(),
+            }),
+            2
+        );
+        assert_eq!(
+            tag(&ClientMessage::Resize {
+                cols: 80,
+                rows: 24,
+                cell_width_px: 8,
+                cell_height_px: 16,
+            }),
+            3
+        );
+        assert_eq!(tag(&ClientMessage::Detach), 4);
+        assert_eq!(
+            tag(&ClientMessage::AttachTerminal {
+                terminal_id: "term".to_owned(),
+                takeover: false,
+            }),
+            5
+        );
+        assert_eq!(
+            tag(&ClientMessage::AttachScroll {
+                source: AttachScrollSource::Wheel,
+                direction: AttachScrollDirection::Up,
+                lines: 1,
+                column: None,
+                row: None,
+                modifiers: 0,
+            }),
+            6
+        );
+        assert_eq!(tag(&ClientMessage::InputEvents { events: Vec::new() }), 7);
+    }
+
+    #[test]
+    fn client_input_events_roundtrip() {
+        let msg = ClientMessage::InputEvents {
+            events: vec![
+                ClientInputEvent::Key {
+                    code: ClientKeyCode::Char('N'),
+                    modifiers: crossterm::event::KeyModifiers::SHIFT.bits(),
+                    kind: ClientKeyKind::Press,
+                },
+                ClientInputEvent::Key {
+                    code: ClientKeyCode::Backspace,
+                    modifiers: 0,
+                    kind: ClientKeyKind::Press,
+                },
+                ClientInputEvent::Mouse {
+                    kind: ClientMouseKind::Down(ClientMouseButton::Left),
+                    column: 3,
+                    row: 4,
+                    modifiers: 0,
+                },
+            ],
+        };
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let (decoded, _): (ClientMessage, _) =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
+        assert_eq!(msg, decoded);
+    }
+
+    #[test]
+    fn client_input_events_convert_to_raw_keys() {
+        let shifted = ClientInputEvent::Key {
+            code: ClientKeyCode::Char('N'),
+            modifiers: crossterm::event::KeyModifiers::SHIFT.bits(),
+            kind: ClientKeyKind::Press,
+        }
+        .to_raw_input_event();
+        match shifted {
+            crate::raw_input::RawInputEvent::Key(key) => {
+                assert_eq!(key.code, crossterm::event::KeyCode::Char('N'));
+                assert_eq!(key.modifiers, crossterm::event::KeyModifiers::SHIFT);
+                assert_eq!(key.kind, crossterm::event::KeyEventKind::Press);
+            }
+            other => panic!("expected shifted key event, got {other:?}"),
+        }
+
+        let backspace = ClientInputEvent::Key {
+            code: ClientKeyCode::Backspace,
+            modifiers: 0,
+            kind: ClientKeyKind::Press,
+        }
+        .to_raw_input_event();
+        match backspace {
+            crate::raw_input::RawInputEvent::Key(key) => {
+                assert_eq!(key.code, crossterm::event::KeyCode::Backspace);
+                assert_eq!(key.modifiers, crossterm::event::KeyModifiers::empty());
+                assert_eq!(key.kind, crossterm::event::KeyEventKind::Press);
+            }
+            other => panic!("expected backspace key event, got {other:?}"),
+        }
     }
 
     #[test]
@@ -904,6 +1224,17 @@ mod tests {
     }
 
     #[test]
+    fn server_window_title_roundtrip() {
+        for title in [Some("herdr api".to_owned()), None] {
+            let msg = ServerMessage::WindowTitle { title };
+            let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+            let (decoded, _): (ServerMessage, _) =
+                bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
+            assert_eq!(msg, decoded);
+        }
+    }
+
+    #[test]
     fn server_graphics_roundtrip() {
         let msg = ServerMessage::Graphics {
             bytes: b"\x1b_Ga=d,d=A,q=2;\x1b\\".to_vec(),
@@ -938,13 +1269,13 @@ mod tests {
     #[test]
     fn server_reload_sound_config_roundtrip() {
         let msg = ServerMessage::ReloadSoundConfig;
-        assert_bincode_bytes(&msg, &[0x07]);
+        assert_bincode_bytes(&msg, &[0x08]);
     }
 
     #[test]
     fn server_mouse_capture_roundtrip() {
         let msg = ServerMessage::MouseCapture { enabled: true };
-        assert_bincode_bytes(&msg, &[0x08, 0x01]);
+        assert_bincode_bytes(&msg, &[0x09, 0x01]);
     }
 
     // ---- Framing ----

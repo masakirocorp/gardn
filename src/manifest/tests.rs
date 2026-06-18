@@ -122,6 +122,24 @@ fn pi_omp_manifests_detect_core_resume_states() {
 }
 
 #[test]
+fn devin_manifest_detects_working_blocked_and_idle_states() {
+    let blocked = explain(
+        Agent::Devin,
+        "Do you trust the authors of this directory?\nwith untrusted content.\nyes, trust",
+    );
+    assert_eq!(blocked.state, AgentState::Blocked);
+    assert!(blocked.visible_blocker);
+
+    let working = explain(Agent::Devin, "running tools\nesc to interrupt");
+    assert_eq!(working.state, AgentState::Working);
+    assert!(working.visible_working);
+
+    let idle = explain(Agent::Devin, "context: 12%\n❭ Ask Devin to build");
+    assert_eq!(idle.state, AgentState::Idle);
+    assert!(idle.visible_idle);
+}
+
+#[test]
 fn omp_manifest_does_not_hold_working_from_stale_maintenance_scrollback() {
     let idle_after_maintenance = explain(
         Agent::OhMyPi,

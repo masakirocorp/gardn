@@ -898,7 +898,7 @@ pathlib.Path({received:?}).write_text(data.hex())
 }
 
 #[test]
-fn live_handoff_accepts_old_pane_id_from_child_env() {
+fn live_handoff_accepts_pane_id_from_child_env() {
     let _lock = test_lock();
     let base = unique_test_dir();
     let config_home = base.join("config");
@@ -930,11 +930,8 @@ fn live_handoff_accepts_old_pane_id_from_child_env() {
             "params": {"pane_id": pane_id, "text": format!("printf '%s' \"$HAKO_PANE_ID\" > {}", pane_id_marker.display()), "keys": ["Enter"]}
         }),
     ));
-    let old_pane_id = wait_for_file_contains(&pane_id_marker, "p_", Duration::from_secs(5));
-    assert!(
-        old_pane_id.starts_with("p_"),
-        "unexpected pane id from env: {old_pane_id:?}"
-    );
+    let env_pane_id = wait_for_file_contains(&pane_id_marker, &pane_id, Duration::from_secs(5));
+    assert_eq!(env_pane_id, pane_id);
 
     assert_ok(request(
         &api_socket,
@@ -949,7 +946,7 @@ fn live_handoff_accepts_old_pane_id_from_child_env() {
             "id": "test:old-pane-report",
             "method": "pane.report_agent",
             "params": {
-                "pane_id": old_pane_id,
+                "pane_id": env_pane_id,
                 "source": "handoff-test",
                 "agent": "pi",
                 "state": "working"

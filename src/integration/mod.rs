@@ -80,6 +80,26 @@ const COPILOT_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const COPILOT_HOOK_ASSET: &str = include_str!("assets/copilot/hako-agent-state.sh");
 const COPILOT_INTEGRATION_VERSION: u32 = 1;
 const COPILOT_HOME_ENV_VAR: &str = "COPILOT_HOME";
+const DEVIN_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
+const DEVIN_HOOK_ASSET: &str = include_str!("assets/devin/hako-agent-state.sh");
+const DEVIN_INTEGRATION_VERSION: u32 = 1;
+const DEVIN_CONFIG_DIR_ENV_VAR: &str = "DEVIN_CONFIG_DIR";
+const DEVIN_HOOK_EVENTS: [(&str, &str); 6] = [
+    ("SessionStart", "session"),
+    ("UserPromptSubmit", "session"),
+    ("PreToolUse", "session"),
+    ("PostToolUse", "session"),
+    ("PermissionRequest", "session"),
+    ("Stop", "session"),
+];
+const DEVIN_REMOVED_LIFECYCLE_HOOK_EVENTS: [(&str, &str); 6] = [
+    ("UserPromptSubmit", "working"),
+    ("PreToolUse", "working"),
+    ("PostToolUse", "working"),
+    ("PermissionRequest", "blocked"),
+    ("Stop", "idle"),
+    ("SessionEnd", "release"),
+];
 const DROID_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const DROID_HOOK_ASSET: &str = include_str!("assets/droid/hako-agent-state.sh");
 const DROID_INTEGRATION_VERSION: u32 = 3;
@@ -146,6 +166,12 @@ pub(crate) struct CopilotInstallPaths {
 }
 
 #[derive(Debug)]
+pub(crate) struct DevinInstallPaths {
+    pub hook_path: PathBuf,
+    pub settings_path: PathBuf,
+}
+
+#[derive(Debug)]
 pub(crate) struct KimiInstallPaths {
     pub hook_path: PathBuf,
     pub config_path: PathBuf,
@@ -198,6 +224,14 @@ pub(crate) struct QodercliUninstallResult {
 
 #[derive(Debug)]
 pub(crate) struct CopilotUninstallResult {
+    pub hook_path: PathBuf,
+    pub settings_path: PathBuf,
+    pub removed_hook_file: bool,
+    pub updated_settings: bool,
+}
+
+#[derive(Debug)]
+pub(crate) struct DevinUninstallResult {
     pub hook_path: PathBuf,
     pub settings_path: PathBuf,
     pub removed_hook_file: bool,
@@ -315,8 +349,12 @@ pub(crate) struct HermesUninstallResult {
     pub updated_config: bool,
 }
 
-pub(crate) fn apply_pane_env(cmd: &mut CommandBuilder, pane_id: PaneId) {
+pub(crate) fn apply_pane_base_env(cmd: &mut CommandBuilder) {
     cmd.env(crate::api::SOCKET_PATH_ENV_VAR, crate::api::socket_path());
+}
+
+pub(crate) fn apply_pane_env(cmd: &mut CommandBuilder, pane_id: PaneId) {
+    apply_pane_base_env(cmd);
     cmd.env(HAKO_PANE_ID_ENV_VAR, format!("p_{}", pane_id.raw()));
 }
 
@@ -488,6 +526,19 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
                 ),
                 format!(
                     "ensured copilot settings at {}",
+                    installed.settings_path.display()
+                ),
+            ]
+        }
+        crate::api::schema::IntegrationTarget::Devin => {
+            let installed = install_devin()?;
+            vec![
+                format!(
+                    "installed devin integration hook to {}",
+                    installed.hook_path.display()
+                ),
+                format!(
+                    "ensured devin settings at {}",
                     installed.settings_path.display()
                 ),
             ]
@@ -772,6 +823,33 @@ pub(crate) fn uninstall_target(
             }
             messages
         }
+        crate::api::schema::IntegrationTarget::Devin => {
+            let result = uninstall_devin()?;
+            let mut messages = Vec::new();
+            if result.removed_hook_file {
+                messages.push(format!(
+                    "removed devin hook at {}",
+                    result.hook_path.display()
+                ));
+            } else {
+                messages.push(format!(
+                    "no devin hook found at {}",
+                    result.hook_path.display()
+                ));
+            }
+            if result.updated_settings {
+                messages.push(format!(
+                    "removed hako devin hook entries from {}",
+                    result.settings_path.display()
+                ));
+            } else {
+                messages.push(format!(
+                    "no hako devin hook entries found in {}",
+                    result.settings_path.display()
+                ));
+            }
+            messages
+        }
         crate::api::schema::IntegrationTarget::Hermes => {
             let result = uninstall_hermes()?;
             let mut messages = Vec::new();
@@ -868,6 +946,7 @@ pub(crate) fn integration_target_label(
         crate::api::schema::IntegrationTarget::Claude => "claude",
         crate::api::schema::IntegrationTarget::Codex => "codex",
         crate::api::schema::IntegrationTarget::Copilot => "copilot",
+        crate::api::schema::IntegrationTarget::Devin => "devin",
         crate::api::schema::IntegrationTarget::Kimi => "kimi",
         crate::api::schema::IntegrationTarget::Droid => "droid",
         crate::api::schema::IntegrationTarget::Opencode => "opencode",
@@ -886,6 +965,7 @@ pub(crate) fn integration_target_command(
         crate::api::schema::IntegrationTarget::Claude => "claude",
         crate::api::schema::IntegrationTarget::Codex => "codex",
         crate::api::schema::IntegrationTarget::Copilot => "copilot",
+        crate::api::schema::IntegrationTarget::Devin => "devin",
         crate::api::schema::IntegrationTarget::Kimi => "kimi",
         crate::api::schema::IntegrationTarget::Droid => "droid",
         crate::api::schema::IntegrationTarget::Opencode => "opencode",
@@ -994,7 +1074,7 @@ fn integration_specs() -> [(
     crate::api::schema::IntegrationTarget,
     io::Result<PathBuf>,
     u32,
-); 11] {
+); 12] {
     [
         (
             crate::api::schema::IntegrationTarget::Pi,
@@ -1020,6 +1100,11 @@ fn integration_specs() -> [(
             crate::api::schema::IntegrationTarget::Copilot,
             copilot_dir().map(|dir| dir.join("hooks").join(COPILOT_HOOK_INSTALL_NAME)),
             COPILOT_INTEGRATION_VERSION,
+        ),
+        (
+            crate::api::schema::IntegrationTarget::Devin,
+            devin_dir().map(|dir| dir.join(DEVIN_HOOK_INSTALL_NAME)),
+            DEVIN_INTEGRATION_VERSION,
         ),
         (
             crate::api::schema::IntegrationTarget::Kimi,
@@ -1140,6 +1225,7 @@ fn integration_asset_for_target(target: crate::api::schema::IntegrationTarget) -
         crate::api::schema::IntegrationTarget::Claude => CLAUDE_HOOK_ASSET,
         crate::api::schema::IntegrationTarget::Codex => CODEX_HOOK_ASSET,
         crate::api::schema::IntegrationTarget::Copilot => COPILOT_HOOK_ASSET,
+        crate::api::schema::IntegrationTarget::Devin => DEVIN_HOOK_ASSET,
         crate::api::schema::IntegrationTarget::Kimi => KIMI_HOOK_ASSET,
         crate::api::schema::IntegrationTarget::Droid => DROID_HOOK_ASSET,
         crate::api::schema::IntegrationTarget::Opencode => OPENCODE_PLUGIN_ASSET,
@@ -1554,6 +1640,61 @@ pub(crate) fn install_copilot() -> io::Result<CopilotInstallPaths> {
     fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
 
     Ok(CopilotInstallPaths {
+        hook_path,
+        settings_path,
+    })
+}
+
+pub(crate) fn install_devin() -> io::Result<DevinInstallPaths> {
+    let dir = devin_dir()?;
+    if !dir.is_dir() {
+        return Err(io::Error::other(format!(
+            "devin config directory not found at {}. install devin cli first",
+            dir.display()
+        )));
+    }
+
+    let hook_path = dir.join(DEVIN_HOOK_INSTALL_NAME);
+    fs::write(&hook_path, DEVIN_HOOK_ASSET)?;
+    make_executable(&hook_path)?;
+
+    let settings_path = dir.join("config.json");
+    let mut settings = if settings_path.is_file() {
+        serde_json::from_str::<Value>(&fs::read_to_string(&settings_path)?).map_err(|err| {
+            io::Error::other(format!(
+                "failed to parse {}: {err}",
+                settings_path.display()
+            ))
+        })?
+    } else {
+        json!({})
+    };
+
+    let hooks = ensure_hooks_object(
+        &mut settings,
+        &settings_path,
+        "devin settings",
+        "devin settings hooks",
+    )?;
+    for (event, action) in DEVIN_REMOVED_LIFECYCLE_HOOK_EVENTS {
+        remove_command_hook(hooks, event, &hook_command(&hook_path, Some(action)))?;
+    }
+    for (event, action) in DEVIN_HOOK_EVENTS {
+        remove_command_hook(hooks, event, &hook_command(&hook_path, Some(action)))?;
+    }
+    for (event, action) in DEVIN_HOOK_EVENTS {
+        ensure_command_hook(
+            hooks,
+            event,
+            hook_command(&hook_path, Some(action)),
+            10,
+            None,
+        )?;
+    }
+
+    fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
+
+    Ok(DevinInstallPaths {
         hook_path,
         settings_path,
     })
@@ -2161,6 +2302,51 @@ pub(crate) fn uninstall_qodercli() -> io::Result<QodercliUninstallResult> {
     })
 }
 
+pub(crate) fn uninstall_devin() -> io::Result<DevinUninstallResult> {
+    let devin_home = devin_dir()?;
+    let hook_path = devin_home.join(DEVIN_HOOK_INSTALL_NAME);
+    let settings_path = devin_home.join("config.json");
+    let mut updated_settings = false;
+
+    if settings_path.is_file() {
+        let mut settings = serde_json::from_str::<Value>(&fs::read_to_string(&settings_path)?)
+            .map_err(|err| {
+                io::Error::other(format!(
+                    "failed to parse {}: {err}",
+                    settings_path.display()
+                ))
+            })?;
+
+        if let Some(hooks) = hooks_object_if_present(
+            &mut settings,
+            &settings_path,
+            "devin settings",
+            "devin settings hooks",
+        )? {
+            for (event, action) in DEVIN_REMOVED_LIFECYCLE_HOOK_EVENTS {
+                updated_settings |=
+                    remove_command_hook(hooks, event, &hook_command(&hook_path, Some(action)))?;
+            }
+            for (event, action) in DEVIN_HOOK_EVENTS {
+                updated_settings |=
+                    remove_command_hook(hooks, event, &hook_command(&hook_path, Some(action)))?;
+            }
+        }
+
+        if updated_settings {
+            fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
+        }
+    }
+
+    let removed_hook_file = remove_matching_integration_file(&hook_path, "devin")?;
+
+    Ok(DevinUninstallResult {
+        hook_path,
+        settings_path,
+        removed_hook_file,
+        updated_settings,
+    })
+}
 pub(crate) fn uninstall_cursor() -> io::Result<CursorUninstallResult> {
     let cursor_home = cursor_dir()?;
     let hook_path = cursor_home.join(CURSOR_HOOK_INSTALL_NAME);
@@ -3015,6 +3201,18 @@ fn codex_dir() -> io::Result<PathBuf> {
 fn copilot_dir() -> io::Result<PathBuf> {
     config_dir_from_env_or_home(COPILOT_HOME_ENV_VAR, &[".copilot"])
 }
+fn devin_dir() -> io::Result<PathBuf> {
+    if let Some(value) =
+        std::env::var_os(DEVIN_CONFIG_DIR_ENV_VAR).filter(|value| !value.is_empty())
+    {
+        return expand_tilde_path(PathBuf::from(value));
+    }
+    if let Some(value) = std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
+        return expand_tilde_path(PathBuf::from(value)).map(|path| path.join("devin"));
+    }
+    Ok(home_dir()?.join(".config").join("devin"))
+}
+
 fn kimi_dir() -> io::Result<PathBuf> {
     config_dir_from_env_or_home(KIMI_CODE_HOME_ENV_VAR, &[".kimi-code"])
 }
@@ -3165,13 +3363,14 @@ mod tests {
         assert_eq!(enforce_agent_version(&requirement).unwrap(), None);
     }
 
-    fn clear_integration_path_env() -> [TestEnvVar; 9] {
+    fn clear_integration_path_env() -> [TestEnvVar; 10] {
         [
             TestEnvVar::remove(PI_CODING_AGENT_DIR_ENV_VAR),
             TestEnvVar::remove(OMP_CONFIG_DIR_ENV_VAR),
             TestEnvVar::remove(CLAUDE_CONFIG_DIR_ENV_VAR),
             TestEnvVar::remove(CODEX_HOME_ENV_VAR),
             TestEnvVar::remove(COPILOT_HOME_ENV_VAR),
+            TestEnvVar::remove(DEVIN_CONFIG_DIR_ENV_VAR),
             TestEnvVar::remove(KIMI_CODE_HOME_ENV_VAR),
             TestEnvVar::remove(CURSOR_CONFIG_DIR_ENV_VAR),
             TestEnvVar::remove(QODERCLI_CONFIG_DIR_ENV_VAR),

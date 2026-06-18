@@ -52,6 +52,7 @@ A tab belongs to one workspace and contains one or more panes.
 A pane is a terminal runtime inside a tab layout.
 
 - **Pane splitting** — split panes vertically or horizontally.
+- **Pane move** — move panes into another tab, a new tab, or a new workspace from the CLI or socket API.
 - **Pane focus and zoom** — focus by direction, cycle panes, and zoom the focused pane.
 - **Pane resize** — resize interactively from resize mode or by dragging borders.
 - **Pane labels** — set manual pane labels; optionally show detected agent labels on pane borders.
@@ -243,6 +244,18 @@ Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, and Qoder-style integrat
 Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
 - On Windows, installable integrations are limited to CLI hook integrations with supported path layouts: Claude, Codex, Copilot, Kimi, Droid, and Qoder-style CLIs.
 
+
+## Plugins
+
+Hako plugin v1 lets local extensions add actions, panes, link handlers, and event hooks through the Hako socket API and CLI.
+
+Plugin manifests use `hako-plugin.toml` with `min_hako_version`. Hako also accepts upstream-compatible `herdr-plugin.toml` and `min_herdr_version` aliases, but Hako names are preferred for new plugins.
+
+Plugins run unsandboxed as the current user. Remote installs show source, build commands, actions, panes, link handlers, and event hooks before install, and require confirmation unless `--yes` is passed.
+
+Plugin panes are normal Hako panes. Their pane attribution follows pane moves and is removed when tabs, workspaces, layouts, or plugins remove the pane.
+
+Plugin commands receive `HAKO_*` context variables, including plugin root/config/state directories and active workspace/tab/pane ids. Protected Hako/plugin variables cannot be overwritten by plugin-provided env overrides.
 
 ## External tools
 

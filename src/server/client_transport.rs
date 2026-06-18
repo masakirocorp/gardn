@@ -63,6 +63,11 @@ pub(crate) enum ServerEvent {
     },
     /// A client sent an input message.
     ClientInput { client_id: u64, data: Vec<u8> },
+    /// A client sent parsed input events.
+    ClientInputEvents {
+        client_id: u64,
+        events: Vec<crate::raw_input::RawInputEvent>,
+    },
     /// A client sent local clipboard image bytes to paste into a remote pane.
     ClientClipboardImage {
         client_id: u64,
@@ -443,6 +448,17 @@ fn client_read_loop(
                 client_id,
                 terminal_id,
                 takeover,
+            },
+            ClientMessage::AttachScroll { .. } => {
+                debug!(client_id, "ignored attach scroll request");
+                continue;
+            }
+            ClientMessage::InputEvents { events } => ServerEvent::ClientInputEvents {
+                client_id,
+                events: events
+                    .iter()
+                    .map(|event| event.to_raw_input_event())
+                    .collect(),
             },
             ClientMessage::Hello { .. } => {
                 // Duplicate Hello — ignore.

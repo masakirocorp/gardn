@@ -42,10 +42,12 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
             | Method::TabFocus(_)
             | Method::TabRename(_)
             | Method::TabClose(_)
+            | Method::LayoutApply(_)
             | Method::AgentRename(_)
             | Method::AgentFocus(_)
             | Method::AgentStart(_)
             | Method::PaneSplit(_)
+            | Method::PaneSwap(_)
             | Method::PaneRename(_)
             | Method::PaneReportAgent(_)
             | Method::PaneReportAgentSession(_)
@@ -53,6 +55,10 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
             | Method::PaneClearAgentAuthority(_)
             | Method::PaneReleaseAgent(_)
             | Method::PaneClose(_)
+            | Method::PluginActionInvoke(_)
+            | Method::PluginPaneOpen(_)
+            | Method::PluginPaneFocus(_)
+            | Method::PluginPaneClose(_)
     )
 }
 

@@ -262,7 +262,7 @@ impl App {
         focus: bool,
     ) -> std::io::Result<usize> {
         let group_id = self.state.active_group_id().to_string();
-        self.create_workspace_with_options_in_group(initial_cwd, focus, group_id)
+        self.create_workspace_with_launch_env_in_group(initial_cwd, focus, group_id, Vec::new())
     }
 
     pub(super) fn create_workspace_with_options_in_group(
@@ -271,9 +271,29 @@ impl App {
         focus: bool,
         group_id: String,
     ) -> std::io::Result<usize> {
+        self.create_workspace_with_launch_env_in_group(initial_cwd, focus, group_id, Vec::new())
+    }
+
+    pub(crate) fn create_workspace_with_launch_env(
+        &mut self,
+        initial_cwd: PathBuf,
+        focus: bool,
+        extra_env: Vec<(String, String)>,
+    ) -> std::io::Result<usize> {
+        let group_id = self.state.active_group_id().to_string();
+        self.create_workspace_with_launch_env_in_group(initial_cwd, focus, group_id, extra_env)
+    }
+
+    pub(crate) fn create_workspace_with_launch_env_in_group(
+        &mut self,
+        initial_cwd: PathBuf,
+        focus: bool,
+        group_id: String,
+        extra_env: Vec<(String, String)>,
+    ) -> std::io::Result<usize> {
         let (rows, cols) = self.state.estimate_pane_size();
         let custom_name = self.collision_free_workspace_name(&initial_cwd, &group_id);
-        let (mut ws, terminal, runtime) = Workspace::new(
+        let (mut ws, terminal, runtime) = Workspace::new_with_extra_env(
             initial_cwd,
             rows,
             cols,
@@ -283,6 +303,7 @@ impl App {
             self.event_tx.clone(),
             self.render_notify.clone(),
             self.render_dirty.clone(),
+            extra_env,
         )?;
         ws.group_id = group_id;
         if let Some(name) = custom_name {

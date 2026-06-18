@@ -61,6 +61,13 @@ use crate::events::AppEvent;
 
 pub use state::{AppState, Mode, ToastKind, ViewState};
 
+pub(crate) fn load_plugin_manifest(
+    path: &str,
+    enabled: bool,
+) -> Result<crate::api::schema::InstalledPluginInfo, (&'static str, String)> {
+    api::plugins::load_plugin_manifest(path, enabled)
+}
+
 /// Full application: AppState + runtime concerns (event channels, async I/O).
 #[derive(Debug, Clone)]
 pub(crate) struct OverlayPaneState {
@@ -138,7 +145,7 @@ pub struct App {
 pub(crate) enum LoopEvent {
     Timer,
     Internal(AppEvent),
-    Api(crate::api::ApiRequestMessage),
+    Api(Box<crate::api::ApiRequestMessage>),
     RawInput(crate::raw_input::RawInputEvent),
     InputClosed,
     RenderRequested,
@@ -212,6 +219,20 @@ fn mode_accepts_repeat_key(mode: Mode, key: &crate::input::TerminalKey) -> bool 
 
 fn auto_updates_enabled(no_session: bool) -> bool {
     !no_session && !cfg!(debug_assertions)
+}
+
+fn load_plugin_registry(no_session: bool) -> crate::app::state::InstalledPluginRegistry {
+    if no_session {
+        return std::collections::HashMap::new();
+    }
+    let entries = crate::persist::plugin_registry::load();
+    let entries = crate::persist::plugin_registry::reload_manifests(entries, |path, enabled| {
+        crate::app::api::plugins::load_plugin_manifest(path, enabled).map_err(|(_, msg)| msg)
+    });
+    entries
+        .into_iter()
+        .map(|plugin| (plugin.plugin_id.clone(), plugin))
+        .collect()
 }
 
 fn agent_panel_scope_from_config(
@@ -533,6 +554,7 @@ impl App {
             next_agent_activity_seq: 0,
             direct_attach_resize_locks: std::collections::HashSet::new(),
             pane_id_aliases: std::collections::HashMap::new(),
+            public_pane_id_aliases: std::collections::HashMap::new(),
             workspaces,
             active,
             previous_pane_focus: None,
@@ -759,6 +781,11 @@ impl App {
             agent_manifest_summaries,
             agent_manifest_update_status: crate::detect::manifest_update::load_status(),
             integration_install_messages: Vec::new(),
+            installed_plugins: load_plugin_registry(no_session),
+            plugin_panes: std::collections::HashMap::new(),
+            plugin_command_logs: Vec::new(),
+            next_plugin_command_log_id: 1,
+            plugin_commands_in_flight: 0,
             global_menu: state::MenuListState::new(0),
             group_menu: state::MenuListState::new(0),
             agent_menu: state::MenuListState::new(0),
@@ -895,6 +922,7 @@ impl App {
         }
         app.state.detach_exits = false;
         app.state.pane_id_aliases = pane_id_aliases;
+        app.state.public_pane_id_aliases.clear();
         app.state.groups = groups;
         app.state.active_group = snapshot
             .active_group
@@ -1274,7 +1302,7 @@ impl App {
                 let input_rx = self.input_rx.as_mut();
                 tokio::select! {
                     maybe_api = self.api_rx.recv() => match maybe_api {
-                        Some(msg) => LoopEvent::Api(msg),
+                        Some(msg) => LoopEvent::Api(Box::new(msg)),
                         None => LoopEvent::Timer,
                     },
                     maybe_ev = self.event_rx.recv() => match maybe_ev {
@@ -1297,7 +1325,7 @@ impl App {
                     needs_render = true;
                 }
                 LoopEvent::Api(msg) => {
-                    if self.handle_api_request_message(msg) {
+                    if self.handle_api_request_message(*msg) {
                         needs_render = true;
                     }
                 }
@@ -2035,6 +2063,10 @@ mod tests {
             custom_name: Some(id.to_string()),
             group_id: group_id.to_string(),
             identity_cwd: std::path::PathBuf::from("/tmp"),
+            public_pane_numbers: std::collections::HashMap::new(),
+            next_public_pane_number: 0,
+            public_tab_numbers: Vec::new(),
+            next_public_tab_number: 0,
             tabs: Vec::new(),
             active_tab: 0,
         }
@@ -3736,8 +3768,15 @@ mod tests {
 
     #[tokio::test]
     async fn pending_diff_prompt_reaches_new_agent_process_after_readiness() {
-        let dir =
-            std::env::temp_dir().join(format!("hako-pending-agent-prompt-{}", std::process::id()));
+        let _guard = config_env_lock().lock().unwrap();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!(
+            "hako-pending-agent-prompt-{}-{unique}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let script = dir.join("fake-omp");
@@ -4027,10 +4066,12 @@ mod tests {
             id: "req_pane_split_background_tab".into(),
             method: crate::api::schema::Method::PaneSplit(crate::api::schema::PaneSplitParams {
                 workspace_id: None,
-                target_pane_id,
+                target_pane_id: Some(target_pane_id),
                 direction: crate::api::schema::SplitDirection::Right,
+                ratio: None,
                 cwd: None,
                 focus: false,
+                env: Default::default(),
             }),
         });
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
@@ -4092,10 +4133,12 @@ mod tests {
             id: "req_pane_split_focus_background_tab".into(),
             method: crate::api::schema::Method::PaneSplit(crate::api::schema::PaneSplitParams {
                 workspace_id: None,
-                target_pane_id,
+                target_pane_id: Some(target_pane_id),
                 direction: crate::api::schema::SplitDirection::Right,
+                ratio: None,
                 cwd: None,
                 focus: true,
+                env: Default::default(),
             }),
         });
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
@@ -4105,6 +4148,128 @@ mod tests {
         assert_eq!(response["result"]["pane"]["focused"], true);
         assert_eq!(app.state.active, Some(0));
         assert_eq!(app.state.workspaces[0].active_tab, background_tab);
+
+        let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
+        for (_terminal_id, runtime) in runtimes {
+            runtime.shutdown();
+        }
+    }
+
+    #[tokio::test]
+    async fn pane_split_request_applies_ratio() {
+        let _guard = config_env_lock().lock().unwrap();
+        let _shell_env = crate::config::TestEnvVar::set("SHELL", "/usr/bin/true");
+
+        let mut app = test_app();
+        let workspace = Workspace::test_new("api-pane-split-ratio");
+        let target_pane = workspace.tabs[0].root_pane;
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+
+        let target_pane_id = app.pane_info(0, target_pane).unwrap().pane_id;
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "req_pane_split_ratio".into(),
+            method: crate::api::schema::Method::PaneSplit(crate::api::schema::PaneSplitParams {
+                workspace_id: None,
+                target_pane_id: Some(target_pane_id),
+                direction: crate::api::schema::SplitDirection::Right,
+                ratio: Some(0.333),
+                cwd: None,
+                focus: false,
+                env: Default::default(),
+            }),
+        });
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+
+        assert_eq!(response["result"]["type"], "pane_info");
+        let splits = app.state.workspaces[0].tabs[0]
+            .layout
+            .splits(ratatui::layout::Rect::new(0, 0, 100, 20));
+        assert_eq!(splits.len(), 1);
+        assert_eq!(splits[0].pos, 33);
+
+        let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
+        for (_terminal_id, runtime) in runtimes {
+            runtime.shutdown();
+        }
+    }
+
+    #[tokio::test]
+    async fn pane_split_request_uses_active_focused_pane_when_target_is_omitted() {
+        let _guard = config_env_lock().lock().unwrap();
+        let _shell_env = crate::config::TestEnvVar::set("SHELL", "/usr/bin/true");
+
+        let mut app = test_app();
+        let workspace = Workspace::test_new("api-pane-split-current");
+        let target_pane = workspace.tabs[0].root_pane;
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.focus_pane_in_workspace(0, target_pane);
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "req_pane_split_current".into(),
+            method: crate::api::schema::Method::PaneSplit(crate::api::schema::PaneSplitParams {
+                workspace_id: None,
+                target_pane_id: None,
+                direction: crate::api::schema::SplitDirection::Right,
+                ratio: None,
+                cwd: None,
+                focus: false,
+                env: Default::default(),
+            }),
+        });
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+
+        assert_eq!(response["result"]["type"], "pane_info");
+        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 2);
+        assert_eq!(
+            app.state.workspaces[0].tabs[0].layout.focused(),
+            target_pane
+        );
+
+        let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
+        for (_terminal_id, runtime) in runtimes {
+            runtime.shutdown();
+        }
+    }
+
+    #[tokio::test]
+    async fn focused_agent_start_records_previous_pane() {
+        let mut app = test_app();
+        let workspace = Workspace::test_new("agent-start-focus");
+        let root = workspace.tabs[0].root_pane;
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "req_agent_start_focus".into(),
+            method: crate::api::schema::Method::AgentStart(crate::api::schema::AgentStartParams {
+                name: "worker".into(),
+                cwd: None,
+                workspace_id: None,
+                tab_id: None,
+                split: Some(crate::api::schema::SplitDirection::Right),
+                focus: true,
+                argv: vec!["/usr/bin/true".into()],
+                env: Default::default(),
+            }),
+        });
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+
+        assert_eq!(response["result"]["type"], "agent_started");
+        assert_ne!(app.state.workspaces[0].focused_pane_id(), Some(root));
+
+        app.state.last_pane();
+
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(root));
 
         let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
         for (_terminal_id, runtime) in runtimes {
@@ -4529,6 +4694,15 @@ mod tests {
         app.route_client_input(b"\x1b[99;5u".to_vec());
 
         assert_eq!(rx.recv().await.unwrap(), bytes::Bytes::from(vec![3]));
+
+        // iTerm2 and rxvt-style hosts may send F4 as CSI 14~. Normalize it
+        // through the same semantic key path instead of leaking host bytes.
+        app.route_client_input(b"\x1b[14~".to_vec());
+
+        assert_eq!(
+            rx.recv().await.unwrap(),
+            bytes::Bytes::from_static(b"\x1bOS")
+        );
     }
 
     #[tokio::test]

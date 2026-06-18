@@ -3807,7 +3807,7 @@ mod tests {
             .iter()
             .map(|tab| tab.display_name())
             .collect();
-        assert_eq!(labels, vec!["foo", "2", "3"]);
+        assert_eq!(labels, vec!["foo", "3", "1"]);
         assert_eq!(
             app.state.workspaces[0].tabs[0].custom_name.as_deref(),
             Some("foo")

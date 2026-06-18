@@ -89,6 +89,30 @@ fn notification_message(title: &str, body: Option<&str>) -> String {
     }
 }
 
+fn sound_notify_message(sound: crate::sound::Sound) -> &'static str {
+    match sound {
+        crate::sound::Sound::Done => "agent done",
+        crate::sound::Sound::Request => "agent attention",
+    }
+}
+
+fn non_empty_body(body: &str) -> Option<String> {
+    (!body.is_empty()).then(|| body.to_owned())
+}
+
+fn notification_show_response_shown(response: &str) -> bool {
+    let Ok(response) = serde_json::from_str::<api::schema::SuccessResponse>(response) else {
+        return false;
+    };
+    matches!(
+        response.result,
+        api::schema::ResponseResult::NotificationShow {
+            shown: true,
+            reason: api::schema::NotificationShowReason::Shown,
+        }
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Loop event enum for the headless server event loop
 // ---------------------------------------------------------------------------
@@ -97,7 +121,7 @@ fn notification_message(title: &str, body: Option<&str>) -> String {
 enum LoopEvent {
     Timer,
     Internal(AppEvent),
-    Api(api::ApiRequestMessage),
+    Api(Box<api::ApiRequestMessage>),
     ServerEvent(ServerEvent),
     RenderRequested,
 }
@@ -369,7 +393,7 @@ impl HeadlessServer {
             let event = {
                 tokio::select! {
                     maybe_api = self.app.api_rx.recv() => match maybe_api {
-                        Some(msg) => LoopEvent::Api(msg),
+                        Some(msg) => LoopEvent::Api(Box::new(msg)),
                         None => LoopEvent::Timer,
                     },
                     maybe_ev = self.app.event_rx.recv() => match maybe_ev {
@@ -393,7 +417,7 @@ impl HeadlessServer {
                     }
                 }
                 LoopEvent::Api(msg) => {
-                    if self.handle_api_request_with_shutdown_check(msg) {
+                    if self.handle_api_request_with_shutdown_check(*msg) {
                         needs_render = true;
                     }
                 }
@@ -1083,6 +1107,166 @@ impl HeadlessServer {
             .unwrap_or(crate::detect::AgentState::Unknown)
     }
 
+    fn forward_agent_notification_delivery(
+        &mut self,
+        delivery: &crate::app::state::AgentNotificationDelivery,
+    ) {
+        if let Some(sound) = delivery.sound {
+            self.send_notify_to_foreground_client(
+                protocol::NotifyKind::Sound,
+                sound_notify_message(sound),
+                None,
+            );
+        }
+
+        if should_forward_toast_to_clients(self.app.state.toast_config.delivery) {
+            if let Some(toast) = &delivery.client_notification {
+                self.send_notify_to_foreground_client(
+                    toast_notify_kind(self.app.state.toast_config.delivery)
+                        .expect("toast forwarding requires a client notification kind"),
+                    &toast.title,
+                    non_empty_body(&toast.context),
+                );
+            }
+        }
+    }
+
+    fn send_notify_to_foreground_client(
+        &mut self,
+        kind: protocol::NotifyKind,
+        message: impl Into<String>,
+        body: Option<String>,
+    ) -> bool {
+        let message = message.into();
+        let message = match body {
+            Some(body) if !body.is_empty() => notification_message(&message, Some(body.as_str())),
+            _ => message,
+        };
+        self.send_to_foreground_client(ServerMessage::Notify { kind, message })
+    }
+
+    fn handle_notification_show_api(
+        &mut self,
+        id: String,
+        params: api::schema::NotificationShowParams,
+    ) -> String {
+        use api::schema::{NotificationShowReason, ResponseResult};
+
+        let Some(title) = sanitize_notification_text(&params.title, 80) else {
+            return serde_json::to_string(&api::schema::ErrorResponse {
+                id,
+                error: api::schema::ErrorBody {
+                    code: "invalid_params".into(),
+                    message: "notification title is empty".into(),
+                },
+            })
+            .unwrap_or_else(|_| "{}".to_string());
+        };
+
+        match self.app.state.toast_config.delivery {
+            config::ToastDelivery::Off => {
+                return serde_json::to_string(&api::schema::SuccessResponse {
+                    id,
+                    result: ResponseResult::NotificationShow {
+                        shown: false,
+                        reason: NotificationShowReason::Disabled,
+                    },
+                })
+                .unwrap_or_else(|_| "{}".to_string());
+            }
+            config::ToastDelivery::Hako => {
+                let sound = params.sound;
+                let response = self.app.handle_api_request_after_internal_events_drained(
+                    api::schema::Request {
+                        id,
+                        method: api::schema::Method::NotificationShow(params),
+                    },
+                );
+                if notification_show_response_shown(&response) {
+                    self.forward_api_notification_sound(sound);
+                }
+                return response;
+            }
+            config::ToastDelivery::Terminal | config::ToastDelivery::System => {}
+        }
+
+        let body = params
+            .body
+            .as_deref()
+            .and_then(|body| sanitize_notification_text(body, 240));
+        if self.app.api_notification_rate_limited(Instant::now()) {
+            return serde_json::to_string(&api::schema::SuccessResponse {
+                id,
+                result: ResponseResult::NotificationShow {
+                    shown: false,
+                    reason: NotificationShowReason::RateLimited,
+                },
+            })
+            .unwrap_or_else(|_| "{}".to_string());
+        }
+        let kind = toast_notify_kind(self.app.state.toast_config.delivery)
+            .expect("terminal/system delivery has notify kind");
+        let shown = self.send_notify_to_foreground_client(kind, title, body);
+        if shown {
+            self.app.mark_api_notification_shown(Instant::now());
+            self.forward_api_notification_sound(params.sound);
+        }
+        let reason = if shown {
+            NotificationShowReason::Shown
+        } else {
+            NotificationShowReason::NoForegroundClient
+        };
+
+        serde_json::to_string(&api::schema::SuccessResponse {
+            id,
+            result: ResponseResult::NotificationShow { shown, reason },
+        })
+        .unwrap_or_else(|_| "{}".to_string())
+    }
+
+    fn handle_client_window_title_api(&mut self, id: String, title: Option<String>) -> String {
+        use api::schema::{ClientWindowTitleReason, ResponseResult};
+
+        let title = match title {
+            Some(title) => match sanitize_window_title_text(&title, 200) {
+                Some(title) => Some(title),
+                None => {
+                    return serde_json::to_string(&api::schema::ErrorResponse {
+                        id,
+                        error: api::schema::ErrorBody {
+                            code: "invalid_params".into(),
+                            message: "window title is empty".into(),
+                        },
+                    })
+                    .unwrap_or_else(|_| "{}".to_string());
+                }
+            },
+            None => None,
+        };
+        let set_title = title.is_some();
+        let changed = self.send_to_foreground_client(ServerMessage::WindowTitle { title });
+        let reason = match (changed, set_title) {
+            (true, true) => ClientWindowTitleReason::Set,
+            (true, false) => ClientWindowTitleReason::Cleared,
+            (false, _) => ClientWindowTitleReason::NoForegroundClient,
+        };
+        serde_json::to_string(&api::schema::SuccessResponse {
+            id,
+            result: ResponseResult::ClientWindowTitle { changed, reason },
+        })
+        .unwrap_or_else(|_| "{}".to_string())
+    }
+
+    fn forward_api_notification_sound(&mut self, sound: api::schema::NotificationShowSound) {
+        let Some(sound) = sound.to_sound() else {
+            return;
+        };
+        self.send_notify_to_foreground_client(
+            protocol::NotifyKind::Sound,
+            sound_notify_message(sound),
+            None,
+        );
+    }
     /// Handles a single internal event with forwarding logic for clipboard,
     /// sound, and toast notifications to connected clients.
     ///
@@ -1752,6 +1936,61 @@ impl HeadlessServer {
                     foreground_changed || theme_changed || interaction
                 }
             }
+            ServerEvent::ClientInputEvents { client_id, events } => {
+                if self.handoff_in_progress {
+                    debug!(
+                        client_id,
+                        len = events.len(),
+                        "ignored client input events during handoff"
+                    );
+                    return false;
+                }
+                debug!(
+                    client_id,
+                    len = events.len(),
+                    "client input events received"
+                );
+                if matches!(
+                    self.clients.get(&client_id),
+                    Some(ClientConnection {
+                        mode: ClientConnectionMode::TerminalAttach { .. },
+                        ..
+                    })
+                ) {
+                    return true;
+                }
+                let host_surface_redraw = crate::raw_input::events_require_host_surface_redraw(
+                    &events,
+                    self.app.state.redraw_on_focus_gained,
+                );
+                if let Some(client) = self.clients.get_mut(&client_id) {
+                    if host_surface_redraw {
+                        client.request_full_redraw();
+                        client.render_pending = true;
+                    } else {
+                        client.request_semantic_redraw_after_input();
+                    }
+                }
+                self.update_client_outer_focus_from_events(client_id, &events);
+                let interaction = events_include_interaction(&events);
+                let foreground_changed = if interaction {
+                    self.promote_client_to_foreground(client_id)
+                } else {
+                    false
+                };
+                if foreground_changed {
+                    self.resize_shared_runtime_to_effective_size();
+                }
+                let theme_changed = self.update_client_host_theme_from_events(client_id, &events);
+                self.app
+                    .route_client_events(events, self.foreground_client_id == Some(client_id));
+                if self.app.take_config_reloaded_from_disk() {
+                    self.reload_server_config(false);
+                } else {
+                    self.sync_foreground_client_state();
+                }
+                foreground_changed || theme_changed || interaction
+            }
             ServerEvent::ClientClipboardImage {
                 client_id,
                 extension,
@@ -1873,100 +2112,6 @@ impl HeadlessServer {
         changed
     }
 
-    fn handle_notification_show_headless(
-        &mut self,
-        id: String,
-        params: api::schema::NotificationShowParams,
-    ) -> String {
-        use api::schema::{NotificationShowReason, ResponseResult};
-
-        let requested_sound = params.sound;
-        let Some(title) = sanitize_notification_text(&params.title, 80) else {
-            return serde_json::to_string(&api::schema::ErrorResponse {
-                id,
-                error: api::schema::ErrorBody {
-                    code: "invalid_params".into(),
-                    message: "notification title is empty".into(),
-                },
-            })
-            .unwrap_or_else(|_| "{}".to_string());
-        };
-        let body = params
-            .body
-            .as_deref()
-            .and_then(|body| sanitize_notification_text(body, 240));
-
-        let now = Instant::now();
-        let reason = match self.app.state.toast_config.delivery {
-            crate::config::ToastDelivery::Off => NotificationShowReason::Disabled,
-            crate::config::ToastDelivery::Hako => {
-                if self.app.state.toast.is_some() {
-                    NotificationShowReason::Busy
-                } else if self.app.api_notification_rate_limited(now) {
-                    NotificationShowReason::RateLimited
-                } else {
-                    let previous_toast = self.app.state.toast.clone();
-                    self.app.mark_api_notification_shown(now);
-                    self.app.state.toast = Some(app::state::ToastNotification {
-                        kind: app::state::ToastKind::UpdateInstalled,
-                        title,
-                        context: body.unwrap_or_default(),
-                        position: params.position,
-                        target: None,
-                    });
-                    self.app.sync_toast_deadline(previous_toast);
-                    self.forward_api_notification_sound(requested_sound);
-                    NotificationShowReason::Shown
-                }
-            }
-            crate::config::ToastDelivery::Terminal | crate::config::ToastDelivery::System => {
-                if self.app.api_notification_rate_limited(now) {
-                    NotificationShowReason::RateLimited
-                } else {
-                    let message = notification_message(&title, body.as_deref());
-                    let sent = self.send_to_foreground_client(ServerMessage::Notify {
-                        kind: toast_notify_kind(self.app.state.toast_config.delivery)
-                            .expect("toast forwarding requires a client notification kind"),
-                        message,
-                    });
-                    if sent {
-                        self.app.mark_api_notification_shown(now);
-                        self.forward_api_notification_sound(requested_sound);
-                        NotificationShowReason::Shown
-                    } else {
-                        NotificationShowReason::NoForegroundClient
-                    }
-                }
-            }
-        };
-
-        serde_json::to_string(&api::schema::SuccessResponse {
-            id,
-            result: ResponseResult::NotificationShow {
-                shown: matches!(reason, NotificationShowReason::Shown),
-                reason,
-            },
-        })
-        .unwrap_or_else(|_| "{}".to_string())
-    }
-
-    fn forward_api_notification_sound(&mut self, sound: api::schema::NotificationShowSound) {
-        if !self.app.state.sound.allows(None) {
-            return;
-        }
-        let Some(sound) = sound.to_sound() else {
-            return;
-        };
-        let message = match sound {
-            crate::sound::Sound::Done => "agent done",
-            crate::sound::Sound::Request => "agent attention",
-        };
-        self.send_to_foreground_client(ServerMessage::Notify {
-            kind: protocol::NotifyKind::Sound,
-            message: message.to_owned(),
-        });
-    }
-
     /// Handles a single API request with shutdown awareness.
     ///
     /// Also forwards any toast/sound notifications that result from the API
@@ -2010,7 +2155,32 @@ impl HeadlessServer {
             return true;
         }
 
-        let changed = api::request_changes_ui(&msg.request);
+        if let api::schema::Method::NotificationShow(params) = &msg.request.method {
+            let response =
+                self.handle_notification_show_api(msg.request.id.clone(), params.clone());
+            let _ = msg.respond_to.send(response);
+            return true;
+        }
+
+        match &msg.request.method {
+            api::schema::Method::ClientWindowTitleSet(params) => {
+                let response = self.handle_client_window_title_api(
+                    msg.request.id.clone(),
+                    Some(params.title.clone()),
+                );
+                let _ = msg.respond_to.send(response);
+                return true;
+            }
+            api::schema::Method::ClientWindowTitleClear(_) => {
+                let response = self.handle_client_window_title_api(msg.request.id.clone(), None);
+                let _ = msg.respond_to.send(response);
+                return true;
+            }
+            _ => {}
+        }
+
+        let mut changed = api::request_changes_ui(&msg.request);
+        changed |= self.drain_internal_events_with_forwarding();
 
         // Capture toast and effective pane states before the API call so we can
         // forward resulting client-local notifications. API requests like
@@ -2038,12 +2208,6 @@ impl HeadlessServer {
         };
 
         self.sync_foreground_client_state();
-        if let api::schema::Method::NotificationShow(params) = &msg.request.method {
-            let response =
-                self.handle_notification_show_headless(msg.request.id.clone(), params.clone());
-            let _ = msg.respond_to.send(response);
-            return changed;
-        }
         let response = if matches!(
             &msg.request.method,
             api::schema::Method::ServerReloadConfig(_)
@@ -2458,37 +2622,6 @@ impl HeadlessServer {
     /// Handle scheduled tasks for the headless server.
     ///
     /// Similar to `App::handle_scheduled_tasks` but without resize polling
-    fn forward_agent_notification_delivery(
-        &mut self,
-        delivery: &app::state::AgentNotificationDelivery,
-    ) {
-        if let Some(sound) = delivery.sound {
-            let message = match sound {
-                crate::sound::Sound::Done => "agent done",
-                crate::sound::Sound::Request => "agent attention",
-            };
-            self.send_to_foreground_client(ServerMessage::Notify {
-                kind: protocol::NotifyKind::Sound,
-                message: message.to_owned(),
-            });
-        }
-
-        if !should_forward_toast_to_clients(self.app.state.toast_config.delivery) {
-            return;
-        }
-        let Some(toast) = delivery.client_notification.as_ref() else {
-            return;
-        };
-        self.send_to_foreground_client(ServerMessage::Notify {
-            kind: toast_notify_kind(self.app.state.toast_config.delivery)
-                .expect("toast forwarding requires a client notification kind"),
-            message: notification_message(
-                &toast.title,
-                (!toast.context.is_empty()).then_some(toast.context.as_str()),
-            ),
-        });
-    }
-
     /// (the server doesn't have a terminal to resize).
     fn handle_scheduled_tasks_headless(&mut self, now: Instant, geometry_dirty: bool) -> bool {
         let mut changed = false;
@@ -2750,6 +2883,17 @@ async fn sleep_until_or_pending(deadline: Option<Instant>) {
         Some(deadline) => tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await,
         None => std::future::pending().await,
     }
+}
+
+fn sanitize_window_title_text(value: &str, max_chars: usize) -> Option<String> {
+    let sanitized = value
+        .chars()
+        .filter(|ch| !matches!(*ch, '\u{1b}' | '\u{7}' | '\u{9c}') && !ch.is_control())
+        .take(max_chars)
+        .collect::<String>()
+        .trim()
+        .to_string();
+    (!sanitized.is_empty()).then_some(sanitized)
 }
 
 fn server_config_diagnostic_summaries(diagnostics: &[String]) -> (Option<String>, Option<String>) {

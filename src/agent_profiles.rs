@@ -10,6 +10,7 @@ pub enum AgentKind {
     Claude,
     Codex,
     Copilot,
+    Devin,
     Kimi,
     Droid,
     Opencode,
@@ -20,12 +21,13 @@ pub enum AgentKind {
 }
 
 impl AgentKind {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Codex,
         Self::Claude,
         Self::Cursor,
         Self::Opencode,
         Self::Copilot,
+        Self::Devin,
         Self::Pi,
         Self::Omp,
         Self::Kimi,
@@ -35,12 +37,13 @@ impl AgentKind {
         Self::Custom,
     ];
 
-    pub const SYSTEM: [Self; 11] = [
+    pub const SYSTEM: [Self; 12] = [
         Self::Codex,
         Self::Claude,
         Self::Cursor,
         Self::Opencode,
         Self::Copilot,
+        Self::Devin,
         Self::Pi,
         Self::Omp,
         Self::Kimi,
@@ -56,6 +59,7 @@ impl AgentKind {
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::Copilot => "copilot",
+            Self::Devin => "devin",
             Self::Kimi => "kimi",
             Self::Droid => "droid",
             Self::Opencode => "opencode",
@@ -73,6 +77,7 @@ impl AgentKind {
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::Copilot => "copilot",
+            Self::Devin => "devin",
             Self::Kimi => "kimi",
             Self::Droid => "droid",
             Self::Opencode => "opencode",
@@ -98,6 +103,7 @@ impl AgentKind {
             Self::Claude => Some(crate::api::schema::IntegrationTarget::Claude),
             Self::Codex => Some(crate::api::schema::IntegrationTarget::Codex),
             Self::Copilot => Some(crate::api::schema::IntegrationTarget::Copilot),
+            Self::Devin => Some(crate::api::schema::IntegrationTarget::Devin),
             Self::Kimi => Some(crate::api::schema::IntegrationTarget::Kimi),
             Self::Droid => Some(crate::api::schema::IntegrationTarget::Droid),
             Self::Opencode => Some(crate::api::schema::IntegrationTarget::Opencode),
@@ -117,6 +123,7 @@ impl From<crate::api::schema::IntegrationTarget> for AgentKind {
             crate::api::schema::IntegrationTarget::Claude => Self::Claude,
             crate::api::schema::IntegrationTarget::Codex => Self::Codex,
             crate::api::schema::IntegrationTarget::Copilot => Self::Copilot,
+            crate::api::schema::IntegrationTarget::Devin => Self::Devin,
             crate::api::schema::IntegrationTarget::Kimi => Self::Kimi,
             crate::api::schema::IntegrationTarget::Droid => Self::Droid,
             crate::api::schema::IntegrationTarget::Opencode => Self::Opencode,

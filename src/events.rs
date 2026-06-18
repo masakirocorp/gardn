@@ -101,4 +101,13 @@ pub enum AppEvent {
         cache_updates: Vec<(std::path::PathBuf, GitStatusCacheEntry)>,
         repo_summaries: Vec<(std::path::PathBuf, crate::workspace::GitWorkSummary)>,
     },
+    /// A plugin action or event command finished.
+    PluginCommandFinished {
+        log_id: String,
+        finished_unix_ms: u64,
+        exit_code: Option<i32>,
+        stdout: String,
+        stderr: String,
+        error: Option<String>,
+    },
 }

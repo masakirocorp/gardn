@@ -84,6 +84,7 @@ pub fn launch_env_from_report(
         ("hako:claude", "claude") => &["CLAUDE_CONFIG_DIR"][..],
         ("hako:codex", "codex") => &["CODEX_HOME"][..],
         ("hako:copilot", "copilot") => &["COPILOT_HOME"][..],
+        ("hako:devin", "devin") => &["DEVIN_CONFIG_DIR"][..],
         ("hako:kimi", "kimi") => &["KIMI_CODE_HOME"][..],
         ("hako:cursor", "cursor") => &["CURSOR_CONFIG_DIR"][..],
         ("hako:pi", "pi") | ("hako:omp", "omp") => &["PI_CONFIG_DIR", "PI_CODING_AGENT_DIR"][..],
@@ -142,6 +143,9 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
         }
         ("hako:copilot", "copilot", AgentSessionRefKind::Id) => {
             vec!["copilot".into(), format!("--resume={}", session_ref.value)]
+        }
+        ("hako:devin", "devin", AgentSessionRefKind::Id) => {
+            vec!["devin".into(), "--resume".into(), session_ref.value.clone()]
         }
         ("hako:droid", "droid", AgentSessionRefKind::Id) => {
             vec!["droid".into(), "--resume".into(), session_ref.value.clone()]
@@ -324,6 +328,7 @@ fn is_official_agent_source(source: &str, agent: &str) -> bool {
         ("hako:claude", "claude")
             | ("hako:codex", "codex")
             | ("hako:copilot", "copilot")
+            | ("hako:devin", "devin")
             | ("hako:droid", "droid")
             | ("hako:kimi", "kimi")
             | ("hako:pi", "pi")
@@ -399,6 +404,16 @@ mod tests {
             .unwrap()
             .argv,
             vec!["copilot", "--resume=copilot-session"]
+        );
+        assert_eq!(
+            plan(
+                "hako:devin",
+                "devin",
+                &AgentSessionRef::id("devin-session").unwrap()
+            )
+            .unwrap()
+            .argv,
+            vec!["devin", "--resume", "devin-session"]
         );
         assert_eq!(
             plan(
@@ -495,6 +510,13 @@ mod tests {
                 "copilot-session",
                 "custom-copilot",
                 vec!["custom-copilot", "--resume=copilot-session"],
+            ),
+            (
+                "hako:devin",
+                "devin",
+                "devin-session",
+                "custom-devin",
+                vec!["custom-devin", "--resume", "devin-session"],
             ),
             (
                 "hako:hermes",
@@ -628,6 +650,20 @@ mod tests {
             launch_env_from_report("hako:codex", "codex", env),
             vec![("CODEX_HOME".to_string(), "/profiles/codex".to_string())]
         );
+        let env = BTreeMap::from([
+            (
+                "DEVIN_CONFIG_DIR".to_string(),
+                "/profiles/devin".to_string(),
+            ),
+            ("PATH".to_string(), "/bin".to_string()),
+        ]);
+        assert_eq!(
+            launch_env_from_report("hako:devin", "devin", env),
+            vec![(
+                "DEVIN_CONFIG_DIR".to_string(),
+                "/profiles/devin".to_string()
+            )]
+        );
     }
 
     #[test]
@@ -684,8 +720,10 @@ mod tests {
     #[test]
     fn ids_are_data_not_shell_text() {
         let id = "abc; rm -rf /";
-        let plan = plan("hako:codex", "codex", &AgentSessionRef::id(id).unwrap()).unwrap();
-        assert_eq!(plan.argv, vec!["codex", "resume", id]);
+        let codex_plan = plan("hako:codex", "codex", &AgentSessionRef::id(id).unwrap()).unwrap();
+        assert_eq!(codex_plan.argv, vec!["codex", "resume", id]);
+        let devin_plan = plan("hako:devin", "devin", &AgentSessionRef::id(id).unwrap()).unwrap();
+        assert_eq!(devin_plan.argv, vec!["devin", "--resume", id]);
     }
 
     #[test]
@@ -708,6 +746,12 @@ mod tests {
             &AgentSessionRef::path("/tmp/copilot-session").unwrap()
         )
         .is_none());
+        assert!(plan(
+            "hako:devin",
+            "devin",
+            &AgentSessionRef::path("/tmp/devin-session").unwrap()
+        )
+        .is_none());
         assert!(session_ref_from_snapshot(
             "hako:hermes",
             "hermes",
@@ -720,6 +764,13 @@ mod tests {
             "opencode",
             AgentSessionRefKind::Id,
             "opencode-session"
+        )
+        .is_some());
+        assert!(session_ref_from_snapshot(
+            "hako:devin",
+            "devin",
+            AgentSessionRefKind::Id,
+            "devin-session"
         )
         .is_some());
     }

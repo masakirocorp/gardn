@@ -54,6 +54,7 @@ pub enum Agent {
     Cline,
     OpenCode,
     GithubCopilot,
+    Devin,
     Kimi,
     Kiro,
     Droid,
@@ -65,7 +66,7 @@ pub enum Agent {
 }
 
 impl Agent {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::Pi,
         Self::OhMyPi,
         Self::Claude,
@@ -76,6 +77,7 @@ impl Agent {
         Self::Cline,
         Self::OpenCode,
         Self::GithubCopilot,
+        Self::Devin,
         Self::Kimi,
         Self::Kiro,
         Self::Droid,
@@ -99,6 +101,7 @@ pub fn agent_label(agent: Agent) -> &'static str {
         Agent::Cline => "cline",
         Agent::OpenCode => "opencode",
         Agent::GithubCopilot => "copilot",
+        Agent::Devin => "devin",
         Agent::Kimi => "kimi",
         Agent::Kiro => "kiro",
         Agent::Droid => "droid",
@@ -123,6 +126,7 @@ pub fn parse_agent_label(agent: &str) -> Option<Agent> {
         "cline" => Some(Agent::Cline),
         "opencode" | "open-code" => Some(Agent::OpenCode),
         "copilot" | "github-copilot" | "ghcs" => Some(Agent::GithubCopilot),
+        "devin" | "devin-cli" => Some(Agent::Devin),
         "kimi" | "kimi-code" | "kimi code" => Some(Agent::Kimi),
         "kiro" | "kiro-cli" => Some(Agent::Kiro),
         "droid" => Some(Agent::Droid),
@@ -151,6 +155,7 @@ pub fn identify_agent(process_name: &str) -> Option<Agent> {
         "cline" => Some(Agent::Cline),
         "opencode" | "open-code" => Some(Agent::OpenCode),
         "copilot" | "github-copilot" | "ghcs" => Some(Agent::GithubCopilot),
+        "devin" | "devin-cli" => Some(Agent::Devin),
         "kimi" | "kimi-code" | "kimi code" => Some(Agent::Kimi),
         "kiro" | "kiro-cli" => Some(Agent::Kiro),
         "droid" => Some(Agent::Droid),

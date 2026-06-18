@@ -281,7 +281,9 @@ impl App {
             .is_some_and(|deadline| now >= deadline)
         {
             let previous_toast = self.state.toast.clone();
-            let deliveries = self.state.drain_due_agent_notifications(now);
+            let mut deliveries = self.state.drain_due_agent_notifications(now);
+            self.refresh_agent_notification_delivery_contexts(&mut deliveries);
+            self.emit_delayed_client_local_agent_notifications(&deliveries);
             if !deliveries.is_empty() {
                 self.sync_toast_deadline(previous_toast);
                 changed = true;

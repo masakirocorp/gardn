@@ -604,13 +604,15 @@ async fn run_client_loop(
     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<ClientLoopEvent>(256);
 
     // Spawn the stdin reader thread.
+    let will_query_host_terminal_theme =
+        state.attach_escape.is_none() && should_query_host_terminal_theme();
     let stdin_quit = should_quit.clone();
     let stdin_tx = event_tx.clone();
     std::thread::spawn(move || {
-        input::stdin_reader_loop(stdin_tx, &stdin_quit);
+        input::stdin_reader_loop(stdin_tx, &stdin_quit, will_query_host_terminal_theme);
     });
 
-    if state.attach_escape.is_none() {
+    if will_query_host_terminal_theme {
         query_host_terminal_theme();
     }
 
@@ -758,6 +760,10 @@ async fn run_client_loop(
                 }
                 ServerMessage::Clipboard { data } => {
                     forward_clipboard(&data);
+                    let _ = io::stdout().flush();
+                }
+                ServerMessage::WindowTitle { title } => {
+                    write_window_title(title.as_deref());
                     let _ = io::stdout().flush();
                 }
                 ServerMessage::ReloadSoundConfig => {
@@ -980,6 +986,19 @@ fn forward_clipboard(data: &str) {
     crate::selection::write_osc52_bytes(&bytes);
 }
 
+fn window_title_osc(title: Option<&str>) -> Vec<u8> {
+    let title = title.unwrap_or("hako");
+    let safe_title = title
+        .chars()
+        .filter(|ch| !matches!(*ch, '\u{1b}' | '\u{7}' | '\u{9c}'))
+        .collect::<String>();
+    format!("\x1b]0;{safe_title}\x07").into_bytes()
+}
+
+fn write_window_title(title: Option<&str>) {
+    let _ = io::stdout().write_all(&window_title_osc(title));
+}
+
 // ---------------------------------------------------------------------------
 // Frame output
 // ---------------------------------------------------------------------------
@@ -1134,6 +1153,10 @@ fn resize_poll_loop(
 /// Initialize logging for the client process.
 fn query_host_terminal_theme() {
     let _ = write_host_terminal_theme_query(io::stdout());
+}
+
+fn should_query_host_terminal_theme() -> bool {
+    !cfg!(windows)
 }
 
 fn write_host_terminal_theme_query(mut writer: impl io::Write) -> io::Result<()> {
@@ -1519,5 +1542,14 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let _ssh_connection_env = EnvVarGuard::set("SSH_CONNECTION", "1 2 3 4");
         forward_clipboard("dGVzdA==");
+    }
+
+    #[test]
+    fn window_title_osc_strips_terminators_and_defaults_to_hako() {
+        assert_eq!(
+            window_title_osc(Some("hako\x1b api\u{7}\u{9c}")),
+            b"\x1b]0;hako api\x07"
+        );
+        assert_eq!(window_title_osc(None), b"\x1b]0;hako\x07");
     }
 }
