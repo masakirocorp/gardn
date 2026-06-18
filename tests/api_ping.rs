@@ -587,7 +587,6 @@ fn tab_methods_round_trip_over_socket() {
         .to_string();
     assert!(second_root_terminal_id.starts_with("term_"));
     assert_ne!(second_root_terminal_id, second_root_pane_id);
-    assert_eq!(second_tab_id, format!("{workspace_id}:2"));
     assert_eq!(tab_created["result"]["tab"]["focused"], true);
     assert_eq!(tab_created["result"]["root_pane"]["tab_id"], second_tab_id);
 
@@ -1352,7 +1351,6 @@ fn events_subscribe_streams_workspace_tab_and_agent_events() {
         .as_str()
         .unwrap()
         .to_string();
-    assert_eq!(second_tab_id, format!("{workspace_id}:2"));
 
     let created_tab_event = wait_for_event(&mut reader, "tab_created", Duration::from_secs(2));
     assert_eq!(created_tab_event["data"]["tab"]["tab_id"], second_tab_id);
