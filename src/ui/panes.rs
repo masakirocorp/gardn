@@ -383,7 +383,8 @@ fn render_native_diff_pane(
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(area);
-    if diff.show_file_list {
+    let has_visible_files = native_diff_has_visible_files(diff);
+    if diff.show_file_list && has_visible_files {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
@@ -407,6 +408,13 @@ fn render_native_diff_separator(app: &AppState, frame: &mut Frame, area: Rect) {
         cell.set_symbol("│");
         cell.set_style(native_diff_divider_style(app));
     }
+}
+
+fn native_diff_has_visible_files(diff: &crate::native_diff::NativeDiffPaneState) -> bool {
+    diff.session
+        .files
+        .iter()
+        .any(|file| diff.scope.includes(file.bucket))
 }
 
 fn render_native_diff_file_list(
@@ -680,6 +688,7 @@ fn render_native_diff_file_patch(
     let viewport_cols = native_diff_text_viewport_cols(app, diff, area.width);
     let preliminary_max_col_scroll = diff.max_diff_col_scroll(viewport_cols);
     let Some(file) = diff.selected_file() else {
+        render_native_diff_empty_state(app, diff, frame, area, accent);
         return;
     };
     let split = native_diff_uses_split_mode(diff, area.width);
@@ -805,6 +814,105 @@ fn render_native_diff_file_patch(
             horizontal_max_col_scroll,
             native_diff_text_viewport_cols(app, diff, body.width),
         );
+    }
+}
+
+fn render_native_diff_empty_state(
+    app: &AppState,
+    diff: &crate::native_diff::NativeDiffPaneState,
+    frame: &mut Frame,
+    area: Rect,
+    accent: Color,
+) {
+    fill_rect(frame, area, Style::default().bg(app.palette.panel_bg));
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let title = native_diff_empty_title(diff);
+    let description = native_diff_empty_description(diff);
+    let repo_name = diff
+        .session
+        .repo_root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("repository");
+    let path = diff.session.repo_root.display().to_string();
+    let mut lines = vec![
+        Line::from(Span::styled(
+            title,
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            description,
+            Style::default().fg(app.palette.subtext0),
+        )),
+        Line::from(vec![
+            Span::styled("repo: ", Style::default().fg(app.palette.subtext0)),
+            Span::styled(repo_name.to_string(), Style::default().fg(app.palette.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("path: ", Style::default().fg(app.palette.subtext0)),
+            Span::styled(path, Style::default().fg(app.palette.text)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("refresh ", Style::default().fg(app.palette.subtext0)),
+            Span::styled("r", Style::default().fg(app.palette.text)),
+            Span::styled(" · scope ", Style::default().fg(app.palette.subtext0)),
+            Span::styled("f", Style::default().fg(app.palette.text)),
+        ]),
+    ];
+
+    let content_height = lines.len().min(area.height as usize) as u16;
+    let top = area
+        .y
+        .saturating_add(area.height.saturating_sub(content_height) / 2);
+    let left_padding = if area.width > 72 {
+        (area.width - 72) / 2
+    } else {
+        2.min(area.width.saturating_sub(1))
+    };
+    let content_area = Rect::new(
+        area.x.saturating_add(left_padding),
+        top,
+        area.width
+            .saturating_sub(left_padding.saturating_mul(2))
+            .max(1),
+        content_height,
+    );
+    lines.truncate(content_area.height as usize);
+    frame.render_widget(
+        Paragraph::new(lines).style(
+            Style::default()
+                .fg(app.palette.text)
+                .bg(app.palette.panel_bg),
+        ),
+        content_area,
+    );
+}
+
+fn native_diff_empty_title(diff: &crate::native_diff::NativeDiffPaneState) -> &'static str {
+    match diff.scope {
+        crate::native_diff::NativeDiffScope::All => "clean working tree",
+        crate::native_diff::NativeDiffScope::Unstaged => "no unstaged changes",
+        crate::native_diff::NativeDiffScope::Untracked => "no untracked files",
+        crate::native_diff::NativeDiffScope::Staged => "no staged changes",
+    }
+}
+
+fn native_diff_empty_description(diff: &crate::native_diff::NativeDiffPaneState) -> &'static str {
+    match diff.scope {
+        crate::native_diff::NativeDiffScope::All => {
+            "No staged, unstaged, or untracked changes in this repo."
+        }
+        crate::native_diff::NativeDiffScope::Unstaged => {
+            "This repo has no unstaged tracked changes."
+        }
+        crate::native_diff::NativeDiffScope::Untracked => "This repo has no untracked files.",
+        crate::native_diff::NativeDiffScope::Staged => "This repo has no staged changes.",
     }
 }
 fn native_diff_body_lines(lines: &mut Vec<Line<'static>>) -> Vec<Line<'static>> {
@@ -2111,6 +2219,78 @@ mod tests {
         assert_eq!(pane_border_title("", 20), None);
         assert_eq!(pane_border_title("abcdef", 8).as_deref(), Some(" abc… "));
         assert_eq!(pane_border_title("abcdef", 4), None);
+    }
+
+    #[test]
+    fn native_diff_empty_state_explains_clean_repo() {
+        let app = AppState::test_new();
+        let diff =
+            crate::native_diff::NativeDiffPaneState::new(crate::native_diff::NativeDiffSession {
+                repo_root: std::path::PathBuf::from("/repo/hako"),
+                files: Vec::new(),
+            });
+        let backend = TestBackend::new(72, 12);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        terminal
+            .draw(|frame| {
+                render_native_diff_pane(
+                    &app,
+                    &diff,
+                    frame,
+                    Rect::new(0, 0, 72, 12),
+                    app.palette.accent,
+                )
+            })
+            .expect("render native diff empty state");
+
+        let text = buffer_text(terminal.backend().buffer(), 72, 12);
+        assert!(text.contains("clean working tree"));
+        assert!(text.contains("No staged, unstaged, or untracked changes in this repo."));
+        assert!(text.contains("repo: hako"));
+        assert!(text.contains("path: /repo/hako"));
+        assert!(text.contains("refresh r"));
+        assert!(!text.contains("no changes"));
+    }
+
+    #[test]
+    fn native_diff_empty_state_names_filtered_scope() {
+        let app = AppState::test_new();
+        let mut diff =
+            crate::native_diff::NativeDiffPaneState::new(crate::native_diff::NativeDiffSession {
+                repo_root: std::path::PathBuf::from("/repo/hako"),
+                files: vec![crate::native_diff::NativeDiffFile {
+                    bucket: crate::native_diff::DiffBucket::Changed,
+                    old_path: Some(std::path::PathBuf::from("src/lib.rs")),
+                    new_path: Some(std::path::PathBuf::from("src/lib.rs")),
+                    status: crate::native_diff::DiffFileStatus::Modified,
+                    added: 1,
+                    deleted: 0,
+                    binary: false,
+                    hunks: Vec::new(),
+                }],
+            });
+        diff.scope = crate::native_diff::NativeDiffScope::Staged;
+        diff.selected_file = None;
+        let backend = TestBackend::new(72, 12);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        terminal
+            .draw(|frame| {
+                render_native_diff_pane(
+                    &app,
+                    &diff,
+                    frame,
+                    Rect::new(0, 0, 72, 12),
+                    app.palette.accent,
+                )
+            })
+            .expect("render native diff filtered empty state");
+
+        let text = buffer_text(terminal.backend().buffer(), 72, 12);
+        assert!(text.contains("no staged changes"));
+        assert!(text.contains("This repo has no staged changes."));
+        assert!(!text.contains("unstaged"));
     }
 
     #[test]
