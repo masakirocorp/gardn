@@ -1610,8 +1610,8 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("sidebar"));
-        assert!(text.contains("sidebar arrangement"));
-        assert!(text.contains("auto"));
+        assert!(!text.contains("sidebar arrangement"));
+        assert!(!text.contains("auto"));
         assert!(text.contains("default sidebar width"));
         assert!(text.contains("26 cols"));
         assert!(text.contains("minimum sidebar width"));
@@ -1648,7 +1648,7 @@ mod tests {
     fn sectioned_settings_selected_text_uses_selected_foreground() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Layout;
-        app.settings.list.selected = 1;
+        app.settings.list.selected = 0;
         app.settings.selection_active = true;
 
         let area = Rect::new(0, 0, 100, 30);
@@ -1691,7 +1691,8 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        let (row, col) = find_text_cell(&text, "sidebar arrangement").expect("layout setting row");
+        let (row, col) =
+            find_text_cell(&text, "default sidebar width").expect("layout setting row");
 
         assert_ne!(
             terminal.backend().buffer()[(col, row)].style().fg,
@@ -1719,7 +1720,7 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         let (selected_y, selected_x) =
-            find_text_cell(&text, "sidebar arrangement").expect("selected layout row");
+            find_text_cell(&text, "default sidebar width").expect("selected layout row");
 
         assert_eq!(
             terminal.backend().buffer()[(selected_x, selected_y)]
@@ -1727,8 +1728,7 @@ mod tests {
                 .fg,
             Some(panel_contrast_fg(&app.palette))
         );
-        assert!(!text.contains("combined"));
-        assert!(text.contains("auto"));
+        assert!(text.contains("26 cols"));
     }
 
     #[test]

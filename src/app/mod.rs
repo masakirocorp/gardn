@@ -579,7 +579,6 @@ impl App {
             },
             request_client_config_reload: false,
             request_clipboard_write: None,
-            request_command_action: None,
             creating_new_tab: false,
             creating_new_group: false,
             group_icon_input: state::DEFAULT_GROUP_ICON.to_string(),
@@ -2983,30 +2982,6 @@ mod tests {
         assert!(content.contains("sidebar_width = 30"));
         assert!(content.contains("sidebar_min_width = 20"));
         assert!(content.contains("sidebar_max_width = 40"));
-        assert!(app.state.config_diagnostic.is_none());
-
-        let _ = std::fs::remove_dir_all(path.parent().unwrap());
-    }
-
-    #[test]
-    fn settings_save_sidebar_arrangement_persists_then_applies_live_config() {
-        let _guard = config_env_lock().lock().unwrap();
-        let path = temp_config_path("settings-save-sidebar-arrangement");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, "onboarding = false\n").unwrap();
-        let _config_path_env =
-            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
-
-        let mut app = test_app();
-        app.save_sidebar_arrangement(crate::config::SidebarArrangementConfig::CombinedRight);
-
-        assert_eq!(
-            app.state.sidebar_arrangement,
-            crate::config::SidebarArrangementConfig::CombinedRight
-        );
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("[ui]"));
-        assert!(content.contains("sidebar_arrangement = \"combined_right\""));
         assert!(app.state.config_diagnostic.is_none());
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());

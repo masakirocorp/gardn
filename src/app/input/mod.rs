@@ -604,7 +604,6 @@ impl App {
                         sidebar_width,
                         sidebar_min_width,
                         sidebar_max_width,
-                        sidebar_arrangement,
                         worktree_directory,
                         native_diff_indicators,
                         native_diff_backgrounds,
@@ -629,7 +628,6 @@ impl App {
                             sidebar_min_width,
                             sidebar_max_width,
                         );
-                        self.save_sidebar_arrangement(sidebar_arrangement);
                         if let Some(directory) = worktree_directory {
                             self.save_worktree_directory(&directory);
                         }
@@ -682,29 +680,6 @@ impl App {
                 .is_err()
             {
                 tracing::warn!("failed to queue clipboard write event");
-            }
-        }
-
-        if let Some(action) = self.state.request_command_action.take() {
-            match action {
-                crate::app::state::CommandPanelAction::RunOrFocus(command_id) => {
-                    if let Err(err) = self
-                        .state
-                        .run_project_command(&mut self.terminal_runtimes, &command_id)
-                    {
-                        self.state.toast = Some(crate::app::state::ToastNotification {
-                            kind: crate::app::state::ToastKind::NeedsAttention,
-                            title: "command failed".to_string(),
-                            context: err,
-                            position: None,
-                            target: None,
-                        });
-                    }
-                }
-                crate::app::state::CommandPanelAction::Stop(command_id) => {
-                    self.state
-                        .stop_project_command(&mut self.terminal_runtimes, &command_id);
-                }
             }
         }
 

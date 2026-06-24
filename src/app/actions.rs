@@ -4910,10 +4910,10 @@ mod tests {
         state.move_workspace_to_group(1, group_two);
         state.move_workspace_to_group(2, group_two);
         state.group_filter_enabled = false;
-        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 140, 20));
+        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 140, 80));
 
         state.switch_workspace(2);
-        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 140, 20));
+        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 140, 80));
 
         assert!(state
             .view

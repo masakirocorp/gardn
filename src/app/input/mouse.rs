@@ -469,133 +469,14 @@ impl AppState {
                     }
 
                     if self.right_sidebar_collapsed {
-                        if self.on_collapsed_right_sidebar_scope_toggle(mouse.column, mouse.row) {
-                            super::modal::open_agent_menu(self);
-                            return None;
-                        }
-
-                        if self.on_collapsed_activity_agents_header(mouse.column, mouse.row) {
-                            self.toggle_activity_agents();
-                            return None;
-                        }
-
-                        if self.on_collapsed_activity_ports_header(mouse.column, mouse.row) {
-                            self.toggle_activity_ports();
-                            return None;
-                        }
-
-                        if let Some((ws_idx, tab_idx, pane_id)) =
-                            self.collapsed_right_sidebar_agent_target_at(mouse.row)
-                        {
-                            self.switch_workspace(ws_idx);
-                            self.switch_tab(tab_idx);
-                            self.focus_pane(pane_id);
-                            self.mode = Mode::Terminal;
-                            return None;
-                        }
-
-                        if let Some((ws_idx, tab_idx, pane_id)) =
-                            self.collapsed_right_sidebar_port_target_at(mouse.row)
-                        {
-                            self.switch_workspace(ws_idx);
-                            self.switch_tab(tab_idx);
-                            self.focus_pane(pane_id);
-                            self.mode = Mode::Terminal;
-                        }
                         return None;
                     }
 
-                    if self.on_agent_panel_scope_toggle(mouse.column, mouse.row) {
-                        super::modal::open_agent_menu(self);
+                    if self.handle_native_diff_right_sidebar_click(mouse) {
                         return None;
                     }
 
-                    if self.on_activity_agents_header(mouse.column, mouse.row) {
-                        self.toggle_activity_agents();
-                        return None;
-                    }
-
-                    if self.on_activity_commands_header(mouse.column, mouse.row) {
-                        self.toggle_activity_commands();
-                        return None;
-                    }
-
-                    if self.on_activity_ports_header(mouse.column, mouse.row) {
-                        self.toggle_activity_ports();
-                        return None;
-                    }
-
-                    if let Some(target) =
-                        self.agent_panel_scrollbar_target_at(mouse.column, mouse.row)
-                    {
-                        match target {
-                            ScrollbarClickTarget::Thumb { grab_row_offset } => {
-                                self.drag = Some(DragState {
-                                    target: DragTarget::AgentPanelScrollbar { grab_row_offset },
-                                });
-                            }
-                            ScrollbarClickTarget::Track { offset_from_bottom } => {
-                                self.set_agent_panel_offset_from_bottom(offset_from_bottom);
-                            }
-                        }
-                        return None;
-                    }
-
-                    if let Some((ws_idx, tab_idx, pane_id)) = self.port_detail_target_at(mouse.row)
-                    {
-                        self.switch_workspace(ws_idx);
-                        self.switch_tab(tab_idx);
-                        self.focus_pane(pane_id);
-                        self.mode = Mode::Terminal;
-                        return None;
-                    }
-
-                    if let Some(target) = self.command_header_target_at(mouse.row) {
-                        match target {
-                            crate::ui::CommandPanelHeaderTarget::Project(key) => {
-                                self.toggle_command_group(key)
-                            }
-                            crate::ui::CommandPanelHeaderTarget::Status(key) => {
-                                self.toggle_command_status_group(key)
-                            }
-                        }
-                        return None;
-                    }
-
-                    if let Some(target) = self.agent_header_target_at(mouse.row) {
-                        self.toggle_agent_section(target.section);
-                        self.agent_panel_scroll = self.agent_panel_scroll.min(
-                            crate::ui::agent_panel_scroll_metrics(
-                                self,
-                                self.agent_panel_rect(),
-                                self.agent_panel_has_leading_separator(),
-                            )
-                            .max_offset_from_bottom,
-                        );
-                        return None;
-                    }
-
-                    if let Some(command_id) = self.command_detail_target_at(mouse.column, mouse.row)
-                    {
-                        let action = if self.command_runs.get(&command_id).is_some_and(|run| {
-                            run.status == crate::commands::CommandRunStatus::Running
-                        }) {
-                            crate::app::state::CommandPanelAction::Stop(command_id)
-                        } else {
-                            crate::app::state::CommandPanelAction::RunOrFocus(command_id)
-                        };
-                        self.request_command_action = Some(action);
-                        return None;
-                    }
-
-                    if let Some((ws_idx, tab_idx, pane_id)) = self.agent_detail_target_at(mouse.row)
-                    {
-                        self.switch_workspace(ws_idx);
-                        self.switch_tab(tab_idx);
-                        self.focus_pane(pane_id);
-                        self.mode = Mode::Terminal;
-                        return None;
-                    }
+                    return None;
                 } else if in_sidebar {
                     if self.on_sidebar_toggle(mouse.column, mouse.row) {
                         self.sidebar_collapsed = !self.sidebar_collapsed;
@@ -656,19 +537,17 @@ impl AppState {
                         return None;
                     }
 
-                    if self.view.right_sidebar_rect == Rect::default() {
-                        if let Some(target) = self.agent_header_target_at(mouse.row) {
-                            self.toggle_agent_section(target.section);
-                            self.agent_panel_scroll = self.agent_panel_scroll.min(
-                                crate::ui::agent_panel_scroll_metrics(
-                                    self,
-                                    self.agent_panel_rect(),
-                                    self.agent_panel_has_leading_separator(),
-                                )
-                                .max_offset_from_bottom,
-                            );
-                            return None;
-                        }
+                    if let Some(target) = self.agent_header_target_at(mouse.row) {
+                        self.toggle_agent_section(target.section);
+                        self.agent_panel_scroll = self.agent_panel_scroll.min(
+                            crate::ui::agent_panel_scroll_metrics(
+                                self,
+                                self.agent_panel_rect(),
+                                self.agent_panel_has_leading_separator(),
+                            )
+                            .max_offset_from_bottom,
+                        );
+                        return None;
                     }
 
                     if let Some(idx) = self.workspace_at_row(mouse.row) {
@@ -1099,23 +978,27 @@ impl AppState {
             }
 
             MouseEventKind::ScrollUp if in_right_sidebar => {
-                let agent_area = self.agent_panel_rect();
-                if crate::ui::should_show_scrollbar(crate::ui::agent_panel_scroll_metrics(
-                    self,
-                    agent_area,
-                    self.agent_panel_has_leading_separator(),
-                )) {
-                    self.scroll_agent_panel(-1);
+                if !self.handle_native_diff_right_sidebar_wheel(-1) {
+                    let agent_area = self.agent_panel_rect();
+                    if crate::ui::should_show_scrollbar(crate::ui::agent_panel_scroll_metrics(
+                        self,
+                        agent_area,
+                        self.agent_panel_has_leading_separator(),
+                    )) {
+                        self.scroll_agent_panel(-1);
+                    }
                 }
             }
             MouseEventKind::ScrollDown if in_right_sidebar => {
-                let agent_area = self.agent_panel_rect();
-                if crate::ui::should_show_scrollbar(crate::ui::agent_panel_scroll_metrics(
-                    self,
-                    agent_area,
-                    self.agent_panel_has_leading_separator(),
-                )) {
-                    self.scroll_agent_panel(1);
+                if !self.handle_native_diff_right_sidebar_wheel(1) {
+                    let agent_area = self.agent_panel_rect();
+                    if crate::ui::should_show_scrollbar(crate::ui::agent_panel_scroll_metrics(
+                        self,
+                        agent_area,
+                        self.agent_panel_has_leading_separator(),
+                    )) {
+                        self.scroll_agent_panel(1);
+                    }
                 }
             }
 
@@ -1222,16 +1105,6 @@ impl AppState {
                         list: MenuListState::new(1),
                     });
                     self.mode = Mode::ContextMenu;
-                }
-            }
-
-            MouseEventKind::Down(MouseButton::Right)
-                if in_right_sidebar && !self.right_sidebar_collapsed =>
-            {
-                if let Some(command_id) = self.command_detail_target_at(mouse.column, mouse.row) {
-                    self.request_command_action =
-                        Some(crate::app::state::CommandPanelAction::Stop(command_id));
-                    return None;
                 }
             }
 
@@ -1769,6 +1642,37 @@ impl AppState {
         }
     }
 
+    fn focused_native_diff_mut(&mut self) -> Option<&mut crate::native_diff::NativeDiffPaneState> {
+        let ws_idx = self.active?;
+        let workspace = self.workspaces.get_mut(ws_idx)?;
+        let pane_id = workspace.focused_pane_id()?;
+        workspace.pane_state_mut(pane_id)?.native_diff_mut()
+    }
+
+    fn handle_native_diff_right_sidebar_click(&mut self, mouse: MouseEvent) -> bool {
+        let content = crate::ui::right_sidebar_content_rect(self.view.right_sidebar_rect);
+        if content == Rect::default()
+            || mouse.row <= content.y
+            || mouse.row >= content.y + content.height
+        {
+            return false;
+        }
+        let row = mouse.row.saturating_sub(content.y + 1) as usize;
+        self.focused_native_diff_mut()
+            .is_some_and(|diff| diff.select_visible_file_row(row))
+    }
+
+    fn handle_native_diff_right_sidebar_wheel(&mut self, delta: isize) -> bool {
+        let content = crate::ui::right_sidebar_content_rect(self.view.right_sidebar_rect);
+        if content.height <= 1 {
+            return false;
+        }
+        self.focused_native_diff_mut().is_some_and(|diff| {
+            diff.scroll_file_list(delta, content.height.saturating_sub(1) as usize);
+            true
+        })
+    }
+
     pub(super) fn handle_native_diff_mouse_down(
         &mut self,
         info: &PaneInfo,
@@ -1782,7 +1686,7 @@ impl AppState {
         else {
             return false;
         };
-        let file_width = if diff.show_file_list {
+        let file_width = if diff.show_file_list && self.view.right_sidebar_rect == Rect::default() {
             crate::native_diff::native_diff_file_list_width(info.inner_rect.width)
         } else {
             0
@@ -1835,7 +1739,7 @@ impl AppState {
             MouseEventKind::ScrollRight => 8,
             _ => return false,
         };
-        let file_width = if diff.show_file_list {
+        let file_width = if diff.show_file_list && self.view.right_sidebar_rect == Rect::default() {
             crate::native_diff::native_diff_file_list_width(info.inner_rect.width)
         } else {
             0
@@ -1853,6 +1757,7 @@ impl AppState {
                 info.inner_rect.width,
                 info.inner_rect.height.saturating_sub(2) as usize,
                 line_numbers,
+                self.view.right_sidebar_rect == Rect::default(),
             );
             diff.scroll_diff_columns(delta, viewport_cols);
         } else {
@@ -1866,8 +1771,9 @@ impl AppState {
         pane_width: u16,
         diff_viewport_rows: usize,
         line_numbers: bool,
+        show_inline_file_list: bool,
     ) -> usize {
-        let file_width = if diff.show_file_list {
+        let file_width = if diff.show_file_list && show_inline_file_list {
             crate::native_diff::native_diff_file_list_width(pane_width)
         } else {
             0

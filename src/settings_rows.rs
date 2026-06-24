@@ -3,8 +3,7 @@ use std::borrow::Cow;
 use crate::{
     app::state::{normalize_theme_name, theme_names_for_appearance, AppState, SettingsSection},
     config::{
-        NativeDiffIndicatorConfig, NewTerminalCwdConfig, SidebarArrangementConfig, TerminalAccent,
-        ThemeMode, ToastDelivery,
+        NativeDiffIndicatorConfig, NewTerminalCwdConfig, TerminalAccent, ThemeMode, ToastDelivery,
     },
     terminal_theme::ThemeAppearance,
 };
@@ -688,15 +687,6 @@ fn appearance_rows(app: &AppState) -> Vec<SettingsListRow> {
     rows
 }
 
-fn sidebar_arrangement_label(arrangement: SidebarArrangementConfig) -> &'static str {
-    match arrangement {
-        SidebarArrangementConfig::Auto => "auto",
-        SidebarArrangementConfig::Separate => "separate sidebars",
-        SidebarArrangementConfig::CombinedLeft => "combined left",
-        SidebarArrangementConfig::CombinedRight => "combined right",
-    }
-}
-
 fn native_diff_indicator_label(indicator: NativeDiffIndicatorConfig) -> &'static str {
     match indicator {
         NativeDiffIndicatorConfig::Bars => "bars",
@@ -720,33 +710,23 @@ fn layout_rows_with_base(app: &AppState, base: usize) -> Vec<SettingsListRow> {
         .settings
         .pending_sidebar_max_width
         .unwrap_or(app.sidebar_max_width);
-    let arrangement = app
-        .settings
-        .pending_sidebar_arrangement
-        .unwrap_or(app.sidebar_arrangement);
     setting_group(
         "sidebar",
         [
             value_option(
                 base,
-                "sidebar arrangement",
-                "choose where spaces and activity sidebars live",
-                sidebar_arrangement_label(arrangement),
-            ),
-            value_option(
-                base + 1,
                 "default sidebar width",
                 "preferred desktop sidebar width",
                 format!("{width} cols"),
             ),
             value_option(
-                base + 2,
+                base + 1,
                 "minimum sidebar width",
                 "smallest allowed desktop sidebar width",
                 format!("{min} cols"),
             ),
             value_option(
-                base + 3,
+                base + 2,
                 "maximum sidebar width",
                 "largest allowed desktop sidebar width",
                 format!("{max} cols"),

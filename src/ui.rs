@@ -89,23 +89,17 @@ pub(crate) use self::{
     sidebar::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_entry_at_row,
         agent_panel_header_target_at_row, agent_panel_scroll_metrics, agent_panel_scrollbar_rect,
-        agent_panel_toggle_rect, collapsed_group_header_rect,
-        collapsed_right_sidebar_activity_header_rect, collapsed_right_sidebar_agent_entry_at_row,
-        collapsed_right_sidebar_agent_rows_rect, collapsed_right_sidebar_port_entry_at_row,
-        collapsed_right_sidebar_ports_header_rect, collapsed_sidebar_sections,
+        agent_panel_toggle_rect, collapsed_group_header_rect, collapsed_sidebar_sections,
         collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect, compute_workspace_card_areas,
         compute_workspace_card_areas_in_list, compute_workspace_group_drop_areas_in_list,
-        compute_workspace_group_empty_areas, compute_workspace_group_empty_areas_in_list,
-        compute_workspace_group_header_areas, compute_workspace_group_header_areas_in_list,
-        expanded_sidebar_sections, expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
-        right_aligned_expanded_sidebar_sections, right_aligned_sidebar_section_divider_rect,
-        right_aligned_workspace_list_rect, right_sidebar_agents_header_rect,
-        right_sidebar_command_entry_at_row, right_sidebar_command_header_target_at_row,
-        right_sidebar_commands_header_rect, right_sidebar_content_rect, right_sidebar_panel_rects,
-        right_sidebar_ports_header_rect, right_sidebar_toggle_rect, sidebar_section_divider_rect,
+        compute_workspace_group_empty_areas_in_list, compute_workspace_group_header_areas,
+        compute_workspace_group_header_areas_in_list, expanded_sidebar_sections,
+        expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
+        right_aligned_sidebar_section_divider_rect, right_aligned_workspace_list_rect,
+        right_sidebar_content_rect, right_sidebar_toggle_rect, sidebar_section_divider_rect,
         workspace_drop_indicator_row, workspace_list_entry_count,
         workspace_list_position_for_workspace, workspace_list_rect, workspace_list_scroll_metrics,
-        workspace_list_scrollbar_rect, AgentPanelHeaderTarget, CommandPanelHeaderTarget,
+        workspace_list_scrollbar_rect, AgentPanelHeaderTarget,
     },
 };
 pub(crate) use self::{
@@ -115,7 +109,6 @@ pub(crate) use self::{
         mobile_switcher_workspace_doc_range, MobileSwitcherTarget,
     },
     panes::pane_is_scrolled_back,
-    sidebar::port_panel_entry_at_row,
     tabs::compute_tab_bar_view,
     widgets::{
         centered_popup_rect, modal_scroll_metrics, modal_stack_areas, ModalListGeometry,
@@ -238,19 +231,16 @@ fn compute_view_internal(
             .clamp(MIN_RIGHT_SIDEBAR_WIDTH, MAX_RIGHT_SIDEBAR_WIDTH)
     };
 
-    let auto_separate = area.width
-        >= sidebar_w
-            .saturating_add(right_sidebar_w)
-            .saturating_add(RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH);
-    let separate_sidebars = match app.sidebar_arrangement {
-        crate::config::SidebarArrangementConfig::Auto => auto_separate,
-        crate::config::SidebarArrangementConfig::Separate => true,
-        crate::config::SidebarArrangementConfig::CombinedLeft
-        | crate::config::SidebarArrangementConfig::CombinedRight => false,
-    };
-    let combined_right =
-        app.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight;
-    let (sidebar_area, main_area, right_sidebar_area) = if separate_sidebars {
+    // The right sidebar is a context rail for the active main-pane tool, not
+    // persistent app navigation. Today native diff is the only tool with a
+    // right-side context surface.
+    let has_right_sidebar_context = self::sidebar::active_native_diff(app).is_some();
+    let use_right_sidebar = has_right_sidebar_context
+        && area.width
+            >= sidebar_w
+                .saturating_add(right_sidebar_w)
+                .saturating_add(RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH);
+    let (sidebar_area, main_area, right_sidebar_area) = if use_right_sidebar {
         let [sidebar_area, main_area, right_sidebar_area] = Layout::horizontal([
             Constraint::Length(sidebar_w),
             Constraint::Min(1),
@@ -258,10 +248,6 @@ fn compute_view_internal(
         ])
         .areas(area);
         (sidebar_area, main_area, right_sidebar_area)
-    } else if combined_right {
-        let [main_area, sidebar_area] =
-            Layout::horizontal([Constraint::Min(1), Constraint::Length(sidebar_w)]).areas(area);
-        (sidebar_area, main_area, Rect::default())
     } else {
         let [sidebar_area, main_area] =
             Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Min(1)]).areas(area);
@@ -280,17 +266,8 @@ fn compute_view_internal(
     app.workspace_scroll = app
         .workspace_scroll
         .min(workspace_list_entry_count(app).saturating_sub(1));
-    if right_sidebar_area != Rect::default() && !app.right_sidebar_collapsed {
-        let (agent_area, _) = right_sidebar_panel_rects(app, right_sidebar_area);
-        let max_agent_scroll =
-            agent_panel_scroll_metrics(app, agent_area, false).max_offset_from_bottom;
-        app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
-    } else if right_sidebar_area == Rect::default() && !app.sidebar_collapsed {
-        let (_, agent_area) = if combined_right {
-            right_aligned_expanded_sidebar_sections(sidebar_area, app.sidebar_section_split)
-        } else {
-            expanded_sidebar_sections(sidebar_area, app.sidebar_section_split)
-        };
+    if !app.sidebar_collapsed {
+        let (_, agent_area) = expanded_sidebar_sections(sidebar_area, app.sidebar_section_split);
         let max_agent_scroll =
             agent_panel_scroll_metrics(app, agent_area, true).max_offset_from_bottom;
         app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
@@ -298,36 +275,17 @@ fn compute_view_internal(
         app.agent_panel_scroll = 0;
     }
 
-    let (workspace_card_areas, workspace_group_header_areas, workspace_group_empty_areas) = if app
-        .sidebar_collapsed
-    {
-        (Vec::new(), Vec::new(), Vec::new())
-    } else if right_sidebar_area != Rect::default() {
-        (
-            compute_workspace_card_areas_in_list(app, left_sidebar_workspace_rect(sidebar_area)),
-            compute_workspace_group_header_areas_in_list(
-                app,
-                left_sidebar_workspace_rect(sidebar_area),
-            ),
-            compute_workspace_group_empty_areas_in_list(
-                app,
-                left_sidebar_workspace_rect(sidebar_area),
-            ),
-        )
-    } else if combined_right {
-        let ws_area = right_aligned_workspace_list_rect(sidebar_area, app.sidebar_section_split);
-        (
-            compute_workspace_card_areas_in_list(app, ws_area),
-            compute_workspace_group_header_areas_in_list(app, ws_area),
-            compute_workspace_group_empty_areas_in_list(app, ws_area),
-        )
-    } else {
-        (
-            compute_workspace_card_areas(app, sidebar_area),
-            compute_workspace_group_header_areas(app, sidebar_area),
-            compute_workspace_group_empty_areas(app, sidebar_area),
-        )
-    };
+    let (workspace_card_areas, workspace_group_header_areas, workspace_group_empty_areas) =
+        if app.sidebar_collapsed {
+            (Vec::new(), Vec::new(), Vec::new())
+        } else {
+            let ws_area = workspace_list_rect(sidebar_area, app.sidebar_section_split);
+            (
+                compute_workspace_card_areas_in_list(app, ws_area),
+                compute_workspace_group_header_areas_in_list(app, ws_area),
+                compute_workspace_group_empty_areas_in_list(app, ws_area),
+            )
+        };
 
     let tab_bar_view = app
         .active
@@ -801,10 +759,47 @@ mod tests {
         );
     }
 
+    fn native_diff_file(path: &str) -> crate::native_diff::NativeDiffFile {
+        crate::native_diff::NativeDiffFile {
+            bucket: crate::native_diff::DiffBucket::Changed,
+            old_path: Some(std::path::PathBuf::from(path)),
+            new_path: Some(std::path::PathBuf::from(path)),
+            status: crate::native_diff::DiffFileStatus::Modified,
+            added: 1,
+            deleted: 0,
+            hunks: Vec::new(),
+            binary: false,
+        }
+    }
+
     #[test]
-    fn wide_desktop_uses_right_sidebar_for_agents() {
+    fn desktop_without_diff_omits_right_sidebar_context_rail() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = vec![Workspace::test_new("one")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        compute_view(&mut app, Rect::new(0, 0, 140, 20));
+
+        assert_eq!(app.view.sidebar_rect, Rect::new(1, 1, 26, 18));
+        assert_eq!(app.view.right_sidebar_rect, Rect::default());
+        assert_eq!(app.view.terminal_area, Rect::new(27, 2, 112, 17));
+    }
+
+    #[test]
+    fn desktop_diff_uses_right_sidebar_for_file_context() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut ws = Workspace::test_new("repo");
+        ws.create_native_diff_tab(crate::native_diff::NativeDiffSession {
+            repo_root: std::path::PathBuf::from("/tmp/repo"),
+            files: vec![
+                native_diff_file("src/main.rs"),
+                native_diff_file("src/lib.rs"),
+            ],
+        })
+        .expect("native diff tab");
+        app.workspaces = vec![ws];
         app.active = Some(0);
         app.selected = 0;
         app.mode = Mode::Terminal;
@@ -814,118 +809,35 @@ mod tests {
         assert_eq!(app.view.sidebar_rect, Rect::new(1, 1, 26, 18));
         assert_eq!(app.view.right_sidebar_rect, Rect::new(111, 1, 28, 18));
         assert_eq!(app.view.terminal_area, Rect::new(27, 2, 84, 17));
-    }
-
-    #[test]
-    fn sidebar_arrangement_can_force_combined_right() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedRight;
-        app.workspaces = vec![Workspace::test_new("one")];
-        app.active = Some(0);
-        app.selected = 0;
-        app.mode = Mode::Terminal;
-
-        compute_view(&mut app, Rect::new(0, 0, 100, 20));
-
-        assert_eq!(app.view.right_sidebar_rect, Rect::default());
-        assert_eq!(app.view.sidebar_rect, Rect::new(73, 1, 26, 18));
-        assert_eq!(app.view.terminal_area, Rect::new(1, 2, 72, 17));
-
-        let backend = TestBackend::new(100, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| render(&app, frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-
-        assert_eq!(buffer[(app.view.sidebar_rect.x, 1)].symbol(), "│");
-        assert_eq!(
-            app.view.workspace_card_areas[0].rect.x,
-            app.view.sidebar_rect.x + 1
-        );
-    }
-
-    #[test]
-    fn sidebar_arrangement_can_force_separate_sidebars_when_narrow() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.sidebar_arrangement = crate::config::SidebarArrangementConfig::Separate;
-        app.workspaces = vec![Workspace::test_new("one")];
-        app.active = Some(0);
-        app.selected = 0;
-        app.mode = Mode::Terminal;
-
-        compute_view(&mut app, Rect::new(0, 0, 80, 20));
-
-        assert_ne!(app.view.right_sidebar_rect, Rect::default());
-        assert_eq!(app.view.sidebar_rect, Rect::new(1, 1, 26, 18));
-        assert_eq!(app.view.right_sidebar_rect, Rect::new(51, 1, 28, 18));
-    }
-
-    #[test]
-    fn right_sidebar_activity_wraps_agent_section() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.workspaces = vec![Workspace::test_new("one")];
-        app.active = Some(0);
-        app.selected = 0;
-        app.mode = Mode::Terminal;
-
-        compute_view(&mut app, Rect::new(0, 0, 140, 20));
 
         let backend = TestBackend::new(140, 20);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|frame| render(&app, frame)).unwrap();
         let buffer = terminal.backend().buffer();
         let content = right_sidebar_content_rect(app.view.right_sidebar_rect);
-        let (agent_area, _) = right_sidebar_panel_rects(&app, app.view.right_sidebar_rect);
-
-        assert!(buffer_row_text(buffer, content, content.y).starts_with(" activity"));
-        assert!(buffer_row_text(buffer, agent_area, agent_area.y).starts_with(" ▾ agents"));
-        assert_eq!(
-            agent_panel_body_rect(agent_area, false, false).y,
-            agent_area.y + 1
-        );
-    }
-
-    #[test]
-    fn collapsed_left_sidebar_still_renders_right_sidebar_agents() {
-        let mut app = crate::app::state::AppState::test_new();
-        let mut ws = Workspace::test_new("one");
-        let pane = ws.tabs[0].root_pane;
-        ws.tabs[0].panes.get_mut(&pane).unwrap().detected_agent =
-            Some(crate::detect::Agent::Claude);
-        app.sidebar_collapsed = true;
-        app.workspaces = vec![ws];
-        app.active = Some(0);
-        app.selected = 0;
-        app.mode = Mode::Terminal;
-
-        compute_view(&mut app, Rect::new(0, 0, 140, 20));
-
-        let backend = TestBackend::new(140, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| render(&app, frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-        let content = right_sidebar_content_rect(app.view.right_sidebar_rect);
-        let (agent_area, _) = right_sidebar_panel_rects(&app, app.view.right_sidebar_rect);
-        let body = agent_panel_body_rect(agent_area, false, false);
-
-        assert_ne!(app.view.right_sidebar_rect, Rect::default());
-        let body_text = (body.y..body.y + body.height)
-            .map(|row| buffer_row_text(buffer, body, row))
+        let text = (content.y..content.y + content.height)
+            .map(|row| buffer_row_text(buffer, content, row))
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(buffer_row_text(buffer, content, content.y).starts_with(" activity"));
-        assert!(buffer_row_text(buffer, agent_area, agent_area.y).starts_with(" ▾ agents"));
-        assert!(body_text.contains("claude"));
+        assert!(text.contains("diff"));
+        assert!(text.contains("src/main.rs"));
+        assert!(text.contains("src/lib.rs"));
     }
 
     #[test]
-    fn collapsed_right_sidebar_keeps_expand_rail() {
+    fn collapsed_right_diff_sidebar_shows_diff_rail() {
         let mut app = crate::app::state::AppState::test_new();
         app.right_sidebar_collapsed = true;
-        let mut ws = Workspace::test_new("one");
-        let pane = ws.tabs[0].root_pane;
-        ws.tabs[0].panes.get_mut(&pane).unwrap().detected_agent =
-            Some(crate::detect::Agent::Claude);
+        let mut ws = Workspace::test_new("repo");
+        ws.create_native_diff_tab(crate::native_diff::NativeDiffSession {
+            repo_root: std::path::PathBuf::from("/tmp/repo"),
+            files: vec![
+                native_diff_file("src/main.rs"),
+                native_diff_file("src/lib.rs"),
+            ],
+        })
+        .expect("native diff tab");
         app.workspaces = vec![ws];
         app.active = Some(0);
         app.selected = 0;
@@ -940,118 +852,13 @@ mod tests {
         terminal.draw(|frame| render(&app, frame)).unwrap();
         let buffer = terminal.backend().buffer();
         let toggle = right_sidebar_toggle_rect(app.view.right_sidebar_rect, true);
-        let rows = collapsed_right_sidebar_agent_rows_rect(app.view.right_sidebar_rect);
 
         assert_eq!(buffer[(toggle.x, toggle.y)].symbol(), "«");
-        assert!(buffer_row_text(buffer, rows, rows.y).starts_with("▾a1"));
-        assert!(buffer_row_text(buffer, rows, rows.y + 1).starts_with("1 "));
-    }
-
-    #[test]
-    fn collapsed_right_sidebar_includes_ports() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.right_sidebar_collapsed = true;
-        let ws = Workspace::test_new("web");
-        let pane = ws.tabs[0].root_pane;
-        let workspace_id = ws.id.clone();
-        app.workspaces = vec![ws];
-        app.active = Some(0);
-        app.selected = 0;
-        app.mode = Mode::Terminal;
-        app.activity_ports_expanded = true;
-        app.port_registry.sync_observations(
-            std::time::Instant::now(),
-            [crate::ports::PortObservation {
-                bind_addr: "127.0.0.1".parse().unwrap(),
-                port: 5173,
-                pid: 42,
-                command: Some("vite".to_string()),
-            }],
-            |_| {
-                Some(crate::ports::PortOwner {
-                    pid: 42,
-                    command: None,
-                    workspace_id: workspace_id.clone(),
-                    tab_idx: 0,
-                    pane_id: pane,
-                    confidence: crate::ports::PortOwnerConfidence::ProcessTree,
-                })
-            },
-        );
-
-        compute_view(&mut app, Rect::new(0, 0, 140, 20));
-
-        let backend = TestBackend::new(140, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| render(&app, frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-        let rows = collapsed_right_sidebar_agent_rows_rect(app.view.right_sidebar_rect);
-        let text = (rows.y..rows.y + rows.height)
-            .map(|row| buffer_row_text(buffer, rows, row))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        assert!(text.contains("p1"));
-        assert!(text.contains(":5"));
-    }
-
-    #[test]
-    fn right_sidebar_divider_uses_accent_for_empty_workspace() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.mode = Mode::Navigate;
-
-        compute_view(&mut app, Rect::new(0, 0, 140, 20));
-
-        let backend = TestBackend::new(140, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| render(&app, frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-        let divider_x = app.view.right_sidebar_rect.x;
-
-        assert_eq!(buffer[(divider_x, 1)].symbol(), "│");
-        assert_eq!(buffer[(divider_x, 1)].style().fg, Some(app.palette.accent));
-    }
-
-    #[test]
-    fn right_sidebar_divider_dims_when_group_menu_is_open() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.mode = Mode::GroupMenu;
-
-        compute_view(&mut app, Rect::new(0, 0, 140, 20));
-
-        let backend = TestBackend::new(140, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| render(&app, frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-        let divider_x = app.view.right_sidebar_rect.x;
-
-        assert_eq!(buffer[(divider_x, 1)].symbol(), "│");
+        let content = right_sidebar_content_rect(app.view.right_sidebar_rect);
+        assert!(buffer_row_text(buffer, content, content.y).contains("df"));
         assert_eq!(
-            buffer[(divider_x, 1)].style().fg,
-            Some(app.palette.overlay0)
-        );
-    }
-
-    #[test]
-    fn right_sidebar_divider_is_dim_for_active_workspace() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.workspaces = vec![Workspace::test_new("one")];
-        app.active = Some(0);
-        app.selected = 0;
-        app.mode = Mode::Terminal;
-
-        compute_view(&mut app, Rect::new(0, 0, 140, 20));
-
-        let backend = TestBackend::new(140, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| render(&app, frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-        let divider_x = app.view.right_sidebar_rect.x;
-
-        assert_eq!(buffer[(divider_x, 1)].symbol(), "│");
-        assert_eq!(
-            buffer[(divider_x, 1)].style().fg,
-            Some(app.palette.overlay0)
+            buffer[(content.x + content.width / 2, content.y + 1)].symbol(),
+            "2"
         );
     }
 
@@ -1147,6 +954,29 @@ mod tests {
         let active_style = buffer[(rows.x, active_row)].style();
 
         assert_eq!(active_style.bg, Some(app.palette.surface_dim));
+    }
+
+    #[test]
+    fn collapsed_sidebar_empty_state_keeps_agents_label() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.sidebar_collapsed = true;
+        app.workspaces.clear();
+        app.active = None;
+        app.mode = Mode::Terminal;
+
+        compute_view(&mut app, Rect::new(0, 0, 80, 20));
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let text = (app.view.sidebar_rect.y
+            ..app.view.sidebar_rect.y + app.view.sidebar_rect.height)
+            .map(|row| buffer_row_text(buffer, app.view.sidebar_rect, row))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("agt"));
     }
 
     #[test]

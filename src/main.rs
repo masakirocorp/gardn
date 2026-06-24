@@ -236,12 +236,6 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # Increase this for foldables, tablets, or wide phone terminals.
 # mobile_width_threshold = 64
 
-# Desktop sidebar arrangement:
-# - "auto": separate sidebars when wide enough, otherwise stack activity below spaces on the left.
-# - "separate": spaces left, activity right.
-# - "combined_left": spaces and activity stacked in the left sidebar.
-# - "combined_right": spaces and activity stacked in the right sidebar.
-# sidebar_arrangement = "auto"
 
 # Capture mouse input for Hako's mouse UI.
 # Set false to let the terminal handle normal clicks, such as Cmd-clicking URLs.

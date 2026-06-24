@@ -332,32 +332,6 @@ impl HeadlessServer {
                 needs_render = true;
             }
 
-            if let Some(action) = self.app.state.request_command_action.take() {
-                match action {
-                    app::state::CommandPanelAction::RunOrFocus(command_id) => {
-                        if let Err(err) = self
-                            .app
-                            .state
-                            .run_project_command(&mut self.app.terminal_runtimes, &command_id)
-                        {
-                            self.app.state.toast = Some(app::state::ToastNotification {
-                                kind: app::state::ToastKind::NeedsAttention,
-                                title: "command failed".to_string(),
-                                context: err,
-                                position: None,
-                                target: None,
-                            });
-                        }
-                    }
-                    app::state::CommandPanelAction::Stop(command_id) => {
-                        self.app
-                            .state
-                            .stop_project_command(&mut self.app.terminal_runtimes, &command_id);
-                    }
-                }
-                needs_render = true;
-            }
-
             self.drain_client_config_reload_request();
             self.stream_host_mouse_capture_mode();
 

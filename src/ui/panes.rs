@@ -383,7 +383,8 @@ fn render_native_diff_pane(
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(area);
-    let has_visible_files = native_diff_has_visible_files(diff);
+    let has_visible_files =
+        native_diff_has_visible_files(diff) && app.view.right_sidebar_rect == Rect::default();
     if diff.show_file_list && has_visible_files {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
@@ -417,7 +418,7 @@ fn native_diff_has_visible_files(diff: &crate::native_diff::NativeDiffPaneState)
         .any(|file| diff.scope.includes(file.bucket))
 }
 
-fn render_native_diff_file_list(
+pub(super) fn render_native_diff_file_list(
     app: &AppState,
     diff: &crate::native_diff::NativeDiffPaneState,
     frame: &mut Frame,

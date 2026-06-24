@@ -2380,12 +2380,6 @@ pub struct GitRepoPickerState {
     pub scroll: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CommandPanelAction {
-    RunOrFocus(String),
-    Stop(String),
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarWidthSource {
     ConfigDefault,
@@ -2439,7 +2433,6 @@ pub struct AppState {
     /// Set when UI interaction requested a clipboard write that must be
     /// handled by the outer App/event loop instead of directly from AppState.
     pub request_clipboard_write: Option<Vec<u8>>,
-    pub request_command_action: Option<CommandPanelAction>,
     pub creating_new_tab: bool,
     pub creating_new_group: bool,
     pub group_icon_input: String,
@@ -2792,30 +2785,10 @@ impl AppState {
             .any(|id| id == group_id)
     }
 
-    pub fn command_group_collapsed(&self, group_key: &str) -> bool {
-        self.collapsed_command_groups
-            .iter()
-            .any(|key| key == group_key)
-    }
-
-    pub fn command_status_group_collapsed(&self, group_key: &str) -> bool {
-        self.collapsed_command_status_groups
-            .iter()
-            .any(|key| key == group_key)
-    }
-
     pub fn agent_section_collapsed(&self, section_key: &str) -> bool {
         self.collapsed_agent_sections
             .iter()
             .any(|key| key == section_key)
-    }
-
-    pub fn toggle_command_group(&mut self, group_key: String) {
-        toggle_string_key(&mut self.collapsed_command_groups, group_key);
-    }
-
-    pub fn toggle_command_status_group(&mut self, group_key: String) {
-        toggle_string_key(&mut self.collapsed_command_status_groups, group_key);
     }
 
     pub fn toggle_agent_section(&mut self, section_key: String) {
@@ -3155,7 +3128,6 @@ impl AppState {
             request_open_git_diff: false,
             request_client_config_reload: false,
             request_clipboard_write: None,
-            request_command_action: None,
             creating_new_tab: false,
             creating_new_group: false,
             group_icon_input: DEFAULT_GROUP_ICON.to_string(),

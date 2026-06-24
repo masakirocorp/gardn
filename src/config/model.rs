@@ -71,17 +71,6 @@ pub enum SidebarArrangementConfig {
     CombinedRight,
 }
 
-impl SidebarArrangementConfig {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Separate => "separate",
-            Self::CombinedLeft => "combined_left",
-            Self::CombinedRight => "combined_right",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum NativeDiffIndicatorConfig {

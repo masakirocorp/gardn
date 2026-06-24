@@ -153,21 +153,6 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
-    pub(super) fn save_sidebar_arrangement(
-        &mut self,
-        arrangement: crate::config::SidebarArrangementConfig,
-    ) {
-        if self.update_config_file("sidebar arrangement", |content| {
-            crate::config::upsert_section_value(
-                content,
-                "ui",
-                "sidebar_arrangement",
-                &format!("\"{}\"", arrangement.as_str()),
-            )
-        }) {
-            self.apply_config_from_disk(false);
-        }
-    }
     pub(super) fn save_worktree_directory(&mut self, directory: &str) {
         if self.update_config_file("worktree directory", |content| {
             crate::config::upsert_section_value(
