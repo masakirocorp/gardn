@@ -4212,6 +4212,36 @@ mod tests {
     }
 
     #[test]
+    fn git_diff_opens_native_tab_after_last_terminal_tab_closed() {
+        let root = temp_git_repo("diff-empty-workspace");
+        std::fs::write(root.join("changed.txt"), "changed\n").unwrap();
+        let mut state = app_with_workspaces(&["web"]);
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        state.workspaces[0].identity_cwd = root.clone();
+        assert!(state.workspaces[0].close_tab_allow_empty(0));
+
+        state
+            .open_git_diff_panel_for_workspace(&mut terminal_runtimes, 0)
+            .expect("empty workspace should still open native diff");
+
+        assert_eq!(state.mode, Mode::Terminal);
+        assert_eq!(state.workspaces[0].tabs.len(), 1);
+        assert_eq!(
+            state.workspaces[0].active_tab().unwrap().display_name(),
+            format!("diff {}", root.file_name().unwrap().to_string_lossy())
+        );
+        let pane_id = state.workspaces[0].active_tab().unwrap().root_pane;
+        assert!(state.workspaces[0]
+            .active_tab()
+            .unwrap()
+            .panes
+            .get(&pane_id)
+            .unwrap()
+            .native_diff()
+            .is_some());
+    }
+
+    #[test]
     fn git_diff_target_can_use_non_focused_workspace_repo_cwd() {
         let root = temp_git_repo("diff-extra-root");
         let mut state = app_with_workspaces(&["web"]);

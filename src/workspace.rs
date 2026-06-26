@@ -447,16 +447,22 @@ impl Workspace {
         session: crate::native_diff::NativeDiffSession,
     ) -> Result<usize, String> {
         let number = self.next_public_tab_number;
-        let Some(source_tab) = self.tabs.get(self.active_tab) else {
-            return Err("workspace has no tab to inherit render handles".to_string());
-        };
-        let tab = Tab::new_native_diff(
-            number,
-            session,
-            source_tab.events.clone(),
-            source_tab.render_notify.clone(),
-            source_tab.render_dirty.clone(),
-        );
+        let (events, render_notify, render_dirty) =
+            if let Some(source_tab) = self.tabs.get(self.active_tab) {
+                (
+                    source_tab.events.clone(),
+                    source_tab.render_notify.clone(),
+                    source_tab.render_dirty.clone(),
+                )
+            } else {
+                let (events, _) = mpsc::channel(64);
+                (
+                    events,
+                    Arc::new(Notify::new()),
+                    Arc::new(AtomicBool::new(false)),
+                )
+            };
+        let tab = Tab::new_native_diff(number, session, events, render_notify, render_dirty);
         self.next_public_tab_number += 1;
         let tab_idx = self.tabs.len();
         self.register_new_pane(tab.root_pane);
