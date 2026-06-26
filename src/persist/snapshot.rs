@@ -133,6 +133,7 @@ pub struct WorkspaceSnapshot {
     #[serde(default = "default_group_id")]
     pub group_id: String,
     pub identity_cwd: PathBuf,
+    pub default_cwd: PathBuf,
     #[serde(default)]
     pub public_pane_numbers: HashMap<u32, usize>,
     #[serde(default)]
@@ -289,7 +290,8 @@ impl From<LegacyWorkspaceSnapshot> for WorkspaceSnapshot {
             id: None,
             custom_name: snap.custom_name,
             group_id: default_group_id(),
-            identity_cwd,
+            identity_cwd: identity_cwd.clone(),
+            default_cwd: identity_cwd,
             public_pane_numbers: HashMap::new(),
             next_public_pane_number: 0,
             public_tab_numbers: Vec::new(),
@@ -362,8 +364,15 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
     })
 }
 
-fn migrate_workspace(raw: serde_json::Value) -> Result<WorkspaceSnapshot, String> {
+fn migrate_workspace(mut raw: serde_json::Value) -> Result<WorkspaceSnapshot, String> {
     if raw.get("identity_cwd").is_some() {
+        if raw.get("default_cwd").is_none() {
+            if let Some(identity_cwd) = raw.get("identity_cwd").cloned() {
+                if let Some(object) = raw.as_object_mut() {
+                    object.insert("default_cwd".to_string(), identity_cwd);
+                }
+            }
+        }
         return serde_json::from_value(raw).map_err(|e| e.to_string());
     }
 
@@ -565,6 +574,7 @@ fn capture_workspace(
         custom_name: ws.custom_name.clone(),
         group_id: ws.group_id.clone(),
         identity_cwd: ws.identity_cwd.clone(),
+        default_cwd: ws.default_cwd.clone(),
         public_pane_numbers: ws
             .public_pane_numbers
             .iter()
@@ -869,6 +879,7 @@ mod tests {
         let mut state = state_with_workspaces(&["space"]);
         state.workspaces[0].custom_name = None;
         state.workspaces[0].identity_cwd = PathBuf::from("/hako-test/space");
+        state.workspaces[0].default_cwd = PathBuf::from("/hako-test/default");
         let root_pane = state.workspaces[0].tabs[0].root_pane;
         let terminal_id = state.workspaces[0].terminal_id(root_pane).unwrap().clone();
         state.terminals.get_mut(&terminal_id).unwrap().cwd = PathBuf::from("/hako-test/runtime");
@@ -883,6 +894,10 @@ mod tests {
         assert_eq!(
             snap.workspaces[0].identity_cwd,
             PathBuf::from("/hako-test/space")
+        );
+        assert_eq!(
+            snap.workspaces[0].default_cwd,
+            PathBuf::from("/hako-test/default")
         );
         assert_eq!(
             snap.workspaces[0].tabs[0].panes[&root_pane.raw()].cwd,
@@ -1130,6 +1145,7 @@ mod tests {
                 custom_name: Some("pi-mono".to_string()),
                 group_id: default_group_id(),
                 identity_cwd: PathBuf::from("/home/can/Projects/hako"),
+                default_cwd: PathBuf::from("/home/can/Projects/hako"),
                 public_pane_numbers: HashMap::from([(0, 1), (1, 2)]),
                 next_public_pane_number: 3,
                 public_tab_numbers: vec![1],
@@ -1649,7 +1665,7 @@ mod tests {
 
     #[test]
     fn active_tab_default_is_zero() {
-        let json = r#"{"custom_name":"test","identity_cwd":"/tmp","tabs":[]}"#;
+        let json = r#"{"custom_name":"test","identity_cwd":"/tmp","default_cwd":"/tmp","tabs":[]}"#;
         let ws: WorkspaceSnapshot = serde_json::from_str(json).unwrap();
         assert_eq!(ws.active_tab, 0);
     }

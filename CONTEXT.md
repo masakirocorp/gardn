@@ -88,12 +88,16 @@ _Avoid_: One-off modal math, settings row
 A named working area that groups related tabs, panes, and terminal sessions for one project or task.
 _Avoid_: Project, folder, session
 
+**Workspace Default Directory**:
+The per-workspace cwd Hako uses when the workspace has no live pane cwd, such as after its last tab is closed. It is editable from the space settings modal and is workspace state, not group presentation and not global config.
+_Avoid_: Global default directory, group cwd
+
 **Creation Context**:
-The source workspace, group, and cwd information Hako uses when creating a new workspace, tab, or agent-profile tab.
+The source workspace, group, and cwd information Hako uses when creating a new workspace, tab, or agent-profile tab. Cwd inheritance uses live focused pane cwd when available and the workspace default directory otherwise.
 _Avoid_: Global default, launch profile
 
 **Observed Repo**:
-A Git repository root Hako has learned from a workspace's own identity cwd, from a pane cwd inside that workspace, or from a direct child of such a non-Git cwd. Observed repos are user-created context, not the result of recursive filesystem crawling.
+A Git repository root Hako has learned from a workspace's default directory, from a pane cwd inside that workspace, or from a direct child of such a non-Git cwd. Observed repos are user-created context, not the result of recursive filesystem crawling.
 _Avoid_: Discovered child repo, scanned repo
 
 **Observed Repo Status**:

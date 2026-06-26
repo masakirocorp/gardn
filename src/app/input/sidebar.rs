@@ -999,7 +999,7 @@ mod tests {
 
     use super::super::{app_for_mouse_test, capture_snapshot, mouse, unique_temp_path};
     use crate::{
-        app::state::{AgentPanelScope, ContextMenuKind, DragTarget, Group, Mode},
+        app::state::{AgentPanelScope, ContextMenuKind, DragTarget, Group, Mode, SettingsSection},
         detect::{Agent, AgentState},
         workspace::Workspace,
     };
@@ -1522,6 +1522,37 @@ mod tests {
         assert_eq!(app.state.mode, Mode::Settings);
         assert_eq!(app.state.settings.group_settings_target, Some(work_group));
         assert_eq!(app.state.active_group, 0);
+    }
+
+    #[test]
+    fn workspace_context_menu_settings_opens_settings_for_target_space() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
+        app.state.context_menu = Some(crate::app::state::ContextMenuState {
+            kind: ContextMenuKind::Workspace {
+                ws_idx: 1,
+                can_diff: false,
+            },
+            x: 2,
+            y: 2,
+            list: crate::app::state::MenuListState::new(6),
+        });
+        app.state.mode = Mode::ContextMenu;
+
+        let menu = app.state.context_menu_rect().unwrap();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + 7,
+        ));
+
+        assert_eq!(app.state.mode, Mode::Settings);
+        assert_eq!(app.state.settings.workspace_settings_target, Some(1));
+        assert_eq!(app.state.settings.group_settings_target, None);
+        assert_eq!(
+            app.state.settings.section,
+            SettingsSection::WorkspaceGeneral
+        );
     }
 
     #[test]

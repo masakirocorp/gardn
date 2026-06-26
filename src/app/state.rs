@@ -1579,6 +1579,7 @@ pub enum SettingsSection {
     Integrations,
     GroupProfiles,
     GroupGeneral,
+    WorkspaceGeneral,
 }
 
 impl SettingsSection {
@@ -1603,6 +1604,7 @@ impl SettingsSection {
             Self::Integrations => "integrations",
             Self::GroupGeneral => "general",
             Self::GroupProfiles => "agents",
+            Self::WorkspaceGeneral => "general",
         }
     }
 }
@@ -1942,6 +1944,10 @@ pub struct SettingsState {
     pub pending_switch_ascii_input_source_in_prefix: Option<bool>,
     /// Checked group accent while group settings is open; hover cursor is separate.
     pub pending_group_accent_choice: Option<Option<TerminalAccent>>,
+    /// Pending workspace name while workspace settings is open.
+    pub pending_workspace_name: Option<String>,
+    /// Pending workspace default directory while workspace settings is open.
+    pub pending_workspace_default_cwd: Option<String>,
     /// Pending group name while group settings is open.
     pub pending_group_name: Option<String>,
     /// Custom agent profile id loaded into the editor.
@@ -1956,6 +1962,8 @@ pub struct SettingsState {
     pub agent_profile_kind_filter: Option<crate::agent_profiles::AgentKind>,
     /// Group whose settings are being edited, if settings was opened from a group menu.
     pub group_settings_target: Option<usize>,
+    /// Workspace whose settings are being edited, if settings was opened from a workspace menu.
+    pub workspace_settings_target: Option<usize>,
 }
 
 pub(crate) enum DragTarget {
@@ -2089,7 +2097,8 @@ impl ContextMenuState {
             } => &["new", "space", "group", "---", "manage", "settings"],
             ContextMenuKind::Workspace { can_diff: true, .. }
             | ContextMenuKind::Tab { can_diff: true, .. } => &[
-                "new", "tab", "agent", "diff", "---", "manage", "rename", "---", "danger", "close",
+                "new", "tab", "agent", "diff", "---", "manage", "rename", "settings", "---",
+                "danger", "close",
             ],
             ContextMenuKind::Workspace {
                 can_diff: false, ..
@@ -2097,7 +2106,8 @@ impl ContextMenuState {
             | ContextMenuKind::Tab {
                 can_diff: false, ..
             } => &[
-                "new", "tab", "agent", "---", "manage", "rename", "---", "danger", "close",
+                "new", "tab", "agent", "---", "manage", "rename", "settings", "---", "danger",
+                "close",
             ],
             ContextMenuKind::NewTabButton { can_diff: true, .. } => {
                 &["new", "tab", "agent", "diff"]
@@ -3314,12 +3324,15 @@ impl AppState {
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,
                 pending_group_name: None,
+                pending_workspace_name: None,
+                pending_workspace_default_cwd: None,
                 pending_agent_profile_id: None,
                 pending_agent_profile_name: None,
                 pending_agent_profile_kind: None,
                 pending_agent_profile_command: None,
                 agent_profile_kind_filter: None,
                 group_settings_target: None,
+                workspace_settings_target: None,
             },
             integration_recommendations: Vec::new(),
             agent_manifest_summaries: Vec::new(),
@@ -3348,7 +3361,7 @@ impl AppState {
             for tab in &ws.tabs {
                 for pane in tab.panes.values() {
                     if !self.terminals.contains_key(&pane.attached_terminal_id) {
-                        let cwd = ws.identity_cwd.clone();
+                        let cwd = ws.default_cwd.clone();
                         self.terminals.insert(
                             pane.attached_terminal_id.clone(),
                             TerminalState::new(pane.attached_terminal_id.clone(), cwd),

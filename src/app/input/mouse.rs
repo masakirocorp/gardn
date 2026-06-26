@@ -2694,7 +2694,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: MenuListState::new(8),
+            list: MenuListState::new(9),
         });
         app.state.mode = Mode::ContextMenu;
         handle_context_menu_key(
@@ -2738,7 +2738,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: MenuListState::new(8),
+            list: MenuListState::new(9),
         });
         app.state.mode = Mode::ContextMenu;
         handle_context_menu_key(
@@ -2783,7 +2783,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: MenuListState::new(8),
+            list: MenuListState::new(9),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -2791,7 +2791,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 9,
+            menu.y + 10,
         ));
 
         assert_eq!(app.state.mode, Mode::ConfirmClose);
@@ -2830,7 +2830,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: MenuListState::new(8),
+            list: MenuListState::new(9),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -2838,7 +2838,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 9,
+            menu.y + 10,
         ));
 
         assert_eq!(app.state.mode, Mode::Navigate);

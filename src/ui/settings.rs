@@ -28,10 +28,13 @@ const GROUP_SETTINGS_SECTIONS: &[SettingsSection] = &[
     SettingsSection::Theme,
     SettingsSection::GroupProfiles,
 ];
+const WORKSPACE_SETTINGS_SECTIONS: &[SettingsSection] = &[SettingsSection::WorkspaceGeneral];
 
 fn settings_title(app: &AppState) -> &'static str {
     if app.settings.group_settings_target.is_some() {
         "group settings"
+    } else if app.settings.workspace_settings_target.is_some() {
+        "space settings"
     } else {
         "settings"
     }
@@ -40,6 +43,8 @@ fn settings_title(app: &AppState) -> &'static str {
 fn settings_sections(app: &AppState) -> &'static [SettingsSection] {
     if app.settings.group_settings_target.is_some() {
         GROUP_SETTINGS_SECTIONS
+    } else if app.settings.workspace_settings_target.is_some() {
+        WORKSPACE_SETTINGS_SECTIONS
     } else {
         SettingsSection::ALL
     }
@@ -97,10 +102,13 @@ pub(crate) fn settings_tab_chevron_at(
 }
 
 fn settings_palette(app: &AppState) -> crate::app::state::Palette {
-    app.settings
-        .group_settings_target
-        .map(|group_idx| app.palette_for_group(group_idx))
-        .unwrap_or_else(|| app.palette.clone())
+    if let Some(group_idx) = app.settings.group_settings_target {
+        app.palette_for_group(group_idx)
+    } else if let Some(ws_idx) = app.settings.workspace_settings_target {
+        app.palette_for_workspace(ws_idx)
+    } else {
+        app.palette.clone()
+    }
 }
 
 fn render_settings_tabs(
@@ -162,6 +170,7 @@ fn settings_section_title(app: &AppState, section: SettingsSection) -> &'static 
             SettingsSection::Integrations => "agent integrations",
             SettingsSection::GroupGeneral => "general",
             SettingsSection::GroupProfiles => "agents",
+            SettingsSection::WorkspaceGeneral => "general",
         }
     }
 }
@@ -188,6 +197,7 @@ fn settings_section_description(app: &AppState, section: SettingsSection) -> &'s
         SettingsSection::GroupProfiles => {
             "choose favorite and default agent profiles for this group"
         }
+        SettingsSection::WorkspaceGeneral => "set this space's display name and default directory",
     }
 }
 
@@ -348,7 +358,8 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         | SettingsSection::Experiments
         | SettingsSection::Agents
         | SettingsSection::GroupGeneral
-        | SettingsSection::GroupProfiles => {
+        | SettingsSection::GroupProfiles
+        | SettingsSection::WorkspaceGeneral => {
             render_settings_sectioned_toggle_list(app, frame, content_area, p);
         }
         SettingsSection::Integrations => render_settings_integrations(app, frame, content_area, p),
@@ -1034,6 +1045,58 @@ mod tests {
             buffer[(x, y)].style().fg,
             Some(panel_contrast_fg(&app.palette))
         );
+    }
+
+    #[test]
+    fn workspace_settings_overlay_uses_workspace_group_accent() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![crate::workspace::Workspace::test_new("space")];
+        let group_idx = app.create_group("Work".to_string());
+        app.move_workspace_to_group(0, group_idx);
+        app.set_group_accent(group_idx, Some(TerminalAccent::Red));
+        app.settings.workspace_settings_target = Some(0);
+        app.settings.section = SettingsSection::WorkspaceGeneral;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
+            .expect("render workspace settings overlay");
+
+        let frame_areas = super::super::widgets::modal_frame_areas(
+            Rect::new(0, 0, 80, 24),
+            ModalFrameSpec {
+                title: settings_title(&app),
+                width: 92,
+                height: 26,
+                header_rows: 4,
+                footer_hints: settings_footer_hints(&app, false),
+                footer_max_rows: 2,
+                reserve_footer_gap: 1,
+                show_close: true,
+            },
+        )
+        .expect("settings frame areas");
+        let buffer = terminal.backend().buffer();
+        assert_eq!(
+            buffer[(frame_areas.popup.x, frame_areas.popup.y)].style().fg,
+            Some(app.group_accent_color(group_idx))
+        );
+    }
+
+    #[test]
+    fn workspace_general_settings_separates_fields_with_blank_line() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![crate::workspace::Workspace::test_new("space")];
+        app.settings.workspace_settings_target = Some(0);
+        app.settings.section = SettingsSection::WorkspaceGeneral;
+
+        let rows = rows_for_section(&app, SettingsSection::WorkspaceGeneral)
+            .expect("workspace general rows");
+
+        assert!(matches!(rows[0], SettingsListRow::TextInput { index: 0, .. }));
+        assert!(matches!(rows[1], SettingsListRow::Spacer));
+        assert!(matches!(rows[2], SettingsListRow::TextInput { index: 1, .. }));
     }
 
     #[test]

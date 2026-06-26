@@ -121,6 +121,7 @@ pub(crate) fn rows_for_section(
         SettingsSection::Integrations => Some(integration_rows(app)),
         SettingsSection::GroupGeneral => Some(group_general_rows(app)),
         SettingsSection::GroupProfiles => Some(group_profile_rows(app)),
+        SettingsSection::WorkspaceGeneral => Some(workspace_general_rows(app)),
     }
 }
 
@@ -379,6 +380,39 @@ fn group_general_rows(app: &AppState) -> Vec<SettingsListRow> {
             icon: "×".into(),
             label: "delete group".into(),
             tone: SettingsMarkerTone::Danger,
+        },
+    ]
+}
+
+fn workspace_general_rows(app: &AppState) -> Vec<SettingsListRow> {
+    let workspace = app
+        .settings
+        .workspace_settings_target
+        .and_then(|ws_idx| app.workspaces.get(ws_idx));
+    let name = app
+        .settings
+        .pending_workspace_name
+        .clone()
+        .or_else(|| workspace.map(|workspace| workspace.display_name()))
+        .unwrap_or_else(|| "space".to_string());
+    let default_cwd = app
+        .settings
+        .pending_workspace_default_cwd
+        .clone()
+        .or_else(|| workspace.map(|workspace| workspace.default_cwd.display().to_string()))
+        .unwrap_or_default();
+
+    vec![
+        SettingsListRow::TextInput {
+            index: 0,
+            title: "name".into(),
+            value: name.into(),
+        },
+        SettingsListRow::Spacer,
+        SettingsListRow::TextInput {
+            index: 1,
+            title: "default directory".into(),
+            value: default_cwd.into(),
         },
     ]
 }

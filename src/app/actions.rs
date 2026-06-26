@@ -1445,6 +1445,26 @@ impl AppState {
         true
     }
 
+    pub fn rename_workspace(&mut self, ws_idx: usize, name: String) -> bool {
+        let Some(workspace) = self.workspaces.get_mut(ws_idx) else {
+            return false;
+        };
+        workspace.set_custom_name(name);
+        self.mark_session_dirty();
+        true
+    }
+
+    pub fn set_workspace_default_cwd(&mut self, ws_idx: usize, cwd: std::path::PathBuf) -> bool {
+        let Some(workspace) = self.workspaces.get_mut(ws_idx) else {
+            return false;
+        };
+        if workspace.record_default_cwd(cwd) {
+            self.mark_session_dirty();
+            return true;
+        }
+        false
+    }
+
     pub fn set_group_icon(&mut self, group_idx: usize, icon: String) -> bool {
         let Some(group) = self.groups.get_mut(group_idx) else {
             return false;
@@ -2440,6 +2460,21 @@ impl AppState {
         })
     }
 
+    fn record_focused_workspace_default_cwd(&mut self, ws_idx: usize) {
+        let cwd = self.workspaces.get(ws_idx).and_then(|ws| {
+            let tab = ws.active_tab()?;
+            let terminal_id = tab.terminal_id(tab.layout.focused())?;
+            self.terminals
+                .get(terminal_id)
+                .map(|terminal| terminal.cwd.clone())
+        });
+        if let Some(cwd) = cwd {
+            if let Some(ws) = self.workspaces.get_mut(ws_idx) {
+                ws.record_default_cwd(cwd);
+            }
+        }
+    }
+
     /// Close the focused pane. Returns true when the close was deferred to confirmation.
     pub fn close_pane(&mut self) -> bool {
         let active = self.active;
@@ -2457,6 +2492,9 @@ impl AppState {
         self.selection = None;
         self.selection_autoscroll = None;
         self.mark_session_dirty();
+        if let Some(ws_idx) = active {
+            self.record_focused_workspace_default_cwd(ws_idx);
+        }
         let terminal_ids = active
             .and_then(|i| {
                 self.workspaces
@@ -2524,6 +2562,7 @@ impl AppState {
             .public_tab_number(tab_idx)
             .map(|number| crate::workspace::public_tab_id_for_number(&workspace_id, number))
             .unwrap_or_else(|| format!("{}:{}", workspace_id, tab_idx + 1));
+        self.record_focused_workspace_default_cwd(ws_idx);
         let Some(ws) = self.workspaces.get_mut(ws_idx) else {
             return false;
         };
@@ -4217,7 +4256,8 @@ mod tests {
         std::fs::write(root.join("changed.txt"), "changed\n").unwrap();
         let mut state = app_with_workspaces(&["web"]);
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
-        state.workspaces[0].identity_cwd = root.clone();
+        state.workspaces[0].identity_cwd = std::path::PathBuf::from("/stale/identity");
+        state.workspaces[0].default_cwd = root.clone();
         assert!(state.workspaces[0].close_tab_allow_empty(0));
 
         state
@@ -5892,6 +5932,21 @@ mod tests {
         assert!(!state.terminals.contains_key(&terminal_id));
         assert!(!state.plugin_panes.contains_key(&pane_id));
         assert!(state.session_dirty);
+    }
+
+    #[test]
+    fn close_tab_records_workspace_default_cwd_before_removing_last_tab() {
+        let root = temp_project("close-tab-default-cwd");
+        let mut state = app_with_workspaces(&["test"]);
+        let pane_id = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.terminal_id_for_pane(0, pane_id).unwrap();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = root.clone();
+        state.workspaces[0].default_cwd = std::path::PathBuf::from("/stale/default");
+
+        state.close_tab();
+
+        assert!(state.workspaces[0].tabs.is_empty());
+        assert_eq!(state.workspaces[0].default_cwd, root);
     }
 
     #[test]

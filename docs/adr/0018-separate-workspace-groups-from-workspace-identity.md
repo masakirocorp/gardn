@@ -4,7 +4,7 @@ status: accepted
 
 # Separate workspace groups from workspace identity
 
-Hako separates workspace identity from workspace grouping. `Workspace` owns stable workspace identity, tabs, panes, cwd/git/worktree metadata, active tab, and workspace-scoped public pane numbering. `Group` owns sidebar/workflow presentation: name, icon, optional accent, favorite agent profiles, and default agent profile. A workspace points to its group with `Workspace.group_id`; groups do not own workspace trees or terminal runtimes.
+Hako separates workspace identity from workspace grouping. `Workspace` owns stable workspace identity, default cwd, tabs, panes, cwd/git/worktree metadata, active tab, and workspace-scoped public pane numbering. `Group` owns sidebar/workflow presentation: name, icon, optional accent, favorite agent profiles, and default agent profile. A workspace points to its group with `Workspace.group_id`; groups do not own workspace trees, default directories, or terminal runtimes.
 
 Group filtering is a view/navigation concern over the global workspace list. `AppState` stores `groups`, `active_group`, `group_filter_enabled`, and `workspaces` separately. `visible_workspace_indices` and `workspace_in_active_group` filter workspaces by `group_id` only when group filtering is enabled. `move_workspace_to_group` updates the workspace's `group_id`; `delete_group` refuses to delete the last group, and otherwise removes the group and closes workspaces whose `group_id` matched the deleted group. Showing all groups disables the filter without moving workspaces.
 

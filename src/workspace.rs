@@ -148,6 +148,8 @@ pub struct Workspace {
     pub group_id: String,
     /// Fallback workspace identity source for tests, old snapshots, or missing runtimes.
     pub identity_cwd: PathBuf,
+    /// Workspace default cwd used when no live pane cwd exists.
+    pub default_cwd: PathBuf,
     /// Cached current git branch for the workspace repo.
     pub(crate) cached_git_branch: Option<String>,
     /// Cached ahead/behind counts for the workspace repo's current branch upstream.
@@ -212,7 +214,8 @@ impl Workspace {
             id: generate_workspace_id(),
             custom_name,
             group_id: DEFAULT_GROUP_ID.to_string(),
-            identity_cwd,
+            identity_cwd: identity_cwd.clone(),
+            default_cwd: identity_cwd,
             cached_git_branch: None,
             cached_git_ahead_behind: None,
             cached_git_work_summary: None,
@@ -397,6 +400,7 @@ impl Workspace {
                 custom_name: None,
                 group_id: DEFAULT_GROUP_ID.to_string(),
                 identity_cwd: initial_cwd.clone(),
+                default_cwd: initial_cwd.clone(),
                 cached_git_branch: git_branch(&initial_cwd),
                 cached_git_ahead_behind: None,
                 cached_git_work_summary: None,
@@ -1194,6 +1198,24 @@ impl Workspace {
         Some(self.identity_cwd.clone())
     }
 
+    pub fn effective_default_cwd_from(
+        &self,
+        terminals: &HashMap<TerminalId, TerminalState>,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+    ) -> PathBuf {
+        self.active_tab()
+            .and_then(|tab| tab.cwd_for_pane(tab.layout.focused(), terminals, terminal_runtimes))
+            .unwrap_or_else(|| self.default_cwd.clone())
+    }
+
+    pub fn record_default_cwd(&mut self, cwd: PathBuf) -> bool {
+        if self.default_cwd == cwd {
+            return false;
+        }
+        self.default_cwd = cwd;
+        true
+    }
+
     pub fn resolved_identity_cwd_from(
         &self,
         terminals: &HashMap<TerminalId, TerminalState>,
@@ -1312,7 +1334,7 @@ impl Workspace {
         cwds.sort();
         cwds.dedup();
         if cwds.is_empty() {
-            cwds.push(self.identity_cwd.clone());
+            cwds.push(self.default_cwd.clone());
         }
         cwds
     }
@@ -1335,7 +1357,7 @@ impl Workspace {
         cwds.sort();
         cwds.dedup();
         if cwds.is_empty() {
-            cwds.push(self.identity_cwd.clone());
+            cwds.push(self.default_cwd.clone());
         }
         cwds
     }
@@ -1462,6 +1484,7 @@ impl Workspace {
             custom_name: Some(name.to_string()),
             group_id: DEFAULT_GROUP_ID.to_string(),
             identity_cwd: identity_cwd.clone(),
+            default_cwd: identity_cwd.clone(),
             cached_git_branch: git_branch(&identity_cwd),
             cached_git_ahead_behind: None,
             cached_git_work_summary: None,

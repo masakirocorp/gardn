@@ -71,10 +71,9 @@ impl App {
     }
 
     pub(super) fn seed_cwd_from_workspace(&self, ws_idx: usize) -> Option<std::path::PathBuf> {
-        self.state
-            .workspaces
-            .get(ws_idx)?
-            .resolved_identity_cwd_from(&self.state.terminals, &self.terminal_runtimes)
+        self.state.workspaces.get(ws_idx).map(|workspace| {
+            workspace.effective_default_cwd_from(&self.state.terminals, &self.terminal_runtimes)
+        })
     }
 
     pub(super) fn resolve_new_terminal_cwd(&self, follow_cwd: Option<PathBuf>) -> PathBuf {

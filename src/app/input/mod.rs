@@ -647,6 +647,12 @@ impl App {
                     SettingsAction::SaveGroupName { group_idx, name } => {
                         self.state.rename_group(group_idx, name);
                     }
+                    SettingsAction::SaveWorkspaceName { ws_idx, name } => {
+                        self.state.rename_workspace(ws_idx, name);
+                    }
+                    SettingsAction::SaveWorkspaceDefaultCwd { ws_idx, cwd } => {
+                        self.state.set_workspace_default_cwd(ws_idx, cwd);
+                    }
                     SettingsAction::DeleteGroup(group_idx) => {
                         modal::open_confirm_delete_group(&mut self.state, group_idx);
                     }

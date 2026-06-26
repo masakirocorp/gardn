@@ -961,6 +961,7 @@ mod tests {
         let mut app = test_app();
         let mut parent = Workspace::test_new("main");
         parent.identity_cwd = repo.to_path_buf();
+        parent.default_cwd = repo.to_path_buf();
         app.state.workspaces = vec![parent];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -976,6 +977,7 @@ mod tests {
         let mut app = test_app_with_event_hub(event_hub.clone());
         let mut parent = Workspace::test_new("main");
         parent.identity_cwd = repo.clone();
+        parent.default_cwd = repo.clone();
         app.state.workspaces = vec![parent];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -1238,9 +1240,11 @@ mod tests {
         let mut app = test_app_with_event_hub(event_hub.clone());
         let mut parent = Workspace::test_new("main");
         parent.identity_cwd = repo.clone();
+        parent.default_cwd = repo.clone();
         app.state.workspaces = vec![parent];
         let mut child = Workspace::test_new("child");
-        child.identity_cwd = subdir;
+        child.identity_cwd = subdir.clone();
+        child.default_cwd = subdir;
         app.state.workspaces.push(child);
         app.state.ensure_test_terminals();
 
@@ -1313,9 +1317,11 @@ mod tests {
         let mut app = test_app_with_event_hub(event_hub.clone());
         let mut parent = Workspace::test_new("main");
         parent.identity_cwd = repo.clone();
+        parent.default_cwd = repo.clone();
         app.state.workspaces = vec![parent];
         let mut child = Workspace::test_new("child");
         child.identity_cwd = checkout.clone();
+        child.default_cwd = checkout.clone();
         let child_id = child.id.clone();
         app.state.workspaces.push(child);
         app.state.ensure_test_terminals();
@@ -1441,6 +1447,7 @@ mod tests {
         let mut app = app_with_parent(&repo);
         let mut child = Workspace::test_new("child");
         child.identity_cwd = checkout.clone();
+        child.default_cwd = checkout.clone();
         app.state.workspaces.push(child);
         app.state.ensure_test_terminals();
 
@@ -1491,6 +1498,7 @@ mod tests {
         let parent_id = app.state.workspaces[0].id.clone();
         let mut child = Workspace::test_new("child");
         child.identity_cwd = checkout.clone();
+        child.default_cwd = checkout.clone();
         let child_id = child.id.clone();
         app.state.workspaces.push(child);
         app.state.ensure_test_terminals();
@@ -1595,6 +1603,7 @@ mod tests {
         let mut app = app_with_parent(&repo);
         let mut child = Workspace::test_new("child");
         child.identity_cwd = checkout.clone();
+        child.default_cwd = checkout.clone();
         child.worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: crate::workspace::git_space_metadata(&repo).unwrap().key,
             label: "api-worktree-remove-repo".into(),
@@ -1658,6 +1667,7 @@ mod tests {
         let mut app = test_app_with_event_hub(event_hub.clone());
         let mut child = Workspace::test_new("child");
         child.identity_cwd = checkout.clone();
+        child.default_cwd = checkout.clone();
         child.worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: crate::workspace::git_space_metadata(&repo).unwrap().key,
             label: "api-worktree-remove-event-repo".into(),

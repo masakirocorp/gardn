@@ -855,6 +855,7 @@ mod tests {
         );
         let mut ws = Workspace::test_new("test");
         ws.identity_cwd = parent.clone();
+        ws.default_cwd = parent.clone();
         ws.tabs.clear();
         app.state.workspaces.push(ws);
 
@@ -880,6 +881,7 @@ mod tests {
         std::fs::create_dir_all(&cwd).expect("create temp cwd");
         let mut ws = Workspace::test_new("test");
         ws.identity_cwd = cwd.clone();
+        ws.default_cwd = cwd.clone();
         ws.tabs.clear();
         app.state.workspaces.push(ws);
 

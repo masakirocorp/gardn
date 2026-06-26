@@ -1081,6 +1081,12 @@ pub(super) fn apply_context_menu_action(
         (ContextMenuKind::Workspace { ws_idx, .. }, Some("rename")) => {
             open_rename_workspace(state, terminal_runtimes, ws_idx);
         }
+        (ContextMenuKind::Workspace { ws_idx, .. }, Some("settings")) => {
+            super::settings::open_workspace_settings(state, ws_idx);
+        }
+        (ContextMenuKind::Tab { ws_idx, .. }, Some("settings")) => {
+            super::settings::open_workspace_settings(state, ws_idx);
+        }
         (ContextMenuKind::Group { group_idx, .. }, Some("settings")) => {
             super::settings::open_group_settings(state, group_idx);
         }
@@ -1969,10 +1975,10 @@ mod tests {
             },
             x: 0,
             y: 0,
-            list: MenuListState::new(8),
+            list: MenuListState::new(9),
         };
 
-        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 8);
+        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 9);
 
         assert_eq!(state.mode, Mode::Terminal);
         assert_eq!(state.workspaces.len(), 1);

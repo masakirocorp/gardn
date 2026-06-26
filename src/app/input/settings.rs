@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Constraint, Layout, Rect};
+use std::path::PathBuf;
 
 use crate::{
     app::{
@@ -53,6 +54,14 @@ pub(super) enum SettingsAction {
     SaveGroupName {
         group_idx: usize,
         name: String,
+    },
+    SaveWorkspaceName {
+        ws_idx: usize,
+        name: String,
+    },
+    SaveWorkspaceDefaultCwd {
+        ws_idx: usize,
+        cwd: PathBuf,
     },
     DeleteGroup(usize),
     InstallIntegration(crate::api::schema::IntegrationTarget),
@@ -112,6 +121,12 @@ impl App {
                         native_diff_line_numbers,
                     );
                     self.save_agent_border_labels(agent_border_labels);
+                }
+                SettingsAction::SaveWorkspaceName { ws_idx, name } => {
+                    self.state.rename_workspace(ws_idx, name);
+                }
+                SettingsAction::SaveWorkspaceDefaultCwd { ws_idx, cwd } => {
+                    self.state.set_workspace_default_cwd(ws_idx, cwd);
                 }
                 SettingsAction::SaveGroupAccent { group_idx, accent } => {
                     self.state.set_group_accent(group_idx, accent);
@@ -307,7 +322,8 @@ fn settings_section_choice_len(state: &AppState, section: SettingsSection) -> us
             | SettingsSection::Experiments
             | SettingsSection::Agents
             | SettingsSection::GroupProfiles
-            | SettingsSection::GroupGeneral => 0,
+            | SettingsSection::GroupGeneral
+            | SettingsSection::WorkspaceGeneral => 0,
         })
 }
 
@@ -483,6 +499,110 @@ fn edit_pending_group_name(state: &mut AppState, key: KeyEvent) -> bool {
             let mut name = pending_group_name(state);
             name.push(c);
             set_pending_group_name(state, name);
+            true
+        }
+        _ => false,
+    }
+}
+
+fn pending_workspace_name(state: &AppState) -> String {
+    state
+        .settings
+        .pending_workspace_name
+        .clone()
+        .or_else(|| {
+            state
+                .settings
+                .workspace_settings_target
+                .and_then(|ws_idx| state.workspaces.get(ws_idx))
+                .map(|workspace| workspace.display_name())
+        })
+        .unwrap_or_default()
+}
+
+fn pending_workspace_default_cwd(state: &AppState) -> String {
+    state
+        .settings
+        .pending_workspace_default_cwd
+        .clone()
+        .or_else(|| {
+            state
+                .settings
+                .workspace_settings_target
+                .and_then(|ws_idx| state.workspaces.get(ws_idx))
+                .map(|workspace| workspace.default_cwd.display().to_string())
+        })
+        .unwrap_or_default()
+}
+
+fn set_pending_workspace_field(state: &mut AppState, selected: usize, value: String) {
+    match selected {
+        0 => state.settings.pending_workspace_name = Some(value),
+        1 => state.settings.pending_workspace_default_cwd = Some(value),
+        _ => {}
+    }
+}
+
+fn pending_workspace_field(state: &AppState, selected: usize) -> Option<String> {
+    match selected {
+        0 => Some(pending_workspace_name(state)),
+        1 => Some(pending_workspace_default_cwd(state)),
+        _ => None,
+    }
+}
+
+fn delete_pending_workspace_word(state: &mut AppState, selected: usize) {
+    let Some(mut value) = pending_workspace_field(state, selected) else {
+        return;
+    };
+    while value.chars().last().is_some_and(char::is_whitespace) {
+        value.pop();
+    }
+    while value.chars().last().is_some_and(|ch| !ch.is_whitespace()) {
+        value.pop();
+    }
+    set_pending_workspace_field(state, selected, value);
+}
+
+fn edit_pending_workspace_field(state: &mut AppState, key: KeyEvent) -> bool {
+    let selected = state.settings.list.selected;
+    if selected > 1 {
+        return false;
+    }
+    match key.code {
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            set_pending_workspace_field(state, selected, String::new());
+            true
+        }
+        KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => {
+            set_pending_workspace_field(state, selected, String::new());
+            true
+        }
+        KeyCode::Backspace
+            if key.modifiers.contains(KeyModifiers::CONTROL)
+                || key.modifiers.contains(KeyModifiers::ALT) =>
+        {
+            delete_pending_workspace_word(state, selected);
+            true
+        }
+        KeyCode::Char('h' | 'w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            delete_pending_workspace_word(state, selected);
+            true
+        }
+        KeyCode::Backspace => {
+            let Some(mut value) = pending_workspace_field(state, selected) else {
+                return false;
+            };
+            value.pop();
+            set_pending_workspace_field(state, selected, value);
+            true
+        }
+        KeyCode::Char(c) if key.modifiers.difference(KeyModifiers::SHIFT).is_empty() => {
+            let Some(mut value) = pending_workspace_field(state, selected) else {
+                return false;
+            };
+            value.push(c);
+            set_pending_workspace_field(state, selected, value);
             true
         }
         _ => false,
@@ -1028,7 +1148,6 @@ fn preview_group_accent(state: &mut AppState, accent: Option<TerminalAccent>) {
             crate::app::state::Palette::terminal_accent_color(state.host_terminal_theme, accent);
     }
 }
-
 fn close_settings(state: &mut AppState) {
     state.settings.original_palette = None;
     state.settings.original_theme = None;
@@ -1071,6 +1190,27 @@ fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction>
         1 => {
             close_settings(state);
             Some(SettingsAction::DeleteGroup(group_idx))
+        }
+        _ => None,
+    }
+}
+
+fn selected_workspace_general_action(state: &mut AppState) -> Option<SettingsAction> {
+    if !settings_selection_active(state) {
+        return None;
+    }
+    let ws_idx = state.settings.workspace_settings_target?;
+    match state.settings.list.selected {
+        0 => {
+            let name = pending_workspace_name(state).trim().to_string();
+            (!name.is_empty()).then_some(SettingsAction::SaveWorkspaceName { ws_idx, name })
+        }
+        1 => {
+            let cwd = pending_workspace_default_cwd(state).trim().to_string();
+            (!cwd.is_empty()).then_some(SettingsAction::SaveWorkspaceDefaultCwd {
+                ws_idx,
+                cwd: PathBuf::from(cwd),
+            })
         }
         _ => None,
     }
@@ -1142,13 +1282,15 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.pending_group_accent_choice = None;
     state.settings.pending_group_name = None;
+    state.settings.pending_workspace_name = None;
+    state.settings.pending_workspace_default_cwd = None;
     state.settings.pending_agent_profile_id = None;
     state.settings.pending_agent_profile_name = None;
     state.settings.pending_agent_profile_kind = None;
     state.settings.pending_agent_profile_command = None;
     state.settings.group_settings_target = None;
+    state.settings.workspace_settings_target = None;
 }
-
 fn current_settings_action(state: &AppState) -> SettingsAction {
     SettingsAction::SaveSettings {
         light: pending_light_theme_name(state),
@@ -1356,6 +1498,7 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
         SettingsSection::Integrations => selected_integration_action(state),
         SettingsSection::GroupGeneral => selected_group_general_action(state),
         SettingsSection::GroupProfiles => None,
+        SettingsSection::WorkspaceGeneral => selected_workspace_general_action(state),
     }
 }
 
@@ -1424,6 +1567,11 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
         )
     {
         state.settings.section = SettingsSection::GroupGeneral;
+    }
+    if state.settings.workspace_settings_target.is_some()
+        && state.settings.section != SettingsSection::WorkspaceGeneral
+    {
+        state.settings.section = SettingsSection::WorkspaceGeneral;
     }
     let section_before_key = state.settings.section;
     if state.settings.section == SettingsSection::Agents
@@ -1795,6 +1943,29 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 }
             }
         },
+        SettingsSection::WorkspaceGeneral => match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                select_previous_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::WorkspaceGeneral),
+                );
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                select_next_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::WorkspaceGeneral),
+                );
+            }
+            KeyCode::Enter => return selected_workspace_general_action(state),
+            _ => {
+                if state.settings.selection_active && edit_pending_workspace_field(state, key) {
+                    return selected_workspace_general_action(state);
+                }
+                if let Some(action) = handle_settings_modal_action(state, &key) {
+                    return Some(action);
+                }
+            }
+        },
     }
 
     if state.settings.section != section_before_key {
@@ -1837,7 +2008,10 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
     state.settings.pending_agent_profile_name = None;
     state.settings.pending_agent_profile_kind = Some(state.default_agent_profile_kind_choice());
     state.settings.pending_agent_profile_command = None;
+    state.settings.pending_workspace_name = None;
+    state.settings.pending_workspace_default_cwd = None;
     state.settings.group_settings_target = None;
+    state.settings.workspace_settings_target = None;
     state.settings.section = section;
     state.settings.list.selected = match section {
         SettingsSection::Theme => target_theme_index(state),
@@ -1850,6 +2024,7 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
         SettingsSection::Integrations => 0,
         SettingsSection::GroupGeneral => 0,
         SettingsSection::GroupProfiles => 0,
+        SettingsSection::WorkspaceGeneral => 0,
     };
     state.settings.scroll = 0;
     clear_settings_selection(state);
@@ -1879,6 +2054,8 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_terminal_dark_accent = None;
     state.settings.pending_group_accent_choice = None;
     state.settings.pending_group_name = Some(group_name);
+    state.settings.pending_workspace_name = None;
+    state.settings.pending_workspace_default_cwd = None;
     state.settings.pending_sound_enabled = None;
     state.settings.pending_toast_delivery = None;
     state.settings.pending_confirm_close = None;
@@ -1893,12 +2070,54 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.group_settings_target = Some(group_idx);
+    state.settings.workspace_settings_target = None;
     state.settings.section = SettingsSection::GroupGeneral;
     state.settings.list.selected = 0;
     state.settings.scroll = 0;
     clear_settings_selection(state);
     ensure_settings_selection_visible(state);
     preview_group_accent(state, group_accent);
+    state.mode = Mode::Settings;
+}
+
+pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
+    let Some(workspace) = state.workspaces.get(ws_idx) else {
+        return;
+    };
+    let workspace_name = workspace.display_name();
+    let default_cwd = workspace.default_cwd.display().to_string();
+    state.settings.original_palette = Some(state.palette.clone());
+    state.settings.original_theme = Some(state.theme_name.clone());
+    state.settings.pending_theme_name = None;
+    state.settings.pending_theme_mode = None;
+    state.settings.pending_light_theme_name = None;
+    state.settings.pending_dark_theme_name = None;
+    state.settings.pending_terminal_light_accent = None;
+    state.settings.pending_terminal_dark_accent = None;
+    state.settings.pending_group_accent_choice = None;
+    state.settings.pending_group_name = None;
+    state.settings.pending_workspace_name = Some(workspace_name);
+    state.settings.pending_workspace_default_cwd = Some(default_cwd);
+    state.settings.pending_sound_enabled = None;
+    state.settings.pending_toast_delivery = None;
+    state.settings.pending_confirm_close = None;
+    state.settings.pending_prompt_new_tab_name = None;
+    state.settings.pending_new_terminal_cwd = None;
+    state.settings.pending_mouse_scroll_lines = None;
+    state.settings.pending_sidebar_width = None;
+    state.settings.pending_sidebar_min_width = None;
+    state.settings.pending_sidebar_max_width = None;
+    state.settings.pending_sidebar_arrangement = None;
+    state.settings.pending_worktree_directory = None;
+    state.settings.pending_agent_border_labels = None;
+    state.settings.pending_switch_ascii_input_source_in_prefix = None;
+    state.settings.group_settings_target = None;
+    state.settings.workspace_settings_target = Some(ws_idx);
+    state.settings.section = SettingsSection::WorkspaceGeneral;
+    state.settings.list.selected = 0;
+    state.settings.scroll = 0;
+    clear_settings_selection(state);
+    ensure_settings_selection_visible(state);
     state.mode = Mode::Settings;
 }
 impl AppState {
@@ -1988,6 +2207,7 @@ impl AppState {
             | SettingsSection::Agents
             | SettingsSection::GroupGeneral
             | SettingsSection::GroupProfiles
+            | SettingsSection::WorkspaceGeneral
             | SettingsSection::Integrations => {
                 let list = settings_section_list_geometry(self, self.settings.section);
                 let visual_row = list.hit_visual_row(col, row)?;
@@ -2077,6 +2297,7 @@ impl AppState {
                         SettingsSection::Integrations => 0,
                         SettingsSection::GroupGeneral => 0,
                         SettingsSection::GroupProfiles => 0,
+                        SettingsSection::WorkspaceGeneral => 0,
                     });
                     clear_settings_selection(self);
                     if section == SettingsSection::Theme {
@@ -2112,6 +2333,7 @@ impl AppState {
                             }
                         }
                         SettingsSection::GroupProfiles => None,
+                        SettingsSection::WorkspaceGeneral => None,
                     };
                 }
 
@@ -3117,6 +3339,52 @@ mod tests {
         let settings_rect = state.settings_popup_rect();
 
         assert_eq!(group_rect, settings_rect);
+    }
+
+    #[test]
+    fn workspace_general_settings_edits_name_and_default_directory_inline() {
+        let mut state = state_with_workspaces(&["space"]);
+        state.workspaces[0].default_cwd = PathBuf::from("/tmp/hako-old");
+
+        open_workspace_settings(&mut state, 0);
+
+        assert_eq!(state.settings.section, SettingsSection::WorkspaceGeneral);
+        assert_eq!(state.settings.workspace_settings_target, Some(0));
+        assert_eq!(
+            state.settings.pending_workspace_name.as_deref(),
+            Some("space")
+        );
+        assert_eq!(
+            state.settings.pending_workspace_default_cwd.as_deref(),
+            Some("/tmp/hako-old")
+        );
+
+        state.settings.list.selected = 0;
+        state.settings.selection_active = true;
+        let name_action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('2'), KeyModifiers::empty()),
+        );
+        assert_eq!(
+            name_action,
+            Some(SettingsAction::SaveWorkspaceName {
+                ws_idx: 0,
+                name: "space2".to_string(),
+            })
+        );
+
+        state.settings.list.selected = 1;
+        let cwd_action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('2'), KeyModifiers::empty()),
+        );
+        assert_eq!(
+            cwd_action,
+            Some(SettingsAction::SaveWorkspaceDefaultCwd {
+                ws_idx: 0,
+                cwd: PathBuf::from("/tmp/hako-old2"),
+            })
+        );
     }
 
     #[test]

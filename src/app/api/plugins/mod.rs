@@ -2383,6 +2383,7 @@ action = "missing"
         let mut app = test_app();
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("issue")];
         app.state.workspaces[0].identity_cwd = "/tmp/issue".into();
+        app.state.workspaces[0].default_cwd = "/tmp/issue".into();
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
         app.state.selected = 0;
