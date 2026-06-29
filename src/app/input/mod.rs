@@ -647,6 +647,13 @@ impl App {
                     SettingsAction::SaveGroupName { group_idx, name } => {
                         self.state.rename_group(group_idx, name);
                     }
+                    SettingsAction::SaveGroupDefaultDirectory {
+                        group_idx,
+                        default_directory,
+                    } => {
+                        self.state
+                            .set_group_default_directory(group_idx, default_directory);
+                    }
                     SettingsAction::SaveWorkspaceName { ws_idx, name } => {
                         self.state.rename_workspace(ws_idx, name);
                     }

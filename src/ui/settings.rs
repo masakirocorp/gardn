@@ -1003,6 +1003,7 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), 80, 24);
         assert!(text.contains("name"));
         assert!(text.contains("Work"));
+        assert!(text.contains("default directory for new spaces"));
         assert!(text.contains("danger zone"));
         assert!(text.contains("× delete group"));
         assert!(!text.contains("●"));
@@ -1030,7 +1031,7 @@ mod tests {
         assert_eq!(buffer[(x + 2, y)].style().fg, Some(app.palette.red));
         assert_ne!(buffer[(x, y)].style().bg, Some(app.palette.red));
 
-        app.settings.list.selected = 1;
+        app.settings.list.selected = 2;
         app.settings.selection_active = true;
         terminal
             .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
@@ -1079,7 +1080,9 @@ mod tests {
         .expect("settings frame areas");
         let buffer = terminal.backend().buffer();
         assert_eq!(
-            buffer[(frame_areas.popup.x, frame_areas.popup.y)].style().fg,
+            buffer[(frame_areas.popup.x, frame_areas.popup.y)]
+                .style()
+                .fg,
             Some(app.group_accent_color(group_idx))
         );
     }
@@ -1094,9 +1097,15 @@ mod tests {
         let rows = rows_for_section(&app, SettingsSection::WorkspaceGeneral)
             .expect("workspace general rows");
 
-        assert!(matches!(rows[0], SettingsListRow::TextInput { index: 0, .. }));
+        assert!(matches!(
+            rows[0],
+            SettingsListRow::TextInput { index: 0, .. }
+        ));
         assert!(matches!(rows[1], SettingsListRow::Spacer));
-        assert!(matches!(rows[2], SettingsListRow::TextInput { index: 1, .. }));
+        assert!(matches!(
+            rows[2],
+            SettingsListRow::TextInput { index: 1, .. }
+        ));
     }
 
     #[test]

@@ -55,6 +55,10 @@ pub(super) enum SettingsAction {
         group_idx: usize,
         name: String,
     },
+    SaveGroupDefaultDirectory {
+        group_idx: usize,
+        default_directory: Option<PathBuf>,
+    },
     SaveWorkspaceName {
         ws_idx: usize,
         name: String,
@@ -134,6 +138,13 @@ impl App {
                 }
                 SettingsAction::SaveGroupName { group_idx, name } => {
                     self.state.rename_group(group_idx, name);
+                }
+                SettingsAction::SaveGroupDefaultDirectory {
+                    group_idx,
+                    default_directory,
+                } => {
+                    self.state
+                        .set_group_default_directory(group_idx, default_directory);
                 }
                 SettingsAction::DeleteGroup(group_idx) => {
                     super::modal::open_confirm_delete_group(&mut self.state, group_idx);
@@ -457,48 +468,95 @@ fn set_pending_group_name(state: &mut AppState, name: String) {
     state.settings.pending_group_name = Some(name);
 }
 
-fn delete_pending_group_name_word(state: &mut AppState) {
-    let mut name = pending_group_name(state);
-    while name.chars().last().is_some_and(char::is_whitespace) {
-        name.pop();
-    }
-    while name.chars().last().is_some_and(|ch| !ch.is_whitespace()) {
-        name.pop();
-    }
-    set_pending_group_name(state, name);
+fn pending_group_default_directory(state: &AppState) -> String {
+    state
+        .settings
+        .pending_group_default_directory
+        .clone()
+        .or_else(|| {
+            state
+                .settings
+                .group_settings_target
+                .and_then(|group_idx| state.groups.get(group_idx))
+                .and_then(|group| {
+                    group
+                        .default_directory
+                        .as_ref()
+                        .map(|path| path.display().to_string())
+                })
+        })
+        .unwrap_or_default()
 }
 
-fn edit_pending_group_name(state: &mut AppState, key: KeyEvent) -> bool {
+fn set_pending_group_default_directory(state: &mut AppState, default_directory: String) {
+    state.settings.pending_group_default_directory = Some(default_directory);
+}
+
+fn pending_group_field(state: &AppState, selected: usize) -> Option<String> {
+    match selected {
+        0 => Some(pending_group_name(state)),
+        1 => Some(pending_group_default_directory(state)),
+        _ => None,
+    }
+}
+
+fn set_pending_group_field(state: &mut AppState, selected: usize, value: String) {
+    match selected {
+        0 => set_pending_group_name(state, value),
+        1 => set_pending_group_default_directory(state, value),
+        _ => {}
+    }
+}
+
+fn delete_pending_group_field_word(state: &mut AppState, selected: usize) {
+    let Some(mut value) = pending_group_field(state, selected) else {
+        return;
+    };
+    while value.chars().last().is_some_and(char::is_whitespace) {
+        value.pop();
+    }
+    while value.chars().last().is_some_and(|ch| !ch.is_whitespace()) {
+        value.pop();
+    }
+    set_pending_group_field(state, selected, value);
+}
+
+fn edit_pending_group_field(state: &mut AppState, key: KeyEvent) -> bool {
+    let selected = state.settings.list.selected;
+    if !matches!(selected, 0 | 1) {
+        return false;
+    }
+
     match key.code {
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            set_pending_group_name(state, String::new());
+            set_pending_group_field(state, selected, String::new());
             true
         }
         KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => {
-            set_pending_group_name(state, String::new());
+            set_pending_group_field(state, selected, String::new());
             true
         }
         KeyCode::Backspace
             if key.modifiers.contains(KeyModifiers::CONTROL)
                 || key.modifiers.contains(KeyModifiers::ALT) =>
         {
-            delete_pending_group_name_word(state);
+            delete_pending_group_field_word(state, selected);
             true
         }
         KeyCode::Char('h' | 'w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            delete_pending_group_name_word(state);
+            delete_pending_group_field_word(state, selected);
             true
         }
         KeyCode::Backspace => {
-            let mut name = pending_group_name(state);
-            name.pop();
-            set_pending_group_name(state, name);
+            let mut value = pending_group_field(state, selected).unwrap_or_default();
+            value.pop();
+            set_pending_group_field(state, selected, value);
             true
         }
         KeyCode::Char(c) if key.modifiers.difference(KeyModifiers::SHIFT).is_empty() => {
-            let mut name = pending_group_name(state);
-            name.push(c);
-            set_pending_group_name(state, name);
+            let mut value = pending_group_field(state, selected).unwrap_or_default();
+            value.push(c);
+            set_pending_group_field(state, selected, value);
             true
         }
         _ => false,
@@ -1120,16 +1178,19 @@ fn preview_selected_theme(state: &mut AppState) {
             let name = selected_global_theme_name_for_mode(state);
             state.preview_theme_with_mode(&name, mode);
         }
-        ThemeSettingsChoice::Theme(choice) => match choice.target {
-            ThemeChoiceTarget::Light => {
-                state.settings.pending_light_theme_name = Some(choice.name.to_string());
-                state.preview_theme_with_mode(choice.name, ThemeMode::Light);
+        ThemeSettingsChoice::Theme(choice) => {
+            match choice.target {
+                ThemeChoiceTarget::Light => {
+                    state.settings.pending_light_theme_name = Some(choice.name.to_string());
+                }
+                ThemeChoiceTarget::Dark => {
+                    state.settings.pending_dark_theme_name = Some(choice.name.to_string());
+                }
             }
-            ThemeChoiceTarget::Dark => {
-                state.settings.pending_dark_theme_name = Some(choice.name.to_string());
-                state.preview_theme_with_mode(choice.name, ThemeMode::Dark);
-            }
-        },
+            let mode = pending_theme_mode(state);
+            let name = selected_global_theme_name_for_mode(state);
+            state.preview_theme_with_mode(&name, mode);
+        }
     }
 }
 
@@ -1188,6 +1249,14 @@ fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction>
             (!name.is_empty()).then_some(SettingsAction::SaveGroupName { group_idx, name })
         }
         1 => {
+            let default_directory = pending_group_default_directory(state).trim().to_string();
+            Some(SettingsAction::SaveGroupDefaultDirectory {
+                group_idx,
+                default_directory: (!default_directory.is_empty())
+                    .then_some(PathBuf::from(default_directory)),
+            })
+        }
+        2 => {
             close_settings(state);
             Some(SettingsAction::DeleteGroup(group_idx))
         }
@@ -1282,6 +1351,7 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.pending_group_accent_choice = None;
     state.settings.pending_group_name = None;
+    state.settings.pending_group_default_directory = None;
     state.settings.pending_workspace_name = None;
     state.settings.pending_workspace_default_cwd = None;
     state.settings.pending_agent_profile_id = None;
@@ -1815,10 +1885,8 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 ensure_settings_selection_visible(state);
             }
             _ => {
-                if let Some(super::modal::ModalAction::Close) =
-                    super::modal::modal_action_from_key(&key, super::modal::SETTINGS_ACTIONS)
-                {
-                    close_settings(state);
+                if let Some(action) = handle_settings_modal_action(state, &key) {
+                    return Some(action);
                 }
             }
         },
@@ -1862,7 +1930,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 );
             }
             KeyCode::Enter => return selected_group_general_action(state),
-            KeyCode::Char(' ') if state.settings.list.selected == 1 => {
+            KeyCode::Char(' ') if state.settings.list.selected == 2 => {
                 return selected_group_general_action(state);
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -1875,14 +1943,25 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 ensure_settings_selection_visible(state);
             }
             _ => {
-                if state.settings.selection_active
-                    && state.settings.list.selected == 0
-                    && edit_pending_group_name(state, key)
-                {
+                if state.settings.selection_active && edit_pending_group_field(state, key) {
                     let group_idx = state.settings.group_settings_target?;
-                    let name = pending_group_name(state).trim().to_string();
-                    return (!name.is_empty())
-                        .then_some(SettingsAction::SaveGroupName { group_idx, name });
+                    return match state.settings.list.selected {
+                        0 => {
+                            let name = pending_group_name(state).trim().to_string();
+                            (!name.is_empty())
+                                .then_some(SettingsAction::SaveGroupName { group_idx, name })
+                        }
+                        1 => {
+                            let default_directory =
+                                pending_group_default_directory(state).trim().to_string();
+                            Some(SettingsAction::SaveGroupDefaultDirectory {
+                                group_idx,
+                                default_directory: (!default_directory.is_empty())
+                                    .then_some(PathBuf::from(default_directory)),
+                            })
+                        }
+                        _ => None,
+                    };
                 }
                 if let Some(action) = handle_settings_modal_action(state, &key) {
                     return Some(action);
@@ -2326,7 +2405,7 @@ impl AppState {
                         SettingsSection::Agents => selected_agent_profile_action(self),
                         SettingsSection::Integrations => None,
                         SettingsSection::GroupGeneral => {
-                            if idx == 1 {
+                            if idx == 2 {
                                 selected_group_general_action(self)
                             } else {
                                 None
@@ -3292,7 +3371,7 @@ mod tests {
 
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupGeneral;
-        state.settings.list.selected = 1;
+        state.settings.list.selected = 2;
         state.settings.selection_active = true;
         let delete_action = update_settings_state(
             &mut state,
@@ -3304,13 +3383,37 @@ mod tests {
     }
 
     #[test]
+    fn group_general_settings_edits_default_directory_for_future_spaces_inline() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Side".to_string());
+        state.set_group_default_directory(group_idx, Some(PathBuf::from("/tmp/hako-old")));
+        open_group_settings(&mut state, group_idx);
+        state.settings.section = SettingsSection::GroupGeneral;
+        state.settings.list.selected = 1;
+        state.settings.selection_active = true;
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('2'), KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::SaveGroupDefaultDirectory {
+                group_idx,
+                default_directory: Some(PathBuf::from("/tmp/hako-old2")),
+            })
+        );
+    }
+
+    #[test]
     fn group_general_mouse_focuses_name_without_saving() {
         let mut app = app_for_mouse_test();
         let group_idx = app.state.create_group("Side".to_string());
         app.state.view.terminal_area = Rect::new(26, 0, 100, 30);
         open_group_settings(&mut app.state, group_idx);
         app.state.settings.section = SettingsSection::GroupGeneral;
-        app.state.settings.list.selected = 1;
+        app.state.settings.list.selected = 2;
         app.state.settings.selection_active = true;
 
         let list_area = settings_section_list_rect(&app.state, SettingsSection::GroupGeneral);

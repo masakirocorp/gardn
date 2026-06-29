@@ -2363,7 +2363,7 @@ fn render_right_sidebar_toggle(
 mod tests {
     use super::*;
     use crate::{app::state::Group, detect::Agent, workspace::Workspace};
-    use ratatui::{backend::TestBackend, buffer::Buffer, layout::Direction, Terminal};
+    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
 
     #[test]
     fn agent_panel_toggle_labels_match_control_center_scope() {
@@ -2431,6 +2431,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
+            default_directory: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -2501,6 +2502,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: Some(crate::config::TerminalAccent::Red),
+            default_directory: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -2577,6 +2579,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
+            default_directory: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -2610,6 +2613,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
+            default_directory: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -3338,14 +3342,6 @@ mod tests {
             }
         }
         None
-    }
-
-    fn find_text_cell(text: &str, needle: &str) -> Option<(u16, u16)> {
-        text.lines().enumerate().find_map(|(y, line)| {
-            let byte_x = line.find(needle)?;
-            let cell_x = line[..byte_x].chars().count();
-            Some((y as u16, cell_x as u16))
-        })
     }
 
     fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {

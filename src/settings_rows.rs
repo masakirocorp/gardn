@@ -366,6 +366,22 @@ fn group_general_rows(app: &AppState) -> Vec<SettingsListRow> {
                 .map(|group| group.name.clone())
         })
         .unwrap_or_else(|| "group".to_string());
+    let default_directory = app
+        .settings
+        .pending_group_default_directory
+        .clone()
+        .or_else(|| {
+            app.settings
+                .group_settings_target
+                .and_then(|group_idx| app.groups.get(group_idx))
+                .and_then(|group| {
+                    group
+                        .default_directory
+                        .as_ref()
+                        .map(|path| path.display().to_string())
+                })
+        })
+        .unwrap_or_default();
 
     vec![
         SettingsListRow::TextInput {
@@ -374,9 +390,15 @@ fn group_general_rows(app: &AppState) -> Vec<SettingsListRow> {
             value: group_name.into(),
         },
         SettingsListRow::Spacer,
+        SettingsListRow::TextInput {
+            index: 1,
+            title: "default directory for new spaces".into(),
+            value: default_directory.into(),
+        },
+        SettingsListRow::Spacer,
         SettingsListRow::Header("danger zone"),
         SettingsListRow::Action {
-            index: 1,
+            index: 2,
             icon: "×".into(),
             label: "delete group".into(),
             tone: SettingsMarkerTone::Danger,

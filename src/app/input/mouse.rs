@@ -307,7 +307,7 @@ impl AppState {
 
                     if self.mode == Mode::RenameGroup {
                         if self.group_icon_picker_open {
-                            for (rect, icon) in crate::ui::group_icon_picker_rects(inner) {
+                            for (rect, icon) in crate::ui::group_icon_picker_rects(self, inner) {
                                 if rect_contains(rect, mouse.column, mouse.row) {
                                     self.group_icon_input = icon.to_string();
                                     self.group_icon_picker_open = false;
@@ -317,11 +317,33 @@ impl AppState {
                         }
 
                         if rect_contains(
-                            crate::ui::group_icon_button_rect(inner),
+                            crate::ui::group_icon_button_rect(self, inner),
                             mouse.column,
                             mouse.row,
                         ) {
                             self.group_icon_picker_open = !self.group_icon_picker_open;
+                            return None;
+                        }
+
+                        if self.creating_new_group
+                            && rect_contains(
+                                crate::ui::group_default_directory_input_rect(self, inner),
+                                mouse.column,
+                                mouse.row,
+                            )
+                        {
+                            self.group_modal_selected_field = 1;
+                            self.name_input_replace_on_type = false;
+                            return None;
+                        }
+
+                        if rect_contains(
+                            crate::ui::group_name_input_rect(self, inner),
+                            mouse.column,
+                            mouse.row,
+                        ) {
+                            self.group_modal_selected_field = 0;
+                            self.name_input_replace_on_type = false;
                             return None;
                         }
                     }
@@ -2505,7 +2527,7 @@ mod tests {
         );
 
         let inner = app.state.rename_modal_inner().unwrap();
-        let icon_button = crate::ui::group_icon_button_rect(inner);
+        let icon_button = crate::ui::group_icon_button_rect(&app.state, inner);
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             icon_button.x,
@@ -2514,7 +2536,7 @@ mod tests {
 
         assert!(app.state.group_icon_picker_open);
 
-        let (coffee, _) = crate::ui::group_icon_picker_rects(inner)
+        let (coffee, _) = crate::ui::group_icon_picker_rects(&app.state, inner)
             .into_iter()
             .find(|(_, icon)| *icon == "☕")
             .expect("coffee icon should be offered");
@@ -2619,7 +2641,7 @@ mod tests {
         super::super::modal::open_new_group_dialog(&mut app.state);
 
         let inner = app.state.rename_modal_inner().unwrap();
-        let icon_rect = crate::ui::group_icon_button_rect(inner);
+        let icon_rect = crate::ui::group_icon_button_rect(&app.state, inner);
         let screen = app.state.screen_rect();
         let backend = TestBackend::new(screen.width, screen.height);
         let mut terminal = Terminal::new(backend).expect("test backend");
@@ -2650,14 +2672,14 @@ mod tests {
         super::super::modal::open_rename_group_at(&mut app.state, group_idx);
 
         let inner = app.state.rename_modal_inner().unwrap();
-        let icon_button = crate::ui::group_icon_button_rect(inner);
+        let icon_button = crate::ui::group_icon_button_rect(&app.state, inner);
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             icon_button.x,
             icon_button.y,
         ));
 
-        let (anchor, _) = crate::ui::group_icon_picker_rects(inner)
+        let (anchor, _) = crate::ui::group_icon_picker_rects(&app.state, inner)
             .into_iter()
             .find(|(_, icon)| *icon == "⚓")
             .expect("anchor icon should be offered");

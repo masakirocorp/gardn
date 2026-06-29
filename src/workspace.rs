@@ -171,9 +171,8 @@ pub struct Workspace {
 }
 
 enum NewWorkspaceTabCommand<'a> {
-    Shell {
-        command: &'a str,
-    },
+    #[cfg(test)]
+    Shell { command: &'a str },
     Profile {
         command: &'a str,
         shell_config: crate::pane::PaneShellConfig<'a>,
@@ -558,6 +557,7 @@ impl Workspace {
         )
     }
 
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn create_command_tab(
         &mut self,
@@ -660,6 +660,7 @@ impl Workspace {
 
         let (tab, terminal, runtime) = if let Some(command) = command {
             match command {
+                #[cfg(test)]
                 NewWorkspaceTabCommand::Shell { command } => Tab::new_shell_command(
                     number,
                     cwd,

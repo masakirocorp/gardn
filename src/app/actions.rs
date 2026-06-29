@@ -807,6 +807,7 @@ fn activity_summary_for_panes<'a>(
 // ---------------------------------------------------------------------------
 
 impl AppState {
+    #[cfg(test)]
     fn command_target_for_root(
         &self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
@@ -828,6 +829,7 @@ impl AppState {
         None
     }
 
+    #[cfg(test)]
     fn command_terminal_target(
         &self,
         terminal_id: &crate::terminal::TerminalId,
@@ -844,6 +846,7 @@ impl AppState {
         None
     }
 
+    #[cfg(test)]
     pub(crate) fn focus_command_run(&mut self, command_id: &str) -> bool {
         let Some(terminal_id) = self
             .command_runs
@@ -866,6 +869,7 @@ impl AppState {
         true
     }
 
+    #[cfg(test)]
     pub(crate) fn run_project_command(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
@@ -982,6 +986,7 @@ impl AppState {
         )
     }
 
+    #[cfg(test)]
     fn run_project_command_entry(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
@@ -1075,6 +1080,7 @@ impl AppState {
             .map(|root| (root, ws_idx))
     }
 
+    #[cfg(test)]
     fn open_command_tab(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
@@ -1120,6 +1126,7 @@ impl AppState {
         Ok(())
     }
 
+    #[cfg(test)]
     fn restart_command_in_tab(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
@@ -1191,6 +1198,7 @@ impl AppState {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn stop_project_command(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
@@ -1420,15 +1428,25 @@ impl AppState {
     }
 
     pub fn create_group(&mut self, name: String) -> usize {
-        self.create_group_with_icon(name, super::state::DEFAULT_GROUP_ICON.to_string())
+        self.create_group_with_icon_and_default_directory(
+            name,
+            super::state::DEFAULT_GROUP_ICON.to_string(),
+            None,
+        )
     }
 
-    pub fn create_group_with_icon(&mut self, name: String, icon: String) -> usize {
+    pub fn create_group_with_icon_and_default_directory(
+        &mut self,
+        name: String,
+        icon: String,
+        default_directory: Option<std::path::PathBuf>,
+    ) -> usize {
         self.groups.push(Group {
             id: super::state::generate_group_id(),
             name,
             icon: super::state::normalize_group_icon(&icon),
             accent: None,
+            default_directory,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -1463,6 +1481,22 @@ impl AppState {
             return true;
         }
         false
+    }
+
+    pub fn set_group_default_directory(
+        &mut self,
+        group_idx: usize,
+        default_directory: Option<std::path::PathBuf>,
+    ) -> bool {
+        let Some(group) = self.groups.get_mut(group_idx) else {
+            return false;
+        };
+        if group.default_directory == default_directory {
+            return false;
+        }
+        group.default_directory = default_directory;
+        self.mark_session_dirty();
+        true
     }
 
     pub fn set_group_icon(&mut self, group_idx: usize, icon: String) -> bool {

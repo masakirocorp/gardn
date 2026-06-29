@@ -1678,6 +1678,7 @@ navigate_pane_right = "ctrl+l"
             name: "side".into(),
             icon: "■".into(),
             accent: None,
+            default_directory: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });

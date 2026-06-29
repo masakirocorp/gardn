@@ -155,6 +155,8 @@ pub struct GroupSnapshot {
     pub icon: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accent: Option<crate::config::TerminalAccent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_directory: Option<std::path::PathBuf>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub favorite_agent_profile_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -175,6 +177,7 @@ fn default_groups() -> Vec<GroupSnapshot> {
         name: "group 1".to_string(),
         icon: default_group_icon(),
         accent: None,
+        default_directory: None,
         favorite_agent_profile_ids: Vec::new(),
         default_agent_profile_id: None,
     }]
@@ -555,6 +558,7 @@ fn capture_group(group: &crate::app::state::Group) -> GroupSnapshot {
         name: group.name.clone(),
         icon: group.icon.clone(),
         accent: group.accent,
+        default_directory: group.default_directory.clone(),
         favorite_agent_profile_ids: group.favorite_agent_profile_ids.clone(),
         default_agent_profile_id: group.default_agent_profile_id.clone(),
     }
@@ -1058,6 +1062,7 @@ mod tests {
             name: "Side".to_string(),
             icon: "⚓".to_string(),
             accent: Some(crate::config::TerminalAccent::Cyan),
+            default_directory: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });

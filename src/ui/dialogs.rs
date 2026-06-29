@@ -7,10 +7,10 @@ use ratatui::{
 };
 
 use super::widgets::{
-    action_button_row_rects, centered_popup_rect, danger_action_style, panel_contrast_fg,
-    primary_action_style, render_action_button, render_modal_header_bar, render_modal_shell,
-    render_modal_subtitle, render_modal_text_input, render_panel_shell, secondary_action_style,
-    ActionButtonSpec,
+    action_button_row_rects, centered_popup_rect, danger_action_style, modal_section_heading_style,
+    panel_contrast_fg, primary_action_style, render_action_button, render_modal_description,
+    render_modal_divider, render_modal_header_bar, render_modal_shell, render_modal_text_input,
+    render_panel_shell, secondary_action_style, ActionButtonSpec,
 };
 use crate::app::{AppState, Mode};
 
@@ -36,35 +36,50 @@ pub(crate) fn rename_button_rects(inner: Rect) -> (Rect, Rect, Rect) {
 }
 
 pub(crate) fn rename_modal_size(app: &AppState) -> (u16, u16) {
-    if matches!(app.mode, Mode::RenameGroup) {
-        (56, 12)
+    if matches!(app.mode, Mode::RenameGroup) && app.creating_new_group {
+        (64, 20)
+    } else if matches!(app.mode, Mode::RenameGroup) {
+        (56, 17)
     } else {
         (56, 7)
     }
 }
 
-pub(crate) fn group_icon_button_rect(inner: Rect) -> Rect {
-    if inner.width < 5 || inner.height < 4 {
+fn group_field_rect(app: &AppState, inner: Rect, y: u16, min_height: u16) -> Rect {
+    if inner.width == 0 || inner.height < min_height {
         return Rect::default();
     }
-    Rect::new(inner.x, inner.y + 2, 3, 1)
-}
-
-pub(crate) fn group_name_input_rect(inner: Rect) -> Rect {
-    let icon = group_icon_button_rect(inner);
-    if icon == Rect::default() {
-        return Rect::new(inner.x, inner.y + 2, inner.width, 1);
-    }
+    let left = if app.creating_new_group { 1 } else { 2 };
     Rect::new(
-        icon.x + icon.width + 1,
-        icon.y,
-        inner.width.saturating_sub(icon.width + 1),
+        inner.x + left,
+        inner.y + y,
+        inner.width.saturating_sub(left),
         1,
     )
 }
 
-pub(crate) fn group_icon_picker_rects(inner: Rect) -> Vec<(Rect, &'static str)> {
-    let start = Rect::new(inner.x, inner.y + 4, inner.width.min(24), 4);
+pub(crate) fn group_icon_button_rect(app: &AppState, inner: Rect) -> Rect {
+    let field = group_field_rect(app, inner, 10, 4);
+    if field.width < 3 {
+        return Rect::default();
+    }
+    Rect::new(field.x, field.y, 3, 1)
+}
+
+pub(crate) fn group_name_input_rect(app: &AppState, inner: Rect) -> Rect {
+    group_field_rect(app, inner, 7, 6)
+}
+
+pub(crate) fn group_default_directory_input_rect(app: &AppState, inner: Rect) -> Rect {
+    let y = if app.group_icon_picker_open { 16 } else { 13 };
+    group_field_rect(app, inner, y, 7)
+}
+
+pub(crate) fn group_icon_picker_rects(app: &AppState, inner: Rect) -> Vec<(Rect, &'static str)> {
+    let y = inner.y + 11;
+    let picker_height = 3;
+    let field = group_field_rect(app, inner, 11, 4);
+    let start = Rect::new(field.x, y, field.width.min(24), picker_height);
     if start.width < 3 || start.height == 0 {
         return Vec::new();
     }
@@ -127,19 +142,79 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
     let rows = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
         Constraint::Min(0),
     ])
-    .areas::<5>(inner);
+    .areas::<3>(inner);
 
     render_modal_header_bar(frame, rows[0], title, &palette, true);
     if matches!(app.mode, Mode::RenameGroup) {
-        render_modal_subtitle(frame, rows[1], " name + icon", &palette);
+        render_modal_divider(frame, rows[1], &palette);
     }
 
-    let input_rect = if matches!(app.mode, Mode::RenameGroup) {
-        let icon_rect = group_icon_button_rect(inner);
+    if matches!(app.mode, Mode::RenameGroup) {
+        let section_description = if app.creating_new_group {
+            "name + icon + default directory"
+        } else {
+            "name + icon"
+        };
+        if app.creating_new_group {
+            render_modal_description(
+                frame,
+                Rect::new(inner.x, inner.y + 3, inner.width, 1),
+                "general",
+                Style::default().fg(palette.accent),
+            );
+            render_modal_description(
+                frame,
+                Rect::new(inner.x, inner.y + 4, inner.width, 1),
+                section_description,
+                Style::default().fg(palette.overlay0),
+            );
+        } else {
+            frame.render_widget(
+                Paragraph::new("general").style(modal_section_heading_style(&palette)),
+                Rect::new(inner.x, inner.y + 3, inner.width, 1),
+            );
+            frame.render_widget(
+                Paragraph::new(section_description).style(Style::default().fg(palette.overlay0)),
+                Rect::new(inner.x, inner.y + 4, inner.width, 1),
+            );
+        }
+
+        let name_label_style = if app.group_modal_selected_field == 0 {
+            Style::default()
+                .fg(palette.accent)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(palette.overlay0)
+        };
+        frame.render_widget(
+            Paragraph::new("name").style(name_label_style),
+            group_field_rect(app, inner, 6, 6),
+        );
+        let name_rect = group_name_input_rect(app, inner);
+        if app.group_modal_selected_field == 0 {
+            render_modal_text_input(frame, name_rect, &app.name_input, &palette);
+        } else {
+            frame.render_widget(
+                Paragraph::new(format!(" {}", app.name_input))
+                    .style(Style::default().fg(palette.text).bg(palette.surface0)),
+                name_rect,
+            );
+        }
+
+        let icon_label_style = if app.group_icon_picker_open {
+            Style::default()
+                .fg(palette.accent)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(palette.overlay0)
+        };
+        frame.render_widget(
+            Paragraph::new("icon").style(icon_label_style),
+            group_field_rect(app, inner, 9, 4),
+        );
+        let icon_rect = group_icon_button_rect(app, inner);
         let icon_style = if app.group_icon_picker_open {
             Style::default()
                 .fg(panel_contrast_fg(&palette))
@@ -157,14 +232,55 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
                 .alignment(ratatui::layout::Alignment::Center),
             icon_rect,
         );
-        group_name_input_rect(inner)
+
+        if app.creating_new_group {
+            let directory_label_style = if app.group_modal_selected_field == 1 {
+                Style::default()
+                    .fg(palette.accent)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(palette.overlay0)
+            };
+            let directory_y = if app.group_icon_picker_open { 15 } else { 12 };
+            frame.render_widget(
+                Paragraph::new("default directory for new spaces").style(directory_label_style),
+                group_field_rect(app, inner, directory_y, 7),
+            );
+            let directory_rect = group_default_directory_input_rect(app, inner);
+            if app.group_modal_selected_field == 1 {
+                render_modal_text_input(
+                    frame,
+                    directory_rect,
+                    &app.group_default_directory_input,
+                    &palette,
+                );
+            } else {
+                let value = if app.group_default_directory_input.is_empty() {
+                    " optional".to_string()
+                } else {
+                    format!(" {}", app.group_default_directory_input)
+                };
+                frame.render_widget(
+                    Paragraph::new(value).style(
+                        Style::default()
+                            .fg(if app.group_default_directory_input.is_empty() {
+                                palette.overlay0
+                            } else {
+                                palette.text
+                            })
+                            .bg(palette.surface0),
+                    ),
+                    directory_rect,
+                );
+            }
+        }
     } else {
-        Rect::new(rows[2].x, rows[2].y, rows[2].width, 1)
-    };
-    render_modal_text_input(frame, input_rect, &app.name_input, &palette);
+        let input_rect = Rect::new(rows[2].x, rows[2].y, rows[2].width, 1);
+        render_modal_text_input(frame, input_rect, &app.name_input, &palette);
+    }
 
     if matches!(app.mode, Mode::RenameGroup) && app.group_icon_picker_open {
-        for (rect, icon) in group_icon_picker_rects(inner) {
+        for (rect, icon) in group_icon_picker_rects(app, inner) {
             let selected = app.group_icon_input == icon;
             let style = if selected {
                 Style::default()
@@ -428,6 +544,66 @@ mod tests {
         );
     }
 
+    #[test]
+    fn new_group_overlay_renders_optional_default_directory_field() {
+        let mut app = AppState::test_new();
+        app.mode = Mode::RenameGroup;
+        app.creating_new_group = true;
+        app.name_input = "Work".to_string();
+        app.group_icon_input = "☕".to_string();
+        app.group_default_directory_input = "/tmp/work".to_string();
+        app.group_modal_selected_field = 1;
+
+        let backend = TestBackend::new(90, 28);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_rename_overlay(&app, frame, Rect::new(0, 0, 90, 28)))
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, 90, 28);
+        assert!(text.contains("new group"));
+        assert!(text.contains("name + icon + default directory"));
+        assert!(text.contains("default directory for new spaces"));
+        assert!(text.contains("/tmp/work"));
+        assert!(text.contains("save"));
+        assert!(text.contains("clear"));
+
+        let (popup_w, popup_h) = rename_modal_size(&app);
+        let popup = centered_popup_rect(Rect::new(0, 0, 90, 28), popup_w, popup_h).unwrap();
+        let inner = Rect::new(
+            popup.x + 1,
+            popup.y + 1,
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
+        );
+        assert!(row_text(buffer, inner.x, inner.width, inner.y + 1).contains("─"));
+        assert!(row_text(buffer, inner.x, inner.width, inner.y + 2)
+            .trim()
+            .is_empty());
+        assert_eq!(buffer[(inner.x + 1, inner.y + 3)].symbol(), "g");
+        assert_eq!(
+            buffer[(inner.x + 1, inner.y + 3)].style().fg,
+            Some(app.palette.accent)
+        );
+        assert_eq!(
+            buffer[(inner.x + 1, inner.y + 4)].style().fg,
+            Some(app.palette.overlay0)
+        );
+        assert_eq!(buffer[(inner.x + 1, inner.y + 6)].symbol(), "n");
+        assert_eq!(group_name_input_rect(&app, inner).x, inner.x + 1);
+        assert_eq!(
+            group_default_directory_input_rect(&app, inner),
+            Rect::new(inner.x + 1, inner.y + 13, inner.width.saturating_sub(1), 1)
+        );
+
+        app.group_icon_picker_open = true;
+        assert_eq!(
+            group_default_directory_input_rect(&app, inner),
+            Rect::new(inner.x + 1, inner.y + 16, inner.width.saturating_sub(1), 1)
+        );
+    }
+
     fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {
         let mut text = String::new();
         for y in 0..height {
@@ -435,6 +611,14 @@ mod tests {
                 text.push_str(buffer[(x, y)].symbol());
             }
             text.push('\n');
+        }
+        text
+    }
+
+    fn row_text(buffer: &Buffer, x: u16, width: u16, y: u16) -> String {
+        let mut text = String::new();
+        for col in x..x + width {
+            text.push_str(buffer[(col, y)].symbol());
         }
         text
     }

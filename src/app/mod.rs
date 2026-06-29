@@ -335,6 +335,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             name: group.name.clone(),
             icon: state::normalize_group_icon(&group.icon),
             accent: group.accent,
+            default_directory: group.default_directory.clone(),
             favorite_agent_profile_ids: group.favorite_agent_profile_ids.clone(),
             default_agent_profile_id: group.default_agent_profile_id.clone(),
         })
@@ -349,6 +350,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             name: format!("group {}", groups.len() + 1),
             icon: state::DEFAULT_GROUP_ICON.to_string(),
             accent: None,
+            default_directory: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -582,6 +584,8 @@ impl App {
             creating_new_tab: false,
             creating_new_group: false,
             group_icon_input: state::DEFAULT_GROUP_ICON.to_string(),
+            group_default_directory_input: String::new(),
+            group_modal_selected_field: 0,
             group_icon_picker_open: false,
             rename_group_target: None,
             requested_new_tab_name: None,
@@ -769,6 +773,7 @@ impl App {
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,
                 pending_group_name: None,
+                pending_group_default_directory: None,
                 pending_workspace_name: None,
                 pending_workspace_default_cwd: None,
                 pending_agent_profile_id: None,
@@ -2054,6 +2059,7 @@ mod tests {
             name: name.to_string(),
             icon: "■".to_string(),
             accent: None,
+            default_directory: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         }
@@ -3485,6 +3491,32 @@ mod tests {
 
         assert_eq!(source, None);
         assert_eq!(group_id, app.state.groups[group_three].id);
+    }
+
+    #[test]
+    fn workspace_creation_prefers_group_default_directory_over_source_space() {
+        let mut app = test_app();
+        let group_idx = app.state.create_group("Work".to_string());
+        let group_id = app.state.groups[group_idx].id.clone();
+        app.state
+            .set_group_default_directory(group_idx, Some(std::path::PathBuf::from("/tmp/group")));
+        let mut source = Workspace::test_new("source");
+        source.group_id = group_id.clone();
+        source.default_cwd = std::path::PathBuf::from("/tmp/source");
+        app.state.workspaces = vec![source];
+        app.state.active_group = group_idx;
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Navigate;
+
+        let source = app.workspace_creation_source();
+        let group_id = app.workspace_creation_group_id(source);
+        let cwd = app.group_default_directory(&group_id).unwrap_or_else(|| {
+            let follow_cwd = source.and_then(|ws_idx| app.seed_cwd_from_workspace(ws_idx));
+            app.resolve_new_terminal_cwd(follow_cwd)
+        });
+
+        assert_eq!(cwd, std::path::PathBuf::from("/tmp/group"));
     }
 
     #[test]

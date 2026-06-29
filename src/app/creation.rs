@@ -107,12 +107,22 @@ impl App {
             .unwrap_or_else(|| self.state.active_group_id().to_string())
     }
 
+    pub(super) fn group_default_directory(&self, group_id: &str) -> Option<PathBuf> {
+        self.state
+            .groups
+            .iter()
+            .find(|group| group.id == group_id)
+            .and_then(|group| group.default_directory.clone())
+    }
+
     /// Create a workspace with a real PTY (needs event_tx).
     pub(crate) fn create_workspace(&mut self) {
         let source = self.workspace_creation_source();
         let group_id = self.workspace_creation_group_id(source);
-        let follow_cwd = source.and_then(|ws_idx| self.seed_cwd_from_workspace(ws_idx));
-        let initial_cwd = self.resolve_new_terminal_cwd(follow_cwd);
+        let initial_cwd = self.group_default_directory(&group_id).unwrap_or_else(|| {
+            let follow_cwd = source.and_then(|ws_idx| self.seed_cwd_from_workspace(ws_idx));
+            self.resolve_new_terminal_cwd(follow_cwd)
+        });
         if let Err(e) = self.create_workspace_with_options_in_group(initial_cwd, true, group_id) {
             error!(err = %e, "failed to create workspace");
             self.state.mode = Mode::Navigate;

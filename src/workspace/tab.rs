@@ -36,6 +36,7 @@ enum SplitCommand<'a> {
 }
 
 enum NewTabCommand<'a> {
+    #[cfg(test)]
     Shell {
         command: &'a str,
         launch_env: &'a PaneLaunchEnv,
@@ -125,6 +126,7 @@ impl Tab {
         )
     }
 
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn new_shell_command(
         number: usize,
@@ -248,10 +250,12 @@ impl Tab {
         };
         let recorded_env = match &command {
             Some(NewTabCommand::Profile { launch_env, .. }) => launch_env.extra().to_vec(),
+            #[cfg(test)]
             Some(NewTabCommand::Shell { launch_env, .. }) => launch_env.extra().to_vec(),
             Some(NewTabCommand::Argv { .. }) | None => launch_env.extra().to_vec(),
         };
         let runtime = match command {
+            #[cfg(test)]
             Some(NewTabCommand::Shell {
                 command,
                 launch_env,

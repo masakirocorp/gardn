@@ -78,6 +78,7 @@ pub struct Group {
     pub name: String,
     pub icon: String,
     pub accent: Option<TerminalAccent>,
+    pub default_directory: Option<PathBuf>,
     pub favorite_agent_profile_ids: Vec<String>,
     pub default_agent_profile_id: Option<String>,
 }
@@ -89,6 +90,7 @@ impl Group {
             name: "group 1".to_string(),
             icon: DEFAULT_GROUP_ICON.to_string(),
             accent: None,
+            default_directory: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         }
@@ -1950,6 +1952,8 @@ pub struct SettingsState {
     pub pending_workspace_default_cwd: Option<String>,
     /// Pending group name while group settings is open.
     pub pending_group_name: Option<String>,
+    /// Pending default directory for future spaces while group settings is open.
+    pub pending_group_default_directory: Option<String>,
     /// Custom agent profile id loaded into the editor.
     pub pending_agent_profile_id: Option<String>,
     /// Pending custom agent profile name while settings is open.
@@ -2446,6 +2450,8 @@ pub struct AppState {
     pub creating_new_tab: bool,
     pub creating_new_group: bool,
     pub group_icon_input: String,
+    pub group_default_directory_input: String,
+    pub group_modal_selected_field: usize,
     pub group_icon_picker_open: bool,
     pub rename_group_target: Option<usize>,
     pub requested_new_tab_name: Option<String>,
@@ -3141,6 +3147,8 @@ impl AppState {
             creating_new_tab: false,
             creating_new_group: false,
             group_icon_input: DEFAULT_GROUP_ICON.to_string(),
+            group_default_directory_input: String::new(),
+            group_modal_selected_field: 0,
             group_icon_picker_open: false,
             rename_group_target: None,
             requested_new_tab_name: None,
@@ -3324,6 +3332,7 @@ impl AppState {
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,
                 pending_group_name: None,
+                pending_group_default_directory: None,
                 pending_workspace_name: None,
                 pending_workspace_default_cwd: None,
                 pending_agent_profile_id: None,

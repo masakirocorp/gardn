@@ -527,6 +527,8 @@ pub(super) fn open_new_group_dialog(state: &mut AppState) {
     state.creating_new_group = true;
     state.creating_new_tab = false;
     state.group_icon_input = DEFAULT_GROUP_ICON.to_string();
+    state.group_default_directory_input.clear();
+    state.group_modal_selected_field = 0;
     state.group_icon_picker_open = false;
     state.rename_group_target = None;
     state.requested_new_tab_name = None;
@@ -539,6 +541,8 @@ pub(super) fn open_worktree_directory_editor(state: &mut AppState) {
     state.creating_new_tab = false;
     state.creating_new_group = false;
     state.group_icon_picker_open = false;
+    state.group_default_directory_input.clear();
+    state.group_modal_selected_field = 0;
     state.requested_new_tab_name = None;
     state.rename_group_target = None;
     state.rename_pane_target = None;
@@ -624,8 +628,13 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
                     } else {
                         new_name
                     };
-                    let group_idx =
-                        state.create_group_with_icon(name, state.group_icon_input.clone());
+                    let default_directory = state.group_default_directory_input.trim().to_string();
+                    let group_idx = state.create_group_with_icon_and_default_directory(
+                        name,
+                        state.group_icon_input.clone(),
+                        (!default_directory.is_empty())
+                            .then_some(std::path::PathBuf::from(default_directory)),
+                    );
                     state.switch_group(group_idx);
                 }
                 Mode::RenameGroup if !new_name.is_empty() => {
@@ -680,6 +689,8 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
             state.creating_new_tab = false;
             state.creating_new_group = false;
             state.group_icon_picker_open = false;
+            state.group_default_directory_input.clear();
+            state.group_modal_selected_field = 0;
             state.rename_group_target = None;
             state.rename_pane_target = None;
             state.name_input.clear();
@@ -687,13 +698,22 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
             leave_modal(state);
         }
         ModalAction::Clear => {
-            state.name_input.clear();
+            if state.mode == Mode::RenameGroup
+                && state.creating_new_group
+                && state.group_modal_selected_field == 1
+            {
+                state.group_default_directory_input.clear();
+            } else {
+                state.name_input.clear();
+            }
             state.name_input_replace_on_type = false;
         }
         ModalAction::Cancel => {
             state.creating_new_tab = false;
             state.creating_new_group = false;
             state.group_icon_picker_open = false;
+            state.group_default_directory_input.clear();
+            state.group_modal_selected_field = 0;
             state.rename_group_target = None;
             state.requested_new_tab_name = None;
             state.rename_pane_target = None;
@@ -737,22 +757,39 @@ pub(super) fn apply_worktree_directory_action(
 }
 
 fn clear_rename_input(state: &mut AppState) {
-    state.name_input.clear();
+    active_rename_text_mut(state).clear();
     state.name_input_replace_on_type = false;
 }
 
+fn active_rename_text_mut(state: &mut AppState) -> &mut String {
+    if state.mode == Mode::RenameGroup
+        && state.creating_new_group
+        && state.group_modal_selected_field == 1
+    {
+        &mut state.group_default_directory_input
+    } else {
+        &mut state.name_input
+    }
+}
+
+fn rename_primary_input_selected(state: &AppState) -> bool {
+    !(state.mode == Mode::RenameGroup
+        && state.creating_new_group
+        && state.group_modal_selected_field == 1)
+}
+
 pub(crate) fn insert_rename_input_text(state: &mut AppState, text: &str) {
-    if state.name_input_replace_on_type {
+    if state.name_input_replace_on_type && rename_primary_input_selected(state) {
         clear_rename_input(state);
     }
-    state.name_input.push_str(text);
+    active_rename_text_mut(state).push_str(text);
 }
 
 fn delete_rename_input_char(state: &mut AppState) {
-    if state.name_input_replace_on_type {
+    if state.name_input_replace_on_type && rename_primary_input_selected(state) {
         clear_rename_input(state);
     } else {
-        state.name_input.pop();
+        active_rename_text_mut(state).pop();
     }
 }
 
@@ -771,36 +808,26 @@ fn rename_word_delete_class(ch: char) -> RenameWordDeleteClass {
 }
 
 fn delete_rename_input_word(state: &mut AppState) {
-    if state.name_input_replace_on_type {
+    if state.name_input_replace_on_type && rename_primary_input_selected(state) {
         clear_rename_input(state);
         return;
     }
 
-    while state
-        .name_input
-        .chars()
-        .last()
-        .is_some_and(char::is_whitespace)
-    {
-        state.name_input.pop();
+    let input = active_rename_text_mut(state);
+    while input.chars().last().is_some_and(char::is_whitespace) {
+        input.pop();
     }
 
-    let Some(class) = state
-        .name_input
-        .chars()
-        .last()
-        .map(rename_word_delete_class)
-    else {
+    let Some(class) = input.chars().last().map(rename_word_delete_class) else {
         return;
     };
 
-    while state
-        .name_input
+    while input
         .chars()
         .last()
         .is_some_and(|ch| !ch.is_whitespace() && rename_word_delete_class(ch) == class)
     {
-        state.name_input.pop();
+        input.pop();
     }
 }
 
@@ -811,11 +838,25 @@ pub(crate) fn handle_rename_key(state: &mut AppState, key: KeyEvent) {
     }
 
     match key.code {
+        KeyCode::Tab
+            if state.mode == Mode::RenameGroup
+                && state.creating_new_group
+                && !key.modifiers.contains(KeyModifiers::SHIFT) =>
+        {
+            state.group_modal_selected_field = (state.group_modal_selected_field + 1) % 2;
+            state.name_input_replace_on_type = false;
+        }
+        KeyCode::BackTab if state.mode == Mode::RenameGroup && state.creating_new_group => {
+            state.group_modal_selected_field = (state.group_modal_selected_field + 1) % 2;
+            state.name_input_replace_on_type = false;
+        }
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            clear_rename_input(state);
+            active_rename_text_mut(state).clear();
+            state.name_input_replace_on_type = false;
         }
         KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => {
-            clear_rename_input(state);
+            active_rename_text_mut(state).clear();
+            state.name_input_replace_on_type = false;
         }
         KeyCode::Backspace
             if key.modifiers.contains(KeyModifiers::CONTROL)
@@ -1816,6 +1857,44 @@ mod tests {
         assert_eq!(state.groups[1].icon, DEFAULT_GROUP_ICON);
         assert_eq!(state.active_group, 1);
         assert!(state.group_filter_enabled);
+    }
+
+    #[test]
+    fn saving_new_group_dialog_stores_optional_default_directory() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_new_group_dialog(&mut state);
+        state.name_input = "client".into();
+        state.name_input_replace_on_type = false;
+        state.group_default_directory_input = "/tmp/client".into();
+
+        handle_rename_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.groups[1].name, "client");
+        assert_eq!(
+            state.groups[1].default_directory.as_deref(),
+            Some(std::path::Path::new("/tmp/client"))
+        );
+    }
+
+    #[test]
+    fn new_group_dialog_tabs_between_name_and_default_directory() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_new_group_dialog(&mut state);
+        handle_rename_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
+        handle_rename_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('/'), KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.group_modal_selected_field, 1);
+        assert_eq!(state.group_default_directory_input, "/");
+        assert_eq!(state.name_input, "group 2");
     }
 
     #[test]

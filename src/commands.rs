@@ -61,18 +61,8 @@ pub(crate) enum CommandRunStatus {
     Running,
     Stopped,
     Failed,
+    #[cfg(test)]
     Unknown,
-}
-
-impl CommandRunStatus {
-    const SORT_ORDER: [Self; 4] = [Self::Running, Self::Failed, Self::Unknown, Self::Stopped];
-
-    pub(crate) fn rank(self) -> usize {
-        Self::SORT_ORDER
-            .iter()
-            .position(|status| *status == self)
-            .unwrap_or(Self::SORT_ORDER.len())
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

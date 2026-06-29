@@ -348,6 +348,7 @@ mod tests {
             name: "other".to_string(),
             icon: "◇".to_string(),
             accent: None,
+            default_directory: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         };
