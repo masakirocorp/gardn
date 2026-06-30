@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::app::ClientViewState;
 use crate::protocol::RenderEncoding;
 use crate::server::client_transport::ClientWriter;
 use crate::server::render_stream::ClientRenderState;
@@ -27,6 +28,8 @@ pub(crate) struct ClientConnection {
     pub(crate) pending_terminal_attach: bool,
     /// Client-local app keybindings. None means use the server's keybindings.
     pub(crate) keybindings: Option<Box<crate::config::LiveKeybindConfig>>,
+    /// Client-local app view/navigation state.
+    pub(crate) view_state: ClientViewState,
     /// The client's terminal size after clamping.
     pub(crate) terminal_size: (u16, u16),
     /// Pixel size of one client terminal cell.
@@ -99,6 +102,7 @@ impl ClientConnection {
             host_terminal_theme,
             outer_terminal_focus,
             last_activity,
+            view_state: ClientViewState::from_app_state(&crate::app::state::AppState::test_new()),
             render_state: ClientRenderState::new(render_encoding),
             graphics_cache: crate::kitty_graphics::HostGraphicsCache::default(),
             graphics_surface_reset_pending: false,

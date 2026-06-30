@@ -158,6 +158,29 @@ impl ClientViewState {
     }
 }
 
+pub(crate) fn project_view_into_app_state(state: &mut AppState, view: &ClientViewState) {
+    state.active = view.active_workspace;
+    state.selected = view.selected_workspace;
+    state.active_group = view.active_group;
+    state.group_filter_enabled = view.group_filter_enabled;
+    state.mode = view.mode;
+    state.view = view.computed.clone();
+
+    for workspace in &mut state.workspaces {
+        if let Some(active_tab) = view.active_tab_for_workspace(&workspace.id) {
+            workspace.active_tab = active_tab.min(workspace.tabs.len().saturating_sub(1));
+        }
+
+        for (tab_idx, tab) in workspace.tabs.iter_mut().enumerate() {
+            let tab_number = tab_idx + 1;
+            if let Some(focused_pane) = view.focused_pane_for_tab(&workspace.id, tab_number) {
+                tab.layout.focus_pane(focused_pane);
+            }
+            tab.zoomed = view.tab_is_zoomed(&workspace.id, tab_number);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

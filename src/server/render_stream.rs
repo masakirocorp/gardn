@@ -4,6 +4,7 @@ use ratatui::backend::{Backend, ClearType, TestBackend, WindowSize};
 use ratatui::layout::{Position, Rect, Size};
 
 use crate::app::state::AppState;
+use crate::app::view_state::{project_view_into_app_state, ClientViewState};
 use crate::app::Mode;
 use crate::protocol::render_ansi::{BlitEncoder, EncodedBlit};
 use crate::protocol::{CursorState, FrameData, RenderEncoding, ServerMessage, TerminalFrame};
@@ -291,6 +292,37 @@ pub(crate) fn render_virtual_with_runtime_registry(
     (buffer, cursor)
 }
 
+pub(crate) fn render_virtual_for_client_view(
+    app_state: &mut AppState,
+    client_view: &mut ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    area: Rect,
+    resize_panes: bool,
+    cell_size: crate::kitty_graphics::HostCellSize,
+) -> (
+    ratatui::buffer::Buffer,
+    Option<CursorState>,
+    Vec<((u16, u16), String, String)>,
+) {
+    let shared_view = ClientViewState::from_app_state(app_state);
+
+    client_view.reconcile(app_state);
+    project_view_into_app_state(app_state, client_view);
+    let (buffer, cursor) = render_virtual_with_runtime_registry(
+        app_state,
+        terminal_runtimes,
+        area,
+        resize_panes,
+        cell_size,
+    );
+    let hyperlinks = visible_hyperlinks(app_state, terminal_runtimes);
+    *client_view = ClientViewState::from_app_state(app_state);
+
+    project_view_into_app_state(app_state, &shared_view);
+
+    (buffer, cursor, hyperlinks)
+}
+
 /// Renders one server-owned terminal directly for `terminal attach` clients.
 pub(crate) fn render_terminal_virtual(
     runtime: &crate::terminal::TerminalRuntime,
@@ -410,5 +442,65 @@ fn focused_terminal_cursor(
         })
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::ClientViewState;
+    use crate::workspace::Workspace;
+
+    #[test]
+    fn client_view_rendering_keeps_shared_view_state_isolated() {
+        let mut state = AppState::test_new();
+        state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        state.active = Some(0);
+        state.selected = 0;
+        crate::ui::compute_view(&mut state, Rect::new(0, 0, 100, 30));
+        let shared_before = ClientViewState::from_app_state(&state);
+
+        let mut first_client = ClientViewState::from_app_state(&state);
+        let mut second_client = ClientViewState::from_app_state(&state);
+        second_client.active_workspace = Some(1);
+        second_client.selected_workspace = 1;
+
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        render_virtual_for_client_view(
+            &mut state,
+            &mut first_client,
+            &terminal_runtimes,
+            Rect::new(0, 0, 120, 40),
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        render_virtual_for_client_view(
+            &mut state,
+            &mut second_client,
+            &terminal_runtimes,
+            Rect::new(0, 0, 80, 24),
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+
+        let shared_after = ClientViewState::from_app_state(&state);
+        assert_eq!(
+            shared_after.active_workspace,
+            shared_before.active_workspace
+        );
+        assert_eq!(
+            shared_after.selected_workspace,
+            shared_before.selected_workspace
+        );
+        assert_eq!(
+            shared_after.computed.terminal_area,
+            shared_before.computed.terminal_area
+        );
+        assert_eq!(first_client.active_workspace, Some(0));
+        assert_eq!(second_client.active_workspace, Some(1));
+        assert_ne!(
+            first_client.computed.terminal_area,
+            second_client.computed.terminal_area
+        );
     }
 }
