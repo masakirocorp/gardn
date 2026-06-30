@@ -41,8 +41,8 @@ use crate::server::client_accept::{
 };
 use crate::server::client_transport::ServerEvent;
 use crate::server::clients::{
-    events_include_interaction, latest_app_client, render_targets, terminal_attach_client_ids,
-    ClientConnection, ClientConnectionMode,
+    events_include_interaction, events_need_client_view_projection, latest_app_client,
+    render_targets, terminal_attach_client_ids, ClientConnection, ClientConnectionMode,
 };
 use crate::server::keybindings::{app_keybindings, apply_keybindings};
 use crate::server::notifications::{
@@ -1863,8 +1863,19 @@ impl HeadlessServer {
                     self.resize_shared_runtime_to_effective_size();
                 }
                 let theme_changed = self.update_client_host_theme_from_events(client_id, &events);
-                self.app
-                    .route_client_events(events, self.foreground_client_id == Some(client_id));
+                let apply_host_terminal_theme = self.foreground_client_id == Some(client_id);
+                if events_need_client_view_projection(&events) {
+                    if let Some(client) = self.clients.get_mut(&client_id) {
+                        self.app.route_client_events_for_view(
+                            &mut client.view_state,
+                            events,
+                            apply_host_terminal_theme,
+                        );
+                    }
+                } else {
+                    self.app
+                        .route_client_events(events, apply_host_terminal_theme);
+                }
                 if self.app.take_config_reloaded_from_disk() {
                     self.reload_server_config(false);
                 } else {
@@ -1955,8 +1966,19 @@ impl HeadlessServer {
                     self.resize_shared_runtime_to_effective_size();
                 }
                 let theme_changed = self.update_client_host_theme_from_events(client_id, &events);
-                self.app
-                    .route_client_events(events, self.foreground_client_id == Some(client_id));
+                let apply_host_terminal_theme = self.foreground_client_id == Some(client_id);
+                if events_need_client_view_projection(&events) {
+                    if let Some(client) = self.clients.get_mut(&client_id) {
+                        self.app.route_client_events_for_view(
+                            &mut client.view_state,
+                            events,
+                            apply_host_terminal_theme,
+                        );
+                    }
+                } else {
+                    self.app
+                        .route_client_events(events, apply_host_terminal_theme);
+                }
                 if self.app.take_config_reloaded_from_disk() {
                     self.reload_server_config(false);
                 } else {

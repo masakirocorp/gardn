@@ -61,7 +61,7 @@ use crate::config::Config;
 use crate::events::AppEvent;
 
 pub use state::{AppState, Mode, ToastKind, ViewState};
-pub(crate) use view_state::ClientViewState;
+pub(crate) use view_state::{project_view_into_app_state, ClientViewState};
 
 pub(crate) fn load_plugin_manifest(
     path: &str,
@@ -1846,6 +1846,26 @@ impl App {
             }
             self.sync_prefix_input_source(previous_mode);
         }
+    }
+
+    pub(crate) fn route_client_events_for_view(
+        &mut self,
+        client_view: &mut ClientViewState,
+        events: Vec<crate::raw_input::RawInputEvent>,
+        apply_host_terminal_theme: bool,
+    ) {
+        let shared_view = ClientViewState::from_app_state(&self.state);
+        let shared_mode = self.state.mode;
+
+        client_view.reconcile(&self.state);
+        client_view.mode = shared_mode;
+        project_view_into_app_state(&mut self.state, client_view);
+        self.route_client_events(events, apply_host_terminal_theme);
+        let mode_after_input = self.state.mode;
+        *client_view = ClientViewState::from_app_state(&self.state);
+
+        project_view_into_app_state(&mut self.state, &shared_view);
+        self.state.mode = mode_after_input;
     }
 
     /// Handles a key event in non-terminal mode for the headless server.
@@ -4864,6 +4884,48 @@ mod tests {
 
         assert_eq!(app.state.name_input, "/tmp/hako-worktrees");
         assert!(!app.state.name_input_replace_on_type);
+    }
+
+    #[test]
+    fn route_client_events_for_view_keeps_tab_navigation_client_local() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("test");
+        workspace.test_add_tab(Some("logs"));
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut first_client = ClientViewState::from_app_state(&app.state);
+        let mut second_client = ClientViewState::from_app_state(&app.state);
+
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![
+                raw_key(
+                    KeyCode::Char('b'),
+                    KeyModifiers::CONTROL,
+                    KeyEventKind::Press,
+                ),
+                raw_key(
+                    KeyCode::Char('2'),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                ),
+            ],
+            true,
+        );
+
+        assert_eq!(
+            first_client.active_tab_for_workspace(&app.state.workspaces[0].id),
+            Some(1)
+        );
+        assert_eq!(
+            second_client.active_tab_for_workspace(&app.state.workspaces[0].id),
+            Some(0)
+        );
+        assert_eq!(app.state.workspaces[0].active_tab_index(), 0);
     }
 
     #[test]
