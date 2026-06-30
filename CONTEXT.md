@@ -40,6 +40,18 @@ _Avoid_: Hidden default, global default
 A launch surface for starting an agent profile as a new tab in a specific workspace or group context. New Agent starts the configured command and environment directly, uses group favorites to organize profiles, and does not edit the profile catalog.
 _Avoid_: Run command, start bot
 
+**Shared Session State**:
+The durable workspace, runtime-adjacent, committed configuration, and API-visible state owned by one Hako server session and converged across attached clients.
+_Avoid_: Global app view, client screen state
+
+**Client View State**:
+The per-normal-app-client navigation, modal, selection, scroll, and computed geometry state that describes what that client is looking at or editing without changing another client's view.
+_Avoid_: Shared app state, runtime state
+
+**Client Surface State**:
+The per-connection host terminal facts and render transport state, such as terminal size, cell size, negotiated render encoding, render baseline, host graphics cache, staged clipboard files, and writer channels.
+_Avoid_: Workspace state, session snapshot
+
 **Command Palette**:
 A contextual command surface synthesized from Hako's current app state, keybindings, and fixed app actions.
 _Avoid_: Static command registry, shell palette
