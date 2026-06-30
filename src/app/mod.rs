@@ -20,6 +20,7 @@ mod session;
 pub mod state;
 mod terminal_targets;
 mod theme_sync;
+pub(crate) mod view_state;
 
 use std::collections::{HashMap, HashSet};
 use std::future::pending;
@@ -60,6 +61,7 @@ use crate::config::Config;
 use crate::events::AppEvent;
 
 pub use state::{AppState, Mode, ToastKind, ViewState};
+pub(crate) use view_state::ClientViewState;
 
 pub(crate) fn load_plugin_manifest(
     path: &str,

@@ -1439,6 +1439,7 @@ pub enum ViewLayout {
     Mobile,
 }
 
+#[derive(Clone)]
 pub struct ViewState {
     pub layout: ViewLayout,
     pub sidebar_rect: Rect,
