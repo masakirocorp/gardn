@@ -1855,17 +1855,13 @@ impl App {
         apply_host_terminal_theme: bool,
     ) {
         let shared_view = ClientViewState::from_app_state(&self.state);
-        let shared_mode = self.state.mode;
 
         client_view.reconcile(&self.state);
-        client_view.mode = shared_mode;
         project_view_into_app_state(&mut self.state, client_view);
         self.route_client_events(events, apply_host_terminal_theme);
-        let mode_after_input = self.state.mode;
         *client_view = ClientViewState::from_app_state(&self.state);
 
         project_view_into_app_state(&mut self.state, &shared_view);
-        self.state.mode = mode_after_input;
     }
 
     /// Handles a key event in non-terminal mode for the headless server.
@@ -4926,6 +4922,40 @@ mod tests {
             Some(0)
         );
         assert_eq!(app.state.workspaces[0].active_tab_index(), 0);
+    }
+
+    #[test]
+    fn route_client_events_for_view_keeps_open_settings_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut first_client = ClientViewState::from_app_state(&app.state);
+        let second_client = ClientViewState::from_app_state(&app.state);
+
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![
+                raw_key(
+                    KeyCode::Char('b'),
+                    KeyModifiers::CONTROL,
+                    KeyEventKind::Press,
+                ),
+                raw_key(
+                    KeyCode::Char('s'),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                ),
+            ],
+            true,
+        );
+
+        assert_eq!(first_client.mode, Mode::Settings);
+        assert_eq!(second_client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
     }
 
     #[test]

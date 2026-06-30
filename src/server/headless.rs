@@ -3507,6 +3507,9 @@ next_tab = ""
         server.app.state.settings.section = crate::app::state::SettingsSection::Toast;
         server.app.state.settings.list.selected = 0;
         server.app.state.settings.selection_active = true;
+        if let Some(client) = server.clients.get_mut(&1) {
+            client.view_state = crate::app::ClientViewState::from_app_state(&server.app.state);
+        }
 
         assert!(server.handle_server_event(ServerEvent::ClientInput {
             client_id: 1,
@@ -3585,6 +3588,9 @@ next_tab = ""
         server.app.state.mode = crate::app::Mode::Settings;
         server.app.state.settings.section = crate::app::state::SettingsSection::Toast;
         server.app.state.settings.list.selected = 1;
+        if let Some(client) = server.clients.get_mut(&1) {
+            client.view_state = crate::app::ClientViewState::from_app_state(&server.app.state);
+        }
 
         assert!(server.handle_server_event(ServerEvent::ClientInput {
             client_id: 1,
