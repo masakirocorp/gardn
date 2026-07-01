@@ -4970,6 +4970,40 @@ mod tests {
     }
 
     #[test]
+    fn route_client_events_for_view_keeps_command_palette_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut first_client = ClientViewState::from_app_state(&app.state);
+        let second_client = ClientViewState::from_app_state(&app.state);
+
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![
+                raw_key(
+                    KeyCode::Char('b'),
+                    KeyModifiers::CONTROL,
+                    KeyEventKind::Press,
+                ),
+                raw_key(
+                    KeyCode::Char(' '),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                ),
+            ],
+            true,
+        );
+
+        assert_eq!(first_client.mode, Mode::CommandPalette);
+        assert_eq!(second_client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
     fn route_client_input_closes_release_notes_modal() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("test")];

@@ -1887,6 +1887,7 @@ impl SelectionListState {
     }
 }
 
+#[derive(Clone)]
 pub struct SettingsState {
     /// Which section tab is active.
     pub section: SettingsSection,
@@ -2365,6 +2366,7 @@ pub struct KeybindHelpState {
     pub scroll: u16,
 }
 
+#[derive(Clone)]
 pub struct CommandPaletteState {
     pub query: String,
     pub selected: usize,

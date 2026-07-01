@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::app::state::{AppState, Mode, ViewState};
+use crate::app::state::{AppState, CommandPaletteState, Mode, SettingsState, ViewState};
 use crate::layout::PaneId;
 use crate::native_diff::NativeDiffPaneViewState;
 use crate::terminal::{TerminalId, TerminalRuntimeRegistry};
@@ -55,6 +55,8 @@ pub(crate) struct ClientViewState {
     pub(crate) zoomed_tabs: HashSet<ClientTabViewKey>,
     pub(crate) native_diff_panes: HashMap<ClientPaneViewKey, NativeDiffPaneViewState>,
     pub(crate) terminal_offsets_from_bottom: HashMap<TerminalId, usize>,
+    pub(crate) settings: SettingsState,
+    pub(crate) command_palette: CommandPaletteState,
     pub(crate) computed: ViewState,
 }
 
@@ -71,6 +73,8 @@ impl ClientViewState {
             zoomed_tabs: HashSet::new(),
             native_diff_panes: HashMap::new(),
             terminal_offsets_from_bottom: HashMap::new(),
+            settings: state.settings.clone(),
+            command_palette: state.command_palette.clone(),
             computed: state.view.clone(),
         };
         view.reconcile(state);
@@ -231,6 +235,8 @@ pub(crate) fn project_view_into_app_state(state: &mut AppState, view: &ClientVie
     state.group_filter_enabled = view.group_filter_enabled;
     state.mode = view.mode;
     state.view = view.computed.clone();
+    state.settings = view.settings.clone();
+    state.command_palette = view.command_palette.clone();
 
     for workspace in &mut state.workspaces {
         if let Some(active_tab) = view.active_tab_for_workspace(&workspace.id) {
@@ -452,6 +458,45 @@ mod tests {
         );
     }
 
+    #[test]
+    fn settings_draft_projection_is_client_local() {
+        let mut state = AppState::test_new();
+        let mut first_client = ClientViewState::from_app_state(&state);
+        let second_client = ClientViewState::from_app_state(&state);
+
+        first_client.mode = Mode::Settings;
+        first_client.settings.pending_sound_enabled = Some(false);
+        first_client.settings.section = crate::app::state::SettingsSection::Sound;
+
+        project_view_into_app_state(&mut state, &first_client);
+        assert_eq!(state.mode, Mode::Settings);
+        assert_eq!(state.settings.pending_sound_enabled, Some(false));
+
+        project_view_into_app_state(&mut state, &second_client);
+        assert_ne!(state.mode, Mode::Settings);
+        assert_eq!(state.settings.pending_sound_enabled, None);
+    }
+
+    #[test]
+    fn command_palette_projection_is_client_local() {
+        let mut state = AppState::test_new();
+        let mut first_client = ClientViewState::from_app_state(&state);
+        let second_client = ClientViewState::from_app_state(&state);
+
+        first_client.mode = Mode::CommandPalette;
+        first_client.command_palette.query = "git".to_string();
+        first_client.command_palette.selected = 3;
+
+        project_view_into_app_state(&mut state, &first_client);
+        assert_eq!(state.mode, Mode::CommandPalette);
+        assert_eq!(state.command_palette.query, "git");
+        assert_eq!(state.command_palette.selected, 3);
+
+        project_view_into_app_state(&mut state, &second_client);
+        assert_ne!(state.mode, Mode::CommandPalette);
+        assert!(state.command_palette.query.is_empty());
+        assert_eq!(state.command_palette.selected, 0);
+    }
     #[tokio::test]
     async fn terminal_scroll_offset_projection_is_client_local() {
         let mut state = AppState::test_new();
