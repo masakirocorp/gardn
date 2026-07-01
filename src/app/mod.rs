@@ -441,22 +441,24 @@ impl App {
                     Vec::new(),
                     None,
                     0,
-                    snap.agent_panel_scope,
-                    snap.sidebar_width.unwrap_or(config.ui.sidebar_width),
-                    if snap.sidebar_width.is_some() {
+                    snap.default_view.agent_panel_scope,
+                    snap.default_view
+                        .sidebar_width
+                        .unwrap_or(config.ui.sidebar_width),
+                    if snap.default_view.sidebar_width.is_some() {
                         state::SidebarWidthSource::Persisted
                     } else {
                         state::SidebarWidthSource::ConfigDefault
                     },
-                    snap.sidebar_collapsed,
-                    snap.sidebar_section_split.unwrap_or(0.5),
-                    snap.right_sidebar_width.unwrap_or(28),
-                    snap.right_sidebar_collapsed,
+                    snap.default_view.sidebar_collapsed,
+                    snap.default_view.sidebar_section_split.unwrap_or(0.5),
+                    snap.default_view.right_sidebar_width.unwrap_or(28),
+                    snap.default_view.right_sidebar_collapsed,
                 )
             } else {
                 crate::logging::session_restored(ws.len(), "ok");
-                let active = snap.active.filter(|&i| i < ws.len());
-                let selected = snap.selected.min(ws.len().saturating_sub(1));
+                let active = snap.default_view.active.filter(|&i| i < ws.len());
+                let selected = snap.default_view.selected.min(ws.len().saturating_sub(1));
                 (
                     groups_from_snapshot(&snap),
                     snap.active_group,
@@ -464,17 +466,19 @@ impl App {
                     ws,
                     active,
                     selected,
-                    snap.agent_panel_scope,
-                    snap.sidebar_width.unwrap_or(config.ui.sidebar_width),
-                    if snap.sidebar_width.is_some() {
+                    snap.default_view.agent_panel_scope,
+                    snap.default_view
+                        .sidebar_width
+                        .unwrap_or(config.ui.sidebar_width),
+                    if snap.default_view.sidebar_width.is_some() {
                         state::SidebarWidthSource::Persisted
                     } else {
                         state::SidebarWidthSource::ConfigDefault
                     },
-                    snap.sidebar_collapsed,
-                    snap.sidebar_section_split.unwrap_or(0.5),
-                    snap.right_sidebar_width.unwrap_or(28),
-                    snap.right_sidebar_collapsed,
+                    snap.default_view.sidebar_collapsed,
+                    snap.default_view.sidebar_section_split.unwrap_or(0.5),
+                    snap.default_view.right_sidebar_width.unwrap_or(28),
+                    snap.default_view.right_sidebar_collapsed,
                 )
             }
         } else {
@@ -944,36 +948,44 @@ impl App {
         app.state.terminals = terminals;
         app.terminal_runtimes = runtimes.into();
         app.state.active = snapshot
+            .default_view
             .active
             .filter(|&idx| idx < app.state.workspaces.len());
         app.state.selected = snapshot
+            .default_view
             .selected
             .min(app.state.workspaces.len().saturating_sub(1));
-        app.state.agent_panel_scope = snapshot.agent_panel_scope;
-        if let Some(width) = snapshot.sidebar_width {
+        app.state.agent_panel_scope = snapshot.default_view.agent_panel_scope;
+        if let Some(width) = snapshot.default_view.sidebar_width {
             app.state.sidebar_width = width;
             app.state.sidebar_width_source = state::SidebarWidthSource::Persisted;
         }
-        app.state.sidebar_collapsed = snapshot.sidebar_collapsed;
-        if let Some(split) = snapshot.sidebar_section_split {
+        app.state.sidebar_collapsed = snapshot.default_view.sidebar_collapsed;
+        if let Some(split) = snapshot.default_view.sidebar_section_split {
             app.state.sidebar_section_split = split;
         }
-        if let Some(width) = snapshot.right_sidebar_width {
+        if let Some(width) = snapshot.default_view.right_sidebar_width {
             app.state.right_sidebar_width = width;
         }
-        app.state.right_sidebar_collapsed = snapshot.right_sidebar_collapsed;
-        app.state.workspace_scroll = snapshot.ui.workspace_scroll;
-        app.state.agent_panel_scroll = snapshot.ui.agent_panel_scroll;
-        app.state.tab_scroll = snapshot.ui.tab_scroll;
-        app.state.mobile_switcher_scroll = snapshot.ui.mobile_switcher_scroll;
-        app.state.activity_agents_expanded = snapshot.ui.activity_agents_expanded;
-        app.state.activity_commands_expanded = snapshot.ui.activity_commands_expanded;
-        app.state.activity_ports_expanded = snapshot.ui.activity_ports_expanded;
-        app.state.collapsed_agent_sections = snapshot.ui.collapsed_agent_sections.clone();
-        app.state.collapsed_command_groups = snapshot.ui.collapsed_command_groups.clone();
-        app.state.collapsed_command_status_groups =
-            snapshot.ui.collapsed_command_status_groups.clone();
-        app.state.collapsed_workspace_groups = snapshot.ui.collapsed_workspace_groups.clone();
+        app.state.right_sidebar_collapsed = snapshot.default_view.right_sidebar_collapsed;
+        app.state.workspace_scroll = snapshot.default_view.ui.workspace_scroll;
+        app.state.agent_panel_scroll = snapshot.default_view.ui.agent_panel_scroll;
+        app.state.tab_scroll = snapshot.default_view.ui.tab_scroll;
+        app.state.mobile_switcher_scroll = snapshot.default_view.ui.mobile_switcher_scroll;
+        app.state.activity_agents_expanded = snapshot.default_view.ui.activity_agents_expanded;
+        app.state.activity_commands_expanded = snapshot.default_view.ui.activity_commands_expanded;
+        app.state.activity_ports_expanded = snapshot.default_view.ui.activity_ports_expanded;
+        app.state.collapsed_agent_sections =
+            snapshot.default_view.ui.collapsed_agent_sections.clone();
+        app.state.collapsed_command_groups =
+            snapshot.default_view.ui.collapsed_command_groups.clone();
+        app.state.collapsed_command_status_groups = snapshot
+            .default_view
+            .ui
+            .collapsed_command_status_groups
+            .clone();
+        app.state.collapsed_workspace_groups =
+            snapshot.default_view.ui.collapsed_workspace_groups.clone();
         app.state.mode = if app.state.active.is_some() {
             state::Mode::Terminal
         } else {
@@ -2068,6 +2080,7 @@ mod tests {
             groups,
             active_group: 0,
             group_filter_enabled: true,
+            default_view: crate::persist::SessionDefaultViewSnapshot::default(),
             workspaces,
             active: None,
             selected: 0,
@@ -2145,6 +2158,11 @@ mod tests {
         snap.sidebar_section_split = Some(0.25);
         snap.right_sidebar_width = Some(41);
         snap.right_sidebar_collapsed = true;
+        snap.default_view.sidebar_width = Some(32);
+        snap.default_view.sidebar_collapsed = true;
+        snap.default_view.sidebar_section_split = Some(0.25);
+        snap.default_view.right_sidebar_width = Some(41);
+        snap.default_view.right_sidebar_collapsed = true;
 
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut imports = std::collections::HashMap::new();
@@ -2229,6 +2247,7 @@ mod tests {
             state.right_sidebar_collapsed,
         );
         snap.ui = crate::persist::SessionUiSnapshot::from_app_state(&state);
+        snap.default_view.ui = snap.ui.clone();
 
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut imports = std::collections::HashMap::new();

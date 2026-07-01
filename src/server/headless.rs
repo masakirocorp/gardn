@@ -578,6 +578,7 @@ impl HeadlessServer {
             self.app.state.right_sidebar_collapsed,
         );
         snapshot.ui = crate::persist::SessionUiSnapshot::from_app_state(&self.app.state);
+        snapshot.default_view.ui = snapshot.ui.clone();
         snapshot.pane_id_aliases = self
             .app
             .state

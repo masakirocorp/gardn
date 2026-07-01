@@ -213,6 +213,7 @@ mod tests {
             }],
             active_group: 0,
             group_filter_enabled: true,
+            default_view: crate::persist::snapshot::SessionDefaultViewSnapshot::default(),
             workspaces: vec![],
             active: None,
             selected: 0,
@@ -309,6 +310,7 @@ mod tests {
 
         let mut snap = empty_snapshot();
         snap.selected = 7;
+        snap.default_view.selected = 7;
         save_to_path(&link, &snap).unwrap();
 
         assert!(std::fs::symlink_metadata(&link)

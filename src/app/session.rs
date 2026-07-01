@@ -32,7 +32,7 @@ impl App {
         {
             crate::persist::clear();
         } else {
-            let snap = crate::persist::capture(
+            let mut snap = crate::persist::capture(
                 &self.state.groups,
                 self.state.active_group,
                 self.state.group_filter_enabled,
@@ -48,6 +48,8 @@ impl App {
                 self.state.right_sidebar_width,
                 self.state.right_sidebar_collapsed,
             );
+            snap.default_view.ui = crate::persist::SessionUiSnapshot::from_app_state(&self.state);
+            snap.ui = snap.default_view.ui.clone();
             let history = self.persist_pane_history.then(|| {
                 crate::persist::capture_history(&self.state.workspaces, &self.terminal_runtimes)
             });

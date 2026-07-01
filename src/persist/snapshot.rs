@@ -23,8 +23,36 @@ pub struct SessionSnapshot {
     pub active_group: usize,
     #[serde(default = "default_true")]
     pub group_filter_enabled: bool,
+    #[serde(default)]
+    pub default_view: SessionDefaultViewSnapshot,
     pub workspaces: Vec<WorkspaceSnapshot>,
+    #[serde(default, skip_serializing)]
     pub active: Option<usize>,
+    #[serde(default, skip_serializing)]
+    pub selected: usize,
+    #[serde(default, skip_serializing)]
+    pub agent_panel_scope: crate::app::state::AgentPanelScope,
+    #[serde(default, skip_serializing)]
+    pub sidebar_width: Option<u16>,
+    #[serde(default, skip_serializing)]
+    pub sidebar_collapsed: bool,
+    #[serde(default, skip_serializing)]
+    pub sidebar_section_split: Option<f32>,
+    #[serde(default, skip_serializing)]
+    pub right_sidebar_width: Option<u16>,
+    #[serde(default, skip_serializing)]
+    pub right_sidebar_collapsed: bool,
+    #[serde(default, skip_serializing)]
+    pub ui: SessionUiSnapshot,
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub pane_id_aliases: std::collections::HashMap<u32, u32>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SessionDefaultViewSnapshot {
+    #[serde(default)]
+    pub active: Option<usize>,
+    #[serde(default)]
     pub selected: usize,
     #[serde(default)]
     pub agent_panel_scope: crate::app::state::AgentPanelScope,
@@ -40,8 +68,38 @@ pub struct SessionSnapshot {
     pub right_sidebar_collapsed: bool,
     #[serde(default)]
     pub ui: SessionUiSnapshot,
-    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
-    pub pane_id_aliases: std::collections::HashMap<u32, u32>,
+}
+
+impl Default for SessionDefaultViewSnapshot {
+    fn default() -> Self {
+        Self {
+            active: None,
+            selected: 0,
+            agent_panel_scope: crate::app::state::AgentPanelScope::default(),
+            sidebar_width: None,
+            sidebar_collapsed: false,
+            sidebar_section_split: None,
+            right_sidebar_width: None,
+            right_sidebar_collapsed: false,
+            ui: SessionUiSnapshot::default(),
+        }
+    }
+}
+
+impl SessionDefaultViewSnapshot {
+    fn from_legacy(raw: &RawSessionSnapshot) -> Self {
+        Self {
+            active: raw.active,
+            selected: raw.selected,
+            agent_panel_scope: raw.agent_panel_scope,
+            sidebar_width: raw.sidebar_width,
+            sidebar_collapsed: raw.sidebar_collapsed,
+            sidebar_section_split: raw.sidebar_section_split,
+            right_sidebar_width: raw.right_sidebar_width,
+            right_sidebar_collapsed: raw.right_sidebar_collapsed,
+            ui: raw.ui.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -316,6 +374,8 @@ struct RawSessionSnapshot {
     #[serde(default = "default_true")]
     group_filter_enabled: bool,
     #[serde(default)]
+    default_view: Option<SessionDefaultViewSnapshot>,
+    #[serde(default)]
     workspaces: Vec<serde_json::Value>,
     #[serde(default)]
     active: Option<usize>,
@@ -340,6 +400,10 @@ struct RawSessionSnapshot {
 }
 
 fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> {
+    let default_view = raw
+        .default_view
+        .clone()
+        .unwrap_or_else(|| SessionDefaultViewSnapshot::from_legacy(&raw));
     Ok(SessionSnapshot {
         version: raw.version,
         groups: if raw.groups.is_empty() {
@@ -354,15 +418,16 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
             .into_iter()
             .map(migrate_workspace)
             .collect::<Result<Vec<_>, _>>()?,
-        active: raw.active,
-        selected: raw.selected,
-        agent_panel_scope: raw.agent_panel_scope,
-        sidebar_width: raw.sidebar_width,
-        sidebar_collapsed: raw.sidebar_collapsed,
-        sidebar_section_split: raw.sidebar_section_split,
-        right_sidebar_width: raw.right_sidebar_width,
-        right_sidebar_collapsed: raw.right_sidebar_collapsed,
-        ui: raw.ui,
+        active: default_view.active,
+        selected: default_view.selected,
+        agent_panel_scope: default_view.agent_panel_scope,
+        sidebar_width: default_view.sidebar_width,
+        sidebar_collapsed: default_view.sidebar_collapsed,
+        sidebar_section_split: default_view.sidebar_section_split,
+        right_sidebar_width: default_view.right_sidebar_width,
+        right_sidebar_collapsed: default_view.right_sidebar_collapsed,
+        ui: default_view.ui.clone(),
+        default_view,
         pane_id_aliases: raw.pane_id_aliases,
     })
 }
@@ -523,11 +588,24 @@ fn capture_inner(
     right_sidebar_collapsed: bool,
     include_terminal_semantics: bool,
 ) -> SessionSnapshot {
+    let default_view = SessionDefaultViewSnapshot {
+        active,
+        selected,
+        agent_panel_scope,
+        sidebar_width: Some(sidebar_width),
+        sidebar_collapsed,
+        sidebar_section_split: Some(sidebar_section_split),
+        right_sidebar_width: Some(right_sidebar_width),
+        right_sidebar_collapsed,
+        ui: SessionUiSnapshot::default(),
+    };
+
     SessionSnapshot {
         version: SNAPSHOT_VERSION,
         groups: groups.iter().map(capture_group).collect(),
         active_group,
         group_filter_enabled,
+        default_view: default_view.clone(),
         workspaces: workspaces
             .iter()
             .map(|workspace| {
@@ -539,16 +617,16 @@ fn capture_inner(
                 )
             })
             .collect(),
-        active,
-        selected,
-        ui: SessionUiSnapshot::default(),
+        active: default_view.active,
+        selected: default_view.selected,
+        ui: default_view.ui.clone(),
         pane_id_aliases: std::collections::HashMap::new(),
-        agent_panel_scope,
-        sidebar_width: Some(sidebar_width),
-        sidebar_collapsed,
-        sidebar_section_split: Some(sidebar_section_split),
-        right_sidebar_width: Some(right_sidebar_width),
-        right_sidebar_collapsed,
+        agent_panel_scope: default_view.agent_panel_scope,
+        sidebar_width: default_view.sidebar_width,
+        sidebar_collapsed: default_view.sidebar_collapsed,
+        sidebar_section_split: default_view.sidebar_section_split,
+        right_sidebar_width: default_view.right_sidebar_width,
+        right_sidebar_collapsed: default_view.right_sidebar_collapsed,
     }
 }
 
@@ -1030,6 +1108,17 @@ mod tests {
             groups: default_groups(),
             active_group: 0,
             group_filter_enabled: true,
+            default_view: SessionDefaultViewSnapshot {
+                active: None,
+                selected: 0,
+                agent_panel_scope: AgentPanelScope::CurrentWorkspace,
+                sidebar_width: Some(26),
+                sidebar_collapsed: false,
+                sidebar_section_split: Some(0.5),
+                right_sidebar_width: Some(28),
+                right_sidebar_collapsed: false,
+                ui: SessionUiSnapshot::default(),
+            },
             workspaces: vec![],
             active: None,
             selected: 0,
@@ -1145,6 +1234,17 @@ mod tests {
             groups: default_groups(),
             active_group: 0,
             group_filter_enabled: true,
+            default_view: SessionDefaultViewSnapshot {
+                active: Some(0),
+                selected: 0,
+                agent_panel_scope: AgentPanelScope::CurrentWorkspace,
+                sidebar_width: Some(26),
+                sidebar_collapsed: false,
+                sidebar_section_split: Some(0.5),
+                right_sidebar_width: Some(28),
+                right_sidebar_collapsed: false,
+                ui: SessionUiSnapshot::default(),
+            },
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("wproj".to_string()),
                 custom_name: Some("pi-mono".to_string()),

@@ -1032,6 +1032,7 @@ mod tests {
             }],
             active_group: 0,
             group_filter_enabled: true,
+            default_view: super::super::snapshot::SessionDefaultViewSnapshot::default(),
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("space".to_string()),
                 custom_name: None,
@@ -1178,6 +1179,7 @@ mod tests {
             }],
             active_group: 0,
             group_filter_enabled: true,
+            default_view: super::super::snapshot::SessionDefaultViewSnapshot::default(),
             workspaces: vec![WorkspaceSnapshot {
                 id: Some(workspace.id.clone()),
                 custom_name: None,
@@ -1288,6 +1290,7 @@ mod tests {
             }],
             active_group: 0,
             group_filter_enabled: true,
+            default_view: super::super::snapshot::SessionDefaultViewSnapshot::default(),
             workspaces: vec![WorkspaceSnapshot {
                 id: None,
                 custom_name: Some("restored".into()),
@@ -1394,6 +1397,7 @@ mod tests {
             }],
             active_group: 0,
             group_filter_enabled: true,
+            default_view: super::super::snapshot::SessionDefaultViewSnapshot::default(),
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("workspace".into()),
                 custom_name: None,
@@ -1667,6 +1671,7 @@ mod tests {
             }],
             active_group: 0,
             group_filter_enabled: true,
+            default_view: super::super::snapshot::SessionDefaultViewSnapshot::default(),
             workspaces: vec![WorkspaceSnapshot {
                 id: None,
                 custom_name: Some("restored".into()),
@@ -1971,6 +1976,7 @@ mod tests {
             }],
             active_group: 0,
             group_filter_enabled: true,
+            default_view: super::super::snapshot::SessionDefaultViewSnapshot::default(),
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("empty-workspace".into()),
                 custom_name: Some("empty".into()),
@@ -2034,6 +2040,7 @@ mod tests {
             }],
             active_group: 0,
             group_filter_enabled: true,
+            default_view: super::super::snapshot::SessionDefaultViewSnapshot::default(),
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("workspace".into()),
                 custom_name: None,
@@ -2137,6 +2144,7 @@ mod tests {
             },
             active_group: 0,
             group_filter_enabled: true,
+            default_view: super::super::snapshot::SessionDefaultViewSnapshot::default(),
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("workspace".into()),
                 custom_name: None,
@@ -2363,6 +2371,7 @@ mod tests {
             }],
             active_group: 0,
             group_filter_enabled: true,
+            default_view: super::super::snapshot::SessionDefaultViewSnapshot::default(),
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("workspace".into()),
                 custom_name: None,
