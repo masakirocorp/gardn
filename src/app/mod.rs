@@ -61,10 +61,7 @@ use crate::config::Config;
 use crate::events::AppEvent;
 
 pub use state::{AppState, Mode, ToastKind, ViewState};
-pub(crate) use view_state::{
-    capture_terminal_offsets_from_app_state, project_terminal_offsets_into_runtimes,
-    project_view_into_app_state, ClientViewState,
-};
+pub(crate) use view_state::ClientViewState;
 
 pub(crate) fn load_plugin_manifest(
     path: &str,
@@ -1863,28 +1860,51 @@ impl App {
         }
     }
 
-    pub(crate) fn route_client_events_for_view(
+    fn with_client_view_state<R>(
         &mut self,
         client_view: &mut ClientViewState,
-        events: Vec<crate::raw_input::RawInputEvent>,
-        apply_host_terminal_theme: bool,
-    ) {
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
         let mut shared_view = ClientViewState::from_app_state(&self.state);
-        capture_terminal_offsets_from_app_state(
+        view_state::capture_terminal_offsets_from_app_state(
             &self.state,
             &self.terminal_runtimes,
             &mut shared_view,
         );
 
         client_view.reconcile(&self.state);
-        project_view_into_app_state(&mut self.state, client_view);
-        project_terminal_offsets_into_runtimes(&self.state, &self.terminal_runtimes, client_view);
-        self.route_client_events(events, apply_host_terminal_theme);
+        view_state::apply_client_view_to_app_state(&mut self.state, client_view);
+        view_state::apply_terminal_offsets_to_runtimes(
+            &self.state,
+            &self.terminal_runtimes,
+            client_view,
+        );
+        let result = f(self);
         *client_view = ClientViewState::from_app_state(&self.state);
-        capture_terminal_offsets_from_app_state(&self.state, &self.terminal_runtimes, client_view);
+        view_state::capture_terminal_offsets_from_app_state(
+            &self.state,
+            &self.terminal_runtimes,
+            client_view,
+        );
 
-        project_view_into_app_state(&mut self.state, &shared_view);
-        project_terminal_offsets_into_runtimes(&self.state, &self.terminal_runtimes, &shared_view);
+        view_state::apply_client_view_to_app_state(&mut self.state, &shared_view);
+        view_state::apply_terminal_offsets_to_runtimes(
+            &self.state,
+            &self.terminal_runtimes,
+            &shared_view,
+        );
+        result
+    }
+
+    pub(crate) fn route_client_events_for_view(
+        &mut self,
+        client_view: &mut ClientViewState,
+        events: Vec<crate::raw_input::RawInputEvent>,
+        apply_host_terminal_theme: bool,
+    ) {
+        self.with_client_view_state(client_view, |app| {
+            app.route_client_events(events, apply_host_terminal_theme);
+        });
     }
 
     /// Handles a key event in non-terminal mode for the headless server.

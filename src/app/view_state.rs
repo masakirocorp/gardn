@@ -39,10 +39,10 @@ impl ClientPaneViewKey {
 
 /// Per-normal-app-client view/navigation state.
 ///
-/// This is the migration seam for fields that describe what one attached app
-/// client is looking at. Shared session structures remain in `AppState`; this
-/// type can be constructed from today's monolithic `AppState` and reconciled
-/// after shared workspace/tab/pane mutations.
+/// This type stores fields that describe what one attached app client is
+/// looking at. Shared session structures remain in `AppState`; callers must
+/// explicitly run view-sensitive work through the client's state instead of
+/// implicitly reading whichever client last touched the server.
 #[derive(Clone)]
 pub(crate) struct ClientViewState {
     pub(crate) active_workspace: Option<usize>,
@@ -227,8 +227,28 @@ impl ClientViewState {
             .get(&ClientPaneViewKey::new(workspace_id, tab_number, pane_id))
     }
 }
+pub(crate) fn with_client_view_app_state<R>(
+    state: &mut AppState,
+    runtimes: &TerminalRuntimeRegistry,
+    view: &mut ClientViewState,
+    f: impl FnOnce(&mut AppState) -> R,
+) -> R {
+    let mut shared_view = ClientViewState::from_app_state(state);
+    capture_terminal_offsets_from_app_state(state, runtimes, &mut shared_view);
 
-pub(crate) fn project_view_into_app_state(state: &mut AppState, view: &ClientViewState) {
+    view.reconcile(state);
+    apply_client_view_to_app_state(state, view);
+    apply_terminal_offsets_to_runtimes(state, runtimes, view);
+    let result = f(state);
+    *view = ClientViewState::from_app_state(state);
+    capture_terminal_offsets_from_app_state(state, runtimes, view);
+
+    apply_client_view_to_app_state(state, &shared_view);
+    apply_terminal_offsets_to_runtimes(state, runtimes, &shared_view);
+    result
+}
+
+pub(crate) fn apply_client_view_to_app_state(state: &mut AppState, view: &ClientViewState) {
     state.active = view.active_workspace;
     state.selected = view.selected_workspace;
     state.active_group = view.active_group;
@@ -293,7 +313,7 @@ pub(crate) fn capture_terminal_offsets_from_app_state(
         .retain(|terminal_id, _| live_terminal_ids.contains(terminal_id));
 }
 
-pub(crate) fn project_terminal_offsets_into_runtimes(
+pub(crate) fn apply_terminal_offsets_to_runtimes(
     state: &AppState,
     runtimes: &TerminalRuntimeRegistry,
     view: &ClientViewState,
@@ -406,7 +426,7 @@ mod tests {
     }
 
     #[test]
-    fn native_diff_projection_keeps_selection_client_local() {
+    fn native_diff_view_state_keeps_selection_client_local() {
         let session = crate::native_diff::parse_native_diff_session(
             "/repo",
             b"--- a/src/first.rs\n+++ b/src/first.rs\n@@ -1 +1 @@\n-old\n+new\n--- a/src/second.rs\n+++ b/src/second.rs\n@@ -1 +1 @@\n-old\n+new\n",
@@ -423,7 +443,7 @@ mod tests {
 
         let mut first_client = ClientViewState::from_app_state(&state);
         let second_client = ClientViewState::from_app_state(&state);
-        project_view_into_app_state(&mut state, &first_client);
+        apply_client_view_to_app_state(&mut state, &first_client);
         let pane_id = state.workspaces[0].focused_pane_id().expect("focused pane");
         let diff = state.workspaces[0]
             .pane_state_mut(pane_id)
@@ -437,7 +457,7 @@ mod tests {
         assert!(diff.select_visible_file_row(2));
         first_client = ClientViewState::from_app_state(&state);
 
-        project_view_into_app_state(&mut state, &second_client);
+        apply_client_view_to_app_state(&mut state, &second_client);
         let diff = state.workspaces[0]
             .pane_state(pane_id)
             .and_then(|pane| pane.native_diff())
@@ -447,7 +467,7 @@ mod tests {
             Some(std::path::Path::new("src/first.rs"))
         );
 
-        project_view_into_app_state(&mut state, &first_client);
+        apply_client_view_to_app_state(&mut state, &first_client);
         let diff = state.workspaces[0]
             .pane_state(pane_id)
             .and_then(|pane| pane.native_diff())
@@ -459,7 +479,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_draft_projection_is_client_local() {
+    fn settings_draft_state_is_client_local() {
         let mut state = AppState::test_new();
         let mut first_client = ClientViewState::from_app_state(&state);
         let second_client = ClientViewState::from_app_state(&state);
@@ -468,17 +488,17 @@ mod tests {
         first_client.settings.pending_sound_enabled = Some(false);
         first_client.settings.section = crate::app::state::SettingsSection::Sound;
 
-        project_view_into_app_state(&mut state, &first_client);
+        apply_client_view_to_app_state(&mut state, &first_client);
         assert_eq!(state.mode, Mode::Settings);
         assert_eq!(state.settings.pending_sound_enabled, Some(false));
 
-        project_view_into_app_state(&mut state, &second_client);
+        apply_client_view_to_app_state(&mut state, &second_client);
         assert_ne!(state.mode, Mode::Settings);
         assert_eq!(state.settings.pending_sound_enabled, None);
     }
 
     #[test]
-    fn command_palette_projection_is_client_local() {
+    fn command_palette_state_is_client_local() {
         let mut state = AppState::test_new();
         let mut first_client = ClientViewState::from_app_state(&state);
         let second_client = ClientViewState::from_app_state(&state);
@@ -487,18 +507,18 @@ mod tests {
         first_client.command_palette.query = "git".to_string();
         first_client.command_palette.selected = 3;
 
-        project_view_into_app_state(&mut state, &first_client);
+        apply_client_view_to_app_state(&mut state, &first_client);
         assert_eq!(state.mode, Mode::CommandPalette);
         assert_eq!(state.command_palette.query, "git");
         assert_eq!(state.command_palette.selected, 3);
 
-        project_view_into_app_state(&mut state, &second_client);
+        apply_client_view_to_app_state(&mut state, &second_client);
         assert_ne!(state.mode, Mode::CommandPalette);
         assert!(state.command_palette.query.is_empty());
         assert_eq!(state.command_palette.selected, 0);
     }
     #[tokio::test]
-    async fn terminal_scroll_offset_projection_is_client_local() {
+    async fn terminal_scroll_offset_state_is_client_local() {
         let mut state = AppState::test_new();
         state.workspaces = vec![Workspace::test_new("terminal")];
         state.active = Some(0);
@@ -539,7 +559,7 @@ mod tests {
             .expect("first client terminal offset");
         assert!(first_offset > 0);
 
-        project_terminal_offsets_into_runtimes(&state, &runtimes, &second_client);
+        apply_terminal_offsets_to_runtimes(&state, &runtimes, &second_client);
         assert_eq!(
             runtimes
                 .get(&terminal_id)
@@ -548,7 +568,7 @@ mod tests {
             Some(0)
         );
 
-        project_terminal_offsets_into_runtimes(&state, &runtimes, &first_client);
+        apply_terminal_offsets_to_runtimes(&state, &runtimes, &first_client);
         assert_eq!(
             runtimes
                 .get(&terminal_id)

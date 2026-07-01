@@ -186,9 +186,7 @@ pub(crate) fn events_include_interaction(events: &[crate::raw_input::RawInputEve
     })
 }
 
-pub(crate) fn events_need_client_view_projection(
-    events: &[crate::raw_input::RawInputEvent],
-) -> bool {
+pub(crate) fn events_need_client_view_state(events: &[crate::raw_input::RawInputEvent]) -> bool {
     events.iter().any(|event| {
         matches!(
             event,

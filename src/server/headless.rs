@@ -41,8 +41,8 @@ use crate::server::client_accept::{
 };
 use crate::server::client_transport::ServerEvent;
 use crate::server::clients::{
-    events_include_interaction, events_need_client_view_projection, latest_app_client,
-    render_targets, terminal_attach_client_ids, ClientConnection, ClientConnectionMode,
+    events_include_interaction, events_need_client_view_state, latest_app_client, render_targets,
+    terminal_attach_client_ids, ClientConnection, ClientConnectionMode,
 };
 use crate::server::keybindings::{app_keybindings, apply_keybindings};
 use crate::server::notifications::{
@@ -493,7 +493,10 @@ impl HeadlessServer {
         apply_keybindings(&mut self.app, &keybindings);
         self.sync_visible_server_config_diagnostic(uses_local_keybindings);
         if let Some(view_state) = view_state {
-            crate::app::project_view_into_app_state(&mut self.app.state, &view_state);
+            crate::app::view_state::apply_client_view_to_app_state(
+                &mut self.app.state,
+                &view_state,
+            );
         }
         if outer_terminal_focus == Some(true) {
             self.app.state.mark_active_tab_seen();
@@ -1871,7 +1874,7 @@ impl HeadlessServer {
                 }
                 let theme_changed = self.update_client_host_theme_from_events(client_id, &events);
                 let apply_host_terminal_theme = self.foreground_client_id == Some(client_id);
-                if events_need_client_view_projection(&events) {
+                if events_need_client_view_state(&events) {
                     if let Some(client) = self.clients.get_mut(&client_id) {
                         if let Some(view_state) = client.view_state.as_mut() {
                             self.app.route_client_events_for_view(
@@ -1976,7 +1979,7 @@ impl HeadlessServer {
                 }
                 let theme_changed = self.update_client_host_theme_from_events(client_id, &events);
                 let apply_host_terminal_theme = self.foreground_client_id == Some(client_id);
-                if events_need_client_view_projection(&events) {
+                if events_need_client_view_state(&events) {
                     if let Some(client) = self.clients.get_mut(&client_id) {
                         if let Some(view_state) = client.view_state.as_mut() {
                             self.app.route_client_events_for_view(

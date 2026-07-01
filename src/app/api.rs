@@ -13,9 +13,8 @@ mod workspaces;
 mod worktrees;
 
 use super::{
-    api_helpers::pane_agent_status, capture_terminal_offsets_from_app_state,
-    project_terminal_offsets_into_runtimes, project_view_into_app_state, App, ClientViewState,
-    Mode, OverlayPaneState, ToastKind, API_NOTIFICATION_RATE_LIMIT,
+    api_helpers::pane_agent_status, App, ClientViewState, Mode, OverlayPaneState, ToastKind,
+    API_NOTIFICATION_RATE_LIMIT,
 };
 use crate::events::AppEvent;
 
@@ -673,23 +672,7 @@ impl App {
         client_view: &mut ClientViewState,
         request: crate::api::schema::Request,
     ) -> String {
-        let mut shared_view = ClientViewState::from_app_state(&self.state);
-        capture_terminal_offsets_from_app_state(
-            &self.state,
-            &self.terminal_runtimes,
-            &mut shared_view,
-        );
-
-        client_view.reconcile(&self.state);
-        project_view_into_app_state(&mut self.state, client_view);
-        project_terminal_offsets_into_runtimes(&self.state, &self.terminal_runtimes, client_view);
-        let response = self.handle_api_request(request);
-        *client_view = ClientViewState::from_app_state(&self.state);
-        capture_terminal_offsets_from_app_state(&self.state, &self.terminal_runtimes, client_view);
-
-        project_view_into_app_state(&mut self.state, &shared_view);
-        project_terminal_offsets_into_runtimes(&self.state, &self.terminal_runtimes, &shared_view);
-        response
+        self.with_client_view_state(client_view, |app| app.handle_api_request(request))
     }
 
     pub(crate) fn handle_api_request_after_internal_events_drained(
