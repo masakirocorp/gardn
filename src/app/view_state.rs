@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::app::state::{
-    AppState, CommandPaletteState, KeybindHelpState, MenuListState, Mode, SettingsState, ViewState,
+    AppState, CommandPaletteState, KeybindHelpState, MenuListState, Mode, NavigatorState,
+    SettingsState, ViewState,
 };
 use crate::layout::PaneId;
 use crate::native_diff::NativeDiffPaneViewState;
@@ -75,6 +76,7 @@ pub(crate) struct ClientViewState {
     pub(crate) terminal_offsets_from_bottom: HashMap<TerminalId, usize>,
     pub(crate) settings: SettingsState,
     pub(crate) command_palette: CommandPaletteState,
+    pub(crate) navigator: NavigatorState,
     pub(crate) keybind_help: KeybindHelpState,
     pub(crate) global_menu: MenuListState,
     pub(crate) group_menu: MenuListState,
@@ -113,6 +115,7 @@ impl ClientViewState {
             terminal_offsets_from_bottom: HashMap::new(),
             settings: state.settings.clone(),
             command_palette: state.command_palette.clone(),
+            navigator: state.navigator.clone(),
             keybind_help: state.keybind_help.clone(),
             global_menu: state.global_menu.clone(),
             group_menu: state.group_menu.clone(),
@@ -349,6 +352,7 @@ pub(crate) fn apply_client_view_to_app_state(state: &mut AppState, view: &Client
     state.view = view.computed.clone();
     state.settings = view.settings.clone();
     state.command_palette = view.command_palette.clone();
+    state.navigator = view.navigator.clone();
     state.keybind_help = view.keybind_help.clone();
     state.global_menu = view.global_menu.clone();
     state.group_menu = view.group_menu.clone();
@@ -786,6 +790,54 @@ mod tests {
             assert_eq!(state.global_menu.highlighted, 0);
             assert_eq!(state.group_menu.highlighted, 0);
             assert_eq!(state.agent_menu.highlighted, 0);
+        });
+    }
+
+    #[test]
+    fn scoped_client_navigator_state_does_not_rewrite_shared_view() {
+        let mut state = AppState::test_new();
+        let runtimes = TerminalRuntimeRegistry::new();
+        let mut first_client = ClientViewState::from_app_state(&state);
+        let mut second_client = ClientViewState::from_app_state(&state);
+
+        with_client_view_app_state(&mut state, &runtimes, &mut first_client, |state| {
+            state.navigator.query = "db".to_string();
+            state.navigator.selected = 3;
+            state.navigator.scroll = 2;
+            state.navigator.search_focused = true;
+            state.navigator.state_filter = Some(crate::app::state::NavigatorStateFilter::Blocked);
+            state
+                .navigator
+                .expanded_workspaces
+                .insert("workspace-a".to_string());
+        });
+
+        assert_eq!(first_client.navigator.query, "db");
+        assert_eq!(first_client.navigator.selected, 3);
+        assert_eq!(first_client.navigator.scroll, 2);
+        assert!(first_client.navigator.search_focused);
+        assert_eq!(
+            first_client.navigator.state_filter,
+            Some(crate::app::state::NavigatorStateFilter::Blocked)
+        );
+        assert!(first_client
+            .navigator
+            .expanded_workspaces
+            .contains("workspace-a"));
+        assert!(state.navigator.query.is_empty());
+        assert_eq!(state.navigator.selected, 0);
+        assert_eq!(state.navigator.scroll, 0);
+        assert!(!state.navigator.search_focused);
+        assert_eq!(state.navigator.state_filter, None);
+        assert!(state.navigator.expanded_workspaces.is_empty());
+
+        with_client_view_app_state(&mut state, &runtimes, &mut second_client, |state| {
+            assert!(state.navigator.query.is_empty());
+            assert_eq!(state.navigator.selected, 0);
+            assert_eq!(state.navigator.scroll, 0);
+            assert!(!state.navigator.search_focused);
+            assert_eq!(state.navigator.state_filter, None);
+            assert!(state.navigator.expanded_workspaces.is_empty());
         });
     }
     #[tokio::test]
