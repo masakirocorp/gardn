@@ -51,16 +51,6 @@ pub enum AgentPanelScopeConfig {
     All,
 }
 
-impl AgentPanelScopeConfig {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Current => "current",
-            Self::Group => "group",
-            Self::All => "all",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SidebarArrangementConfig {

@@ -2928,34 +2928,6 @@ mod tests {
     }
 
     #[test]
-    fn save_agent_panel_scope_persists_then_applies_live_config() {
-        let _guard = config_env_lock().lock().unwrap();
-        let path = temp_config_path("save-agent-panel-scope");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, "onboarding = false\n").unwrap();
-        let _config_path_env =
-            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
-
-        let mut app = test_app();
-        assert_eq!(
-            app.state.agent_panel_scope,
-            state::AgentPanelScope::CurrentWorkspace
-        );
-
-        app.save_agent_panel_scope(state::AgentPanelScope::CurrentGroup);
-
-        assert_eq!(
-            app.state.agent_panel_scope,
-            state::AgentPanelScope::CurrentGroup
-        );
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("agent_panel_scope = \"group\""));
-        assert!(app.state.config_diagnostic.is_none());
-
-        let _ = std::fs::remove_dir_all(path.parent().unwrap());
-    }
-
-    #[test]
     fn settings_save_theme_persists_family_and_mode() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("settings-save-theme-mode");

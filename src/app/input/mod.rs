@@ -72,7 +72,6 @@ use super::App;
 
 impl App {
     pub(super) async fn handle_key(&mut self, key: TerminalKey) {
-        let previous_agent_panel_scope = self.state.agent_panel_scope;
         let key_event = key.as_key_event();
         if modal_paste_target_active(&self.state) && is_modal_paste_shortcut(&key_event) {
             if let Some(text) = crate::platform::read_clipboard_text() {
@@ -125,9 +124,6 @@ impl App {
                 Mode::GitRepoPicker => self.handle_git_repo_picker_key(key_event),
                 Mode::Terminal => unreachable!(),
             },
-        }
-        if self.state.agent_panel_scope != previous_agent_panel_scope {
-            self.save_agent_panel_scope(self.state.agent_panel_scope);
         }
     }
 
@@ -584,7 +580,6 @@ impl App {
 
         let handled_pane_double_click = self.handle_pane_double_click(mouse);
 
-        let previous_agent_panel_scope = self.state.agent_panel_scope;
         let previous_settings_section = self.state.settings.section;
         if !handled_pane_double_click {
             if let Some(action) = self.state.handle_mouse(&mut self.terminal_runtimes, mouse) {
@@ -681,9 +676,6 @@ impl App {
             && self.state.settings.section == crate::app::state::SettingsSection::Integrations
         {
             self.refresh_integration_recommendations();
-        }
-        if self.state.agent_panel_scope != previous_agent_panel_scope {
-            self.save_agent_panel_scope(self.state.agent_panel_scope);
         }
 
         if let Some(content) = self.state.request_clipboard_write.take() {

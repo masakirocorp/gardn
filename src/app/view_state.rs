@@ -49,6 +49,22 @@ pub(crate) struct ClientViewState {
     pub(crate) selected_workspace: usize,
     pub(crate) active_group: usize,
     pub(crate) group_filter_enabled: bool,
+    pub(crate) agent_panel_scope: crate::app::state::AgentPanelScope,
+    pub(crate) workspace_scroll: usize,
+    pub(crate) agent_panel_scroll: usize,
+    pub(crate) tab_scroll: usize,
+    pub(crate) tab_scroll_follow_active: bool,
+    pub(crate) hovered_tab: Option<usize>,
+    pub(crate) mobile_switcher_scroll: usize,
+    pub(crate) sidebar_collapsed: bool,
+    pub(crate) right_sidebar_collapsed: bool,
+    pub(crate) activity_agents_expanded: bool,
+    pub(crate) activity_commands_expanded: bool,
+    pub(crate) activity_ports_expanded: bool,
+    pub(crate) collapsed_agent_sections: Vec<String>,
+    pub(crate) collapsed_command_groups: Vec<String>,
+    pub(crate) collapsed_command_status_groups: Vec<String>,
+    pub(crate) collapsed_workspace_groups: Vec<String>,
     pub(crate) mode: Mode,
     pub(crate) active_tabs: HashMap<String, usize>,
     pub(crate) focused_panes: HashMap<ClientTabViewKey, PaneId>,
@@ -67,6 +83,22 @@ impl ClientViewState {
             selected_workspace: state.selected,
             active_group: state.active_group,
             group_filter_enabled: state.group_filter_enabled,
+            agent_panel_scope: state.agent_panel_scope,
+            workspace_scroll: state.workspace_scroll,
+            agent_panel_scroll: state.agent_panel_scroll,
+            tab_scroll: state.tab_scroll,
+            tab_scroll_follow_active: state.tab_scroll_follow_active,
+            hovered_tab: state.hovered_tab,
+            mobile_switcher_scroll: state.mobile_switcher_scroll,
+            sidebar_collapsed: state.sidebar_collapsed,
+            right_sidebar_collapsed: state.right_sidebar_collapsed,
+            activity_agents_expanded: state.activity_agents_expanded,
+            activity_commands_expanded: state.activity_commands_expanded,
+            activity_ports_expanded: state.activity_ports_expanded,
+            collapsed_agent_sections: state.collapsed_agent_sections.clone(),
+            collapsed_command_groups: state.collapsed_command_groups.clone(),
+            collapsed_command_status_groups: state.collapsed_command_status_groups.clone(),
+            collapsed_workspace_groups: state.collapsed_workspace_groups.clone(),
             mode: state.mode,
             active_tabs: HashMap::new(),
             focused_panes: HashMap::new(),
@@ -287,6 +319,22 @@ pub(crate) fn apply_client_view_to_app_state(state: &mut AppState, view: &Client
     state.selected = view.selected_workspace;
     state.active_group = view.active_group;
     state.group_filter_enabled = view.group_filter_enabled;
+    state.agent_panel_scope = view.agent_panel_scope;
+    state.workspace_scroll = view.workspace_scroll;
+    state.agent_panel_scroll = view.agent_panel_scroll;
+    state.tab_scroll = view.tab_scroll;
+    state.tab_scroll_follow_active = view.tab_scroll_follow_active;
+    state.hovered_tab = view.hovered_tab;
+    state.mobile_switcher_scroll = view.mobile_switcher_scroll;
+    state.sidebar_collapsed = view.sidebar_collapsed;
+    state.right_sidebar_collapsed = view.right_sidebar_collapsed;
+    state.activity_agents_expanded = view.activity_agents_expanded;
+    state.activity_commands_expanded = view.activity_commands_expanded;
+    state.activity_ports_expanded = view.activity_ports_expanded;
+    state.collapsed_agent_sections = view.collapsed_agent_sections.clone();
+    state.collapsed_command_groups = view.collapsed_command_groups.clone();
+    state.collapsed_command_status_groups = view.collapsed_command_status_groups.clone();
+    state.collapsed_workspace_groups = view.collapsed_workspace_groups.clone();
     state.mode = view.mode;
     state.view = view.computed.clone();
     state.settings = view.settings.clone();
@@ -385,6 +433,11 @@ mod tests {
         assert_eq!(view.selected_workspace, 0);
         assert_eq!(view.active_group, 0);
         assert!(view.group_filter_enabled);
+        assert_eq!(
+            view.agent_panel_scope,
+            crate::app::state::AgentPanelScope::CurrentWorkspace
+        );
+        assert_eq!(view.agent_panel_scroll, 0);
         assert_eq!(view.mode, Mode::Navigate);
         assert!(view.active_tabs.is_empty());
         assert!(view.focused_panes.is_empty());
@@ -576,6 +629,119 @@ mod tests {
         assert_ne!(state.mode, Mode::CommandPalette);
         assert!(state.command_palette.query.is_empty());
         assert_eq!(state.command_palette.selected, 0);
+    }
+
+    #[test]
+    fn agent_panel_scope_state_is_client_local() {
+        let mut state = AppState::test_new();
+        let mut first_client = ClientViewState::from_app_state(&state);
+        let second_client = ClientViewState::from_app_state(&state);
+
+        first_client.agent_panel_scope = crate::app::state::AgentPanelScope::AllWorkspaces;
+        apply_client_view_to_app_state(&mut state, &first_client);
+        assert_eq!(
+            state.agent_panel_scope,
+            crate::app::state::AgentPanelScope::AllWorkspaces
+        );
+
+        apply_client_view_to_app_state(&mut state, &second_client);
+        assert_eq!(
+            state.agent_panel_scope,
+            crate::app::state::AgentPanelScope::CurrentWorkspace
+        );
+
+        apply_client_view_to_app_state(&mut state, &first_client);
+        assert_eq!(
+            state.agent_panel_scope,
+            crate::app::state::AgentPanelScope::AllWorkspaces
+        );
+    }
+
+    #[test]
+    fn scoped_client_agent_panel_scope_does_not_rewrite_shared_view() {
+        let mut state = AppState::test_new();
+        let runtimes = TerminalRuntimeRegistry::new();
+        let mut first_client = ClientViewState::from_app_state(&state);
+        let mut second_client = ClientViewState::from_app_state(&state);
+
+        with_client_view_app_state(&mut state, &runtimes, &mut first_client, |state| {
+            state.agent_panel_scope = crate::app::state::AgentPanelScope::AllWorkspaces;
+            state.agent_panel_scroll = 9;
+        });
+
+        assert_eq!(
+            first_client.agent_panel_scope,
+            crate::app::state::AgentPanelScope::AllWorkspaces
+        );
+        assert_eq!(
+            state.agent_panel_scope,
+            crate::app::state::AgentPanelScope::CurrentWorkspace
+        );
+
+        with_client_view_app_state(&mut state, &runtimes, &mut second_client, |state| {
+            assert_eq!(
+                state.agent_panel_scope,
+                crate::app::state::AgentPanelScope::CurrentWorkspace
+            );
+            assert_eq!(state.agent_panel_scroll, 0);
+        });
+    }
+
+    #[test]
+    fn scoped_client_collapse_state_does_not_rewrite_shared_view() {
+        let mut state = AppState::test_new();
+        let runtimes = TerminalRuntimeRegistry::new();
+        let mut first_client = ClientViewState::from_app_state(&state);
+        let mut second_client = ClientViewState::from_app_state(&state);
+
+        with_client_view_app_state(&mut state, &runtimes, &mut first_client, |state| {
+            state.sidebar_collapsed = true;
+            state.right_sidebar_collapsed = true;
+            state.activity_agents_expanded = false;
+            state.activity_commands_expanded = true;
+            state.activity_ports_expanded = true;
+            state.collapsed_agent_sections = vec!["agent:build".to_string()];
+            state.collapsed_command_groups = vec!["commands".to_string()];
+            state.collapsed_command_status_groups = vec!["running".to_string()];
+            state.collapsed_workspace_groups = vec!["group-1".to_string()];
+            state.workspace_scroll = 4;
+            state.tab_scroll = 5;
+            state.tab_scroll_follow_active = false;
+            state.hovered_tab = Some(2);
+            state.mobile_switcher_scroll = 6;
+        });
+
+        assert!(!state.sidebar_collapsed);
+        assert!(!state.right_sidebar_collapsed);
+        assert!(state.activity_agents_expanded);
+        assert!(!state.activity_commands_expanded);
+        assert!(!state.activity_ports_expanded);
+        assert!(state.collapsed_agent_sections.is_empty());
+        assert!(state.collapsed_command_groups.is_empty());
+        assert!(state.collapsed_command_status_groups.is_empty());
+        assert!(state.collapsed_workspace_groups.is_empty());
+        assert_eq!(state.workspace_scroll, 0);
+        assert_eq!(state.tab_scroll, 0);
+        assert!(state.tab_scroll_follow_active);
+        assert_eq!(state.hovered_tab, None);
+        assert_eq!(state.mobile_switcher_scroll, 0);
+
+        with_client_view_app_state(&mut state, &runtimes, &mut second_client, |state| {
+            assert!(!state.sidebar_collapsed);
+            assert!(!state.right_sidebar_collapsed);
+            assert!(state.activity_agents_expanded);
+            assert!(!state.activity_commands_expanded);
+            assert!(!state.activity_ports_expanded);
+            assert!(state.collapsed_agent_sections.is_empty());
+            assert!(state.collapsed_command_groups.is_empty());
+            assert!(state.collapsed_command_status_groups.is_empty());
+            assert!(state.collapsed_workspace_groups.is_empty());
+            assert_eq!(state.workspace_scroll, 0);
+            assert_eq!(state.tab_scroll, 0);
+            assert!(state.tab_scroll_follow_active);
+            assert_eq!(state.hovered_tab, None);
+            assert_eq!(state.mobile_switcher_scroll, 0);
+        });
     }
     #[tokio::test]
     async fn terminal_scroll_offset_state_is_client_local() {
