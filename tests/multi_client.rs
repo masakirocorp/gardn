@@ -801,12 +801,12 @@ fn multi_client_eventually_broadcasts_frame_updates_to_all_clients() {
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_file(&client_socket, Duration::from_secs(10));
 
-    let mut client_a = connect_raw_client(&client_socket, 100, 30);
-    let mut client_b = connect_raw_client(&client_socket, 100, 30);
-
-    // Ensure we have an active pane that can reflect input changes.
+    // Ensure connected clients start on the workspace whose pane will receive input.
     let (_workspace_id, pane_id) =
         create_workspace_and_root_pane(&api_socket, "broadcast-client-a-to-b");
+
+    let mut client_a = connect_raw_client(&client_socket, 100, 30);
+    let mut client_b = connect_raw_client(&client_socket, 100, 30);
 
     // Drain initial frames so we measure the frame caused by new input.
     drain_server_messages(&mut client_a, Duration::from_millis(300));

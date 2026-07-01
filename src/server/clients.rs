@@ -93,8 +93,11 @@ impl ClientConnection {
         pending_terminal_attach: bool,
         writer: Option<ClientWriter>,
     ) -> Self {
+        #[cfg(test)]
         let view_state = (matches!(mode, ClientConnectionMode::App) && !pending_terminal_attach)
             .then(|| ClientViewState::from_app_state(&crate::app::state::AppState::test_new()));
+        #[cfg(not(test))]
+        let view_state = None;
         Self {
             mode,
             pending_terminal_attach,

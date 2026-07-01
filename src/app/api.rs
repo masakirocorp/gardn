@@ -12,8 +12,10 @@ mod tabs;
 mod workspaces;
 mod worktrees;
 
+#[cfg(test)]
+use super::ClientViewState;
 use super::{
-    api_helpers::pane_agent_status, App, ClientViewState, Mode, OverlayPaneState, ToastKind,
+    api_helpers::pane_agent_status, App, Mode, OverlayPaneState, ToastKind,
     API_NOTIFICATION_RATE_LIMIT,
 };
 use crate::events::AppEvent;
@@ -667,6 +669,7 @@ impl App {
         self.handle_api_request_after_internal_events_drained(request)
     }
 
+    #[cfg(test)]
     pub(crate) fn handle_api_request_for_view(
         &mut self,
         client_view: &mut ClientViewState,

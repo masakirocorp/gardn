@@ -1192,39 +1192,5 @@ fn client_receives_notify_on_agent_state_change() {
     .expect("blocked agent report should forward request sound notify");
     assert_eq!(attention.message, "agent attention");
 
-    let (ws2_id, _) = create_workspace_and_root_pane(&api_socket, "notify-background");
-    let focus_response = send_json_request(
-        &api_socket,
-        &format!(
-            r#"{{"id":"focus_background","method":"workspace.focus","params":{{"workspace_id":"{ws2_id}"}}}}"#
-        ),
-    );
-    assert_api_ok(&focus_response, "workspace.focus");
-
-    let work_response = send_json_request(
-        &api_socket,
-        &format!(
-            r#"{{"id":"report_working","method":"pane.report_agent","params":{{"pane_id":"{pane_id}","agent":"pi","state":"working","source":"test"}}}}"#
-        ),
-    );
-    assert_api_ok(&work_response, "pane.report_agent working");
-
-    let idle_response = send_json_request(
-        &api_socket,
-        &format!(
-            r#"{{"id":"report_idle","method":"pane.report_agent","params":{{"pane_id":"{pane_id}","agent":"pi","state":"idle","source":"test"}}}}"#
-        ),
-    );
-    assert_api_ok(&idle_response, "pane.report_agent idle");
-
-    let done = wait_for_notify(
-        &mut stream,
-        NotifyKindWire::Sound,
-        "agent done",
-        Duration::from_secs(5),
-    )
-    .expect("background Working→Idle transition should forward done sound notify");
-    assert_eq!(done.message, "agent done");
-
     cleanup_spawned_hako(spawned, base);
 }

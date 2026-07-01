@@ -100,12 +100,46 @@ impl ClientViewState {
             return;
         }
 
-        self.selected_workspace = self.selected_workspace.min(state.workspaces.len() - 1);
+        let visible_workspace = |idx: usize| {
+            if !self.group_filter_enabled {
+                return state.workspaces.get(idx).is_some();
+            }
+
+            let active_group_id = state
+                .groups
+                .get(self.active_group)
+                .map(|group| group.id.as_str())
+                .unwrap_or(crate::workspace::DEFAULT_GROUP_ID);
+            state
+                .workspaces
+                .get(idx)
+                .is_some_and(|workspace| workspace.group_id == active_group_id)
+        };
+        let first_visible_workspace = || {
+            state
+                .workspaces
+                .iter()
+                .enumerate()
+                .find_map(|(idx, _)| visible_workspace(idx).then_some(idx))
+        };
+
         if !self
             .active_workspace
-            .is_some_and(|idx| idx < state.workspaces.len())
+            .is_some_and(|idx| idx < state.workspaces.len() && visible_workspace(idx))
         {
-            self.active_workspace = state.active.filter(|idx| *idx < state.workspaces.len());
+            self.active_workspace = if self.group_filter_enabled {
+                first_visible_workspace()
+            } else {
+                state.active.filter(|idx| *idx < state.workspaces.len())
+            };
+        }
+        if self.selected_workspace >= state.workspaces.len()
+            || !visible_workspace(self.selected_workspace)
+        {
+            self.selected_workspace = self
+                .active_workspace
+                .or_else(first_visible_workspace)
+                .unwrap_or(0);
         }
 
         let valid_workspace_ids: HashSet<&str> = state
@@ -423,6 +457,32 @@ mod tests {
             .zoomed_tabs
             .iter()
             .all(|key| key.workspace_id != removed_workspace_id));
+    }
+
+    #[test]
+    fn reconcile_keeps_empty_filtered_group_without_active_workspace() {
+        let mut state = AppState::test_new();
+        let mut workspace_group = crate::app::state::Group::default_group();
+        workspace_group.id = "with-space".to_string();
+        let mut empty_group = crate::app::state::Group::default_group();
+        empty_group.id = "empty".to_string();
+        state.groups = vec![workspace_group.clone(), empty_group];
+        state.workspaces = vec![Workspace::test_new("one")];
+        state.workspaces[0].group_id = workspace_group.id;
+        state.active = Some(0);
+        state.selected = 0;
+        state.active_group = 0;
+        state.group_filter_enabled = true;
+
+        let mut view = ClientViewState::from_app_state(&state);
+        view.active_group = 1;
+        view.active_workspace = None;
+        view.selected_workspace = 0;
+        view.reconcile(&state);
+
+        assert_eq!(view.active_group, 1);
+        assert_eq!(view.active_workspace, None);
+        assert_eq!(view.selected_workspace, 0);
     }
 
     #[test]

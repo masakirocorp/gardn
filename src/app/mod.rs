@@ -983,6 +983,15 @@ impl App {
             .clone();
         app.state.collapsed_workspace_groups =
             snapshot.default_view.ui.collapsed_workspace_groups.clone();
+        if app.state.group_filter_enabled
+            && app
+                .state
+                .active
+                .is_some_and(|idx| !app.state.workspace_in_active_group(idx))
+        {
+            app.state.active = app.state.first_visible_workspace();
+            app.state.selected = app.state.active.unwrap_or(0);
+        }
         app.state.mode = if app.state.active.is_some() {
             state::Mode::Terminal
         } else {
@@ -4944,7 +4953,7 @@ mod tests {
         app.state.mode = Mode::Terminal;
 
         let mut first_client = ClientViewState::from_app_state(&app.state);
-        let mut second_client = ClientViewState::from_app_state(&app.state);
+        let second_client = ClientViewState::from_app_state(&app.state);
 
         app.route_client_events_for_view(
             &mut first_client,

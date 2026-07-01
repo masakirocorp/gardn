@@ -1803,8 +1803,9 @@ impl HeadlessServer {
                     direct_attach_requested,
                     Some(writer),
                 );
-                if let Some(view_state) = client.view_state.as_mut() {
-                    *view_state = crate::app::ClientViewState::from_app_state(&self.app.state);
+                if !direct_attach_requested {
+                    client.view_state =
+                        Some(crate::app::ClientViewState::from_app_state(&self.app.state));
                 }
                 self.clients.insert(client_id, client);
                 if !direct_attach_requested {
@@ -4491,6 +4492,141 @@ next_tab = ""
 
         assert_eq!((desktop_frame.width, desktop_frame.height), (120, 40));
         assert_eq!((phone_frame.width, phone_frame.height), (80, 24));
+    }
+
+    #[test]
+    fn accepted_app_client_gets_view_state_and_first_frame() {
+        let mut server = test_headless_server();
+        server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("test")];
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        server.app.state.mode = crate::app::Mode::Terminal;
+
+        let (writer, _control_rx, render_rx) = test_client_writer();
+
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 1,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: None,
+            direct_attach_requested: false,
+            writer,
+        }));
+        assert!(server.clients[&1].view_state.is_some());
+
+        server.render_and_stream();
+
+        let frame = read_server_frame(render_rx.recv().expect("first frame"));
+        assert_eq!((frame.width, frame.height), (80, 24));
+        assert!(
+            frame
+                .cells
+                .iter()
+                .any(|cell| !cell.symbol.trim().is_empty()),
+            "first frame should contain visible UI text"
+        );
+    }
+
+    fn frame_text(frame: &FrameData) -> String {
+        frame
+            .cells
+            .iter()
+            .map(|cell| cell.symbol.as_str())
+            .collect::<String>()
+    }
+    #[tokio::test]
+    async fn mouse_hover_in_workspace_group_does_not_project_into_empty_group_client() {
+        let mut server = test_headless_server();
+        let mut workspace_group = crate::app::state::Group::default_group();
+        workspace_group.id = "with-space".to_string();
+        workspace_group.name = "with space".to_string();
+        let mut empty_group = crate::app::state::Group::default_group();
+        empty_group.id = "empty".to_string();
+        empty_group.name = "empty".to_string();
+
+        let mut workspace = crate::workspace::Workspace::test_new("A_ONLY");
+        workspace.group_id = workspace_group.id.clone();
+        let pane_id = workspace.tabs[0].root_pane;
+        workspace.insert_test_runtime(
+            pane_id,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"A_ONLY_MARKER"),
+        );
+
+        server.app.state.groups = vec![workspace_group, empty_group];
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        server.app.state.active_group = 0;
+        server.app.state.group_filter_enabled = true;
+        server.app.state.mode = crate::app::Mode::Terminal;
+
+        let (a_tx, _a_control_rx, a_render_rx) = test_client_writer();
+        let (b_tx, _b_control_rx, b_render_rx) = test_client_writer();
+
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 1,
+            cols: 100,
+            rows: 30,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: None,
+            direct_attach_requested: false,
+            writer: a_tx,
+        }));
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 2,
+            cols: 100,
+            rows: 30,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: None,
+            direct_attach_requested: false,
+            writer: b_tx,
+        }));
+
+        let mut b_view = crate::app::ClientViewState::from_app_state(&server.app.state);
+        b_view.active_group = 1;
+        b_view.group_filter_enabled = true;
+        b_view.active_workspace = None;
+        b_view.selected_workspace = 0;
+        server.clients.get_mut(&2).unwrap().view_state = Some(b_view);
+        server.foreground_client_id = Some(2);
+        server.sync_foreground_client_state();
+
+        server.render_and_stream();
+        let _ = a_render_rx
+            .recv_timeout(Duration::from_millis(100))
+            .unwrap();
+        let initial_b = read_server_frame(
+            b_render_rx
+                .recv_timeout(Duration::from_millis(100))
+                .unwrap(),
+        );
+        assert!(
+            !frame_text(&initial_b).contains("A_ONLY_MARKER"),
+            "empty-group client should not initially show workspace group's pane"
+        );
+
+        assert!(server.handle_server_event(ServerEvent::ClientInput {
+            client_id: 1,
+            data: b"\x1b[<35;10;10M".to_vec(),
+        }));
+        server.render_and_stream();
+
+        let mirrored_b = read_server_frame(
+            b_render_rx
+                .recv_timeout(Duration::from_millis(100))
+                .unwrap(),
+        );
+        assert!(
+            !frame_text(&mirrored_b).contains("A_ONLY_MARKER"),
+            "hovering client A's pane must not make client B mirror A's pane"
+        );
     }
 
     #[tokio::test]

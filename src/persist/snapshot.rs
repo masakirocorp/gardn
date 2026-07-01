@@ -12,6 +12,9 @@ use crate::workspace::Workspace;
 pub(super) const SNAPSHOT_VERSION: u32 = 3;
 
 /// Serializable snapshot of the entire hako session.
+// Legacy mirror fields stay on the in-memory struct so old snapshots migrate
+// through one parser shape; new snapshots serialize `default_view` instead.
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize)]
 pub struct SessionSnapshot {
     /// Format version — used to detect incompatible changes.

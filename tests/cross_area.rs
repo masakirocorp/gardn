@@ -781,15 +781,15 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
-    let mut client_a = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    client_handshake(&mut client_a, 11, 100, 30);
-    assert!(wait_for_frame(&mut client_a, Duration::from_secs(2)));
-
     let created = workspace_create(&api_socket, "agent-persist");
     let pane_id = created["result"]["root_pane"]["pane_id"]
         .as_str()
         .expect("root pane id")
         .to_string();
+
+    let mut client_a = connect_unix_socket(&client_socket, Duration::from_secs(5));
+    client_handshake(&mut client_a, 11, 100, 30);
+    assert!(wait_for_frame(&mut client_a, Duration::from_secs(2)));
 
     // Ensure detected agent surface is populated by running fake `pi`.
     pane_send_text(&api_socket, &pane_id, "pi");
@@ -951,6 +951,12 @@ fn cross_area_two_clients_shared_view_and_single_detach_stability() {
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
+    let created = workspace_create(&api_socket, "shared-view");
+    let pane_id = created["result"]["root_pane"]["pane_id"]
+        .as_str()
+        .expect("root pane id")
+        .to_string();
+
     let mut client_a = connect_unix_socket(&client_socket, Duration::from_secs(5));
     client_handshake(&mut client_a, 11, 110, 30);
     let mut client_b = connect_unix_socket(&client_socket, Duration::from_secs(5));
@@ -960,12 +966,6 @@ fn cross_area_two_clients_shared_view_and_single_detach_stability() {
     assert!(wait_for_frame(&mut client_b, Duration::from_secs(2)));
     drain_server_messages(&mut client_a, Duration::from_millis(250));
     drain_server_messages(&mut client_b, Duration::from_millis(250));
-
-    let created = workspace_create(&api_socket, "shared-view");
-    let pane_id = created["result"]["root_pane"]["pane_id"]
-        .as_str()
-        .expect("root pane id")
-        .to_string();
 
     // Input from client A should update shared state visible to client B.
     send_client_input(&mut client_a, b"echo SHARED_VIEW\n");
