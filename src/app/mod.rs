@@ -5003,6 +5003,45 @@ mod tests {
         assert_eq!(app.state.mode, Mode::Terminal);
     }
 
+    #[tokio::test]
+    async fn api_request_for_view_uses_invoking_client_view_for_no_target_pane_split() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_app_state(&app.state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+
+        let response = app.handle_api_request_for_view(
+            &mut client,
+            crate::api::schema::Request {
+                id: "split".into(),
+                method: crate::api::schema::Method::PaneSplit(
+                    crate::api::schema::PaneSplitParams {
+                        workspace_id: None,
+                        target_pane_id: None,
+                        direction: crate::api::schema::SplitDirection::Right,
+                        ratio: None,
+                        cwd: None,
+                        focus: true,
+                        env: std::collections::HashMap::new(),
+                    },
+                ),
+            },
+        );
+
+        let body: serde_json::Value = serde_json::from_str(&response).expect("response json");
+        assert_eq!(body["result"]["type"], "pane_info");
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(client.active_workspace, Some(1));
+        assert_eq!(app.state.workspaces[0].tabs[0].panes.len(), 1);
+        assert_eq!(app.state.workspaces[1].tabs[0].panes.len(), 2);
+    }
+
     #[test]
     fn route_client_input_closes_release_notes_modal() {
         let mut app = test_app();
