@@ -2362,6 +2362,7 @@ pub struct ProductAnnouncementState {
     pub preview: bool,
 }
 
+#[derive(Clone)]
 pub struct KeybindHelpState {
     pub scroll: u16,
 }

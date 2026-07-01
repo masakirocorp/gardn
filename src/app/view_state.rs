@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::app::state::{AppState, CommandPaletteState, Mode, SettingsState, ViewState};
+use crate::app::state::{
+    AppState, CommandPaletteState, KeybindHelpState, MenuListState, Mode, SettingsState, ViewState,
+};
 use crate::layout::PaneId;
 use crate::native_diff::NativeDiffPaneViewState;
 use crate::terminal::{TerminalId, TerminalRuntimeRegistry};
@@ -73,6 +75,10 @@ pub(crate) struct ClientViewState {
     pub(crate) terminal_offsets_from_bottom: HashMap<TerminalId, usize>,
     pub(crate) settings: SettingsState,
     pub(crate) command_palette: CommandPaletteState,
+    pub(crate) keybind_help: KeybindHelpState,
+    pub(crate) global_menu: MenuListState,
+    pub(crate) group_menu: MenuListState,
+    pub(crate) agent_menu: MenuListState,
     pub(crate) computed: ViewState,
 }
 
@@ -107,6 +113,10 @@ impl ClientViewState {
             terminal_offsets_from_bottom: HashMap::new(),
             settings: state.settings.clone(),
             command_palette: state.command_palette.clone(),
+            keybind_help: state.keybind_help.clone(),
+            global_menu: state.global_menu.clone(),
+            group_menu: state.group_menu.clone(),
+            agent_menu: state.agent_menu.clone(),
             computed: state.view.clone(),
         };
         view.reconcile(state);
@@ -339,6 +349,10 @@ pub(crate) fn apply_client_view_to_app_state(state: &mut AppState, view: &Client
     state.view = view.computed.clone();
     state.settings = view.settings.clone();
     state.command_palette = view.command_palette.clone();
+    state.keybind_help = view.keybind_help.clone();
+    state.global_menu = view.global_menu.clone();
+    state.group_menu = view.group_menu.clone();
+    state.agent_menu = view.agent_menu.clone();
 
     for workspace in &mut state.workspaces {
         if let Some(active_tab) = view.active_tab_for_workspace(&workspace.id) {
@@ -741,6 +755,37 @@ mod tests {
             assert!(state.tab_scroll_follow_active);
             assert_eq!(state.hovered_tab, None);
             assert_eq!(state.mobile_switcher_scroll, 0);
+        });
+    }
+
+    #[test]
+    fn scoped_client_menu_state_does_not_rewrite_shared_view() {
+        let mut state = AppState::test_new();
+        let runtimes = TerminalRuntimeRegistry::new();
+        let mut first_client = ClientViewState::from_app_state(&state);
+        let mut second_client = ClientViewState::from_app_state(&state);
+
+        with_client_view_app_state(&mut state, &runtimes, &mut first_client, |state| {
+            state.keybind_help.scroll = 7;
+            state.global_menu.highlighted = 1;
+            state.group_menu.highlighted = 2;
+            state.agent_menu.highlighted = 4;
+        });
+
+        assert_eq!(first_client.keybind_help.scroll, 7);
+        assert_eq!(first_client.global_menu.highlighted, 1);
+        assert_eq!(first_client.group_menu.highlighted, 2);
+        assert_eq!(first_client.agent_menu.highlighted, 4);
+        assert_eq!(state.keybind_help.scroll, 0);
+        assert_eq!(state.global_menu.highlighted, 0);
+        assert_eq!(state.group_menu.highlighted, 0);
+        assert_eq!(state.agent_menu.highlighted, 0);
+
+        with_client_view_app_state(&mut state, &runtimes, &mut second_client, |state| {
+            assert_eq!(state.keybind_help.scroll, 0);
+            assert_eq!(state.global_menu.highlighted, 0);
+            assert_eq!(state.group_menu.highlighted, 0);
+            assert_eq!(state.agent_menu.highlighted, 0);
         });
     }
     #[tokio::test]
