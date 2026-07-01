@@ -28,8 +28,8 @@ pub(crate) struct ClientConnection {
     pub(crate) pending_terminal_attach: bool,
     /// Client-local app keybindings. None means use the server's keybindings.
     pub(crate) keybindings: Option<Box<crate::config::LiveKeybindConfig>>,
-    /// Client-local app view/navigation state.
-    pub(crate) view_state: ClientViewState,
+    /// Client-local app view/navigation state. Direct attach clients do not own normal app view.
+    pub(crate) view_state: Option<ClientViewState>,
     /// The client's terminal size after clamping.
     pub(crate) terminal_size: (u16, u16),
     /// Pixel size of one client terminal cell.
@@ -93,6 +93,8 @@ impl ClientConnection {
         pending_terminal_attach: bool,
         writer: Option<ClientWriter>,
     ) -> Self {
+        let view_state = (matches!(mode, ClientConnectionMode::App) && !pending_terminal_attach)
+            .then(|| ClientViewState::from_app_state(&crate::app::state::AppState::test_new()));
         Self {
             mode,
             pending_terminal_attach,
@@ -102,7 +104,7 @@ impl ClientConnection {
             host_terminal_theme,
             outer_terminal_focus,
             last_activity,
-            view_state: ClientViewState::from_app_state(&crate::app::state::AppState::test_new()),
+            view_state,
             render_state: ClientRenderState::new(render_encoding),
             graphics_cache: crate::kitty_graphics::HostGraphicsCache::default(),
             graphics_surface_reset_pending: false,

@@ -1795,7 +1795,9 @@ impl HeadlessServer {
                     direct_attach_requested,
                     Some(writer),
                 );
-                client.view_state = crate::app::ClientViewState::from_app_state(&self.app.state);
+                if let Some(view_state) = client.view_state.as_mut() {
+                    *view_state = crate::app::ClientViewState::from_app_state(&self.app.state);
+                }
                 self.clients.insert(client_id, client);
                 if !direct_attach_requested {
                     self.foreground_client_id = Some(client_id);
@@ -1866,11 +1868,13 @@ impl HeadlessServer {
                 let apply_host_terminal_theme = self.foreground_client_id == Some(client_id);
                 if events_need_client_view_projection(&events) {
                     if let Some(client) = self.clients.get_mut(&client_id) {
-                        self.app.route_client_events_for_view(
-                            &mut client.view_state,
-                            events,
-                            apply_host_terminal_theme,
-                        );
+                        if let Some(view_state) = client.view_state.as_mut() {
+                            self.app.route_client_events_for_view(
+                                view_state,
+                                events,
+                                apply_host_terminal_theme,
+                            );
+                        }
                     }
                 } else {
                     self.app
@@ -1969,11 +1973,13 @@ impl HeadlessServer {
                 let apply_host_terminal_theme = self.foreground_client_id == Some(client_id);
                 if events_need_client_view_projection(&events) {
                     if let Some(client) = self.clients.get_mut(&client_id) {
-                        self.app.route_client_events_for_view(
-                            &mut client.view_state,
-                            events,
-                            apply_host_terminal_theme,
-                        );
+                        if let Some(view_state) = client.view_state.as_mut() {
+                            self.app.route_client_events_for_view(
+                                view_state,
+                                events,
+                                apply_host_terminal_theme,
+                            );
+                        }
                     }
                 } else {
                     self.app
@@ -2451,10 +2457,13 @@ impl HeadlessServer {
                     let Some(client) = self.clients.get_mut(&client_id) else {
                         continue;
                     };
+                    let Some(view_state) = client.view_state.as_mut() else {
+                        continue;
+                    };
                     let (buffer, cursor, hyperlinks) =
                         crate::server::render_stream::render_virtual_for_client_view(
                             &mut self.app.state,
-                            &mut client.view_state,
+                            view_state,
                             &self.app.terminal_runtimes,
                             area,
                             is_foreground,
@@ -3508,7 +3517,9 @@ next_tab = ""
         server.app.state.settings.list.selected = 0;
         server.app.state.settings.selection_active = true;
         if let Some(client) = server.clients.get_mut(&1) {
-            client.view_state = crate::app::ClientViewState::from_app_state(&server.app.state);
+            client.view_state = Some(crate::app::ClientViewState::from_app_state(
+                &server.app.state,
+            ));
         }
 
         assert!(server.handle_server_event(ServerEvent::ClientInput {
@@ -3589,7 +3600,9 @@ next_tab = ""
         server.app.state.settings.section = crate::app::state::SettingsSection::Toast;
         server.app.state.settings.list.selected = 1;
         if let Some(client) = server.clients.get_mut(&1) {
-            client.view_state = crate::app::ClientViewState::from_app_state(&server.app.state);
+            client.view_state = Some(crate::app::ClientViewState::from_app_state(
+                &server.app.state,
+            ));
         }
 
         assert!(server.handle_server_event(ServerEvent::ClientInput {
@@ -3641,6 +3654,7 @@ next_tab = ""
             writer,
         }));
         assert!(server.clients.contains_key(&7));
+        assert!(server.clients.get(&7).unwrap().view_state.is_none());
 
         assert!(
             !server.handle_server_event(ServerEvent::ClientAttachTerminal {
@@ -4592,6 +4606,7 @@ next_tab = ""
                 takeover: false,
             })
         );
+        assert!(server.clients.get(&2).unwrap().view_state.is_none());
         assert_eq!(server.foreground_client_id, Some(1));
         assert!(server
             .app
