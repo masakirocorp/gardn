@@ -2374,6 +2374,7 @@ pub struct CommandPaletteState {
     pub scroll: usize,
 }
 
+#[derive(Clone)]
 pub struct AgentProfilePickerState {
     pub ws_idx: usize,
     pub query: String,

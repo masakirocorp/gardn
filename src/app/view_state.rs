@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::app::state::{
-    AppState, CommandPaletteState, KeybindHelpState, MenuListState, Mode, NavigatorState,
-    SettingsState, ViewState,
+    AgentProfilePickerState, AppState, CommandPaletteState, DiffAgentPickerState,
+    GitRepoPickerState, KeybindHelpState, MenuListState, Mode, NavigatorState, SettingsState,
+    ViewState,
 };
 use crate::layout::PaneId;
 use crate::native_diff::NativeDiffPaneViewState;
@@ -77,6 +78,9 @@ pub(crate) struct ClientViewState {
     pub(crate) settings: SettingsState,
     pub(crate) command_palette: CommandPaletteState,
     pub(crate) navigator: NavigatorState,
+    pub(crate) agent_profile_picker: AgentProfilePickerState,
+    pub(crate) diff_agent_picker: Option<DiffAgentPickerState>,
+    pub(crate) git_repo_picker: GitRepoPickerState,
     pub(crate) keybind_help: KeybindHelpState,
     pub(crate) global_menu: MenuListState,
     pub(crate) group_menu: MenuListState,
@@ -116,6 +120,9 @@ impl ClientViewState {
             settings: state.settings.clone(),
             command_palette: state.command_palette.clone(),
             navigator: state.navigator.clone(),
+            agent_profile_picker: state.agent_profile_picker.clone(),
+            diff_agent_picker: state.diff_agent_picker.clone(),
+            git_repo_picker: state.git_repo_picker.clone(),
             keybind_help: state.keybind_help.clone(),
             global_menu: state.global_menu.clone(),
             group_menu: state.group_menu.clone(),
@@ -353,6 +360,9 @@ pub(crate) fn apply_client_view_to_app_state(state: &mut AppState, view: &Client
     state.settings = view.settings.clone();
     state.command_palette = view.command_palette.clone();
     state.navigator = view.navigator.clone();
+    state.agent_profile_picker = view.agent_profile_picker.clone();
+    state.diff_agent_picker = view.diff_agent_picker.clone();
+    state.git_repo_picker = view.git_repo_picker.clone();
     state.keybind_help = view.keybind_help.clone();
     state.global_menu = view.global_menu.clone();
     state.group_menu = view.group_menu.clone();
@@ -838,6 +848,80 @@ mod tests {
             assert!(!state.navigator.search_focused);
             assert_eq!(state.navigator.state_filter, None);
             assert!(state.navigator.expanded_workspaces.is_empty());
+        });
+    }
+
+    #[test]
+    fn scoped_client_picker_state_does_not_rewrite_shared_view() {
+        let mut state = AppState::test_new();
+        let runtimes = TerminalRuntimeRegistry::new();
+        let mut first_client = ClientViewState::from_app_state(&state);
+        let mut second_client = ClientViewState::from_app_state(&state);
+
+        with_client_view_app_state(&mut state, &runtimes, &mut first_client, |state| {
+            state.agent_profile_picker.ws_idx = 2;
+            state.agent_profile_picker.query = "cod".to_string();
+            state.agent_profile_picker.selected = 3;
+            state.agent_profile_picker.kind_filter = Some(crate::agent_profiles::AgentKind::Codex);
+            state.agent_profile_picker.scroll = 4;
+            state.diff_agent_picker = Some(crate::app::state::DiffAgentPickerState {
+                ws_idx: 1,
+                source_pane_id: PaneId::from_raw(7),
+                payload: "diff payload".to_string(),
+                selected: 2,
+            });
+            state.git_repo_picker.ws_idx = 3;
+            state.git_repo_picker.roots = vec![std::path::PathBuf::from("/repo")];
+            state.git_repo_picker.selected = 1;
+            state.git_repo_picker.scroll = 5;
+        });
+
+        assert_eq!(first_client.agent_profile_picker.ws_idx, 2);
+        assert_eq!(first_client.agent_profile_picker.query, "cod");
+        assert_eq!(first_client.agent_profile_picker.selected, 3);
+        assert_eq!(
+            first_client.agent_profile_picker.kind_filter,
+            Some(crate::agent_profiles::AgentKind::Codex)
+        );
+        assert_eq!(first_client.agent_profile_picker.scroll, 4);
+        assert_eq!(
+            first_client
+                .diff_agent_picker
+                .as_ref()
+                .expect("diff agent picker")
+                .selected,
+            2
+        );
+        assert_eq!(first_client.git_repo_picker.ws_idx, 3);
+        assert_eq!(
+            first_client.git_repo_picker.roots,
+            vec![std::path::PathBuf::from("/repo")]
+        );
+        assert_eq!(first_client.git_repo_picker.selected, 1);
+        assert_eq!(first_client.git_repo_picker.scroll, 5);
+
+        assert_eq!(state.agent_profile_picker.ws_idx, 0);
+        assert!(state.agent_profile_picker.query.is_empty());
+        assert_eq!(state.agent_profile_picker.selected, 0);
+        assert_eq!(state.agent_profile_picker.kind_filter, None);
+        assert_eq!(state.agent_profile_picker.scroll, 0);
+        assert!(state.diff_agent_picker.is_none());
+        assert_eq!(state.git_repo_picker.ws_idx, 0);
+        assert!(state.git_repo_picker.roots.is_empty());
+        assert_eq!(state.git_repo_picker.selected, 0);
+        assert_eq!(state.git_repo_picker.scroll, 0);
+
+        with_client_view_app_state(&mut state, &runtimes, &mut second_client, |state| {
+            assert_eq!(state.agent_profile_picker.ws_idx, 0);
+            assert!(state.agent_profile_picker.query.is_empty());
+            assert_eq!(state.agent_profile_picker.selected, 0);
+            assert_eq!(state.agent_profile_picker.kind_filter, None);
+            assert_eq!(state.agent_profile_picker.scroll, 0);
+            assert!(state.diff_agent_picker.is_none());
+            assert_eq!(state.git_repo_picker.ws_idx, 0);
+            assert!(state.git_repo_picker.roots.is_empty());
+            assert_eq!(state.git_repo_picker.selected, 0);
+            assert_eq!(state.git_repo_picker.scroll, 0);
         });
     }
     #[tokio::test]
