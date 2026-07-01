@@ -486,11 +486,15 @@ impl HeadlessServer {
             .as_deref()
             .unwrap_or(&self.server_keybindings)
             .clone();
+        let view_state = client.view_state.clone();
 
         self.effective_size = terminal_size;
         self.app.state.outer_terminal_focus = outer_terminal_focus;
         apply_keybindings(&mut self.app, &keybindings);
         self.sync_visible_server_config_diagnostic(uses_local_keybindings);
+        if let Some(view_state) = view_state {
+            crate::app::project_view_into_app_state(&mut self.app.state, &view_state);
+        }
         if outer_terminal_focus == Some(true) {
             self.app.state.mark_active_tab_seen();
         }
@@ -5300,6 +5304,179 @@ next_tab = ""
             }
             other => panic!("expected toast notify, got {other:?}"),
         }
+        assert!(
+            background_control_rx
+                .recv_timeout(Duration::from_millis(50))
+                .is_err(),
+            "background client should not receive client-local notifications"
+        );
+    }
+
+    #[test]
+    fn foreground_client_view_controls_active_tab_notification_suppression() {
+        let mut server = test_headless_server();
+        server.app.state.workspaces = vec![
+            crate::workspace::Workspace::test_new("foreground"),
+            crate::workspace::Workspace::test_new("target"),
+        ];
+        server.app.state.ensure_test_terminals();
+        server.app.state.active = Some(0);
+        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+
+        let target_pane = server.app.state.workspaces[1].tabs[0].root_pane;
+        let target_terminal = server.app.state.workspaces[1]
+            .panes
+            .get(&target_pane)
+            .expect("target pane")
+            .attached_terminal_id
+            .clone();
+        server
+            .app
+            .state
+            .terminals
+            .get_mut(&target_terminal)
+            .expect("target terminal")
+            .state = crate::detect::AgentState::Working;
+
+        let (background_tx, background_control_rx, _background_rx) = test_client_writer();
+        let (foreground_tx, foreground_control_rx, _foreground_rx) = test_client_writer();
+        let mut background_client = ClientConnection::new(
+            (120, 40),
+            crate::kitty_graphics::HostCellSize::default(),
+            crate::terminal_theme::TerminalTheme::default(),
+            Some(true),
+            1,
+            RenderEncoding::SemanticFrame,
+            Some(background_tx),
+        );
+        let mut foreground_client = ClientConnection::new(
+            (80, 24),
+            crate::kitty_graphics::HostCellSize::default(),
+            crate::terminal_theme::TerminalTheme::default(),
+            Some(true),
+            2,
+            RenderEncoding::SemanticFrame,
+            Some(foreground_tx),
+        );
+        let mut background_view = crate::app::ClientViewState::from_app_state(&server.app.state);
+        background_view.active_workspace = Some(1);
+        background_view.selected_workspace = 1;
+        let foreground_view = crate::app::ClientViewState::from_app_state(&server.app.state);
+        background_client.view_state = Some(background_view);
+        foreground_client.view_state = Some(foreground_view);
+        server.clients.insert(1, background_client);
+        server.clients.insert(2, foreground_client);
+        server.foreground_client_id = Some(2);
+
+        assert!(
+            server.handle_internal_event_with_forwarding(AppEvent::StateChanged {
+                pane_id: target_pane,
+                agent: Some(crate::detect::Agent::Pi),
+                state: crate::detect::AgentState::Idle,
+                visible_blocker: false,
+                visible_idle: false,
+                visible_working: false,
+                process_exited: false,
+                observed_at: Instant::now(),
+            })
+        );
+
+        match read_server_message(
+            foreground_control_rx
+                .recv_timeout(Duration::from_millis(100))
+                .expect("foreground sound notification"),
+        ) {
+            ServerMessage::Notify { kind, message } => {
+                assert_eq!(kind, protocol::NotifyKind::Sound);
+                assert_eq!(message, "agent done");
+            }
+            other => panic!("expected foreground sound notification, got {other:?}"),
+        }
+        assert!(
+            background_control_rx
+                .recv_timeout(Duration::from_millis(50))
+                .is_err(),
+            "background client watching the pane must not receive the foreground notification"
+        );
+    }
+
+    #[test]
+    fn foreground_client_view_suppresses_active_tab_notifications() {
+        let mut server = test_headless_server();
+        server.app.state.workspaces = vec![
+            crate::workspace::Workspace::test_new("background"),
+            crate::workspace::Workspace::test_new("foreground"),
+        ];
+        server.app.state.ensure_test_terminals();
+        server.app.state.active = Some(0);
+        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+
+        let target_pane = server.app.state.workspaces[1].tabs[0].root_pane;
+        let target_terminal = server.app.state.workspaces[1]
+            .panes
+            .get(&target_pane)
+            .expect("target pane")
+            .attached_terminal_id
+            .clone();
+        server
+            .app
+            .state
+            .terminals
+            .get_mut(&target_terminal)
+            .expect("target terminal")
+            .state = crate::detect::AgentState::Working;
+
+        let (background_tx, background_control_rx, _background_rx) = test_client_writer();
+        let (foreground_tx, foreground_control_rx, _foreground_rx) = test_client_writer();
+        let mut background_client = ClientConnection::new(
+            (120, 40),
+            crate::kitty_graphics::HostCellSize::default(),
+            crate::terminal_theme::TerminalTheme::default(),
+            Some(true),
+            1,
+            RenderEncoding::SemanticFrame,
+            Some(background_tx),
+        );
+        let mut foreground_client = ClientConnection::new(
+            (80, 24),
+            crate::kitty_graphics::HostCellSize::default(),
+            crate::terminal_theme::TerminalTheme::default(),
+            Some(true),
+            2,
+            RenderEncoding::SemanticFrame,
+            Some(foreground_tx),
+        );
+        let background_view = crate::app::ClientViewState::from_app_state(&server.app.state);
+        let mut foreground_view = crate::app::ClientViewState::from_app_state(&server.app.state);
+        foreground_view.active_workspace = Some(1);
+        foreground_view.selected_workspace = 1;
+        background_client.view_state = Some(background_view);
+        foreground_client.view_state = Some(foreground_view);
+        server.clients.insert(1, background_client);
+        server.clients.insert(2, foreground_client);
+        server.foreground_client_id = Some(2);
+
+        assert!(
+            server.handle_internal_event_with_forwarding(AppEvent::StateChanged {
+                pane_id: target_pane,
+                agent: Some(crate::detect::Agent::Pi),
+                state: crate::detect::AgentState::Idle,
+                visible_blocker: false,
+                visible_idle: false,
+                visible_working: false,
+                process_exited: false,
+                observed_at: Instant::now(),
+            })
+        );
+
+        assert!(
+            foreground_control_rx
+                .recv_timeout(Duration::from_millis(50))
+                .is_err(),
+            "foreground client watching the pane should suppress completion notification"
+        );
         assert!(
             background_control_rx
                 .recv_timeout(Duration::from_millis(50))
