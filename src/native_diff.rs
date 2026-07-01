@@ -232,7 +232,87 @@ pub(crate) struct NativeDiffPaneState {
     pub(crate) last_error: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NativeDiffPaneViewState {
+    pub(crate) selected_file: Option<NativeDiffSelection>,
+    pub(crate) selected_hunk: Option<usize>,
+    pub(crate) file_scroll: usize,
+    pub(crate) diff_scroll: usize,
+    pub(crate) diff_col_scroll: usize,
+    pub(crate) show_file_list: bool,
+    pub(crate) wrap_lines: bool,
+    pub(crate) word_diff: bool,
+    pub(crate) view_mode: NativeDiffViewMode,
+    pub(crate) scope: NativeDiffScope,
+    pub(crate) expanded_context: BTreeSet<NativeDiffContextKey>,
+}
+
+impl NativeDiffPaneViewState {
+    fn from_pane(diff: &NativeDiffPaneState) -> Self {
+        Self {
+            selected_file: diff.selected_file,
+            selected_hunk: diff.selected_hunk,
+            file_scroll: diff.file_scroll,
+            diff_scroll: diff.diff_scroll,
+            diff_col_scroll: diff.diff_col_scroll,
+            show_file_list: diff.show_file_list,
+            wrap_lines: diff.wrap_lines,
+            word_diff: diff.word_diff,
+            view_mode: diff.view_mode,
+            scope: diff.scope,
+            expanded_context: diff.expanded_context.clone(),
+        }
+    }
+}
+
 const AGENT_PAYLOAD_MAX_PATCH_BYTES: usize = 24 * 1024;
+impl NativeDiffPaneState {
+    pub(crate) fn view_state(&self) -> NativeDiffPaneViewState {
+        NativeDiffPaneViewState::from_pane(self)
+    }
+
+    pub(crate) fn apply_view_state(&mut self, view: &NativeDiffPaneViewState) {
+        self.selected_file = view
+            .selected_file
+            .filter(|selection| self.selection_is_valid(*selection));
+        self.selected_hunk = view.selected_hunk.filter(|hunk| {
+            self.selected_file()
+                .is_some_and(|file| *hunk < file.hunks.len())
+        });
+        self.file_scroll = view
+            .file_scroll
+            .min(self.file_list_row_count().saturating_sub(1));
+        self.diff_scroll = view
+            .diff_scroll
+            .min(self.visible_diff_rows().len().saturating_sub(1));
+        self.diff_col_scroll = view.diff_col_scroll;
+        self.show_file_list = view.show_file_list;
+        self.wrap_lines = view.wrap_lines;
+        if self.wrap_lines {
+            self.diff_col_scroll = 0;
+        }
+        self.word_diff = view.word_diff;
+        self.view_mode = view.view_mode;
+        self.scope = view.scope;
+        self.expanded_context = view.expanded_context.clone();
+
+        if self
+            .selected_file
+            .is_none_or(|selection| !self.scope.includes(selection.bucket))
+        {
+            self.selected_file = first_selection_for_scope(&self.session, self.scope);
+            self.selected_hunk = None;
+        }
+    }
+
+    fn selection_is_valid(&self, selection: NativeDiffSelection) -> bool {
+        self.session
+            .files
+            .get(selection.file_index)
+            .is_some_and(|file| file.bucket == selection.bucket)
+    }
+}
+
 const AGENT_PAYLOAD_MAX_HUNK_BYTES: usize = 12 * 1024;
 const AGENT_PAYLOAD_MAX_UNTRACKED_BYTES: usize = 16 * 1024;
 

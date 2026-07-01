@@ -61,7 +61,10 @@ use crate::config::Config;
 use crate::events::AppEvent;
 
 pub use state::{AppState, Mode, ToastKind, ViewState};
-pub(crate) use view_state::{project_view_into_app_state, ClientViewState};
+pub(crate) use view_state::{
+    capture_terminal_offsets_from_app_state, project_terminal_offsets_into_runtimes,
+    project_view_into_app_state, ClientViewState,
+};
 
 pub(crate) fn load_plugin_manifest(
     path: &str,
@@ -1854,14 +1857,22 @@ impl App {
         events: Vec<crate::raw_input::RawInputEvent>,
         apply_host_terminal_theme: bool,
     ) {
-        let shared_view = ClientViewState::from_app_state(&self.state);
+        let mut shared_view = ClientViewState::from_app_state(&self.state);
+        capture_terminal_offsets_from_app_state(
+            &self.state,
+            &self.terminal_runtimes,
+            &mut shared_view,
+        );
 
         client_view.reconcile(&self.state);
         project_view_into_app_state(&mut self.state, client_view);
+        project_terminal_offsets_into_runtimes(&self.state, &self.terminal_runtimes, client_view);
         self.route_client_events(events, apply_host_terminal_theme);
         *client_view = ClientViewState::from_app_state(&self.state);
+        capture_terminal_offsets_from_app_state(&self.state, &self.terminal_runtimes, client_view);
 
         project_view_into_app_state(&mut self.state, &shared_view);
+        project_terminal_offsets_into_runtimes(&self.state, &self.terminal_runtimes, &shared_view);
     }
 
     /// Handles a key event in non-terminal mode for the headless server.

@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::app::state::{AppState, Mode, ViewState};
 use crate::layout::PaneId;
+use crate::native_diff::NativeDiffPaneViewState;
+use crate::terminal::{TerminalId, TerminalRuntimeRegistry};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ClientTabViewKey {
@@ -14,6 +16,23 @@ impl ClientTabViewKey {
         Self {
             workspace_id: workspace_id.to_string(),
             tab_number,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ClientPaneViewKey {
+    pub(crate) workspace_id: String,
+    pub(crate) tab_number: usize,
+    pub(crate) pane_id: PaneId,
+}
+
+impl ClientPaneViewKey {
+    fn new(workspace_id: &str, tab_number: usize, pane_id: PaneId) -> Self {
+        Self {
+            workspace_id: workspace_id.to_string(),
+            tab_number,
+            pane_id,
         }
     }
 }
@@ -34,6 +53,8 @@ pub(crate) struct ClientViewState {
     pub(crate) active_tabs: HashMap<String, usize>,
     pub(crate) focused_panes: HashMap<ClientTabViewKey, PaneId>,
     pub(crate) zoomed_tabs: HashSet<ClientTabViewKey>,
+    pub(crate) native_diff_panes: HashMap<ClientPaneViewKey, NativeDiffPaneViewState>,
+    pub(crate) terminal_offsets_from_bottom: HashMap<TerminalId, usize>,
     pub(crate) computed: ViewState,
 }
 
@@ -48,6 +69,8 @@ impl ClientViewState {
             active_tabs: HashMap::new(),
             focused_panes: HashMap::new(),
             zoomed_tabs: HashSet::new(),
+            native_diff_panes: HashMap::new(),
+            terminal_offsets_from_bottom: HashMap::new(),
             computed: state.view.clone(),
         };
         view.reconcile(state);
@@ -68,6 +91,8 @@ impl ClientViewState {
             self.active_tabs.clear();
             self.focused_panes.clear();
             self.zoomed_tabs.clear();
+            self.terminal_offsets_from_bottom.clear();
+            self.native_diff_panes.clear();
             return;
         }
 
@@ -90,6 +115,8 @@ impl ClientViewState {
             .retain(|key, _| valid_workspace_ids.contains(key.workspace_id.as_str()));
         self.zoomed_tabs
             .retain(|key| valid_workspace_ids.contains(key.workspace_id.as_str()));
+        self.native_diff_panes
+            .retain(|key, _| valid_workspace_ids.contains(key.workspace_id.as_str()));
 
         for workspace in &state.workspaces {
             if workspace.tabs.is_empty() {
@@ -98,6 +125,8 @@ impl ClientViewState {
                     .retain(|key, _| key.workspace_id != workspace.id);
                 self.zoomed_tabs
                     .retain(|key| key.workspace_id != workspace.id);
+                self.native_diff_panes
+                    .retain(|key, _| key.workspace_id != workspace.id);
                 continue;
             }
 
@@ -110,21 +139,31 @@ impl ClientViewState {
             self.active_tabs.insert(workspace.id.clone(), active_tab);
 
             for (tab_idx, tab) in workspace.tabs.iter().enumerate() {
-                let key = ClientTabViewKey::new(&workspace.id, tab_idx + 1);
+                let tab_number = tab_idx + 1;
+                let tab_key = ClientTabViewKey::new(&workspace.id, tab_number);
                 if !tab.panes.contains_key(
                     self.focused_panes
-                        .get(&key)
+                        .get(&tab_key)
                         .unwrap_or(&tab.layout.focused()),
                 ) {
-                    self.focused_panes.insert(key.clone(), tab.layout.focused());
+                    self.focused_panes
+                        .insert(tab_key.clone(), tab.layout.focused());
                 } else {
                     self.focused_panes
-                        .entry(key.clone())
+                        .entry(tab_key.clone())
                         .or_insert_with(|| tab.layout.focused());
                 }
 
                 if tab.zoomed {
-                    self.zoomed_tabs.insert(key);
+                    self.zoomed_tabs.insert(tab_key);
+                }
+
+                for (&pane_id, pane) in &tab.panes {
+                    if let Some(diff) = pane.native_diff() {
+                        self.native_diff_panes
+                            .entry(ClientPaneViewKey::new(&workspace.id, tab_number, pane_id))
+                            .or_insert_with(|| diff.view_state());
+                    }
                 }
             }
 
@@ -134,6 +173,23 @@ impl ClientViewState {
             });
             self.zoomed_tabs.retain(|key| {
                 key.workspace_id != workspace.id || (1..=tab_count).contains(&key.tab_number)
+            });
+            self.native_diff_panes.retain(|key, _| {
+                key.workspace_id != workspace.id || (1..=tab_count).contains(&key.tab_number)
+            });
+            self.native_diff_panes.retain(|key, _| {
+                if key.workspace_id != workspace.id {
+                    return true;
+                }
+                workspace
+                    .tabs
+                    .get(key.tab_number.saturating_sub(1))
+                    .is_some_and(|tab| {
+                        tab.panes
+                            .get(&key.pane_id)
+                            .and_then(|pane| pane.native_diff())
+                            .is_some()
+                    })
             });
         }
     }
@@ -156,6 +212,16 @@ impl ClientViewState {
         self.zoomed_tabs
             .contains(&ClientTabViewKey::new(workspace_id, tab_number))
     }
+
+    pub(crate) fn native_diff_view_for_pane(
+        &self,
+        workspace_id: &str,
+        tab_number: usize,
+        pane_id: PaneId,
+    ) -> Option<&NativeDiffPaneViewState> {
+        self.native_diff_panes
+            .get(&ClientPaneViewKey::new(workspace_id, tab_number, pane_id))
+    }
 }
 
 pub(crate) fn project_view_into_app_state(state: &mut AppState, view: &ClientViewState) {
@@ -177,6 +243,69 @@ pub(crate) fn project_view_into_app_state(state: &mut AppState, view: &ClientVie
                 tab.layout.focus_pane(focused_pane);
             }
             tab.zoomed = view.tab_is_zoomed(&workspace.id, tab_number);
+
+            for (&pane_id, pane) in &mut tab.panes {
+                let Some(native_diff_view) =
+                    view.native_diff_view_for_pane(&workspace.id, tab_number, pane_id)
+                else {
+                    continue;
+                };
+                let Some(diff) = pane.native_diff_mut() else {
+                    continue;
+                };
+                diff.apply_view_state(native_diff_view);
+            }
+        }
+    }
+}
+
+pub(crate) fn capture_terminal_offsets_from_app_state(
+    state: &AppState,
+    runtimes: &TerminalRuntimeRegistry,
+    view: &mut ClientViewState,
+) {
+    let mut live_terminal_ids = HashSet::new();
+    for workspace in &state.workspaces {
+        for tab in &workspace.tabs {
+            for pane in tab.panes.values() {
+                let Some(terminal_id) = pane.terminal_id() else {
+                    continue;
+                };
+                live_terminal_ids.insert(terminal_id.clone());
+                let Some(metrics) = runtimes
+                    .get(terminal_id)
+                    .and_then(|runtime| runtime.scroll_metrics())
+                else {
+                    continue;
+                };
+                view.terminal_offsets_from_bottom
+                    .insert(terminal_id.clone(), metrics.offset_from_bottom);
+            }
+        }
+    }
+    view.terminal_offsets_from_bottom
+        .retain(|terminal_id, _| live_terminal_ids.contains(terminal_id));
+}
+
+pub(crate) fn project_terminal_offsets_into_runtimes(
+    state: &AppState,
+    runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+) {
+    for workspace in &state.workspaces {
+        for tab in &workspace.tabs {
+            for pane in tab.panes.values() {
+                let Some(terminal_id) = pane.terminal_id() else {
+                    continue;
+                };
+                let Some(offset) = view.terminal_offsets_from_bottom.get(terminal_id) else {
+                    continue;
+                };
+                let Some(runtime) = runtimes.get(terminal_id) else {
+                    continue;
+                };
+                runtime.set_scroll_offset_from_bottom(*offset);
+            }
         }
     }
 }
@@ -268,5 +397,119 @@ mod tests {
             .zoomed_tabs
             .iter()
             .all(|key| key.workspace_id != removed_workspace_id));
+    }
+
+    #[test]
+    fn native_diff_projection_keeps_selection_client_local() {
+        let session = crate::native_diff::parse_native_diff_session(
+            "/repo",
+            b"--- a/src/first.rs\n+++ b/src/first.rs\n@@ -1 +1 @@\n-old\n+new\n--- a/src/second.rs\n+++ b/src/second.rs\n@@ -1 +1 @@\n-old\n+new\n",
+            b"",
+        )
+        .expect("parse native diff");
+        let mut state = AppState::test_new();
+        let mut workspace = Workspace::test_new("repo");
+        workspace
+            .create_native_diff_tab(session)
+            .expect("create native diff tab");
+        state.workspaces = vec![workspace];
+        state.active = Some(0);
+
+        let mut first_client = ClientViewState::from_app_state(&state);
+        let second_client = ClientViewState::from_app_state(&state);
+        project_view_into_app_state(&mut state, &first_client);
+        let pane_id = state.workspaces[0].focused_pane_id().expect("focused pane");
+        let diff = state.workspaces[0]
+            .pane_state_mut(pane_id)
+            .and_then(|pane| pane.native_diff_mut())
+            .expect("native diff pane");
+        assert_eq!(
+            diff.selected_path().as_deref(),
+            Some(std::path::Path::new("src/first.rs"))
+        );
+
+        assert!(diff.select_visible_file_row(2));
+        first_client = ClientViewState::from_app_state(&state);
+
+        project_view_into_app_state(&mut state, &second_client);
+        let diff = state.workspaces[0]
+            .pane_state(pane_id)
+            .and_then(|pane| pane.native_diff())
+            .expect("native diff pane");
+        assert_eq!(
+            diff.selected_path().as_deref(),
+            Some(std::path::Path::new("src/first.rs"))
+        );
+
+        project_view_into_app_state(&mut state, &first_client);
+        let diff = state.workspaces[0]
+            .pane_state(pane_id)
+            .and_then(|pane| pane.native_diff())
+            .expect("native diff pane");
+        assert_eq!(
+            diff.selected_path().as_deref(),
+            Some(std::path::Path::new("src/second.rs"))
+        );
+    }
+
+    #[tokio::test]
+    async fn terminal_scroll_offset_projection_is_client_local() {
+        let mut state = AppState::test_new();
+        state.workspaces = vec![Workspace::test_new("terminal")];
+        state.active = Some(0);
+        let pane_id = state.workspaces[0].focused_pane_id().expect("focused pane");
+        let terminal_id = state.workspaces[0]
+            .pane_state(pane_id)
+            .and_then(|pane| pane.terminal_id_cloned())
+            .expect("terminal id");
+        let mut runtimes = TerminalRuntimeRegistry::new();
+        runtimes.insert(
+            terminal_id.clone(),
+            crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
+                12,
+                3,
+                10_000,
+                b"one\ntwo\nthree\nfour\nfive\nsix\n",
+            ),
+        );
+
+        let mut first_client = ClientViewState::from_app_state(&state);
+        let mut second_client = ClientViewState::from_app_state(&state);
+        capture_terminal_offsets_from_app_state(&state, &runtimes, &mut first_client);
+        capture_terminal_offsets_from_app_state(&state, &runtimes, &mut second_client);
+        assert_eq!(
+            second_client
+                .terminal_offsets_from_bottom
+                .get(&terminal_id)
+                .copied(),
+            Some(0)
+        );
+
+        runtimes.get(&terminal_id).expect("runtime").scroll_up(2);
+        capture_terminal_offsets_from_app_state(&state, &runtimes, &mut first_client);
+        let first_offset = first_client
+            .terminal_offsets_from_bottom
+            .get(&terminal_id)
+            .copied()
+            .expect("first client terminal offset");
+        assert!(first_offset > 0);
+
+        project_terminal_offsets_into_runtimes(&state, &runtimes, &second_client);
+        assert_eq!(
+            runtimes
+                .get(&terminal_id)
+                .and_then(|runtime| runtime.scroll_metrics())
+                .map(|metrics| metrics.offset_from_bottom),
+            Some(0)
+        );
+
+        project_terminal_offsets_into_runtimes(&state, &runtimes, &first_client);
+        assert_eq!(
+            runtimes
+                .get(&terminal_id)
+                .and_then(|runtime| runtime.scroll_metrics())
+                .map(|metrics| metrics.offset_from_bottom),
+            Some(first_offset)
+        );
     }
 }
