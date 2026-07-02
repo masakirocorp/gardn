@@ -2352,6 +2352,7 @@ pub struct CopyFeedback {
     pub message: String,
 }
 
+#[derive(Clone)]
 pub struct ReleaseNotesState {
     pub version: String,
     pub body: String,
@@ -2359,6 +2360,7 @@ pub struct ReleaseNotesState {
     pub preview: bool,
 }
 
+#[derive(Clone)]
 pub struct ProductAnnouncementState {
     pub version: String,
     pub id: String,

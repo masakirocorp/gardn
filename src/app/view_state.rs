@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use crate::app::state::{
     AgentProfilePickerState, AppState, CommandPaletteState, ContextMenuState, CopyModeState,
     DiffAgentPickerState, DragState, GitRepoPickerState, GroupPressState, KeybindHelpState,
-    MenuListState, Mode, NavigatorState, SelectionAutoscroll, SettingsState, TabPressState,
-    ViewState, WorkspacePressState,
+    MenuListState, Mode, NavigatorState, ProductAnnouncementState, ReleaseNotesState,
+    SelectionAutoscroll, SettingsState, TabPressState, ViewState, WorkspacePressState,
 };
 use crate::layout::PaneId;
 use crate::native_diff::NativeDiffPaneViewState;
@@ -94,6 +94,20 @@ pub(crate) struct ClientViewState {
     pub(crate) global_menu: MenuListState,
     pub(crate) group_menu: MenuListState,
     pub(crate) agent_menu: MenuListState,
+    pub(crate) creating_new_tab: bool,
+    pub(crate) creating_new_group: bool,
+    pub(crate) group_icon_input: String,
+    pub(crate) group_default_directory_input: String,
+    pub(crate) group_modal_selected_field: usize,
+    pub(crate) group_icon_picker_open: bool,
+    pub(crate) rename_group_target: Option<usize>,
+    pub(crate) requested_new_tab_name: Option<String>,
+    pub(crate) rename_pane_target: Option<PaneId>,
+    pub(crate) confirm_delete_group: Option<usize>,
+    pub(crate) name_input: String,
+    pub(crate) name_input_replace_on_type: bool,
+    pub(crate) release_notes: Option<ReleaseNotesState>,
+    pub(crate) product_announcement: Option<ProductAnnouncementState>,
     pub(crate) computed: ViewState,
 }
 
@@ -144,6 +158,20 @@ impl ClientViewState {
             global_menu: state.global_menu.clone(),
             group_menu: state.group_menu.clone(),
             agent_menu: state.agent_menu.clone(),
+            creating_new_tab: state.creating_new_tab,
+            creating_new_group: state.creating_new_group,
+            group_icon_input: state.group_icon_input.clone(),
+            group_default_directory_input: state.group_default_directory_input.clone(),
+            group_modal_selected_field: state.group_modal_selected_field,
+            group_icon_picker_open: state.group_icon_picker_open,
+            rename_group_target: state.rename_group_target,
+            requested_new_tab_name: state.requested_new_tab_name.clone(),
+            rename_pane_target: state.rename_pane_target,
+            confirm_delete_group: state.confirm_delete_group,
+            name_input: state.name_input.clone(),
+            name_input_replace_on_type: state.name_input_replace_on_type,
+            release_notes: state.release_notes.clone(),
+            product_announcement: state.product_announcement.clone(),
             computed: state.view.clone(),
         };
         view.reconcile(state);
@@ -392,6 +420,20 @@ pub(crate) fn apply_client_view_to_app_state(state: &mut AppState, view: &Client
     state.global_menu = view.global_menu.clone();
     state.group_menu = view.group_menu.clone();
     state.agent_menu = view.agent_menu.clone();
+    state.creating_new_tab = view.creating_new_tab;
+    state.creating_new_group = view.creating_new_group;
+    state.group_icon_input = view.group_icon_input.clone();
+    state.group_default_directory_input = view.group_default_directory_input.clone();
+    state.group_modal_selected_field = view.group_modal_selected_field;
+    state.group_icon_picker_open = view.group_icon_picker_open;
+    state.rename_group_target = view.rename_group_target;
+    state.requested_new_tab_name = view.requested_new_tab_name.clone();
+    state.rename_pane_target = view.rename_pane_target;
+    state.confirm_delete_group = view.confirm_delete_group;
+    state.name_input = view.name_input.clone();
+    state.name_input_replace_on_type = view.name_input_replace_on_type;
+    state.release_notes = view.release_notes.clone();
+    state.product_announcement = view.product_announcement.clone();
 
     for workspace in &mut state.workspaces {
         if let Some(active_tab) = view.active_tab_for_workspace(&workspace.id) {
@@ -1129,6 +1171,116 @@ mod tests {
             assert!(state.workspace_press.is_none());
             assert!(state.group_press.is_none());
             assert!(state.tab_press.is_none());
+        });
+    }
+
+    #[test]
+    fn scoped_client_modal_draft_state_does_not_rewrite_shared_view() {
+        let mut state = AppState::test_new();
+        let runtimes = TerminalRuntimeRegistry::new();
+        let mut first_client = ClientViewState::from_app_state(&state);
+        let mut second_client = ClientViewState::from_app_state(&state);
+
+        with_client_view_app_state(&mut state, &runtimes, &mut first_client, |state| {
+            state.creating_new_tab = true;
+            state.creating_new_group = true;
+            state.group_icon_input = "★".to_string();
+            state.group_default_directory_input = "/tmp/group".to_string();
+            state.group_modal_selected_field = 2;
+            state.group_icon_picker_open = true;
+            state.rename_group_target = Some(3);
+            state.requested_new_tab_name = Some("api".to_string());
+            state.rename_pane_target = Some(PaneId::from_raw(4));
+            state.confirm_delete_group = Some(5);
+            state.name_input = "draft name".to_string();
+            state.name_input_replace_on_type = true;
+            state.release_notes = Some(crate::app::state::ReleaseNotesState {
+                version: "0.2.0".to_string(),
+                body: "notes".to_string(),
+                scroll: 6,
+                preview: true,
+            });
+            state.product_announcement = Some(crate::app::state::ProductAnnouncementState {
+                version: "0.2.0".to_string(),
+                id: "announcement".to_string(),
+                title: "Title".to_string(),
+                body: "Body".to_string(),
+                scroll: 7,
+                preview: true,
+            });
+        });
+
+        assert!(first_client.creating_new_tab);
+        assert!(first_client.creating_new_group);
+        assert_eq!(first_client.group_icon_input, "★");
+        assert_eq!(first_client.group_default_directory_input, "/tmp/group");
+        assert_eq!(first_client.group_modal_selected_field, 2);
+        assert!(first_client.group_icon_picker_open);
+        assert_eq!(first_client.rename_group_target, Some(3));
+        assert_eq!(first_client.requested_new_tab_name.as_deref(), Some("api"));
+        assert_eq!(first_client.rename_pane_target, Some(PaneId::from_raw(4)));
+        assert_eq!(first_client.confirm_delete_group, Some(5));
+        assert_eq!(first_client.name_input, "draft name");
+        assert!(first_client.name_input_replace_on_type);
+        assert_eq!(
+            first_client.release_notes.as_ref().map(|notes| (
+                notes.version.as_str(),
+                notes.scroll,
+                notes.preview
+            )),
+            Some(("0.2.0", 6, true))
+        );
+        assert_eq!(
+            first_client
+                .product_announcement
+                .as_ref()
+                .map(|announcement| {
+                    (
+                        announcement.version.as_str(),
+                        announcement.id.as_str(),
+                        announcement.scroll,
+                        announcement.preview,
+                    )
+                }),
+            Some(("0.2.0", "announcement", 7, true))
+        );
+
+        assert!(!state.creating_new_tab);
+        assert!(!state.creating_new_group);
+        assert_eq!(
+            state.group_icon_input,
+            crate::app::state::DEFAULT_GROUP_ICON
+        );
+        assert!(state.group_default_directory_input.is_empty());
+        assert_eq!(state.group_modal_selected_field, 0);
+        assert!(!state.group_icon_picker_open);
+        assert_eq!(state.rename_group_target, None);
+        assert_eq!(state.requested_new_tab_name, None);
+        assert_eq!(state.rename_pane_target, None);
+        assert_eq!(state.confirm_delete_group, None);
+        assert!(state.name_input.is_empty());
+        assert!(!state.name_input_replace_on_type);
+        assert!(state.release_notes.is_none());
+        assert!(state.product_announcement.is_none());
+
+        with_client_view_app_state(&mut state, &runtimes, &mut second_client, |state| {
+            assert!(!state.creating_new_tab);
+            assert!(!state.creating_new_group);
+            assert_eq!(
+                state.group_icon_input,
+                crate::app::state::DEFAULT_GROUP_ICON
+            );
+            assert!(state.group_default_directory_input.is_empty());
+            assert_eq!(state.group_modal_selected_field, 0);
+            assert!(!state.group_icon_picker_open);
+            assert_eq!(state.rename_group_target, None);
+            assert_eq!(state.requested_new_tab_name, None);
+            assert_eq!(state.rename_pane_target, None);
+            assert_eq!(state.confirm_delete_group, None);
+            assert!(state.name_input.is_empty());
+            assert!(!state.name_input_replace_on_type);
+            assert!(state.release_notes.is_none());
+            assert!(state.product_announcement.is_none());
         });
     }
     #[tokio::test]
