@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::app::state::{
-    AgentProfilePickerState, AppState, CommandPaletteState, DiffAgentPickerState,
+    AgentProfilePickerState, AppState, CommandPaletteState, ContextMenuState, DiffAgentPickerState,
     GitRepoPickerState, KeybindHelpState, MenuListState, Mode, NavigatorState, SettingsState,
     ViewState,
 };
@@ -81,6 +81,7 @@ pub(crate) struct ClientViewState {
     pub(crate) agent_profile_picker: AgentProfilePickerState,
     pub(crate) diff_agent_picker: Option<DiffAgentPickerState>,
     pub(crate) git_repo_picker: GitRepoPickerState,
+    pub(crate) context_menu: Option<ContextMenuState>,
     pub(crate) keybind_help: KeybindHelpState,
     pub(crate) global_menu: MenuListState,
     pub(crate) group_menu: MenuListState,
@@ -123,6 +124,7 @@ impl ClientViewState {
             agent_profile_picker: state.agent_profile_picker.clone(),
             diff_agent_picker: state.diff_agent_picker.clone(),
             git_repo_picker: state.git_repo_picker.clone(),
+            context_menu: state.context_menu.clone(),
             keybind_help: state.keybind_help.clone(),
             global_menu: state.global_menu.clone(),
             group_menu: state.group_menu.clone(),
@@ -363,6 +365,7 @@ pub(crate) fn apply_client_view_to_app_state(state: &mut AppState, view: &Client
     state.agent_profile_picker = view.agent_profile_picker.clone();
     state.diff_agent_picker = view.diff_agent_picker.clone();
     state.git_repo_picker = view.git_repo_picker.clone();
+    state.context_menu = view.context_menu.clone();
     state.keybind_help = view.keybind_help.clone();
     state.global_menu = view.global_menu.clone();
     state.group_menu = view.group_menu.clone();
@@ -922,6 +925,45 @@ mod tests {
             assert!(state.git_repo_picker.roots.is_empty());
             assert_eq!(state.git_repo_picker.selected, 0);
             assert_eq!(state.git_repo_picker.scroll, 0);
+        });
+    }
+
+    #[test]
+    fn scoped_client_context_menu_state_does_not_rewrite_shared_view() {
+        let mut state = AppState::test_new();
+        let runtimes = TerminalRuntimeRegistry::new();
+        let mut first_client = ClientViewState::from_app_state(&state);
+        let mut second_client = ClientViewState::from_app_state(&state);
+
+        with_client_view_app_state(&mut state, &runtimes, &mut first_client, |state| {
+            state.context_menu = Some(crate::app::state::ContextMenuState {
+                kind: crate::app::state::ContextMenuKind::Pane {
+                    ws_idx: 1,
+                    pane_id: PaneId::from_raw(9),
+                    has_manual_label: true,
+                },
+                x: 10,
+                y: 11,
+                list: crate::app::state::MenuListState::new(3),
+            });
+        });
+
+        let first_menu = first_client.context_menu.as_ref().expect("context menu");
+        assert_eq!(
+            first_menu.kind,
+            crate::app::state::ContextMenuKind::Pane {
+                ws_idx: 1,
+                pane_id: PaneId::from_raw(9),
+                has_manual_label: true,
+            }
+        );
+        assert_eq!(first_menu.x, 10);
+        assert_eq!(first_menu.y, 11);
+        assert_eq!(first_menu.list.highlighted, 3);
+        assert!(state.context_menu.is_none());
+
+        with_client_view_app_state(&mut state, &runtimes, &mut second_client, |state| {
+            assert!(state.context_menu.is_none());
         });
     }
     #[tokio::test]

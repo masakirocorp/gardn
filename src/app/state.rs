@@ -2083,6 +2083,7 @@ pub enum ContextMenuKind {
 }
 
 /// Right-click context menu state.
+#[derive(Clone)]
 pub struct ContextMenuState {
     pub kind: ContextMenuKind,
     pub x: u16,
