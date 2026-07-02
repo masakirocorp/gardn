@@ -2,8 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use crate::app::state::{
     AgentProfilePickerState, AppState, CommandPaletteState, ContextMenuState, CopyModeState,
-    DiffAgentPickerState, GitRepoPickerState, KeybindHelpState, MenuListState, Mode,
-    NavigatorState, SelectionAutoscroll, SettingsState, ViewState,
+    DiffAgentPickerState, DragState, GitRepoPickerState, GroupPressState, KeybindHelpState,
+    MenuListState, Mode, NavigatorState, SelectionAutoscroll, SettingsState, TabPressState,
+    ViewState, WorkspacePressState,
 };
 use crate::layout::PaneId;
 use crate::native_diff::NativeDiffPaneViewState;
@@ -85,6 +86,10 @@ pub(crate) struct ClientViewState {
     pub(crate) copy_mode: Option<CopyModeState>,
     pub(crate) selection: Option<crate::selection::Selection>,
     pub(crate) selection_autoscroll: Option<SelectionAutoscroll>,
+    pub(crate) drag: Option<DragState>,
+    pub(crate) workspace_press: Option<WorkspacePressState>,
+    pub(crate) group_press: Option<GroupPressState>,
+    pub(crate) tab_press: Option<TabPressState>,
     pub(crate) keybind_help: KeybindHelpState,
     pub(crate) global_menu: MenuListState,
     pub(crate) group_menu: MenuListState,
@@ -131,6 +136,10 @@ impl ClientViewState {
             copy_mode: state.copy_mode,
             selection: state.selection.clone(),
             selection_autoscroll: state.selection_autoscroll.clone(),
+            drag: state.drag.clone(),
+            workspace_press: state.workspace_press.clone(),
+            group_press: state.group_press.clone(),
+            tab_press: state.tab_press.clone(),
             keybind_help: state.keybind_help.clone(),
             global_menu: state.global_menu.clone(),
             group_menu: state.group_menu.clone(),
@@ -375,6 +384,10 @@ pub(crate) fn apply_client_view_to_app_state(state: &mut AppState, view: &Client
     state.copy_mode = view.copy_mode;
     state.selection = view.selection.clone();
     state.selection_autoscroll = view.selection_autoscroll.clone();
+    state.drag = view.drag.clone();
+    state.workspace_press = view.workspace_press.clone();
+    state.group_press = view.group_press.clone();
+    state.tab_press = view.tab_press.clone();
     state.keybind_help = view.keybind_help.clone();
     state.global_menu = view.global_menu.clone();
     state.group_menu = view.group_menu.clone();
@@ -1044,6 +1057,78 @@ mod tests {
             assert!(state.copy_mode.is_none());
             assert!(state.selection.is_none());
             assert!(state.selection_autoscroll.is_none());
+        });
+    }
+
+    #[test]
+    fn scoped_client_drag_press_state_does_not_rewrite_shared_view() {
+        let mut state = AppState::test_new();
+        let runtimes = TerminalRuntimeRegistry::new();
+        let mut first_client = ClientViewState::from_app_state(&state);
+        let mut second_client = ClientViewState::from_app_state(&state);
+
+        with_client_view_app_state(&mut state, &runtimes, &mut first_client, |state| {
+            state.drag = Some(crate::app::state::DragState {
+                target: crate::app::state::DragTarget::TabReorder {
+                    ws_idx: 1,
+                    source_tab_idx: 2,
+                    insert_idx: Some(3),
+                },
+            });
+            state.workspace_press = Some(crate::app::state::WorkspacePressState {
+                ws_idx: 4,
+                start_col: 5,
+                start_row: 6,
+            });
+            state.group_press = Some(crate::app::state::GroupPressState {
+                group_idx: 7,
+                start_col: 8,
+                start_row: 9,
+            });
+            state.tab_press = Some(crate::app::state::TabPressState {
+                ws_idx: 10,
+                tab_idx: 11,
+                start_col: 12,
+                start_row: 13,
+            });
+        });
+
+        let drag = first_client.drag.as_ref().expect("drag");
+        assert!(matches!(
+            drag.target,
+            crate::app::state::DragTarget::TabReorder {
+                ws_idx: 1,
+                source_tab_idx: 2,
+                insert_idx: Some(3)
+            }
+        ));
+        let workspace_press = first_client
+            .workspace_press
+            .as_ref()
+            .expect("workspace press");
+        assert_eq!(workspace_press.ws_idx, 4);
+        assert_eq!(workspace_press.start_col, 5);
+        assert_eq!(workspace_press.start_row, 6);
+        let group_press = first_client.group_press.as_ref().expect("group press");
+        assert_eq!(group_press.group_idx, 7);
+        assert_eq!(group_press.start_col, 8);
+        assert_eq!(group_press.start_row, 9);
+        let tab_press = first_client.tab_press.as_ref().expect("tab press");
+        assert_eq!(tab_press.ws_idx, 10);
+        assert_eq!(tab_press.tab_idx, 11);
+        assert_eq!(tab_press.start_col, 12);
+        assert_eq!(tab_press.start_row, 13);
+
+        assert!(state.drag.is_none());
+        assert!(state.workspace_press.is_none());
+        assert!(state.group_press.is_none());
+        assert!(state.tab_press.is_none());
+
+        with_client_view_app_state(&mut state, &runtimes, &mut second_client, |state| {
+            assert!(state.drag.is_none());
+            assert!(state.workspace_press.is_none());
+            assert!(state.group_press.is_none());
+            assert!(state.tab_press.is_none());
         });
     }
     #[tokio::test]
