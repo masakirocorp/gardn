@@ -3,8 +3,9 @@ use std::collections::{HashMap, HashSet};
 use crate::app::state::{
     AgentProfilePickerState, AppState, CommandPaletteState, ContextMenuState, CopyModeState,
     DiffAgentPickerState, DragState, GitRepoPickerState, GroupPressState, KeybindHelpState,
-    MenuListState, Mode, NavigatorState, ProductAnnouncementState, ReleaseNotesState,
-    SelectionAutoscroll, SettingsState, TabPressState, ViewState, WorkspacePressState,
+    MenuListState, Mode, NavigatorState, PaneFocusTarget, ProductAnnouncementState,
+    ReleaseNotesState, RightClickPassthroughGesture, SelectionAutoscroll, SettingsState,
+    TabPressState, ViewState, WorkspacePressState,
 };
 use crate::layout::PaneId;
 use crate::native_diff::NativeDiffPaneViewState;
@@ -90,6 +91,8 @@ pub(crate) struct ClientViewState {
     pub(crate) workspace_press: Option<WorkspacePressState>,
     pub(crate) group_press: Option<GroupPressState>,
     pub(crate) tab_press: Option<TabPressState>,
+    pub(crate) previous_pane_focus: Option<PaneFocusTarget>,
+    pub(crate) right_click_passthrough: Option<RightClickPassthroughGesture>,
     pub(crate) keybind_help: KeybindHelpState,
     pub(crate) global_menu: MenuListState,
     pub(crate) group_menu: MenuListState,
@@ -154,6 +157,8 @@ impl ClientViewState {
             workspace_press: state.workspace_press.clone(),
             group_press: state.group_press.clone(),
             tab_press: state.tab_press.clone(),
+            previous_pane_focus: state.previous_pane_focus.clone(),
+            right_click_passthrough: state.right_click_passthrough.clone(),
             keybind_help: state.keybind_help.clone(),
             global_menu: state.global_menu.clone(),
             group_menu: state.group_menu.clone(),
@@ -416,6 +421,8 @@ pub(crate) fn apply_client_view_to_app_state(state: &mut AppState, view: &Client
     state.workspace_press = view.workspace_press.clone();
     state.group_press = view.group_press.clone();
     state.tab_press = view.tab_press.clone();
+    state.previous_pane_focus = view.previous_pane_focus.clone();
+    state.right_click_passthrough = view.right_click_passthrough.clone();
     state.keybind_help = view.keybind_help.clone();
     state.global_menu = view.global_menu.clone();
     state.group_menu = view.group_menu.clone();
@@ -1133,6 +1140,20 @@ mod tests {
                 start_col: 12,
                 start_row: 13,
             });
+            state.previous_pane_focus = Some(crate::app::state::PaneFocusTarget {
+                workspace_id: "workspace-a".to_string(),
+                pane_id: PaneId::from_raw(14),
+            });
+            state.right_click_passthrough = Some(crate::app::state::RightClickPassthroughGesture {
+                pane_info: crate::layout::PaneInfo {
+                    id: PaneId::from_raw(15),
+                    rect: ratatui::layout::Rect::new(1, 2, 10, 6),
+                    inner_rect: ratatui::layout::Rect::new(2, 3, 8, 4),
+                    scrollbar_rect: None,
+                    is_focused: true,
+                },
+                modifiers: crossterm::event::KeyModifiers::SHIFT,
+            });
         });
 
         let drag = first_client.drag.as_ref().expect("drag");
@@ -1160,17 +1181,34 @@ mod tests {
         assert_eq!(tab_press.tab_idx, 11);
         assert_eq!(tab_press.start_col, 12);
         assert_eq!(tab_press.start_row, 13);
+        assert_eq!(
+            first_client
+                .previous_pane_focus
+                .as_ref()
+                .map(|target| (target.workspace_id.as_str(), target.pane_id)),
+            Some(("workspace-a", PaneId::from_raw(14)))
+        );
+        let passthrough = first_client
+            .right_click_passthrough
+            .as_ref()
+            .expect("right click passthrough");
+        assert_eq!(passthrough.pane_info.id, PaneId::from_raw(15));
+        assert_eq!(passthrough.modifiers, crossterm::event::KeyModifiers::SHIFT);
 
         assert!(state.drag.is_none());
         assert!(state.workspace_press.is_none());
         assert!(state.group_press.is_none());
         assert!(state.tab_press.is_none());
+        assert!(state.previous_pane_focus.is_none());
+        assert!(state.right_click_passthrough.is_none());
 
         with_client_view_app_state(&mut state, &runtimes, &mut second_client, |state| {
             assert!(state.drag.is_none());
             assert!(state.workspace_press.is_none());
             assert!(state.group_press.is_none());
             assert!(state.tab_press.is_none());
+            assert!(state.previous_pane_focus.is_none());
+            assert!(state.right_click_passthrough.is_none());
         });
     }
 
