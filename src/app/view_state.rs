@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::app::state::{
-    AgentProfilePickerState, AppState, CommandPaletteState, ContextMenuState, DiffAgentPickerState,
-    GitRepoPickerState, KeybindHelpState, MenuListState, Mode, NavigatorState, SettingsState,
-    ViewState,
+    AgentProfilePickerState, AppState, CommandPaletteState, ContextMenuState, CopyModeState,
+    DiffAgentPickerState, GitRepoPickerState, KeybindHelpState, MenuListState, Mode,
+    NavigatorState, SelectionAutoscroll, SettingsState, ViewState,
 };
 use crate::layout::PaneId;
 use crate::native_diff::NativeDiffPaneViewState;
@@ -82,6 +82,9 @@ pub(crate) struct ClientViewState {
     pub(crate) diff_agent_picker: Option<DiffAgentPickerState>,
     pub(crate) git_repo_picker: GitRepoPickerState,
     pub(crate) context_menu: Option<ContextMenuState>,
+    pub(crate) copy_mode: Option<CopyModeState>,
+    pub(crate) selection: Option<crate::selection::Selection>,
+    pub(crate) selection_autoscroll: Option<SelectionAutoscroll>,
     pub(crate) keybind_help: KeybindHelpState,
     pub(crate) global_menu: MenuListState,
     pub(crate) group_menu: MenuListState,
@@ -125,6 +128,9 @@ impl ClientViewState {
             diff_agent_picker: state.diff_agent_picker.clone(),
             git_repo_picker: state.git_repo_picker.clone(),
             context_menu: state.context_menu.clone(),
+            copy_mode: state.copy_mode,
+            selection: state.selection.clone(),
+            selection_autoscroll: state.selection_autoscroll.clone(),
             keybind_help: state.keybind_help.clone(),
             global_menu: state.global_menu.clone(),
             group_menu: state.group_menu.clone(),
@@ -366,6 +372,9 @@ pub(crate) fn apply_client_view_to_app_state(state: &mut AppState, view: &Client
     state.diff_agent_picker = view.diff_agent_picker.clone();
     state.git_repo_picker = view.git_repo_picker.clone();
     state.context_menu = view.context_menu.clone();
+    state.copy_mode = view.copy_mode;
+    state.selection = view.selection.clone();
+    state.selection_autoscroll = view.selection_autoscroll.clone();
     state.keybind_help = view.keybind_help.clone();
     state.global_menu = view.global_menu.clone();
     state.group_menu = view.group_menu.clone();
@@ -964,6 +973,77 @@ mod tests {
 
         with_client_view_app_state(&mut state, &runtimes, &mut second_client, |state| {
             assert!(state.context_menu.is_none());
+        });
+    }
+
+    #[test]
+    fn scoped_client_copy_selection_state_does_not_rewrite_shared_view() {
+        let mut state = AppState::test_new();
+        let runtimes = TerminalRuntimeRegistry::new();
+        let mut first_client = ClientViewState::from_app_state(&state);
+        let mut second_client = ClientViewState::from_app_state(&state);
+
+        with_client_view_app_state(&mut state, &runtimes, &mut first_client, |state| {
+            state.copy_mode = Some(crate::app::state::CopyModeState {
+                pane_id: PaneId::from_raw(4),
+                cursor_row: 2,
+                cursor_col: 3,
+                entry_offset_from_bottom: 5,
+                selection: Some(crate::app::state::CopyModeSelection::Character),
+            });
+            state.selection = Some(crate::selection::Selection::anchor(
+                PaneId::from_raw(6),
+                1,
+                2,
+                None,
+            ));
+            state.selection_autoscroll = Some(crate::app::state::SelectionAutoscroll {
+                direction: crate::app::state::SelectionAutoscrollDirection::Down,
+                last_mouse_screen_col: 7,
+                last_mouse_screen_row: 8,
+                inner_rect: ratatui::layout::Rect::new(1, 2, 3, 4),
+            });
+        });
+
+        let first_copy = first_client.copy_mode.expect("copy mode");
+        assert_eq!(first_copy.pane_id, PaneId::from_raw(4));
+        assert_eq!(first_copy.cursor_row, 2);
+        assert_eq!(first_copy.cursor_col, 3);
+        assert_eq!(first_copy.entry_offset_from_bottom, 5);
+        assert_eq!(
+            first_copy.selection,
+            Some(crate::app::state::CopyModeSelection::Character)
+        );
+        assert_eq!(
+            first_client
+                .selection
+                .as_ref()
+                .map(|selection| selection.pane_id),
+            Some(PaneId::from_raw(6))
+        );
+        let autoscroll = first_client
+            .selection_autoscroll
+            .as_ref()
+            .expect("selection autoscroll");
+        assert_eq!(
+            autoscroll.direction,
+            crate::app::state::SelectionAutoscrollDirection::Down
+        );
+        assert_eq!(autoscroll.last_mouse_screen_col, 7);
+        assert_eq!(autoscroll.last_mouse_screen_row, 8);
+        assert_eq!(
+            autoscroll.inner_rect,
+            ratatui::layout::Rect::new(1, 2, 3, 4)
+        );
+
+        assert!(state.copy_mode.is_none());
+        assert!(state.selection.is_none());
+        assert!(state.selection_autoscroll.is_none());
+
+        with_client_view_app_state(&mut state, &runtimes, &mut second_client, |state| {
+            assert!(state.copy_mode.is_none());
+            assert!(state.selection.is_none());
+            assert!(state.selection_autoscroll.is_none());
         });
     }
     #[tokio::test]
