@@ -689,7 +689,7 @@ fn appearance_rows(app: &AppState) -> Vec<SettingsListRow> {
     rows.extend(setting_group(
         "panes",
         [option(
-            layout_base + 3,
+            layout_base + 4,
             "agent border labels",
             "show detected agent names in split pane borders",
             app.settings
@@ -717,6 +717,10 @@ fn layout_rows_with_base(app: &AppState, base: usize) -> Vec<SettingsListRow> {
         .settings
         .pending_sidebar_max_width
         .unwrap_or(app.sidebar_max_width);
+    let arrangement = app
+        .settings
+        .pending_sidebar_arrangement
+        .unwrap_or(app.sidebar_arrangement);
     setting_group(
         "sidebar",
         [
@@ -737,6 +741,12 @@ fn layout_rows_with_base(app: &AppState, base: usize) -> Vec<SettingsListRow> {
                 "maximum sidebar width",
                 "largest allowed desktop sidebar width",
                 format!("{max} cols"),
+            ),
+            value_option(
+                base + 3,
+                "sidebar arrangement",
+                "where spaces and agents live on desktop",
+                arrangement.label(),
             ),
         ],
     )

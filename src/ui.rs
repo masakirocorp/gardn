@@ -93,9 +93,9 @@ pub(crate) use self::{
         compute_workspace_group_empty_areas_in_list, compute_workspace_group_header_areas,
         compute_workspace_group_header_areas_in_list, expanded_sidebar_sections,
         expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
-        right_aligned_sidebar_section_divider_rect, right_aligned_workspace_list_rect,
-        right_sidebar_content_rect, right_sidebar_toggle_rect, sidebar_section_divider_rect,
-        workspace_drop_indicator_row, workspace_list_entry_count,
+        right_aligned_expanded_sidebar_sections, right_aligned_sidebar_section_divider_rect,
+        right_aligned_workspace_list_rect, right_sidebar_content_rect, right_sidebar_toggle_rect,
+        sidebar_section_divider_rect, workspace_drop_indicator_row, workspace_list_entry_count,
         workspace_list_position_for_workspace, workspace_list_rect, workspace_list_scroll_metrics,
         workspace_list_scrollbar_rect, AgentPanelHeaderTarget,
     },
@@ -118,6 +118,7 @@ use crate::app::{AppState, Mode};
 use crate::terminal::TerminalRuntimeRegistry;
 
 const COLLAPSED_WIDTH: u16 = 4; // num + space + dot + separator
+const RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH: u16 = 56;
 const DESKTOP_SAFE_AREA_INSET: u16 = 1;
 #[allow(dead_code)]
 pub(crate) const MIN_SIDEBAR_WIDTH: u16 = 18;
@@ -228,8 +229,19 @@ fn compute_view_internal(
             .clamp(MIN_RIGHT_SIDEBAR_WIDTH, MAX_RIGHT_SIDEBAR_WIDTH)
     };
 
-    let use_right_sidebar = false;
-    let (sidebar_area, main_area, right_sidebar_area) = if use_right_sidebar {
+    let auto_separate = area.width
+        >= sidebar_w
+            .saturating_add(right_sidebar_w)
+            .saturating_add(RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH);
+    let separate_sidebars = match app.sidebar_arrangement {
+        crate::config::SidebarArrangementConfig::Auto => auto_separate,
+        crate::config::SidebarArrangementConfig::Separate => true,
+        crate::config::SidebarArrangementConfig::CombinedLeft
+        | crate::config::SidebarArrangementConfig::CombinedRight => false,
+    };
+    let combined_right =
+        app.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight;
+    let (sidebar_area, main_area, right_sidebar_area) = if separate_sidebars {
         let [sidebar_area, main_area, right_sidebar_area] = Layout::horizontal([
             Constraint::Length(sidebar_w),
             Constraint::Min(1),
@@ -237,6 +249,10 @@ fn compute_view_internal(
         ])
         .areas(area);
         (sidebar_area, main_area, right_sidebar_area)
+    } else if combined_right {
+        let [main_area, sidebar_area] =
+            Layout::horizontal([Constraint::Min(1), Constraint::Length(sidebar_w)]).areas(area);
+        (sidebar_area, main_area, Rect::default())
     } else {
         let [sidebar_area, main_area] =
             Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Min(1)]).areas(area);
@@ -255,8 +271,17 @@ fn compute_view_internal(
     app.workspace_scroll = app
         .workspace_scroll
         .min(workspace_list_entry_count(app).saturating_sub(1));
-    if !app.sidebar_collapsed {
-        let (_, agent_area) = expanded_sidebar_sections(sidebar_area, app.sidebar_section_split);
+    if right_sidebar_area != Rect::default() && !app.right_sidebar_collapsed {
+        let max_agent_scroll =
+            agent_panel_scroll_metrics(app, right_sidebar_content_rect(right_sidebar_area), false)
+                .max_offset_from_bottom;
+        app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
+    } else if right_sidebar_area == Rect::default() && !app.sidebar_collapsed {
+        let (_, agent_area) = if combined_right {
+            right_aligned_expanded_sidebar_sections(sidebar_area, app.sidebar_section_split)
+        } else {
+            expanded_sidebar_sections(sidebar_area, app.sidebar_section_split)
+        };
         let max_agent_scroll =
             agent_panel_scroll_metrics(app, agent_area, true).max_offset_from_bottom;
         app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
@@ -264,17 +289,32 @@ fn compute_view_internal(
         app.agent_panel_scroll = 0;
     }
 
-    let (workspace_card_areas, workspace_group_header_areas, workspace_group_empty_areas) =
-        if app.sidebar_collapsed {
-            (Vec::new(), Vec::new(), Vec::new())
-        } else {
-            let ws_area = workspace_list_rect(sidebar_area, app.sidebar_section_split);
-            (
-                compute_workspace_card_areas_in_list(app, ws_area),
-                compute_workspace_group_header_areas_in_list(app, ws_area),
-                compute_workspace_group_empty_areas_in_list(app, ws_area),
-            )
-        };
+    let (workspace_card_areas, workspace_group_header_areas, workspace_group_empty_areas) = if app
+        .sidebar_collapsed
+    {
+        (Vec::new(), Vec::new(), Vec::new())
+    } else if right_sidebar_area != Rect::default() {
+        let ws_area = left_sidebar_workspace_rect(sidebar_area);
+        (
+            compute_workspace_card_areas_in_list(app, ws_area),
+            compute_workspace_group_header_areas_in_list(app, ws_area),
+            compute_workspace_group_empty_areas_in_list(app, ws_area),
+        )
+    } else if combined_right {
+        let ws_area = right_aligned_workspace_list_rect(sidebar_area, app.sidebar_section_split);
+        (
+            compute_workspace_card_areas_in_list(app, ws_area),
+            compute_workspace_group_header_areas_in_list(app, ws_area),
+            compute_workspace_group_empty_areas_in_list(app, ws_area),
+        )
+    } else {
+        let ws_area = workspace_list_rect(sidebar_area, app.sidebar_section_split);
+        (
+            compute_workspace_card_areas_in_list(app, ws_area),
+            compute_workspace_group_header_areas_in_list(app, ws_area),
+            compute_workspace_group_empty_areas_in_list(app, ws_area),
+        )
+    };
 
     let tab_bar_view = app
         .active
@@ -472,7 +512,7 @@ pub fn render_with_runtime_registry(
     }
     render_panes(app, terminal_runtimes, frame, terminal_area);
     if right_sidebar_area != Rect::default() {
-        render_right_sidebar(app, frame, right_sidebar_area);
+        render_right_sidebar(app, terminal_runtimes, frame, right_sidebar_area);
     }
 
     // Ambient notifications sit above panes, but below interactive overlays.

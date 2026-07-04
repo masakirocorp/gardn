@@ -61,6 +61,35 @@ pub enum SidebarArrangementConfig {
     CombinedRight,
 }
 
+impl SidebarArrangementConfig {
+    pub(crate) fn next(self) -> Self {
+        match self {
+            Self::Auto => Self::Separate,
+            Self::Separate => Self::CombinedLeft,
+            Self::CombinedLeft => Self::CombinedRight,
+            Self::CombinedRight => Self::Auto,
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Separate => "split",
+            Self::CombinedLeft => "left",
+            Self::CombinedRight => "right",
+        }
+    }
+
+    pub(crate) fn config_value(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Separate => "separate",
+            Self::CombinedLeft => "combined_left",
+            Self::CombinedRight => "combined_right",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RightClickPassthroughModifierConfig(Option<KeyModifiers>);
 

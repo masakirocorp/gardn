@@ -55,15 +55,27 @@ impl AppState {
         if self.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
             return Rect::default();
         }
+        if self.view.right_sidebar_rect != Rect::default() {
+            if self.right_sidebar_collapsed {
+                return Rect::default();
+            }
+            return crate::ui::right_sidebar_content_rect(self.view.right_sidebar_rect);
+        }
+        if self.sidebar_is_combined_right() {
+            let (detail_area, _) = crate::ui::right_aligned_expanded_sidebar_sections(
+                sidebar,
+                self.sidebar_section_split,
+            );
+            return detail_area;
+        }
         let (_, detail_area) =
             crate::ui::expanded_sidebar_sections(sidebar, self.sidebar_section_split);
         detail_area
     }
 
     pub(super) fn agent_panel_has_leading_separator(&self) -> bool {
-        true
+        self.view.right_sidebar_rect == Rect::default()
     }
-
     pub(super) fn workspace_list_scrollbar_target_at(
         &self,
         col: u16,

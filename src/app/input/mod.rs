@@ -571,6 +571,7 @@ impl App {
                         sidebar_width,
                         sidebar_min_width,
                         sidebar_max_width,
+                        sidebar_arrangement,
                         worktree_directory,
                         agent_border_labels,
                     } => {
@@ -591,6 +592,7 @@ impl App {
                             sidebar_min_width,
                             sidebar_max_width,
                         );
+                        self.save_sidebar_arrangement(sidebar_arrangement);
                         if let Some(directory) = worktree_directory {
                             self.save_worktree_directory(&directory);
                         }
@@ -943,6 +945,7 @@ fn app_for_mouse_test() -> App {
         crate::api::EventHub::default(),
     );
     app.state.mode = Mode::Terminal;
+    app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
     app.state.update_available = None;
     app.state.latest_release_notes_available = false;
     app.state.toast_config.delay_seconds = 0;

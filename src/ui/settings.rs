@@ -1682,8 +1682,8 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("sidebar"));
-        assert!(!text.contains("sidebar arrangement"));
-        assert!(!text.contains("auto"));
+        assert!(text.contains("sidebar arrangement"));
+        assert!(text.contains("auto"));
         assert!(text.contains("default sidebar width"));
         assert!(text.contains("26 cols"));
         assert!(text.contains("minimum sidebar width"));

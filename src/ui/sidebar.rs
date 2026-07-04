@@ -1453,13 +1453,28 @@ pub(super) fn render_sidebar(
         buf[(sep_x, y)].set_style(sep_style);
     }
 
-    let (ws_area, detail_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
-    render_agent_detail_from(app, terminal_runtimes, frame, detail_area, true);
-    render_workspace_list_from(app, terminal_runtimes, frame, ws_area, is_navigating);
+    if app.view.right_sidebar_rect != Rect::default() {
+        let ws_area = left_sidebar_workspace_rect(area);
+        render_workspace_list_from(app, terminal_runtimes, frame, ws_area, is_navigating);
+    } else if combined_right {
+        let (detail_area, ws_area) =
+            right_aligned_expanded_sidebar_sections(area, app.sidebar_section_split);
+        render_workspace_list_from(app, terminal_runtimes, frame, ws_area, is_navigating);
+        render_agent_detail_from(app, terminal_runtimes, frame, detail_area, true);
+    } else {
+        let (ws_area, detail_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
+        render_agent_detail_from(app, terminal_runtimes, frame, detail_area, true);
+        render_workspace_list_from(app, terminal_runtimes, frame, ws_area, is_navigating);
+    }
     render_sidebar_toggle(app, frame, area, false, p);
 }
 
-pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect) {
+pub(super) fn render_right_sidebar(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+) {
     if area == Rect::default() {
         return;
     }
@@ -1478,7 +1493,18 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
         buf[(area.x, y)].set_symbol("│");
         buf[(area.x, y)].set_style(sep_style);
     }
-    render_right_sidebar_toggle(app, frame, area, false, p);
+    if app.right_sidebar_collapsed {
+        render_right_sidebar_toggle(app, frame, area, true, p);
+    } else {
+        render_agent_detail_from(
+            app,
+            terminal_runtimes,
+            frame,
+            right_sidebar_content_rect(area),
+            false,
+        );
+        render_right_sidebar_toggle(app, frame, area, false, p);
+    }
 }
 
 #[cfg(test)]
@@ -3196,7 +3222,7 @@ mod tests {
     }
 
     #[test]
-    fn right_sidebar_without_context_stays_empty() {
+    fn right_sidebar_without_context_renders_agent_panel_shell() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = vec![Workspace::test_new("web")];
         app.active = Some(0);
@@ -3204,12 +3230,13 @@ mod tests {
 
         let backend = TestBackend::new(32, 18);
         let mut terminal = Terminal::new(backend).expect("test backend");
+        let runtimes = TerminalRuntimeRegistry::new();
         terminal
-            .draw(|frame| render_right_sidebar(&app, frame, Rect::new(0, 0, 32, 18)))
+            .draw(|frame| render_right_sidebar(&app, &runtimes, frame, Rect::new(0, 0, 32, 18)))
             .expect("render right sidebar");
 
         let text = buffer_text(terminal.backend().buffer(), 32, 18);
-        assert!(!text.contains("agents"));
+        assert!(text.contains("agents"));
         assert!(!text.contains("commands"));
         assert!(!text.contains("ports"));
     }
