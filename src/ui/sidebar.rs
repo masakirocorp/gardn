@@ -15,20 +15,18 @@ use crate::detect::AgentState;
 use crate::terminal::TerminalRuntimeRegistry;
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
-const AGENT_PANEL_HEADER_ROWS: u16 = 1;
+const AGENT_PANEL_HEADER_ROWS: u16 = 2;
 const SIDEBAR_GROUP_CHEVRON_COL: u16 = 0;
 const SIDEBAR_GROUP_ICON_COL: u16 = 2;
 const SIDEBAR_GROUP_NAME_COL: u16 = 4;
 const SIDEBAR_WORKSPACE_STATE_COL: u16 = 2;
 const SIDEBAR_WORKSPACE_NAME_COL: u16 = 4;
 const SIDEBAR_GROUP_COUNT_RIGHT_PAD: u16 = 1;
-const RIGHT_SECTION_CHEVRON_COL: u16 = 1;
-const RIGHT_SECTION_LABEL_COL: u16 = 3;
 const RIGHT_SECTION_COUNT_RIGHT_PAD: u16 = 1;
 const RIGHT_ENTRY_ICON_COL: u16 = 4;
 const RIGHT_ENTRY_PRIMARY_COL: u16 = 6;
-const RIGHT_SUBSECTION_MARKER_COL: u16 = 2;
-const RIGHT_SUBSECTION_LABEL_COL: u16 = 4;
+const RIGHT_SUBSECTION_MARKER_COL: u16 = 0;
+const RIGHT_SUBSECTION_LABEL_COL: u16 = 2;
 
 #[derive(Clone)]
 pub(crate) struct AgentPanelEntry {
@@ -134,7 +132,7 @@ fn sidebar_section_divider_rect_with_separator(
     }
 
     let (ws_h, _) = sidebar_section_heights(content.height, split_ratio);
-    Rect::new(content.x, content.y + ws_h, content.width, 1)
+    Rect::new(content.x, content.y + ws_h + 1, content.width, 1)
 }
 
 fn agent_panel_current_workspace_idx(app: &AppState) -> Option<usize> {
@@ -205,7 +203,7 @@ fn agent_panel_has_multiple_groups(app: &AppState) -> bool {
 pub(crate) fn agent_panel_toggle_rect(
     area: Rect,
     scope: AgentPanelScope,
-    leading_separator: bool,
+    _leading_separator: bool,
 ) -> Rect {
     if area.width == 0 || area.height < 2 {
         return Rect::default();
@@ -213,7 +211,7 @@ pub(crate) fn agent_panel_toggle_rect(
 
     let label = agent_panel_toggle_label(scope);
     let width = (label.chars().count() as u16 + 2).min(area.width);
-    let y_offset = u16::from(leading_separator);
+    let y_offset = 0;
     Rect::new(
         area.x + area.width.saturating_sub(width),
         area.y + y_offset,
@@ -409,13 +407,6 @@ pub(crate) fn agent_panel_sections(app: &AppState) -> Vec<AgentPanelSection> {
     agent_panel_sections_from(app, &empty_runtimes)
 }
 
-fn activity_agents_count(app: &AppState) -> usize {
-    agent_panel_sections(app)
-        .into_iter()
-        .map(|section| section.entries.len())
-        .sum()
-}
-
 fn agent_panel_sections_from(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -508,64 +499,6 @@ fn centered_count_line(text: &str, width: u16, base: Style, count: Style) -> Lin
     }
     spans.push(Span::styled(" ".repeat(right), base));
     Line::from(spans)
-}
-
-fn render_right_sidebar_section_header(
-    frame: &mut Frame,
-    area: Rect,
-    row_y: u16,
-    chevron: &str,
-    label: &str,
-    count: usize,
-    style: Style,
-    count_style: Style,
-) {
-    if area.width == 0 {
-        return;
-    }
-
-    frame.render_widget(
-        Paragraph::new(Span::styled(chevron.to_string(), style)),
-        Rect::new(
-            area.x + RIGHT_SECTION_CHEVRON_COL.min(area.width - 1),
-            row_y,
-            1,
-            1,
-        ),
-    );
-
-    let count_label = count.to_string();
-    let count_width = count_label.chars().count() as u16;
-    let label_width = area
-        .width
-        .saturating_sub(RIGHT_SECTION_LABEL_COL + count_width + RIGHT_SECTION_COUNT_RIGHT_PAD + 1);
-    frame.render_widget(
-        Paragraph::new(Span::styled(
-            truncate_text(label, label_width as usize),
-            style,
-        )),
-        Rect::new(
-            area.x + RIGHT_SECTION_LABEL_COL.min(area.width - 1),
-            row_y,
-            label_width,
-            1,
-        ),
-    );
-
-    if area.width > count_width + RIGHT_SECTION_COUNT_RIGHT_PAD {
-        frame.render_widget(
-            Paragraph::new(Span::styled(count_label, count_style)),
-            Rect::new(
-                area.x
-                    + area
-                        .width
-                        .saturating_sub(count_width + RIGHT_SECTION_COUNT_RIGHT_PAD),
-                row_y,
-                count_width,
-                1,
-            ),
-        );
-    }
 }
 
 fn format_agent_panel_primary_label(entry: &AgentPanelEntry, max_width: usize) -> String {
@@ -803,9 +736,9 @@ pub(crate) fn workspace_list_scrollbar_rect(app: &AppState, area: Rect) -> Optio
 pub(crate) fn agent_panel_body_rect(
     area: Rect,
     has_scrollbar: bool,
-    leading_separator: bool,
+    _leading_separator: bool,
 ) -> Rect {
-    let header_rows = AGENT_PANEL_HEADER_ROWS + u16::from(leading_separator);
+    let header_rows = AGENT_PANEL_HEADER_ROWS;
     if area.width == 0 || area.height <= header_rows {
         return Rect::default();
     }
@@ -1996,19 +1929,19 @@ fn render_agent_section_header(
     app: &AppState,
     frame: &mut Frame,
     section: &AgentPanelSection,
+    collapsed: bool,
     body: Rect,
     row_y: u16,
 ) {
+    if body.width == 0 {
+        return;
+    }
     let style = agent_panel_section_header_style(section, &app.palette);
     let dim = Style::default().fg(app.palette.overlay0);
+    let marker = if collapsed { "▸" } else { "▾" };
     frame.render_widget(
-        Paragraph::new(Span::styled("›", dim)),
-        Rect::new(
-            body.x + RIGHT_SUBSECTION_MARKER_COL.min(body.width.saturating_sub(1)),
-            row_y,
-            1,
-            1,
-        ),
+        Paragraph::new(Span::styled(marker, dim)),
+        Rect::new(body.x + RIGHT_SUBSECTION_MARKER_COL, row_y, 1, 1),
     );
 
     let count_label = section.entries.len().to_string();
@@ -2101,35 +2034,20 @@ fn render_agent_detail_from(
         return;
     }
 
-    if leading_separator {
-        let sep_line = "─".repeat(area.width as usize);
-        frame.render_widget(
-            Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.overlay0))),
-            Rect::new(area.x, area.y, area.width, 1),
-        );
-    }
-
-    let header_y = area.y + u16::from(leading_separator);
-    let chevron = if app.activity_agents_expanded {
-        "▾"
-    } else {
-        "▸"
-    };
-    render_right_sidebar_section_header(
-        frame,
-        area,
-        header_y,
-        chevron,
-        "agents",
-        activity_agents_count(app),
-        Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
-        Style::default().fg(p.overlay0),
+    let header_y = area.y;
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "agents",
+            Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
+        )),
+        Rect::new(area.x, header_y, area.width, 1),
     );
-    let toggle_rect = if leading_separator {
-        agent_panel_toggle_rect(area, app.agent_panel_scope, true)
-    } else {
-        Rect::default()
-    };
+    let sep_line = "─".repeat(area.width as usize);
+    frame.render_widget(
+        Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.overlay0))),
+        Rect::new(area.x, header_y.saturating_add(1), area.width, 1),
+    );
+    let toggle_rect = agent_panel_toggle_rect(area, app.agent_panel_scope, leading_separator);
     if toggle_rect != Rect::default() {
         let style = Style::default().fg(p.overlay1).bg(p.surface0);
         frame.render_widget(
@@ -2178,7 +2096,7 @@ fn render_agent_detail_from(
             if row_y >= body_bottom {
                 break;
             }
-            render_agent_section_header(app, frame, &section, body, row_y);
+            render_agent_section_header(app, frame, &section, true, body, row_y);
             row_y = row_y.saturating_add(1);
             continue;
         }
@@ -2190,7 +2108,7 @@ fn render_agent_detail_from(
             break;
         }
 
-        render_agent_section_header(app, frame, &section, body, row_y);
+        render_agent_section_header(app, frame, &section, false, body, row_y);
         row_y = row_y.saturating_add(1);
         let show_status = agent_panel_section_shows_entry_status(section.label);
 
@@ -3093,7 +3011,7 @@ mod tests {
         assert_eq!(buffer[(body.x + body.width - 2, body.y)].symbol(), "1");
         assert_eq!(
             buffer[(body.x + RIGHT_SUBSECTION_MARKER_COL, body.y)].symbol(),
-            "›"
+            "▾"
         );
         assert_eq!(
             buffer[(body.x + RIGHT_ENTRY_PRIMARY_COL, body.y + 1)].symbol(),
@@ -3219,6 +3137,140 @@ mod tests {
         let label = format_agent_panel_primary_label(&entry, 18);
 
         assert_eq!(label, "agent-bro… · test…");
+    }
+
+    #[test]
+    fn agent_header_and_scope_badge_share_row_above_divider_without_header_chevron() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("worker");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        pane_state.detected_agent = Some(Agent::Codex);
+        pane_state.state = AgentState::Working;
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        let area = Rect::new(0, 0, 34, 18);
+        let (_, agent_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        terminal
+            .draw(|frame| render_sidebar(&app, &terminal_runtimes, frame, area))
+            .expect("render sidebar");
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, area.width, area.height);
+        let rows = text.lines().collect::<Vec<_>>();
+        let header = rows[agent_area.y as usize];
+        let divider = rows[agent_area.y.saturating_add(1) as usize];
+        let toggle_rect = agent_panel_toggle_rect(agent_area, app.agent_panel_scope, true);
+
+        assert_eq!(toggle_rect.y, agent_area.y);
+        assert!(header.contains("agents"));
+        assert!(header.contains("all"));
+        assert!(!divider.contains("agents"));
+        assert!(!divider.contains("all"));
+        assert!(!header.contains("▾ agents"));
+        assert!(!header.contains("▸ agents"));
+        assert_eq!(buffer[(agent_area.x, agent_area.y)].symbol(), "a");
+        for x in agent_area.x..agent_area.x + agent_area.width {
+            assert_eq!(buffer[(x, agent_area.y + 1)].symbol(), "─");
+        }
+    }
+
+    #[test]
+    fn agent_status_group_headers_use_real_chevrons_at_workspace_group_indent() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.group_filter_enabled = false;
+
+        let mut triage = Workspace::test_new("done");
+        let triage_pane = triage.tabs[0].root_pane;
+        let triage_pane_state = triage.tabs[0].panes.get_mut(&triage_pane).unwrap();
+        triage_pane_state.detected_agent = Some(Agent::Claude);
+        triage_pane_state.state = AgentState::Idle;
+        triage_pane_state.seen = false;
+
+        let mut working = Workspace::test_new("worker");
+        let working_pane = working.tabs[0].root_pane;
+        let working_pane_state = working.tabs[0].panes.get_mut(&working_pane).unwrap();
+        working_pane_state.detected_agent = Some(Agent::Codex);
+        working_pane_state.state = AgentState::Working;
+
+        app.workspaces = vec![triage, working];
+        app.active = None;
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        app.collapsed_agent_sections.push("working".to_string());
+
+        let area = Rect::new(0, 0, 36, 22);
+        let (workspace_area, agent_area) =
+            expanded_sidebar_sections(area, app.sidebar_section_split);
+        app.view.workspace_card_areas = compute_workspace_card_areas_in_list(&app, workspace_area);
+        app.view.workspace_group_header_areas =
+            compute_workspace_group_header_areas_in_list(&app, workspace_area);
+        app.view.workspace_group_empty_areas =
+            compute_workspace_group_empty_areas_in_list(&app, workspace_area);
+
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        terminal
+            .draw(|frame| render_sidebar(&app, &terminal_runtimes, frame, area))
+            .expect("render sidebar");
+
+        let buffer = terminal.backend().buffer();
+        let workspace_header = app
+            .view
+            .workspace_group_header_areas
+            .iter()
+            .find(|header| header.group_idx == 0)
+            .expect("default workspace group header")
+            .rect;
+        let body = agent_panel_body_rect(
+            agent_area,
+            agent_panel_scrollbar_rect(&app, agent_area, true).is_some(),
+            true,
+        );
+        let workspace_chevron_x = workspace_header.x + SIDEBAR_GROUP_CHEVRON_COL;
+        let expanded_agent_header_y = body.y;
+        let collapsed_agent_header_y = body.y + 3;
+
+        assert_eq!(
+            buffer[(workspace_chevron_x, workspace_header.y)].symbol(),
+            "▾"
+        );
+        assert_eq!(workspace_chevron_x, body.x + RIGHT_SUBSECTION_MARKER_COL);
+        assert_eq!(
+            buffer[(workspace_chevron_x, expanded_agent_header_y)].symbol(),
+            "▾"
+        );
+        assert_eq!(
+            buffer[(workspace_chevron_x, collapsed_agent_header_y)].symbol(),
+            "▸"
+        );
+        assert_ne!(
+            buffer[(workspace_chevron_x, expanded_agent_header_y)].symbol(),
+            "›"
+        );
+        assert_ne!(
+            buffer[(workspace_chevron_x, collapsed_agent_header_y)].symbol(),
+            "›"
+        );
+        assert_eq!(
+            buffer[(body.x + RIGHT_SUBSECTION_LABEL_COL, expanded_agent_header_y)].symbol(),
+            "t"
+        );
+        assert_eq!(
+            buffer[(
+                body.x + RIGHT_SUBSECTION_LABEL_COL,
+                collapsed_agent_header_y
+            )]
+                .symbol(),
+            "w"
+        );
     }
 
     #[test]

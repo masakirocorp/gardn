@@ -657,7 +657,7 @@ impl AppState {
         if content_height < 6 {
             return;
         }
-        let relative_y = row.saturating_sub(sidebar.y);
+        let relative_y = row.saturating_sub(sidebar.y).saturating_sub(1);
         let ratio = (relative_y as f32) / (content_height as f32);
         self.sidebar_section_split = ratio.clamp(0.1, 0.9);
         self.mark_session_dirty();
