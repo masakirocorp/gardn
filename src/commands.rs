@@ -61,7 +61,6 @@ pub(crate) enum CommandRunStatus {
     Running,
     Stopped,
     Failed,
-    #[cfg(test)]
     Unknown,
 }
 

@@ -170,9 +170,34 @@ pub struct Workspace {
     pub(crate) test_runtimes: HashMap<PaneId, TerminalRuntime>,
 }
 
+impl Clone for Workspace {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            custom_name: self.custom_name.clone(),
+            group_id: self.group_id.clone(),
+            identity_cwd: self.identity_cwd.clone(),
+            default_cwd: self.default_cwd.clone(),
+            cached_git_branch: self.cached_git_branch.clone(),
+            cached_git_ahead_behind: self.cached_git_ahead_behind,
+            cached_git_work_summary: self.cached_git_work_summary,
+            cached_git_space: self.cached_git_space.clone(),
+            worktree_space: self.worktree_space.clone(),
+            public_pane_numbers: self.public_pane_numbers.clone(),
+            next_public_pane_number: self.next_public_pane_number,
+            next_public_tab_number: self.next_public_tab_number,
+            tabs: self.tabs.clone(),
+            active_tab: self.active_tab,
+            #[cfg(test)]
+            test_runtimes: HashMap::new(),
+        }
+    }
+}
+
 enum NewWorkspaceTabCommand<'a> {
-    #[cfg(test)]
-    Shell { command: &'a str },
+    Shell {
+        command: &'a str,
+    },
     Profile {
         command: &'a str,
         shell_config: crate::pane::PaneShellConfig<'a>,
@@ -445,35 +470,6 @@ impl Workspace {
         }
     }
 
-    pub fn create_native_diff_tab(
-        &mut self,
-        session: crate::native_diff::NativeDiffSession,
-    ) -> Result<usize, String> {
-        let number = self.next_public_tab_number;
-        let (events, render_notify, render_dirty) =
-            if let Some(source_tab) = self.tabs.get(self.active_tab) {
-                (
-                    source_tab.events.clone(),
-                    source_tab.render_notify.clone(),
-                    source_tab.render_dirty.clone(),
-                )
-            } else {
-                let (events, _) = mpsc::channel(64);
-                (
-                    events,
-                    Arc::new(Notify::new()),
-                    Arc::new(AtomicBool::new(false)),
-                )
-            };
-        let tab = Tab::new_native_diff(number, session, events, render_notify, render_dirty);
-        self.next_public_tab_number += 1;
-        let tab_idx = self.tabs.len();
-        self.register_new_pane(tab.root_pane);
-        self.tabs.push(tab);
-        self.active_tab = tab_idx;
-        Ok(tab_idx)
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn create_tab_with_handles(
         &mut self,
@@ -557,7 +553,6 @@ impl Workspace {
         )
     }
 
-    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn create_command_tab(
         &mut self,
@@ -660,7 +655,6 @@ impl Workspace {
 
         let (tab, terminal, runtime) = if let Some(command) = command {
             match command {
-                #[cfg(test)]
                 NewWorkspaceTabCommand::Shell { command } => Tab::new_shell_command(
                     number,
                     cwd,
@@ -1378,11 +1372,6 @@ impl Workspace {
 
     pub fn pane_state(&self, pane_id: PaneId) -> Option<&PaneState> {
         self.tabs.iter().find_map(|tab| tab.panes.get(&pane_id))
-    }
-    pub fn pane_state_mut(&mut self, pane_id: PaneId) -> Option<&mut PaneState> {
-        self.tabs
-            .iter_mut()
-            .find_map(|tab| tab.panes.get_mut(&pane_id))
     }
 
     pub fn terminal_id(&self, pane_id: PaneId) -> Option<&TerminalId> {

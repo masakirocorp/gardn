@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use crossterm::event::{KeyCode, KeyModifiers};
+use crossterm::event::KeyCode;
 use tracing::{debug, warn};
 
 use crate::{
@@ -35,9 +35,6 @@ impl App {
         let key_event = key.as_key_event();
 
         let ws_idx = self.state.active?;
-        if handle_native_diff_key(&mut self.state, key) {
-            return None;
-        }
 
         if let Some(action) = super::terminal_direct_navigation_action(&self.state, key) {
             debug!(
@@ -194,189 +191,6 @@ impl App {
         }
     }
 }
-fn handle_native_diff_key(state: &mut crate::app::state::AppState, key: TerminalKey) -> bool {
-    let Some(ws_idx) = state.active else {
-        return false;
-    };
-    let Some(pane_id) = state
-        .workspaces
-        .get(ws_idx)
-        .and_then(|workspace| workspace.focused_pane_id())
-    else {
-        return false;
-    };
-    let pane_width = state
-        .pane_info_by_id(pane_id)
-        .map(|info| info.inner_rect.width)
-        .unwrap_or(1);
-    let diff_viewport_rows = state
-        .pane_info_by_id(pane_id)
-        .map(|info| info.inner_rect.height.saturating_sub(2) as usize)
-        .unwrap_or(1)
-        .max(1);
-    let line_numbers = state.native_diff_line_numbers;
-    let Some(diff) = state
-        .workspaces
-        .get_mut(ws_idx)
-        .and_then(|workspace| workspace.pane_state_mut(pane_id))
-        .and_then(|pane| pane.native_diff_mut())
-    else {
-        return false;
-    };
-    match key.code {
-        KeyCode::Up | KeyCode::Char('k') if key.modifiers.is_empty() => {
-            diff.move_selection(-1);
-            true
-        }
-        KeyCode::Down | KeyCode::Char('j') if key.modifiers.is_empty() => {
-            diff.move_selection(1);
-            true
-        }
-        KeyCode::Char('[') if key.modifiers.is_empty() => {
-            diff.move_hunk_selection(-1);
-            true
-        }
-        KeyCode::Char(']') if key.modifiers.is_empty() => {
-            diff.move_hunk_selection(1);
-            true
-        }
-        KeyCode::Left | KeyCode::Char('h') if key.modifiers.is_empty() => {
-            diff.scroll_diff_columns(
-                -4,
-                native_diff_keyboard_col_viewport(
-                    diff,
-                    pane_width,
-                    diff_viewport_rows,
-                    line_numbers,
-                ),
-            );
-            true
-        }
-        KeyCode::Right | KeyCode::Char('l') if key.modifiers.is_empty() => {
-            diff.scroll_diff_columns(
-                4,
-                native_diff_keyboard_col_viewport(
-                    diff,
-                    pane_width,
-                    diff_viewport_rows,
-                    line_numbers,
-                ),
-            );
-            true
-        }
-        KeyCode::PageUp => {
-            diff.scroll_diff(-10, diff_viewport_rows);
-            true
-        }
-        KeyCode::PageDown => {
-            diff.scroll_diff(10, diff_viewport_rows);
-            true
-        }
-        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            diff.scroll_diff(-5, diff_viewport_rows);
-            true
-        }
-        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            diff.scroll_diff(5, diff_viewport_rows);
-            true
-        }
-        KeyCode::Char('r') if key.modifiers.is_empty() => {
-            diff.refresh();
-            true
-        }
-        KeyCode::Char('b') if key.modifiers.is_empty() => {
-            diff.toggle_file_list();
-            true
-        }
-        KeyCode::Char('W') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-            diff.toggle_word_diff();
-            true
-        }
-        KeyCode::Char('w') if key.modifiers.is_empty() => {
-            diff.toggle_wrap_lines();
-            true
-        }
-        KeyCode::Char('m') if key.modifiers.is_empty() => {
-            diff.cycle_view_mode();
-            true
-        }
-        KeyCode::Char('f') if key.modifiers.is_empty() => {
-            diff.cycle_scope();
-            true
-        }
-        KeyCode::Char('S') | KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-            diff.stage_selected_hunk();
-            true
-        }
-        KeyCode::Char('U') | KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-            diff.unstage_selected_hunk();
-            true
-        }
-        KeyCode::Char('s') if key.modifiers.is_empty() => {
-            diff.stage_selected_file();
-            true
-        }
-        KeyCode::Char('u') if key.modifiers.is_empty() => {
-            diff.unstage_selected_file();
-            true
-        }
-        _ => false,
-    }
-}
-
-fn native_diff_keyboard_col_viewport(
-    diff: &crate::native_diff::NativeDiffPaneState,
-    pane_width: u16,
-    diff_viewport_rows: usize,
-    line_numbers: bool,
-) -> usize {
-    let file_width = if diff.show_file_list {
-        crate::native_diff::native_diff_file_list_width(pane_width)
-    } else {
-        0
-    };
-    let patch_width = pane_width
-        .saturating_sub(file_width)
-        .saturating_sub(u16::from(file_width > 0));
-    native_diff_patch_col_viewport(diff, patch_width, diff_viewport_rows, line_numbers)
-}
-
-fn native_diff_patch_col_viewport(
-    diff: &crate::native_diff::NativeDiffPaneState,
-    patch_width: u16,
-    diff_viewport_rows: usize,
-    line_numbers: bool,
-) -> usize {
-    let gutter_width = if line_numbers {
-        diff.selected_file()
-            .map(crate::ui::native_diff_line_number_gutter_width)
-            .unwrap_or(4)
-    } else {
-        0
-    };
-    let body_rows = diff.visible_diff_rows().len().saturating_sub(1);
-    let horizontal_scrollbar_rows = usize::from(diff.max_diff_col_scroll(1) > 0);
-    let effective_rows = diff_viewport_rows
-        .saturating_sub(horizontal_scrollbar_rows)
-        .max(1);
-    let patch_width = patch_width.saturating_sub(u16::from(body_rows > effective_rows));
-    let split = match diff.view_mode {
-        crate::native_diff::NativeDiffViewMode::Unified => false,
-        crate::native_diff::NativeDiffViewMode::Split => true,
-        crate::native_diff::NativeDiffViewMode::Auto => patch_width >= 110,
-    };
-    if split {
-        let half = patch_width as usize / 2;
-        let left = half.saturating_sub(gutter_width + 4);
-        let right = (patch_width as usize)
-            .saturating_sub(half)
-            .saturating_sub(gutter_width + 5);
-        left.min(right)
-    } else {
-        (patch_width as usize).saturating_sub(gutter_width * 2 + 4)
-    }
-    .max(1)
-}
 
 #[cfg(test)]
 mod tests {
@@ -412,30 +226,6 @@ mod tests {
         (app, info)
     }
 
-    fn app_with_native_diff() -> (App, crate::layout::PaneInfo) {
-        let mut app = app_for_mouse_test();
-        let mut ws = Workspace::test_new("test");
-        let long_old = format!("-{}", "old_line_".repeat(20));
-        let long_new = format!("+{}", "new_line_".repeat(20));
-        let patch =
-            format!("--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1 +1 @@\n{long_old}\n{long_new}\n");
-        let session = crate::native_diff::parse_native_diff_session("/repo", patch.as_bytes(), b"")
-            .expect("parse native diff");
-        ws.create_native_diff_tab(session).expect("create diff tab");
-        let pane_infos = ws
-            .active_tab()
-            .expect("active tab")
-            .layout
-            .panes(Rect::new(26, 2, 80, 18));
-        let info = pane_infos[0].clone();
-
-        app.state.workspaces = vec![ws];
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
-        app.state.view.pane_infos = pane_infos;
-        (app, info)
-    }
     fn double_click(app: &mut App, col: u16, row: u16) {
         app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), col, row));
         app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), col, row));
@@ -952,50 +742,6 @@ mod tests {
 
         assert_ne!(app.state.workspaces[0].layout.focused(), focused_before);
         assert_eq!(app.state.mode, Mode::Terminal);
-    }
-
-    #[tokio::test]
-    async fn native_diff_pans_before_terminal_navigation_bindings() {
-        let (mut app, _info) = app_with_native_diff();
-        app.state.keybinds.focus_pane_right = crate::config::ActionKeybinds::direct("right");
-
-        app.handle_terminal_key_headless(TerminalKey::new(KeyCode::Right, KeyModifiers::empty()));
-
-        let pane_id = app.state.workspaces[0]
-            .focused_pane_id()
-            .expect("focused pane");
-        let diff = app.state.workspaces[0]
-            .pane_state(pane_id)
-            .and_then(|pane| pane.native_diff())
-            .expect("native diff pane");
-        assert_eq!(diff.diff_col_scroll, 4);
-    }
-
-    #[test]
-    fn native_diff_shift_wheel_pans_patch_instead_of_scrolling_files() {
-        let (mut app, info) = app_with_native_diff();
-        let pane_id = app.state.workspaces[0]
-            .focused_pane_id()
-            .expect("focused pane");
-        let start_file_scroll = app.state.workspaces[0]
-            .pane_state(pane_id)
-            .and_then(|pane| pane.native_diff())
-            .expect("native diff pane")
-            .file_scroll;
-
-        app.handle_mouse(crossterm::event::MouseEvent {
-            kind: MouseEventKind::ScrollDown,
-            column: info.inner_rect.x + 2,
-            row: info.inner_rect.y + 2,
-            modifiers: KeyModifiers::SHIFT,
-        });
-
-        let diff = app.state.workspaces[0]
-            .pane_state(pane_id)
-            .and_then(|pane| pane.native_diff())
-            .expect("native diff pane");
-        assert_eq!(diff.file_scroll, start_file_scroll);
-        assert_eq!(diff.diff_col_scroll, 8);
     }
 
     #[tokio::test]

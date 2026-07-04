@@ -374,6 +374,46 @@ impl App {
         }
     }
 
+    pub(super) fn collect_panes_for_workspace_for_view(
+        &self,
+        view: &crate::app::view_state::ClientViewState,
+        workspace_id: Option<&str>,
+    ) -> Result<Vec<crate::api::schema::PaneInfo>, (String, String)> {
+        if let Some(workspace_id) = workspace_id {
+            let Some(ws_idx) = self.parse_workspace_id(workspace_id) else {
+                return Err((
+                    "workspace_not_found".into(),
+                    format!("workspace {workspace_id} not found"),
+                ));
+            };
+            let Some(ws) = self.state.workspaces.get(ws_idx) else {
+                return Err((
+                    "workspace_not_found".into(),
+                    format!("workspace {workspace_id} not found"),
+                ));
+            };
+            Ok(ws
+                .tabs
+                .iter()
+                .flat_map(|tab| tab.layout.pane_ids().into_iter())
+                .filter_map(|pane_id| self.pane_info_for_view(view, ws_idx, pane_id))
+                .collect())
+        } else {
+            Ok(self
+                .state
+                .workspaces
+                .iter()
+                .enumerate()
+                .flat_map(|(ws_idx, ws)| {
+                    ws.tabs
+                        .iter()
+                        .flat_map(|tab| tab.layout.pane_ids().into_iter())
+                        .filter_map(move |pane_id| self.pane_info_for_view(view, ws_idx, pane_id))
+                })
+                .collect())
+        }
+    }
+
     pub(super) fn tab_info(
         &self,
         ws_idx: usize,
@@ -448,6 +488,46 @@ impl App {
             && ws.active_tab == tab_idx
             && ws
                 .focused_pane_id()
+                .is_some_and(|focused| focused == pane_id);
+        let presentation = terminal.effective_presentation();
+        Some(crate::api::schema::PaneInfo {
+            pane_id: self.public_pane_id(ws_idx, pane_id)?,
+            terminal_id: terminal.id.to_string(),
+            workspace_id: self.public_workspace_id(ws_idx),
+            tab_id: self.public_tab_id(ws_idx, tab_idx)?,
+            focused,
+            cwd: ws.tabs[tab_idx]
+                .cwd_for_pane(pane_id, &self.state.terminals, &self.terminal_runtimes)
+                .map(|cwd| cwd.display().to_string()),
+            foreground_cwd: ws.tabs[tab_idx]
+                .foreground_cwd_for_pane(pane_id, &self.terminal_runtimes)
+                .map(|cwd| cwd.display().to_string()),
+            label: terminal.manual_label.clone(),
+            agent: terminal.effective_agent_label().map(str::to_string),
+            title: presentation.title,
+            display_agent: presentation.display_agent,
+            agent_status: pane_agent_status(terminal.state, pane.seen),
+            custom_status: presentation.custom_status,
+            state_labels: presentation.state_labels,
+            agent_session: terminal_agent_session_info(terminal),
+            revision: terminal.revision,
+        })
+    }
+
+    pub(super) fn pane_info_for_view(
+        &self,
+        view: &crate::app::view_state::ClientViewState,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> Option<crate::api::schema::PaneInfo> {
+        let ws = self.state.workspaces.get(ws_idx)?;
+        let pane = ws.pane_state(pane_id)?;
+        let terminal = self.state.terminals.get(&pane.attached_terminal_id)?;
+        let tab_idx = ws.find_tab_index_for_pane(pane_id)?;
+        let focused = view.active_workspace == Some(ws_idx)
+            && view.active_tab_index_for_workspace(&self.state, ws_idx) == Some(tab_idx)
+            && view
+                .focused_pane_for_tab(&ws.id, tab_idx + 1)
                 .is_some_and(|focused| focused == pane_id);
         let presentation = terminal.effective_presentation();
         Some(crate::api::schema::PaneInfo {

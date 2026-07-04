@@ -328,7 +328,7 @@ impl HeadlessServer {
                 needs_render = true;
             }
 
-            if self.handle_open_git_diff_request() {
+            if self.handle_open_git_diff_command_request() {
                 needs_render = true;
             }
 
@@ -460,7 +460,6 @@ impl HeadlessServer {
 
     fn sync_foreground_client_state(&mut self) {
         let Some(client_id) = self.foreground_client_id else {
-            self.effective_size = (MIN_COLS, MIN_ROWS);
             self.app.state.outer_terminal_focus = None;
             let server_keybindings = self.server_keybindings.clone();
             apply_keybindings(&mut self.app, &server_keybindings);
@@ -469,7 +468,6 @@ impl HeadlessServer {
         };
         let Some(client) = self.clients.get(&client_id) else {
             self.foreground_client_id = None;
-            self.effective_size = (MIN_COLS, MIN_ROWS);
             self.app.state.outer_terminal_focus = None;
             let server_keybindings = self.server_keybindings.clone();
             apply_keybindings(&mut self.app, &server_keybindings);
@@ -493,13 +491,14 @@ impl HeadlessServer {
         apply_keybindings(&mut self.app, &keybindings);
         self.sync_visible_server_config_diagnostic(uses_local_keybindings);
         if let Some(view_state) = view_state {
-            crate::app::view_state::apply_client_view_to_app_state(
-                &mut self.app.state,
-                &view_state,
-            );
+            self.app.default_client_view = view_state.clone_reconciled(&self.app.state);
         }
-        if outer_terminal_focus == Some(true) {
-            self.app.state.mark_active_tab_seen();
+        if outer_terminal_focus != Some(false) {
+            let view = self
+                .app
+                .default_client_view
+                .clone_reconciled(&self.app.state);
+            self.app.state.mark_active_tab_seen_for_view(&view);
         }
         if !host_terminal_theme.is_empty() {
             self.app.set_host_terminal_theme(host_terminal_theme);
@@ -927,20 +926,20 @@ impl HeadlessServer {
         }
     }
 
-    fn handle_open_git_diff_request(&mut self) -> bool {
-        if !self.app.state.request_open_git_diff {
+    fn handle_open_git_diff_command_request(&mut self) -> bool {
+        if !self.app.state.request_open_git_diff_command {
             return false;
         }
 
-        self.app.state.request_open_git_diff = false;
+        self.app.state.request_open_git_diff_command = false;
         if let Err(err) = self
             .app
             .state
-            .open_git_diff_panel(&mut self.app.terminal_runtimes)
+            .open_git_diff_command(&mut self.app.terminal_runtimes)
         {
             self.app.state.toast = Some(app::state::ToastNotification {
                 kind: app::state::ToastKind::NeedsAttention,
-                title: "git diff failed".to_string(),
+                title: "git diff command failed".to_string(),
                 context: err,
                 position: None,
                 target: None,
@@ -1286,15 +1285,20 @@ impl HeadlessServer {
                 self.sync_foreground_client_state();
                 self.app.handle_internal_event(ev);
 
-                // Forward sound notification to clients when server-side sound policy allows it.
-                let is_active_tab = self
+                let view = self
                     .app
-                    .state
-                    .active
+                    .default_client_view
+                    .clone_reconciled(&self.app.state);
+                let is_active_tab = view
+                    .active_workspace
                     .and_then(|ws_idx| self.app.state.workspaces.get(ws_idx))
                     .is_some_and(|ws| {
                         ws.find_tab_index_for_pane(pane_id_val)
-                            .is_some_and(|tab_idx| ws.active_tab_index() == tab_idx)
+                            .is_some_and(|tab_idx| {
+                                view.active_tab_for_workspace(&ws.id)
+                                    .unwrap_or(ws.active_tab_index())
+                                    == tab_idx
+                            })
                     });
 
                 let suppress_active_tab_notifications =
@@ -1804,8 +1808,17 @@ impl HeadlessServer {
                     Some(writer),
                 );
                 if !direct_attach_requested {
-                    client.view_state =
-                        Some(crate::app::ClientViewState::from_app_state(&self.app.state));
+                    let mut view_state = if first_app_client {
+                        crate::app::ClientViewState::from_app_state(&self.app.state)
+                    } else {
+                        self.app
+                            .default_client_view
+                            .clone_reconciled(&self.app.state)
+                    };
+                    if !self.app.state.workspaces.is_empty() {
+                        view_state.mode = crate::app::Mode::Terminal;
+                    }
+                    client.view_state = Some(view_state);
                 }
                 self.clients.insert(client_id, client);
                 if !direct_attach_requested {
@@ -1947,13 +1960,27 @@ impl HeadlessServer {
                     len = events.len(),
                     "client input events received"
                 );
-                if matches!(
-                    self.clients.get(&client_id),
-                    Some(ClientConnection {
-                        mode: ClientConnectionMode::TerminalAttach { .. },
-                        ..
-                    })
-                ) {
+                if let Some(ClientConnection {
+                    mode: ClientConnectionMode::TerminalAttach { terminal_id },
+                    ..
+                }) = self.clients.get(&client_id)
+                {
+                    if let Some(runtime) = self.runtime_for_terminal_id_string(terminal_id) {
+                        for event in events {
+                            let bytes = match event {
+                                crate::raw_input::RawInputEvent::Key(key) => {
+                                    runtime.encode_terminal_key(key)
+                                }
+                                crate::raw_input::RawInputEvent::Paste(text) => text.into_bytes(),
+                                _ => Vec::new(),
+                            };
+                            if !bytes.is_empty() {
+                                if let Err(err) = runtime.try_send_bytes(Bytes::from(bytes)) {
+                                    warn!(client_id, terminal_id = %terminal_id, err = %err, "terminal attach input event failed");
+                                }
+                            }
+                        }
+                    }
                     return true;
                 }
                 let host_surface_redraw = crate::raw_input::events_require_host_surface_redraw(
@@ -2240,8 +2267,40 @@ impl HeadlessServer {
                 })
                 .unwrap_or_else(|_| "{}".to_string())
             })
+        } else if let Some(client_id) = self.foreground_client_id {
+            if let Some(mut view_state) = self
+                .clients
+                .get_mut(&client_id)
+                .and_then(|client| client.view_state.take())
+            {
+                let response = self
+                    .app
+                    .handle_api_request_for_view(&mut view_state, msg.request);
+                if let Some(client) = self.clients.get_mut(&client_id) {
+                    client.view_state = Some(view_state);
+                }
+                response
+            } else {
+                let mut view_state = self
+                    .app
+                    .default_client_view
+                    .clone_reconciled(&self.app.state);
+                let response = self
+                    .app
+                    .handle_api_request_for_view(&mut view_state, msg.request);
+                self.app.default_client_view = view_state;
+                response
+            }
         } else {
-            self.app.handle_api_request(msg.request)
+            let mut view_state = self
+                .app
+                .default_client_view
+                .clone_reconciled(&self.app.state);
+            let response = self
+                .app
+                .handle_api_request_for_view(&mut view_state, msg.request);
+            self.app.default_client_view = view_state;
+            response
         };
         let _ = msg.respond_to.send(response);
 
@@ -2298,8 +2357,21 @@ impl HeadlessServer {
             if new_state == *prev_state {
                 continue;
             }
-
-            let is_active_tab = self.app.state.pane_is_in_active_tab(*ws_idx, *pane_id);
+            let view = self
+                .app
+                .default_client_view
+                .clone_reconciled(&self.app.state);
+            let is_active_tab = view
+                .active_workspace
+                .filter(|active_ws_idx| active_ws_idx == ws_idx)
+                .and_then(|active_ws_idx| self.app.state.workspaces.get(active_ws_idx))
+                .is_some_and(|ws| {
+                    ws.find_tab_index_for_pane(*pane_id).is_some_and(|tab_idx| {
+                        view.active_tab_for_workspace(&ws.id)
+                            .unwrap_or(ws.active_tab_index())
+                            == tab_idx
+                    })
+                });
             let suppress_active_tab_notifications =
                 self.active_tab_suppresses_notifications(is_active_tab);
 
@@ -2385,10 +2457,14 @@ impl HeadlessServer {
     }
 
     fn stream_host_mouse_capture_mode(&mut self) {
+        let view = self
+            .app
+            .default_client_view
+            .clone_reconciled(&self.app.state);
         let enabled = self
             .app
             .state
-            .should_capture_host_mouse_from(&self.app.terminal_runtimes);
+            .should_capture_host_mouse_from_view(&self.app.terminal_runtimes, &view);
         let serialized = match Self::frame_server_message(&ServerMessage::MouseCapture { enabled })
         {
             Ok(framed) => framed,
@@ -2436,7 +2512,7 @@ impl HeadlessServer {
         if render_targets.is_empty() {
             let (cols, rows) = self.effective_size;
             let area = Rect::new(0, 0, cols, rows);
-            let resize_panes = self.app.state.view.pane_infos.is_empty();
+            let resize_panes = false;
             let _ = crate::server::render_stream::render_virtual_with_runtime_registry(
                 &mut self.app.state,
                 &self.app.terminal_runtimes,
@@ -3285,11 +3361,11 @@ mod tests {
     #[test]
     fn headless_handles_git_diff_open_request() {
         let mut server = test_headless_server();
-        server.app.state.request_open_git_diff = true;
+        server.app.state.request_open_git_diff_command = true;
 
-        assert!(server.handle_open_git_diff_request());
+        assert!(server.handle_open_git_diff_command_request());
 
-        assert!(!server.app.state.request_open_git_diff);
+        assert!(!server.app.state.request_open_git_diff_command);
         assert_eq!(
             server
                 .app
@@ -3297,7 +3373,7 @@ mod tests {
                 .toast
                 .as_ref()
                 .map(|toast| toast.title.as_str()),
-            Some("git diff failed")
+            Some("git diff command failed")
         );
         assert!(server.app.toast_deadline.is_some());
     }

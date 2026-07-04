@@ -2,9 +2,7 @@ use std::borrow::Cow;
 
 use crate::{
     app::state::{normalize_theme_name, theme_names_for_appearance, AppState, SettingsSection},
-    config::{
-        NativeDiffIndicatorConfig, NewTerminalCwdConfig, TerminalAccent, ThemeMode, ToastDelivery,
-    },
+    config::{NewTerminalCwdConfig, TerminalAccent, ThemeMode, ToastDelivery},
     terminal_theme::ThemeAppearance,
 };
 
@@ -688,51 +686,10 @@ fn appearance_rows(app: &AppState) -> Vec<SettingsListRow> {
     let layout_base = option_count(&rows);
     rows.push(SettingsListRow::Spacer);
     rows.extend(layout_rows_with_base(app, layout_base));
-    rows.push(SettingsListRow::Spacer);
-    rows.extend(setting_group(
-        "diffs",
-        [
-            value_option(
-                layout_base + 4,
-                "change indicators",
-                "show either gutter bars or plus/minus signs",
-                native_diff_indicator_label(
-                    app.settings
-                        .pending_native_diff_indicators
-                        .unwrap_or(app.native_diff_indicators),
-                ),
-            ),
-            option(
-                layout_base + 5,
-                "change backgrounds",
-                "tint added and removed diff lines",
-                app.settings
-                    .pending_native_diff_backgrounds
-                    .unwrap_or_else(|| app.native_diff_backgrounds_enabled()),
-            ),
-            option(
-                layout_base + 6,
-                "wrap lines",
-                "wrap long diff lines by default",
-                app.settings
-                    .pending_native_diff_wrap_lines
-                    .unwrap_or(app.native_diff_wrap_lines),
-            ),
-            option(
-                layout_base + 7,
-                "line numbers",
-                "show old and new file line numbers",
-                app.settings
-                    .pending_native_diff_line_numbers
-                    .unwrap_or(app.native_diff_line_numbers),
-            ),
-        ],
-    ));
-    rows.push(SettingsListRow::Spacer);
     rows.extend(setting_group(
         "panes",
         [option(
-            layout_base + 8,
+            layout_base + 3,
             "agent border labels",
             "show detected agent names in split pane borders",
             app.settings
@@ -743,12 +700,6 @@ fn appearance_rows(app: &AppState) -> Vec<SettingsListRow> {
     rows
 }
 
-fn native_diff_indicator_label(indicator: NativeDiffIndicatorConfig) -> &'static str {
-    match indicator {
-        NativeDiffIndicatorConfig::Bars => "bars",
-        NativeDiffIndicatorConfig::Signs => "signs",
-    }
-}
 fn layout_rows(app: &AppState) -> Vec<SettingsListRow> {
     layout_rows_with_base(app, 0)
 }

@@ -4,11 +4,16 @@ use ratatui::backend::{Backend, ClearType, TestBackend, WindowSize};
 use ratatui::layout::{Position, Rect, Size};
 
 use crate::app::state::AppState;
-use crate::app::view_state::{with_client_view_app_state, ClientViewState};
+use crate::app::view_state::{
+    apply_client_view_to_app_state, apply_terminal_offsets_to_runtimes,
+    capture_terminal_offsets_from_app_state, ClientViewState,
+};
 use crate::app::Mode;
 use crate::protocol::render_ansi::{BlitEncoder, EncodedBlit};
 use crate::protocol::{CursorState, FrameData, RenderEncoding, ServerMessage, TerminalFrame};
 use crate::terminal::TerminalRuntimeRegistry;
+
+type RenderedKittyImages = Vec<((u16, u16), String, String)>;
 
 /// Per-client render baseline for the negotiated render encoding.
 pub(crate) enum ClientRenderState {
@@ -302,20 +307,28 @@ pub(crate) fn render_virtual_for_client_view(
 ) -> (
     ratatui::buffer::Buffer,
     Option<CursorState>,
-    Vec<((u16, u16), String, String)>,
+    RenderedKittyImages,
 ) {
-    let ((buffer, cursor), hyperlinks) =
-        with_client_view_app_state(app_state, terminal_runtimes, client_view, |state| {
-            let frame = render_virtual_with_runtime_registry(
-                state,
-                terminal_runtimes,
-                area,
-                resize_panes,
-                cell_size,
-            );
-            let hyperlinks = visible_hyperlinks(state, terminal_runtimes);
-            (frame, hyperlinks)
-        });
+    let mut shared_view = ClientViewState::from_app_state(app_state);
+    capture_terminal_offsets_from_app_state(app_state, terminal_runtimes, &mut shared_view);
+
+    client_view.reconcile(app_state);
+    let mut render_state = app_state.clone();
+    apply_client_view_to_app_state(&mut render_state, client_view);
+    apply_terminal_offsets_to_runtimes(&render_state, terminal_runtimes, client_view);
+
+    let (buffer, cursor) = render_virtual_with_runtime_registry(
+        &mut render_state,
+        terminal_runtimes,
+        area,
+        resize_panes,
+        cell_size,
+    );
+    let hyperlinks = visible_hyperlinks(&render_state, terminal_runtimes);
+
+    *client_view = ClientViewState::from_app_state(&render_state);
+    capture_terminal_offsets_from_app_state(&render_state, terminal_runtimes, client_view);
+    apply_terminal_offsets_to_runtimes(app_state, terminal_runtimes, &shared_view);
     (buffer, cursor, hyperlinks)
 }
 

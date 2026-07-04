@@ -61,23 +61,6 @@ pub enum SidebarArrangementConfig {
     CombinedRight,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum NativeDiffIndicatorConfig {
-    #[default]
-    Bars,
-    Signs,
-}
-
-impl NativeDiffIndicatorConfig {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Bars => "bars",
-            Self::Signs => "signs",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RightClickPassthroughModifierConfig(Option<KeyModifiers>);
 
@@ -219,6 +202,21 @@ pub struct WorktreesConfig {
     pub directory: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct GitConfig {
+    /// Command launched by "open git diff". Runs in the selected repository root.
+    pub diff_command: String,
+}
+
+impl Default for GitConfig {
+    fn default() -> Self {
+        Self {
+            diff_command: "lazygit".into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConfigReloadStatus {
@@ -257,6 +255,7 @@ pub struct Config {
     pub ui: UiConfig,
     pub advanced: AdvancedConfig,
     pub worktrees: WorktreesConfig,
+    pub git: GitConfig,
     pub experimental: ExperimentalConfig,
     pub remote: RemoteConfig,
     pub agent_profiles: crate::agent_profiles::AgentProfilesConfig,
@@ -427,14 +426,6 @@ pub struct UiConfig {
     pub confirm_close: bool,
     /// Ask for a tab name before creating a new tab. Default: true.
     pub prompt_new_tab_name: bool,
-    /// Native diff change indicator style: bars or signs. Default: bars.
-    pub native_diff_indicators: NativeDiffIndicatorConfig,
-    /// Tint changed native diff rows. Default: true.
-    pub native_diff_backgrounds: bool,
-    /// Wrap native diff code lines by default. Default: false.
-    pub native_diff_wrap_lines: bool,
-    /// Show native diff line numbers. Default: true.
-    pub native_diff_line_numbers: bool,
     /// Show agent labels in split pane borders when no manual pane label is set. Default: false.
     pub show_agent_labels_on_pane_borders: bool,
     /// Agent sidebar scope. Saved values are "current", "group", or "all". Default: "current".
@@ -640,10 +631,6 @@ impl Default for UiConfig {
             mouse_scroll_lines: None,
             confirm_close: true,
             prompt_new_tab_name: true,
-            native_diff_indicators: NativeDiffIndicatorConfig::Bars,
-            native_diff_backgrounds: true,
-            native_diff_wrap_lines: false,
-            native_diff_line_numbers: true,
             show_agent_labels_on_pane_borders: false,
             agent_panel_scope: AgentPanelScopeConfig::Current,
             accent: "cyan".into(),

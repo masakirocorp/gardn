@@ -151,7 +151,6 @@ fn agent_panel_current_workspace_idx(app: &AppState) -> Option<usize> {
             | Mode::ContextMenu
             | Mode::Settings
             | Mode::GlobalMenu
-            | Mode::GroupMenu
             | Mode::AgentMenu
             | Mode::KeybindHelp
             | Mode::CommandPalette
@@ -1460,54 +1459,6 @@ pub(super) fn render_sidebar(
     render_sidebar_toggle(app, frame, area, false, p);
 }
 
-pub(super) fn active_native_diff(
-    app: &AppState,
-) -> Option<&crate::native_diff::NativeDiffPaneState> {
-    let ws = app.active.and_then(|idx| app.workspaces.get(idx))?;
-    let tab = ws.active_tab()?;
-    let pane_id = tab.layout.focused();
-    tab.panes.get(&pane_id)?.native_diff()
-}
-
-fn render_diff_context_sidebar(
-    app: &AppState,
-    diff: &crate::native_diff::NativeDiffPaneState,
-    frame: &mut Frame,
-    area: Rect,
-) {
-    let content = right_sidebar_content_rect(area);
-    if content == Rect::default() {
-        return;
-    }
-    let p = &app.palette;
-    render_right_sidebar_section_header(
-        frame,
-        content,
-        content.y,
-        "▾",
-        "diff",
-        diff.session
-            .files
-            .iter()
-            .filter(|file| diff.scope.includes(file.bucket))
-            .count(),
-        Style::default()
-            .fg(app.active_workspace_accent_color())
-            .add_modifier(Modifier::BOLD),
-        Style::default().fg(p.overlay0),
-    );
-    if content.height <= 1 {
-        return;
-    }
-    super::panes::render_native_diff_file_list(
-        app,
-        diff,
-        frame,
-        Rect::new(content.x, content.y + 1, content.width, content.height - 1),
-        app.active_workspace_accent_color(),
-    );
-}
-
 pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect) {
     if area == Rect::default() {
         return;
@@ -1527,57 +1478,7 @@ pub(super) fn render_right_sidebar(app: &AppState, frame: &mut Frame, area: Rect
         buf[(area.x, y)].set_symbol("│");
         buf[(area.x, y)].set_style(sep_style);
     }
-    if app.right_sidebar_collapsed {
-        if let Some(diff) = active_native_diff(app) {
-            render_right_sidebar_collapsed_diff(app, diff, frame, area);
-        }
-        render_right_sidebar_toggle(app, frame, area, true, p);
-        return;
-    }
-    if let Some(diff) = active_native_diff(app) {
-        render_diff_context_sidebar(app, diff, frame, area);
-    }
     render_right_sidebar_toggle(app, frame, area, false, p);
-}
-
-fn render_right_sidebar_collapsed_diff(
-    app: &AppState,
-    diff: &crate::native_diff::NativeDiffPaneState,
-    frame: &mut Frame,
-    area: Rect,
-) {
-    let content = right_sidebar_content_rect(area);
-    if content == Rect::default() {
-        return;
-    }
-    let p = &app.palette;
-    let file_count = diff
-        .session
-        .files
-        .iter()
-        .filter(|file| diff.scope.includes(file.bucket))
-        .count()
-        .min(9);
-    frame.render_widget(
-        Paragraph::new(Span::styled(
-            "df",
-            Style::default()
-                .fg(app.active_workspace_accent_color())
-                .add_modifier(Modifier::BOLD),
-        ))
-        .alignment(Alignment::Center),
-        Rect::new(content.x, content.y, content.width, 1),
-    );
-    if content.height > 1 {
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                file_count.to_string(),
-                Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
-            ))
-            .alignment(Alignment::Center),
-            Rect::new(content.x, content.y + 1, content.width, 1),
-        );
-    }
 }
 
 #[cfg(test)]

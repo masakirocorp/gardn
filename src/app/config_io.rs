@@ -196,43 +196,6 @@ impl App {
         }
     }
 
-    pub(super) fn save_native_diff_display(
-        &mut self,
-        indicators: crate::config::NativeDiffIndicatorConfig,
-        backgrounds: bool,
-        wrap_lines: bool,
-        line_numbers: bool,
-    ) {
-        if self.update_config_file("native diff display", |content| {
-            let content = crate::config::upsert_section_value(
-                content,
-                "ui",
-                "native_diff_indicators",
-                &format!("\"{}\"", indicators.as_str()),
-            );
-            let content = crate::config::upsert_section_bool(
-                &content,
-                "ui",
-                "native_diff_backgrounds",
-                backgrounds,
-            );
-            let content = crate::config::upsert_section_bool(
-                &content,
-                "ui",
-                "native_diff_wrap_lines",
-                wrap_lines,
-            );
-            crate::config::upsert_section_bool(
-                &content,
-                "ui",
-                "native_diff_line_numbers",
-                line_numbers,
-            )
-        }) {
-            self.apply_config_from_disk(false);
-        }
-    }
-
     pub(super) fn save_agent_border_labels(&mut self, enabled: bool) {
         if self.update_config_file("agent border labels", |content| {
             crate::config::upsert_section_bool(

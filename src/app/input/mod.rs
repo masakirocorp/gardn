@@ -22,7 +22,7 @@ enum WheelRouting {
 
 const WORKSPACE_DRAG_THRESHOLD: u16 = 1;
 const TAB_DRAG_THRESHOLD: u16 = 1;
-const MODAL_WHEEL_SCROLL_ROWS: i16 = 3;
+pub(super) const MODAL_WHEEL_SCROLL_ROWS: i16 = 3;
 const MODAL_PAGE_SCROLL_ROWS: i16 = 8;
 
 fn modified_url_click_modifier() -> KeyModifiers {
@@ -48,15 +48,28 @@ mod sidebar;
 mod terminal;
 
 pub(crate) use self::{
-    modal::{
-        handle_agent_menu_key, handle_confirm_close_key, handle_confirm_delete_group_key,
-        handle_context_menu_key, handle_global_menu_key, handle_group_menu_key,
-        handle_keybind_help_key, handle_navigator_key, handle_rename_key, handle_resize_key,
-        handle_worktree_directory_key, insert_navigator_search_text, insert_rename_input_text,
+    command_palette::{
+        close_command_palette, command_palette_contains_point, execute_command_palette_action,
+        handle_command_palette_key_for_view, hover_command_palette_selection,
+        scroll_command_palette_rows, selected_command_palette_action_for_view,
     },
-    navigate::terminal_direct_navigation_action,
-    settings::open_settings_at,
+    modal::{
+        global_menu_actions, handle_agent_menu_key, handle_confirm_close_key,
+        handle_confirm_delete_group_key, handle_context_menu_key, handle_global_menu_key,
+        handle_group_menu_key, handle_keybind_help_key, handle_navigator_key, handle_rename_key,
+        handle_resize_key, handle_worktree_directory_key, insert_navigator_search_text,
+        insert_rename_input_text, request_detach, GlobalMenuAction,
+    },
+    navigate::{
+        execute_navigate_action_in_context, terminal_direct_navigation_action, ActionContext,
+        NavigateAction,
+    },
+    settings::{open_settings_at, update_settings_state_for_view},
+    sidebar::{AgentMenuAction, GroupMenuAction},
 };
+
+#[cfg(test)]
+pub(crate) use self::command_palette::open_command_palette_for_view;
 use self::{
     modal::{
         modal_action_from_key, ModalAction, ONBOARDING_WELCOME_ACTIONS, RELEASE_NOTES_ACTIONS,
@@ -120,7 +133,6 @@ impl App {
                 }
                 Mode::CommandPalette => self.handle_command_palette_key(key_event),
                 Mode::AgentProfilePicker => self.handle_agent_profile_picker_key(key_event),
-                Mode::DiffAgentPicker => self.handle_diff_agent_picker_key(key_event),
                 Mode::GitRepoPicker => self.handle_git_repo_picker_key(key_event),
                 Mode::Terminal => unreachable!(),
             },
@@ -328,46 +340,6 @@ impl App {
                         mouse.column,
                         mouse.row,
                     );
-                    return;
-                }
-                _ => {}
-            }
-        }
-        if self.state.mode == Mode::DiffAgentPicker {
-            match mouse.kind {
-                MouseEventKind::Down(MouseButton::Left) => {
-                    if let Some(idx) = crate::ui::diff_agent_picker::diff_agent_picker_index_at(
-                        &self.state,
-                        mouse.column,
-                        mouse.row,
-                    ) {
-                        if let Some(picker) = self.state.diff_agent_picker.as_mut() {
-                            picker.selected = idx;
-                        }
-                        self.handle_diff_agent_picker_key(KeyEvent::new(
-                            KeyCode::Enter,
-                            KeyModifiers::empty(),
-                        ));
-                    } else if !crate::ui::diff_agent_picker::diff_agent_picker_contains_point(
-                        &self.state,
-                        mouse.column,
-                        mouse.row,
-                    ) {
-                        self.state.diff_agent_picker = None;
-                        self.state.return_to_active_workspace_mode();
-                    }
-                    return;
-                }
-                MouseEventKind::Moved => {
-                    if let Some(idx) = crate::ui::diff_agent_picker::diff_agent_picker_index_at(
-                        &self.state,
-                        mouse.column,
-                        mouse.row,
-                    ) {
-                        if let Some(picker) = self.state.diff_agent_picker.as_mut() {
-                            picker.selected = idx;
-                        }
-                    }
                     return;
                 }
                 _ => {}
@@ -600,10 +572,6 @@ impl App {
                         sidebar_min_width,
                         sidebar_max_width,
                         worktree_directory,
-                        native_diff_indicators,
-                        native_diff_backgrounds,
-                        native_diff_wrap_lines,
-                        native_diff_line_numbers,
                         agent_border_labels,
                     } => {
                         self.save_theme(
@@ -627,12 +595,6 @@ impl App {
                             self.save_worktree_directory(&directory);
                         }
                         self.save_toast_delivery(toast_delivery);
-                        self.save_native_diff_display(
-                            native_diff_indicators,
-                            native_diff_backgrounds,
-                            native_diff_wrap_lines,
-                            native_diff_line_numbers,
-                        );
                         self.save_agent_border_labels(agent_border_labels);
                     }
                     SettingsAction::SaveGroupAccent { group_idx, accent } => {
@@ -831,11 +793,11 @@ impl App {
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Err(err) = self
                     .state
-                    .open_selected_git_diff_panel(&mut self.terminal_runtimes)
+                    .open_selected_git_diff_command(&mut self.terminal_runtimes)
                 {
                     self.state.toast = Some(crate::app::state::ToastNotification {
                         kind: crate::app::state::ToastKind::NeedsAttention,
-                        title: "git diff failed".to_string(),
+                        title: "git diff command failed".to_string(),
                         context: err,
                         position: None,
                         target: None,

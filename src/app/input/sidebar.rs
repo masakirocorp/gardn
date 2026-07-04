@@ -427,7 +427,6 @@ impl AppState {
                 | Mode::KeybindHelp
                 | Mode::CommandPalette
                 | Mode::AgentProfilePicker
-                | Mode::DiffAgentPicker
                 | Mode::GitRepoPicker
         ) {
             Some(self.selected)
@@ -763,7 +762,6 @@ impl AppState {
                 | Mode::KeybindHelp
                 | Mode::CommandPalette
                 | Mode::AgentProfilePicker
-                | Mode::DiffAgentPicker
                 | Mode::GitRepoPicker
         ) {
             Some(self.selected)
@@ -995,7 +993,7 @@ mod tests {
     use std::fs;
 
     use crossterm::event::{MouseButton, MouseEventKind};
-    use ratatui::layout::Rect;
+    use ratatui::{backend::TestBackend, buffer::Buffer, layout::Rect, Terminal};
 
     use super::super::{app_for_mouse_test, capture_snapshot, mouse, unique_temp_path};
     use crate::{
@@ -1003,6 +1001,58 @@ mod tests {
         detect::{Agent, AgentState},
         workspace::Workspace,
     };
+
+    fn render_app(app: &mut crate::app::App, width: u16, height: u16) -> (String, Buffer) {
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, width, height));
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render app");
+        let buffer = terminal.backend().buffer().clone();
+        let text = buffer_text(&buffer, width, height);
+        (text, buffer)
+    }
+
+    fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {
+        let mut text = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                text.push_str(buffer[(x, y)].symbol());
+            }
+            text.push('\n');
+        }
+        text
+    }
+
+    fn buffer_rect_text(buffer: &Buffer, rect: Rect) -> String {
+        let mut text = String::new();
+        for x in rect.x..rect.x + rect.width {
+            text.push_str(buffer[(x, rect.y)].symbol());
+        }
+        text
+    }
+
+    fn mark_root_pane_as_working_agent(
+        app: &mut crate::app::App,
+        ws_idx: usize,
+        name: &str,
+    ) -> crate::layout::PaneId {
+        let pane_id = app.state.workspaces[ws_idx].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[ws_idx].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        let terminal = app
+            .state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("test terminal");
+        terminal.set_agent_name(name.to_string());
+        terminal.set_manual_label(name.to_string());
+        terminal.set_detected_state(Some(Agent::Codex), AgentState::Working);
+        terminal.state = AgentState::Working;
+        pane_id
+    }
 
     #[test]
     fn clicking_group_selector_opens_group_menu() {
@@ -1020,6 +1070,90 @@ mod tests {
 
         assert_eq!(app.state.mode, Mode::GroupMenu);
         assert_eq!(app.state.group_menu.highlighted, 4);
+    }
+
+    #[test]
+    fn spaces_dropdown_keeps_active_agent_visible_and_clickable() {
+        let mut app = app_for_mouse_test();
+        app.state.create_group("Work".to_string());
+        let mut active = Workspace::test_new("agent-space");
+        active.tabs[0].set_custom_name("planner".into());
+        let scratch = Workspace::test_new("scratch");
+        app.state.workspaces = vec![active, scratch];
+        app.state.ensure_test_terminals();
+        let pane_id = mark_root_pane_as_working_agent(&mut app, 0, "planner");
+        app.state.active = Some(0);
+        app.state.selected = 1;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 120, 30));
+
+        let selector = app.state.group_selector_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            selector.x + 1,
+            selector.y,
+        ));
+
+        assert_eq!(app.state.mode, Mode::GroupMenu);
+        let (rendered, _) = render_app(&mut app, 120, 30);
+        assert!(
+            rendered.contains("planner"),
+            "opening the spaces dropdown should not hide the active agent label; rendered UI:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("working"),
+            "opening the spaces dropdown should not hide the active agent status; rendered UI:\n{rendered}"
+        );
+
+        let detail_area = app.state.agent_panel_rect();
+        let metrics = crate::ui::agent_panel_scroll_metrics(
+            &app.state,
+            detail_area,
+            app.state.agent_panel_has_leading_separator(),
+        );
+        let body = crate::ui::agent_panel_body_rect(
+            detail_area,
+            crate::ui::should_show_scrollbar(metrics),
+            app.state.agent_panel_has_leading_separator(),
+        );
+        let active_agent_row = (body.y..body.y + body.height)
+            .find(|row| app.state.agent_detail_target_at(*row) == Some((0, 0, pane_id)))
+            .expect("active agent row should remain accessible while spaces dropdown is open");
+        assert!(
+            active_agent_row >= body.y,
+            "active agent row should be inside the rendered agent panel"
+        );
+    }
+
+    #[test]
+    fn active_agent_tab_renders_label_and_status() {
+        let mut app = app_for_mouse_test();
+        let mut workspace = Workspace::test_new("agent-space");
+        workspace.tabs[0].set_custom_name("planner".into());
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        mark_root_pane_as_working_agent(&mut app, 0, "planner");
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let (rendered, buffer) = render_app(&mut app, 120, 30);
+        let active_tab = app.state.view.tab_hit_areas[0];
+        let active_tab_text = buffer_rect_text(&buffer, active_tab);
+
+        assert!(
+            active_tab_text.contains("planner"),
+            "active agent tab should render its label instead of a blank tab; tab text: {active_tab_text:?}"
+        );
+        assert!(
+            rendered.contains("working"),
+            "active agent tab should render the agent status in the visible agent panel; rendered UI:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("planner"),
+            "active agent tab should render the agent label in the visible agent panel; rendered UI:\n{rendered}"
+        );
     }
 
     #[test]

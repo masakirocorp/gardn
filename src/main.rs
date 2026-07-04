@@ -34,15 +34,12 @@ mod detect;
 mod events;
 mod ghostty;
 mod handoff_runtime;
-mod hunk_theme;
 mod input;
 mod integration;
 mod ipc;
 mod kitty_graphics;
 mod layout;
 mod logging;
-mod native_diff;
-mod native_diff_syntax;
 mod pane;
 mod persist;
 mod platform;
@@ -214,6 +211,11 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # type = "pane"
 # command = "lazygit"
 # description = "open lazygit"
+
+#[git]
+# Diff command launched by "open git diff". Runs in the selected repo root.
+# Suggestions: lazygit, lazydiff, gitui, "git diff | delta", "git diff"
+diff_command = "lazygit"
 
 # Legacy indexed shortcut config is still parsed for compatibility.
 # Prefer switch_tab, switch_workspace, switch_group, and focus_agent for new configs.

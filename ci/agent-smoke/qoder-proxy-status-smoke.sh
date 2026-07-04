@@ -81,7 +81,7 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -subj "/CN=qoder.sh" \
   -addext "subjectAltName=DNS:api1.qoder.sh,DNS:api2.qoder.sh" >/dev/null 2>&1
 
-static_reply="HAKO_DIFF_AGENT_PAYLOAD_OK"
+static_reply="HAKO_QODER_PROXY_OK"
 HAKO_QODER_PROXY_CERT="$workdir/qoder.crt" \
 HAKO_QODER_PROXY_KEY="$workdir/qoder.key" \
 HAKO_QODER_PROXY_LOG="$proxy_log" \
@@ -115,27 +115,7 @@ cat > "$home/.qoder/settings.json" <<EOF_HOOKS
   }
 }
 EOF_HOOKS
-diff_prompt='You are receiving a Hako native diff payload that was sent to an agent pane.
-If the selected hunk changes the Rust function return value from "before" to "after", reply exactly HAKO_DIFF_AGENT_PAYLOAD_OK and nothing else.
-
-Repo: /tmp/hako-diff-agent-smoke
-Branch: main
-Scope: all
-File: src/lib.rs
-Bucket: unstaged
-Status: modified
-Shape: selected hunk
-
-```diff
-diff --git a/src/lib.rs b/src/lib.rs
---- a/src/lib.rs
-+++ b/src/lib.rs
-@@ -1,3 +1,3 @@
- pub fn label() -> '\''static str {
--    "before"
-+    "after"
- }
-```'
+generic_prompt='Reply exactly HAKO_QODER_PROXY_OK and nothing else.'
 
 set +e
 (
@@ -152,7 +132,7 @@ set +e
     --output-format json \
     --permission-mode dont_ask \
     --model "${HAKO_SMOKE_QODER_CLI_MODEL:-qmodel}" \
-    "$diff_prompt" >"$workdir/qoder-output.jsonl" 2>&1
+    "$generic_prompt" >"$workdir/qoder-output.jsonl" 2>&1
 )
 status=$?
 set -e
@@ -174,8 +154,8 @@ from pathlib import Path
 output = Path(sys.argv[1]).read_text(errors='replace')
 proxy = Path(sys.argv[2]).read_text(errors='replace')
 requests = [json.loads(line) for line in Path(sys.argv[3]).read_text(errors='replace').splitlines() if line.strip()]
-if 'HAKO_DIFF_AGENT_PAYLOAD_OK' not in output:
-    print(f'qoder proxy smoke did not understand Hako diff payload with this model: {output[-1000:]}', file=sys.stderr)
+if 'HAKO_QODER_PROXY_OK' not in output:
+    print(f'qoder proxy smoke did not return expected marker: {output[-1000:]}', file=sys.stderr)
     raise SystemExit(75)
 if 'model-list status=200' not in proxy:
     raise SystemExit(f'qoder proxy log missing model-list status=200: {proxy[-1000:]}')

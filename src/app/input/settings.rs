@@ -8,6 +8,7 @@ use crate::{
             normalize_theme_name, theme_names_for_appearance, AppState, DragState, DragTarget,
             SettingsSection, THEME_NAMES,
         },
+        view_state::ClientViewState,
         App, Mode,
     },
     config::{NewTerminalCwdConfig, TerminalAccent, ThemeMode, ToastDelivery},
@@ -23,7 +24,7 @@ use super::ScrollbarClickTarget;
 #[derive(Debug, Clone, PartialEq, Eq)]
 // The shared `Save` verb is semantic: these actions persist settings.
 #[allow(clippy::enum_variant_names)]
-pub(super) enum SettingsAction {
+pub(crate) enum SettingsAction {
     SaveSettings {
         light: String,
         dark: String,
@@ -40,10 +41,6 @@ pub(super) enum SettingsAction {
         sidebar_min_width: u16,
         sidebar_max_width: u16,
         worktree_directory: Option<String>,
-        native_diff_indicators: crate::config::NativeDiffIndicatorConfig,
-        native_diff_backgrounds: bool,
-        native_diff_wrap_lines: bool,
-        native_diff_line_numbers: bool,
         agent_border_labels: bool,
     },
     SaveSwitchAsciiInputSourceInPrefix(bool),
@@ -78,92 +75,86 @@ impl App {
     pub(crate) fn handle_settings_key(&mut self, key: KeyEvent) {
         let previous_section = self.state.settings.section;
         if let Some(action) = update_settings_state(&mut self.state, key) {
-            match action {
-                SettingsAction::SaveSettings {
-                    light,
-                    dark,
-                    mode,
-                    terminal_light_accent,
-                    terminal_dark_accent,
-                    sound_enabled,
-                    toast_delivery,
-                    confirm_close,
-                    prompt_new_tab_name,
-                    new_terminal_cwd,
-                    mouse_scroll_lines,
-                    sidebar_width,
-                    sidebar_min_width,
-                    sidebar_max_width,
-                    native_diff_indicators,
-                    native_diff_backgrounds,
-                    native_diff_wrap_lines,
-                    native_diff_line_numbers,
-                    agent_border_labels,
-                    worktree_directory,
-                } => {
-                    self.save_theme(
-                        &light,
-                        &dark,
-                        mode,
-                        terminal_light_accent,
-                        terminal_dark_accent,
-                    );
-                    self.save_sound(sound_enabled);
-                    self.save_confirm_close(confirm_close);
-                    self.save_prompt_new_tab_name(prompt_new_tab_name);
-                    self.save_new_terminal_cwd(&new_terminal_cwd);
-                    self.save_mouse_scroll_lines(mouse_scroll_lines);
-                    self.save_sidebar_widths(sidebar_width, sidebar_min_width, sidebar_max_width);
-                    if let Some(directory) = worktree_directory {
-                        self.save_worktree_directory(&directory);
-                    }
-                    self.save_toast_delivery(toast_delivery);
-                    self.save_native_diff_display(
-                        native_diff_indicators,
-                        native_diff_backgrounds,
-                        native_diff_wrap_lines,
-                        native_diff_line_numbers,
-                    );
-                    self.save_agent_border_labels(agent_border_labels);
-                }
-                SettingsAction::SaveWorkspaceName { ws_idx, name } => {
-                    self.state.rename_workspace(ws_idx, name);
-                }
-                SettingsAction::SaveWorkspaceDefaultCwd { ws_idx, cwd } => {
-                    self.state.set_workspace_default_cwd(ws_idx, cwd);
-                }
-                SettingsAction::SaveGroupAccent { group_idx, accent } => {
-                    self.state.set_group_accent(group_idx, accent);
-                    self.query_host_terminal_theme();
-                }
-                SettingsAction::SaveGroupName { group_idx, name } => {
-                    self.state.rename_group(group_idx, name);
-                }
-                SettingsAction::SaveGroupDefaultDirectory {
-                    group_idx,
-                    default_directory,
-                } => {
-                    self.state
-                        .set_group_default_directory(group_idx, default_directory);
-                }
-                SettingsAction::DeleteGroup(group_idx) => {
-                    super::modal::open_confirm_delete_group(&mut self.state, group_idx);
-                }
-                SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
-                    self.save_switch_ascii_input_source_in_prefix(enabled)
-                }
-                SettingsAction::InstallIntegration(target) => self.install_integration(target),
-                SettingsAction::UninstallIntegration(target) => self.uninstall_integration(target),
-                SettingsAction::SaveAgentProfile(profile) => self.save_agent_profile(profile),
-                SettingsAction::DeleteAgentProfile(profile_id) => {
-                    self.delete_agent_profile(&profile_id)
-                }
-            }
+            self.apply_settings_action(action);
         }
         if previous_section != SettingsSection::Integrations
             && self.state.settings.section == SettingsSection::Integrations
         {
             self.refresh_integration_recommendations();
+        }
+    }
+
+    pub(crate) fn apply_settings_action(&mut self, action: SettingsAction) {
+        match action {
+            SettingsAction::SaveSettings {
+                light,
+                dark,
+                mode,
+                terminal_light_accent,
+                terminal_dark_accent,
+                sound_enabled,
+                toast_delivery,
+                confirm_close,
+                prompt_new_tab_name,
+                new_terminal_cwd,
+                mouse_scroll_lines,
+                sidebar_width,
+                sidebar_min_width,
+                sidebar_max_width,
+                agent_border_labels,
+                worktree_directory,
+            } => {
+                self.save_theme(
+                    &light,
+                    &dark,
+                    mode,
+                    terminal_light_accent,
+                    terminal_dark_accent,
+                );
+                self.save_sound(sound_enabled);
+                self.save_confirm_close(confirm_close);
+                self.save_prompt_new_tab_name(prompt_new_tab_name);
+                self.save_new_terminal_cwd(&new_terminal_cwd);
+                self.save_mouse_scroll_lines(mouse_scroll_lines);
+                self.save_sidebar_widths(sidebar_width, sidebar_min_width, sidebar_max_width);
+                if let Some(directory) = worktree_directory {
+                    self.save_worktree_directory(&directory);
+                }
+                self.save_toast_delivery(toast_delivery);
+                self.save_agent_border_labels(agent_border_labels);
+            }
+            SettingsAction::SaveWorkspaceName { ws_idx, name } => {
+                self.state.rename_workspace(ws_idx, name);
+            }
+            SettingsAction::SaveWorkspaceDefaultCwd { ws_idx, cwd } => {
+                self.state.set_workspace_default_cwd(ws_idx, cwd);
+            }
+            SettingsAction::SaveGroupAccent { group_idx, accent } => {
+                self.state.set_group_accent(group_idx, accent);
+                self.query_host_terminal_theme();
+            }
+            SettingsAction::SaveGroupName { group_idx, name } => {
+                self.state.rename_group(group_idx, name);
+            }
+            SettingsAction::SaveGroupDefaultDirectory {
+                group_idx,
+                default_directory,
+            } => {
+                self.state
+                    .set_group_default_directory(group_idx, default_directory);
+            }
+            SettingsAction::DeleteGroup(group_idx) => {
+                super::modal::open_confirm_delete_group(&mut self.state, group_idx);
+            }
+            SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
+                self.save_switch_ascii_input_source_in_prefix(enabled)
+            }
+            SettingsAction::InstallIntegration(target) => self.install_integration(target),
+            SettingsAction::UninstallIntegration(target) => self.uninstall_integration(target),
+            SettingsAction::SaveAgentProfile(profile) => self.save_agent_profile(profile),
+            SettingsAction::DeleteAgentProfile(profile_id) => {
+                self.delete_agent_profile(&profile_id)
+            }
         }
     }
 }
@@ -1076,33 +1067,6 @@ fn pending_agent_border_labels(state: &AppState) -> bool {
         .unwrap_or_else(|| state.agent_border_labels_enabled())
 }
 
-fn pending_native_diff_indicators(state: &AppState) -> crate::config::NativeDiffIndicatorConfig {
-    state
-        .settings
-        .pending_native_diff_indicators
-        .unwrap_or(state.native_diff_indicators)
-}
-
-fn pending_native_diff_backgrounds(state: &AppState) -> bool {
-    state
-        .settings
-        .pending_native_diff_backgrounds
-        .unwrap_or_else(|| state.native_diff_backgrounds_enabled())
-}
-fn pending_native_diff_wrap_lines(state: &AppState) -> bool {
-    state
-        .settings
-        .pending_native_diff_wrap_lines
-        .unwrap_or(state.native_diff_wrap_lines)
-}
-
-fn pending_native_diff_line_numbers(state: &AppState) -> bool {
-    state
-        .settings
-        .pending_native_diff_line_numbers
-        .unwrap_or(state.native_diff_line_numbers)
-}
-
 fn selected_global_theme_name_for_mode(state: &AppState) -> String {
     match pending_theme_mode(state) {
         ThemeMode::Light => pending_light_theme_name(state),
@@ -1344,10 +1308,6 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_sidebar_max_width = None;
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
-    state.settings.pending_native_diff_indicators = None;
-    state.settings.pending_native_diff_backgrounds = None;
-    state.settings.pending_native_diff_wrap_lines = None;
-    state.settings.pending_native_diff_line_numbers = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.pending_group_accent_choice = None;
     state.settings.pending_group_name = None;
@@ -1378,10 +1338,6 @@ fn current_settings_action(state: &AppState) -> SettingsAction {
         sidebar_min_width: pending_sidebar_min_width(state),
         sidebar_max_width: pending_sidebar_max_width(state),
         worktree_directory: state.settings.pending_worktree_directory.clone(),
-        native_diff_indicators: pending_native_diff_indicators(state),
-        native_diff_backgrounds: pending_native_diff_backgrounds(state),
-        native_diff_wrap_lines: pending_native_diff_wrap_lines(state),
-        native_diff_line_numbers: pending_native_diff_line_numbers(state),
         agent_border_labels: pending_agent_border_labels(state),
     }
 }
@@ -1467,31 +1423,8 @@ fn select_pending_appearance_setting(state: &mut AppState) -> Option<SettingsAct
 
     let appearance_selected = selected - theme_count;
     match appearance_selected {
-        0..=3 => select_pending_layout_setting_at(state, appearance_selected),
-        4 => {
-            state.settings.pending_native_diff_indicators =
-                Some(match pending_native_diff_indicators(state) {
-                    crate::config::NativeDiffIndicatorConfig::Bars => {
-                        crate::config::NativeDiffIndicatorConfig::Signs
-                    }
-                    crate::config::NativeDiffIndicatorConfig::Signs => {
-                        crate::config::NativeDiffIndicatorConfig::Bars
-                    }
-                });
-        }
-        5 => {
-            state.settings.pending_native_diff_backgrounds =
-                Some(!pending_native_diff_backgrounds(state));
-        }
-        6 => {
-            state.settings.pending_native_diff_wrap_lines =
-                Some(!pending_native_diff_wrap_lines(state));
-        }
-        7 => {
-            state.settings.pending_native_diff_line_numbers =
-                Some(!pending_native_diff_line_numbers(state));
-        }
-        8 => {
+        0..=2 => select_pending_layout_setting_at(state, appearance_selected),
+        3 => {
             state.settings.pending_agent_border_labels = Some(!pending_agent_border_labels(state));
         }
         _ => {}
@@ -2054,6 +1987,22 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
     None
 }
 
+pub(crate) fn update_settings_state_for_view(
+    state: &AppState,
+    view: &mut ClientViewState,
+    key: KeyEvent,
+) -> Option<SettingsAction> {
+    let mut local_state = state.clone();
+    local_state.mode = view.mode;
+    local_state.settings = view.settings.clone();
+
+    let action = update_settings_state(&mut local_state, key);
+
+    view.mode = local_state.mode;
+    view.settings = local_state.settings;
+    action
+}
+
 pub(crate) fn open_settings(state: &mut AppState) {
     open_settings_at(state, SettingsSection::Theme);
 }
@@ -2079,10 +2028,6 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
     state.settings.pending_sidebar_max_width = Some(state.sidebar_max_width);
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = Some(state.agent_border_labels_enabled());
-    state.settings.pending_native_diff_indicators = Some(state.native_diff_indicators);
-    state.settings.pending_native_diff_backgrounds = Some(state.native_diff_backgrounds_enabled());
-    state.settings.pending_native_diff_wrap_lines = Some(state.native_diff_wrap_lines);
-    state.settings.pending_native_diff_line_numbers = Some(state.native_diff_line_numbers);
     state.settings.pending_agent_profile_id = None;
     state.settings.pending_agent_profile_name = None;
     state.settings.pending_agent_profile_kind = Some(state.default_agent_profile_kind_choice());
@@ -3546,10 +3491,6 @@ mod tests {
                 sidebar_min_width: 18,
                 sidebar_max_width: 36,
                 worktree_directory: None,
-                native_diff_indicators: crate::config::NativeDiffIndicatorConfig::Bars,
-                native_diff_backgrounds: true,
-                native_diff_wrap_lines: false,
-                native_diff_line_numbers: true,
                 agent_border_labels: false,
             })
         );

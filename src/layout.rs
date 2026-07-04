@@ -61,6 +61,7 @@ pub enum NavDirection {
 }
 
 /// A node in the BSP tree. Public for serialization.
+#[derive(Clone)]
 pub enum Node {
     Pane(PaneId),
     Split {
@@ -72,6 +73,7 @@ pub enum Node {
 }
 
 /// BSP tiling layout. Tracks a tree of splits and a focused pane.
+#[derive(Clone)]
 pub struct TileLayout {
     root: Node,
     focus: PaneId,
@@ -218,6 +220,16 @@ impl TileLayout {
             let adj = if grows { delta } else { -delta };
             self.set_ratio_at(&path, current_ratio + adj);
         }
+    }
+
+    pub fn resize_pane(&mut self, id: PaneId, nav: NavDirection, delta: f32, area: Rect) {
+        if !self.pane_ids().contains(&id) {
+            return;
+        }
+        let previous_focus = self.focus;
+        self.focus = id;
+        self.resize_focused(nav, delta, area);
+        self.focus = previous_focus;
     }
 
     pub fn pane_ids(&self) -> Vec<PaneId> {

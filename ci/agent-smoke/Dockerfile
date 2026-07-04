@@ -145,8 +145,6 @@ COPY verify-env.sh /usr/local/bin/hako-agent-smoke-verify-env
 COPY opencode-smoke.sh /usr/local/bin/hako-agent-smoke-opencode
 COPY smoke-models.sh /usr/local/lib/hako-agent-smoke-models.sh
 COPY opencode-status-smoke.sh /usr/local/bin/hako-agent-smoke-opencode-status
-COPY opencode-diff-agent-smoke.sh /usr/local/bin/hako-agent-smoke-opencode-diff-agent
-COPY diff-agent-smoke.sh /usr/local/bin/hako-agent-smoke-diff-agent
 COPY opencode-plugin-status-test.mjs /usr/local/bin/hako-agent-opencode-plugin-status-test
 COPY pi-omp-plugin-status-test.mjs /usr/local/bin/hako-agent-pi-omp-plugin-status-test
 COPY pi-omp-status-smoke.sh /usr/local/bin/hako-agent-smoke-pi-omp-status
@@ -157,7 +155,7 @@ COPY cursor-openrouter-proxy.mjs /usr/local/bin/hako-agent-cursor-openrouter-pro
 COPY cursor-proxy-status-smoke.sh /usr/local/bin/hako-agent-smoke-cursor-proxy-status
 COPY qoder-openrouter-proxy.mjs /usr/local/bin/hako-agent-qoder-openrouter-proxy
 COPY qoder-proxy-status-smoke.sh /usr/local/bin/hako-agent-smoke-qoder-proxy-status
-RUN chmod +x /usr/local/bin/hako-agent-smoke-env /usr/local/bin/hako-agent-smoke-doctor /usr/local/bin/hako-agent-smoke-verify-env /usr/local/bin/hako-agent-smoke-opencode /usr/local/bin/hako-agent-smoke-opencode-status /usr/local/bin/hako-agent-smoke-opencode-diff-agent /usr/local/bin/hako-agent-smoke-diff-agent /usr/local/bin/hako-agent-smoke-pi-omp-status /usr/local/bin/hako-agent-smoke-claude-status /usr/local/bin/hako-agent-smoke-codex-status /usr/local/bin/hako-agent-smoke-remaining-status /usr/local/bin/hako-agent-smoke-cursor-proxy-status /usr/local/bin/hako-agent-smoke-qoder-proxy-status /usr/local/bin/hako-agent-cursor-openrouter-proxy /usr/local/bin/hako-agent-qoder-openrouter-proxy /usr/local/bin/hako-agent-opencode-plugin-status-test /usr/local/bin/hako-agent-pi-omp-plugin-status-test \
+RUN chmod +x /usr/local/bin/hako-agent-smoke-env /usr/local/bin/hako-agent-smoke-doctor /usr/local/bin/hako-agent-smoke-verify-env /usr/local/bin/hako-agent-smoke-opencode /usr/local/bin/hako-agent-smoke-opencode-status /usr/local/bin/hako-agent-smoke-pi-omp-status /usr/local/bin/hako-agent-smoke-claude-status /usr/local/bin/hako-agent-smoke-codex-status /usr/local/bin/hako-agent-smoke-remaining-status /usr/local/bin/hako-agent-smoke-cursor-proxy-status /usr/local/bin/hako-agent-smoke-qoder-proxy-status /usr/local/bin/hako-agent-cursor-openrouter-proxy /usr/local/bin/hako-agent-qoder-openrouter-proxy /usr/local/bin/hako-agent-opencode-plugin-status-test /usr/local/bin/hako-agent-pi-omp-plugin-status-test \
     && useradd --create-home --shell /bin/bash smoke
 
 USER smoke

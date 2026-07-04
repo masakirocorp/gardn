@@ -8,7 +8,6 @@ use ratatui::{
 mod agent_profile_picker;
 mod command_palette;
 mod dialogs;
-pub(crate) mod diff_agent_picker;
 pub(crate) mod git_repo_picker;
 mod keybind_help;
 mod menus;
@@ -30,7 +29,6 @@ use self::command_palette::render_command_palette_overlay;
 use self::dialogs::{
     render_confirm_close_overlay, render_confirm_delete_group_overlay, render_rename_overlay,
 };
-use self::diff_agent_picker::render_diff_agent_picker_overlay;
 use self::git_repo_picker::render_git_repo_picker_overlay;
 use self::keybind_help::render_keybind_help_overlay;
 use self::menus::{
@@ -45,7 +43,6 @@ use self::mobile::{
 use self::navigator::render_navigator_overlay;
 pub(crate) use self::onboarding::onboarding_welcome_continue_rect;
 use self::onboarding::render_onboarding_overlay;
-pub(crate) use self::panes::native_diff_line_number_gutter_width;
 use self::panes::{compute_pane_infos, render_panes, resize_tab_panes};
 pub(crate) use self::release_notes::{
     product_announcement_display_lines, release_notes_close_button_rect,
@@ -121,7 +118,6 @@ use crate::app::{AppState, Mode};
 use crate::terminal::TerminalRuntimeRegistry;
 
 const COLLAPSED_WIDTH: u16 = 4; // num + space + dot + separator
-const RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH: u16 = 56;
 const DESKTOP_SAFE_AREA_INSET: u16 = 1;
 #[allow(dead_code)]
 pub(crate) const MIN_SIDEBAR_WIDTH: u16 = 18;
@@ -232,15 +228,7 @@ fn compute_view_internal(
             .clamp(MIN_RIGHT_SIDEBAR_WIDTH, MAX_RIGHT_SIDEBAR_WIDTH)
     };
 
-    // The right sidebar is a context rail for the active main-pane tool, not
-    // persistent app navigation. Today native diff is the only tool with a
-    // right-side context surface.
-    let has_right_sidebar_context = self::sidebar::active_native_diff(app).is_some();
-    let use_right_sidebar = has_right_sidebar_context
-        && area.width
-            >= sidebar_w
-                .saturating_add(right_sidebar_w)
-                .saturating_add(RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH);
+    let use_right_sidebar = false;
     let (sidebar_area, main_area, right_sidebar_area) = if use_right_sidebar {
         let [sidebar_area, main_area, right_sidebar_area] = Layout::horizontal([
             Constraint::Length(sidebar_w),
@@ -517,7 +505,6 @@ pub fn render_with_runtime_registry(
         Mode::Navigator => render_navigator_overlay(app, frame),
         Mode::CommandPalette => render_command_palette_overlay(app, frame),
         Mode::AgentProfilePicker => render_agent_profile_picker_overlay(app, frame),
-        Mode::DiffAgentPicker => render_diff_agent_picker_overlay(app, frame),
         Mode::GitRepoPicker => render_git_repo_picker_overlay(app, frame),
         Mode::Terminal => {}
     }
@@ -757,109 +744,6 @@ mod tests {
                 .style()
                 .bg,
             Some(app.palette.panel_bg)
-        );
-    }
-
-    fn native_diff_file(path: &str) -> crate::native_diff::NativeDiffFile {
-        crate::native_diff::NativeDiffFile {
-            bucket: crate::native_diff::DiffBucket::Changed,
-            old_path: Some(std::path::PathBuf::from(path)),
-            new_path: Some(std::path::PathBuf::from(path)),
-            status: crate::native_diff::DiffFileStatus::Modified,
-            added: 1,
-            deleted: 0,
-            hunks: Vec::new(),
-            binary: false,
-        }
-    }
-
-    #[test]
-    fn desktop_without_diff_omits_right_sidebar_context_rail() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.workspaces = vec![Workspace::test_new("one")];
-        app.active = Some(0);
-        app.selected = 0;
-        app.mode = Mode::Terminal;
-
-        compute_view(&mut app, Rect::new(0, 0, 140, 20));
-
-        assert_eq!(app.view.sidebar_rect, Rect::new(1, 1, 26, 18));
-        assert_eq!(app.view.right_sidebar_rect, Rect::default());
-        assert_eq!(app.view.terminal_area, Rect::new(27, 2, 112, 17));
-    }
-
-    #[test]
-    fn desktop_diff_uses_right_sidebar_for_file_context() {
-        let mut app = crate::app::state::AppState::test_new();
-        let mut ws = Workspace::test_new("repo");
-        ws.create_native_diff_tab(crate::native_diff::NativeDiffSession {
-            repo_root: std::path::PathBuf::from("/tmp/repo"),
-            files: vec![
-                native_diff_file("src/main.rs"),
-                native_diff_file("src/lib.rs"),
-            ],
-        })
-        .expect("native diff tab");
-        app.workspaces = vec![ws];
-        app.active = Some(0);
-        app.selected = 0;
-        app.mode = Mode::Terminal;
-
-        compute_view(&mut app, Rect::new(0, 0, 140, 20));
-
-        assert_eq!(app.view.sidebar_rect, Rect::new(1, 1, 26, 18));
-        assert_eq!(app.view.right_sidebar_rect, Rect::new(111, 1, 28, 18));
-        assert_eq!(app.view.terminal_area, Rect::new(27, 2, 84, 17));
-
-        let backend = TestBackend::new(140, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| render(&app, frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-        let content = right_sidebar_content_rect(app.view.right_sidebar_rect);
-        let text = (content.y..content.y + content.height)
-            .map(|row| buffer_row_text(buffer, content, row))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        assert!(text.contains("diff"));
-        assert!(text.contains("src/main.rs"));
-        assert!(text.contains("src/lib.rs"));
-    }
-
-    #[test]
-    fn collapsed_right_diff_sidebar_shows_diff_rail() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.right_sidebar_collapsed = true;
-        let mut ws = Workspace::test_new("repo");
-        ws.create_native_diff_tab(crate::native_diff::NativeDiffSession {
-            repo_root: std::path::PathBuf::from("/tmp/repo"),
-            files: vec![
-                native_diff_file("src/main.rs"),
-                native_diff_file("src/lib.rs"),
-            ],
-        })
-        .expect("native diff tab");
-        app.workspaces = vec![ws];
-        app.active = Some(0);
-        app.selected = 0;
-        app.mode = Mode::Terminal;
-
-        compute_view(&mut app, Rect::new(0, 0, 140, 20));
-
-        assert_eq!(app.view.right_sidebar_rect.width, COLLAPSED_WIDTH);
-
-        let backend = TestBackend::new(140, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| render(&app, frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-        let toggle = right_sidebar_toggle_rect(app.view.right_sidebar_rect, true);
-
-        assert_eq!(buffer[(toggle.x, toggle.y)].symbol(), "«");
-        let content = right_sidebar_content_rect(app.view.right_sidebar_rect);
-        assert!(buffer_row_text(buffer, content, content.y).contains("df"));
-        assert_eq!(
-            buffer[(content.x + content.width / 2, content.y + 1)].symbol(),
-            "2"
         );
     }
 

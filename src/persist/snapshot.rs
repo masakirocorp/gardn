@@ -51,7 +51,7 @@ pub struct SessionSnapshot {
     pub pane_id_aliases: std::collections::HashMap<u32, u32>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct SessionDefaultViewSnapshot {
     #[serde(default)]
     pub active: Option<usize>,
@@ -71,22 +71,6 @@ pub struct SessionDefaultViewSnapshot {
     pub right_sidebar_collapsed: bool,
     #[serde(default)]
     pub ui: SessionUiSnapshot,
-}
-
-impl Default for SessionDefaultViewSnapshot {
-    fn default() -> Self {
-        Self {
-            active: None,
-            selected: 0,
-            agent_panel_scope: crate::app::state::AgentPanelScope::default(),
-            sidebar_width: None,
-            sidebar_collapsed: false,
-            sidebar_section_split: None,
-            right_sidebar_width: None,
-            right_sidebar_collapsed: false,
-            ui: SessionUiSnapshot::default(),
-        }
-    }
 }
 
 impl SessionDefaultViewSnapshot {
@@ -289,13 +273,6 @@ pub struct PaneSnapshot {
     pub seen: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_semantics: Option<crate::terminal::TerminalSemanticSnapshot>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub native_diff: Option<NativeDiffPaneSnapshot>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NativeDiffPaneSnapshot {
-    pub repo_root: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -731,11 +708,6 @@ fn capture_tab(
         let terminal_semantics = include_terminal_semantics
             .then(|| terminal.and_then(|terminal| terminal.capture_semantic_snapshot()))
             .flatten();
-        let native_diff = pane.and_then(|pane| {
-            pane.native_diff().map(|diff| NativeDiffPaneSnapshot {
-                repo_root: diff.session.repo_root.clone(),
-            })
-        });
         panes.insert(
             id.raw(),
             PaneSnapshot {
@@ -750,7 +722,6 @@ fn capture_tab(
                 launch_env,
                 seen,
                 terminal_semantics,
-                native_diff,
             },
         );
     }
@@ -930,33 +901,6 @@ mod tests {
         terminal_runtimes: &TerminalRuntimeRegistry,
     ) -> SessionHistorySnapshot {
         capture_history(&state.workspaces, terminal_runtimes)
-    }
-
-    #[test]
-    fn capture_persists_native_diff_repo_root() {
-        let mut state = state_with_workspaces(&["space"]);
-        let repo_root = PathBuf::from("/hako-test/repo");
-        state.workspaces[0]
-            .create_native_diff_tab(crate::native_diff::NativeDiffSession {
-                repo_root: repo_root.clone(),
-                files: Vec::new(),
-            })
-            .expect("create native diff tab");
-
-        let snap = capture_from_state(&state);
-        let native_tab = &snap.workspaces[0].tabs[1];
-        let pane = native_tab
-            .panes
-            .values()
-            .find(|pane| pane.native_diff.is_some())
-            .expect("native diff pane");
-
-        assert_eq!(
-            pane.native_diff
-                .as_ref()
-                .map(|diff| diff.repo_root.as_path()),
-            Some(repo_root.as_path())
-        );
     }
 
     #[test]
@@ -1214,7 +1158,6 @@ mod tests {
                 launch_env: Vec::new(),
                 seen: true,
                 terminal_semantics: None,
-                native_diff: None,
             },
         );
         panes.insert(
@@ -1229,7 +1172,6 @@ mod tests {
                 launch_env: Vec::new(),
                 seen: true,
                 terminal_semantics: None,
-                native_diff: None,
             },
         );
 

@@ -12,7 +12,6 @@ mod tabs;
 mod workspaces;
 mod worktrees;
 
-#[cfg(test)]
 use super::ClientViewState;
 use super::{
     api_helpers::pane_agent_status, App, Mode, OverlayPaneState, ToastKind,
@@ -59,12 +58,10 @@ impl App {
             } else {
                 self.last_git_remote_status_refresh = Instant::now();
             }
-            let native_diff_changed = self.refresh_native_diff_panes();
             if self
                 .state
                 .apply_workspace_git_statuses(&self.terminal_runtimes, results)
                 || repo_summaries_changed
-                || native_diff_changed
             {
                 self.render_dirty.store(true, Ordering::Release);
                 self.render_notify.notify_one();
@@ -198,7 +195,6 @@ impl App {
             }
         }
         self.sync_full_lifecycle_authority_detection_pauses();
-        self.send_pending_agent_prompts_for_updates(&pane_updates);
         for update in &pane_updates {
             self.refresh_new_hako_toast_context_for_update(update, &previous_toast);
             self.emit_pane_state_update(update);
@@ -603,11 +599,22 @@ impl App {
     }
 
     pub(crate) fn sync_focus_events(&mut self) {
-        let current_focus = self.state.active.and_then(|idx| {
-            self.state
-                .workspaces
-                .get(idx)
-                .and_then(|ws| ws.focused_pane_id().map(|pane_id| (idx, pane_id)))
+        let view = self.default_client_view.clone_reconciled(&self.state);
+        self.sync_focus_events_for_view(&view);
+    }
+
+    pub(crate) fn sync_focus_events_for_view(&mut self, view: &ClientViewState) {
+        let current_focus = view.active_workspace.and_then(|idx| {
+            self.state.workspaces.get(idx).and_then(|ws| {
+                let tab_idx = view
+                    .active_tab_for_workspace(&ws.id)
+                    .unwrap_or(ws.active_tab);
+                let tab = ws.tabs.get(tab_idx)?;
+                let pane_id = view
+                    .focused_pane_for_tab(&ws.id, tab_idx + 1)
+                    .unwrap_or_else(|| tab.layout.focused());
+                Some((idx, pane_id))
+            })
         });
         if current_focus == self.last_focus {
             return;
@@ -624,9 +631,10 @@ impl App {
                     workspace_id: self.public_workspace_id(ws_idx),
                 },
             });
-            if let Some(tab_id) =
-                self.public_tab_id(ws_idx, self.state.workspaces[ws_idx].active_tab)
-            {
+            let tab_idx = view
+                .active_tab_for_workspace(&self.state.workspaces[ws_idx].id)
+                .unwrap_or(self.state.workspaces[ws_idx].active_tab);
+            if let Some(tab_id) = self.public_tab_id(ws_idx, tab_idx) {
                 self.emit_event(crate::api::schema::EventEnvelope {
                     event: crate::api::schema::EventKind::TabFocused,
                     data: crate::api::schema::EventData::TabFocused {
@@ -669,13 +677,165 @@ impl App {
         self.handle_api_request_after_internal_events_drained(request)
     }
 
-    #[cfg(test)]
     pub(crate) fn handle_api_request_for_view(
         &mut self,
         client_view: &mut ClientViewState,
         request: crate::api::schema::Request,
     ) -> String {
-        self.with_client_view_state(client_view, |app| app.handle_api_request(request))
+        match request.method {
+            crate::api::schema::Method::WorkspaceList(_) => {
+                self.drain_internal_events();
+                let response = self.handle_workspace_list_for_view(client_view, request.id);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::WorkspaceGet(target) => {
+                self.drain_internal_events();
+                let response = self.handle_workspace_get_for_view(client_view, request.id, target);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::WorkspaceCreate(params) => {
+                self.drain_internal_events();
+                let response =
+                    self.handle_workspace_create_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::WorkspaceFocus(target) => {
+                self.drain_internal_events();
+                let response =
+                    self.handle_workspace_focus_for_view(client_view, request.id, target);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::WorkspaceRename(params) => {
+                self.drain_internal_events();
+                let response =
+                    self.handle_workspace_rename_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::WorkspaceClose(target) => {
+                self.drain_internal_events();
+                let response =
+                    self.handle_workspace_close_for_view(client_view, request.id, target);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::TabList(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response = self.handle_tab_list_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::TabGet(target) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response = self.handle_tab_get_for_view(client_view, request.id, target);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::TabCreate(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response = self.handle_tab_create_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::TabFocus(target) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response = self.handle_tab_focus_for_view(client_view, request.id, target);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::TabRename(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response = self.handle_tab_rename_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::TabClose(target) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response = self.handle_tab_close_for_view(client_view, request.id, target);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::PaneSplit(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response = self.handle_pane_split_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::PaneLayout(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                self.handle_pane_layout_for_view(client_view, request.id, params)
+            }
+            crate::api::schema::Method::PaneProcessInfo(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                self.handle_pane_process_info_for_view(client_view, request.id, params)
+            }
+            crate::api::schema::Method::PaneNeighbor(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                self.handle_pane_neighbor_for_view(client_view, request.id, params)
+            }
+            crate::api::schema::Method::PaneEdges(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                self.handle_pane_edges_for_view(client_view, request.id, params)
+            }
+            crate::api::schema::Method::PaneFocusDirection(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response =
+                    self.handle_pane_focus_direction_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::PaneList(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                self.handle_pane_list_for_view(client_view, request.id, params)
+            }
+            crate::api::schema::Method::PaneCurrent(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                self.handle_pane_current_for_view(client_view, request.id, params)
+            }
+            crate::api::schema::Method::PaneGet(target) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                self.handle_pane_get_for_view(client_view, request.id, target)
+            }
+            crate::api::schema::Method::PaneResize(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                self.handle_pane_resize_for_view(client_view, request.id, params)
+            }
+            crate::api::schema::Method::PaneZoom(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response = self.handle_pane_zoom_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                response
+            }
+            method => {
+                let response = self.handle_api_request(crate::api::schema::Request {
+                    id: request.id,
+                    method,
+                });
+                client_view.reconcile(&self.state);
+                response
+            }
+        }
     }
 
     pub(crate) fn handle_api_request_after_internal_events_drained(
@@ -1066,40 +1226,6 @@ impl App {
 
     pub(crate) fn mark_api_notification_shown(&mut self, now: Instant) {
         self.last_api_notification_at = Some(now);
-    }
-    fn refresh_native_diff_panes(&mut self) -> bool {
-        let mut changed = false;
-        for workspace in &mut self.state.workspaces {
-            for tab in &mut workspace.tabs {
-                for pane in tab.panes.values_mut() {
-                    let Some(diff) = pane.native_diff_mut() else {
-                        continue;
-                    };
-                    match crate::native_diff::load_native_diff_session_metadata(
-                        diff.session.repo_root.clone(),
-                    ) {
-                        Ok(session) => {
-                            if session != diff.session {
-                                let syntax = crate::native_diff::load_syntax_for_session(&session);
-                                diff.replace_session(session, syntax);
-                                changed = true;
-                            }
-                            if diff.last_error.is_some() {
-                                diff.last_error = None;
-                                changed = true;
-                            }
-                        }
-                        Err(err) => {
-                            if diff.last_error.as_deref() != Some(err.0.as_str()) {
-                                diff.last_error = Some(err.0);
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        changed
     }
 }
 

@@ -1,20 +1,14 @@
 #[cfg(test)]
 use crate::detect::{Agent, AgentState};
-use crate::native_diff::NativeDiffPaneState;
 use crate::terminal::TerminalId;
-
-pub enum PaneContent {
-    Terminal,
-    NativeDiff(NativeDiffPaneState),
-}
 
 /// Viewport state for a pane.
 ///
 /// Terminal identity, cwd, labels, and agent metadata live in TerminalState.
+#[derive(Clone)]
 pub struct PaneState {
     pub attached_terminal_id: TerminalId,
     pub env_pane_id_raw: Option<u32>,
-    pub content: PaneContent,
     #[cfg(test)]
     pub detected_agent: Option<Agent>,
     #[cfg(test)]
@@ -29,20 +23,6 @@ impl PaneState {
         Self {
             attached_terminal_id,
             env_pane_id_raw,
-            content: PaneContent::Terminal,
-            #[cfg(test)]
-            detected_agent: None,
-            #[cfg(test)]
-            state: AgentState::Unknown,
-            seen: true,
-        }
-    }
-
-    pub fn new_native_diff(diff: NativeDiffPaneState) -> Self {
-        Self {
-            attached_terminal_id: TerminalId::alloc(),
-            env_pane_id_raw: None,
-            content: PaneContent::NativeDiff(diff),
             #[cfg(test)]
             detected_agent: None,
             #[cfg(test)]
@@ -59,26 +39,10 @@ impl PaneState {
     }
 
     pub fn terminal_id(&self) -> Option<&TerminalId> {
-        match self.content {
-            PaneContent::Terminal => Some(&self.attached_terminal_id),
-            PaneContent::NativeDiff(_) => None,
-        }
+        Some(&self.attached_terminal_id)
     }
 
     pub fn terminal_id_cloned(&self) -> Option<TerminalId> {
         self.terminal_id().cloned()
-    }
-
-    pub fn native_diff(&self) -> Option<&NativeDiffPaneState> {
-        match &self.content {
-            PaneContent::NativeDiff(diff) => Some(diff),
-            PaneContent::Terminal => None,
-        }
-    }
-    pub fn native_diff_mut(&mut self) -> Option<&mut NativeDiffPaneState> {
-        match &mut self.content {
-            PaneContent::NativeDiff(diff) => Some(diff),
-            PaneContent::Terminal => None,
-        }
     }
 }

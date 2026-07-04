@@ -6,6 +6,7 @@ use crate::app::{
         command_palette_filtered_commands, CommandPaletteAction, CommandPaletteCommand,
     },
     state::{AppState, Mode},
+    view_state::ClientViewState,
     App,
 };
 
@@ -19,6 +20,67 @@ pub(super) fn open_command_palette(state: &mut AppState) {
     state.command_palette.selected = 0;
     state.command_palette.scroll = 0;
     state.mode = Mode::CommandPalette;
+}
+
+#[cfg(test)]
+pub(crate) fn open_command_palette_for_view(view: &mut ClientViewState) {
+    view.command_palette.query.clear();
+    view.command_palette.selected = 0;
+    view.command_palette.scroll = 0;
+    view.mode = Mode::CommandPalette;
+}
+
+pub(crate) fn handle_command_palette_key_for_view(
+    state: &AppState,
+    view: &mut ClientViewState,
+    key: KeyEvent,
+) {
+    let mut local_state = state.clone();
+    local_state.mode = view.mode;
+    local_state.command_palette = view.command_palette.clone();
+
+    match key.code {
+        KeyCode::Esc => leave_command_palette(&mut local_state),
+        KeyCode::Enter => {}
+        KeyCode::Up => {
+            move_command_palette_selection(&mut local_state, false);
+        }
+        KeyCode::Down => {
+            move_command_palette_selection(&mut local_state, true);
+        }
+        KeyCode::PageUp => scroll_command_palette_rows(&mut local_state, -MODAL_PAGE_SCROLL_ROWS),
+        KeyCode::PageDown => scroll_command_palette_rows(&mut local_state, MODAL_PAGE_SCROLL_ROWS),
+        KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            move_command_palette_selection(&mut local_state, false);
+        }
+        KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            move_command_palette_selection(&mut local_state, true);
+        }
+        KeyCode::Backspace => {
+            local_state.command_palette.query.pop();
+            clamp_command_palette_selection(&mut local_state);
+        }
+        KeyCode::Char(c) if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
+            local_state.command_palette.query.push(c);
+            clamp_command_palette_selection(&mut local_state);
+        }
+        _ => {}
+    }
+
+    view.mode = local_state.mode;
+    view.command_palette = local_state.command_palette;
+}
+
+pub(crate) fn selected_command_palette_action_for_view(
+    state: &AppState,
+    view: &ClientViewState,
+) -> Option<CommandPaletteAction> {
+    let mut local_state = state.clone();
+    local_state.mode = view.mode;
+    local_state.command_palette = view.command_palette.clone();
+    command_palette_visible_commands(&local_state)
+        .get(local_state.command_palette.selected)
+        .map(|command| command.action.clone())
 }
 
 pub(super) fn command_palette_visible_commands(state: &AppState) -> Vec<CommandPaletteCommand> {
@@ -83,10 +145,13 @@ impl App {
             self.refresh_host_terminal_theme_for(std::time::Duration::from_millis(500))
                 .await;
             let previous_toast = self.state.toast.clone();
-            if let Err(err) = self.state.open_git_diff_panel(&mut self.terminal_runtimes) {
+            if let Err(err) = self
+                .state
+                .open_git_diff_command(&mut self.terminal_runtimes)
+            {
                 self.state.toast = Some(crate::app::state::ToastNotification {
                     kind: crate::app::state::ToastKind::NeedsAttention,
-                    title: "git diff failed".to_string(),
+                    title: "git diff command failed".to_string(),
                     context: err,
                     position: None,
                     target: None,
@@ -104,7 +169,7 @@ fn leave_command_palette(state: &mut AppState) {
     state.return_to_active_workspace_mode();
 }
 
-pub(super) fn close_command_palette(state: &mut AppState) {
+pub(crate) fn close_command_palette(state: &mut AppState) {
     leave_command_palette(state);
 }
 
@@ -153,7 +218,7 @@ fn move_command_palette_selection(state: &mut AppState, down: bool) -> bool {
     changed
 }
 
-pub(super) fn scroll_command_palette_rows(state: &mut AppState, delta: i16) {
+pub(crate) fn scroll_command_palette_rows(state: &mut AppState, delta: i16) {
     let max_scroll = command_palette_max_scroll(state);
     let next = if delta.is_negative() {
         state
@@ -170,7 +235,7 @@ pub(super) fn scroll_command_palette_rows(state: &mut AppState, delta: i16) {
     state.command_palette.scroll = next.min(max_scroll);
 }
 
-pub(super) fn hover_command_palette_selection(state: &mut AppState, col: u16, row: u16) {
+pub(crate) fn hover_command_palette_selection(state: &mut AppState, col: u16, row: u16) {
     let Some((list, rows)) = command_palette_viewport(state) else {
         return;
     };
@@ -183,7 +248,7 @@ pub(super) fn hover_command_palette_selection(state: &mut AppState, col: u16, ro
     }
 }
 
-pub(super) fn command_palette_contains_point(state: &AppState, col: u16, row: u16) -> bool {
+pub(crate) fn command_palette_contains_point(state: &AppState, col: u16, row: u16) -> bool {
     command_palette_popup_rect(state).is_some_and(|popup| {
         col >= popup.x
             && col < popup.x + popup.width
@@ -329,7 +394,7 @@ fn open_new_agent_from_palette(app: &mut App) {
     super::agent_profile_picker::open_new_agent_picker_for_workspace(&mut app.state, ws_idx);
 }
 
-fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
+pub(crate) fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
     match action {
         CommandPaletteAction::NewWorkspace => app.state.request_new_workspace = true,
         CommandPaletteAction::RenameWorkspace => {
@@ -441,7 +506,7 @@ fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
         }
         CommandPaletteAction::PreviousAgent => app.state.previous_agent(),
         CommandPaletteAction::NextAgent => app.state.next_agent(),
-        CommandPaletteAction::OpenGitDiff => app.state.request_open_git_diff = true,
+        CommandPaletteAction::OpenGitDiff => app.state.request_open_git_diff_command = true,
         CommandPaletteAction::ToggleSidebar => {
             app.state.sidebar_collapsed = !app.state.sidebar_collapsed;
             app.state.mark_session_dirty();
@@ -644,7 +709,7 @@ mod tests {
 
         app.handle_command_palette_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
 
-        assert!(app.state.request_open_git_diff);
+        assert!(app.state.request_open_git_diff_command);
         assert_eq!(app.state.mode, Mode::Terminal);
     }
 

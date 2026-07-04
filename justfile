@@ -94,14 +94,6 @@ agent-smoke-opencode-status:
     docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -e HAKO_OPENCODE_SMOKE_MODEL -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-opencode-status
 
 
-# Run OpenCode and verify a live agent understands Hako native-diff payloads
-agent-smoke-opencode-diff-agent:
-    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -e HAKO_OPENCODE_SMOKE_MODEL hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-opencode-diff-agent
-
-
-# Run a live agent and verify it understands Hako native-diff payloads
-agent-smoke-diff-agent agent:
-    docker run --rm -e OPENROUTER_API_KEY -e KIRO_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -e HAKO_OPENCODE_SMOKE_MODEL -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-diff-agent {{agent}}
 
 # Run Pi/OMP and verify Hako status reports from the real plugin
 agent-smoke-pi-omp-status:

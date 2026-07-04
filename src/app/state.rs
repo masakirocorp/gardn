@@ -1487,7 +1487,6 @@ pub enum Mode {
     Navigator,
     CommandPalette,
     AgentProfilePicker,
-    DiffAgentPicker,
     GitRepoPicker,
 }
 
@@ -1936,14 +1935,6 @@ pub struct SettingsState {
     pub pending_worktree_directory: Option<String>,
     /// Pending agent border label setting while settings is open.
     pub pending_agent_border_labels: Option<bool>,
-    /// Pending native diff indicator style while settings is open.
-    pub pending_native_diff_indicators: Option<crate::config::NativeDiffIndicatorConfig>,
-    /// Pending native diff row background setting while settings is open.
-    pub pending_native_diff_backgrounds: Option<bool>,
-    /// Pending native diff line wrap default while settings is open.
-    pub pending_native_diff_wrap_lines: Option<bool>,
-    /// Pending native diff line number setting while settings is open.
-    pub pending_native_diff_line_numbers: Option<bool>,
     /// Pending macOS prefix input source switching setting while settings is open.
     pub pending_switch_ascii_input_source_in_prefix: Option<bool>,
     /// Checked group accent while group settings is open; hover cursor is separate.
@@ -2080,11 +2071,6 @@ pub enum ContextMenuKind {
         pane_id: PaneId,
         has_manual_label: bool,
     },
-    NativeDiff {
-        ws_idx: usize,
-        pane_id: PaneId,
-        hunk_target: bool,
-    },
 }
 
 /// Right-click context menu state.
@@ -2127,26 +2113,6 @@ impl ContextMenuState {
             ContextMenuKind::NewTabButton {
                 can_diff: false, ..
             } => &["new", "tab", "agent"],
-            ContextMenuKind::NativeDiff {
-                hunk_target: true, ..
-            } => &[
-                "send hunk to agent",
-                "copy hunk for agent",
-                "---",
-                "stage hunk",
-                "unstage hunk",
-                "refresh",
-            ],
-            ContextMenuKind::NativeDiff {
-                hunk_target: false, ..
-            } => &[
-                "send file diff to agent",
-                "copy file diff for agent",
-                "---",
-                "stage file",
-                "unstage file",
-                "refresh",
-            ],
             ContextMenuKind::Pane {
                 has_manual_label: true,
                 ..
@@ -2266,53 +2232,6 @@ mod context_menu_tests {
         assert!(with_diff.items().contains(&"diff"));
         assert!(!without_diff.items().contains(&"diff"));
     }
-
-    #[test]
-    fn native_diff_context_menu_labels_match_target_scope() {
-        let file_menu = ContextMenuState {
-            kind: ContextMenuKind::NativeDiff {
-                ws_idx: 0,
-                pane_id: PaneId::from_raw(1),
-                hunk_target: false,
-            },
-            x: 0,
-            y: 0,
-            list: MenuListState::new(0),
-        };
-        assert_eq!(
-            file_menu.items(),
-            &[
-                "send file diff to agent",
-                "copy file diff for agent",
-                "---",
-                "stage file",
-                "unstage file",
-                "refresh",
-            ]
-        );
-
-        let hunk_menu = ContextMenuState {
-            kind: ContextMenuKind::NativeDiff {
-                ws_idx: 0,
-                pane_id: PaneId::from_raw(1),
-                hunk_target: true,
-            },
-            x: 0,
-            y: 0,
-            list: MenuListState::new(0),
-        };
-        assert_eq!(
-            hunk_menu.items(),
-            &[
-                "send hunk to agent",
-                "copy hunk for agent",
-                "---",
-                "stage hunk",
-                "unstage hunk",
-                "refresh",
-            ]
-        );
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2392,14 +2311,6 @@ pub struct AgentProfilePickerState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiffAgentPickerState {
-    pub ws_idx: usize,
-    pub source_pane_id: PaneId,
-    pub payload: String,
-    pub selected: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitRepoPickerState {
     pub ws_idx: usize,
     pub roots: Vec<std::path::PathBuf>,
@@ -2422,6 +2333,7 @@ pub(crate) struct PaneFocusTarget {
 
 /// All application state — pure data, no channels or async runtime.
 /// Testable without PTYs or a tokio runtime.
+#[derive(Clone)]
 pub struct AppState {
     pub groups: Vec<Group>,
     pub active_group: usize,
@@ -2435,7 +2347,6 @@ pub struct AppState {
     pub direct_attach_resize_locks: std::collections::HashSet<crate::terminal::TerminalId>,
     pub(crate) pane_id_aliases: std::collections::HashMap<u32, PaneId>,
     pub(crate) public_pane_id_aliases: std::collections::HashMap<String, PaneId>,
-    pub requested_git_diff_workspace: Option<usize>,
     pub workspaces: Vec<Workspace>,
     pub active: Option<usize>,
     pub(crate) previous_pane_focus: Option<PaneFocusTarget>,
@@ -2450,10 +2361,8 @@ pub struct AppState {
     pub request_new_workspace: bool,
     pub request_new_tab: bool,
     pub request_agent_profile_tab: Option<(usize, String)>,
-    pub pending_agent_prompt: Option<String>,
-    pub pending_agent_prompts_by_pane: std::collections::HashMap<PaneId, String>,
     pub request_reload_config: bool,
-    pub request_open_git_diff: bool,
+    pub request_open_git_diff_command: bool,
     /// Set when the headless server should ask attached clients to reload
     /// their client-local sound config from disk.
     pub request_client_config_reload: bool,
@@ -2479,7 +2388,6 @@ pub struct AppState {
     pub navigator: NavigatorState,
     pub command_palette: CommandPaletteState,
     pub agent_profile_picker: AgentProfilePickerState,
-    pub diff_agent_picker: Option<DiffAgentPickerState>,
     pub git_repo_picker: GitRepoPickerState,
     pub command_catalog: Vec<crate::commands::ProjectCommand>,
     pub command_runs: std::collections::HashMap<String, crate::commands::CommandRun>,
@@ -2548,10 +2456,7 @@ pub struct AppState {
     pub mouse_scroll_lines: usize,
     pub confirm_close: bool,
     pub prompt_new_tab_name: bool,
-    pub native_diff_indicators: crate::config::NativeDiffIndicatorConfig,
-    pub native_diff_backgrounds: bool,
-    pub native_diff_wrap_lines: bool,
-    pub native_diff_line_numbers: bool,
+    pub git_diff_command: String,
     pub show_agent_labels_on_pane_borders: bool,
     pub pane_history_persistence: bool,
     pub resume_agents_on_restore: bool,
@@ -2915,10 +2820,6 @@ impl AppState {
         self.prompt_new_tab_name
     }
 
-    pub fn native_diff_backgrounds_enabled(&self) -> bool {
-        self.native_diff_backgrounds
-    }
-
     pub fn agent_border_labels_enabled(&self) -> bool {
         self.show_agent_labels_on_pane_borders
     }
@@ -2993,23 +2894,41 @@ impl AppState {
             || (item == "settings" && self.integration_updates_available())
     }
 
-    pub(crate) fn focused_pane_requests_mouse_capture_from(
+    pub(crate) fn focused_pane_requests_mouse_capture_from_view(
         &self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+        view: &crate::app::ClientViewState,
     ) -> bool {
-        self.mode == Mode::Terminal
-            && self
-                .active
-                .and_then(|idx| self.focused_runtime_in_workspace(terminal_runtimes, idx))
-                .and_then(crate::terminal::TerminalRuntime::input_state)
-                .is_some_and(crate::pane::InputState::mouse_reporting_enabled)
+        if view.mode != Mode::Terminal {
+            return false;
+        }
+        let Some(ws_idx) = view.active_workspace else {
+            return false;
+        };
+        let Some(workspace) = self.workspaces.get(ws_idx) else {
+            return false;
+        };
+        let Some(tab_idx) = view.active_tab_for_workspace(&workspace.id) else {
+            return false;
+        };
+        let Some(tab) = workspace.tabs.get(tab_idx) else {
+            return false;
+        };
+        let pane_id = view
+            .focused_pane_for_tab(&workspace.id, tab_idx + 1)
+            .unwrap_or_else(|| tab.layout.focused());
+        self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, pane_id)
+            .and_then(crate::terminal::TerminalRuntime::input_state)
+            .is_some_and(crate::pane::InputState::mouse_reporting_enabled)
     }
 
-    pub(crate) fn should_capture_host_mouse_from(
+    pub(crate) fn should_capture_host_mouse_from_view(
         &self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+        view: &crate::app::ClientViewState,
     ) -> bool {
-        self.mouse_capture || self.focused_pane_requests_mouse_capture_from(terminal_runtimes)
+        self.mouse_capture
+            || self.focused_pane_requests_mouse_capture_from_view(terminal_runtimes, view)
     }
 
     pub fn is_prefix_key(&self, key: crate::input::TerminalKey) -> bool {
@@ -3134,7 +3053,6 @@ impl AppState {
             groups: vec![Group::default_group()],
             active_group: 0,
             group_filter_enabled: true,
-            requested_git_diff_workspace: None,
             terminals: std::collections::HashMap::new(),
             git_repo_summaries: std::collections::HashMap::new(),
             next_agent_activity_seq: 0,
@@ -3151,10 +3069,8 @@ impl AppState {
             request_new_workspace: false,
             request_new_tab: false,
             request_agent_profile_tab: None,
-            pending_agent_prompt: None,
-            pending_agent_prompts_by_pane: std::collections::HashMap::new(),
             request_reload_config: false,
-            request_open_git_diff: false,
+            request_open_git_diff_command: false,
             request_client_config_reload: false,
             request_clipboard_write: None,
             creating_new_tab: false,
@@ -3185,7 +3101,6 @@ impl AppState {
                 selected: 0,
                 scroll: 0,
             },
-            diff_agent_picker: None,
             git_repo_picker: GitRepoPickerState {
                 ws_idx: 0,
                 roots: Vec::new(),
@@ -3268,10 +3183,7 @@ impl AppState {
             confirm_close: true,
             prompt_new_tab_name: true,
             copy_feedback: None,
-            native_diff_indicators: crate::config::NativeDiffIndicatorConfig::Bars,
-            native_diff_backgrounds: true,
-            native_diff_wrap_lines: false,
-            native_diff_line_numbers: true,
+            git_diff_command: "lazygit".to_string(),
             show_agent_labels_on_pane_borders: false,
             mobile_width_threshold: crate::config::DEFAULT_MOBILE_WIDTH_THRESHOLD,
             pane_history_persistence: true,
@@ -3337,10 +3249,6 @@ impl AppState {
                 pending_sidebar_min_width: None,
                 pending_sidebar_max_width: None,
                 pending_worktree_directory: None,
-                pending_native_diff_indicators: None,
-                pending_native_diff_backgrounds: None,
-                pending_native_diff_wrap_lines: None,
-                pending_native_diff_line_numbers: None,
                 pending_agent_border_labels: None,
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,

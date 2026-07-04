@@ -50,7 +50,7 @@ pub(crate) fn open_new_agent_picker_for_workspace(state: &mut AppState, ws_idx: 
     }
 }
 
-pub(super) fn close_agent_profile_picker(state: &mut AppState) {
+pub(crate) fn close_agent_profile_picker(state: &mut AppState) {
     state.return_to_active_workspace_mode();
 }
 
@@ -166,6 +166,64 @@ impl App {
         }
     }
 }
+
+pub(crate) fn handle_agent_profile_picker_key_for_view(state: &mut AppState, key: KeyEvent) {
+    if let Some(index) = agent_profile_picker_favorite_shortcut_index(key) {
+        let Some(entry) = agent_profile_picker_filtered_entries(state)
+            .into_iter()
+            .filter(|entry| entry.section == "favorites")
+            .nth(index)
+        else {
+            return;
+        };
+        state.request_agent_profile_tab =
+            Some((state.agent_profile_picker.ws_idx, entry.profile_id));
+        state.return_to_active_workspace_mode();
+        return;
+    }
+
+    match key.code {
+        KeyCode::Esc => close_agent_profile_picker(state),
+        KeyCode::Enter => {
+            let entries = agent_profile_picker_filtered_entries(state);
+            let Some(entry) = entries.get(state.agent_profile_picker.selected).cloned() else {
+                return;
+            };
+            state.request_agent_profile_tab =
+                Some((state.agent_profile_picker.ws_idx, entry.profile_id));
+            state.return_to_active_workspace_mode();
+        }
+        KeyCode::Up => {
+            move_agent_profile_picker_selection(state, false);
+        }
+        KeyCode::Down => {
+            move_agent_profile_picker_selection(state, true);
+        }
+        KeyCode::PageUp => scroll_agent_profile_picker_rows(state, -super::MODAL_PAGE_SCROLL_ROWS),
+        KeyCode::PageDown => scroll_agent_profile_picker_rows(state, super::MODAL_PAGE_SCROLL_ROWS),
+        KeyCode::Left if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            move_agent_profile_picker_tab(state, false);
+        }
+        KeyCode::Right if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            move_agent_profile_picker_tab(state, true);
+        }
+        KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            move_agent_profile_picker_selection(state, false);
+        }
+        KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            move_agent_profile_picker_selection(state, true);
+        }
+        KeyCode::Backspace => {
+            state.agent_profile_picker.query.pop();
+            clamp_agent_profile_picker_selection(state);
+        }
+        KeyCode::Char(c) if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
+            state.agent_profile_picker.query.push(c);
+            clamp_agent_profile_picker_selection(state);
+        }
+        _ => {}
+    }
+}
 fn agent_profile_picker_favorite_shortcut_index(key: KeyEvent) -> Option<usize> {
     if !key.modifiers.contains(KeyModifiers::ALT) {
         return None;
@@ -191,7 +249,7 @@ pub(super) fn agent_profile_picker_action_button_at(
     )
 }
 
-pub(super) fn select_agent_profile_picker_tab_at(state: &mut AppState, col: u16, row: u16) -> bool {
+pub(crate) fn select_agent_profile_picker_tab_at(state: &mut AppState, col: u16, row: u16) -> bool {
     let Some(tab_row) = agent_profile_picker_tab_row(state) else {
         return false;
     };
@@ -219,7 +277,7 @@ pub(super) fn select_agent_profile_picker_tab_at(state: &mut AppState, col: u16,
     true
 }
 
-pub(super) fn agent_profile_picker_contains_point(state: &AppState, col: u16, row: u16) -> bool {
+pub(crate) fn agent_profile_picker_contains_point(state: &AppState, col: u16, row: u16) -> bool {
     agent_profile_picker_popup_rect(state).is_some_and(|popup| {
         col >= popup.x
             && col < popup.x + popup.width
@@ -228,7 +286,7 @@ pub(super) fn agent_profile_picker_contains_point(state: &AppState, col: u16, ro
     })
 }
 
-pub(super) fn hover_agent_profile_picker_selection(state: &mut AppState, col: u16, row: u16) {
+pub(crate) fn hover_agent_profile_picker_selection(state: &mut AppState, col: u16, row: u16) {
     let Some((list, rows)) = agent_profile_picker_viewport(state) else {
         return;
     };
@@ -241,7 +299,7 @@ pub(super) fn hover_agent_profile_picker_selection(state: &mut AppState, col: u1
     }
 }
 
-pub(super) fn scroll_agent_profile_picker_rows(state: &mut AppState, delta: i16) {
+pub(crate) fn scroll_agent_profile_picker_rows(state: &mut AppState, delta: i16) {
     let max_scroll = agent_profile_picker_max_scroll(state);
     let next = if delta.is_negative() {
         state

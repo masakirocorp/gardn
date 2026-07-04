@@ -4,7 +4,7 @@ status: accepted
 
 # Split shared session state from client view state
 
-Hako will support multiple normal app clients attached to one server as one shared session with independent client views. The shared session owns durable workspace and runtime-adjacent product state; each normal app client owns its own navigation, transient UI state, computed geometry, and render/input surface state. A client can look at a different workspace, tab, pane, modal, sidebar scroll position, command palette query, terminal scrollback viewport, or native diff selection without changing another client's view.
+Hako will support multiple normal app clients attached to one server as one shared session with independent client views. The shared session owns durable workspace and runtime-adjacent product state; each normal app client owns its own navigation, transient UI state, computed geometry, and render/input surface state. A client can look at a different workspace, tab, pane, modal, sidebar scroll position, command palette query, or terminal scrollback viewport without changing another client's view.
 
 This refines ADR 0028 rather than replacing it. One foreground app client remains authoritative for shared runtime context that cannot be merged safely: pane runtime/effective size, outer-terminal focus, host terminal theme, and active keybinding profile. Independent client views must not make every attached terminal surface resize PTYs or race over host-context fields. Direct terminal attach clients remain outside the normal app view model under ADR 0011 and ADR 0029.
 
@@ -13,7 +13,7 @@ This refines ADR 0028 rather than replacing it. One foreground app client remain
 Shared session state owns structural and durable data that should converge for every client:
 
 - workspace groups, workspaces, tabs, pane layout trees, pane records, public pane aliases, and workspace/group identity;
-- terminal metadata, agent state evidence, integration metadata, command runs, plugin command logs, port observations, Git work summaries, native diff document/session data, and pending terminal/runtime shutdowns;
+- terminal metadata, agent state evidence, integration metadata, command runs, plugin command logs, port observations, Git work summaries, and pending terminal/runtime shutdowns;
 - committed config and settings values, agent profile catalog, installed plugin registry, update/release state, session dirty state, persistence/handoff metadata, and API-visible status;
 - runtime coordination that is intentionally single-owner, including foreground client id, direct attach owners, direct attach resize locks, effective runtime size, foreground host focus/theme, and server/client keybinding arbitration.
 
@@ -22,9 +22,9 @@ Client view state owns user-surface state that can differ between clients withou
 - selected workspace, active group/filter navigation, active tab per workspace, focused pane per tab, zoom/focus history, current app mode, navigator state, copy mode, and selected text context;
 - sidebar collapse, right-sidebar collapse, sidebar widths where user-surface local, workspace/agent/tab/mobile scroll offsets, hovered/pressed rows, drag state, context menus, global/group/agent menus, keybind help scroll, release-note/product-announcement view state, toast hit/click state, copy feedback, and selection autoscroll;
 - settings modal transient state: section, selected row, scroll, draft values, original values, pending target rows, and unsaved text inputs;
-- command palette, agent profile picker, diff-agent picker, Git repo picker, group/new-tab/rename/delete modal drafts, icon picker state, and any other modal draft or selection;
+- command palette, agent profile picker, Git repo picker, group/new-tab/rename/delete modal drafts, icon picker state, and any other modal draft or selection;
 - computed geometry and render-only hit areas currently represented by `ViewState`;
-- terminal scrollback viewport offsets and native diff selected file/hunk/scroll/wrap viewport state when those are view choices rather than shared document data.
+- terminal scrollback viewport offsets when those are view choices rather than shared document data.
 
 Client surface state stays per connection, not in shared session state: terminal size, cell size, negotiated render encoding, render baseline, render pending flag, Kitty graphics cache, host mouse-capture mode, staged clipboard-image files, and writer channels. Much of this already lives on `ClientConnection`; the missing seam is the normal app view/navigation state that still lives in `AppState`.
 
@@ -44,9 +44,7 @@ ADR 0013 still applies: the Local API is the control plane. API calls with expli
 
 Notifications remain centralized unless a later ADR changes delivery policy. View-sensitive suppression and toast click handling must be evaluated against the relevant client view or foreground pane, and a toast click in one client must not navigate another client.
 
-## Native diff and terminal viewport split
-
-Native diff tab/session data is shared when it represents repo root, refreshed file buckets, parsed hunks, syntax analysis, staged/changed state, pending refresh, and Git operation results. Native diff selection, file-list scroll, hunk scroll, split/unified viewport offsets, and transient confirmation/picker state are client view state. Staging or unstaging is a shared Git mutation; selecting or scrolling is not.
+## Terminal viewport split
 
 Terminal runtime output, parser state, history buffers, and pane terminal identity stay shared runtime/session data under ADR 0001. A client's scrollback viewport and search/navigation position are client view state unless Hako intentionally exposes a shared follow/observe mode later.
 
@@ -56,7 +54,7 @@ Terminal runtime output, parser state, history buffers, and pane terminal identi
 2. Render from shared session state plus explicit client view state.
 3. Route semantic input with source client/view context.
 4. Move active workspace/tab/pane/mode/sidebar/modal state out of shared `AppState`.
-5. Split terminal viewport and native diff selection/scroll state after the general view seam exists.
+5. Split terminal viewport state after the general view seam exists.
 6. Update persistence, restore, handoff, notifications, API/plugin fallbacks, and direct attach audits.
 7. Remove projection adapters, global compatibility fields, and stale test helpers.
 
@@ -68,6 +66,6 @@ Terminal runtime output, parser state, history buffers, and pane terminal identi
 
 New app navigation features must choose an owner explicitly: shared session, client view, client surface, or runtime coordination. Fields that only describe what one attached client is looking at belong in client view state. Fields that describe durable workspace objects, terminal identity, committed settings, API-visible state, or real runtime ownership belong in shared session state or runtime coordination.
 
-Tests for multi-client behavior should assert user-visible independence: two clients can select different workspaces/tabs/panes, open different modals, scroll different terminal or diff views, and render at different sizes without mutating each other's views. Tests for shared behavior should assert convergence: workspace structure, terminal output, committed settings, Git mutations, command runs, and agent state changes remain shared.
+Tests for multi-client behavior should assert user-visible independence: two clients can select different workspaces/tabs/panes, open different modals, scroll different terminal views, and render at different sizes without mutating each other's views. Tests for shared behavior should assert convergence: workspace structure, terminal output, committed settings, Git mutations, command runs, and agent state changes remain shared.
 
 The split should not introduce a wire-protocol bump until a client-visible protocol field changes. Internal server routing can carry client ids and view state without changing framed bytes. If later work persists multiple named client views or exposes view ids over the API, that will need its own compatibility review.

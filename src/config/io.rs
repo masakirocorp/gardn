@@ -8,6 +8,7 @@ const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "advanced",
     "agent_profiles",
     "experimental",
+    "git",
     "keys",
     "onboarding",
     "remote",
@@ -253,6 +254,14 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut diagnostics,
         &mut invalid_sections,
         |section| config.worktrees = section,
+    );
+    load_live_section(
+        &table,
+        "git",
+        "git config",
+        &mut diagnostics,
+        &mut invalid_sections,
+        |section| config.git = section,
     );
     load_live_section(
         &table,

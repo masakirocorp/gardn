@@ -72,7 +72,7 @@ pub(crate) struct PortEndpoint {
     pub state: PortState,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct PortRegistry {
     endpoints: HashMap<PortKey, PortEndpoint>,
 }

@@ -15,16 +15,14 @@ use unicode_width::UnicodeWidthChar;
 
 use super::state::{
     AgentNotificationDelivery, AppState, Group, Mode, NavigatorRow, NavigatorStateFilter,
-    NavigatorTarget, Palette, PaneFocusTarget, PendingAgentNotification, ToastKind,
-    ToastNotification, ToastTarget, ViewLayout,
+    NavigatorTarget, PaneFocusTarget, PendingAgentNotification, ToastKind, ToastNotification,
+    ToastTarget, ViewLayout,
 };
+use super::ClientViewState;
 
-fn hunk_diff_project_command(
+fn configured_git_diff_project_command(
     root: std::path::PathBuf,
-    palette: &crate::app::state::Palette,
-    appearance: crate::terminal_theme::ThemeAppearance,
-    terminal_theme: crate::terminal_theme::TerminalTheme,
-    passthrough_terminal: bool,
+    command: &str,
 ) -> crate::commands::ProjectCommand {
     let repo_name = root
         .file_name()
@@ -37,12 +35,7 @@ fn hunk_diff_project_command(
         root,
         source: crate::commands::CommandSource::BuiltIn,
         name: repo_name,
-        command: crate::hunk_theme::command(
-            palette,
-            appearance,
-            terminal_theme,
-            passthrough_terminal,
-        ),
+        command: command.to_string(),
         confidence: crate::commands::CommandConfidence::Explicit,
     }
 }
@@ -63,10 +56,6 @@ fn observed_git_repos_from_cwd(cwd: &std::path::Path) -> Vec<std::path::PathBuf>
         })
         .filter_map(|path| crate::workspace::git_repo_root(&path))
         .collect()
-}
-
-fn hunk_uses_terminal_color_passthrough(theme_name: &str) -> bool {
-    matches!(theme_name, "system" | "terminal")
 }
 
 fn is_background_completion_transition(prev_state: AgentState, new_state: AgentState) -> bool {
@@ -829,7 +818,6 @@ impl AppState {
         None
     }
 
-    #[cfg(test)]
     fn command_terminal_target(
         &self,
         terminal_id: &crate::terminal::TerminalId,
@@ -846,7 +834,6 @@ impl AppState {
         None
     }
 
-    #[cfg(test)]
     pub(crate) fn focus_command_run(&mut self, command_id: &str) -> bool {
         let Some(terminal_id) = self
             .command_runs
@@ -889,7 +876,7 @@ impl AppState {
         self.run_project_command_entry(terminal_runtimes, command, ws_idx)
     }
 
-    pub(crate) fn open_git_diff_panel(
+    pub(crate) fn open_git_diff_command(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
     ) -> Result<(), String> {
@@ -898,15 +885,11 @@ impl AppState {
         } else {
             self.active
         };
-        let ws_idx = self
-            .requested_git_diff_workspace
-            .take()
-            .or(fallback_ws_idx)
-            .ok_or_else(|| "no git repo for current space".to_string())?;
-        self.open_git_diff_panel_for_workspace(terminal_runtimes, ws_idx)
+        let ws_idx = fallback_ws_idx.ok_or_else(|| "no git repo for current space".to_string())?;
+        self.open_git_diff_command_for_workspace(terminal_runtimes, ws_idx)
     }
 
-    fn open_git_diff_panel_for_workspace(
+    fn open_git_diff_command_for_workspace(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
         ws_idx: usize,
@@ -924,69 +907,19 @@ impl AppState {
                 return Ok(());
             }
         };
-        self.open_native_git_diff_tab(root, ws_idx)
+        self.open_git_diff_command_tab(terminal_runtimes, root, ws_idx)
     }
 
-    fn open_native_git_diff_tab(
+    fn open_git_diff_command_tab(
         &mut self,
+        terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
         root: std::path::PathBuf,
         ws_idx: usize,
     ) -> Result<(), String> {
-        let session = crate::native_diff::load_native_diff_session(&root).map_err(|err| err.0)?;
-        let workspace = self
-            .workspaces
-            .get_mut(ws_idx)
-            .ok_or_else(|| "diff workspace disappeared".to_string())?;
-        let tab_idx = workspace.create_native_diff_tab(session)?;
-        if let Some(tab) = workspace.tabs.get_mut(tab_idx) {
-            let name = root
-                .file_name()
-                .and_then(|name| name.to_str())
-                .map_or_else(|| "diff".to_string(), |name| format!("diff {name}"));
-            tab.set_custom_name(name);
-            if let Some(diff) = tab
-                .panes
-                .values_mut()
-                .find_map(|pane| pane.native_diff_mut())
-            {
-                diff.wrap_lines = self.native_diff_wrap_lines;
-            }
-        }
-        self.switch_workspace(ws_idx);
-        self.switch_tab(tab_idx);
-        self.mode = Mode::Terminal;
-        self.mark_session_dirty();
-        Ok(())
+        let command = configured_git_diff_project_command(root, &self.git_diff_command);
+        self.run_project_command_entry(terminal_runtimes, command, ws_idx)
     }
 
-    fn hunk_diff_theme_for_workspace(
-        &self,
-        ws_idx: usize,
-    ) -> (
-        crate::app::state::Palette,
-        crate::terminal_theme::ThemeAppearance,
-        bool,
-    ) {
-        let mut palette = self.global_palette.clone();
-        if let Some(accent) = self
-            .workspaces
-            .get(ws_idx)
-            .and_then(|workspace| self.group_index_for_id(&workspace.group_id))
-            .and_then(|group_idx| self.groups.get(group_idx))
-            .and_then(|group| group.accent)
-        {
-            palette.accent = Palette::terminal_accent_color(self.host_terminal_theme, accent);
-        }
-
-        let appearance = self.theme_appearance_for_mode(self.global_theme_mode);
-        (
-            palette,
-            appearance,
-            hunk_uses_terminal_color_passthrough(&self.global_theme_name),
-        )
-    }
-
-    #[cfg(test)]
     fn run_project_command_entry(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
@@ -1039,7 +972,7 @@ impl AppState {
         roots
     }
 
-    pub(crate) fn open_selected_git_diff_panel(
+    pub(crate) fn open_selected_git_diff_command(
         &mut self,
         _terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
     ) -> Result<(), String> {
@@ -1052,9 +985,8 @@ impl AppState {
             return Err("no git repo selected".to_string());
         };
         let ws_idx = self.git_repo_picker.ws_idx;
-        self.open_native_git_diff_tab(root, ws_idx)
+        self.open_git_diff_command_tab(_terminal_runtimes, root, ws_idx)
     }
-
     #[cfg(test)]
     fn git_diff_target_for_workspace(
         &self,
@@ -1080,7 +1012,6 @@ impl AppState {
             .map(|root| (root, ws_idx))
     }
 
-    #[cfg(test)]
     fn open_command_tab(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
@@ -1126,7 +1057,6 @@ impl AppState {
         Ok(())
     }
 
-    #[cfg(test)]
     fn restart_command_in_tab(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
@@ -1273,14 +1203,9 @@ impl AppState {
             .flat_map(|root| {
                 let mut commands = crate::commands::discover_project_commands(&root);
                 if let Some(git_root) = crate::workspace::git_repo_root(&root) {
-                    let (palette, appearance, passthrough_terminal) =
-                        self.hunk_diff_theme_for_workspace(self.active.unwrap_or(self.selected));
-                    commands.push(hunk_diff_project_command(
+                    commands.push(configured_git_diff_project_command(
                         git_root,
-                        &palette,
-                        appearance,
-                        self.host_terminal_theme,
-                        passthrough_terminal,
+                        &self.git_diff_command,
                     ));
                 }
                 commands
@@ -1933,6 +1858,30 @@ impl AppState {
             .get_mut(ws_idx)
             .and_then(crate::workspace::Workspace::active_tab_mut)
         else {
+            return false;
+        };
+
+        let mut changed = false;
+        for pane in tab.panes.values_mut() {
+            if !pane.seen {
+                pane.seen = true;
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    pub(crate) fn mark_active_tab_seen_for_view(&mut self, view: &ClientViewState) -> bool {
+        let Some(ws_idx) = view.active_workspace else {
+            return false;
+        };
+        let Some(workspace) = self.workspaces.get_mut(ws_idx) else {
+            return false;
+        };
+        let tab_idx = view
+            .active_tab_for_workspace(&workspace.id)
+            .unwrap_or(workspace.active_tab);
+        let Some(tab) = workspace.tabs.get_mut(tab_idx) else {
             return false;
         };
 
@@ -3731,34 +3680,6 @@ mod tests {
         state
     }
 
-    #[test]
-    fn hunk_terminal_passthrough_covers_terminal_color_sources() {
-        assert!(hunk_uses_terminal_color_passthrough("system"));
-        assert!(hunk_uses_terminal_color_passthrough("terminal"));
-        assert!(!hunk_uses_terminal_color_passthrough("tokyo-night"));
-    }
-
-    #[test]
-    fn hunk_theme_uses_target_workspace_group_accent() {
-        let mut state = app_with_workspaces(&["main", "docs"]);
-        let docs_group = state.create_group("Docs".to_string());
-        state.move_workspace_to_group(1, docs_group);
-        state.set_group_accent(docs_group, Some(crate::config::TerminalAccent::Magenta));
-
-        let (palette, appearance, passthrough_terminal) = state.hunk_diff_theme_for_workspace(1);
-
-        assert_eq!(
-            appearance,
-            state.theme_appearance_for_mode(state.global_theme_mode)
-        );
-        assert_eq!(
-            passthrough_terminal,
-            hunk_uses_terminal_color_passthrough(&state.global_theme_name)
-        );
-        assert_eq!(palette.panel_bg, state.global_palette.panel_bg);
-        assert_eq!(palette.accent, ratatui::style::Color::Magenta);
-    }
-
     fn temp_project(name: &str) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(
             "hako-app-commands-{name}-{}-{}",
@@ -4219,7 +4140,7 @@ mod tests {
         state.terminals.get_mut(&terminal).unwrap().cwd = second.clone();
 
         state
-            .open_git_diff_panel_for_workspace(&mut terminal_runtimes, 0)
+            .open_git_diff_command_for_workspace(&mut terminal_runtimes, 0)
             .expect("multi-repo diff should open picker");
 
         assert_eq!(state.mode, Mode::GitRepoPicker);
@@ -4253,10 +4174,9 @@ mod tests {
             vec![first, second]
         );
     }
-    #[test]
-    fn git_diff_opens_native_tab_named_after_repo_root() {
-        let root = temp_git_repo("diff-native-tab");
-        std::fs::write(root.join("changed.txt"), "changed\n").unwrap();
+    #[tokio::test]
+    async fn git_diff_opens_configured_command_tab_named_after_repo_root() {
+        let root = temp_git_repo("diff-command-tab");
         let mut state = app_with_workspaces(&["web"]);
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let root_pane = state.workspaces[0].tabs[0].root_pane;
@@ -4264,55 +4184,35 @@ mod tests {
         state.terminals.get_mut(&terminal_id).unwrap().cwd = root.clone();
 
         state
-            .open_git_diff_panel_for_workspace(&mut terminal_runtimes, 0)
-            .expect("single repo diff should open native tab");
+            .open_git_diff_command_for_workspace(&mut terminal_runtimes, 0)
+            .expect("single repo diff should open command tab");
 
         assert_eq!(state.mode, Mode::Terminal);
         assert_eq!(state.workspaces[0].tabs.len(), 2);
         assert_eq!(
             state.workspaces[0].active_tab().unwrap().display_name(),
-            format!("diff {}", root.file_name().unwrap().to_string_lossy())
+            format!("diff · {}", root.file_name().unwrap().to_string_lossy())
         );
-        let pane_id = state.workspaces[0].active_tab().unwrap().root_pane;
-        assert!(state.workspaces[0]
-            .active_tab()
-            .unwrap()
-            .panes
-            .get(&pane_id)
-            .unwrap()
-            .native_diff()
-            .is_some());
     }
 
     #[test]
-    fn git_diff_opens_native_tab_after_last_terminal_tab_closed() {
+    fn git_diff_reports_error_after_last_terminal_tab_closed() {
         let root = temp_git_repo("diff-empty-workspace");
-        std::fs::write(root.join("changed.txt"), "changed\n").unwrap();
         let mut state = app_with_workspaces(&["web"]);
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         state.workspaces[0].identity_cwd = std::path::PathBuf::from("/stale/identity");
         state.workspaces[0].default_cwd = root.clone();
         assert!(state.workspaces[0].close_tab_allow_empty(0));
 
-        state
-            .open_git_diff_panel_for_workspace(&mut terminal_runtimes, 0)
-            .expect("empty workspace should still open native diff");
+        let err = state
+            .open_git_diff_command_for_workspace(&mut terminal_runtimes, 0)
+            .expect_err("empty workspace has no runtime handles for command tab");
 
-        assert_eq!(state.mode, Mode::Terminal);
-        assert_eq!(state.workspaces[0].tabs.len(), 1);
         assert_eq!(
-            state.workspaces[0].active_tab().unwrap().display_name(),
-            format!("diff {}", root.file_name().unwrap().to_string_lossy())
+            err,
+            "cannot create tab in empty workspace without runtime handles"
         );
-        let pane_id = state.workspaces[0].active_tab().unwrap().root_pane;
-        assert!(state.workspaces[0]
-            .active_tab()
-            .unwrap()
-            .panes
-            .get(&pane_id)
-            .unwrap()
-            .native_diff()
-            .is_some());
+        assert!(state.workspaces[0].tabs.is_empty());
     }
 
     #[test]

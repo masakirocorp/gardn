@@ -56,7 +56,65 @@ impl AppState {
         }
     }
 
-    pub(super) fn handle_mouse(
+    pub(crate) fn handle_pane_mouse_only_for_view(
+        &self,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+        client_view: &crate::app::view_state::ClientViewState,
+        mouse: MouseEvent,
+    ) {
+        if client_view.mode != Mode::Terminal {
+            return;
+        }
+        let Some(ws_idx) = client_view.active_workspace else {
+            return;
+        };
+        let Some(info) = client_view
+            .computed
+            .pane_infos
+            .iter()
+            .find(|p| {
+                mouse.column >= p.inner_rect.x
+                    && mouse.column < p.inner_rect.x + p.inner_rect.width
+                    && mouse.row >= p.inner_rect.y
+                    && mouse.row < p.inner_rect.y + p.inner_rect.height
+            })
+            .cloned()
+        else {
+            return;
+        };
+
+        match mouse.kind {
+            MouseEventKind::ScrollUp
+            | MouseEventKind::ScrollDown
+            | MouseEventKind::ScrollLeft
+            | MouseEventKind::ScrollRight => {
+                self.forward_pane_reported_wheel_in_workspace(
+                    terminal_runtimes,
+                    ws_idx,
+                    &info,
+                    mouse,
+                );
+            }
+            MouseEventKind::Down(_) | MouseEventKind::Up(_) | MouseEventKind::Drag(_) => {
+                self.forward_pane_mouse_button_in_workspace(
+                    terminal_runtimes,
+                    ws_idx,
+                    &info,
+                    mouse,
+                );
+            }
+            MouseEventKind::Moved => {
+                self.forward_pane_mouse_motion_in_workspace(
+                    terminal_runtimes,
+                    ws_idx,
+                    &info,
+                    mouse,
+                );
+            }
+        }
+    }
+
+    pub(crate) fn handle_mouse(
         &mut self,
         terminal_runtimes: &mut TerminalRuntimeRegistry,
         mouse: MouseEvent,
@@ -178,10 +236,7 @@ impl AppState {
 
         if matches!(
             self.mode,
-            Mode::CommandPalette
-                | Mode::AgentProfilePicker
-                | Mode::DiffAgentPicker
-                | Mode::GitRepoPicker
+            Mode::CommandPalette | Mode::AgentProfilePicker | Mode::GitRepoPicker
         ) {
             return None;
         }
@@ -494,10 +549,6 @@ impl AppState {
                         return None;
                     }
 
-                    if self.handle_native_diff_right_sidebar_click(mouse) {
-                        return None;
-                    }
-
                     return None;
                 } else if in_sidebar {
                     if self.on_sidebar_toggle(mouse.column, mouse.row) {
@@ -614,12 +665,6 @@ impl AppState {
                     self.focus_pane(info.id);
                     if self.mode != Mode::Terminal {
                         self.mode = Mode::Terminal;
-                    }
-
-                    if self.handle_native_diff_mouse_down(&info, mouse) {
-                        self.selection = None;
-                        self.selection_autoscroll = None;
-                        return None;
                     }
 
                     if self.forward_pane_mouse_button(terminal_runtimes, &info, mouse) {
@@ -1000,27 +1045,23 @@ impl AppState {
             }
 
             MouseEventKind::ScrollUp if in_right_sidebar => {
-                if !self.handle_native_diff_right_sidebar_wheel(-1) {
-                    let agent_area = self.agent_panel_rect();
-                    if crate::ui::should_show_scrollbar(crate::ui::agent_panel_scroll_metrics(
-                        self,
-                        agent_area,
-                        self.agent_panel_has_leading_separator(),
-                    )) {
-                        self.scroll_agent_panel(-1);
-                    }
+                let agent_area = self.agent_panel_rect();
+                if crate::ui::should_show_scrollbar(crate::ui::agent_panel_scroll_metrics(
+                    self,
+                    agent_area,
+                    self.agent_panel_has_leading_separator(),
+                )) {
+                    self.scroll_agent_panel(-1);
                 }
             }
             MouseEventKind::ScrollDown if in_right_sidebar => {
-                if !self.handle_native_diff_right_sidebar_wheel(1) {
-                    let agent_area = self.agent_panel_rect();
-                    if crate::ui::should_show_scrollbar(crate::ui::agent_panel_scroll_metrics(
-                        self,
-                        agent_area,
-                        self.agent_panel_has_leading_separator(),
-                    )) {
-                        self.scroll_agent_panel(1);
-                    }
+                let agent_area = self.agent_panel_rect();
+                if crate::ui::should_show_scrollbar(crate::ui::agent_panel_scroll_metrics(
+                    self,
+                    agent_area,
+                    self.agent_panel_has_leading_separator(),
+                )) {
+                    self.scroll_agent_panel(1);
                 }
             }
 
@@ -1158,30 +1199,9 @@ impl AppState {
                 if let Some(info) = self.pane_mouse_target(mouse.column, mouse.row).cloned() {
                     self.focus_pane(info.id);
                     let ws_idx = self.active.unwrap_or(self.selected);
-                    let is_native_diff = self
+                    let has_manual_label = self
                         .workspaces
                         .get(ws_idx)
-                        .and_then(|ws| ws.pane_state(info.id))
-                        .and_then(|pane| pane.native_diff())
-                        .is_some();
-                    if is_native_diff {
-                        let hunk_target = self.handle_native_diff_mouse_down(&info, mouse);
-                        self.context_menu = Some(ContextMenuState {
-                            kind: ContextMenuKind::NativeDiff {
-                                ws_idx,
-                                pane_id: info.id,
-                                hunk_target,
-                            },
-                            x: mouse.column,
-                            y: mouse.row,
-                            list: MenuListState::new(0),
-                        });
-                        self.mode = Mode::ContextMenu;
-                        return None;
-                    }
-                    let has_manual_label = self
-                        .active
-                        .and_then(|ws_idx| self.workspaces.get(ws_idx))
                         .and_then(|ws| ws.pane_state(info.id))
                         .and_then(|pane| self.terminals.get(&pane.attached_terminal_id))
                         .and_then(|terminal| terminal.manual_label.as_ref())
@@ -1620,9 +1640,6 @@ impl AppState {
 
         if let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() {
             self.focus_pane(info.id);
-            if self.handle_native_diff_wheel(&info, mouse) {
-                return;
-            }
 
             if self.forward_pane_wheel(terminal_runtimes, &info, mouse) {
                 return;
@@ -1664,176 +1681,6 @@ impl AppState {
         }
     }
 
-    fn focused_native_diff_mut(&mut self) -> Option<&mut crate::native_diff::NativeDiffPaneState> {
-        let ws_idx = self.active?;
-        let workspace = self.workspaces.get_mut(ws_idx)?;
-        let pane_id = workspace.focused_pane_id()?;
-        workspace.pane_state_mut(pane_id)?.native_diff_mut()
-    }
-
-    fn handle_native_diff_right_sidebar_click(&mut self, mouse: MouseEvent) -> bool {
-        let content = crate::ui::right_sidebar_content_rect(self.view.right_sidebar_rect);
-        if content == Rect::default()
-            || mouse.row <= content.y
-            || mouse.row >= content.y + content.height
-        {
-            return false;
-        }
-        let row = mouse.row.saturating_sub(content.y + 1) as usize;
-        self.focused_native_diff_mut()
-            .is_some_and(|diff| diff.select_visible_file_row(row))
-    }
-
-    fn handle_native_diff_right_sidebar_wheel(&mut self, delta: isize) -> bool {
-        let content = crate::ui::right_sidebar_content_rect(self.view.right_sidebar_rect);
-        if content.height <= 1 {
-            return false;
-        }
-        self.focused_native_diff_mut().is_some_and(|diff| {
-            diff.scroll_file_list(delta, content.height.saturating_sub(1) as usize);
-            true
-        })
-    }
-
-    pub(super) fn handle_native_diff_mouse_down(
-        &mut self,
-        info: &PaneInfo,
-        mouse: MouseEvent,
-    ) -> bool {
-        let Some(diff) = self
-            .active
-            .and_then(|ws_idx| self.workspaces.get_mut(ws_idx))
-            .and_then(|workspace| workspace.pane_state_mut(info.id))
-            .and_then(|pane| pane.native_diff_mut())
-        else {
-            return false;
-        };
-        let file_width = if diff.show_file_list && self.view.right_sidebar_rect == Rect::default() {
-            crate::native_diff::native_diff_file_list_width(info.inner_rect.width)
-        } else {
-            0
-        };
-        let local_col = mouse.column.saturating_sub(info.inner_rect.x);
-        let local_row = mouse.row.saturating_sub(info.inner_rect.y);
-        let file_list_start = info.inner_rect.width.saturating_sub(file_width);
-        if local_row >= info.inner_rect.height.saturating_sub(1) {
-            return true;
-        }
-        if file_width > 0 && local_col >= file_list_start {
-            let selected = diff.select_visible_file_row(local_row as usize);
-            return selected && !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right));
-        }
-        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right)) {
-            let selected = diff.select_visible_diff_row(local_row as usize);
-            if !selected {
-                diff.clear_selected_hunk();
-            }
-            return selected;
-        }
-        if !diff.toggle_visible_context_row(local_row as usize) {
-            diff.select_visible_diff_row(local_row as usize);
-        }
-        true
-    }
-
-    pub(super) fn handle_native_diff_wheel(&mut self, info: &PaneInfo, mouse: MouseEvent) -> bool {
-        let line_numbers = self.native_diff_line_numbers;
-        let Some(diff) = self
-            .active
-            .and_then(|ws_idx| self.workspaces.get_mut(ws_idx))
-            .and_then(|workspace| workspace.pane_state_mut(info.id))
-            .and_then(|pane| pane.native_diff_mut())
-        else {
-            return false;
-        };
-        let horizontal = matches!(
-            mouse.kind,
-            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight
-        ) || mouse
-            .modifiers
-            .contains(crossterm::event::KeyModifiers::SHIFT);
-        let delta = match mouse.kind {
-            MouseEventKind::ScrollUp if horizontal => -8,
-            MouseEventKind::ScrollDown if horizontal => 8,
-            MouseEventKind::ScrollUp => -3,
-            MouseEventKind::ScrollDown => 3,
-            MouseEventKind::ScrollLeft => -8,
-            MouseEventKind::ScrollRight => 8,
-            _ => return false,
-        };
-        let file_width = if diff.show_file_list && self.view.right_sidebar_rect == Rect::default() {
-            crate::native_diff::native_diff_file_list_width(info.inner_rect.width)
-        } else {
-            0
-        };
-        let local_col = mouse.column.saturating_sub(info.inner_rect.x);
-        let file_list_start = info.inner_rect.width.saturating_sub(file_width);
-        if file_width > 0 && local_col >= file_list_start {
-            if horizontal {
-                return true;
-            }
-            diff.scroll_file_list(delta, info.inner_rect.height.saturating_sub(1) as usize);
-        } else if horizontal {
-            let viewport_cols = Self::native_diff_mouse_col_viewport(
-                diff,
-                info.inner_rect.width,
-                info.inner_rect.height.saturating_sub(2) as usize,
-                line_numbers,
-                self.view.right_sidebar_rect == Rect::default(),
-            );
-            diff.scroll_diff_columns(delta, viewport_cols);
-        } else {
-            diff.scroll_diff(delta, info.inner_rect.height.saturating_sub(2) as usize);
-        }
-        true
-    }
-
-    fn native_diff_mouse_col_viewport(
-        diff: &crate::native_diff::NativeDiffPaneState,
-        pane_width: u16,
-        diff_viewport_rows: usize,
-        line_numbers: bool,
-        show_inline_file_list: bool,
-    ) -> usize {
-        let file_width = if diff.show_file_list && show_inline_file_list {
-            crate::native_diff::native_diff_file_list_width(pane_width)
-        } else {
-            0
-        };
-        let patch_width = pane_width
-            .saturating_sub(file_width)
-            .saturating_sub(u16::from(file_width > 0));
-        let gutter_width = if line_numbers {
-            diff.selected_file()
-                .map(crate::ui::native_diff_line_number_gutter_width)
-                .unwrap_or(4)
-        } else {
-            0
-        };
-        let body_rows = diff.visible_diff_rows().len().saturating_sub(1);
-        let horizontal_scrollbar_rows = usize::from(diff.max_diff_col_scroll(1) > 0);
-        let effective_rows = diff_viewport_rows
-            .saturating_sub(horizontal_scrollbar_rows)
-            .max(1);
-        let patch_width = patch_width.saturating_sub(u16::from(body_rows > effective_rows));
-        let split = match diff.view_mode {
-            crate::native_diff::NativeDiffViewMode::Unified => false,
-            crate::native_diff::NativeDiffViewMode::Split => true,
-            crate::native_diff::NativeDiffViewMode::Auto => patch_width >= 110,
-        };
-        if split {
-            let half = patch_width as usize / 2;
-            let left = half.saturating_sub(gutter_width + 4);
-            let right = (patch_width as usize)
-                .saturating_sub(half)
-                .saturating_sub(gutter_width + 5);
-            left.min(right)
-        } else {
-            (patch_width as usize).saturating_sub(gutter_width * 2 + 4)
-        }
-        .max(1)
-    }
-
     pub(super) fn forward_pane_mouse_button(
         &self,
         terminal_runtimes: &TerminalRuntimeRegistry,
@@ -1843,6 +1690,16 @@ impl AppState {
         let Some(ws_idx) = self.active else {
             return false;
         };
+        self.forward_pane_mouse_button_in_workspace(terminal_runtimes, ws_idx, info, mouse)
+    }
+
+    fn forward_pane_mouse_button_in_workspace(
+        &self,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+        ws_idx: usize,
+        info: &PaneInfo,
+        mouse: MouseEvent,
+    ) -> bool {
         let Some(rt) = self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id)
         else {
             return false;
@@ -1868,6 +1725,16 @@ impl AppState {
         let Some(ws_idx) = self.active else {
             return false;
         };
+        self.forward_pane_mouse_motion_in_workspace(terminal_runtimes, ws_idx, info, mouse)
+    }
+
+    fn forward_pane_mouse_motion_in_workspace(
+        &self,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+        ws_idx: usize,
+        info: &PaneInfo,
+        mouse: MouseEvent,
+    ) -> bool {
         let Some(rt) = self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id)
         else {
             return false;
@@ -1892,6 +1759,16 @@ impl AppState {
         let Some(ws_idx) = self.active else {
             return false;
         };
+        self.forward_pane_reported_wheel_in_workspace(terminal_runtimes, ws_idx, info, mouse)
+    }
+
+    fn forward_pane_reported_wheel_in_workspace(
+        &self,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+        ws_idx: usize,
+        info: &PaneInfo,
+        mouse: MouseEvent,
+    ) -> bool {
         let Some(rt) = self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id)
         else {
             return false;
@@ -2155,61 +2032,6 @@ mod tests {
         detect::{Agent, AgentState},
         workspace::Workspace,
     };
-
-    fn native_diff_file(path: &str) -> crate::native_diff::NativeDiffFile {
-        crate::native_diff::NativeDiffFile {
-            bucket: crate::native_diff::DiffBucket::Changed,
-            old_path: Some(std::path::PathBuf::from(path)),
-            new_path: Some(std::path::PathBuf::from(path)),
-            status: crate::native_diff::DiffFileStatus::Modified,
-            added: 1,
-            deleted: 0,
-            hunks: Vec::new(),
-            binary: false,
-        }
-    }
-
-    #[tokio::test]
-    async fn native_diff_click_selects_visible_file_row() {
-        let mut app = app_for_mouse_test();
-        let mut ws = Workspace::test_new("test");
-        ws.create_native_diff_tab(crate::native_diff::NativeDiffSession {
-            repo_root: std::path::PathBuf::from("/tmp/repo"),
-            files: vec![native_diff_file("first.rs"), native_diff_file("second.rs")],
-        })
-        .unwrap();
-        let pane_id = ws.active_tab().unwrap().root_pane;
-        let pane_infos = ws
-            .active_tab()
-            .unwrap()
-            .layout
-            .panes(Rect::new(26, 2, 80, 18));
-        let info = pane_infos[0].clone();
-        app.state.workspaces = vec![ws];
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
-        app.state.view.pane_infos = pane_infos;
-
-        app.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            info.inner_rect.x + info.inner_rect.width
-                - crate::native_diff::native_diff_file_list_width(info.inner_rect.width)
-                + 2,
-            info.inner_rect.y + 2,
-        ));
-
-        let diff = app.state.workspaces[0]
-            .pane_state(pane_id)
-            .unwrap()
-            .native_diff()
-            .unwrap();
-        assert_eq!(
-            diff.selected_path().unwrap(),
-            std::path::PathBuf::from("second.rs")
-        );
-        assert!(app.state.selection.is_none());
-    }
 
     #[tokio::test]
     async fn terminal_wheel_uses_configured_mouse_scroll_lines() {

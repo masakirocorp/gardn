@@ -71,9 +71,9 @@ server.on('stream', (stream, headers) => {
       for (const chunk of chunks) xstr(chunk.length > 5 ? chunk.subarray(5) : chunk, strs);
     } catch {}
     const prompt = selectPrompt(strs);
-    if (!force && !prompt.includes('HAKO_DIFF_AGENT_PAYLOAD_OK') && !prompt.includes('Hako native diff payload') && chunks.length < 8) return;
+    if (!force && chunks.length < 8) return;
     handled = true;
-    log(`cursor-prompt marker=${prompt.includes('HAKO_DIFF_AGENT_PAYLOAD_OK')} strings=${strs.length} bytes=${Buffer.byteLength(prompt, 'utf8')}`);
+    log(`cursor-prompt strings=${strs.length} bytes=${Buffer.byteLength(prompt, 'utf8')}`);
     stream.respond({':status':200, 'content-type':'application/connect+proto'});
     if (process.env.HAKO_CURSOR_PROXY_STATIC_REPLY) {
       stream.write(tdf(process.env.HAKO_CURSOR_PROXY_STATIC_REPLY));
@@ -94,9 +94,7 @@ server.on('stream', (stream, headers) => {
 
 function selectPrompt(strs) {
   const useful = strs.filter(s => s.length > 0 && s.length < 10000 && !/^[a-f0-9]{8}-/.test(s));
-  return useful.find(s => s.includes('HAKO_DIFF_AGENT_PAYLOAD_OK'))
-    || useful.find(s => s.includes('Hako native diff payload'))
-    || useful.sort((a, b) => b.length - a.length)[0]
+  return useful.sort((a, b) => b.length - a.length)[0]
     || 'Reply exactly HAKO_CURSOR_PROXY_OK';
 }
 

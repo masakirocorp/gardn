@@ -710,7 +710,7 @@ fn action_matches(
     }
 }
 
-fn action_for_key(
+pub(crate) fn action_for_key(
     state: &AppState,
     key: TerminalKey,
     dispatch: BindingDispatch,
@@ -801,7 +801,7 @@ pub(super) fn execute_navigate_action(state: &mut AppState, action: NavigateActi
     );
 }
 
-pub(super) fn execute_navigate_action_in_context(
+pub(crate) fn execute_navigate_action_in_context(
     state: &mut AppState,
     terminal_runtimes: &mut TerminalRuntimeRegistry,
     action: NavigateAction,

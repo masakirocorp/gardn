@@ -36,7 +36,6 @@ enum SplitCommand<'a> {
 }
 
 enum NewTabCommand<'a> {
-    #[cfg(test)]
     Shell {
         command: &'a str,
         launch_env: &'a PaneLaunchEnv,
@@ -65,6 +64,24 @@ pub struct Tab {
     pub events: mpsc::Sender<AppEvent>,
     pub(crate) render_notify: Arc<Notify>,
     pub(crate) render_dirty: Arc<AtomicBool>,
+}
+
+impl Clone for Tab {
+    fn clone(&self) -> Self {
+        Self {
+            custom_name: self.custom_name.clone(),
+            number: self.number,
+            root_pane: self.root_pane,
+            layout: self.layout.clone(),
+            panes: self.panes.clone(),
+            #[cfg(test)]
+            runtimes: HashMap::new(),
+            zoomed: self.zoomed,
+            events: self.events.clone(),
+            render_notify: self.render_notify.clone(),
+            render_dirty: self.render_dirty.clone(),
+        }
+    }
 }
 
 impl Tab {
@@ -126,7 +143,6 @@ impl Tab {
         )
     }
 
-    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn new_shell_command(
         number: usize,
@@ -195,37 +211,6 @@ impl Tab {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_native_diff(
-        number: usize,
-        session: crate::native_diff::NativeDiffSession,
-        events: mpsc::Sender<AppEvent>,
-        render_notify: Arc<Notify>,
-        render_dirty: Arc<AtomicBool>,
-    ) -> Self {
-        let (layout, root_id) = TileLayout::new();
-        let mut panes = HashMap::new();
-        panes.insert(
-            root_id,
-            PaneState::new_native_diff(crate::native_diff::NativeDiffPaneState::with_syntax(
-                session,
-            )),
-        );
-        Self {
-            custom_name: Some("diff".to_string()),
-            number,
-            root_pane: root_id,
-            layout,
-            panes,
-            #[cfg(test)]
-            runtimes: HashMap::new(),
-            zoomed: false,
-            events,
-            render_notify,
-            render_dirty,
-        }
-    }
-
     // Tab construction owns terminal, runtime, launch env, and render channels together.
     #[allow(clippy::too_many_arguments)]
     fn new_with_runtime(
@@ -250,12 +235,10 @@ impl Tab {
         };
         let recorded_env = match &command {
             Some(NewTabCommand::Profile { launch_env, .. }) => launch_env.extra().to_vec(),
-            #[cfg(test)]
             Some(NewTabCommand::Shell { launch_env, .. }) => launch_env.extra().to_vec(),
             Some(NewTabCommand::Argv { .. }) | None => launch_env.extra().to_vec(),
         };
         let runtime = match command {
-            #[cfg(test)]
             Some(NewTabCommand::Shell {
                 command,
                 launch_env,
