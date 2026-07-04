@@ -563,6 +563,15 @@ impl AppState {
                             return None;
                         }
 
+                        if let Some(group_idx) = crate::ui::collapsed_workspace_group_header_at_row(
+                            self,
+                            self.view.sidebar_rect,
+                            mouse.row,
+                        ) {
+                            self.toggle_workspace_group(group_idx);
+                            return None;
+                        }
+
                         if let Some(idx) = self.collapsed_workspace_at_row(mouse.row) {
                             self.switch_workspace(idx);
                             self.mode = Mode::Terminal;

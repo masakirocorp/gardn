@@ -2689,6 +2689,63 @@ mod tests {
     }
 
     #[test]
+    fn clicking_collapsed_all_groups_group_header_toggles_group_rows() {
+        let mut app = app_for_mouse_test();
+        app.state.group_filter_enabled = false;
+        let work_group = app.state.create_group("work".to_string());
+        let work_group_id = app.state.groups[work_group].id.clone();
+        app.state.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
+        app.state.workspaces[1].group_id = work_group_id.clone();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.sidebar_collapsed = true;
+        app.state.view.sidebar_rect = Rect::new(0, 0, 4, 20);
+        app.state.view.terminal_area = Rect::new(4, 0, 80, 20);
+
+        let rows = crate::ui::collapsed_workspace_rows_rect(app.state.view.sidebar_rect, true);
+        let default_workspace_row = rows.y + 1;
+        let work_header_row = rows.y + 2;
+        let work_workspace_row = rows.y + 3;
+
+        assert_eq!(
+            app.state.collapsed_workspace_at_row(default_workspace_row),
+            Some(0)
+        );
+        assert_eq!(app.state.collapsed_workspace_at_row(work_header_row), None);
+        assert_eq!(
+            app.state.collapsed_workspace_at_row(work_workspace_row),
+            Some(1)
+        );
+        assert!(!app.state.workspace_group_collapsed(&work_group_id));
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            rows.x,
+            work_header_row,
+        ));
+
+        assert!(app.state.workspace_group_collapsed(&work_group_id));
+        assert_eq!(
+            app.state.collapsed_workspace_at_row(work_workspace_row),
+            None,
+            "collapsed group should hide its workspace row"
+        );
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            rows.x,
+            work_header_row,
+        ));
+
+        assert!(!app.state.workspace_group_collapsed(&work_group_id));
+        assert_eq!(
+            app.state.collapsed_workspace_at_row(work_workspace_row),
+            Some(1),
+            "expanded group should show its workspace row again"
+        );
+    }
+
+    #[test]
     fn collapsed_workspace_rows_start_below_group_header() {
         let mut app = app_for_mouse_test();
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];

@@ -1080,6 +1080,22 @@ pub(crate) fn collapsed_workspace_at_row(app: &AppState, area: Rect, row: u16) -
     }
 }
 
+pub(crate) fn collapsed_workspace_group_header_at_row(
+    app: &AppState,
+    area: Rect,
+    row: u16,
+) -> Option<usize> {
+    let rows = collapsed_workspace_rows_rect(area, true);
+    if rows == Rect::default() || row < rows.y || row >= rows.y + rows.height {
+        return None;
+    }
+    let idx = (row - rows.y) as usize;
+    match collapsed_workspace_row_entries(app).get(idx).copied()? {
+        CollapsedWorkspaceRowEntry::GroupHeader { group_idx } => Some(group_idx),
+        CollapsedWorkspaceRowEntry::Workspace { .. } => None,
+    }
+}
+
 fn workspace_list_entries(app: &AppState) -> Vec<WorkspaceListEntry> {
     if app.sidebar_collapsed || app.group_filter_enabled {
         return app
