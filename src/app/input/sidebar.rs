@@ -792,11 +792,14 @@ impl AppState {
 
         let (_, _, detail_area) =
             crate::ui::collapsed_sidebar_sections(self.view.sidebar_rect, true);
+        if detail_area == Rect::default() {
+            return None;
+        }
         let detail_content_area = Rect::new(
             detail_area.x,
-            detail_area.y,
+            detail_area.y.saturating_add(2),
             detail_area.width,
-            detail_area.height.saturating_sub(1),
+            detail_area.height.saturating_sub(2),
         );
         if detail_content_area == Rect::default()
             || row < detail_content_area.y
@@ -2521,12 +2524,64 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             detail_area.x,
-            detail_area.y + 1,
+            detail_area.y + 3,
         ));
 
         assert_eq!(app.state.workspaces[0].active_tab, 1);
         assert_eq!(
             app.state.workspaces[0].tabs[1].layout.focused(),
+            second_pane
+        );
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn clicking_collapsed_agent_header_does_not_switch_to_first_pane() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let first_pane = ws.tabs[0].root_pane;
+        let second_tab = ws.test_add_tab(Some("logs"));
+        let second_pane = ws.tabs[second_tab].root_pane;
+        app.state.workspaces = vec![ws];
+        app.state.ensure_test_terminals();
+        let first_terminal_id = app.state.workspaces[0].tabs[0].panes[&first_pane]
+            .attached_terminal_id
+            .clone();
+        app.state
+            .terminals
+            .get_mut(&first_terminal_id)
+            .unwrap()
+            .detected_agent = Some(Agent::Pi);
+        let second_terminal_id = app.state.workspaces[0].tabs[second_tab].panes[&second_pane]
+            .attached_terminal_id
+            .clone();
+        app.state
+            .terminals
+            .get_mut(&second_terminal_id)
+            .unwrap()
+            .detected_agent = Some(Agent::Claude);
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.sidebar_collapsed = true;
+        app.state.workspaces[0].switch_tab(second_tab);
+        app.state.workspaces[0].tabs[second_tab]
+            .layout
+            .focus_pane(second_pane);
+        app.state.view.sidebar_rect = Rect::new(0, 0, 4, 20);
+        app.state.view.terminal_area = Rect::new(4, 0, 80, 20);
+
+        let (_, _, detail_area) =
+            crate::ui::collapsed_sidebar_sections(app.state.view.sidebar_rect, true);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            detail_area.x,
+            detail_area.y,
+        ));
+
+        assert_eq!(app.state.workspaces[0].active_tab, second_tab);
+        assert_eq!(
+            app.state.workspaces[0].tabs[second_tab].layout.focused(),
             second_pane
         );
         assert_eq!(app.state.mode, Mode::Terminal);
@@ -2570,7 +2625,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             detail_area.x,
-            detail_area.y + 1,
+            detail_area.y + 3,
         ));
 
         assert_eq!(app.state.workspaces[0].active_tab, second_tab);
@@ -2675,8 +2730,8 @@ mod tests {
         let rows_with_agents = crate::ui::collapsed_workspace_rows_rect(area, true);
         let rows_without_agents = crate::ui::collapsed_workspace_rows_rect(area, false);
 
-        assert_eq!(rows_without_agents.y, area.y + 1);
-        assert_eq!(rows_without_agents.height, area.height - 1);
+        assert_eq!(rows_without_agents.y, area.y + 2);
+        assert_eq!(rows_without_agents.height, area.height - 2);
         assert!(rows_without_agents.height > rows_with_agents.height);
     }
 

@@ -16,6 +16,7 @@ use crate::terminal::TerminalRuntimeRegistry;
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const AGENT_PANEL_HEADER_ROWS: u16 = 2;
+const COLLAPSED_SECTION_HEADER_ROWS: u16 = 2;
 const SIDEBAR_GROUP_CHEVRON_COL: u16 = 0;
 const SIDEBAR_GROUP_ICON_COL: u16 = 2;
 const SIDEBAR_GROUP_NAME_COL: u16 = 4;
@@ -1133,14 +1134,14 @@ fn collapsed_group_header_rect_with_separator(area: Rect, separator_on_left: boo
 
 pub(crate) fn collapsed_workspace_rows_rect(area: Rect, show_agent_detail: bool) -> Rect {
     let (ws_area, _, _) = collapsed_sidebar_sections(area, show_agent_detail);
-    if ws_area == Rect::default() || ws_area.height <= 1 {
+    if ws_area == Rect::default() || ws_area.height <= COLLAPSED_SECTION_HEADER_ROWS {
         return Rect::default();
     }
     Rect::new(
         ws_area.x,
-        ws_area.y + 1,
+        ws_area.y + COLLAPSED_SECTION_HEADER_ROWS,
         ws_area.width,
-        ws_area.height.saturating_sub(1),
+        ws_area.height.saturating_sub(COLLAPSED_SECTION_HEADER_ROWS),
     )
 }
 
@@ -1209,17 +1210,26 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
             group_header,
         );
     }
+    if ws_area.height > 1 {
+        let buf = frame.buffer_mut();
+        let divider_y = ws_area.y + 1;
+        for x in ws_area.x..ws_area.x + ws_area.width {
+            buf[(x, divider_y)].set_symbol("─");
+            buf[(x, divider_y)].set_style(Style::default().fg(p.overlay0));
+        }
+    }
 
-    let workspace_rows = if ws_area == Rect::default() || ws_area.height <= 1 {
-        Rect::default()
-    } else {
-        Rect::new(
-            ws_area.x,
-            ws_area.y + 1,
-            ws_area.width,
-            ws_area.height.saturating_sub(1),
-        )
-    };
+    let workspace_rows =
+        if ws_area == Rect::default() || ws_area.height <= COLLAPSED_SECTION_HEADER_ROWS {
+            Rect::default()
+        } else {
+            Rect::new(
+                ws_area.x,
+                ws_area.y + COLLAPSED_SECTION_HEADER_ROWS,
+                ws_area.width,
+                ws_area.height.saturating_sub(COLLAPSED_SECTION_HEADER_ROWS),
+            )
+        };
     if ws_area == Rect::default() || workspace_rows == Rect::default() {
         render_sidebar_toggle(app, frame, area, true, p);
         return;
@@ -1297,11 +1307,21 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
             Rect::new(detail_area.x, detail_area.y, detail_area.width, 1),
         );
     }
+    if detail_area.height > 1 {
+        let buf = frame.buffer_mut();
+        let divider_y = detail_area.y + 1;
+        for x in detail_area.x..detail_area.x + detail_area.width {
+            buf[(x, divider_y)].set_symbol("─");
+            buf[(x, divider_y)].set_style(Style::default().fg(p.overlay0));
+        }
+    }
     let detail_content_area = Rect::new(
         detail_area.x,
-        detail_area.y.saturating_add(1),
+        detail_area.y.saturating_add(COLLAPSED_SECTION_HEADER_ROWS),
         detail_area.width,
-        detail_area.height.saturating_sub(1),
+        detail_area
+            .height
+            .saturating_sub(COLLAPSED_SECTION_HEADER_ROWS),
     );
     if detail_content_area != Rect::default() {
         if let Some(ws_idx) = detail_ws_idx {
@@ -1402,6 +1422,69 @@ pub(super) fn render_sidebar(
     render_sidebar_toggle(app, frame, area, false, p);
 }
 
+fn render_collapsed_agent_rail(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+    p: &Palette,
+) {
+    let content = right_sidebar_content_rect(area);
+    if content == Rect::default() {
+        return;
+    }
+
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "agt",
+            Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
+        ))
+        .alignment(Alignment::Center),
+        Rect::new(content.x, content.y, content.width, 1),
+    );
+    if content.height > 1 {
+        let buf = frame.buffer_mut();
+        let divider_y = content.y + 1;
+        for x in content.x..content.x + content.width {
+            buf[(x, divider_y)].set_symbol("─");
+            buf[(x, divider_y)].set_style(Style::default().fg(p.overlay0));
+        }
+    }
+
+    let rows = Rect::new(
+        content.x,
+        content.y.saturating_add(COLLAPSED_SECTION_HEADER_ROWS),
+        content.width,
+        content
+            .height
+            .saturating_sub(COLLAPSED_SECTION_HEADER_ROWS + 1),
+    );
+    if rows == Rect::default() {
+        return;
+    }
+
+    let entries = agent_panel_sections_from(app, terminal_runtimes)
+        .into_iter()
+        .flat_map(|section| section.entries)
+        .collect::<Vec<_>>();
+    for (idx, entry) in entries.iter().enumerate() {
+        let y = rows.y + idx as u16;
+        if y >= rows.y + rows.height {
+            break;
+        }
+        let (icon, icon_style) = agent_icon(entry.state, entry.seen, app.spinner_tick, p);
+        let num_style = Style::default().fg(p.overlay0);
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(format!("{}", idx + 1), num_style),
+                Span::styled(" ", num_style),
+                Span::styled(icon, icon_style),
+            ])),
+            Rect::new(rows.x, y, rows.width, 1),
+        );
+    }
+}
+
 pub(super) fn render_right_sidebar(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -1427,6 +1510,7 @@ pub(super) fn render_right_sidebar(
         buf[(area.x, y)].set_style(sep_style);
     }
     if app.right_sidebar_collapsed {
+        render_collapsed_agent_rail(app, terminal_runtimes, frame, area, p);
         render_right_sidebar_toggle(app, frame, area, true, p);
     } else {
         render_agent_detail_from(
@@ -2416,6 +2500,86 @@ mod tests {
     }
 
     #[test]
+    fn collapsed_left_rail_renders_header_divider_before_workspace_rows() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.group_filter_enabled = false;
+
+        let area = Rect::new(0, 0, 4, 20);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_sidebar_collapsed(&app, frame, area))
+            .expect("render collapsed sidebar");
+
+        let buffer = terminal.backend().buffer();
+        let rows = buffer_text(buffer, area.width, area.height)
+            .lines()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+
+        assert_eq!(rows[0], "all│");
+        assert_eq!(rows[1], "───│");
+        assert_eq!(buffer[(0, 2)].symbol(), "1");
+        assert_eq!(buffer[(0, 3)].symbol(), "2");
+        assert_eq!(buffer[(3, 2)].symbol(), "│");
+        assert_eq!(buffer[(3, 3)].symbol(), "│");
+    }
+
+    #[test]
+    fn collapsed_left_agent_area_renders_agt_divider_then_agent_rows_without_status_headers() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("agents");
+        let first_pane = workspace.tabs[0].root_pane;
+        let second_tab = workspace.test_add_tab(Some("logs"));
+        let second_pane = workspace.tabs[second_tab].root_pane;
+        workspace.tabs[0]
+            .panes
+            .get_mut(&first_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Codex);
+        workspace.tabs[0].panes.get_mut(&first_pane).unwrap().state = AgentState::Working;
+        workspace.tabs[second_tab]
+            .panes
+            .get_mut(&second_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Claude);
+        workspace.tabs[second_tab]
+            .panes
+            .get_mut(&second_pane)
+            .unwrap()
+            .state = AgentState::Idle;
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+
+        let area = Rect::new(0, 0, 4, 20);
+        let (_, _, detail_area) = collapsed_sidebar_sections(area, true);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_sidebar_collapsed(&app, frame, area))
+            .expect("render collapsed sidebar");
+
+        let buffer = terminal.backend().buffer();
+        let rows = buffer_text(buffer, area.width, area.height)
+            .lines()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+
+        assert_eq!(rows[detail_area.y as usize], "agt│");
+        assert_eq!(rows[(detail_area.y + 1) as usize], "───│");
+        assert_eq!(buffer[(detail_area.x, detail_area.y + 2)].symbol(), "1");
+        assert_eq!(buffer[(detail_area.x, detail_area.y + 3)].symbol(), "2");
+        assert_ne!(buffer[(detail_area.x, detail_area.y + 2)].symbol(), "▾");
+        assert_ne!(buffer[(detail_area.x, detail_area.y + 2)].symbol(), "▸");
+        assert_ne!(buffer[(detail_area.x, detail_area.y + 3)].symbol(), "▾");
+        assert_ne!(buffer[(detail_area.x, detail_area.y + 3)].symbol(), "▸");
+    }
+
+    #[test]
     fn collapsed_workspace_group_hides_its_rows() {
         let mut app = crate::app::state::AppState::test_new();
         app.group_filter_enabled = false;
@@ -3291,6 +3455,58 @@ mod tests {
         assert!(text.contains("agents"));
         assert!(!text.contains("commands"));
         assert!(!text.contains("ports"));
+    }
+
+    #[test]
+    fn collapsed_right_sidebar_renders_compact_agent_rows_and_expand_toggle() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut triage = Workspace::test_new("done");
+        let triage_pane = triage.tabs[0].root_pane;
+        let triage_pane_state = triage.tabs[0].panes.get_mut(&triage_pane).unwrap();
+        triage_pane_state.detected_agent = Some(Agent::Claude);
+        triage_pane_state.state = AgentState::Idle;
+        triage_pane_state.seen = false;
+
+        let mut working = Workspace::test_new("build");
+        let working_pane = working.tabs[0].root_pane;
+        let working_pane_state = working.tabs[0].panes.get_mut(&working_pane).unwrap();
+        working_pane_state.detected_agent = Some(Agent::Codex);
+        working_pane_state.state = AgentState::Working;
+
+        app.workspaces = vec![triage, working];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        app.right_sidebar_collapsed = true;
+
+        let area = Rect::new(0, 0, 4, 8);
+        let content = right_sidebar_content_rect(area);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        let runtimes = TerminalRuntimeRegistry::new();
+        terminal
+            .draw(|frame| render_right_sidebar(&app, &runtimes, frame, area))
+            .expect("render right sidebar");
+
+        let buffer = terminal.backend().buffer();
+        let rows = buffer_text(buffer, area.width, area.height)
+            .lines()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        let toggle = right_sidebar_toggle_rect(area, true);
+
+        assert_eq!(rows[0], "│agt");
+        assert_eq!(rows[1], "│───");
+        assert_eq!(buffer[(content.x, content.y + 2)].symbol(), "1");
+        assert_eq!(buffer[(content.x, content.y + 3)].symbol(), "2");
+        assert_ne!(buffer[(content.x, content.y + 2)].symbol(), "▾");
+        assert_ne!(buffer[(content.x, content.y + 2)].symbol(), "▸");
+        assert_ne!(buffer[(content.x, content.y + 3)].symbol(), "▾");
+        assert_ne!(buffer[(content.x, content.y + 3)].symbol(), "▸");
+        assert_eq!(buffer[(toggle.x, toggle.y)].symbol(), "«");
+        assert!(!rows.join("\n").contains("triage"));
+        assert!(!rows.join("\n").contains("working"));
+        assert!(!rows.join("\n").contains("idle"));
     }
 
     #[test]
