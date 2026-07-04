@@ -1030,6 +1030,56 @@ impl WorkspaceListEntry {
         }
     }
 }
+
+#[derive(Clone, Copy)]
+pub(crate) enum CollapsedWorkspaceRowEntry {
+    GroupHeader { group_idx: usize },
+    Workspace { ws_idx: usize, ordinal: usize },
+}
+
+pub(crate) fn collapsed_workspace_row_entries(app: &AppState) -> Vec<CollapsedWorkspaceRowEntry> {
+    if app.group_filter_enabled {
+        return app
+            .visible_workspace_indices()
+            .into_iter()
+            .enumerate()
+            .map(|(idx, ws_idx)| CollapsedWorkspaceRowEntry::Workspace {
+                ws_idx,
+                ordinal: idx + 1,
+            })
+            .collect();
+    }
+
+    let mut entries = Vec::new();
+    for (group_idx, group) in app.groups.iter().enumerate() {
+        entries.push(CollapsedWorkspaceRowEntry::GroupHeader { group_idx });
+        if app.workspace_group_collapsed(&group.id) {
+            continue;
+        }
+
+        let mut ordinal = 1;
+        for (ws_idx, ws) in app.workspaces.iter().enumerate() {
+            if ws.group_id == group.id {
+                entries.push(CollapsedWorkspaceRowEntry::Workspace { ws_idx, ordinal });
+                ordinal += 1;
+            }
+        }
+    }
+    entries
+}
+
+pub(crate) fn collapsed_workspace_at_row(app: &AppState, area: Rect, row: u16) -> Option<usize> {
+    let rows = collapsed_workspace_rows_rect(area, true);
+    if rows == Rect::default() || row < rows.y || row >= rows.y + rows.height {
+        return None;
+    }
+    let idx = (row - rows.y) as usize;
+    match collapsed_workspace_row_entries(app).get(idx).copied()? {
+        CollapsedWorkspaceRowEntry::Workspace { ws_idx, .. } => Some(ws_idx),
+        CollapsedWorkspaceRowEntry::GroupHeader { .. } => None,
+    }
+}
+
 fn workspace_list_entries(app: &AppState) -> Vec<WorkspaceListEntry> {
     if app.sidebar_collapsed || app.group_filter_enabled {
         return app
@@ -1235,48 +1285,74 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         return;
     }
 
-    for (visible_idx, ws_idx) in app.visible_workspace_indices().into_iter().enumerate() {
-        let Some(ws) = app.workspaces.get(ws_idx) else {
-            continue;
-        };
-        let y = workspace_rows.y + visible_idx as u16;
+    for (row_idx, entry) in collapsed_workspace_row_entries(app).into_iter().enumerate() {
+        let y = workspace_rows.y + row_idx as u16;
         if y >= workspace_rows.y + workspace_rows.height {
             break;
         }
-        let (agg_state, agg_seen) = ws.aggregate_state(&app.terminals);
-        let (icon, icon_style) = state_dot(agg_state, agg_seen, p);
-        let is_selected = ws_idx == app.selected && is_navigating;
-        let is_active = Some(ws_idx) == app.active;
-        let row_style = if is_selected {
-            Style::default().bg(p.surface0)
-        } else if is_active {
-            Style::default().bg(p.surface_dim)
-        } else {
-            Style::default()
-        };
-        let num_style = if is_selected {
-            Style::default().fg(p.overlay1).bg(p.surface0)
-        } else if is_active {
-            Style::default().fg(p.text).bg(p.surface_dim)
-        } else {
-            Style::default().fg(p.overlay0)
-        };
 
-        if is_selected || is_active {
-            let buf = frame.buffer_mut();
-            for x in workspace_rows.x..workspace_rows.x + workspace_rows.width {
-                buf[(x, y)].set_style(row_style);
+        match entry {
+            CollapsedWorkspaceRowEntry::GroupHeader { group_idx } => {
+                let Some(group) = app.groups.get(group_idx) else {
+                    continue;
+                };
+                let chevron = if app.workspace_group_collapsed(&group.id) {
+                    "▸"
+                } else {
+                    "▾"
+                };
+                let group_style = Style::default()
+                    .fg(app.group_accent_color(group_idx))
+                    .add_modifier(Modifier::BOLD);
+                frame.render_widget(
+                    Paragraph::new(Line::from(vec![
+                        Span::styled(chevron, Style::default().fg(p.overlay1)),
+                        Span::styled(" ", Style::default()),
+                        Span::styled(group.icon.clone(), group_style),
+                    ])),
+                    Rect::new(workspace_rows.x, y, workspace_rows.width, 1),
+                );
+            }
+            CollapsedWorkspaceRowEntry::Workspace { ws_idx, ordinal } => {
+                let Some(ws) = app.workspaces.get(ws_idx) else {
+                    continue;
+                };
+                let (agg_state, agg_seen) = ws.aggregate_state(&app.terminals);
+                let (icon, icon_style) = state_dot(agg_state, agg_seen, p);
+                let is_selected = ws_idx == app.selected && is_navigating;
+                let is_active = Some(ws_idx) == app.active;
+                let row_style = if is_selected {
+                    Style::default().bg(p.surface0)
+                } else if is_active {
+                    Style::default().bg(p.surface_dim)
+                } else {
+                    Style::default()
+                };
+                let num_style = if is_selected {
+                    Style::default().fg(p.overlay1).bg(p.surface0)
+                } else if is_active {
+                    Style::default().fg(p.text).bg(p.surface_dim)
+                } else {
+                    Style::default().fg(p.overlay0)
+                };
+
+                if is_selected || is_active {
+                    let buf = frame.buffer_mut();
+                    for x in workspace_rows.x..workspace_rows.x + workspace_rows.width {
+                        buf[(x, y)].set_style(row_style);
+                    }
+                }
+
+                frame.render_widget(
+                    Paragraph::new(Line::from(vec![
+                        Span::styled(format!("{ordinal}"), num_style),
+                        Span::styled(" ", row_style),
+                        Span::styled(icon, icon_style),
+                    ])),
+                    Rect::new(workspace_rows.x, y, workspace_rows.width, 1),
+                );
             }
         }
-
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(format!("{}", visible_idx + 1), num_style),
-                Span::styled(" ", row_style),
-                Span::styled(icon, icon_style),
-            ])),
-            Rect::new(workspace_rows.x, y, workspace_rows.width, 1),
-        );
     }
 
     if let Some(divider_y) = divider_y {
@@ -2522,10 +2598,96 @@ mod tests {
 
         assert_eq!(rows[0], "all│");
         assert_eq!(rows[1], "───│");
-        assert_eq!(buffer[(0, 2)].symbol(), "1");
-        assert_eq!(buffer[(0, 3)].symbol(), "2");
+        assert_eq!(buffer[(0, 2)].symbol(), "▾");
+        assert_eq!(
+            buffer[(2, 2)].symbol(),
+            crate::app::state::DEFAULT_GROUP_ICON
+        );
+        assert_eq!(buffer[(0, 3)].symbol(), "1");
+        assert_eq!(buffer[(0, 4)].symbol(), "2");
         assert_eq!(buffer[(3, 2)].symbol(), "│");
-        assert_eq!(buffer[(3, 3)].symbol(), "│");
+        assert_eq!(buffer[(3, 4)].symbol(), "│");
+    }
+
+    #[test]
+    fn collapsed_all_groups_rail_resets_ordinals_after_each_group_header() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.group_filter_enabled = false;
+        app.groups.push(Group {
+            id: "work".into(),
+            name: "work".into(),
+            icon: "■".into(),
+            accent: None,
+            default_directory: None,
+            favorite_agent_profile_ids: Vec::new(),
+            default_agent_profile_id: None,
+        });
+        app.workspaces = vec![
+            Workspace::test_new("home"),
+            Workspace::test_new("notes"),
+            Workspace::test_new("api"),
+        ];
+        app.workspaces[2].group_id = "work".into();
+
+        let area = Rect::new(0, 0, 4, 20);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_sidebar_collapsed(&app, frame, area))
+            .expect("render collapsed sidebar");
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(0, 2)].symbol(), "▾");
+        assert_eq!(
+            buffer[(2, 2)].symbol(),
+            crate::app::state::DEFAULT_GROUP_ICON
+        );
+        assert_eq!(buffer[(0, 3)].symbol(), "1");
+        assert_eq!(buffer[(0, 4)].symbol(), "2");
+        assert_eq!(buffer[(0, 5)].symbol(), "▾");
+        assert_eq!(buffer[(2, 5)].symbol(), "■");
+        assert_eq!(buffer[(0, 6)].symbol(), "1");
+    }
+
+    #[test]
+    fn collapsed_all_groups_rail_keeps_collapsed_group_header_and_hides_its_ordinals() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.group_filter_enabled = false;
+        app.groups.push(Group {
+            id: "work".into(),
+            name: "work".into(),
+            icon: "■".into(),
+            accent: None,
+            default_directory: None,
+            favorite_agent_profile_ids: Vec::new(),
+            default_agent_profile_id: None,
+        });
+        app.collapsed_workspace_groups.push("work".into());
+        app.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
+        app.workspaces[1].group_id = "work".into();
+
+        let area = Rect::new(0, 0, 4, 20);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_sidebar_collapsed(&app, frame, area))
+            .expect("render collapsed sidebar");
+
+        let buffer = terminal.backend().buffer();
+        let rows = buffer_text(buffer, area.width, area.height)
+            .lines()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+
+        assert_eq!(buffer[(0, 2)].symbol(), "▾");
+        assert_eq!(
+            buffer[(2, 2)].symbol(),
+            crate::app::state::DEFAULT_GROUP_ICON
+        );
+        assert_eq!(buffer[(0, 3)].symbol(), "1");
+        assert_eq!(buffer[(0, 4)].symbol(), "▸");
+        assert_eq!(buffer[(2, 4)].symbol(), "■");
+        assert_eq!(rows[5], "   │");
     }
 
     #[test]

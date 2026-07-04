@@ -748,14 +748,7 @@ impl AppState {
         if !self.sidebar_collapsed {
             return None;
         }
-
-        let ws_area = crate::ui::collapsed_workspace_rows_rect(self.view.sidebar_rect, true);
-        if ws_area == Rect::default() || row < ws_area.y || row >= ws_area.y + ws_area.height {
-            return None;
-        }
-
-        let idx = (row - ws_area.y) as usize;
-        self.sidebar_visible_workspace_indices().get(idx).copied()
+        crate::ui::collapsed_workspace_at_row(self, self.view.sidebar_rect, row)
     }
 
     fn collapsed_detail_workspace_idx(&self) -> Option<usize> {

@@ -55,6 +55,8 @@ pub(crate) use self::scrollbar::{
     scrollbar_offset_from_row, scrollbar_thumb_grab_offset, should_show_scrollbar,
 };
 use self::settings::render_settings_overlay;
+#[cfg(test)]
+pub(crate) use self::sidebar::collapsed_workspace_rows_rect;
 use self::sidebar::{render_right_sidebar, render_sidebar, render_sidebar_collapsed};
 use self::status::{
     copy_feedback_rect, render_config_diagnostic, render_copy_feedback, render_toast_notification,
@@ -88,7 +90,7 @@ pub(crate) use self::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_entry_at_row,
         agent_panel_header_target_at_row, agent_panel_scroll_metrics, agent_panel_scrollbar_rect,
         agent_panel_toggle_rect, collapsed_group_header_rect, collapsed_sidebar_sections,
-        collapsed_sidebar_toggle_rect, collapsed_workspace_rows_rect, compute_workspace_card_areas,
+        collapsed_sidebar_toggle_rect, collapsed_workspace_at_row, compute_workspace_card_areas,
         compute_workspace_card_areas_in_list, compute_workspace_group_drop_areas_in_list,
         compute_workspace_group_empty_areas_in_list, compute_workspace_group_header_areas,
         compute_workspace_group_header_areas_in_list, expanded_sidebar_sections,
