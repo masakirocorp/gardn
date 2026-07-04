@@ -44,8 +44,13 @@ pub(crate) struct ClientViewState {
     pub(crate) tab_scroll_follow_active: bool,
     pub(crate) hovered_tab: Option<usize>,
     pub(crate) mobile_switcher_scroll: usize,
+    pub(crate) sidebar_width: u16,
+    pub(crate) sidebar_width_source: crate::app::state::SidebarWidthSource,
+    pub(crate) sidebar_width_auto: bool,
     pub(crate) sidebar_collapsed: bool,
     pub(crate) right_sidebar_collapsed: bool,
+    pub(crate) right_sidebar_width: u16,
+    pub(crate) sidebar_section_split: f32,
     pub(crate) activity_agents_expanded: bool,
     pub(crate) activity_commands_expanded: bool,
     pub(crate) activity_ports_expanded: bool,
@@ -109,8 +114,13 @@ impl ClientViewState {
             tab_scroll_follow_active: state.tab_scroll_follow_active,
             hovered_tab: state.hovered_tab,
             mobile_switcher_scroll: state.mobile_switcher_scroll,
+            sidebar_width: state.sidebar_width,
+            sidebar_width_source: state.sidebar_width_source,
+            sidebar_width_auto: state.sidebar_width_auto,
             sidebar_collapsed: state.sidebar_collapsed,
             right_sidebar_collapsed: state.right_sidebar_collapsed,
+            right_sidebar_width: state.right_sidebar_width,
+            sidebar_section_split: state.sidebar_section_split,
             activity_agents_expanded: state.activity_agents_expanded,
             activity_commands_expanded: state.activity_commands_expanded,
             activity_ports_expanded: state.activity_ports_expanded,
@@ -441,8 +451,13 @@ pub(crate) fn apply_client_view_to_app_state(state: &mut AppState, view: &Client
     state.tab_scroll_follow_active = view.tab_scroll_follow_active;
     state.hovered_tab = view.hovered_tab;
     state.mobile_switcher_scroll = view.mobile_switcher_scroll;
+    state.sidebar_width = view.sidebar_width;
+    state.sidebar_width_source = view.sidebar_width_source;
+    state.sidebar_width_auto = view.sidebar_width_auto;
     state.sidebar_collapsed = view.sidebar_collapsed;
     state.right_sidebar_collapsed = view.right_sidebar_collapsed;
+    state.right_sidebar_width = view.right_sidebar_width;
+    state.sidebar_section_split = view.sidebar_section_split;
     state.activity_agents_expanded = view.activity_agents_expanded;
     state.activity_commands_expanded = view.activity_commands_expanded;
     state.activity_ports_expanded = view.activity_ports_expanded;

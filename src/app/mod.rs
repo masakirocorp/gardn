@@ -1823,6 +1823,7 @@ impl App {
         client_view: &mut ClientViewState,
         key: crate::input::TerminalKey,
     ) {
+        self.state.update_dismissed = true;
         if self.state.is_prefix_key(key) {
             client_view.mode = Mode::Prefix;
             return;
@@ -2019,13 +2020,17 @@ impl App {
                     );
                 });
             }
+            Mode::Resize => {
+                self.apply_client_view_local_key(client_view, |state| {
+                    input::handle_resize_key(state, raw_key);
+                });
+            }
             Mode::ConfirmClose
             | Mode::ConfirmDeleteGroup
             | Mode::ContextMenu
             | Mode::Onboarding
             | Mode::GitRepoPicker
             | Mode::Copy
-            | Mode::Resize
             | Mode::Navigate
             | Mode::Prefix
             | Mode::Terminal => {}
@@ -2587,6 +2592,14 @@ impl App {
             self.state.mark_session_dirty();
         }
 
+        if local.update_dismissed != before.update_dismissed {
+            self.state.update_dismissed = local.update_dismissed;
+        }
+
+        if local.toast.is_none() && before.toast.is_some() {
+            self.state.toast = None;
+        }
+
         if local.group_filter_enabled != before.group_filter_enabled
             || local.active_group != before.active_group
         {
@@ -2822,10 +2835,46 @@ fn same_workspace_structure(
                     left_tab.number == right_tab.number
                         && left_tab.custom_name == right_tab.custom_name
                         && left_tab.root_pane == right_tab.root_pane
+                        && same_tile_layout_structure(&left_tab.layout, &right_tab.layout)
                         && left_tab.panes.keys().collect::<HashSet<_>>()
                             == right_tab.panes.keys().collect::<HashSet<_>>()
                 })
     })
+}
+
+fn same_tile_layout_structure(
+    left: &crate::layout::TileLayout,
+    right: &crate::layout::TileLayout,
+) -> bool {
+    same_layout_node(left.root(), right.root())
+}
+
+fn same_layout_node(left: &crate::layout::Node, right: &crate::layout::Node) -> bool {
+    match (left, right) {
+        (crate::layout::Node::Pane(left_id), crate::layout::Node::Pane(right_id)) => {
+            left_id == right_id
+        }
+        (
+            crate::layout::Node::Split {
+                direction: left_direction,
+                ratio: left_ratio,
+                first: left_first,
+                second: left_second,
+            },
+            crate::layout::Node::Split {
+                direction: right_direction,
+                ratio: right_ratio,
+                first: right_first,
+                second: right_second,
+            },
+        ) => {
+            left_direction == right_direction
+                && left_ratio.to_bits() == right_ratio.to_bits()
+                && same_layout_node(left_first, right_first)
+                && same_layout_node(left_second, right_second)
+        }
+        _ => false,
+    }
 }
 
 fn preserve_shared_workspace_view_state(
@@ -6320,6 +6369,253 @@ mod tests {
         );
         assert!(app.state.view.sidebar_rect.x > initial_sidebar_x);
         assert!(client_view.computed.sidebar_rect.x > initial_sidebar_x);
+    }
+
+    #[test]
+    fn route_client_events_for_view_sidebar_divider_drag_stays_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+
+        let area = ratatui::layout::Rect::new(0, 0, 120, 30);
+        let mut client = ClientViewState::from_app_state(&app.state);
+        let other_client = ClientViewState::from_app_state(&app.state);
+        compute_client_view(&app, &mut client, area);
+        let sidebar = client.computed.sidebar_rect;
+        let divider_col = sidebar.x + sidebar.width.saturating_sub(1);
+        let drag_row = sidebar.y + sidebar.height / 2;
+        let shared_width = app.state.sidebar_width;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    divider_col,
+                    drag_row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                    divider_col + 8,
+                    drag_row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+                    divider_col + 8,
+                    drag_row,
+                ),
+            ],
+            true,
+        );
+
+        assert_eq!(client.sidebar_width, shared_width + 8);
+        assert_eq!(
+            client.sidebar_width_source,
+            crate::app::state::SidebarWidthSource::Manual
+        );
+        assert_eq!(app.state.sidebar_width, shared_width);
+        assert_eq!(other_client.sidebar_width, shared_width);
+    }
+
+    #[test]
+    fn route_client_events_for_view_right_sidebar_divider_drag_stays_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::Separate;
+
+        let area = ratatui::layout::Rect::new(0, 0, 150, 30);
+        let mut client = ClientViewState::from_app_state(&app.state);
+        let other_client = ClientViewState::from_app_state(&app.state);
+        compute_client_view(&app, &mut client, area);
+        let right_sidebar = client.computed.right_sidebar_rect;
+        assert_ne!(
+            right_sidebar,
+            ratatui::layout::Rect::default(),
+            "separate sidebar layout exposes a right-sidebar divider"
+        );
+        let divider_col = right_sidebar.x;
+        let drag_row = right_sidebar.y + right_sidebar.height / 2;
+        let shared_width = app.state.right_sidebar_width;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    divider_col,
+                    drag_row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                    divider_col.saturating_sub(6),
+                    drag_row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+                    divider_col.saturating_sub(6),
+                    drag_row,
+                ),
+            ],
+            true,
+        );
+
+        assert_eq!(client.right_sidebar_width, shared_width + 6);
+        assert_eq!(app.state.right_sidebar_width, shared_width);
+        assert_eq!(other_client.right_sidebar_width, shared_width);
+    }
+
+    #[test]
+    fn route_client_events_for_view_sidebar_section_divider_drag_stays_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+        app.state.sidebar_section_split = 0.4;
+
+        let area = ratatui::layout::Rect::new(0, 0, 120, 30);
+        let mut client = ClientViewState::from_app_state(&app.state);
+        let other_client = ClientViewState::from_app_state(&app.state);
+        compute_client_view(&app, &mut client, area);
+        let divider = crate::ui::sidebar_section_divider_rect(
+            client.computed.sidebar_rect,
+            client.sidebar_section_split,
+        );
+        assert!(
+            divider.width > 0,
+            "combined sidebar exposes a section divider"
+        );
+        let drag_col = divider.x;
+        let drag_row = divider.y;
+        let shared_split = app.state.sidebar_section_split;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    drag_col,
+                    drag_row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                    drag_col,
+                    drag_row + 5,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+                    drag_col,
+                    drag_row + 5,
+                ),
+            ],
+            true,
+        );
+
+        assert!(client.sidebar_section_split > shared_split);
+        assert_eq!(app.state.sidebar_section_split, shared_split);
+        assert_eq!(other_client.sidebar_section_split, shared_split);
+    }
+
+    #[test]
+    fn route_client_events_for_view_resize_mode_key_updates_shared_pane_layout() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("shell");
+        workspace.test_split(ratatui::layout::Direction::Horizontal);
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let area = ratatui::layout::Rect::new(0, 0, 120, 30);
+        crate::ui::compute_view(&mut app.state, area);
+        let before_split_pos = app.state.workspaces[0].tabs[0]
+            .layout
+            .splits(app.state.view.terminal_area)[0]
+            .pos;
+        let mut client = ClientViewState::from_app_state(&app.state);
+        client.mode = Mode::Resize;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Left,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        let after_split_pos = app.state.workspaces[0].tabs[0]
+            .layout
+            .splits(app.state.view.terminal_area)[0]
+            .pos;
+        assert_ne!(
+            after_split_pos, before_split_pos,
+            "resize-mode key routed through a client view must update the shared pane ratio"
+        );
+        assert_eq!(client.mode, Mode::Resize);
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn route_client_events_for_view_toast_click_dismisses_shared_toast() {
+        let mut app = test_app();
+        let active = Workspace::test_new("active");
+        let background = Workspace::test_new("background");
+        let target_workspace_id = background.id.clone();
+        let target_pane = background.tabs[0].root_pane;
+        app.state.workspaces = vec![active, background];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.toast = Some(crate::app::state::ToastNotification {
+            kind: crate::app::state::ToastKind::Finished,
+            title: "pi finished".into(),
+            context: "background · 1".into(),
+            position: None,
+            target: Some(crate::app::state::ToastTarget {
+                workspace_id: target_workspace_id,
+                pane_id: target_pane,
+            }),
+        });
+
+        let area = ratatui::layout::Rect::new(0, 0, 120, 30);
+        let mut client = ClientViewState::from_app_state(&app.state);
+        compute_client_view(&app, &mut client, area);
+        let toast = client.computed.toast_hit_area;
+        assert!(toast.width > 0, "toast hit area is visible");
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                toast.x + 1,
+                toast.y + 1,
+            )],
+            true,
+        );
+
+        assert!(app.state.toast.is_none());
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(client.active_workspace, Some(1));
+        assert_eq!(client.selected_workspace, 1);
     }
 
     #[test]
