@@ -62,7 +62,7 @@ impl AppState {
             return crate::ui::right_sidebar_content_rect(self.view.right_sidebar_rect);
         }
         if self.sidebar_is_combined_right() {
-            let (detail_area, _) = crate::ui::right_aligned_expanded_sidebar_sections(
+            let (_, detail_area) = crate::ui::right_aligned_expanded_sidebar_sections(
                 sidebar,
                 self.sidebar_section_split,
             );

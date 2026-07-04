@@ -1457,10 +1457,10 @@ pub(super) fn render_sidebar(
         let ws_area = left_sidebar_workspace_rect(area);
         render_workspace_list_from(app, terminal_runtimes, frame, ws_area, is_navigating);
     } else if combined_right {
-        let (detail_area, ws_area) =
+        let (ws_area, detail_area) =
             right_aligned_expanded_sidebar_sections(area, app.sidebar_section_split);
-        render_workspace_list_from(app, terminal_runtimes, frame, ws_area, is_navigating);
         render_agent_detail_from(app, terminal_runtimes, frame, detail_area, true);
+        render_workspace_list_from(app, terminal_runtimes, frame, ws_area, is_navigating);
     } else {
         let (ws_area, detail_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
         render_agent_detail_from(app, terminal_runtimes, frame, detail_area, true);

@@ -1440,8 +1440,8 @@ fn select_pending_appearance_setting(state: &mut AppState) -> Option<SettingsAct
 
     let appearance_selected = selected - theme_count;
     match appearance_selected {
-        0..=2 => select_pending_layout_setting_at(state, appearance_selected),
-        3 => {
+        0..=3 => select_pending_layout_setting_at(state, appearance_selected),
+        4 => {
             state.settings.pending_agent_border_labels = Some(!pending_agent_border_labels(state));
         }
         _ => {}
@@ -4421,6 +4421,134 @@ mod tests {
         ));
 
         assert_eq!(app.state.settings.section, SettingsSection::Sound);
+    }
+
+    #[test]
+    fn clicking_sidebar_width_recomputes_terminal_layout() {
+        let mut app = app_for_mouse_test();
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 150, 40));
+        open_settings_at(&mut app.state, SettingsSection::Theme);
+        app.state.settings.pending_theme_mode = Some(ThemeMode::System);
+        app.state.settings.pending_light_theme_name = Some("system".into());
+        app.state.settings.pending_dark_theme_name = Some("system".into());
+
+        let rows = rows_for_section(&app.state, SettingsSection::Theme).unwrap();
+        let width_row = rows
+            .iter()
+            .enumerate()
+            .find_map(|(row, setting)| match setting {
+                crate::settings_rows::SettingsListRow::Value { title, .. }
+                    if title.as_ref() == "default sidebar width" =>
+                {
+                    Some(row)
+                }
+                _ => None,
+            })
+            .expect("default sidebar width row");
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::Theme);
+        app.state.settings.scroll = width_row.saturating_sub(3);
+        let (width_x, width_y) = rendered_text_point_at_or_after_row(
+            &app,
+            "default sidebar width",
+            list_area.y,
+            150,
+            40,
+        );
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            width_x,
+            width_y,
+        ));
+
+        assert_eq!(app.state.default_sidebar_width, 28);
+        assert_eq!(app.state.sidebar_width, 28);
+        assert_eq!(app.state.view.sidebar_rect.width, 28);
+    }
+
+    #[test]
+    fn appearance_sidebar_arrangement_click_does_not_toggle_pane_labels() {
+        let mut app = app_for_mouse_test();
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::Auto;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 150, 40));
+        open_settings_at(&mut app.state, SettingsSection::Theme);
+        app.state.settings.pending_theme_mode = Some(ThemeMode::System);
+        app.state.settings.pending_light_theme_name = Some("system".into());
+        app.state.settings.pending_dark_theme_name = Some("system".into());
+
+        let rows = rows_for_section(&app.state, SettingsSection::Theme).unwrap();
+        let mut visual_row: usize = 0;
+        let mut arrangement_index: Option<usize> = None;
+        let mut arrangement_row: Option<usize> = None;
+        for row in &rows {
+            match row {
+                crate::settings_rows::SettingsListRow::Value { index, title, .. }
+                    if title.as_ref() == "sidebar arrangement" =>
+                {
+                    arrangement_index = Some(*index);
+                    arrangement_row = Some(visual_row);
+                    break;
+                }
+                crate::settings_rows::SettingsListRow::Header(_)
+                | crate::settings_rows::SettingsListRow::Caption(_)
+                | crate::settings_rows::SettingsListRow::Spacer
+                | crate::settings_rows::SettingsListRow::Choice { .. }
+                | crate::settings_rows::SettingsListRow::Action { .. }
+                | crate::settings_rows::SettingsListRow::Status { .. }
+                | crate::settings_rows::SettingsListRow::Profile { .. } => visual_row += 1,
+                crate::settings_rows::SettingsListRow::Toggle { .. }
+                | crate::settings_rows::SettingsListRow::Value { .. }
+                | crate::settings_rows::SettingsListRow::TextInput { .. } => visual_row += 2,
+            }
+        }
+        let arrangement_index = arrangement_index.expect("sidebar arrangement index");
+        let arrangement_row = arrangement_row.expect("sidebar arrangement row");
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::Theme);
+        app.state.settings.scroll = arrangement_row.saturating_sub(3);
+
+        let (arrangement_x, arrangement_y) =
+            rendered_text_point_at_or_after_row(&app, "sidebar arrangement", list_area.y, 150, 40);
+        let initial_agent_border_labels = app.state.settings.pending_agent_border_labels;
+        let action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            arrangement_x,
+            arrangement_y,
+        ));
+        let action_to_apply = action.clone().expect("settings action");
+
+        assert_eq!(
+            app.state.settings.pending_sidebar_arrangement,
+            Some(crate::config::SidebarArrangementConfig::Separate)
+        );
+        assert_eq!(app.state.settings.list.selected, arrangement_index);
+        assert_eq!(
+            app.state.settings.pending_agent_border_labels,
+            initial_agent_border_labels
+        );
+        match action {
+            Some(SettingsAction::SaveSettings {
+                sidebar_arrangement,
+                agent_border_labels,
+                ..
+            }) => {
+                assert_eq!(
+                    sidebar_arrangement,
+                    crate::config::SidebarArrangementConfig::Separate
+                );
+                assert_eq!(
+                    agent_border_labels,
+                    initial_agent_border_labels
+                        .unwrap_or_else(|| app.state.agent_border_labels_enabled())
+                );
+            }
+            other => panic!("expected settings save action, got {other:?}"),
+        }
+        app.apply_settings_action(action_to_apply);
+        assert_eq!(
+            app.state.sidebar_arrangement,
+            crate::config::SidebarArrangementConfig::Separate
+        );
     }
 
     #[test]

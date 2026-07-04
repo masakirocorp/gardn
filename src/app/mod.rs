@@ -2372,14 +2372,38 @@ impl App {
         let before_shared = self.state.clone();
         let mut local_state = self.state.clone();
         crate::app::view_state::apply_client_view_to_app_state(&mut local_state, client_view);
+        let mut settings_action = None;
         if !Self::handle_client_view_picker_mouse(&mut local_state, mouse) {
-            local_state.handle_mouse(&mut self.terminal_runtimes, mouse);
+            settings_action = local_state.handle_mouse(&mut self.terminal_runtimes, mouse);
         }
         let pending_tab_focus =
             Self::pending_client_tab_focus_after_deferred_request(&before_shared, &local_state);
         self.apply_shared_client_view_effects_from_local(&before_shared, local_state.clone());
-        *client_view = ClientViewState::from_app_state(&local_state);
-        client_view.reconcile(&self.state);
+        if let Some(action) = settings_action {
+            let screen = local_state.screen_rect();
+            self.apply_settings_action(action);
+            crate::ui::compute_view_with_runtime_registry(
+                &mut self.state,
+                &self.terminal_runtimes,
+                screen,
+            );
+            Self::copy_client_view_local_modal_state(client_view, local_state);
+            client_view.reconcile(&self.state);
+            let mut client_local_state = self.state.clone();
+            crate::app::view_state::apply_client_view_to_app_state(
+                &mut client_local_state,
+                client_view,
+            );
+            crate::ui::compute_view_with_runtime_registry(
+                &mut client_local_state,
+                &self.terminal_runtimes,
+                screen,
+            );
+            client_view.computed = client_local_state.view;
+        } else {
+            *client_view = ClientViewState::from_app_state(&local_state);
+            client_view.reconcile(&self.state);
+        }
         if let Some((workspace_id, tab_idx)) = pending_tab_focus {
             client_view
                 .pending_active_tabs
@@ -2906,6 +2930,37 @@ mod tests {
         crate::app::view_state::apply_client_view_to_app_state(&mut local_state, client_view);
         crate::ui::compute_view(&mut local_state, area);
         client_view.computed = local_state.view;
+    }
+
+    fn rendered_text_point_at_or_after_row(
+        app: &App,
+        text: &str,
+        min_row: u16,
+        width: u16,
+        height: u16,
+    ) -> (u16, u16) {
+        let backend = ratatui::backend::TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render app");
+        let buffer = terminal.backend().buffer();
+        let symbols = text.chars().map(|ch| ch.to_string()).collect::<Vec<_>>();
+        let text_width = symbols.len() as u16;
+
+        for y in min_row..height {
+            for x in 0..=width.saturating_sub(text_width) {
+                if symbols
+                    .iter()
+                    .enumerate()
+                    .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == ch.as_str())
+                {
+                    return (x, y);
+                }
+            }
+        }
+
+        panic!("rendered text not found: {text}");
     }
 
     fn confirm_button_for_client_view(
@@ -6201,6 +6256,70 @@ mod tests {
         assert_eq!(app.state.active, Some(0));
         assert_eq!(first_client.active_workspace, Some(0));
         assert_eq!(second_client.active_workspace, Some(1));
+    }
+
+    #[test]
+    fn route_client_events_for_view_settings_click_applies_layout_change() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+
+        crate::app::input::open_settings_at(&mut app.state, state::SettingsSection::Theme);
+        app.state.settings.pending_theme_mode = Some(crate::config::ThemeMode::System);
+        app.state.settings.pending_light_theme_name = Some("system".into());
+        app.state.settings.pending_dark_theme_name = Some("system".into());
+        let rows =
+            crate::settings_rows::rows_for_section(&app.state, state::SettingsSection::Theme)
+                .expect("theme settings rows");
+        let arrangement_index = rows
+            .iter()
+            .find_map(|row| match row {
+                crate::settings_rows::SettingsListRow::Value { index, title, .. }
+                    if title.as_ref() == "sidebar arrangement" =>
+                {
+                    Some(*index)
+                }
+                _ => None,
+            })
+            .expect("sidebar arrangement option");
+        let arrangement_visual_row = (0..crate::settings_rows::visual_row_count(&rows))
+            .find(|row| {
+                crate::settings_rows::option_index_for_visual_row(&rows, *row)
+                    == Some(arrangement_index)
+            })
+            .expect("sidebar arrangement visual row");
+        app.state.settings.scroll = arrangement_visual_row.saturating_sub(3);
+
+        let area = ratatui::layout::Rect::new(0, 0, 150, 40);
+        crate::ui::compute_view(&mut app.state, area);
+        let mut client_view = ClientViewState::from_app_state(&app.state);
+        compute_client_view(&app, &mut client_view, area);
+        let list_area = crate::ui::settings_section_list_rect(app.state.settings_content_rect());
+        let (arrangement_x, arrangement_y) =
+            rendered_text_point_at_or_after_row(&app, "sidebar arrangement", list_area.y, 150, 40);
+        let initial_sidebar_x = client_view.computed.sidebar_rect.x;
+
+        app.route_client_events_for_view(
+            &mut client_view,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                arrangement_x,
+                arrangement_y,
+            )],
+            true,
+        );
+
+        assert_eq!(
+            app.state.sidebar_arrangement,
+            crate::config::SidebarArrangementConfig::CombinedRight
+        );
+        assert!(app.state.view.sidebar_rect.x > initial_sidebar_x);
+        assert!(client_view.computed.sidebar_rect.x > initial_sidebar_x);
     }
 
     #[test]

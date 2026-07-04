@@ -49,6 +49,18 @@ impl App {
         terminal_light_accent: crate::config::TerminalAccent,
         terminal_dark_accent: crate::config::TerminalAccent,
     ) {
+        self.state.global_light_theme_name = light.to_string();
+        self.state.global_dark_theme_name = dark.to_string();
+        self.state.global_theme_mode = mode;
+        self.state.global_terminal_light_accent = terminal_light_accent;
+        self.state.global_terminal_dark_accent = terminal_dark_accent;
+        self.state.refresh_global_palette();
+        self.state.apply_effective_theme();
+        self.state.settings.pending_light_theme_name = Some(light.to_string());
+        self.state.settings.pending_dark_theme_name = Some(dark.to_string());
+        self.state.settings.pending_theme_mode = Some(mode);
+        self.state.settings.pending_terminal_light_accent = Some(terminal_light_accent);
+        self.state.settings.pending_terminal_dark_accent = Some(terminal_dark_accent);
         if self.update_config_file("theme", |content| {
             let content = crate::config::remove_section_key(content, "theme", "name");
             let content = crate::config::upsert_section_value(
@@ -93,6 +105,8 @@ impl App {
     }
 
     pub(super) fn save_sound(&mut self, enabled: bool) {
+        self.state.sound.enabled = enabled;
+        self.state.settings.pending_sound_enabled = Some(enabled);
         if self.update_config_file("sound setting", |content| {
             crate::config::upsert_section_bool(content, "ui.sound", "enabled", enabled)
         }) {
@@ -101,6 +115,8 @@ impl App {
     }
 
     pub(super) fn save_new_terminal_cwd(&mut self, policy: &crate::config::NewTerminalCwdConfig) {
+        self.state.new_terminal_cwd = policy.clone();
+        self.state.settings.pending_new_terminal_cwd = Some(policy.clone());
         let value = match policy {
             crate::config::NewTerminalCwdConfig::Follow => "\"follow\"".to_string(),
             crate::config::NewTerminalCwdConfig::Home => "\"home\"".to_string(),
@@ -115,6 +131,8 @@ impl App {
     }
     pub(super) fn save_mouse_scroll_lines(&mut self, lines: usize) {
         let lines = lines.max(1);
+        self.state.mouse_scroll_lines = lines;
+        self.state.settings.pending_mouse_scroll_lines = Some(lines);
         if self.update_config_file("mouse scroll lines", |content| {
             crate::config::upsert_section_value(
                 content,
@@ -130,6 +148,16 @@ impl App {
         let (min, max) = crate::config::validated_sidebar_bounds(min, max)
             .unwrap_or((self.state.sidebar_min_width, self.state.sidebar_max_width));
         let width = width.clamp(min, max);
+        self.state.default_sidebar_width = width;
+        if self.state.sidebar_width_source == crate::app::state::SidebarWidthSource::ConfigDefault {
+            self.state.sidebar_width = width;
+        }
+        self.state.sidebar_min_width = min;
+        self.state.sidebar_max_width = max;
+        self.state.sidebar_width = self.state.sidebar_width.clamp(min, max);
+        self.state.settings.pending_sidebar_width = Some(width);
+        self.state.settings.pending_sidebar_min_width = Some(min);
+        self.state.settings.pending_sidebar_max_width = Some(max);
         if self.update_config_file("sidebar widths", |content| {
             let content = crate::config::upsert_section_value(
                 content,
@@ -157,6 +185,8 @@ impl App {
         &mut self,
         arrangement: crate::config::SidebarArrangementConfig,
     ) {
+        self.state.sidebar_arrangement = arrangement;
+        self.state.settings.pending_sidebar_arrangement = Some(arrangement);
         if self.update_config_file("sidebar arrangement", |content| {
             crate::config::upsert_section_value(
                 content,
@@ -169,6 +199,8 @@ impl App {
         }
     }
     pub(super) fn save_worktree_directory(&mut self, directory: &str) {
+        self.state.worktree_directory = crate::worktree::expand_tilde_absolute_path(directory);
+        self.state.settings.pending_worktree_directory = Some(directory.to_string());
         if self.update_config_file("worktree directory", |content| {
             crate::config::upsert_section_value(
                 content,
@@ -181,6 +213,8 @@ impl App {
         }
     }
     pub(super) fn save_toast_delivery(&mut self, delivery: crate::config::ToastDelivery) {
+        self.state.toast_config.delivery = delivery;
+        self.state.settings.pending_toast_delivery = Some(delivery);
         let value = match delivery {
             crate::config::ToastDelivery::Off => "\"off\"",
             crate::config::ToastDelivery::Hako => "\"hako\"",
@@ -196,6 +230,8 @@ impl App {
         }
     }
     pub(super) fn save_confirm_close(&mut self, enabled: bool) {
+        self.state.confirm_close = enabled;
+        self.state.settings.pending_confirm_close = Some(enabled);
         if self.update_config_file("close confirmation", |content| {
             crate::config::upsert_section_bool(content, "ui", "confirm_close", enabled)
         }) {
@@ -204,6 +240,8 @@ impl App {
     }
 
     pub(super) fn save_prompt_new_tab_name(&mut self, enabled: bool) {
+        self.state.prompt_new_tab_name = enabled;
+        self.state.settings.pending_prompt_new_tab_name = Some(enabled);
         if self.update_config_file("new tab name prompt", |content| {
             crate::config::upsert_section_bool(content, "ui", "prompt_new_tab_name", enabled)
         }) {
@@ -212,6 +250,8 @@ impl App {
     }
 
     pub(super) fn save_agent_border_labels(&mut self, enabled: bool) {
+        self.state.show_agent_labels_on_pane_borders = enabled;
+        self.state.settings.pending_agent_border_labels = Some(enabled);
         if self.update_config_file("agent border labels", |content| {
             crate::config::upsert_section_bool(
                 content,
@@ -225,6 +265,10 @@ impl App {
     }
 
     pub(super) fn save_switch_ascii_input_source_in_prefix(&mut self, enabled: bool) {
+        self.state.switch_ascii_input_source_in_prefix = enabled;
+        self.state
+            .settings
+            .pending_switch_ascii_input_source_in_prefix = Some(enabled);
         if self.update_config_file("prefix ascii input source", |content| {
             crate::config::upsert_section_bool(
                 content,

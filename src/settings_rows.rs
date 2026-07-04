@@ -686,6 +686,7 @@ fn appearance_rows(app: &AppState) -> Vec<SettingsListRow> {
     let layout_base = option_count(&rows);
     rows.push(SettingsListRow::Spacer);
     rows.extend(layout_rows_with_base(app, layout_base));
+    rows.push(SettingsListRow::Spacer);
     rows.extend(setting_group(
         "panes",
         [option(
@@ -1103,5 +1104,25 @@ mod tests {
         assert_eq!(option_index_for_visual_row(&rows, 1), Some(3));
         assert_eq!(option_index_for_visual_row(&rows, 2), Some(4));
         assert_eq!(option_index_for_visual_row(&rows, 3), None);
+    }
+
+    #[test]
+    fn appearance_rows_keep_blank_line_between_sidebar_and_panes() {
+        let app = AppState::test_new();
+        let rows = appearance_rows(&app);
+        let arrangement = rows
+            .iter()
+            .position(|row| {
+                matches!(
+                    row,
+                    SettingsListRow::Value { title, .. } if title.as_ref() == "sidebar arrangement"
+                )
+            })
+            .expect("sidebar arrangement row");
+        assert!(matches!(rows[arrangement + 1], SettingsListRow::Spacer));
+        assert!(matches!(
+            rows[arrangement + 2],
+            SettingsListRow::Header("panes")
+        ));
     }
 }

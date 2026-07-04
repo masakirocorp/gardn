@@ -555,6 +555,7 @@ impl App {
         let previous_settings_section = self.state.settings.section;
         if !handled_pane_double_click {
             if let Some(action) = self.state.handle_mouse(&mut self.terminal_runtimes, mouse) {
+                let screen = self.state.screen_rect();
                 match action {
                     SettingsAction::SaveSettings {
                         light,
@@ -598,6 +599,11 @@ impl App {
                         }
                         self.save_toast_delivery(toast_delivery);
                         self.save_agent_border_labels(agent_border_labels);
+                        crate::ui::compute_view_with_runtime_registry(
+                            &mut self.state,
+                            &self.terminal_runtimes,
+                            screen,
+                        );
                     }
                     SettingsAction::SaveGroupAccent { group_idx, accent } => {
                         self.state.set_group_accent(group_idx, accent);

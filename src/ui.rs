@@ -859,6 +859,42 @@ mod tests {
     }
 
     #[test]
+    fn combined_right_sidebar_keeps_workspace_list_above_agent_panel() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedRight;
+        app.workspaces = vec![Workspace::test_new("one")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        compute_view(&mut app, Rect::new(0, 0, 100, 20));
+
+        let backend = TestBackend::new(100, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let sidebar = app.view.sidebar_rect;
+        let content = Rect::new(
+            sidebar.x + 1,
+            sidebar.y,
+            sidebar.width.saturating_sub(1),
+            sidebar.height,
+        );
+        let row_containing = |needle: &str| {
+            (content.y..content.y + content.height)
+                .find(|row| buffer_row_text(buffer, content, *row).contains(needle))
+                .expect(needle)
+        };
+        let workspace_row = row_containing("one");
+        let agents_row = row_containing("agents");
+
+        assert_eq!(app.view.right_sidebar_rect, Rect::default());
+        assert!(sidebar.x > 0);
+        assert_eq!(buffer[(sidebar.x, sidebar.y)].symbol(), "│");
+        assert!(workspace_row < agents_row);
+    }
+
+    #[test]
     fn collapsed_sidebar_keeps_active_workspace_highlight_in_terminal_mode() {
         let mut app = crate::app::state::AppState::test_new();
         app.sidebar_collapsed = true;
