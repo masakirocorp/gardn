@@ -1920,23 +1920,10 @@ fn render_workspace_list_from(
         if row_height > 1 && row_y + 1 < list_bottom {
             let max_summary_len =
                 (card.rect.width as usize).saturating_sub(SIDEBAR_WORKSPACE_NAME_COL as usize);
-            let mut spans = vec![
-                Span::styled(
-                    " ".repeat(SIDEBAR_WORKSPACE_STATE_COL as usize),
-                    Style::default(),
-                ),
-                Span::styled(
-                    "│",
-                    Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
-                ),
-                Span::styled(
-                    " ".repeat(
-                        SIDEBAR_WORKSPACE_NAME_COL.saturating_sub(SIDEBAR_WORKSPACE_STATE_COL + 1)
-                            as usize,
-                    ),
-                    Style::default(),
-                ),
-            ];
+            let mut spans = vec![Span::styled(
+                " ".repeat(SIDEBAR_WORKSPACE_NAME_COL as usize),
+                Style::default(),
+            )];
             spans.extend(workspace_summary_spans(ws, p, max_summary_len));
             frame.render_widget(
                 Paragraph::new(Line::from(spans)),
@@ -2584,7 +2571,7 @@ mod tests {
         );
         assert_eq!(
             buffer[(home_card.x + SIDEBAR_WORKSPACE_STATE_COL, home_card.y + 1)].symbol(),
-            "│"
+            " "
         );
         assert_eq!(
             buffer[(home_card.x + SIDEBAR_WORKSPACE_NAME_COL, home_card.y + 1)].symbol(),

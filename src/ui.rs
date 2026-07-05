@@ -973,7 +973,7 @@ mod tests {
 
         assert!(line1.starts_with("  · one"));
         assert!(!line1.contains("1 one"));
-        assert_eq!(line2, "  │");
+        assert_eq!(line2, "");
     }
 
     #[test]
@@ -998,7 +998,7 @@ mod tests {
         let card = app.view.workspace_card_areas[0].rect;
         let row = card.y + 1;
 
-        assert_eq!(buffer_row_text(buffer, card, row), "  │ +2 ~1 -1");
+        assert_eq!(buffer_row_text(buffer, card, row), "    +2 ~1 -1");
         assert_eq!(
             buffer[(card.x + 4, row)].style().fg,
             Some(app.palette.green)
