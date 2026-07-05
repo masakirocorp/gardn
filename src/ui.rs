@@ -89,7 +89,9 @@ pub(crate) use self::{
     sidebar::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_entry_at_row,
         agent_panel_header_target_at_row, agent_panel_scroll_metrics, agent_panel_scrollbar_rect,
-        agent_panel_toggle_rect, collapsed_group_header_rect, collapsed_sidebar_sections,
+        agent_panel_toggle_rect, collapsed_agent_panel_entry_at_row,
+        collapsed_agent_panel_header_target_at_row, collapsed_agent_panel_toggle_rect,
+        collapsed_group_header_rect, collapsed_sidebar_sections_for_split,
         collapsed_sidebar_toggle_rect, collapsed_workspace_at_row,
         collapsed_workspace_group_header_at_row, compute_workspace_card_areas,
         compute_workspace_card_areas_in_list, compute_workspace_group_drop_areas_in_list,
@@ -940,7 +942,8 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(text.contains("agt"));
+        assert!(text.contains("f:s"));
+        assert!(!text.contains("agt"));
     }
 
     #[test]

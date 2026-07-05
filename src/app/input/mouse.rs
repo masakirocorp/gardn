@@ -578,6 +578,24 @@ impl AppState {
                             return None;
                         }
 
+                        if self.on_agent_panel_scope_toggle(mouse.column, mouse.row) {
+                            super::modal::open_agent_menu(self);
+                            return None;
+                        }
+
+                        if let Some(target) = self.agent_header_target_at(mouse.row) {
+                            self.toggle_agent_section(target.section);
+                            self.agent_panel_scroll = self.agent_panel_scroll.min(
+                                crate::ui::agent_panel_scroll_metrics(
+                                    self,
+                                    self.agent_panel_rect(),
+                                    self.agent_panel_has_leading_separator(),
+                                )
+                                .max_offset_from_bottom,
+                            );
+                            return None;
+                        }
+
                         if let Some((ws_idx, tab_idx, pane_id)) =
                             self.collapsed_agent_detail_target_at(mouse.row)
                         {

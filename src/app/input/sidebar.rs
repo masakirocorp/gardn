@@ -518,6 +518,15 @@ impl AppState {
     }
 
     fn agent_menu_anchor_rect(&self) -> Rect {
+        if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
+            let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+                self.view.sidebar_rect,
+                true,
+                self.sidebar_section_split,
+            );
+            return crate::ui::collapsed_agent_panel_toggle_rect(detail_area);
+        }
+
         crate::ui::agent_panel_toggle_rect(
             self.agent_panel_rect(),
             self.agent_panel_scope,
@@ -751,30 +760,6 @@ impl AppState {
         crate::ui::collapsed_workspace_at_row(self, self.view.sidebar_rect, row)
     }
 
-    fn collapsed_detail_workspace_idx(&self) -> Option<usize> {
-        if matches!(
-            self.mode,
-            Mode::Navigate
-                | Mode::RenameWorkspace
-                | Mode::EditWorktreeDirectory
-                | Mode::Resize
-                | Mode::ConfirmClose
-                | Mode::ConfirmDeleteGroup
-                | Mode::ContextMenu
-                | Mode::Settings
-                | Mode::GlobalMenu
-                | Mode::GroupMenu
-                | Mode::KeybindHelp
-                | Mode::CommandPalette
-                | Mode::AgentProfilePicker
-                | Mode::GitRepoPicker
-        ) {
-            Some(self.selected)
-        } else {
-            self.active
-        }
-    }
-
     pub(super) fn collapsed_agent_detail_target_at(
         &self,
         row: u16,
@@ -783,30 +768,13 @@ impl AppState {
             return None;
         }
 
-        let (_, _, detail_area) =
-            crate::ui::collapsed_sidebar_sections(self.view.sidebar_rect, true);
-        if detail_area == Rect::default() {
-            return None;
-        }
-        let detail_content_area = Rect::new(
-            detail_area.x,
-            detail_area.y.saturating_add(2),
-            detail_area.width,
-            detail_area.height.saturating_sub(2),
+        let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+            self.view.sidebar_rect,
+            true,
+            self.sidebar_section_split,
         );
-        if detail_content_area == Rect::default()
-            || row < detail_content_area.y
-            || row >= detail_content_area.y + detail_content_area.height
-        {
-            return None;
-        }
-
-        let ws_idx = self.collapsed_detail_workspace_idx()?;
-        let ws = self.workspaces.get(ws_idx)?;
-        let detail_idx = (row - detail_content_area.y) as usize;
-        let details = ws.pane_details(&self.terminals);
-        let detail = details.get(detail_idx)?;
-        Some((ws_idx, detail.tab_idx, detail.pane_id))
+        let detail = crate::ui::collapsed_agent_panel_entry_at_row(self, detail_area, row)?;
+        Some((detail.ws_idx, detail.tab_idx, detail.pane_id))
     }
 
     #[cfg(test)]
@@ -924,8 +892,19 @@ impl AppState {
 
     pub(super) fn on_agent_panel_scope_toggle(&self, col: u16, row: u16) -> bool {
         if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
-            return false;
+            let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+                self.view.sidebar_rect,
+                true,
+                self.sidebar_section_split,
+            );
+            let rect = crate::ui::collapsed_agent_panel_toggle_rect(detail_area);
+            return rect.width > 0
+                && col >= rect.x
+                && col < rect.x + rect.width
+                && row >= rect.y
+                && row < rect.y + rect.height;
         }
+
         let (detail_area, leading_separator) = if self.view.right_sidebar_rect != Rect::default() {
             if self.right_sidebar_collapsed {
                 return false;
@@ -957,7 +936,12 @@ impl AppState {
         row: u16,
     ) -> Option<crate::ui::AgentPanelHeaderTarget> {
         if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
-            return None;
+            let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+                self.view.sidebar_rect,
+                true,
+                self.sidebar_section_split,
+            );
+            return crate::ui::collapsed_agent_panel_header_target_at_row(self, detail_area, row);
         }
 
         let area = self.agent_panel_rect();
@@ -2018,6 +2002,86 @@ mod tests {
     }
 
     #[test]
+    fn clicking_collapsed_agent_scope_and_agent_row_uses_collapsed_controls() {
+        let mut app = app_for_mouse_test();
+        let mut workspace = Workspace::test_new("test");
+        let first_tab = 0;
+        let first_pane = workspace.tabs[first_tab].root_pane;
+        let second_tab = workspace.test_add_tab(Some("build"));
+        let second_pane = workspace.tabs[second_tab].root_pane;
+        let first_state = workspace.tabs[first_tab]
+            .panes
+            .get_mut(&first_pane)
+            .unwrap();
+        first_state.detected_agent = Some(Agent::Pi);
+        first_state.state = AgentState::Idle;
+        first_state.seen = false;
+        let second_state = workspace.tabs[second_tab]
+            .panes
+            .get_mut(&second_pane)
+            .unwrap();
+        second_state.detected_agent = Some(Agent::Codex);
+        second_state.state = AgentState::Working;
+
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        app.state.sidebar_collapsed = true;
+        app.state.workspaces[0].switch_tab(second_tab);
+        app.state.workspaces[0].tabs[second_tab]
+            .layout
+            .focus_pane(second_pane);
+        app.state.view.sidebar_rect = Rect::new(0, 0, 8, 24);
+        app.state.view.right_sidebar_rect = Rect::default();
+        app.state.view.terminal_area = Rect::new(8, 0, 80, 24);
+
+        let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+            app.state.view.sidebar_rect,
+            true,
+            app.state.sidebar_section_split,
+        );
+        let scope_toggle = crate::ui::collapsed_agent_panel_toggle_rect(detail_area);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            scope_toggle.x,
+            scope_toggle.y,
+        ));
+        let mode_after_scope_click = app.state.mode;
+        let highlighted_scope_row = app.state.agent_menu.highlighted;
+        let menu_rect_after_scope_click = app.state.agent_menu_rect();
+
+        app.state.mode = Mode::Terminal;
+        let triage_agent_row = detail_area.y + 2;
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            detail_area.x,
+            triage_agent_row,
+        ));
+
+        assert_eq!(
+            (
+                mode_after_scope_click,
+                highlighted_scope_row,
+                menu_rect_after_scope_click.y,
+                app.state.workspaces[0].active_tab,
+                app.state.workspaces[0].tabs[first_tab].layout.focused(),
+                app.state.mode,
+            ),
+            (
+                Mode::AgentMenu,
+                0,
+                scope_toggle.y + scope_toggle.height,
+                first_tab,
+                first_pane,
+                Mode::Terminal,
+            ),
+            "collapsed scope clicks should open the scope menu at the scope row, and collapsed agent rows should jump to the represented pane"
+        );
+    }
+
+    #[test]
     fn clicking_agent_status_header_toggles_section_rows() {
         let mut app = app_for_mouse_test();
         let mut workspace = Workspace::test_new("test");
@@ -2302,7 +2366,7 @@ mod tests {
     }
 
     #[test]
-    fn clicking_triage_agent_reveals_hidden_group() {
+    fn clicking_all_scope_triage_agent_reveals_hidden_group() {
         let mut app = app_for_mouse_test();
         let hidden_group = app.state.create_group("Work".to_string());
 
@@ -2326,7 +2390,7 @@ mod tests {
         app.state.active_group = 0;
         app.state.group_filter_enabled = true;
         app.state.mode = Mode::Terminal;
-        app.state.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+        app.state.agent_panel_scope = AgentPanelScope::AllWorkspaces;
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
 
         assert_eq!(app.state.visible_workspace_indices(), vec![0]);
@@ -2512,69 +2576,27 @@ mod tests {
         app.state.view.sidebar_rect = Rect::new(0, 0, 4, 20);
         app.state.view.terminal_area = Rect::new(4, 0, 80, 20);
 
-        let (_, _, detail_area) =
-            crate::ui::collapsed_sidebar_sections(app.state.view.sidebar_rect, true);
+        let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+            app.state.view.sidebar_rect,
+            true,
+            app.state.sidebar_section_split,
+        );
+        let target_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| {
+                app.state
+                    .collapsed_agent_detail_target_at(*row)
+                    .is_some_and(|(_, _, pane_id)| pane_id == second_pane)
+            })
+            .expect("second pane row");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             detail_area.x,
-            detail_area.y + 3,
+            target_row,
         ));
 
         assert_eq!(app.state.workspaces[0].active_tab, 1);
         assert_eq!(
             app.state.workspaces[0].tabs[1].layout.focused(),
-            second_pane
-        );
-        assert_eq!(app.state.mode, Mode::Terminal);
-    }
-
-    #[test]
-    fn clicking_collapsed_agent_header_does_not_switch_to_first_pane() {
-        let mut app = app_for_mouse_test();
-        let mut ws = Workspace::test_new("test");
-        let first_pane = ws.tabs[0].root_pane;
-        let second_tab = ws.test_add_tab(Some("logs"));
-        let second_pane = ws.tabs[second_tab].root_pane;
-        app.state.workspaces = vec![ws];
-        app.state.ensure_test_terminals();
-        let first_terminal_id = app.state.workspaces[0].tabs[0].panes[&first_pane]
-            .attached_terminal_id
-            .clone();
-        app.state
-            .terminals
-            .get_mut(&first_terminal_id)
-            .unwrap()
-            .detected_agent = Some(Agent::Pi);
-        let second_terminal_id = app.state.workspaces[0].tabs[second_tab].panes[&second_pane]
-            .attached_terminal_id
-            .clone();
-        app.state
-            .terminals
-            .get_mut(&second_terminal_id)
-            .unwrap()
-            .detected_agent = Some(Agent::Claude);
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
-        app.state.sidebar_collapsed = true;
-        app.state.workspaces[0].switch_tab(second_tab);
-        app.state.workspaces[0].tabs[second_tab]
-            .layout
-            .focus_pane(second_pane);
-        app.state.view.sidebar_rect = Rect::new(0, 0, 4, 20);
-        app.state.view.terminal_area = Rect::new(4, 0, 80, 20);
-
-        let (_, _, detail_area) =
-            crate::ui::collapsed_sidebar_sections(app.state.view.sidebar_rect, true);
-        app.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            detail_area.x,
-            detail_area.y,
-        ));
-
-        assert_eq!(app.state.workspaces[0].active_tab, second_tab);
-        assert_eq!(
-            app.state.workspaces[0].tabs[second_tab].layout.focused(),
             second_pane
         );
         assert_eq!(app.state.mode, Mode::Terminal);
@@ -2613,12 +2635,22 @@ mod tests {
         app.state.view.right_sidebar_rect = Rect::new(100, 0, 28, 20);
         app.state.view.terminal_area = Rect::new(4, 0, 96, 20);
 
-        let (_, _, detail_area) =
-            crate::ui::collapsed_sidebar_sections(app.state.view.sidebar_rect, true);
+        let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+            app.state.view.sidebar_rect,
+            true,
+            app.state.sidebar_section_split,
+        );
+        let target_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| {
+                app.state
+                    .collapsed_agent_detail_target_at(*row)
+                    .is_some_and(|(_, _, pane_id)| pane_id == second_pane)
+            })
+            .expect("second pane row");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             detail_area.x,
-            detail_area.y + 3,
+            target_row,
         ));
 
         assert_eq!(app.state.workspaces[0].active_tab, second_tab);
