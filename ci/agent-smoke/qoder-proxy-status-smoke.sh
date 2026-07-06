@@ -83,7 +83,7 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -out "$workdir/qoder.crt" \
   -days 1 \
   -subj "/CN=qoder.sh" \
-  -addext "subjectAltName=DNS:api1.qoder.sh,DNS:api2.qoder.sh,DNS:api2-v2.qoder.sh" >/dev/null 2>&1
+  -addext "subjectAltName=DNS:api1.qoder.sh,DNS:api2.qoder.sh,DNS:api2-v2.qoder.sh,DNS:localhost,IP:127.0.0.1" >/dev/null 2>&1
 
 static_reply="HAKO_QODER_PROXY_OK"
 HAKO_QODER_PROXY_CERT="$workdir/qoder.crt" \
@@ -132,7 +132,7 @@ set +e
   SSL_CERT_FILE="$workdir/qoder.crt" \
   REQUESTS_CA_BUNDLE="$workdir/qoder.crt" \
   QODER_MODEL_TRANSPORT="http" \
-  QODER_MODEL_SERVER_HOST="api2.qoder.sh" \
+  QODER_MODEL_SERVER_HOST="localhost" \
   timeout "${HAKO_QODER_PROXY_STATUS_SMOKE_TIMEOUT:-180}" qodercli \
     -p \
     --output-format json \

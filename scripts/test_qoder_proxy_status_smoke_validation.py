@@ -189,9 +189,9 @@ class QoderProxyStatusSmokeValidationTests(unittest.TestCase):
                         )
                         sys.exit(65)
 
-                    if os.environ.get("QODER_MODEL_SERVER_HOST") != "api2.qoder.sh":
+                    if os.environ.get("QODER_MODEL_SERVER_HOST") != "localhost":
                         print(
-                            f"expected QODER_MODEL_SERVER_HOST='api2.qoder.sh', observed {os.environ.get('QODER_MODEL_SERVER_HOST')!r}",
+                            f"expected QODER_MODEL_SERVER_HOST='localhost', observed {os.environ.get('QODER_MODEL_SERVER_HOST')!r}",
                             file=sys.stderr,
                         )
                         sys.exit(65)
