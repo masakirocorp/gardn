@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# This is a status acceptance test, not an optional smoke. A zero exit must mean
+# the latest real qodercli hook path reported Hako status updates through the
+# proxy. Provider, pricing, or entitlement failures are inputs to fix or route
+# around, never successful skips.
 source /usr/local/lib/hako-agent-smoke-models.sh
 primary_model="${HAKO_SMOKE_QODER_PROXY_MODEL:-${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}}"
 if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" ]]; then
@@ -131,7 +135,7 @@ set +e
     -p \
     --output-format json \
     --permission-mode dont_ask \
-    --model "${HAKO_SMOKE_QODER_CLI_MODEL:-qmodel}" \
+    --model "${HAKO_SMOKE_QODER_CLI_MODEL:-efficient}" \
     "$generic_prompt" >"$workdir/qoder-output.jsonl" 2>&1
 )
 status=$?
@@ -154,9 +158,6 @@ from pathlib import Path
 output = Path(sys.argv[1]).read_text(errors='replace')
 proxy = Path(sys.argv[2]).read_text(errors='replace')
 requests = [json.loads(line) for line in Path(sys.argv[3]).read_text(errors='replace').splitlines() if line.strip()]
-if "Qoder API error: FORBIDDEN" in output and "pricingUrl" in output:
-    print("qoder proxy status smoke skipped: Qoder token lacks required entitlement", file=sys.stderr)
-    raise SystemExit(0)
 if 'HAKO_QODER_PROXY_OK' not in output:
     print(f'qoder proxy smoke did not return expected marker: {output[-1000:]}', file=sys.stderr)
     print('qoder proxy log:', proxy[-2000:], file=sys.stderr)

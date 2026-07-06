@@ -9,15 +9,15 @@ from pathlib import Path
 
 
 class QoderProxyStatusSmokeValidationTests(unittest.TestCase):
-    def test_forbidden_pricing_response_skips_successfully(self):
+    def test_forbidden_pricing_response_is_retryable_status_acceptance_failure(self):
         result = self.run_smoke_with_fake_qodercli("entitlement_forbidden")
 
         output = result.stdout + result.stderr
-        self.assertEqual(result.returncode, 0, output)
-        self.assertIn(
-            "qoder proxy status smoke skipped: Qoder token lacks required entitlement",
-            output,
-        )
+        self.assertEqual(result.returncode, 75, output)
+        self.assertIn("qoder proxy smoke did not return expected marker", output)
+        self.assertIn("Qoder API error: FORBIDDEN", output)
+        self.assertIn("pricingUrl", output)
+        self.assertNotIn("status smoke skipped", output)
 
     def test_missing_marker_output_still_fails(self):
         result = self.run_smoke_with_fake_qodercli("missing_marker")
@@ -27,7 +27,20 @@ class QoderProxyStatusSmokeValidationTests(unittest.TestCase):
         self.assertIn("qoder proxy smoke did not return expected marker", output)
         self.assertIn("ordinary qoder output without expected marker", output)
 
-    def run_smoke_with_fake_qodercli(self, scenario):
+    def test_default_qoder_cli_model_is_documented_efficient(self):
+        result = self.run_smoke_with_fake_qodercli(
+            "success",
+            expected_qoder_cli_model="efficient",
+        )
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn(
+            "qoder proxy status test ok: real Qoder CLI completed through deterministic local proxy",
+            output,
+        )
+
+    def run_smoke_with_fake_qodercli(self, scenario, expected_qoder_cli_model="efficient"):
         repo_root = Path(__file__).resolve().parents[1]
         source_script = repo_root / "ci" / "agent-smoke" / "qoder-proxy-status-smoke.sh"
 
@@ -134,22 +147,78 @@ class QoderProxyStatusSmokeValidationTests(unittest.TestCase):
             fake_qodercli.write_text(
                 textwrap.dedent(
                     """\
-                    #!/usr/bin/env bash
-                    set -euo pipefail
-                    case "$HAKO_TEST_QODER_SCENARIO" in
-                      entitlement_forbidden)
-                        cat <<'JSON'
-                    {"type":"result","subtype":"error","errors":["Qoder API error: FORBIDDEN - Access denied {\\"pricingUrl\\":\\"https://qoder.com/pricing\\"}"]}
-                    JSON
-                        ;;
-                      missing_marker)
-                        echo "ordinary qoder output without expected marker"
-                        ;;
-                      *)
-                        echo "unexpected HAKO_TEST_QODER_SCENARIO=$HAKO_TEST_QODER_SCENARIO" >&2
-                        exit 64
-                        ;;
-                    esac
+                    #!/usr/bin/env python3
+                    import json
+                    import os
+                    import socket
+                    import sys
+
+
+                    def value_after(flag):
+                        try:
+                            index = sys.argv.index(flag)
+                        except ValueError:
+                            return None
+                        if index + 1 >= len(sys.argv):
+                            print(f"missing value after {flag}: {sys.argv!r}", file=sys.stderr)
+                            sys.exit(64)
+                        return sys.argv[index + 1]
+
+
+                    def rpc(method, params):
+                        request = {
+                            "id": f"test:{method}:{params.get('state', 'release')}",
+                            "method": method,
+                            "params": params,
+                        }
+                        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                        client.settimeout(1)
+                        try:
+                            client.connect(os.environ["HAKO_SOCKET_PATH"])
+                            client.sendall((json.dumps(request) + "\\n").encode("utf-8"))
+                            client.recv(4096)
+                        finally:
+                            client.close()
+
+
+                    scenario = os.environ["HAKO_TEST_QODER_SCENARIO"]
+                    if scenario == "entitlement_forbidden":
+                        print(
+                            '{"type":"result","subtype":"error","errors":["Qoder API error: FORBIDDEN - Access denied {\\\\"pricingUrl\\\\":\\\\"https://qoder.com/pricing\\\\"}"]}'
+                        )
+                        sys.exit(0)
+
+                    if scenario == "missing_marker":
+                        print("ordinary qoder output without expected marker")
+                        sys.exit(0)
+
+                    if scenario == "success":
+                        expected_model = os.environ["HAKO_EXPECTED_QODER_CLI_MODEL"]
+                        actual_model = value_after("--model")
+                        if actual_model != expected_model:
+                            print(
+                                f"expected --model {expected_model!r}, observed {actual_model!r} in {sys.argv!r}",
+                                file=sys.stderr,
+                            )
+                            sys.exit(65)
+
+                        with open("qoder-proxy.log", "a", encoding="utf-8") as log:
+                            log.write("model-list status=200\\nstatic-complete\\n")
+
+                        base_params = {
+                            "pane_id": os.environ["HAKO_PANE_ID"],
+                            "source": "hako:qodercli",
+                            "agent": "qodercli",
+                            "seq": 1,
+                        }
+                        rpc("pane.report_agent", {**base_params, "state": "working"})
+                        rpc("pane.report_agent", {**base_params, "seq": 2, "state": "idle"})
+                        rpc("pane.release_agent", {**base_params, "seq": 3})
+                        print("HAKO_QODER_PROXY_OK")
+                        sys.exit(0)
+
+                    print(f"unexpected HAKO_TEST_QODER_SCENARIO={scenario}", file=sys.stderr)
+                    sys.exit(64)
                     """
                 )
             )
@@ -165,7 +234,9 @@ class QoderProxyStatusSmokeValidationTests(unittest.TestCase):
                 "HAKO_QODER_PROXY_STATUS_SMOKE_TIMEOUT": "5",
                 "HAKO_SMOKE_ACTIVE_MODEL": "test-model",
                 "HAKO_TEST_QODER_SCENARIO": scenario,
+                "HAKO_EXPECTED_QODER_CLI_MODEL": expected_qoder_cli_model,
             }
+            env.pop("HAKO_SMOKE_QODER_CLI_MODEL", None)
 
             return subprocess.run(
                 [str(script_copy)],
