@@ -51,12 +51,12 @@ jobs:
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
           - target: x86_64-apple-darwin
-            os: macos-15
+            os: macos-latest
             name: hako-macos-x86_64
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
           - target: aarch64-apple-darwin
-            os: macos-15
+            os: macos-latest
             name: hako-macos-aarch64
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
@@ -90,6 +90,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Select Xcode for Zig
+        if: runner.os == 'macOS'
+        run: |
+          # Zig 0.15.2 cannot link against Xcode 26.4+ macOS SDK TBDs
+          # because their libSystem entries are arm64e-only.
+          echo "DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer" >> "$GITHUB_ENV"
 
       - name: Install Zig
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
