@@ -216,12 +216,20 @@ impl AppState {
     }
 
     pub(crate) fn sidebar_footer_rect(&self) -> Rect {
-        let ws_area = self.workspace_list_rect();
-        if ws_area == Rect::default() {
+        let sidebar = self.view.sidebar_rect;
+        if self.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
             return Rect::default();
         }
-        let y = ws_area.y + ws_area.height.saturating_sub(1);
-        Rect::new(ws_area.x, y, ws_area.width, 1)
+        let content = crate::ui::left_sidebar_workspace_rect(sidebar);
+        if content == Rect::default() {
+            return Rect::default();
+        }
+        Rect::new(
+            content.x,
+            content.y + content.height.saturating_sub(1),
+            content.width,
+            1,
+        )
     }
 
     pub(crate) fn global_launcher_rect(&self) -> Rect {
@@ -230,7 +238,10 @@ impl AppState {
         }
 
         let footer = self.sidebar_footer_rect();
-        let width = if self.global_menu_attention_badge_visible() {
+
+        let width = if self.integration_updates_available() {
+            14
+        } else if self.global_menu_attention_badge_visible() {
             8
         } else {
             6
@@ -1916,17 +1927,17 @@ mod tests {
         let launcher_text = buffer_rect_text(&buffer, app.state.global_launcher_rect());
 
         assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(
+            app.state.global_launcher_rect().y,
+            app.state.view.sidebar_rect.y + app.state.view.sidebar_rect.height.saturating_sub(1)
+        );
         assert!(
-            launcher_text.contains("update"),
+            launcher_text.contains("integrations"),
             "expanded sidebar global launcher should visibly hint that integration updates are available; launcher text: {launcher_text:?}\nrendered app:\n{text}"
         );
         assert!(
             !text.contains("update integrations"),
             "the update hint should not require the global menu to be open; rendered app:\n{text}"
-        );
-        assert!(
-            !text.contains("integrations"),
-            "the update hint should not require the settings integrations panel to be open; rendered app:\n{text}"
         );
     }
 

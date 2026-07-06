@@ -1587,7 +1587,7 @@ fn render_global_launcher_notice(app: &AppState, frame: &mut Frame) {
         Paragraph::new(Line::from(vec![
             Span::styled("●", Style::default().fg(app.palette.accent)),
             Span::styled(
-                " update",
+                " integrations",
                 Style::default()
                     .fg(app.palette.accent)
                     .add_modifier(Modifier::BOLD),
