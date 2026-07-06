@@ -182,6 +182,13 @@ class QoderProxyStatusSmokeValidationTests(unittest.TestCase):
 
 
                     scenario = os.environ["HAKO_TEST_QODER_SCENARIO"]
+                    if os.environ.get("QODER_MODEL_SERVER_HOST") != "api2.qoder.sh":
+                        print(
+                            f"expected QODER_MODEL_SERVER_HOST='api2.qoder.sh', observed {os.environ.get('QODER_MODEL_SERVER_HOST')!r}",
+                            file=sys.stderr,
+                        )
+                        sys.exit(65)
+
                     if scenario == "entitlement_forbidden":
                         print(
                             '{"type":"result","subtype":"error","errors":["Qoder API error: FORBIDDEN - Access denied {\\\\"pricingUrl\\\\":\\\\"https://qoder.com/pricing\\\\"}"]}'
