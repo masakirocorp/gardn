@@ -121,6 +121,32 @@ reports = [req for req in requests if req.get("method") == "pane.report_agent"]
 releases = [req for req in requests if req.get("method") == "pane.release_agent"]
 
 
+
+def is_child_session_path(parent_path, candidate_path):
+    if not parent_path.endswith(".jsonl"):
+        return False
+    return candidate_path.startswith(parent_path[:-6] + "/")
+
+
+def session_roots(paths):
+    roots = []
+    for path in sorted(paths):
+        if any(is_child_session_path(root, path) for root in roots):
+            continue
+        roots.append(path)
+    return roots
+
+
+def assert_single_session_root(agent, session_paths, release_paths):
+    roots = session_roots(session_paths)
+    if len(roots) != 1:
+        raise SystemExit(f"{agent}: expected one session identity, observed {sorted(session_paths)}")
+    if roots[0] not in release_paths:
+        raise SystemExit(f"{agent}: expected parent session release, observed releases {sorted(release_paths)}")
+    for path in session_paths:
+        if path != roots[0] and not is_child_session_path(roots[0], path):
+            raise SystemExit(f"{agent}: unrelated child session identity {path} for parent {roots[0]}")
+
 def for_pane(collection, pane_id):
     return [req for req in collection if req.get("params", {}).get("pane_id") == pane_id]
 
@@ -150,6 +176,7 @@ def assert_agent(agent, scenario, pane_id, marker_suffix):
     expected_config = str(workdir / f"{agent}-{scenario}" / "config")
     expected_agent_dir = str(workdir / f"{agent}-{scenario}" / "agent")
     session_paths = set()
+    release_paths = set()
     for req in pane_reports + pane_releases:
         params = req.get("params", {})
         if params.get("source") != expected_source:
@@ -162,16 +189,17 @@ def assert_agent(agent, scenario, pane_id, marker_suffix):
         if not isinstance(path, str) or not path:
             raise SystemExit(f"{agent}: missing agent_session_path in {req}")
         session_paths.add(path)
+        if req in pane_releases:
+            release_paths.add(path)
         launch_env = params.get("launch_env")
         if launch_env != {"PI_CONFIG_DIR": expected_config, "PI_CODING_AGENT_DIR": expected_agent_dir}:
             raise SystemExit(f"{agent}: wrong launch_env {launch_env}")
-    if len(session_paths) != 1:
-        raise SystemExit(f"{agent}: expected one session identity, observed {sorted(session_paths)}")
+    assert_single_session_root(agent, session_paths, release_paths)
 
 
 assert_agent("omp", "basic", "pane-omp-real", "STATUS_OK")
 assert_agent("pi", "basic", "pane-pi-real", "STATUS_OK")
 assert_agent("omp", "subagent", "pane-omp-subagent", "SUBAGENT_OK")
 assert_agent("pi", "subagent", "pane-pi-subagent", "SUBAGENT_OK")
-print("pi/omp status test ok: real cli reports session identity, working, idle, release, launch env, and subagent parent identity")
+print("pi/omp status test ok: real cli reports session root identity, working, idle, release, launch env, and scoped subagent identity")
 PY
