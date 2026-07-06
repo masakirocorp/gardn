@@ -156,6 +156,7 @@ proxy = Path(sys.argv[2]).read_text(errors='replace')
 requests = [json.loads(line) for line in Path(sys.argv[3]).read_text(errors='replace').splitlines() if line.strip()]
 if 'HAKO_QODER_PROXY_OK' not in output:
     print(f'qoder proxy smoke did not return expected marker: {output[-1000:]}', file=sys.stderr)
+    print('qoder proxy log:', proxy[-2000:], file=sys.stderr)
     raise SystemExit(75)
 if 'model-list status=200' not in proxy:
     raise SystemExit(f'qoder proxy log missing model-list status=200: {proxy[-1000:]}')

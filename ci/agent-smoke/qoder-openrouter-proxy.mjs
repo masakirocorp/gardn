@@ -5,6 +5,7 @@
 import https from 'node:https';
 import dns from 'node:dns/promises';
 import { appendFileSync, readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 const LOG = process.env.HAKO_QODER_PROXY_LOG || '/tmp/hako-qoder-proxy.log';
 const CERT = process.env.HAKO_QODER_PROXY_CERT;
@@ -12,38 +13,52 @@ const KEY = process.env.HAKO_QODER_PROXY_KEY;
 const MODEL = process.env.HAKO_SMOKE_QODER_PROXY_MODEL || process.env.HAKO_SMOKE_MODEL || 'poolside/laguna-m.1:free';
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 
-if (!CERT || !KEY) throw new Error('HAKO_QODER_PROXY_CERT and HAKO_QODER_PROXY_KEY are required');
-if (!OPENROUTER_KEY) throw new Error('OPENROUTER_API_KEY is required');
+const isDirectRun = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
+  if (!CERT || !KEY) throw new Error('HAKO_QODER_PROXY_CERT and HAKO_QODER_PROXY_KEY are required');
+  if (!OPENROUTER_KEY) throw new Error('OPENROUTER_API_KEY is required');
+}
 
 function log(msg) {
   appendFileSync(LOG, `${new Date().toISOString()} ${msg}\n`);
 }
 
-const server = https.createServer({ cert: readFileSync(CERT), key: readFileSync(KEY) }, (req, res) => {
-  const chunks = [];
-  req.on('data', c => chunks.push(c));
-  req.on('end', async () => {
-    const body = Buffer.concat(chunks);
-    const url = req.url || '';
-    log(`request ${req.method} ${url} bytes=${body.length}`);
-    try {
-      if (url.includes('/agent_chat_generation')) {
-        await handleInference(req, res);
-        return;
+export function isInferenceUrl(url) {
+  const lower = url.toLowerCase();
+  return lower.includes('/agent_chat_generation')
+    || (lower.includes('agent') && lower.includes('chat'))
+    || (lower.includes('chat') && lower.includes('generation'))
+    || (lower.includes('chat') && lower.includes('completion'));
+}
+
+function createProxyServer() {
+  return https.createServer({ cert: readFileSync(CERT), key: readFileSync(KEY) }, (req, res) => {
+    const chunks = [];
+    req.on('data', c => chunks.push(c));
+    req.on('end', async () => {
+      const body = Buffer.concat(chunks);
+      const url = req.url || '';
+      log(`request ${req.method} ${url} bytes=${body.length}`);
+      try {
+        if (isInferenceUrl(url)) {
+          await handleInference(req, res);
+          return;
+        }
+        if (url.includes('/model/list')) {
+          await forwardModelList(req, res, body);
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ code: 0, success: true, data: {} }));
+      } catch (err) {
+        log(`proxy-error ${err?.stack || err}`);
+        res.writeHead(500, { 'content-type': 'text/plain' });
+        res.end(String(err?.message || err));
       }
-      if (url.includes('/model/list')) {
-        await forwardModelList(req, res, body);
-        return;
-      }
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ code: 0, success: true, data: {} }));
-    } catch (err) {
-      log(`proxy-error ${err?.stack || err}`);
-      res.writeHead(500, { 'content-type': 'text/plain' });
-      res.end(String(err?.message || err));
-    }
+    });
   });
-});
+}
 
 async function forwardModelList(req, res, body) {
   const upstream = await requestRealQoderApi2(req, body);
@@ -167,4 +182,6 @@ function writeQoderDone(res) {
   res.write(`data: ${JSON.stringify({ statusCodeValue: 200, body: '[DONE]' })}\n\n`);
 }
 
-server.listen(443, '0.0.0.0', () => log('qoder-proxy-listening'));
+if (isDirectRun) {
+  createProxyServer().listen(443, '0.0.0.0', () => log('qoder-proxy-listening'));
+}
