@@ -1898,6 +1898,39 @@ mod tests {
     }
 
     #[test]
+    fn outdated_integration_renders_update_hint_in_expanded_sidebar_without_opening_menu() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::Terminal;
+        app.state.sidebar_collapsed = false;
+        app.state.integration_recommendations =
+            vec![crate::integration::IntegrationRecommendation {
+                target: crate::api::schema::IntegrationTarget::Omp,
+                label: "omp",
+                command: "omp",
+                available: true,
+                path: std::path::PathBuf::from("/tmp/hako-test-omp"),
+                state: crate::integration::IntegrationStatusKind::Outdated,
+            }];
+
+        let (text, buffer) = render_app(&mut app, 120, 30);
+        let launcher_text = buffer_rect_text(&buffer, app.state.global_launcher_rect());
+
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(
+            launcher_text.contains("update"),
+            "expanded sidebar global launcher should visibly hint that integration updates are available; launcher text: {launcher_text:?}\nrendered app:\n{text}"
+        );
+        assert!(
+            !text.contains("update integrations"),
+            "the update hint should not require the global menu to be open; rendered app:\n{text}"
+        );
+        assert!(
+            !text.contains("integrations"),
+            "the update hint should not require the settings integrations panel to be open; rendered app:\n{text}"
+        );
+    }
+
+    #[test]
     fn update_pending_menu_surfaces_update_ready_entry() {
         let mut app = app_for_mouse_test();
         app.state.update_available = Some("0.3.2".into());

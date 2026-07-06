@@ -1573,6 +1573,30 @@ pub(crate) fn workspace_drop_indicator_row(
         })
 }
 
+fn render_global_launcher_notice(app: &AppState, frame: &mut Frame) {
+    if !app.integration_updates_available() {
+        return;
+    }
+
+    let area = app.global_launcher_rect();
+    if area == Rect::default() {
+        return;
+    }
+
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("●", Style::default().fg(app.palette.accent)),
+            Span::styled(
+                " update",
+                Style::default()
+                    .fg(app.palette.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ])),
+        area,
+    );
+}
+
 pub(super) fn render_sidebar(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -1615,6 +1639,7 @@ pub(super) fn render_sidebar(
         render_agent_detail_from(app, terminal_runtimes, frame, detail_area, true);
         render_workspace_list_from(app, terminal_runtimes, frame, ws_area, is_navigating);
     }
+    render_global_launcher_notice(app, frame);
     render_sidebar_toggle(app, frame, area, false, p);
 }
 
