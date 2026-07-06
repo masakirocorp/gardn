@@ -217,7 +217,7 @@ class QoderProxyStatusSmokeValidationTests(unittest.TestCase):
                             sys.exit(65)
 
                         with open("qoder-proxy.log", "a", encoding="utf-8") as log:
-                            log.write("model-list status=200\\nstatic-complete\\n")
+                            log.write("request POST /model/v1/chat/completions bytes=75815\\nstatic-complete\\n")
 
                         base_params = {
                             "pane_id": os.environ["HAKO_PANE_ID"],

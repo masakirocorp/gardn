@@ -164,8 +164,8 @@ if 'HAKO_QODER_PROXY_OK' not in output:
     print(f'qoder proxy smoke did not return expected marker: {output[-1000:]}', file=sys.stderr)
     print('qoder proxy log:', proxy[-2000:], file=sys.stderr)
     raise SystemExit(75)
-if 'model-list status=200' not in proxy:
-    raise SystemExit(f'qoder proxy log missing model-list status=200: {proxy[-1000:]}')
+if 'request POST /model/v1/chat/completions' not in proxy:
+    raise SystemExit(f'qoder proxy log missing model chat request: {proxy[-1000:]}')
 if 'static-complete' not in proxy:
     print('qoder output:', output[-2000:], file=sys.stderr)
     raise SystemExit(f'qoder proxy log missing static-complete: {proxy[-1000:]}')

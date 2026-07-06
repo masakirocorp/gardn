@@ -27,6 +27,19 @@ on:
         description: Optional OpenCode model id for OpenCode smoke runs.
         type: string
         default: openrouter/openrouter/free
+      target:
+        description: Smoke target for workflow_dispatch.
+        type: choice
+        default: all
+        options:
+          - all
+          - opencode
+          - pi-omp
+          - claude
+          - codex
+          - remaining
+          - cursor
+          - qoder
   schedule:
     - cron: "17 9 * * *"
 
@@ -79,7 +92,7 @@ jobs:
           docker push "$IMAGE:latest"
 
       - name: Run OpenCode status smoke
-        if: ${{ github.event_name == 'schedule' || inputs.run_real_smokes }}
+        if: ${{ (github.event_name == 'schedule' || inputs.run_real_smokes) && (inputs.target == '' || inputs.target == 'all' || inputs.target == 'opencode') }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: >-
@@ -94,7 +107,7 @@ jobs:
 
 
       - name: Run Pi and OMP status smoke
-        if: ${{ github.event_name == 'schedule' || inputs.run_real_smokes }}
+        if: ${{ (github.event_name == 'schedule' || inputs.run_real_smokes) && (inputs.target == '' || inputs.target == 'all' || inputs.target == 'pi-omp') }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: >-
@@ -107,11 +120,11 @@ jobs:
           hako-agent-smoke-env hako-agent-smoke-pi-omp-status
 
       - name: Cool down provider quota
-        if: ${{ github.event_name == 'schedule' || inputs.run_real_smokes }}
+        if: ${{ (github.event_name == 'schedule' || inputs.run_real_smokes) && (inputs.target == '' || inputs.target == 'all') }}
         run: sleep 20
 
       - name: Run Claude status smoke
-        if: ${{ github.event_name == 'schedule' || inputs.run_real_smokes }}
+        if: ${{ (github.event_name == 'schedule' || inputs.run_real_smokes) && (inputs.target == '' || inputs.target == 'all' || inputs.target == 'claude') }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: >-
@@ -124,11 +137,11 @@ jobs:
           hako-agent-smoke-env hako-agent-smoke-claude-status
 
       - name: Cool down provider quota
-        if: ${{ github.event_name == 'schedule' || inputs.run_real_smokes }}
+        if: ${{ (github.event_name == 'schedule' || inputs.run_real_smokes) && (inputs.target == '' || inputs.target == 'all') }}
         run: sleep 20
 
       - name: Run Codex status smoke
-        if: ${{ github.event_name == 'schedule' || inputs.run_real_smokes }}
+        if: ${{ (github.event_name == 'schedule' || inputs.run_real_smokes) && (inputs.target == '' || inputs.target == 'all' || inputs.target == 'codex') }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: >-
@@ -141,11 +154,11 @@ jobs:
           hako-agent-smoke-env hako-agent-smoke-codex-status
 
       - name: Cool down provider quota
-        if: ${{ github.event_name == 'schedule' || inputs.run_real_smokes }}
+        if: ${{ (github.event_name == 'schedule' || inputs.run_real_smokes) && (inputs.target == '' || inputs.target == 'all') }}
         run: sleep 20
 
       - name: Run remaining agent status smoke
-        if: ${{ github.event_name == 'schedule' || inputs.run_real_smokes }}
+        if: ${{ (github.event_name == 'schedule' || inputs.run_real_smokes) && (inputs.target == '' || inputs.target == 'all' || inputs.target == 'remaining') }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: >-
@@ -158,11 +171,11 @@ jobs:
           hako-agent-smoke-env hako-agent-smoke-remaining-status
 
       - name: Cool down provider quota
-        if: ${{ github.event_name == 'schedule' || inputs.run_real_smokes }}
+        if: ${{ (github.event_name == 'schedule' || inputs.run_real_smokes) && (inputs.target == '' || inputs.target == 'all') }}
         run: sleep 20
 
       - name: Run Cursor proxy status smoke
-        if: ${{ github.event_name == 'schedule' || inputs.run_real_smokes }}
+        if: ${{ (github.event_name == 'schedule' || inputs.run_real_smokes) && (inputs.target == '' || inputs.target == 'all' || inputs.target == 'cursor') }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: >-
@@ -180,11 +193,11 @@ jobs:
           hako-agent-smoke-env hako-agent-smoke-cursor-proxy-status
 
       - name: Cool down provider quota
-        if: ${{ github.event_name == 'schedule' || inputs.run_real_smokes }}
+        if: ${{ (github.event_name == 'schedule' || inputs.run_real_smokes) && (inputs.target == '' || inputs.target == 'all') }}
         run: sleep 20
 
       - name: Run Qoder proxy status smoke
-        if: ${{ github.event_name == 'schedule' || inputs.run_real_smokes }}
+        if: ${{ (github.event_name == 'schedule' || inputs.run_real_smokes) && (inputs.target == '' || inputs.target == 'all' || inputs.target == 'qoder') }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           QODER_PERSONAL_ACCESS_TOKEN: ${{ secrets.QODER_PERSONAL_ACCESS_TOKEN }}
