@@ -2,15 +2,16 @@ use std::collections::HashMap;
 
 use crate::detect::{Agent, AgentState};
 use crate::layout::PaneId;
-use crate::terminal::{TerminalId, TerminalState};
+use crate::terminal::{TerminalId, TerminalRuntimeRegistry, TerminalState};
 
-use super::{Tab, Workspace};
+use super::{derive_label_from_cwd, Tab, Workspace};
 
 /// Detail info for a single pane, used by the agent detail panel.
 pub struct PaneDetail {
     pub pane_id: PaneId,
     pub tab_idx: usize,
     pub tab_label: String,
+    pub pane_label: String,
     pub label: String,
     pub agent_label: String,
     #[allow(dead_code)]
@@ -42,7 +43,11 @@ impl Tab {
         })
     }
 
-    pub fn pane_details(&self, terminals: &HashMap<TerminalId, TerminalState>) -> Vec<PaneDetail> {
+    pub fn pane_details_from(
+        &self,
+        terminals: &HashMap<TerminalId, TerminalState>,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+    ) -> Vec<PaneDetail> {
         self.layout
             .pane_ids()
             .iter()
@@ -107,10 +112,15 @@ impl Tab {
                     state
                 };
                 let presentation = terminal.map(TerminalState::effective_presentation);
+                let pane_label = self
+                    .cwd_for_pane(*id, terminals, terminal_runtimes)
+                    .map(|cwd| derive_label_from_cwd(&cwd))
+                    .unwrap_or_else(|| self.display_name());
                 Some(PaneDetail {
                     pane_id: *id,
                     tab_idx: self.number.saturating_sub(1),
                     tab_label: self.display_name(),
+                    pane_label,
                     label: agent_label.clone(),
                     agent_label,
                     agent,
@@ -181,18 +191,30 @@ impl Workspace {
         self.tabs.iter().any(|tab| tab.has_working_pane(terminals))
     }
 
-    pub fn pane_details(&self, terminals: &HashMap<TerminalId, TerminalState>) -> Vec<PaneDetail> {
+    pub fn pane_details_from(
+        &self,
+        terminals: &HashMap<TerminalId, TerminalState>,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+    ) -> Vec<PaneDetail> {
         let multi_tab = self.tabs.len() > 1;
         self.tabs
             .iter()
-            .flat_map(|tab| tab.pane_details(terminals))
+            .flat_map(|tab| tab.pane_details_from(terminals, terminal_runtimes))
             .map(|mut detail| {
                 if multi_tab {
                     detail.label = format!("{}·{}", detail.tab_label, detail.agent_label);
                 }
+                if let Some(name) = &self.custom_name {
+                    detail.pane_label = name.clone();
+                }
                 detail
             })
             .collect()
+    }
+
+    pub fn pane_details(&self, terminals: &HashMap<TerminalId, TerminalState>) -> Vec<PaneDetail> {
+        let empty_runtimes = TerminalRuntimeRegistry::new();
+        self.pane_details_from(terminals, &empty_runtimes)
     }
 }
 

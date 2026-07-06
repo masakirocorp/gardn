@@ -177,17 +177,6 @@ fn agent_panel_group_idx(app: &AppState, ws_idx: usize) -> Option<usize> {
     app.group_index_by_id(&ws.group_id)
 }
 
-fn agent_panel_workspace_label_from(
-    app: &AppState,
-    ws_idx: usize,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-) -> String {
-    app.workspaces
-        .get(ws_idx)
-        .map(|ws| ws.display_name_from(&app.terminals, terminal_runtimes))
-        .unwrap_or_default()
-}
-
 fn agent_panel_has_multiple_groups(app: &AppState) -> bool {
     let Some(first_group_id) = app
         .workspaces
@@ -254,17 +243,15 @@ fn agent_panel_entries_with_runtimes(
             let Some(ws) = app.workspaces.get(ws_idx) else {
                 return Vec::new();
             };
-            let multi_tab = ws.tabs.len() > 1;
-            let workspace_label = ws.display_name_from(&app.terminals, terminal_runtimes);
-            ws.pane_details(&app.terminals)
+            ws.pane_details_from(&app.terminals, terminal_runtimes)
                 .into_iter()
                 .map(|detail| AgentPanelEntry {
                     ws_idx,
                     tab_idx: detail.tab_idx,
                     pane_id: detail.pane_id,
                     group_context_idx: None,
-                    primary_label: workspace_label.clone(),
-                    primary_tab_label: multi_tab.then_some(detail.tab_label),
+                    primary_label: detail.pane_label,
+                    primary_tab_label: Some(detail.tab_label),
                     agent_label: Some(detail.agent_label),
                     state: detail.state,
                     seen: detail.seen,
@@ -287,17 +274,15 @@ fn agent_panel_entries_with_runtimes(
                 .enumerate()
                 .filter(|(_, ws)| ws.group_id == group_id)
                 .flat_map(|(ws_idx, ws)| {
-                    let multi_tab = ws.tabs.len() > 1;
-                    let workspace_label = ws.display_name_from(&app.terminals, terminal_runtimes);
-                    ws.pane_details(&app.terminals)
+                    ws.pane_details_from(&app.terminals, terminal_runtimes)
                         .into_iter()
                         .map(move |detail| AgentPanelEntry {
                             ws_idx,
                             tab_idx: detail.tab_idx,
                             pane_id: detail.pane_id,
                             group_context_idx: None,
-                            primary_label: workspace_label.clone(),
-                            primary_tab_label: multi_tab.then_some(detail.tab_label),
+                            primary_label: detail.pane_label,
+                            primary_tab_label: Some(detail.tab_label),
                             agent_label: Some(detail.agent_label),
                             state: detail.state,
                             seen: detail.seen,
@@ -316,10 +301,7 @@ fn agent_panel_entries_with_runtimes(
             .iter()
             .enumerate()
             .flat_map(|(ws_idx, ws)| {
-                let multi_tab = ws.tabs.len() > 1;
-                let workspace_label =
-                    agent_panel_workspace_label_from(app, ws_idx, terminal_runtimes);
-                ws.pane_details(&app.terminals)
+                ws.pane_details_from(&app.terminals, terminal_runtimes)
                     .into_iter()
                     .map(move |detail| AgentPanelEntry {
                         ws_idx,
@@ -328,8 +310,8 @@ fn agent_panel_entries_with_runtimes(
                         group_context_idx: agent_panel_has_multiple_groups(app)
                             .then(|| agent_panel_group_idx(app, ws_idx))
                             .flatten(),
-                        primary_label: workspace_label.clone(),
-                        primary_tab_label: multi_tab.then_some(detail.tab_label),
+                        primary_label: detail.pane_label,
+                        primary_tab_label: Some(detail.tab_label),
                         agent_label: Some(detail.agent_label),
                         state: detail.state,
                         seen: detail.seen,
@@ -589,6 +571,35 @@ fn agent_panel_should_show_agent_labels(sections: &[AgentPanelSection]) -> bool 
     false
 }
 
+fn agent_panel_entry_has_secondary_detail(
+    app: &AppState,
+    show_status: bool,
+    show_agent_label: bool,
+    detail: &AgentPanelEntry,
+) -> bool {
+    detail
+        .group_context_idx
+        .and_then(|group_idx| app.groups.get(group_idx))
+        .is_some()
+        || (show_agent_label && detail.agent_label.is_some())
+        || show_status
+        || detail.custom_status.is_some()
+        || detail.last_meaningful_agent_activity_unix_secs.is_some()
+}
+
+fn agent_panel_entry_row_height(
+    app: &AppState,
+    show_status: bool,
+    show_agent_label: bool,
+    detail: &AgentPanelEntry,
+) -> u16 {
+    if agent_panel_entry_has_secondary_detail(app, show_status, show_agent_label, detail) {
+        2
+    } else {
+        1
+    }
+}
+
 fn agent_panel_entry_status_label(entry: &AgentPanelEntry) -> &'static str {
     state_label(entry.state, entry.seen)
 }
@@ -629,8 +640,19 @@ fn right_entry_detail_prefix(_p: &Palette) -> Vec<Span<'static>> {
     )]
 }
 
-fn workspace_row_height(_ws: &crate::workspace::Workspace) -> u16 {
-    2
+fn workspace_has_metadata(ws: &crate::workspace::Workspace) -> bool {
+    ws.cached_git_work_summary.is_some_and(|summary| {
+        summary.conflicted + summary.added + summary.modified + summary.deleted > 0
+            || summary.repo_count > 1
+    })
+}
+
+fn workspace_row_height(ws: &crate::workspace::Workspace) -> u16 {
+    if workspace_has_metadata(ws) {
+        2
+    } else {
+        1
+    }
 }
 
 pub(crate) fn workspace_list_rect(area: Rect, split_ratio: f32) -> Rect {
@@ -728,27 +750,28 @@ pub(crate) fn agent_panel_body_rect(
     has_scrollbar: bool,
     _leading_separator: bool,
 ) -> Rect {
-    let header_rows = AGENT_PANEL_HEADER_ROWS;
-    if area.width == 0 || area.height <= header_rows {
+    if area.width == 0 || area.height <= AGENT_PANEL_HEADER_ROWS {
         return Rect::default();
     }
 
-    let body_y = area.y.saturating_add(header_rows);
-    let body_height = (area.y + area.height).saturating_sub(body_y);
+    let body_y = area.y.saturating_add(AGENT_PANEL_HEADER_ROWS);
+    let body_height = area.height.saturating_sub(AGENT_PANEL_HEADER_ROWS);
     let body_width = area.width.saturating_sub(u16::from(has_scrollbar));
     Rect::new(area.x, body_y, body_width, body_height)
 }
 
 fn agent_panel_visible_count(app: &AppState, area: Rect, leading_separator: bool) -> usize {
     let body = agent_panel_body_rect(area, false, leading_separator);
-    if body.width == 0 || body.height < 2 {
+    if body.width == 0 || body.height == 0 {
         return 0;
     }
 
+    let sections = agent_panel_sections(app);
+    let show_agent_labels = agent_panel_should_show_agent_labels(&sections);
     let mut remaining_rows = body.height;
     let mut visible = 0usize;
     let mut skip = app.agent_panel_scroll;
-    for section in agent_panel_sections(app) {
+    for section in sections {
         if agent_panel_section_collapsed(app, section.label) {
             if remaining_rows < 1 {
                 break;
@@ -760,16 +783,19 @@ fn agent_panel_visible_count(app: &AppState, area: Rect, leading_separator: bool
             skip -= section.entries.len();
             continue;
         }
-        if remaining_rows < 3 {
+        if remaining_rows < 1 {
             break;
         }
 
         remaining_rows = remaining_rows.saturating_sub(1);
-        for _ in section.entries.iter().skip(skip) {
-            if remaining_rows < 2 {
+        let show_status = agent_panel_section_shows_entry_status(section.label);
+        for detail in section.entries.iter().skip(skip) {
+            let row_height =
+                agent_panel_entry_row_height(app, show_status, show_agent_labels, detail);
+            if remaining_rows < row_height {
                 break;
             }
-            remaining_rows = remaining_rows.saturating_sub(2);
+            remaining_rows = remaining_rows.saturating_sub(row_height);
             visible += 1;
         }
         skip = 0;
@@ -899,12 +925,7 @@ fn compute_workspace_list_areas_in_list(
     let mut drops = Vec::new();
 
     let entries = workspace_list_entries(app);
-    for (entry_pos, entry) in entries
-        .iter()
-        .copied()
-        .enumerate()
-        .skip(app.workspace_scroll)
-    {
+    for entry in entries.iter().copied().skip(app.workspace_scroll) {
         let row_height = entry.row_height(app);
         if row_y.saturating_add(row_height) > body_bottom {
             break;
@@ -952,13 +973,7 @@ fn compute_workspace_list_areas_in_list(
                         insert_idx: ws_idx + 1,
                         rect: Rect::new(
                             body.x,
-                            workspace_after_drop_row(
-                                &entries,
-                                entry_pos,
-                                row_y,
-                                row_height,
-                                body_bottom,
-                            ),
+                            workspace_after_drop_row(row_y, row_height, body_bottom),
                             body.width,
                             1,
                         ),
@@ -972,24 +987,10 @@ fn compute_workspace_list_areas_in_list(
     (cards, headers, empties, drops)
 }
 
-fn workspace_after_drop_row(
-    entries: &[WorkspaceListEntry],
-    entry_pos: usize,
-    row_y: u16,
-    row_height: u16,
-    body_bottom: u16,
-) -> u16 {
-    let after_row = row_y.saturating_add(row_height);
-    if matches!(
-        entries.get(entry_pos + 1),
-        Some(WorkspaceListEntry::Workspace { .. })
-    ) {
-        after_row.min(body_bottom.saturating_sub(1))
-    } else {
-        after_row
-            .saturating_sub(1)
-            .min(body_bottom.saturating_sub(1))
-    }
+fn workspace_after_drop_row(row_y: u16, row_height: u16, body_bottom: u16) -> u16 {
+    row_y
+        .saturating_add(row_height)
+        .min(body_bottom.saturating_sub(1))
 }
 
 #[derive(Clone, Copy)]
@@ -2089,6 +2090,7 @@ fn render_agent_entry(
         if has_secondary_detail {
             status_spans.push(Span::styled(" · ", agent_style));
         }
+
         status_spans.push(Span::styled(custom_status.clone(), agent_style));
         has_secondary_detail = true;
     }
@@ -2100,6 +2102,10 @@ fn render_agent_entry(
             status_spans.push(Span::styled(" · ", agent_style));
         }
         status_spans.push(Span::styled(age_label, agent_style));
+        has_secondary_detail = true;
+    }
+    if !has_secondary_detail {
+        return;
     }
     frame.render_widget(
         Paragraph::new(Line::from(status_spans)).style(row_style),
@@ -2115,8 +2121,10 @@ pub(crate) fn agent_panel_entry_at_row(
     let mut row_y = body.y;
     let body_bottom = body.y + body.height;
     let mut skip = app.agent_panel_scroll;
+    let sections = agent_panel_sections(app);
+    let show_agent_labels = agent_panel_should_show_agent_labels(&sections);
 
-    for section in agent_panel_sections(app) {
+    for section in sections {
         let collapsed = agent_panel_section_collapsed(app, section.label);
         if collapsed {
             row_y = row_y.saturating_add(1);
@@ -2131,14 +2139,17 @@ pub(crate) fn agent_panel_entry_at_row(
         }
 
         row_y = row_y.saturating_add(1);
+        let show_status = agent_panel_section_shows_entry_status(section.label);
         for detail in section.entries.iter().skip(skip) {
-            if row_y.saturating_add(1) >= body_bottom {
+            let row_height =
+                agent_panel_entry_row_height(app, show_status, show_agent_labels, detail);
+            if row_y.saturating_add(row_height) > body_bottom {
                 break;
             }
-            if row == row_y || row == row_y + 1 {
+            if row >= row_y && row < row_y.saturating_add(row_height) {
                 return Some(detail.clone());
             }
-            row_y = row_y.saturating_add(2);
+            row_y = row_y.saturating_add(row_height);
         }
         skip = 0;
     }
@@ -2224,8 +2235,10 @@ pub(crate) fn agent_panel_header_target_at_row(
     let mut row_y = body.y;
     let body_bottom = body.y + body.height;
     let mut skip = app.agent_panel_scroll;
+    let sections = agent_panel_sections(app);
+    let show_agent_labels = agent_panel_should_show_agent_labels(&sections);
 
-    for section in agent_panel_sections(app) {
+    for section in sections {
         let collapsed = agent_panel_section_collapsed(app, section.label);
         if !collapsed && skip >= section.entries.len() {
             skip -= section.entries.len();
@@ -2245,8 +2258,15 @@ pub(crate) fn agent_panel_header_target_at_row(
         if collapsed {
             continue;
         }
-        row_y = row_y
-            .saturating_add((section.entries.len().saturating_sub(skip) as u16).saturating_mul(2));
+        let show_status = agent_panel_section_shows_entry_status(section.label);
+        for detail in section.entries.iter().skip(skip) {
+            row_y = row_y.saturating_add(agent_panel_entry_row_height(
+                app,
+                show_status,
+                show_agent_labels,
+                detail,
+            ));
+        }
         skip = 0;
     }
 
@@ -2346,7 +2366,9 @@ fn render_agent_detail_from(
         let show_status = agent_panel_section_shows_entry_status(section.label);
 
         for detail in section.entries.iter().skip(skip) {
-            if row_y.saturating_add(1) >= body_bottom {
+            let row_height =
+                agent_panel_entry_row_height(app, show_status, show_agent_labels, detail);
+            if row_y.saturating_add(row_height) > body_bottom {
                 break;
             }
             render_agent_entry(
@@ -2358,7 +2380,7 @@ fn render_agent_detail_from(
                 body,
                 row_y,
             );
-            row_y = row_y.saturating_add(2);
+            row_y = row_y.saturating_add(row_height);
         }
         skip = 0;
     }
@@ -3070,7 +3092,7 @@ mod tests {
     }
 
     #[test]
-    fn all_workspaces_agent_panel_entries_use_workspace_and_optional_tab_labels() {
+    fn all_workspaces_agent_panel_entries_use_workspace_and_tab_labels() {
         let mut app = crate::app::state::AppState::test_new();
         let first = Workspace::test_new("one");
         let first_pane = first.tabs[0].root_pane;
@@ -3083,28 +3105,66 @@ mod tests {
         let first_terminal_id = app.workspaces[0].tabs[0].panes[&first_pane]
             .attached_terminal_id
             .clone();
-        app.terminals
-            .get_mut(&first_terminal_id)
-            .unwrap()
-            .detected_agent = Some(Agent::OhMyPi);
+        let first_terminal = app.terminals.get_mut(&first_terminal_id).unwrap();
+        first_terminal.cwd = std::path::PathBuf::from("/tmp/one");
+        first_terminal.detected_agent = Some(Agent::OhMyPi);
         let second_terminal_id = app.workspaces[1].tabs[second_tab].panes[&second_pane]
             .attached_terminal_id
             .clone();
-        app.terminals
-            .get_mut(&second_terminal_id)
-            .unwrap()
-            .detected_agent = Some(Agent::Claude);
+        let second_terminal = app.terminals.get_mut(&second_terminal_id).unwrap();
+        second_terminal.cwd = std::path::PathBuf::from("/tmp/two");
+        second_terminal.detected_agent = Some(Agent::Claude);
         app.active = Some(0);
         app.selected = 0;
         app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
 
         let entries = agent_panel_entries(&app);
         assert_eq!(entries[0].primary_label, "one");
-        assert!(entries[0].primary_tab_label.is_none());
+        assert_eq!(entries[0].primary_tab_label.as_deref(), Some("1"));
         assert_eq!(entries[0].agent_label.as_deref(), Some("omp"));
         assert_eq!(entries[1].primary_label, "two");
         assert_eq!(entries[1].primary_tab_label.as_deref(), Some("logs"));
         assert_eq!(entries[1].agent_label.as_deref(), Some("claude"));
+    }
+
+    #[test]
+    fn agent_panel_entry_uses_pane_specific_row_labels_when_split_focus_is_elsewhere() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("ignored");
+        workspace.custom_name = None;
+        workspace.identity_cwd = std::path::PathBuf::from("/tmp/identity");
+        let left_pane = workspace.tabs[0].root_pane;
+        let right_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+
+        let left_terminal_id = app.workspaces[0].tabs[0].panes[&left_pane]
+            .attached_terminal_id
+            .clone();
+        let left_terminal = app.terminals.get_mut(&left_terminal_id).unwrap();
+        left_terminal.cwd = std::path::PathBuf::from("/tmp/hako");
+        left_terminal.detected_agent = Some(Agent::Pi);
+        left_terminal.state = AgentState::Working;
+
+        let right_terminal_id = app.workspaces[0].tabs[0].panes[&right_pane]
+            .attached_terminal_id
+            .clone();
+        app.terminals.get_mut(&right_terminal_id).unwrap().cwd =
+            std::path::PathBuf::from("/tmp/showcode");
+
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+
+        let entries = agent_panel_entries(&app);
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].pane_id, left_pane);
+        assert_eq!(entries[0].primary_label, "hako");
+        assert_eq!(entries[0].primary_tab_label.as_deref(), Some("1"));
+        assert_eq!(entries[0].agent_label.as_deref(), Some("pi"));
+        assert_eq!(entries[0].state, AgentState::Working);
     }
 
     #[tokio::test]
@@ -3665,7 +3725,7 @@ mod tests {
             "f"
         );
         assert_eq!(
-            buffer[(body.x + RIGHT_ENTRY_PRIMARY_COL, body.y + 3)].symbol(),
+            buffer[(body.x + RIGHT_ENTRY_PRIMARY_COL, body.y + 2)].symbol(),
             "s"
         );
     }
