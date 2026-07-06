@@ -15,7 +15,6 @@ pub use self::restore::restore;
 pub use self::restore::{handoff_pane_aliases, restore_handoff};
 #[cfg(unix)]
 pub use self::snapshot::capture_handoff;
-#[cfg(any(test, unix))]
 pub use self::snapshot::SessionUiSnapshot;
 pub use self::snapshot::{
     capture, capture_history, DirectionSnapshot, LayoutSnapshot, SessionHistorySnapshot,
