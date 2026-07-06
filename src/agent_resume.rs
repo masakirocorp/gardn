@@ -154,10 +154,10 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
             vec!["kimi".into(), "--session".into(), session_ref.value.clone()]
         }
         ("hako:pi", "pi", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
-            path_agent_resume_argv("pi", session_ref)
+            path_agent_resume_argv("pi", "--session", session_ref)
         }
         ("hako:omp", "omp", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
-            path_agent_resume_argv("omp", session_ref)
+            path_agent_resume_argv("omp", "--resume", session_ref)
         }
         ("hako:hermes", "hermes", AgentSessionRefKind::Id) => {
             vec![
@@ -191,10 +191,14 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
     })
 }
 
-fn path_agent_resume_argv(command: &str, session_ref: &AgentSessionRef) -> Vec<String> {
+fn path_agent_resume_argv(
+    command: &str,
+    resume_flag: &str,
+    session_ref: &AgentSessionRef,
+) -> Vec<String> {
     let mut argv = vec![
         command.to_string(),
-        "--session".to_string(),
+        resume_flag.to_string(),
         session_ref.value.clone(),
     ];
     if session_ref.kind == AgentSessionRefKind::Path {
@@ -252,56 +256,14 @@ pub fn plan_with_launch_argv(
     let mut plan = plan(source, agent, session_ref)?;
     if let Some(command) = launch_argv
         .and_then(|argv| argv.first())
-        .filter(|command| valid_launch_command(command))
+        .filter(|command| valid_launch_command(command) && launch_command_available(command))
         .cloned()
-        .or_else(|| inferred_launch_command(source, agent, session_ref))
     {
         if let Some(planned_command) = plan.argv.first_mut() {
             *planned_command = command;
         }
     }
     Some(plan)
-}
-
-fn inferred_launch_command(
-    source: &str,
-    agent: &str,
-    session_ref: &AgentSessionRef,
-) -> Option<String> {
-    if !matches!(
-        (source, agent, session_ref.kind),
-        ("hako:omp", "omp", AgentSessionRefKind::Path)
-    ) {
-        return None;
-    }
-
-    let home = home_dir()?;
-    let prefix = Path::new(&home);
-    if !Path::new(&session_ref.value).starts_with(prefix) {
-        return None;
-    }
-
-    let profile_dir = Path::new(&session_ref.value)
-        .strip_prefix(prefix)
-        .ok()?
-        .components()
-        .next()?
-        .as_os_str()
-        .to_str()?;
-    let suffix = profile_dir.strip_prefix(".omp")?;
-    if suffix.is_empty() {
-        return Some("omp".to_string());
-    }
-    if suffix.starts_with('-')
-        && suffix.len() > 1
-        && suffix[1..]
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-    {
-        return Some(format!("omp{suffix}"));
-    }
-
-    None
 }
 
 pub fn dedupe_key(source: &str, agent: &str, session_ref: &AgentSessionRef) -> String {
@@ -339,8 +301,13 @@ fn is_official_agent_source(source: &str, agent: &str) -> bool {
     )
 }
 
-fn home_dir() -> Option<std::path::PathBuf> {
-    std::env::var_os("HOME").map(std::path::PathBuf::from)
+fn launch_command_available(command: &str) -> bool {
+    let path = Path::new(command);
+    if path.components().count() > 1 {
+        return true;
+    }
+    std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(command).is_file()))
 }
 
 fn valid_session_id(value: &str) -> bool {
@@ -453,7 +420,7 @@ mod tests {
             )
             .unwrap()
             .argv,
-            vec!["omp", "--session", "/tmp/omp-session.jsonl"]
+            vec!["omp", "--resume", "/tmp/omp-session.jsonl"]
         );
         assert_eq!(
             plan(
@@ -488,60 +455,60 @@ mod tests {
     }
 
     #[test]
-    fn planner_preserves_launch_command_for_every_resumable_agent() {
+    fn planner_preserves_available_launch_command_for_every_resumable_agent() {
+        let launch_command = std::env::current_exe()
+            .expect("test executable path should be available")
+            .to_string_lossy()
+            .to_string();
         let id_cases = [
             (
                 "hako:claude",
                 "claude",
                 "claude-session",
-                "custom-claude",
-                vec!["custom-claude", "--resume", "claude-session"],
+                vec!["--resume", "claude-session"],
             ),
             (
                 "hako:codex",
                 "codex",
                 "codex-session",
-                "custom-codex",
-                vec!["custom-codex", "resume", "codex-session"],
+                vec!["resume", "codex-session"],
             ),
             (
                 "hako:copilot",
                 "copilot",
                 "copilot-session",
-                "custom-copilot",
-                vec!["custom-copilot", "--resume=copilot-session"],
+                vec!["--resume=copilot-session"],
             ),
             (
                 "hako:devin",
                 "devin",
                 "devin-session",
-                "custom-devin",
-                vec!["custom-devin", "--resume", "devin-session"],
+                vec!["--resume", "devin-session"],
             ),
             (
                 "hako:hermes",
                 "hermes",
                 "hermes-session",
-                "custom-hermes",
-                vec!["custom-hermes", "--resume", "hermes-session"],
+                vec!["--resume", "hermes-session"],
             ),
             (
                 "hako:opencode",
                 "opencode",
                 "opencode-session",
-                "custom-opencode",
-                vec!["custom-opencode", "--session", "opencode-session"],
+                vec!["--session", "opencode-session"],
             ),
         ];
 
-        for (source, agent, session_id, launch_command, expected) in id_cases {
+        for (source, agent, session_id, expected_args) in id_cases {
             let session_ref = AgentSessionRef::id(session_id).unwrap();
+            let mut expected = vec![launch_command.clone()];
+            expected.extend(expected_args.iter().map(|arg| (*arg).to_string()));
             assert_eq!(
                 plan_with_launch_argv(
                     source,
                     agent,
                     &session_ref,
-                    Some(&[launch_command.to_string()])
+                    std::slice::from_ref(&launch_command).into()
                 )
                 .unwrap()
                 .argv,
@@ -551,10 +518,19 @@ mod tests {
 
         let pi_ref = AgentSessionRef::path("/tmp/pi-session.jsonl").unwrap();
         assert_eq!(
-            plan_with_launch_argv("hako:pi", "pi", &pi_ref, Some(&["custom-pi".to_string()]))
-                .unwrap()
-                .argv,
-            vec!["custom-pi", "--session", "/tmp/pi-session.jsonl"]
+            plan_with_launch_argv(
+                "hako:pi",
+                "pi",
+                &pi_ref,
+                std::slice::from_ref(&launch_command).into()
+            )
+            .unwrap()
+            .argv,
+            vec![
+                launch_command.clone(),
+                "--session".into(),
+                "/tmp/pi-session.jsonl".into()
+            ]
         );
 
         let omp_ref = AgentSessionRef::path("/tmp/omp-session.jsonl").unwrap();
@@ -563,31 +539,54 @@ mod tests {
                 "hako:omp",
                 "omp",
                 &omp_ref,
-                Some(&["custom-omp".to_string()])
+                std::slice::from_ref(&launch_command).into()
             )
             .unwrap()
             .argv,
-            vec!["custom-omp", "--session", "/tmp/omp-session.jsonl"]
+            vec![
+                launch_command,
+                "--resume".into(),
+                "/tmp/omp-session.jsonl".into()
+            ]
         );
     }
 
     #[test]
-    fn planner_infers_omp_profile_command_from_session_path() {
+    fn planner_ignores_unavailable_omp_profile_alias_and_preserves_launch_env() {
         let home = std::env::var("HOME").expect("HOME should be set in tests");
-        let session_path = format!("{home}/.omp-profile/agent/sessions/project/session.jsonl");
-        let session_dir = format!("{home}/.omp-profile/agent/sessions/project");
+        let session_path =
+            format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako/session.jsonl");
+        let session_dir = format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako");
+        let agent_dir = format!("{home}/.omp-mk/agent");
         let omp_profile_ref = AgentSessionRef::path(session_path.clone()).unwrap();
 
+        let plan = plan_with_launch_context(
+            "hako:omp",
+            "omp",
+            &omp_profile_ref,
+            Some(&["hako-missing-omp-profile-alias-for-test".to_string()]),
+            &[
+                ("PI_CONFIG_DIR".to_string(), ".omp-mk".to_string()),
+                ("PI_CODING_AGENT_DIR".to_string(), agent_dir.clone()),
+            ],
+        )
+        .unwrap();
+
         assert_eq!(
-            plan_with_launch_argv("hako:omp", "omp", &omp_profile_ref, None)
-                .unwrap()
-                .argv,
+            plan.argv,
             vec![
-                "omp-profile".to_string(),
-                "--session".to_string(),
-                session_path,
-                "--session-dir".to_string(),
-                session_dir,
+                "omp",
+                "--resume",
+                &session_path,
+                "--session-dir",
+                &session_dir
+            ]
+        );
+        assert_eq!(
+            plan.env,
+            vec![
+                ("PI_CONFIG_DIR".to_string(), ".omp-mk".to_string()),
+                ("PI_CODING_AGENT_DIR".to_string(), agent_dir),
             ]
         );
     }
@@ -603,17 +602,12 @@ mod tests {
         let omp_ref = AgentSessionRef::path(session_path.clone()).unwrap();
 
         assert_eq!(
-            plan_with_launch_argv(
-                "hako:omp",
-                "omp",
-                &omp_ref,
-                Some(&["custom-omp".to_string()])
-            )
-            .unwrap()
-            .argv,
+            plan_with_launch_argv("hako:omp", "omp", &omp_ref, None)
+                .unwrap()
+                .argv,
             vec![
-                "custom-omp".to_string(),
-                "--session".to_string(),
+                "omp".to_string(),
+                "--resume".to_string(),
                 session_path,
                 "--session-dir".to_string(),
                 project_session_dir,

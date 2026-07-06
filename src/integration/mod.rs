@@ -13,10 +13,10 @@ pub(crate) const HAKO_PANE_ID_ENV_VAR: &str = "HAKO_PANE_ID";
 const LEGACY_PI_OMP_EXTENSION_INSTALL_NAME: &str = "hako-agent-state.ts";
 const PI_EXTENSION_INSTALL_NAME: &str = "hako-pi-agent-state.ts";
 const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/hako-agent-state.ts");
-const PI_INTEGRATION_VERSION: u32 = 3;
+const PI_INTEGRATION_VERSION: u32 = 4;
 const OMP_EXTENSION_INSTALL_NAME: &str = "hako-omp-agent-state.ts";
 const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/hako-agent-state.ts");
-const OMP_INTEGRATION_VERSION: u32 = 3;
+const OMP_INTEGRATION_VERSION: u32 = 4;
 const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
 const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
 const CLAUDE_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
@@ -3523,7 +3523,7 @@ mod tests {
 
         assert_eq!(path, ext_dir.join(PI_EXTENSION_INSTALL_NAME));
         assert_eq!(content, PI_EXTENSION_ASSET);
-        assert!(content.contains("HAKO_INTEGRATION_VERSION=3"));
+        assert!(content.contains("HAKO_INTEGRATION_VERSION=4"));
         assert!(content.contains("Math.max(reportSeq + 1, Date.now() * 1000)"));
 
         let _ = fs::remove_dir_all(base);
@@ -3582,7 +3582,7 @@ mod tests {
         assert!(installed.removed_legacy_pi_extensions.is_empty());
         assert_eq!(content, OMP_EXTENSION_ASSET);
         assert!(content.contains("HAKO_INTEGRATION_ID=omp"));
-        assert!(content.contains("HAKO_INTEGRATION_VERSION=3"));
+        assert!(content.contains("HAKO_INTEGRATION_VERSION=4"));
         assert!(content.contains("agent: \"omp\""));
         assert!(!content.contains("agent: \"pi\""));
 
@@ -5026,6 +5026,15 @@ model: auto
         assert!(OMP_EXTENSION_ASSET.contains("event?.toolName === \"ask\""));
         assert!(OMP_EXTENSION_ASSET.contains("tool_execution_start"));
         assert!(OMP_EXTENSION_ASSET.contains("tool_execution_end"));
+        let stale_session_ref_freeze = "if (currentAgentSessionPath || currentAgentSessionId)";
+        assert!(
+            !PI_EXTENSION_ASSET.contains(stale_session_ref_freeze),
+            "PI extension must refresh session refs on later session_start after /resume or a session switch"
+        );
+        assert!(
+            !OMP_EXTENSION_ASSET.contains(stale_session_ref_freeze),
+            "OMP extension must refresh session refs on later session_start after /resume or a session switch"
+        );
         assert!(CLAUDE_HOOK_ASSET.contains("agent_session_id"));
         assert!(CODEX_HOOK_ASSET.contains("HAKO_HOOK_INPUT_FILE"));
         assert!(CODEX_HOOK_ASSET.contains("agent_session_id"));

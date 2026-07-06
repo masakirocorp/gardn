@@ -285,12 +285,29 @@ impl AppState {
         self.navigator_rows_from(&terminal_runtimes)
     }
 
+    pub(crate) fn navigator_rows_for_view(
+        &self,
+        view: &ClientViewState,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    ) -> Vec<NavigatorRow> {
+        self.navigator_rows_with(&view.navigator, view.active_workspace, terminal_runtimes)
+    }
+
     pub(crate) fn navigator_rows_from(
         &self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
     ) -> Vec<NavigatorRow> {
-        let query = self.navigator.query.trim().to_lowercase();
-        let query_kind = navigator_query_kind(&query, self.navigator.state_filter);
+        self.navigator_rows_with(&self.navigator, self.active, terminal_runtimes)
+    }
+
+    fn navigator_rows_with(
+        &self,
+        navigator: &super::state::NavigatorState,
+        active_workspace: Option<usize>,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    ) -> Vec<NavigatorRow> {
+        let query = navigator.query.trim().to_lowercase();
+        let query_kind = navigator_query_kind(&query, navigator.state_filter);
         let mut rows = Vec::new();
         for (ws_idx, ws) in self.workspaces.iter().enumerate() {
             let workspace_label = ws.display_name_from(&self.terminals, terminal_runtimes);
@@ -311,7 +328,7 @@ impl AppState {
             }
 
             let expanded = !matches!(query_kind, NavigatorQueryKind::Empty)
-                || self.navigator.expanded_workspaces.contains(&ws.id);
+                || navigator.expanded_workspaces.contains(&ws.id);
             let (state, seen) = ws.aggregate_state(&self.terminals);
             let pane_count = ws.tabs.iter().map(|tab| tab.panes.len()).sum::<usize>();
             rows.push(NavigatorRow {
@@ -321,7 +338,7 @@ impl AppState {
                 meta: activity,
                 status: state,
                 seen,
-                is_current: self.active == Some(ws_idx),
+                is_current: active_workspace == Some(ws_idx),
                 is_workspace: true,
                 is_tab: false,
                 expanded,

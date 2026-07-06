@@ -837,6 +837,9 @@ fn restore_plan_for_snapshot(
         return None;
     }
     let persisted = persisted_agent_session_from_snapshot(session)?;
+    if !snapshot_session_path_available_for_restore(session) {
+        return None;
+    }
     crate::agent_resume::plan_with_launch_context(
         &session.source,
         &session.agent,
@@ -855,6 +858,17 @@ fn persisted_agent_session_from_snapshot(
         session.kind,
         &session.value,
     )
+}
+
+fn snapshot_session_path_available_for_restore(session: &PaneAgentSessionSnapshot) -> bool {
+    if session.source == "hako:omp"
+        && session.agent == "omp"
+        && session.kind == crate::agent_resume::AgentSessionRefKind::Path
+    {
+        return std::path::Path::new(&session.value).is_file();
+    }
+
+    true
 }
 
 fn apply_imported_launch_context(
@@ -1419,57 +1433,63 @@ mod tests {
     }
 
     #[test]
-    fn restore_plan_preserves_saved_launch_command_for_every_resumable_agent() {
+    fn restore_plan_preserves_available_launch_command_for_every_resumable_agent() {
+        let launch_command = std::env::current_exe()
+            .expect("test executable path should be available")
+            .to_string_lossy()
+            .to_string();
         let id_cases = [
             (
                 "hako:claude",
                 "claude",
                 "claude-session",
-                "custom-claude",
-                vec!["custom-claude", "--resume", "claude-session"],
+                vec!["--resume", "claude-session"],
             ),
             (
                 "hako:codex",
                 "codex",
                 "codex-session",
-                "custom-codex",
-                vec!["custom-codex", "resume", "codex-session"],
+                vec!["resume", "codex-session"],
             ),
             (
                 "hako:copilot",
                 "copilot",
                 "copilot-session",
-                "custom-copilot",
-                vec!["custom-copilot", "--resume=copilot-session"],
+                vec!["--resume=copilot-session"],
             ),
             (
                 "hako:hermes",
                 "hermes",
                 "hermes-session",
-                "custom-hermes",
-                vec!["custom-hermes", "--resume", "hermes-session"],
+                vec!["--resume", "hermes-session"],
             ),
             (
                 "hako:opencode",
                 "opencode",
                 "opencode-session",
-                "custom-opencode",
-                vec!["custom-opencode", "--session", "opencode-session"],
+                vec!["--session", "opencode-session"],
             ),
         ];
 
-        for (source, agent, session_id, launch_command, expected) in id_cases {
+        for (source, agent, session_id, expected_args) in id_cases {
             let session = super::super::snapshot::PaneAgentSessionSnapshot {
                 source: source.into(),
                 agent: agent.into(),
                 kind: crate::agent_resume::AgentSessionRefKind::Id,
                 value: session_id.into(),
             };
+            let mut expected = vec![launch_command.clone()];
+            expected.extend(expected_args.iter().map(|arg| (*arg).to_string()));
 
             assert_eq!(
-                restore_plan_for_snapshot(&session, true, Some(&[launch_command.to_string()]), &[])
-                    .unwrap()
-                    .argv,
+                restore_plan_for_snapshot(
+                    &session,
+                    true,
+                    std::slice::from_ref(&launch_command).into(),
+                    &[]
+                )
+                .unwrap()
+                .argv,
                 expected
             );
         }
@@ -1481,29 +1501,93 @@ mod tests {
             value: "/tmp/pi-session.jsonl".into(),
         };
         assert_eq!(
-            restore_plan_for_snapshot(&pi_session, true, Some(&["custom-pi".to_string()]), &[])
-                .unwrap()
-                .argv,
-            vec!["custom-pi", "--session", "/tmp/pi-session.jsonl"]
+            restore_plan_for_snapshot(
+                &pi_session,
+                true,
+                std::slice::from_ref(&launch_command).into(),
+                &[]
+            )
+            .unwrap()
+            .argv,
+            vec![
+                launch_command.clone(),
+                "--session".into(),
+                "/tmp/pi-session.jsonl".into()
+            ]
         );
+
+        let omp_session_path = std::env::temp_dir().join(format!(
+            "hako-restore-existing-omp-{}-{}.jsonl",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be after the Unix epoch")
+                .as_nanos()
+        ));
+        std::fs::write(&omp_session_path, b"session").expect("test OMP session should exist");
+        let omp_session_path = omp_session_path.to_string_lossy().into_owned();
 
         let omp_session = super::super::snapshot::PaneAgentSessionSnapshot {
             source: "hako:omp".into(),
             agent: "omp".into(),
             kind: crate::agent_resume::AgentSessionRefKind::Path,
-            value: "/tmp/omp-session.jsonl".into(),
+            value: omp_session_path.clone(),
         };
+        let argv = restore_plan_for_snapshot(
+            &omp_session,
+            true,
+            std::slice::from_ref(&launch_command).into(),
+            &[],
+        )
+        .unwrap()
+        .argv;
+        let _ = std::fs::remove_file(&omp_session_path);
         assert_eq!(
-            restore_plan_for_snapshot(&omp_session, true, Some(&["custom-omp".to_string()]), &[])
-                .unwrap()
-                .argv,
-            vec!["custom-omp", "--session", "/tmp/omp-session.jsonl"]
+            argv,
+            vec![launch_command, "--resume".into(), omp_session_path]
+        );
+    }
+
+    #[test]
+    fn restore_plan_skips_missing_omp_session_path() {
+        let missing_session_path = std::env::temp_dir()
+            .join(format!(
+                "hako-restore-missing-omp-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system time should be after the Unix epoch")
+                    .as_nanos()
+            ))
+            .join("session.jsonl");
+        assert!(
+            !missing_session_path.exists(),
+            "test session path must start absent"
+        );
+        let session = super::super::snapshot::PaneAgentSessionSnapshot {
+            source: "hako:omp".into(),
+            agent: "omp".into(),
+            kind: crate::agent_resume::AgentSessionRefKind::Path,
+            value: missing_session_path.to_string_lossy().into_owned(),
+        };
+
+        assert!(
+            restore_plan_for_snapshot(&session, true, None, &[]).is_none(),
+            "missing OMP session paths should not be resumed automatically"
+        );
+        assert!(
+            !missing_session_path.exists(),
+            "restore planning must not create the missing session path"
         );
     }
 
     #[test]
     fn restore_keeps_launch_command_for_later_native_agent_restores() {
         let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
+        let launch_command = std::env::current_exe()
+            .expect("test executable path should be available")
+            .to_string_lossy()
+            .to_string();
         let snapshot = SessionSnapshot {
             version: super::super::snapshot::SNAPSHOT_VERSION,
             groups: vec![super::super::snapshot::GroupSnapshot {
@@ -1544,7 +1628,7 @@ mod tests {
                                 kind: crate::agent_resume::AgentSessionRefKind::Id,
                                 value: "codex-session".into(),
                             }),
-                            launch_argv: Some(vec!["custom-codex".into()]),
+                            launch_argv: Some(vec![launch_command.clone()]),
                             launch_env: vec![("CODEX_HOME".into(), "/profiles/codex".into())],
                             seen: true,
                             terminal_semantics: None,
@@ -1587,7 +1671,7 @@ mod tests {
             .next()
             .expect("restored pane should have terminal state");
 
-        assert_eq!(terminal.launch_argv, Some(vec!["custom-codex".into()]));
+        assert_eq!(terminal.launch_argv, Some(vec![launch_command.clone()]));
         assert_eq!(
             terminal.launch_env,
             vec![("CODEX_HOME".into(), "/profiles/codex".into())]
@@ -1598,7 +1682,7 @@ mod tests {
                 .as_ref()
                 .map(|plan| plan.argv.clone()),
             Some(vec![
-                "custom-codex".into(),
+                launch_command,
                 "resume".into(),
                 "codex-session".into()
             ])

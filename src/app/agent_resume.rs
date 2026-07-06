@@ -457,7 +457,7 @@ mod tests {
             (
                 "custom-omp",
                 vec![
-                    "--session",
+                    "--resume",
                     "/tmp/parent/RightSidebarHierarchyReview.jsonl",
                     "--session-dir",
                     "/tmp/parent",

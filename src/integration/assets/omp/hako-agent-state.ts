@@ -2,7 +2,7 @@
 // managed by hako; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=omp
-// HAKO_INTEGRATION_VERSION=3
+// HAKO_INTEGRATION_VERSION=4
 // @ts-nocheck
 
 import { createConnection } from "node:net";
@@ -75,24 +75,41 @@ function parseDurationEnv(name: string, fallback: number): number {
   return parsed;
 }
 
-function updateSessionRef(ctx: any): void {
-  if (currentAgentSessionPath || currentAgentSessionId) {
+function sessionManagerStringMethod(ctx: unknown, method: string): string | undefined {
+  let manager: unknown;
+  if (ctx && typeof ctx === "object" && "sessionManager" in ctx) {
+    manager = ctx.sessionManager;
+  }
+  if (!manager || typeof manager !== "object" || !(method in manager)) {
+    return undefined;
+  }
+
+  const candidate = manager[method as keyof typeof manager];
+  if (typeof candidate !== "function") {
+    return undefined;
+  }
+
+  try {
+    const result = candidate.call(manager);
+    return typeof result === "string" ? result : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function updateSessionRef(ctx: unknown): void {
+  const file = sessionManagerStringMethod(ctx, "getSessionFile");
+  const id = sessionManagerStringMethod(ctx, "getSessionId");
+
+  if (file && file.startsWith("/")) {
+    currentAgentSessionPath = file;
+    currentAgentSessionId = undefined;
     return;
   }
 
-  try {
-    const file = ctx?.sessionManager?.getSessionFile?.();
-    currentAgentSessionPath =
-      typeof file === "string" && file.startsWith("/") ? file : undefined;
-  } catch {
+  if (id && id.length > 0) {
     currentAgentSessionPath = undefined;
-  }
-
-  try {
-    const id = ctx?.sessionManager?.getSessionId?.();
-    currentAgentSessionId = typeof id === "string" && id.length > 0 ? id : undefined;
-  } catch {
-    currentAgentSessionId = undefined;
+    currentAgentSessionId = id;
   }
 }
 

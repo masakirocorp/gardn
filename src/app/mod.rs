@@ -2110,12 +2110,45 @@ impl App {
         client_view.context_menu = state.context_menu;
     }
 
+    fn open_client_view_keybind_help(client_view: &mut ClientViewState) {
+        client_view.keybind_help.scroll = 0;
+        client_view.mode = Mode::KeybindHelp;
+    }
+
+    fn open_client_view_release_notes(client_view: &mut ClientViewState) {
+        let Some(notes) = crate::release_notes::load_latest() else {
+            return;
+        };
+
+        client_view.release_notes = Some(state::ReleaseNotesState {
+            version: notes.version,
+            body: notes.body,
+            scroll: 0,
+            preview: notes.preview,
+        });
+        client_view.mode = Mode::ReleaseNotes;
+    }
+
+    fn open_client_view_new_group_dialog(&self, client_view: &mut ClientViewState) {
+        client_view.creating_new_group = true;
+        client_view.creating_new_tab = false;
+        client_view.group_icon_input = state::DEFAULT_GROUP_ICON.to_string();
+        client_view.group_default_directory_input.clear();
+        client_view.group_modal_selected_field = 0;
+        client_view.group_icon_picker_open = false;
+        client_view.rename_group_target = None;
+        client_view.requested_new_tab_name = None;
+        client_view.rename_pane_target = None;
+        client_view.name_input = format!("group {}", self.state.groups.len() + 1);
+        client_view.name_input_replace_on_type = true;
+        client_view.mode = Mode::RenameGroup;
+    }
+
     fn accept_client_view_navigator_selection(&mut self, client_view: &mut ClientViewState) {
-        let mut local_state = self.state.clone();
-        crate::app::view_state::apply_client_view_to_app_state(&mut local_state, client_view);
-        let Some(row) = local_state
-            .navigator_rows()
-            .get(local_state.navigator.selected)
+        let Some(row) = self
+            .state
+            .navigator_rows_for_view(client_view, &self.terminal_runtimes)
+            .get(client_view.navigator.selected)
             .cloned()
         else {
             return;
@@ -2139,10 +2172,8 @@ impl App {
     }
 
     fn accept_client_view_global_menu_selection(&mut self, client_view: &mut ClientViewState) {
-        let mut local_state = self.state.clone();
-        crate::app::view_state::apply_client_view_to_app_state(&mut local_state, client_view);
-        let Some(action) = input::global_menu_actions(&local_state)
-            .get(local_state.global_menu.highlighted)
+        let Some(action) = input::global_menu_actions(&self.state)
+            .get(client_view.global_menu.highlighted)
             .copied()
         else {
             return;
@@ -2157,9 +2188,7 @@ impl App {
                 self.state.request_reload_config = true;
                 Self::leave_client_view_command_mode(client_view);
             }
-            input::GlobalMenuAction::Settings
-            | input::GlobalMenuAction::Keybinds
-            | input::GlobalMenuAction::WhatsNew => {
+            input::GlobalMenuAction::Settings => {
                 self.apply_client_view_local_key(client_view, |state| {
                     input::handle_global_menu_key(
                         state,
@@ -2170,14 +2199,15 @@ impl App {
                     );
                 });
             }
+            input::GlobalMenuAction::Keybinds => Self::open_client_view_keybind_help(client_view),
+            input::GlobalMenuAction::WhatsNew => Self::open_client_view_release_notes(client_view),
         }
     }
 
     fn accept_client_view_group_menu_selection(&mut self, client_view: &mut ClientViewState) {
-        let mut local_state = self.state.clone();
-        crate::app::view_state::apply_client_view_to_app_state(&mut local_state, client_view);
-        let Some(action) =
-            local_state.group_menu_action_for_row(local_state.group_menu.highlighted)
+        let Some(action) = self
+            .state
+            .group_menu_action_for_row(client_view.group_menu.highlighted)
         else {
             return;
         };
@@ -2195,25 +2225,14 @@ impl App {
                 self.state.request_new_workspace = true;
                 Self::leave_client_view_command_mode(client_view);
             }
-            input::GroupMenuAction::NewGroup => {
-                self.apply_client_view_local_key(client_view, |state| {
-                    input::handle_group_menu_key(
-                        state,
-                        crossterm::event::KeyEvent::new(
-                            crossterm::event::KeyCode::Enter,
-                            crossterm::event::KeyModifiers::empty(),
-                        ),
-                    );
-                });
-            }
+            input::GroupMenuAction::NewGroup => self.open_client_view_new_group_dialog(client_view),
         }
     }
 
     fn accept_client_view_agent_menu_selection(&mut self, client_view: &mut ClientViewState) {
-        let mut local_state = self.state.clone();
-        crate::app::view_state::apply_client_view_to_app_state(&mut local_state, client_view);
-        let Some(action) =
-            local_state.agent_menu_action_for_row(local_state.agent_menu.highlighted)
+        let Some(action) = self
+            .state
+            .agent_menu_action_for_row(client_view.agent_menu.highlighted)
         else {
             return;
         };
@@ -6124,6 +6143,111 @@ mod tests {
         assert_eq!(second_client.settings.list.selected, 0);
         assert_eq!(app.state.mode, Mode::Terminal);
         assert_eq!(app.state.settings.list.selected, 0);
+    }
+
+    #[test]
+    fn route_client_events_for_view_global_menu_keybinds_stays_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.request_reload_config = false;
+        app.state.global_menu = state::MenuListState::new(2);
+
+        let mut first_client = ClientViewState::from_app_state(&app.state);
+        first_client.mode = Mode::GlobalMenu;
+        first_client.global_menu = state::MenuListState::new(1);
+        let second_client = ClientViewState::from_app_state(&app.state);
+
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        assert_eq!(first_client.mode, Mode::KeybindHelp);
+        assert_eq!(second_client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(!app.state.request_reload_config);
+    }
+
+    #[test]
+    fn route_client_events_for_view_group_menu_new_group_stays_client_local() {
+        let mut app = test_app();
+        app.state.create_group("Work".to_string());
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.group_filter_enabled = true;
+        app.state.group_menu = state::MenuListState::new(0);
+
+        let group_count = app.state.groups.len();
+        let expected_name = format!("group {}", group_count + 1);
+        let new_group_row = app.state.group_menu_labels().len() - 1;
+        let mut first_client = ClientViewState::from_app_state(&app.state);
+        first_client.mode = Mode::GroupMenu;
+        first_client.group_menu = state::MenuListState::new(new_group_row);
+        let second_client = ClientViewState::from_app_state(&app.state);
+
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        assert_eq!(first_client.mode, Mode::RenameGroup);
+        assert!(first_client.creating_new_group);
+        assert_eq!(first_client.name_input, expected_name);
+        assert_eq!(second_client.mode, Mode::Terminal);
+        assert!(!second_client.creating_new_group);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(!app.state.creating_new_group);
+        assert!(app.state.group_filter_enabled);
+        assert_eq!(app.state.groups.len(), group_count);
+    }
+
+    #[test]
+    fn route_client_events_for_view_agent_menu_accept_updates_shared_scope() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_panel_scope = state::AgentPanelScope::CurrentWorkspace;
+        app.state.agent_menu = state::MenuListState::new(0);
+
+        let mut client = ClientViewState::from_app_state(&app.state);
+        client.mode = Mode::AgentMenu;
+        client.agent_menu = state::MenuListState::new(4);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(
+            app.state.agent_panel_scope,
+            state::AgentPanelScope::CurrentGroup
+        );
     }
 
     #[test]
