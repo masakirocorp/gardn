@@ -19,6 +19,19 @@ class PiOmpStatusSmokeValidationTests(unittest.TestCase):
             output,
         )
 
+    def test_openrouter_free_active_model_is_passed_to_agents_unchanged(self):
+        result = self.run_smoke_with_subagent_session_variant(
+            "child",
+            active_model="openrouter/openrouter/free",
+        )
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn(
+            "pi/omp status test ok: real cli reports session root identity",
+            output,
+        )
+
     def test_subagent_unrelated_second_session_path_is_rejected(self):
         result = self.run_smoke_with_subagent_session_variant("unrelated")
 
@@ -27,7 +40,7 @@ class PiOmpStatusSmokeValidationTests(unittest.TestCase):
         self.assertIn("expected one session identity", output)
         self.assertIn("other.jsonl", output)
 
-    def run_smoke_with_subagent_session_variant(self, variant):
+    def run_smoke_with_subagent_session_variant(self, variant, active_model="test-model"):
         repo_root = Path(__file__).resolve().parents[1]
         source_script = repo_root / "ci" / "agent-smoke" / "pi-omp-status-smoke.sh"
 
@@ -84,7 +97,29 @@ class PiOmpStatusSmokeValidationTests(unittest.TestCase):
 
                 rpc.next_id = 1
 
+                def argv_value_after(flag):
+                    if sys.argv.count(flag) != 1:
+                        print(
+                            f"expected exactly one {flag} argument, observed {sys.argv!r}",
+                            file=sys.stderr,
+                        )
+                        sys.exit(65)
+                    value_index = sys.argv.index(flag) + 1
+                    if value_index >= len(sys.argv):
+                        print(f"missing value for {flag} argument in {sys.argv!r}", file=sys.stderr)
+                        sys.exit(65)
+                    return sys.argv[value_index]
+
+
                 agent = Path(sys.argv[0]).name
+                expected_model = os.environ["HAKO_EXPECTED_ACTIVE_MODEL"]
+                actual_model = argv_value_after("--model")
+                if actual_model != expected_model:
+                    print(
+                        f"expected --model {expected_model!r}, observed {actual_model!r} in {sys.argv!r}",
+                        file=sys.stderr,
+                    )
+                    sys.exit(65)
                 pane_id = os.environ["HAKO_PANE_ID"]
                 scenario = "subagent" if "subagent" in pane_id else "basic"
                 session_root = Path(os.environ["HAKO_TEST_SESSION_ROOT"]) / agent / "sessions" / "project"
@@ -162,9 +197,10 @@ class PiOmpStatusSmokeValidationTests(unittest.TestCase):
                 "HAKO_REPO_DIR": str(repo_root),
                 "HAKO_PI_OMP_STATUS_DIR": str(smoke_dir),
                 "HAKO_PI_OMP_STATUS_TIMEOUT": "5",
-                "HAKO_SMOKE_ACTIVE_MODEL": "test-model",
+                "HAKO_SMOKE_ACTIVE_MODEL": active_model,
                 "HAKO_TEST_SESSION_ROOT": str(tmp_path / "run" / "agent"),
                 "HAKO_TEST_SUBAGENT_SESSION_VARIANT": variant,
+                "HAKO_EXPECTED_ACTIVE_MODEL": active_model,
             }
 
             return subprocess.run(

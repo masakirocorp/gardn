@@ -4,7 +4,7 @@ source /usr/local/lib/hako-agent-smoke-models.sh
 primary_model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
 if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" ]]; then
   hako_smoke_unique_candidates "$primary_model" "${HAKO_SMOKE_FALLBACK_MODELS:-}" \
-    | hako_smoke_openrouter_bare_candidates \
+    | hako_smoke_opencode_candidates \
     | hako_smoke_run_with_fallbacks "$0" HAKO_SMOKE_MODEL "$@"
   exit $?
 fi
@@ -77,7 +77,7 @@ run_agent() {
     PI_CODING_AGENT_DIR="$dir/agent" \
     timeout "${HAKO_PI_OMP_STATUS_TIMEOUT:-180}" "$agent" \
       -p \
-      --model "openrouter/$model" \
+      --model "$model" \
       --tools "$tools" \
       --auto-approve \
       -e "$extension" \
