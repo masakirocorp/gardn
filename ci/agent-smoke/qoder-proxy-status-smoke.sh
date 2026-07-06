@@ -131,6 +131,7 @@ set +e
   NODE_EXTRA_CA_CERTS="$workdir/qoder.crt" \
   SSL_CERT_FILE="$workdir/qoder.crt" \
   REQUESTS_CA_BUNDLE="$workdir/qoder.crt" \
+  QODER_MODEL_TRANSPORT="http" \
   QODER_MODEL_SERVER_HOST="api2.qoder.sh" \
   timeout "${HAKO_QODER_PROXY_STATUS_SMOKE_TIMEOUT:-180}" qodercli \
     -p \

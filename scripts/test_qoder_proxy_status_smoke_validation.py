@@ -182,6 +182,13 @@ class QoderProxyStatusSmokeValidationTests(unittest.TestCase):
 
 
                     scenario = os.environ["HAKO_TEST_QODER_SCENARIO"]
+                    if os.environ.get("QODER_MODEL_TRANSPORT") != "http":
+                        print(
+                            f"expected QODER_MODEL_TRANSPORT='http', observed {os.environ.get('QODER_MODEL_TRANSPORT')!r}",
+                            file=sys.stderr,
+                        )
+                        sys.exit(65)
+
                     if os.environ.get("QODER_MODEL_SERVER_HOST") != "api2.qoder.sh":
                         print(
                             f"expected QODER_MODEL_SERVER_HOST='api2.qoder.sh', observed {os.environ.get('QODER_MODEL_SERVER_HOST')!r}",
