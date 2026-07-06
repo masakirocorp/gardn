@@ -119,11 +119,18 @@ wire_api = "responses"
 EOF_CONFIG
   (
     cd "$dir/run"
+    set +e
     CODEX_HOME="$dir/codex" \
     timeout "${HAKO_CODEX_STATUS_SMOKE_TIMEOUT:-180}" codex exec \
       --cd "$dir/run" \
       --model "$model" \
       'Reply exactly HAKO_CODEX_STATUS_OK.' >"$dir/output.txt" 2>&1
+    local status=$?
+    set -e
+    if [[ "$status" -ne 0 ]]; then
+      cat "$dir/output.txt" >&2
+      return "$status"
+    fi
   )
   python3 - "$dir/output.txt" <<'PY'
 import sys
