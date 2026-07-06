@@ -85,6 +85,17 @@ if [[ ! -S "$socket_path" ]]; then
   exit 1
 fi
 
+
+return_real_cli_failure() {
+  local output="$1"
+  local status="$2"
+  cat "$output" >&2 || true
+  if hako_smoke_retryable_status_or_output "$status" "$output"; then
+    return 75
+  fi
+  return "$status"
+}
+
 install_copilot_real_hooks() {
   local home="$workdir/copilot-real/home"
   local hook="$home/hooks/hako-agent-state.sh"
@@ -174,6 +185,7 @@ EOF_KIMI_HOOKS
 run_copilot_cli() {
   local dir="$workdir/copilot-real"
   mkdir -p "$dir/run"
+  set +e
   (
     cd "$dir/run"
     HAKO_ENV=1 \
@@ -191,6 +203,12 @@ run_copilot_cli() {
       --model "$model" \
       --no-auto-update >"$dir/output.jsonl" 2>&1
   )
+  local code=$?
+  set -e
+  if [[ "$code" -ne 0 ]]; then
+    return_real_cli_failure "$dir/output.jsonl" "$code"
+    return $?
+  fi
   python3 - "$dir/output.jsonl" <<'PY'
 import sys
 from pathlib import Path
@@ -303,6 +321,7 @@ PY
 run_droid_cli() {
   local dir="$workdir/droid-real"
   mkdir -p "$dir/run"
+  set +e
   (
     cd "$dir/run"
     HAKO_ENV=1 \
@@ -316,6 +335,12 @@ run_droid_cli() {
       --cwd "$dir/run" \
       "Reply exactly HAKO_DROID_STATUS_OK" >"$dir/output.jsonl" 2>&1
   )
+  local code=$?
+  set -e
+  if [[ "$code" -ne 0 ]]; then
+    return_real_cli_failure "$dir/output.jsonl" "$code"
+    return $?
+  fi
   python3 - "$dir/output.jsonl" <<'PY'
 import json
 import sys
@@ -338,6 +363,7 @@ PY
 run_kimi_cli() {
   local dir="$workdir/kimi-real"
   mkdir -p "$dir/run"
+  set +e
   (
     cd "$dir/run"
     HAKO_ENV=1 \
@@ -348,6 +374,12 @@ run_kimi_cli() {
       -p "Reply exactly HAKO_KIMI_STATUS_OK" \
       --output-format text >"$dir/output.txt" 2>&1
   )
+  local code=$?
+  set -e
+  if [[ "$code" -ne 0 ]]; then
+    return_real_cli_failure "$dir/output.txt" "$code"
+    return $?
+  fi
   python3 - "$dir/output.txt" <<'PY'
 import sys
 from pathlib import Path
@@ -386,6 +418,7 @@ PY
 run_hermes_cli() {
   local dir="$workdir/hermes-real"
   mkdir -p "$dir/run"
+  set +e
   (
     cd "$dir/run"
     HAKO_ENV=1 \
@@ -398,6 +431,12 @@ run_hermes_cli() {
       --model "$model" \
       --ignore-rules >"$dir/output.txt" 2>&1
   )
+  local code=$?
+  set -e
+  if [[ "$code" -ne 0 ]]; then
+    return_real_cli_failure "$dir/output.txt" "$code"
+    return $?
+  fi
   python3 - "$dir/output.txt" <<'PY'
 import sys
 from pathlib import Path
