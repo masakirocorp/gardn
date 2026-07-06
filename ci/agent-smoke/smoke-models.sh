@@ -27,7 +27,7 @@ hako_smoke_openrouter_prefixed_candidates() {
 hako_smoke_opencode_candidates() {
   while IFS= read -r model; do
     case "$model" in
-      openrouter/free|openrouter/auto|openrouter/fusion|openrouter/bodybuilder|openrouter/pareto-code)
+      openrouter/free|openrouter/auto|openrouter/fusion|openrouter/bodybuilder|openrouter/pareto-code|openrouter/owl-alpha)
         printf 'openrouter/%s\n' "$model"
         ;;
       openrouter/*)
@@ -48,6 +48,20 @@ hako_smoke_openrouter_bare_candidates() {
     esac
   done
 }
+
+hako_smoke_openrouter_api_candidates() {
+  while IFS= read -r model; do
+    case "$model" in
+      openrouter/openai/*|openrouter/anthropic/*|openrouter/google/*|openrouter/meta-llama/*|openrouter/mistralai/*|openrouter/nvidia/*|openrouter/deepseek/*|openrouter/qwen/*|openrouter/x-ai/*|openrouter/poolside/*)
+        printf '%s\n' "${model#openrouter/}"
+        ;;
+      *)
+        printf '%s\n' "$model"
+        ;;
+    esac
+  done
+}
+
 
 hako_smoke_non_openai_candidates() {
   while IFS= read -r model; do
