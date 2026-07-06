@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /usr/local/lib/hako-agent-smoke-models.sh
+smoke_model_lib="${HAKO_AGENT_SMOKE_MODELS_LIB:-/usr/local/lib/hako-agent-smoke-models.sh}"
+seam_only="${HAKO_REMAINING_STATUS_SEAM_ONLY:-0}"
+if [[ -f "$smoke_model_lib" ]]; then
+  source "$smoke_model_lib"
+elif [[ "$seam_only" != "1" ]]; then
+  echo "remaining status test needs $smoke_model_lib" >&2
+  exit 1
+fi
 primary_model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
-if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" ]]; then
+if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" && "$seam_only" != "1" ]]; then
   hako_smoke_unique_candidates "$primary_model" "${HAKO_SMOKE_FALLBACK_MODELS:-}" \
     | hako_smoke_openrouter_api_candidates \
     | hako_smoke_non_openai_candidates \
@@ -10,20 +17,22 @@ if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" ]]; then
   exit $?
 fi
 
-model="$HAKO_SMOKE_ACTIVE_MODEL"
+model="${HAKO_SMOKE_ACTIVE_MODEL:-$primary_model}"
 repo_dir="${HAKO_REPO_DIR:-/repo}"
 workdir="${HAKO_REMAINING_STATUS_SMOKE_DIR:-$(mktemp -d)}"
 socket_path="$workdir/hako.sock"
 request_log="$workdir/hako-requests.jsonl"
 
 
-if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
-  echo "remaining status test needs OPENROUTER_API_KEY" >&2
-  exit 1
-fi
-if [[ "$model" == openai/* ]] || [[ "$model" == gpt-* ]]; then
-  echo "remaining status test must use a non-OpenAI OpenRouter model, got: $model" >&2
-  exit 1
+if [[ "$seam_only" != "1" ]]; then
+  if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
+    echo "remaining status test needs OPENROUTER_API_KEY" >&2
+    exit 1
+  fi
+  if [[ "$model" == openai/* ]] || [[ "$model" == gpt-* ]]; then
+    echo "remaining status test must use a non-OpenAI OpenRouter model, got: $model" >&2
+    exit 1
+  fi
 fi
 
 mkdir -p "$workdir"
@@ -465,6 +474,20 @@ send_shell_hook() {
   bash "$hook" "$action" <<<"$payload"
 }
 
+send_devin_hook() {
+  local pane_id="$1"
+  local project_dir="$2"
+  local list_json="$3"
+  local payload="$4"
+  local hook="$repo_dir/src/integration/assets/devin/hako-agent-state.sh"
+  HAKO_ENV=1 \
+  HAKO_SOCKET_PATH="$socket_path" \
+  HAKO_PANE_ID="$pane_id" \
+  DEVIN_PROJECT_DIR="$project_dir" \
+  HAKO_DEVIN_LIST_JSON="$list_json" \
+  bash "$hook" session <<<"$payload"
+}
+
 send_hermes_hook() {
   local pane_id="$1"
   local fn_name="$2"
@@ -486,17 +509,19 @@ getattr(mod, os.environ["HERMES_FN"])(session_id=os.environ["HERMES_SESSION_ID"]
 PY
 }
 
-install_droid_real_hooks
-install_copilot_real_hooks
-install_kimi_real_hooks
-install_hermes_real_plugin
+if [[ "$seam_only" != "1" ]]; then
+  install_droid_real_hooks
+  install_copilot_real_hooks
+  install_kimi_real_hooks
+  install_hermes_real_plugin
 
-run_copilot_cli
-run_cursor_cli_or_auth_contract
-run_qoder_cli_or_auth_contract
-run_droid_cli
-run_kimi_cli
-run_hermes_cli
+  run_copilot_cli
+  run_cursor_cli_or_auth_contract
+  run_qoder_cli_or_auth_contract
+  run_droid_cli
+  run_kimi_cli
+  run_hermes_cli
+fi
 
 send_shell_hook copilot pane-copilot-allowed '' '{"hook_event_name":"SessionStart","session_id":"copilot-session","initial_prompt":"hello"}'
 send_shell_hook copilot pane-copilot-allowed '' '{"hook_event_name":"Stop","session_id":"copilot-session","stop_reason":"end_turn"}'
@@ -523,6 +548,11 @@ send_shell_hook cursor pane-cursor-allowed release '{"hook_event_name":"sessionE
 send_shell_hook cursor pane-cursor-subagent working '{"hook_event_name":"beforeSubmitPrompt","session_id":"cursor-parent"}'
 send_shell_hook cursor pane-cursor-subagent working '{"hook_event_name":"beforeShellExecution","session_id":"cursor-parent","agent_id":"child"}'
 send_shell_hook cursor pane-cursor-subagent idle '{"hook_event_name":"stop","session_id":"cursor-parent"}'
+
+send_devin_hook pane-devin-direct /tmp/hako-devin-project '[{"id":"stale-devin-direct","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"SessionStart","session_id":"devin-direct","source":"startup"}'
+send_devin_hook pane-devin-list /tmp/hako-devin-project '[{"id":"other-devin","working_directory":"/tmp/hako-other-project"},{"id":"devin-list","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"PreToolUse","tool_name":"exec"}'
+send_devin_hook pane-devin-prompt-stale /tmp/hako-devin-project '[{"id":"stale-prompt","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"UserPromptSubmit","prompt":"run tests"}'
+send_devin_hook pane-devin-startup-stale /tmp/hako-devin-project '[{"id":"stale-startup","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"SessionStart","source":"startup"}'
 send_shell_hook droid pane-droid-allowed idle '{"hook_event_name":"SessionStart","session_id":"droid-session"}'
 send_shell_hook droid pane-droid-allowed working '{"hook_event_name":"UserPromptSubmit","session_id":"droid-session"}'
 send_shell_hook droid pane-droid-allowed idle '{"hook_event_name":"Stop","session_id":"droid-session"}'
@@ -552,12 +582,13 @@ send_hermes_hook pane-hermes-blocked _working hermes-blocked
 send_hermes_hook pane-hermes-blocked _blocked hermes-blocked
 send_hermes_hook pane-hermes-compact _working hermes-compact
 
-python3 - "$request_log" <<'PY'
+python3 - "$request_log" "$seam_only" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 requests = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines() if line.strip()]
+seam_only = sys.argv[2] == "1"
 reports = [req for req in requests if req.get("method") == "pane.report_agent"]
 sessions = [req for req in requests if req.get("method") == "pane.report_agent_session"]
 releases = [req for req in requests if req.get("method") == "pane.release_agent"]
@@ -598,9 +629,27 @@ def assert_single_identity(pane):
     if len(seen) != 1:
         raise SystemExit(f"{pane}: expected one session id, observed {sorted(seen)}")
 
-for pane, agent, source in [
+def assert_devin_identity_only(pane, expected_session_id):
+    pane_reports = by_pane(reports, pane)
+    pane_sessions = by_pane(sessions, pane)
+    pane_releases = by_pane(releases, pane)
+    if pane_reports:
+        raise SystemExit(f"{pane}: Devin hook must not emit lifecycle state reports; observed {pane_reports}")
+    if pane_releases:
+        raise SystemExit(f"{pane}: Devin hook must not release panes; observed {pane_releases}")
+    if len(pane_sessions) != 1:
+        raise SystemExit(f"{pane}: expected one Devin session identity report, observed {pane_sessions}")
+    params = pane_sessions[0].get("params", {})
+    if params.get("agent_session_id") != expected_session_id:
+        raise SystemExit(f"{pane}: expected session {expected_session_id}, observed {params.get('agent_session_id')}")
+
+def assert_no_pane_reports(pane):
+    items = by_pane(reports, pane) + by_pane(sessions, pane) + by_pane(releases, pane)
+    if items:
+        raise SystemExit(f"{pane}: expected no Hako reports, observed {items}")
+
+expected_agents = [
     ("pane-copilot-allowed", "copilot", "hako:copilot"),
-    ("pane-copilot-real", "copilot", "hako:copilot"),
     ("pane-copilot-blocked", "copilot", "hako:copilot"),
     ("pane-copilot-subagent", "copilot", "hako:copilot"),
     ("pane-qoder-allowed", "qodercli", "hako:qodercli"),
@@ -608,26 +657,34 @@ for pane, agent, source in [
     ("pane-qoder-subagent", "qodercli", "hako:qodercli"),
     ("pane-cursor-allowed", "cursor", "hako:cursor"),
     ("pane-cursor-subagent", "cursor", "hako:cursor"),
+    ("pane-devin-direct", "devin", "hako:devin"),
+    ("pane-devin-list", "devin", "hako:devin"),
     ("pane-droid-allowed", "droid", "hako:droid"),
-    ("pane-droid-real", "droid", "hako:droid"),
     ("pane-droid-blocked", "droid", "hako:droid"),
     ("pane-droid-subagent", "droid", "hako:droid"),
     ("pane-droid-compact", "droid", "hako:droid"),
     ("pane-kimi-allowed", "kimi", "hako:kimi"),
     ("pane-kimi-blocked", "kimi", "hako:kimi"),
-    ("pane-kimi-real", "kimi", "hako:kimi"),
     ("pane-kimi-subagent", "kimi", "hako:kimi"),
     ("pane-kimi-compact", "kimi", "hako:kimi"),
-    ("pane-hermes-real", "hermes", "hako:hermes"),
     ("pane-hermes-allowed", "hermes", "hako:hermes"),
     ("pane-hermes-blocked", "hermes", "hako:hermes"),
     ("pane-hermes-compact", "hermes", "hako:hermes"),
-]:
+]
+if not seam_only:
+    expected_agents.extend([
+        ("pane-copilot-real", "copilot", "hako:copilot"),
+        ("pane-droid-real", "droid", "hako:droid"),
+        ("pane-kimi-real", "kimi", "hako:kimi"),
+        ("pane-hermes-real", "hermes", "hako:hermes"),
+    ])
+
+for pane, agent, source in expected_agents:
     assert_agent(pane, agent, source)
     assert_single_identity(pane)
 
-assert_in_order("pane-copilot-real", ["working", "idle"])
-
+if not seam_only:
+    assert_in_order("pane-copilot-real", ["working", "idle"])
 assert_in_order("pane-copilot-allowed", ["working", "idle"])
 if not by_pane(releases, "pane-copilot-allowed"):
     raise SystemExit("pane-copilot-allowed: missing release")
@@ -647,9 +704,15 @@ if not by_pane(releases, "pane-cursor-allowed"):
     raise SystemExit("pane-cursor-allowed: missing release")
 assert_in_order("pane-cursor-subagent", ["working", "idle"])
 
-assert_in_order("pane-droid-real", ["idle"])
-if not by_pane(releases, "pane-droid-real"):
-    raise SystemExit("pane-droid-real: missing release")
+assert_devin_identity_only("pane-devin-direct", "devin-direct")
+assert_devin_identity_only("pane-devin-list", "devin-list")
+assert_no_pane_reports("pane-devin-prompt-stale")
+assert_no_pane_reports("pane-devin-startup-stale")
+
+if not seam_only:
+    assert_in_order("pane-droid-real", ["idle"])
+    if not by_pane(releases, "pane-droid-real"):
+        raise SystemExit("pane-droid-real: missing release")
 assert_in_order("pane-droid-allowed", ["idle", "working", "idle"])
 if not by_pane(releases, "pane-droid-allowed"):
     raise SystemExit("pane-droid-allowed: missing release")
@@ -659,9 +722,10 @@ if states("pane-droid-subagent").count("idle") != 1:
     raise SystemExit(f"pane-droid-subagent: child stop should not idle parent; observed {states('pane-droid-subagent')}")
 assert_in_order("pane-droid-compact", ["working"])
 
-assert_in_order("pane-kimi-real", ["idle", "working", "idle"])
-if not by_pane(releases, "pane-kimi-real"):
-    raise SystemExit("pane-kimi-real: missing release")
+if not seam_only:
+    assert_in_order("pane-kimi-real", ["idle", "working", "idle"])
+    if not by_pane(releases, "pane-kimi-real"):
+        raise SystemExit("pane-kimi-real: missing release")
 assert_in_order("pane-kimi-allowed", ["idle", "working", "idle"])
 if not by_pane(releases, "pane-kimi-allowed"):
     raise SystemExit("pane-kimi-allowed: missing release")
@@ -671,12 +735,16 @@ if states("pane-kimi-subagent").count("idle") != 1:
     raise SystemExit(f"pane-kimi-subagent: child stop should not idle parent; observed {states('pane-kimi-subagent')}")
 assert_in_order("pane-kimi-compact", ["working"])
 
-assert_in_order("pane-hermes-real", ["idle", "working", "idle"])
+if not seam_only:
+    assert_in_order("pane-hermes-real", ["idle", "working", "idle"])
 assert_in_order("pane-hermes-allowed", ["working", "idle"])
 if not by_pane(releases, "pane-hermes-allowed"):
     raise SystemExit("pane-hermes-allowed: missing release")
 assert_in_order("pane-hermes-blocked", ["working", "blocked"])
 assert_in_order("pane-hermes-compact", ["working"])
 
-print("remaining status test ok: Copilot, Droid, Kimi, and Hermes real CLIs work through OpenRouter; Copilot, Droid, Kimi, and Hermes emit real Hako hooks; Cursor/qodercli proxy smokes cover their real hook paths separately; seam hooks still cover blocked/subagent/compact edges")
+if seam_only:
+    print("remaining status seam test ok: Copilot, qodercli, Cursor, Devin, Droid, Kimi, and Hermes hooks emit expected Hako reports without real CLIs")
+else:
+    print("remaining status test ok: Copilot, Droid, Kimi, and Hermes real CLIs work through OpenRouter; Copilot, qodercli, Cursor, Devin, Droid, Kimi, and Hermes emit real Hako hooks; Cursor/qodercli proxy smokes cover their real hook paths separately; seam hooks still cover blocked/subagent/compact/session edges")
 PY

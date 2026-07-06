@@ -46,13 +46,7 @@ class RemainingStatusSmokeFallbackTests(unittest.TestCase):
             models_copy.write_text(source_models.read_text())
 
             script_copy = bin_dir / "hako-agent-smoke-remaining-status"
-            script_text = source_script.read_text()
-            script_copy.write_text(
-                script_text.replace(
-                    "source /usr/local/lib/hako-agent-smoke-models.sh",
-                    f"source {shlex.quote(str(models_copy))}",
-                )
-            )
+            script_copy.write_text(source_script.read_text())
             script_copy.chmod(script_copy.stat().st_mode | stat.S_IXUSR)
 
             reporter = bin_dir / "hako-test-report"
@@ -261,6 +255,7 @@ class RemainingStatusSmokeFallbackTests(unittest.TestCase):
                 "HOME": str(home_dir),
                 "OPENROUTER_API_KEY": "sk-test-fake-openrouter-key",
                 "HAKO_REPO_DIR": str(repo_root),
+                "HAKO_AGENT_SMOKE_MODELS_LIB": str(models_copy),
                 "HAKO_REMAINING_STATUS_SMOKE_DIR": str(smoke_dir),
                 "HAKO_REMAINING_STATUS_SMOKE_TIMEOUT": "5",
                 "HAKO_SMOKE_MODEL": "openrouter/anthropic/overloaded",
