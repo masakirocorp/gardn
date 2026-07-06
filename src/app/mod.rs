@@ -2944,30 +2944,32 @@ mod tests {
         })
     }
 
+    fn current_integration_for(
+        kind: crate::agent_profiles::AgentKind,
+    ) -> crate::integration::IntegrationRecommendation {
+        crate::integration::IntegrationRecommendation {
+            target: kind
+                .integration_target()
+                .expect("system kind has integration"),
+            label: kind.as_str(),
+            command: kind.system_command(),
+            available: true,
+            path: std::path::PathBuf::from("/tmp/hako-test-integration"),
+            state: crate::integration::IntegrationStatusKind::Current,
+        }
+    }
+
     fn install_two_agent_profiles(state: &mut state::AppState) {
         state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
             &crate::agent_profiles::AgentProfilesConfig {
-                order: vec!["user:first".to_string(), "user:second".to_string()],
-                custom: vec![
-                    crate::agent_profiles::UserAgentProfileConfig {
-                        id: "first".to_string(),
-                        name: "first".to_string(),
-                        kind: crate::agent_profiles::AgentKind::Custom,
-                        command: "first-agent".to_string(),
-                        env: std::collections::BTreeMap::new(),
-                        enabled: true,
-                    },
-                    crate::agent_profiles::UserAgentProfileConfig {
-                        id: "second".to_string(),
-                        name: "second".to_string(),
-                        kind: crate::agent_profiles::AgentKind::Custom,
-                        command: "second-agent".to_string(),
-                        env: std::collections::BTreeMap::new(),
-                        enabled: true,
-                    },
-                ],
+                order: vec!["system:pi".to_string(), "system:codex".to_string()],
+                custom: Vec::new(),
             },
         );
+        state.integration_recommendations = vec![
+            current_integration_for(crate::agent_profiles::AgentKind::Pi),
+            current_integration_for(crate::agent_profiles::AgentKind::Codex),
+        ];
     }
 
     fn compute_client_view(

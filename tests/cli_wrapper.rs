@@ -3005,6 +3005,10 @@ min_herdr_version = "0.7.0"
         ],
     );
     assert_eq!(workspace["result"]["type"], "workspace_created");
+    let workspace_id = workspace["result"]["workspace"]["workspace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let linked = run_cli_json_in_dir(&socket_path, &["plugin", "link", "plugins/layout"], &base);
     assert_eq!(linked["result"]["type"], "plugin_linked");
@@ -3067,6 +3071,8 @@ min_herdr_version = "0.7.0"
             "example.layout",
             "--entrypoint",
             "board",
+            "--workspace",
+            &workspace_id,
             "--env",
             "HAKO_ROLE=board",
             "--no-focus",
