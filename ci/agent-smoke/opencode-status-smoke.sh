@@ -102,7 +102,7 @@ run_opencode() {
   "model": "$model",
   "small_model": "$model",
   "plugin": ["file://$plugin_path"],
-  "permission": { "bash": { "*": "$bash_permission" } },
+  "permission": { "bash": "$bash_permission" },
   "agent": {
     "general": {
       "mode": "subagent",
