@@ -197,5 +197,6 @@ jobs:
           -v "${{ github.workspace }}:/repo:ro"
           --add-host api1.qoder.sh:127.0.0.1
           --add-host api2.qoder.sh:127.0.0.1
+          --add-host api2-v2.qoder.sh:127.0.0.1
           hako-agent-smoke:ci
           hako-agent-smoke-env hako-agent-smoke-qoder-proxy-status

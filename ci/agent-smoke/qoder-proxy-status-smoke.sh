@@ -83,7 +83,7 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -out "$workdir/qoder.crt" \
   -days 1 \
   -subj "/CN=qoder.sh" \
-  -addext "subjectAltName=DNS:api1.qoder.sh,DNS:api2.qoder.sh" >/dev/null 2>&1
+  -addext "subjectAltName=DNS:api1.qoder.sh,DNS:api2.qoder.sh,DNS:api2-v2.qoder.sh" >/dev/null 2>&1
 
 static_reply="HAKO_QODER_PROXY_OK"
 HAKO_QODER_PROXY_CERT="$workdir/qoder.crt" \
