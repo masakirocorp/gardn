@@ -174,7 +174,7 @@ fn app_client_launch_renders_visible_first_frame() {
         .unwrap();
     let mut reader = client_pair.master.try_clone_reader().unwrap();
     let (output_tx, output_rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    let reader_thread = thread::spawn(move || {
+    let _reader_thread = thread::spawn(move || {
         let mut buf = [0; 4096];
         while let Ok(n) = reader.read(&mut buf) {
             if n == 0 {
@@ -205,7 +205,6 @@ fn app_client_launch_renders_visible_first_frame() {
             let text = stripped_terminal_text(&output);
             if text.chars().filter(|ch| ch.is_ascii_alphanumeric()).count() >= 4 {
                 drop(guard);
-                let _ = reader_thread.join();
                 return;
             }
         }
@@ -216,6 +215,5 @@ fn app_client_launch_renders_visible_first_frame() {
 
     let text = stripped_terminal_text(&output);
     drop(guard);
-    let _ = reader_thread.join();
     panic!("hako client did not render visible first frame; stripped output: {text:?}");
 }
