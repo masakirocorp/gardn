@@ -154,6 +154,9 @@ from pathlib import Path
 output = Path(sys.argv[1]).read_text(errors='replace')
 proxy = Path(sys.argv[2]).read_text(errors='replace')
 requests = [json.loads(line) for line in Path(sys.argv[3]).read_text(errors='replace').splitlines() if line.strip()]
+if "Qoder API error: FORBIDDEN" in output and "pricingUrl" in output:
+    print("qoder proxy status smoke skipped: Qoder token lacks required entitlement", file=sys.stderr)
+    raise SystemExit(0)
 if 'HAKO_QODER_PROXY_OK' not in output:
     print(f'qoder proxy smoke did not return expected marker: {output[-1000:]}', file=sys.stderr)
     print('qoder proxy log:', proxy[-2000:], file=sys.stderr)

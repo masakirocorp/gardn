@@ -23,7 +23,7 @@ ci: lint ci-test
 
 # Check formatting + run unit tests + maintenance script tests
 check: ci
-    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines scripts.test_codex_status_smoke_fallback scripts.test_pi_omp_status_smoke_validation scripts.test_smoke_model_candidates
+    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines scripts.test_codex_status_smoke_fallback scripts.test_pi_omp_status_smoke_validation scripts.test_qoder_proxy_status_smoke_validation scripts.test_smoke_model_candidates
     node ci/agent-smoke/qoder-openrouter-proxy-test.mjs
     @echo "docs reminder: if this changes user-facing behavior, update README.md or call it out before release."
 
