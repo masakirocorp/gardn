@@ -248,6 +248,9 @@ impl AppState {
 
     pub(crate) fn global_menu_labels(&self) -> Vec<&'static str> {
         let mut labels = vec!["settings", "keybinds", "reload config"];
+        if self.integration_updates_available() {
+            labels.push("update integrations");
+        }
         if self.update_available.is_some() {
             labels.push("update ready");
         } else if self.latest_release_notes_available {
@@ -1859,10 +1862,47 @@ mod tests {
     }
 
     #[test]
+    fn integration_updates_add_global_menu_entry_opening_integrations() {
+        let mut app = app_for_mouse_test();
+        app.state.integration_recommendations =
+            vec![crate::integration::IntegrationRecommendation {
+                target: crate::api::schema::IntegrationTarget::Omp,
+                label: "omp",
+                command: "omp",
+                available: true,
+                path: std::path::PathBuf::from("/tmp/hako-test-omp"),
+                state: crate::integration::IntegrationStatusKind::Outdated,
+            }];
+        app.state.mode = Mode::GlobalMenu;
+
+        assert_eq!(
+            app.state.global_menu_labels(),
+            vec![
+                "settings",
+                "keybinds",
+                "reload config",
+                "update integrations",
+                "detach"
+            ]
+        );
+
+        let menu = app.state.global_menu_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + 4,
+        ));
+
+        assert_eq!(app.state.mode, Mode::Settings);
+        assert_eq!(app.state.settings.section, SettingsSection::Integrations);
+    }
+
+    #[test]
     fn update_pending_menu_surfaces_update_ready_entry() {
         let mut app = app_for_mouse_test();
         app.state.update_available = Some("0.3.2".into());
         app.state.latest_release_notes_available = true;
+        app.state.integration_recommendations.clear();
 
         assert_eq!(
             app.state.global_menu_labels(),

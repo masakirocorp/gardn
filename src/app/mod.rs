@@ -1363,6 +1363,10 @@ impl App {
                 self.state
                     .integration_install_messages
                     .push(format!("installed {label}"));
+                self.state.integration_install_messages.push(
+                    "restart affected panes so already-running agents load the updated hook/extension"
+                        .to_string(),
+                );
                 self.state
                     .integration_install_messages
                     .extend(messages.into_iter().filter(|message| {
@@ -2196,6 +2200,14 @@ impl App {
                             crossterm::event::KeyCode::Enter,
                             crossterm::event::KeyModifiers::empty(),
                         ),
+                    );
+                });
+            }
+            input::GlobalMenuAction::UpdateIntegrations => {
+                self.apply_client_view_local_key(client_view, |state| {
+                    input::open_settings_at(
+                        state,
+                        crate::app::state::SettingsSection::Integrations,
                     );
                 });
             }
@@ -3118,6 +3130,58 @@ mod tests {
                 .as_nanos()
         );
         std::env::temp_dir().join(unique).join("config.toml")
+    }
+
+    fn clear_integration_path_env() -> [crate::config::TestEnvVar; 11] {
+        [
+            crate::config::TestEnvVar::remove("PI_CODING_AGENT_DIR"),
+            crate::config::TestEnvVar::remove("PI_CONFIG_DIR"),
+            crate::config::TestEnvVar::remove("CLAUDE_CONFIG_DIR"),
+            crate::config::TestEnvVar::remove("CODEX_HOME"),
+            crate::config::TestEnvVar::remove("COPILOT_HOME"),
+            crate::config::TestEnvVar::remove("DEVIN_CONFIG_DIR"),
+            crate::config::TestEnvVar::remove("KIMI_CODE_HOME"),
+            crate::config::TestEnvVar::remove("CURSOR_CONFIG_DIR"),
+            crate::config::TestEnvVar::remove("QODER_CONFIG_DIR"),
+            crate::config::TestEnvVar::remove("HOME"),
+            crate::config::TestEnvVar::remove("PATH"),
+        ]
+    }
+
+    #[test]
+    fn install_integration_message_tells_users_to_restart_affected_panes() {
+        let _lock = crate::integration::integration_env_lock();
+        let _env = clear_integration_path_env();
+        let path = temp_config_path("install-integration-restart-guidance");
+        let base = path.parent().unwrap().to_path_buf();
+        let home = base.join("home");
+        let codex_dir = base.join(".codex");
+        let bin = base.join("bin");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&codex_dir).unwrap();
+        std::fs::create_dir_all(&bin).unwrap();
+        let _home_env = crate::config::TestEnvVar::set("HOME", &home);
+        let _codex_home_env = crate::config::TestEnvVar::set("CODEX_HOME", &codex_dir);
+        let _path_env = crate::config::TestEnvVar::set("PATH", &bin);
+
+        let mut app = test_app();
+        crate::app::input::open_settings_at(&mut app.state, state::SettingsSection::Integrations);
+        app.install_integration(crate::api::schema::IntegrationTarget::Codex);
+
+        let restart_guidance =
+            "restart affected panes so already-running agents load the updated hook/extension";
+        assert_eq!(app.state.integration_install_messages[0], "installed codex");
+        assert!(
+            app.state
+                .integration_install_messages
+                .iter()
+                .any(|message| message == restart_guidance),
+            "expected restart guidance in install messages, got {:?}",
+            app.state.integration_install_messages
+        );
+        rendered_text_point_at_or_after_row(&app, restart_guidance, 0, 120, 32);
+
+        let _ = std::fs::remove_dir_all(base);
     }
 
     fn test_snapshot(

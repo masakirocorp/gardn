@@ -2891,7 +2891,7 @@ impl AppState {
 
     pub(crate) fn global_menu_item_has_badge(&self, item: &str) -> bool {
         (item == "update ready" && self.update_available.is_some())
-            || (item == "settings" && self.integration_updates_available())
+            || (item == "update integrations" && self.integration_updates_available())
     }
 
     pub(crate) fn focused_pane_requests_mouse_capture_from_view(

@@ -2,7 +2,7 @@
 // managed by hako; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=opencode
-// HAKO_INTEGRATION_VERSION=5
+// HAKO_INTEGRATION_VERSION=6
 
 import net from "node:net";
 
@@ -31,6 +31,26 @@ let pendingIdleTimer;
 let pendingIdleKey;
 let primarySessionID;
 let primaryBusy = false;
+function clearPrimarySessionRuntime() {
+  primaryBusy = false;
+  busyChildren.clear();
+  backgroundChildren.clear();
+  activeTasks.clear();
+  pendingPermissionIDs.clear();
+  anonymousPermissions.clear();
+  anonymousActiveTasks = 0;
+  cancelPendingIdle();
+}
+
+function setPrimarySession(sessionID) {
+  if (!sessionID || primarySessionID === sessionID) {
+    return;
+  }
+
+  primarySessionID = sessionID;
+  clearPrimarySessionRuntime();
+}
+
 
 function sessionIDFromProperties(properties) {
   return typeof properties?.sessionID === "string" && properties.sessionID
@@ -43,7 +63,7 @@ function parentIDFromProperties(properties) {
   return typeof parentID === "string" && parentID ? parentID : undefined;
 }
 
-function rememberSession(sessionID, properties) {
+function rememberSession(sessionID, properties, focusPrimary = false) {
   if (!sessionID) {
     return;
   }
@@ -53,8 +73,8 @@ function rememberSession(sessionID, properties) {
   const status = properties?.status?.type ?? previous.status;
   sessions.set(sessionID, { parentID, status });
 
-  if (!primarySessionID && !parentID) {
-    primarySessionID = sessionID;
+  if (!parentID && (!primarySessionID || focusPrimary)) {
+    setPrimarySession(sessionID);
   }
 }
 
@@ -379,6 +399,7 @@ async function handleEvent(event) {
     rememberSession(
       sessionID,
       type === "session.idle" ? { ...properties, status: { type: "idle" } } : properties,
+      type === "session.created" || type === "session.updated",
     );
     reconcileKnownSessionState();
   }

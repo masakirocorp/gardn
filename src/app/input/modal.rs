@@ -71,6 +71,7 @@ pub(super) fn modal_action_from_buttons<A: Copy>(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GlobalMenuAction {
     Detach,
+    UpdateIntegrations,
     WhatsNew,
     Keybinds,
     ReloadConfig,
@@ -83,6 +84,9 @@ pub(crate) fn global_menu_actions(state: &AppState) -> Vec<GlobalMenuAction> {
         GlobalMenuAction::Keybinds,
         GlobalMenuAction::ReloadConfig,
     ];
+    if state.integration_updates_available() {
+        actions.push(GlobalMenuAction::UpdateIntegrations);
+    }
     if state.update_available.is_some() || state.latest_release_notes_available {
         actions.push(GlobalMenuAction::WhatsNew);
     }
@@ -149,6 +153,10 @@ pub(super) fn apply_global_menu_action(state: &mut AppState, action: GlobalMenuA
             request_detach(state);
         }
         GlobalMenuAction::WhatsNew => open_update_release_notes(state),
+        GlobalMenuAction::UpdateIntegrations => super::settings::open_settings_at(
+            state,
+            crate::app::state::SettingsSection::Integrations,
+        ),
         GlobalMenuAction::Keybinds => open_keybind_help(state),
         GlobalMenuAction::ReloadConfig => {
             state.request_reload_config = true;
@@ -1271,6 +1279,45 @@ mod tests {
                 .as_nanos()
         );
         std::env::temp_dir().join(unique).join("config.toml")
+    }
+
+    fn outdated_codex_recommendation() -> crate::integration::IntegrationRecommendation {
+        crate::integration::IntegrationRecommendation {
+            target: crate::api::schema::IntegrationTarget::Codex,
+            label: "codex",
+            command: "codex",
+            available: true,
+            path: std::path::PathBuf::from("/tmp/hako-test-codex"),
+            state: crate::integration::IntegrationStatusKind::Outdated,
+        }
+    }
+
+    #[test]
+    fn global_menu_update_integrations_entry_opens_integrations_settings() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.integration_recommendations = vec![outdated_codex_recommendation()];
+
+        let labels = state.global_menu_labels();
+        let update_integrations_idx = labels
+            .iter()
+            .position(|label| *label == "update integrations")
+            .expect("outdated integration should surface a distinct global menu entry");
+        assert_ne!(labels[update_integrations_idx], "settings");
+        assert!(!state.global_menu_item_has_badge("settings"));
+        assert!(state.global_menu_item_has_badge("update integrations"));
+
+        open_global_menu(&mut state);
+        state.global_menu.highlighted = update_integrations_idx;
+        handle_global_menu_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.mode, Mode::Settings);
+        assert_eq!(
+            state.settings.section,
+            crate::app::state::SettingsSection::Integrations
+        );
     }
 
     #[test]

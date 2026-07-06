@@ -128,7 +128,7 @@ const DROID_REMOVED_LIFECYCLE_HOOK_EVENTS: [(&str, &str); 9] = [
 ];
 const OPENCODE_PLUGIN_INSTALL_NAME: &str = "hako-agent-state.js";
 const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/hako-agent-state.js");
-const OPENCODE_INTEGRATION_VERSION: u32 = 5;
+const OPENCODE_INTEGRATION_VERSION: u32 = 6;
 const HERMES_PLUGIN_INSTALL_NAME: &str = "hako-agent-state";
 const HERMES_PLUGIN_MANIFEST_INSTALL_NAME: &str = "plugin.yaml";
 const HERMES_PLUGIN_INIT_INSTALL_NAME: &str = "__init__.py";
@@ -4718,7 +4718,7 @@ mod tests {
                 .join(OPENCODE_PLUGIN_INSTALL_NAME)
         );
         assert_eq!(plugin_content, OPENCODE_PLUGIN_ASSET);
-        assert!(plugin_content.contains("HAKO_INTEGRATION_VERSION=5"));
+        assert!(plugin_content.contains("HAKO_INTEGRATION_VERSION=6"));
         assert!(plugin_content.contains("Math.max(reportSeq + 1, Date.now() * 1000)"));
         assert!(plugin_content.contains("pane.report_agent_session"));
         assert!(plugin_content.contains("pane.report_agent"));
@@ -5035,6 +5035,13 @@ model: auto
             !OMP_EXTENSION_ASSET.contains(stale_session_ref_freeze),
             "OMP extension must refresh session refs on later session_start after /resume or a session switch"
         );
+        assert!(
+            !OPENCODE_PLUGIN_ASSET.contains("if (!primarySessionID && !parentID)"),
+            "OpenCode plugin must not freeze the first top-level session forever"
+        );
+        assert!(OPENCODE_PLUGIN_ASSET.contains("setPrimarySession(sessionID)"));
+        assert!(OPENCODE_PLUGIN_ASSET
+            .contains("type === \"session.created\" || type === \"session.updated\""));
         assert!(CLAUDE_HOOK_ASSET.contains("agent_session_id"));
         assert!(CODEX_HOOK_ASSET.contains("HAKO_HOOK_INPUT_FILE"));
         assert!(CODEX_HOOK_ASSET.contains("agent_session_id"));
