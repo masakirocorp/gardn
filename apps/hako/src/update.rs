@@ -18,9 +18,7 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 const GITHUB_LATEST_RELEASE_API_URL: &str =
     "https://api.github.com/repos/masakirocorp/hako/releases/latest";
-const HOMEBREW_FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula/hako.json";
 const HAKO_UPDATE_COMMAND: &str = "hako update";
-const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade hako";
 const MISE_UPDATE_COMMAND: &str = "mise upgrade hako";
 const NIX_UPDATE_COMMAND: &str = "update through Nix";
 const MISE_INSTALLS_DIR_ENV: &str = "MISE_INSTALLS_DIR";
@@ -76,16 +74,6 @@ impl std::fmt::Display for Version {
 // ---------------------------------------------------------------------------
 // Release sources
 // ---------------------------------------------------------------------------
-
-#[derive(Deserialize)]
-struct HomebrewFormula {
-    versions: HomebrewFormulaVersions,
-}
-
-#[derive(Deserialize)]
-struct HomebrewFormulaVersions {
-    stable: String,
-}
 
 #[derive(Deserialize)]
 struct GitHubRelease {
@@ -187,29 +175,6 @@ fn github_release_notes_body(release: &GitHubRelease, version: &Version) -> Stri
         .unwrap_or_else(|| format!("Hako v{version}"))
 }
 
-fn release_notes_body_from_github_release_for_version(
-    release: &GitHubRelease,
-    version: &Version,
-) -> Result<Option<String>, String> {
-    let release_version = Version::parse(&release.tag_name).ok_or_else(|| {
-        format!(
-            "invalid version in latest GitHub release: {}",
-            release.tag_name
-        )
-    })?;
-    if release_version != *version {
-        return Ok(None);
-    }
-    Ok(Some(github_release_notes_body(release, version)))
-}
-
-fn fetch_github_release_notes_body_for_version(
-    version: &Version,
-) -> Result<Option<String>, String> {
-    let release = fetch_github_latest_release()?;
-    release_notes_body_from_github_release_for_version(&release, version)
-}
-
 fn release_info_from_github_release(
     release: &GitHubRelease,
 ) -> Result<Option<ReleaseInfo>, String> {
@@ -246,46 +211,6 @@ fn release_info_from_github_release(
 fn check_latest() -> Result<Option<ReleaseInfo>, String> {
     let github_release = fetch_github_latest_release()?;
     release_info_from_github_release(&github_release)
-}
-
-fn parse_homebrew_formula_stable_version(input: &[u8]) -> Result<Version, String> {
-    let formula: HomebrewFormula = serde_json::from_slice(input)
-        .map_err(|e| format!("failed to parse Homebrew formula JSON: {e}"))?;
-    Version::parse(&formula.versions.stable).ok_or_else(|| {
-        format!(
-            "invalid stable version in Homebrew formula JSON: {}",
-            formula.versions.stable
-        )
-    })
-}
-
-fn check_homebrew_latest() -> Result<Option<Version>, String> {
-    let current = Version::current();
-
-    let output = Command::new("curl")
-        .args([
-            "-sfL",
-            "--retry",
-            "2",
-            "--connect-timeout",
-            "5",
-            "--max-time",
-            "10",
-            HOMEBREW_FORMULA_API_URL,
-        ])
-        .output()
-        .map_err(|e| format!("curl failed: {e}"))?;
-
-    if !output.status.success() {
-        return Ok(None);
-    }
-
-    let latest = parse_homebrew_formula_stable_version(&output.stdout)?;
-    if latest <= current {
-        return Ok(None);
-    }
-
-    Ok(Some(latest))
 }
 
 // ---------------------------------------------------------------------------
@@ -1396,9 +1321,7 @@ fn print_running_session_update_outcomes(
 // ---------------------------------------------------------------------------
 
 pub(crate) fn update_install_command() -> &'static str {
-    if is_homebrew_managed_install() {
-        HOMEBREW_UPDATE_COMMAND
-    } else if is_mise_managed_install() {
+    if is_mise_managed_install() {
         MISE_UPDATE_COMMAND
     } else if is_nix_managed_install() {
         NIX_UPDATE_COMMAND
@@ -1412,9 +1335,6 @@ pub(crate) fn update_install_instruction(install_command: &str) -> String {
         HAKO_UPDATE_COMMAND => {
             "detach, run `hako update`, then follow its restart guidance".to_string()
         }
-        HOMEBREW_UPDATE_COMMAND => {
-            "detach, run `brew update && brew upgrade hako`, then restart this Hako session when ready".to_string()
-        }
         MISE_UPDATE_COMMAND => {
             "detach, run `mise upgrade hako`, then restart this Hako session when ready".to_string()
         }
@@ -1423,20 +1343,6 @@ pub(crate) fn update_install_instruction(install_command: &str) -> String {
         }
         command => format!("detach, run `{command}`, then restart this Hako session when ready"),
     }
-}
-
-fn is_homebrew_managed_install() -> bool {
-    let Ok(current_exe) = env::current_exe() else {
-        return false;
-    };
-
-    if is_homebrew_managed_exe_path(&current_exe) {
-        return true;
-    }
-
-    current_exe
-        .canonicalize()
-        .is_ok_and(|path| is_homebrew_managed_exe_path(&path))
 }
 
 fn is_nix_managed_install() -> bool {
@@ -1535,30 +1441,6 @@ fn paths_match(left: &Path, right: &Path) -> bool {
     left == right
 }
 
-fn is_homebrew_managed_exe_path(path: &Path) -> bool {
-    homebrew_cellar_keg_root(path).is_some()
-}
-
-fn homebrew_cellar_keg_root(path: &Path) -> Option<PathBuf> {
-    if path.file_name()? != "hako" {
-        return None;
-    }
-    let bin_dir = path.parent()?;
-    if bin_dir.file_name()? != "bin" {
-        return None;
-    }
-    let version_dir = bin_dir.parent()?;
-    let formula_dir = version_dir.parent()?;
-    if formula_dir.file_name()? != "hako" {
-        return None;
-    }
-    let cellar_dir = formula_dir.parent()?;
-    if cellar_dir.file_name()? != "Cellar" {
-        return None;
-    }
-    Some(version_dir.to_path_buf())
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -1567,11 +1449,6 @@ fn homebrew_cellar_keg_root(path: &Path) -> Option<PathBuf> {
 pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
     if let Some(message) = self_update_platform_error(cfg!(windows)) {
         return Err(message.to_string());
-    }
-    if is_homebrew_managed_install() {
-        return Err(format!(
-            "self-update is disabled for Homebrew installs; run `{HOMEBREW_UPDATE_COMMAND}`"
-        ));
     }
 
     if is_mise_managed_install() {
@@ -1671,11 +1548,6 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
         return;
     }
 
-    if is_homebrew_managed_install() {
-        auto_update_homebrew(events);
-        return;
-    }
-
     let release = match check_latest() {
         Ok(Some(r)) => r,
         Ok(None) => return,
@@ -1701,44 +1573,6 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
         version: release.label().to_string(),
         install_command: update_install_command().to_string(),
     });
-}
-
-fn auto_update_homebrew(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
-    let version = match check_homebrew_latest() {
-        Ok(Some(version)) => version,
-        Ok(None) => return,
-        Err(err) => {
-            crate::logging::update_check_failed(&err);
-            return;
-        }
-    };
-
-    crate::logging::update_available(&version.to_string());
-    let notes_body = match fetch_github_release_notes_body_for_version(&version) {
-        Ok(Some(body)) => body,
-        Ok(None) => homebrew_release_notes_body(&version),
-        Err(err) => {
-            tracing::warn!("failed to fetch GitHub release notes for Homebrew update: {err}");
-            homebrew_release_notes_body(&version)
-        }
-    };
-    if let Err(e) = crate::release_notes::save_pending(&version.to_string(), &notes_body) {
-        tracing::warn!("failed to save pending release notes: {e}");
-    }
-
-    tracing::info!(
-        "auto-update check: v{} available through Homebrew, waiting for explicit install",
-        version
-    );
-
-    let _ = events.blocking_send(crate::events::AppEvent::UpdateReady {
-        version: version.to_string(),
-        install_command: update_install_command().to_string(),
-    });
-}
-
-fn homebrew_release_notes_body(version: &Version) -> String {
-    format!("### Changed\n- v{version} is available through Homebrew.")
 }
 
 // ---------------------------------------------------------------------------
@@ -1903,38 +1737,6 @@ mod tests {
     }
 
     #[test]
-    fn homebrew_cellar_path_is_detected() {
-        let path = Path::new("/opt/homebrew/Cellar/hako/0.5.9/bin/hako");
-
-        assert!(is_homebrew_managed_exe_path(path));
-        assert_eq!(
-            homebrew_cellar_keg_root(path).unwrap(),
-            PathBuf::from("/opt/homebrew/Cellar/hako/0.5.9")
-        );
-    }
-
-    #[test]
-    fn homebrew_linux_cellar_path_is_detected() {
-        let path = Path::new("/home/linuxbrew/.linuxbrew/Cellar/hako/0.5.9/bin/hako");
-
-        assert!(is_homebrew_managed_exe_path(path));
-    }
-
-    #[test]
-    fn homebrew_opt_path_requires_canonicalized_cellar_target() {
-        let path = Path::new("/opt/homebrew/opt/hako/bin/hako");
-
-        assert!(!is_homebrew_managed_exe_path(path));
-    }
-
-    #[test]
-    fn non_homebrew_path_is_not_detected() {
-        let path = Path::new("/usr/local/bin/hako");
-
-        assert!(!is_homebrew_managed_exe_path(path));
-    }
-
-    #[test]
     fn nix_store_path_is_detected() {
         let path = Path::new("/nix/store/abc123-hako-0.6.1/bin/hako");
 
@@ -1946,16 +1748,6 @@ mod tests {
         let path = Path::new("/usr/local/bin/hako");
 
         assert!(!is_nix_store_exe_path(path));
-    }
-
-    #[test]
-    fn parse_homebrew_formula_stable_version_reads_versions_stable() {
-        let version = parse_homebrew_formula_stable_version(
-            br#"{"versions":{"stable":"0.5.10","head":"HEAD","bottle":true}}"#,
-        )
-        .unwrap();
-
-        assert_eq!(version, Version::parse("0.5.10").unwrap());
     }
 
     #[test]
@@ -2031,10 +1823,6 @@ mod tests {
         assert_eq!(
             update_install_instruction(HAKO_UPDATE_COMMAND),
             "detach, run `hako update`, then follow its restart guidance"
-        );
-        assert_eq!(
-            update_install_instruction(HOMEBREW_UPDATE_COMMAND),
-            "detach, run `brew update && brew upgrade hako`, then restart this Hako session when ready"
         );
         assert_eq!(
             update_install_instruction(MISE_UPDATE_COMMAND),
@@ -2566,32 +2354,6 @@ mod tests {
         assert_eq!(info.version, Version::parse("99.99.99").unwrap());
         assert_eq!(info.download_url, "https://example.com/hako");
         assert_eq!(info.notes_body, "### Changed\n- GitHub release");
-    }
-
-    #[test]
-    fn release_notes_body_from_github_release_requires_matching_version() {
-        let release = GitHubRelease {
-            tag_name: "1.2.3".to_string(),
-            body: Some("### Changed\n- Real release notes".to_string()),
-            assets: Vec::new(),
-        };
-
-        assert_eq!(
-            release_notes_body_from_github_release_for_version(
-                &release,
-                &Version::parse("1.2.3").unwrap()
-            )
-            .unwrap(),
-            Some("### Changed\n- Real release notes".to_string())
-        );
-        assert_eq!(
-            release_notes_body_from_github_release_for_version(
-                &release,
-                &Version::parse("1.2.4").unwrap()
-            )
-            .unwrap(),
-            None
-        );
     }
 
     #[test]

@@ -5747,18 +5747,12 @@ mod tests {
 
         state.handle_app_event(AppEvent::UpdateReady {
             version: "0.5.0".into(),
-            install_command: "brew update && brew upgrade hako".into(),
+            install_command: "custom upgrade hako".into(),
         });
 
-        assert_eq!(
-            state.update_install_command,
-            "brew update && brew upgrade hako"
-        );
+        assert_eq!(state.update_install_command, "custom upgrade hako");
         let toast = state.toast.as_ref().expect("update toast");
-        assert_eq!(
-            toast.context,
-            "detach, then run `brew update && brew upgrade hako`"
-        );
+        assert_eq!(toast.context, "detach, then run `custom upgrade hako`");
     }
 
     #[test]

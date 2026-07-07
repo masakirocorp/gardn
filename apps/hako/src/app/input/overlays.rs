@@ -829,7 +829,7 @@ mod tests {
             scroll: 0,
             preview: true,
         });
-        app.state.update_install_command = "brew update && brew upgrade hako".into();
+        app.state.update_install_command = "hako update".into();
 
         let inner = app.state.release_notes_modal_inner().unwrap();
         let expected_body = crate::ui::modal_stack_areas(inner, 2, 1, 0, 1).content;

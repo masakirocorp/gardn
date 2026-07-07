@@ -373,11 +373,11 @@ Configurable areas include:
 
 ## Updates and release notes
 
-Direct installs use GitHub Releases for update checks, release metadata, and binary downloads on Linux, macOS, and Windows. Homebrew-managed installs check Homebrew availability and should update through Homebrew; mise and Nix-managed installs are routed to their package manager instead of self-update.
+Direct installs use GitHub Releases for update checks, release metadata, and binary downloads on Linux, macOS, and Windows. mise and Nix-managed installs are routed to their package manager instead of self-update.
 
 - The app can notify when a new release or managed-install update is available.
 - `hako update` downloads and swaps supported direct binary installs.
-- Homebrew, mise, and Nix-managed installs are blocked from self-update and should use their package manager.
+- mise and Nix-managed installs are blocked from self-update and should use their package manager.
 - Live handoff can preserve running pane processes during updates when both the old and new server support the handoff protocol.
 - Windows direct updates use the stable `hako-windows-x86_64.exe` release asset; Hako does not use a preview channel.
 - In-app release notes can be shown after an update.
