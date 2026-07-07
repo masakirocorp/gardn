@@ -6,7 +6,7 @@ use ratatui::{
 
 use crate::app::{
     state::{AppState, DragState, DragTarget, Mode, NavigatorTarget},
-    App,
+    App, ClientViewState,
 };
 
 use super::{
@@ -244,6 +244,200 @@ impl App {
         }
 
         false
+    }
+}
+
+impl App {
+    pub(crate) fn handle_client_view_overlay_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: MouseEvent,
+    ) -> bool {
+        let mut view_state = self.state.clone();
+        Self::sync_app_state_view_fields(&mut view_state, client_view);
+
+        match client_view.mode {
+            Mode::ReleaseNotes => {
+                handle_release_notes_mouse_for_state(&mut view_state, mouse);
+            }
+            Mode::ProductAnnouncement => {
+                handle_product_announcement_mouse_for_state(&mut view_state, mouse);
+            }
+            Mode::KeybindHelp => {
+                handle_keybind_help_mouse_for_state(&mut view_state, mouse);
+            }
+            _ => return false,
+        }
+
+        client_view.mode = view_state.mode;
+        client_view.drag = view_state.drag;
+        client_view.release_notes = view_state.release_notes;
+        client_view.product_announcement = view_state.product_announcement;
+        client_view.keybind_help = view_state.keybind_help;
+        true
+    }
+}
+
+fn handle_release_notes_mouse_for_state(state: &mut AppState, mouse: MouseEvent) {
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left)
+            if state.release_notes_close_button_at(mouse.column, mouse.row) =>
+        {
+            leave_modal(state);
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            if let Some(target) = state.release_notes_scrollbar_target_at(mouse.column, mouse.row) {
+                match target {
+                    ScrollbarClickTarget::Thumb { grab_row_offset } => {
+                        state.drag = Some(DragState {
+                            target: DragTarget::ReleaseNotesScrollbar { grab_row_offset },
+                        });
+                    }
+                    ScrollbarClickTarget::Track { offset_from_bottom } => {
+                        state.set_release_notes_offset_from_bottom(offset_from_bottom);
+                    }
+                }
+            } else if !rect_contains(state.release_notes_popup_rect(), mouse.column, mouse.row) {
+                leave_modal(state);
+            }
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            if let Some(DragState {
+                target: DragTarget::ReleaseNotesScrollbar { grab_row_offset },
+            }) = &state.drag
+            {
+                if let Some(offset_from_bottom) =
+                    state.release_notes_offset_for_drag_row(mouse.row, *grab_row_offset)
+                {
+                    state.set_release_notes_offset_from_bottom(offset_from_bottom);
+                }
+            }
+        }
+        MouseEventKind::Up(MouseButton::Left) => {
+            state.drag = None;
+        }
+        MouseEventKind::ScrollUp => scroll_release_notes_for_state(state, -MODAL_WHEEL_SCROLL_ROWS),
+        MouseEventKind::ScrollDown => {
+            scroll_release_notes_for_state(state, MODAL_WHEEL_SCROLL_ROWS)
+        }
+        _ => {}
+    }
+}
+
+fn handle_product_announcement_mouse_for_state(state: &mut AppState, mouse: MouseEvent) {
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left)
+            if state.product_announcement_close_button_at(mouse.column, mouse.row) =>
+        {
+            leave_modal(state);
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            if let Some(target) =
+                state.product_announcement_scrollbar_target_at(mouse.column, mouse.row)
+            {
+                match target {
+                    ScrollbarClickTarget::Thumb { grab_row_offset } => {
+                        state.drag = Some(DragState {
+                            target: DragTarget::ProductAnnouncementScrollbar { grab_row_offset },
+                        });
+                    }
+                    ScrollbarClickTarget::Track { offset_from_bottom } => {
+                        state.set_product_announcement_offset_from_bottom(offset_from_bottom);
+                    }
+                }
+            }
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            if let Some(DragState {
+                target: DragTarget::ProductAnnouncementScrollbar { grab_row_offset },
+            }) = &state.drag
+            {
+                if let Some(offset_from_bottom) =
+                    state.product_announcement_offset_for_drag_row(mouse.row, *grab_row_offset)
+                {
+                    state.set_product_announcement_offset_from_bottom(offset_from_bottom);
+                }
+            }
+        }
+        MouseEventKind::Up(MouseButton::Left) => {
+            state.drag = None;
+        }
+        MouseEventKind::ScrollUp => {
+            scroll_product_announcement_for_state(state, -MODAL_WHEEL_SCROLL_ROWS)
+        }
+        MouseEventKind::ScrollDown => {
+            scroll_product_announcement_for_state(state, MODAL_WHEEL_SCROLL_ROWS)
+        }
+        _ => {}
+    }
+}
+
+fn handle_keybind_help_mouse_for_state(state: &mut AppState, mouse: MouseEvent) {
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left)
+            if state.keybind_help_close_button_at(mouse.column, mouse.row) =>
+        {
+            leave_modal(state);
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            if let Some(target) = state.keybind_help_scrollbar_target_at(mouse.column, mouse.row) {
+                match target {
+                    ScrollbarClickTarget::Thumb { grab_row_offset } => {
+                        state.drag = Some(DragState {
+                            target: DragTarget::KeybindHelpScrollbar { grab_row_offset },
+                        });
+                    }
+                    ScrollbarClickTarget::Track { offset_from_bottom } => {
+                        state.set_keybind_help_offset_from_bottom(offset_from_bottom);
+                    }
+                }
+            } else if !rect_contains(state.keybind_help_popup_rect(), mouse.column, mouse.row) {
+                leave_modal(state);
+            }
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            if let Some(DragState {
+                target: DragTarget::KeybindHelpScrollbar { grab_row_offset },
+            }) = &state.drag
+            {
+                if let Some(offset_from_bottom) =
+                    state.keybind_help_offset_for_drag_row(mouse.row, *grab_row_offset)
+                {
+                    state.set_keybind_help_offset_from_bottom(offset_from_bottom);
+                }
+            }
+        }
+        MouseEventKind::Up(MouseButton::Left) => {
+            state.drag = None;
+        }
+        MouseEventKind::ScrollUp => state.scroll_keybind_help(-MODAL_WHEEL_SCROLL_ROWS),
+        MouseEventKind::ScrollDown => state.scroll_keybind_help(MODAL_WHEEL_SCROLL_ROWS),
+        _ => {}
+    }
+}
+
+fn scroll_release_notes_for_state(state: &mut AppState, delta: i16) {
+    let max_scroll = state.release_notes_max_scroll();
+    if let Some(notes) = &mut state.release_notes {
+        notes.scroll = if delta.is_negative() {
+            notes.scroll.saturating_sub(delta.unsigned_abs())
+        } else {
+            notes.scroll.saturating_add(delta as u16).min(max_scroll)
+        };
+    }
+}
+
+fn scroll_product_announcement_for_state(state: &mut AppState, delta: i16) {
+    let max_scroll = state.product_announcement_max_scroll();
+    if let Some(announcement) = &mut state.product_announcement {
+        announcement.scroll = if delta.is_negative() {
+            announcement.scroll.saturating_sub(delta.unsigned_abs())
+        } else {
+            announcement
+                .scroll
+                .saturating_add(delta as u16)
+                .min(max_scroll)
+        };
     }
 }
 

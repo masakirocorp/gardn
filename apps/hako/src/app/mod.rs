@@ -3636,6 +3636,10 @@ impl App {
             return;
         }
 
+        if self.handle_client_view_overlay_mouse(client_view, mouse) {
+            return;
+        }
+
         if self.handle_client_view_settings_mouse(client_view, mouse) {
             return;
         }
@@ -9035,6 +9039,160 @@ mod tests {
         assert_eq!(first_client.mode, Mode::KeybindHelp);
         assert_eq!(second_client.mode, Mode::Terminal);
         assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn route_client_events_for_view_keybind_help_mouse_scroll_and_close_stay_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::KeybindHelp;
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let mut view_state = client_local_app_state(&app, &client);
+        view_state.keybind_help = client.keybind_help.clone();
+        assert!(
+            view_state.keybind_help_max_scroll() > 0,
+            "test fixture should make keybind help scrollable"
+        );
+        let popup = crate::ui::centered_popup_rect(client.screen_rect(), 76, 22)
+            .expect("keybind help popup");
+        let scroll_col = popup.x + popup.width / 2;
+        let scroll_row = popup.y + popup.height / 2;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::ScrollDown,
+                scroll_col,
+                scroll_row,
+            )],
+            true,
+        );
+
+        assert!(client.keybind_help.scroll > 0);
+        assert_eq!(client.mode, Mode::KeybindHelp);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(app.state.keybind_help.scroll, 0);
+
+        let popup = crate::ui::centered_popup_rect(client.screen_rect(), 76, 22)
+            .expect("keybind help popup");
+        let inner = ratatui::layout::Rect::new(
+            popup.x + 1,
+            popup.y + 1,
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
+        );
+        let close = crate::ui::release_notes_close_button_rect(ratatui::layout::Rect::new(
+            inner.x,
+            inner.y,
+            inner.width,
+            1,
+        ));
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                close.x + close.width / 2,
+                close.y,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(app.state.keybind_help.scroll, 0);
+    }
+
+    #[test]
+    fn route_client_events_for_view_release_notes_mouse_scroll_and_close_stay_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let body = (0..80)
+            .map(|idx| {
+                format!(
+                    "### Release note {idx}\n- Client overlay mouse routing regression line {idx}"
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        client.mode = Mode::ReleaseNotes;
+        client.release_notes = Some(state::ReleaseNotesState {
+            version: "test-release".into(),
+            body,
+            scroll: 0,
+            preview: false,
+        });
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let mut view_state = client_local_app_state(&app, &client);
+        view_state.release_notes = client.release_notes.clone();
+        assert!(
+            view_state.release_notes_max_scroll() > 0,
+            "test fixture should make release notes scrollable"
+        );
+        let popup = crate::ui::centered_popup_rect(
+            client.screen_rect(),
+            crate::ui::RELEASE_NOTES_MODAL_SIZE.0,
+            crate::ui::RELEASE_NOTES_MODAL_SIZE.1,
+        )
+        .expect("release notes popup");
+        let scroll_col = popup.x + popup.width / 2;
+        let scroll_row = popup.y + popup.height / 2;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::ScrollDown,
+                scroll_col,
+                scroll_row,
+            )],
+            true,
+        );
+
+        assert!(client.release_notes.as_ref().unwrap().scroll > 0);
+        assert_eq!(client.mode, Mode::ReleaseNotes);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(app.state.release_notes.is_none());
+
+        let inner = ratatui::layout::Rect::new(
+            popup.x + 1,
+            popup.y + 1,
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
+        );
+        let close = crate::ui::release_notes_close_button_rect(ratatui::layout::Rect::new(
+            inner.x,
+            inner.y,
+            inner.width,
+            1,
+        ));
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                close.x + close.width / 2,
+                close.y,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(app.state.release_notes.is_none());
     }
 
     #[test]
