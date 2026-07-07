@@ -109,7 +109,7 @@ install_copilot_real_hooks() {
   local home="$workdir/copilot-real/home"
   local hook="$home/hooks/hako-agent-state.sh"
   mkdir -p "$home/hooks"
-  cp "$repo_dir/src/integration/assets/copilot/hako-agent-state.sh" "$hook"
+  cp "$repo_dir/apps/hako/src/integration/assets/copilot/hako-agent-state.sh" "$hook"
   chmod +x "$hook"
   cat > "$home/settings.json" <<EOF_COPILOT
 {
@@ -129,7 +129,7 @@ EOF_COPILOT
 }
 
 install_droid_real_hooks() {
-  local hook="$repo_dir/src/integration/assets/droid/hako-agent-state.sh"
+  local hook="$repo_dir/apps/hako/src/integration/assets/droid/hako-agent-state.sh"
   local settings="${FACTORY_HOME:-$HOME/.factory}/settings.json"
   python3 - "$settings" "$hook" <<'PY'
 import json, sys
@@ -156,7 +156,7 @@ PY
 }
 
 install_kimi_real_hooks() {
-  local hook="$repo_dir/src/integration/assets/kimi/hako-agent-state.sh"
+  local hook="$repo_dir/apps/hako/src/integration/assets/kimi/hako-agent-state.sh"
   local config="${KIMI_CODE_HOME:-$HOME/.kimi-code}/config.toml"
   cat >> "$config" <<EOF_KIMI_HOOKS
 
@@ -404,8 +404,8 @@ install_hermes_real_plugin() {
   local dir="$HOME/.hermes"
   local plugin_dir="$dir/plugins/hako-agent-state"
   mkdir -p "$plugin_dir"
-  cp "$repo_dir/src/integration/assets/hermes/__init__.py" "$plugin_dir/__init__.py"
-  cp "$repo_dir/src/integration/assets/hermes/plugin.yaml" "$plugin_dir/plugin.yaml"
+  cp "$repo_dir/apps/hako/src/integration/assets/hermes/__init__.py" "$plugin_dir/__init__.py"
+  cp "$repo_dir/apps/hako/src/integration/assets/hermes/plugin.yaml" "$plugin_dir/plugin.yaml"
   python3 - "$dir/config.yaml" <<'PY'
 import sys
 from pathlib import Path
@@ -462,7 +462,7 @@ send_shell_hook() {
   local pane_id="$2"
   local action="$3"
   local payload="$4"
-  local hook="$repo_dir/src/integration/assets/$agent/hako-agent-state.sh"
+  local hook="$repo_dir/apps/hako/src/integration/assets/$agent/hako-agent-state.sh"
   HAKO_ENV=1 \
   HAKO_SOCKET_PATH="$socket_path" \
   HAKO_PANE_ID="$pane_id" \
@@ -479,7 +479,7 @@ send_devin_hook() {
   local project_dir="$2"
   local list_json="$3"
   local payload="$4"
-  local hook="$repo_dir/src/integration/assets/devin/hako-agent-state.sh"
+  local hook="$repo_dir/apps/hako/src/integration/assets/devin/hako-agent-state.sh"
   HAKO_ENV=1 \
   HAKO_SOCKET_PATH="$socket_path" \
   HAKO_PANE_ID="$pane_id" \
@@ -496,7 +496,7 @@ send_hermes_hook() {
   HAKO_SOCKET_PATH="$socket_path" \
   HAKO_PANE_ID="$pane_id" \
   HERMES_HOME="$workdir/hermes-home" \
-  HERMES_PLUGIN_PATH="$repo_dir/src/integration/assets/hermes/__init__.py" \
+  HERMES_PLUGIN_PATH="$repo_dir/apps/hako/src/integration/assets/hermes/__init__.py" \
   HERMES_FN="$fn_name" \
   HERMES_SESSION_ID="$session_id" \
   python3 - <<'PY'

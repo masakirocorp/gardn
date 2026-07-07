@@ -12,7 +12,7 @@ fi
 
 model="$HAKO_SMOKE_ACTIVE_MODEL"
 repo_dir="${HAKO_REPO_DIR:-/repo}"
-hook_path="$repo_dir/src/integration/assets/claude/hako-agent-state.sh"
+hook_path="$repo_dir/apps/hako/src/integration/assets/claude/hako-agent-state.sh"
 workdir="${HAKO_CLAUDE_STATUS_SMOKE_DIR:-$(mktemp -d)}"
 socket_path="$workdir/hako.sock"
 request_log="$workdir/hako-requests.jsonl"

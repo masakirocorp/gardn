@@ -50,7 +50,7 @@ class QoderProxyStatusSmokeValidationTests(unittest.TestCase):
             lib_dir = tmp_path / "lib"
             smoke_dir = tmp_path / "smoke"
             repo_dir = tmp_path / "repo"
-            hook_dir = repo_dir / "src" / "integration" / "assets" / "qodercli"
+            hook_dir = repo_dir / "apps" / "hako" / "src" / "integration" / "assets" / "qodercli"
             bin_dir.mkdir()
             lib_dir.mkdir()
             smoke_dir.mkdir()

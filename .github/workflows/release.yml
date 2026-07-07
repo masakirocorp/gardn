@@ -79,7 +79,7 @@ jobs:
       - name: Verify tag matches Cargo.toml version
         shell: bash
         run: |
-          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          CARGO_VERSION=$(grep '^version' apps/hako/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
             echo "error: tag $GITHUB_REF_NAME doesn't match Cargo.toml version $CARGO_VERSION"
@@ -148,7 +148,7 @@ jobs:
 
       - name: Remove Zig caches
         shell: bash
-        run: rm -rf .zig-cache vendor/libghostty-vt/.zig-cache vendor/libghostty-vt/zig-out
+        run: rm -rf .zig-cache apps/hako/vendor/libghostty-vt/.zig-cache apps/hako/vendor/libghostty-vt/zig-out
 
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}

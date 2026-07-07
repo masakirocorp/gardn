@@ -1,0 +1,10 @@
+{
+  "name": "@hako/app",
+  "private": true,
+  "scripts": {
+    "build": "cargo build --locked --bin hako",
+    "check": "cd ../.. && just check",
+    "lint": "cargo fmt --check && CARGO_INCREMENTAL=0 cargo clippy --all-targets --locked -- -D warnings",
+    "test": "cargo test --locked --bin hako"
+  }
+}

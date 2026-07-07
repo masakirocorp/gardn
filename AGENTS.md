@@ -7,7 +7,7 @@ Terminal workspace manager for AI coding agents. Rust + ratatui.
 - **State is separated from runtime.** `AppState` is pure data, testable without PTYs or async. `PaneState` is separate from `PaneRuntime`. Workspace logic doesn't need real terminals.
 - **Render is pure.** `compute_view()` handles geometry and mutations. `render()` takes `&AppState` and only draws. Never mutate state during render.
 - **No god objects.** If a module is doing too many things, split it. `app/` is already split into state, actions, and input. Keep it that way.
-- **Platform code is isolated.** OS-specific behavior lives in `src/platform/`. Core modules don't have `#[cfg(target_os)]`.
+- **Platform code is isolated.** OS-specific behavior lives in `apps/hako/src/platform/`. Core modules don't have `#[cfg(target_os)]`.
 - **Detection is decoupled.** The detector reads a screen snapshot, never touches the parser or viewport state.
 - **UI patterns should be reused.** Hako is a mouse-first TUI. New dialogs, onboarding, settings, and post-update flows should follow the existing UI/UX language and interaction patterns instead of inventing one-off screens. Prefer reusing existing modal/screen structure, affordances, and close actions so the app feels consistent.
 
@@ -50,7 +50,7 @@ This repo is a long-lived Masakiro product fork of `ogulcancelik/herdr`, branded
 - Treat upstream as signal, not authority: port behavior, not trust.
 - For every upstream port, identify the invariant the change protects, check whether Hako has the same context, add or adjust tests in Hako for that invariant, and only then merge.
 - Review `sync-report.md` in every upstream-sync PR. It calls out Hako-owned files, sensitive plumbing, and forbidden upstream identity/plumbing that must not be resurrected silently.
-- Hako-owned files are intentionally protected in `.gitattributes` with `merge=keep-hako`: `README.md`, `AGENTS.md`, `SKILL.md`, `assets/logo.svg`, `docs/**`, and `website/**`. Do not ignore these paths during upstream syncs; review upstream changes against Hako's custom product/docs/site direction.
+- Hako-owned files are intentionally protected in `.gitattributes` with `merge=keep-hako`: `README.md`, `AGENTS.md`, `SKILL.md`, `apps/hako/assets/logo.svg`, `docs/**`, and `website/**`. Do not ignore these paths during upstream syncs; review upstream changes against Hako's custom product/docs/site direction.
 - If an upstream sync conflicts, resolve toward Hako product identity first, rerun `python3 scripts/guard_upstream_sync.py --base origin/master --upstream upstream/master --head HEAD`, then run `just check`.
 - Upstream-sync PRs must pass PR CI before merge. After merge, watch the `master` CI run too; push a follow-up fix if trunk CI exposes a platform-only failure.
 
@@ -148,6 +148,6 @@ The release workflow must publish these four assets:
 
 When updating local binaries, build release and debug binaries, copy them to `~/.local/bin/hako` and `~/.local/bin/hako-dev`, codesign both on macOS, and stop the `hako-dev` server so the next launch uses the new binary. Run `cargo clean` after installing local binaries to avoid accumulating large debug build artifacts.
 
-When changing the server/client wire protocol, compare `src/protocol/wire.rs::PROTOCOL_VERSION` against the latest Hako release tag. Bump it only if the current source protocol is not already greater than the latest released protocol. Multiple unreleased wire changes in the same release cycle must share the same single protocol bump; Hako supports tagged releases, not arbitrary `master` client/server compatibility. When a bump is required, update all hardcoded protocol expectations and manual protocol fixtures in tests. Keep protocol test expectations intentionally explicit so compatibility changes are reviewed instead of silently following the constant.
+When changing the server/client wire protocol, compare `apps/hako/src/protocol/wire.rs::PROTOCOL_VERSION` against the latest Hako release tag. Bump it only if the current source protocol is not already greater than the latest released protocol. Multiple unreleased wire changes in the same release cycle must share the same single protocol bump; Hako supports tagged releases, not arbitrary `master` client/server compatibility. When a bump is required, update all hardcoded protocol expectations and manual protocol fixtures in tests. Keep protocol test expectations intentionally explicit so compatibility changes are reviewed instead of silently following the constant.
 
 

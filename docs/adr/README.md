@@ -13,7 +13,7 @@ Use the stricter Hako bar for new ADRs: the decision should cross module or work
 
 - [0001 — Keep live terminal runtimes outside AppState](0001-separate-state-from-runtime.md): Hako stores workspace structure and terminal metadata in state, while live terminal runtimes stay behind `TerminalRuntimeRegistry`.
 - [0002 — Keep AppState rendering read-only](0002-keep-rendering-pure.md): `compute_view*` reconciles view/layout state, and `render*` draws from the computed `AppState` without mutating app, workspace, or layout state.
-- [0003 — Isolate reusable platform behavior behind platform APIs](0003-isolate-platform-behavior.md): reusable macOS/Linux process and host-integration behavior belongs behind `src/platform/` APIs instead of being duplicated at call sites.
+- [0003 — Isolate reusable platform behavior behind platform APIs](0003-isolate-platform-behavior.md): reusable macOS/Linux process and host-integration behavior belongs behind `apps/hako/src/platform/` APIs instead of being duplicated at call sites.
 - [0004 — Decouple fallback screen detection from terminal viewport state](0004-decouple-detection-from-viewport.md): fallback agent detection classifies recent bottom-of-buffer text while runtime handles sampling, process identification, stabilization, and hook arbitration.
 - [0005 — Split app orchestration by responsibility](0005-split-app-orchestration-by-responsibility.md): app behavior is placed across state, actions, input, runtime, and focused helpers instead of accumulating in one god object.
 - [0006 — Version the wire protocol by release](0006-version-wire-protocol-by-release.md): server/client compatibility is tracked with an explicit protocol version reviewed against tagged Hako releases.

@@ -1,0 +1,10 @@
+{
+  "name": "hako-nix",
+  "version": "0.2.18",
+  "private": true,
+  "scripts": {
+    "build": "node -e \"require('node:fs').statSync('../../nix/package.nix').isFile()\"",
+    "check": "node -e \"require('node:fs').statSync('../../flake.nix').isFile()\"",
+    "test": "node -e \"require('node:fs').statSync('../../nix/package.nix').isFile()\""
+  }
+}

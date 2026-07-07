@@ -1,6 +1,6 @@
 README.md merge=keep-hako
 AGENTS.md merge=keep-hako
 SKILL.md merge=keep-hako
-assets/logo.svg merge=keep-hako
+apps/hako/assets/logo.svg merge=keep-hako
 /docs/** merge=keep-hako
 /website/** merge=keep-hako

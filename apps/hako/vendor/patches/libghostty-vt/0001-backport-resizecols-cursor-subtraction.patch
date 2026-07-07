@@ -13,10 +13,10 @@ Upstream discussion: https://github.com/ghostty-org/ghostty/discussions/12905
 Upstream PR: https://github.com/ghostty-org/ghostty/pull/12907
 Vendored base: 0f7cd84b880b203c98683e520e84b9db0c5938d8
 ---
-diff --git a/vendor/libghostty-vt/src/terminal/PageList.zig b/vendor/libghostty-vt/src/terminal/PageList.zig
+diff --git a/apps/hako/vendor/libghostty-vt/src/terminal/PageList.zig b/apps/hako/vendor/libghostty-vt/src/terminal/PageList.zig
 index 17eea73..c66fe37 100644
---- a/vendor/libghostty-vt/src/terminal/PageList.zig
-+++ b/vendor/libghostty-vt/src/terminal/PageList.zig
+--- a/apps/hako/vendor/libghostty-vt/src/terminal/PageList.zig
++++ b/apps/hako/vendor/libghostty-vt/src/terminal/PageList.zig
 @@ -1052,7 +1052,7 @@ fn resizeCols(
  
          break :cursor .{
@@ -73,10 +73,10 @@ index 17eea73..c66fe37 100644
  test "PageList resize (no reflow) more rows and less cols" {
      const testing = std.testing;
      const alloc = testing.allocator;
-diff --git a/vendor/libghostty-vt/src/terminal/c/terminal.zig b/vendor/libghostty-vt/src/terminal/c/terminal.zig
+diff --git a/apps/hako/vendor/libghostty-vt/src/terminal/c/terminal.zig b/apps/hako/vendor/libghostty-vt/src/terminal/c/terminal.zig
 index d3293f3..4963995 100644
---- a/vendor/libghostty-vt/src/terminal/c/terminal.zig
-+++ b/vendor/libghostty-vt/src/terminal/c/terminal.zig
+--- a/apps/hako/vendor/libghostty-vt/src/terminal/c/terminal.zig
++++ b/apps/hako/vendor/libghostty-vt/src/terminal/c/terminal.zig
 @@ -926,6 +926,29 @@ test "resize invalid value" {
      try testing.expectEqual(Result.invalid_value, resize(t, 80, 0, 9, 18));
  }

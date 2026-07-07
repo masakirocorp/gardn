@@ -8,7 +8,7 @@ Hako's fallback screen detector classifies owned text snapshots derived from the
 
 In this ADR, `visible_*` means strong live UI chrome present in the sampled terminal tail, not necessarily visible in the user's currently scrolled viewport. Retained OSC title/progress strings are auxiliary fallback evidence only; OSC-only matches may set fallback state, but they must not claim `visible_*` evidence because they are not sampled screen chrome and can outlive the visual frame that caused them.
 
-Observed behavior: fallback detection follows the live terminal tail even when the user scrolls the viewport away from the bottom. Unit tests in `src/pane/terminal.rs` protect that `detection_text()` stays equal to recent bottom text while `visible_text()` follows scrollback, and that bottom detection remains sane across resize. `[INFERENCE]` This also keeps published fallback status stable when headless/client rendering uses client-driven geometry or a viewport different from the live tail.
+Observed behavior: fallback detection follows the live terminal tail even when the user scrolls the viewport away from the bottom. Unit tests in `apps/hako/src/pane/terminal.rs` protect that `detection_text()` stays equal to recent bottom text while `visible_text()` follows scrollback, and that bottom detection remains sane across resize. `[INFERENCE]` This also keeps published fallback status stable when headless/client rendering uses client-driven geometry or a viewport different from the live tail.
 
 ## Considered options
 

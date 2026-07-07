@@ -81,7 +81,7 @@ openssl req -x509 -newkey rsa:2048 -nodes \
 cp "$workdir/cursor.crt" /usr/local/share/ca-certificates/hako-cursor-proxy.crt
 update-ca-certificates >/dev/null
 
-cp "$repo_dir/src/integration/assets/cursor/hako-agent-state.sh" "$HOME/.cursor/hako-agent-state.sh"
+cp "$repo_dir/apps/hako/src/integration/assets/cursor/hako-agent-state.sh" "$HOME/.cursor/hako-agent-state.sh"
 chmod +x "$HOME/.cursor/hako-agent-state.sh"
 cat > "$HOME/.cursor/hooks.json" <<EOF_HOOKS
 {

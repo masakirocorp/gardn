@@ -103,10 +103,10 @@ run_subagent_agent() {
   run_agent "$agent" "$extension" "$pane" subagent task,yield "Launch one subagent with assignment: reply exactly CHILD_OK. Then reply exactly HAKO_${agent^^}_SUBAGENT_OK."
 }
 
-run_basic_agent omp "$repo_dir/src/integration/assets/omp/hako-agent-state.ts" pane-omp-real
-run_basic_agent pi "$repo_dir/src/integration/assets/pi/hako-agent-state.ts" pane-pi-real
-run_subagent_agent omp "$repo_dir/src/integration/assets/omp/hako-agent-state.ts" pane-omp-subagent
-run_subagent_agent pi "$repo_dir/src/integration/assets/pi/hako-agent-state.ts" pane-pi-subagent
+run_basic_agent omp "$repo_dir/apps/hako/src/integration/assets/omp/hako-agent-state.ts" pane-omp-real
+run_basic_agent pi "$repo_dir/apps/hako/src/integration/assets/pi/hako-agent-state.ts" pane-pi-real
+run_subagent_agent omp "$repo_dir/apps/hako/src/integration/assets/omp/hako-agent-state.ts" pane-omp-subagent
+run_subagent_agent pi "$repo_dir/apps/hako/src/integration/assets/pi/hako-agent-state.ts" pane-pi-subagent
 
 REQUEST_LOG="$request_log" WORKDIR="$workdir" python3 - <<'PY'
 import json

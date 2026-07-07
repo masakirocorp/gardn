@@ -59,7 +59,7 @@ release:
     fi
     CI=true pnpm tegami version
     just check
-    @version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"; \
+    @version="$(python3 -c 'import tomllib; print(tomllib.load(open("apps/hako/Cargo.toml", "rb"))["package"]["version"])')"; \
     tag="v$version"; \
     if git rev-parse "$tag" >/dev/null 2>&1; then \
         echo "error: tag $tag already exists"; \
@@ -69,7 +69,7 @@ release:
         echo "error: origin tag $tag already exists"; \
         exit 1; \
     fi; \
-    git add Cargo.toml Cargo.lock CHANGELOG.md .tegami; \
+    git add apps/hako/Cargo.toml Cargo.lock .tegami pnpm-lock.yaml apps/hako/CHANGELOG.md apps/docs/package.json apps/docs/CHANGELOG.md packages/nix/package.json packages/nix/CHANGELOG.md; \
     git diff --cached --quiet || git commit -m "release: v$version"; \
     git tag -a "$tag" -m "$tag"; \
     git push origin HEAD; \
@@ -129,8 +129,8 @@ agent-smoke-qoder-proxy-status:
 
 # Verify Pi/OMP plugin lifecycle reports without calling providers
 agent-smoke-pi-omp-plugin-status:
-    docker run --rm -v "$PWD:/repo:ro" hako-agent-smoke:local node --experimental-strip-types /usr/local/bin/hako-agent-pi-omp-plugin-status-test /repo/src/integration/assets/pi/hako-agent-state.ts pi
-    docker run --rm -v "$PWD:/repo:ro" hako-agent-smoke:local node --experimental-strip-types /usr/local/bin/hako-agent-pi-omp-plugin-status-test /repo/src/integration/assets/omp/hako-agent-state.ts omp
+    docker run --rm -v "$PWD:/repo:ro" hako-agent-smoke:local node --experimental-strip-types /usr/local/bin/hako-agent-pi-omp-plugin-status-test /repo/apps/hako/src/integration/assets/pi/hako-agent-state.ts pi
+    docker run --rm -v "$PWD:/repo:ro" hako-agent-smoke:local node --experimental-strip-types /usr/local/bin/hako-agent-pi-omp-plugin-status-test /repo/apps/hako/src/integration/assets/omp/hako-agent-state.ts omp
 
 # Print default config
 default-config:

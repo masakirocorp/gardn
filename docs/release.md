@@ -19,18 +19,18 @@ The sidebar keeps the selected workspace visible after filtering.
 
 Rules:
 
-- Add a `.tegami/*.md` file for user-facing app changes.
+- Add a `.tegami/*.md` file for user-facing app, docs, Nix, or website changes.
 - Skip `.tegami/` for pure tests, refactors, or internal chores.
-- Target `hako` for the binary/app.
+- Target `hako` for the binary/app, `hako-docs` for docs, and `hako-nix` for Nix packaging.
 - Keep prose user-facing. No implementation notes.
-- Do not edit `CHANGELOG.md` by hand.
+- Do not edit package `CHANGELOG.md` files by hand.
 
 ## Local workflow
 
 ```bash
 pnpm install
 pnpm tegami
-cargo test --locked --bin hako <focused-test>
+cargo test --manifest-path apps/hako/Cargo.toml --locked --bin hako <focused-test>
 git add .
 git commit -m "short imperative summary"
 ```

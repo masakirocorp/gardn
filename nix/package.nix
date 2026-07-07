@@ -14,8 +14,8 @@
 }:
 
 let
-  manifest = lib.importTOML ../Cargo.toml;
-  zigDeps = callPackage ../vendor/libghostty-vt/build.zig.zon.nix {
+  manifest = lib.importTOML ../apps/hako/Cargo.toml;
+  zigDeps = callPackage ../apps/hako/vendor/libghostty-vt/build.zig.zon.nix {
     name = "hako-libghostty-vt-zig-cache";
     inherit zstd;
     linkFarm =
@@ -59,13 +59,14 @@ rustPlatform.buildRustPackage {
     root = ./..;
     fileset = lib.fileset.intersection (lib.fileset.fromSource (lib.sources.cleanSource ./..)) (
       lib.fileset.unions [
-        ../assets
-        ../src
-        ../vendor/libghostty-vt
-        ../vendor/libghostty-vt.vendor.json
-        ../build.rs
         ../Cargo.lock
         ../Cargo.toml
+        ../apps/hako/assets
+        ../apps/hako/src
+        ../apps/hako/vendor/libghostty-vt
+        ../apps/hako/vendor/libghostty-vt.vendor.json
+        ../apps/hako/build.rs
+        ../apps/hako/Cargo.toml
       ]
     );
   };

@@ -2,7 +2,7 @@
 
 
 <p align="center">
-  <img src="assets/logo.svg" alt="hako" width="100" />
+  <img src="apps/hako/assets/logo.svg" alt="hako" width="100" />
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@ Hako is Masakiro's product fork of [Herdr](https://github.com/ogulcancelik/herdr
 Download a binary from [GitHub releases](https://github.com/masakirocorp/hako/releases) after the first Hako release, or build from source:
 
 ```bash
-cargo install --path .
+cargo install --path apps/hako
 ```
 
 ### update

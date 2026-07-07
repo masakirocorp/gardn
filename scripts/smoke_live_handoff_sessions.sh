@@ -181,7 +181,7 @@ smoke_http_count() {
 echo "using hako: $HAKO_BIN"
 echo "smoke base: $BASE"
 
-cargo build --locked --manifest-path "$ROOT/Cargo.toml" >/dev/null
+cargo build --locked --manifest-path "$ROOT/apps/hako/Cargo.toml" >/dev/null
 mkdir -p "$CONFIG_HOME/hako-dev" "$RUNTIME_DIR" "$STATE_DIR"
 printf 'onboarding = false\n' > "$CONFIG_HOME/hako-dev/config.toml"
 

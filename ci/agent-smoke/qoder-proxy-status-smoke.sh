@@ -102,7 +102,7 @@ grep -q 'qoder-proxy-listening' "$proxy_log" || { echo "qoder proxy did not star
 
 home="$workdir/home"
 mkdir -p "$home/.qoder/hooks"
-cp "$repo_dir/src/integration/assets/qodercli/hako-agent-state.sh" "$home/.qoder/hooks/hako-agent-state.sh"
+cp "$repo_dir/apps/hako/src/integration/assets/qodercli/hako-agent-state.sh" "$home/.qoder/hooks/hako-agent-state.sh"
 chmod +x "$home/.qoder/hooks/hako-agent-state.sh"
 cat > "$home/.qoder/settings.json" <<EOF_HOOKS
 {

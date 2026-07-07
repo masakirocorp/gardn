@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 HARD_REQUIRED = {
-    "Cargo.toml": [
+    "apps/hako/Cargo.toml": [
         'name = "hako"',
         'repository = "https://github.com/masakirocorp/hako"',
     ],
@@ -23,7 +23,7 @@ HARD_REQUIRED = {
 }
 
 OPTIONAL_REQUIRED = {
-    "src/update.rs": [
+    "apps/hako/src/update.rs": [
         "https://hako.masakiro.com/latest.json",
         "masakirocorp/hako",
         "hako update",
@@ -34,21 +34,21 @@ HAKO_OWNED = [
     "README.md",
     "AGENTS.md",
     "SKILL.md",
-    "assets/logo.svg",
+    "apps/hako/assets/logo.svg",
     "docs/**",
     "website/**",
 ]
 
 REVIEW_REQUIRED = [
-    "Cargo.toml",
+    "apps/hako/Cargo.toml",
     "Cargo.lock",
-    "build.rs",
+    "apps/hako/build.rs",
     "justfile",
     ".github/workflows/**",
-    "src/update.rs",
-    "src/release_notes.rs",
-    "src/ui/release_notes.rs",
-    "vendor/libghostty-vt/**",
+    "apps/hako/src/update.rs",
+    "apps/hako/src/release_notes.rs",
+    "apps/hako/src/ui/release_notes.rs",
+    "apps/hako/vendor/libghostty-vt/**",
     "scripts/vendor_libghostty_vt.py",
     "scripts/build_vendored_libghostty_vt.sh",
     "scripts/capture_keys.py",
@@ -84,7 +84,7 @@ ATTRIBUTION_ALLOWED = {
 }
 
 IGNORED_IDENTITY_PATHS = [
-    "vendor/libghostty-vt/**",
+    "apps/hako/vendor/libghostty-vt/**",
 ]
 
 

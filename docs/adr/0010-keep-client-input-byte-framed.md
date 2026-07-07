@@ -16,7 +16,7 @@ This is accepted because the server owns shared app state, terminal runtimes, ac
 
 ## Consequences
 
-New client input behavior should avoid moving app semantic routing into `src/client`. The client may buffer/frame raw bytes, filter direct-attach detach escape sequences, detect local clipboard image paste triggers, and parse enough host-surface events to know whether its own terminal surface needs a redraw. It should still forward normal app input as `ClientMessage::Input` bytes.
+New client input behavior should avoid moving app semantic routing into `apps/hako/src/client`. The client may buffer/frame raw bytes, filter direct-attach detach escape sequences, detect local clipboard image paste triggers, and parse enough host-surface events to know whether its own terminal surface needs a redraw. It should still forward normal app input as `ClientMessage::Input` bytes.
 
 The server must remain the owner of app input semantics. Normal app clients are decoded in `HeadlessServer`, where client activity can promote foreground ownership, client-local keybindings can be applied, host terminal theme/focus can update server state, and `App::route_client_events` can handle key, mouse, paste, focus, and host-theme events. Direct terminal attach is intentionally different: once `AttachTerminal` has established ownership and terminal-attach mode, `ClientInput` bytes from that connection bypass app semantic decoding and are forwarded directly to the target terminal runtime.
 

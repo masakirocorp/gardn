@@ -6,8 +6,8 @@ on:
     paths:
       - .github/workflows/agent-smoke.yml
       - ci/agent-smoke/**
-      - src/integration/assets/**
-      - src/integration/mod.rs
+      - apps/hako/src/integration/assets/**
+      - apps/hako/src/integration/mod.rs
       - justfile
   workflow_dispatch:
     inputs:

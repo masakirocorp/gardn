@@ -11,7 +11,7 @@ fi
 
 model="$HAKO_SMOKE_ACTIVE_MODEL"
 repo_dir="${HAKO_REPO_DIR:-/repo}"
-plugin_path="$repo_dir/src/integration/assets/opencode/hako-agent-state.js"
+plugin_path="$repo_dir/apps/hako/src/integration/assets/opencode/hako-agent-state.js"
 workdir="${HAKO_OPENCODE_STATUS_SMOKE_DIR:-$(mktemp -d)}"
 socket_path="$workdir/hako.sock"
 request_log="$workdir/hako-requests.jsonl"

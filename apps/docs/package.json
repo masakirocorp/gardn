@@ -1,0 +1,10 @@
+{
+  "name": "hako-docs",
+  "version": "0.2.18",
+  "private": true,
+  "scripts": {
+    "build": "node -e \"require('node:fs').statSync('../../docs').isDirectory()\"",
+    "check": "node -e \"require('node:fs').statSync('../../docs').isDirectory()\"",
+    "test": "node -e \"require('node:fs').statSync('../../docs').isDirectory()\""
+  }
+}

@@ -5,9 +5,14 @@
     "node": ">=24"
   },
   "scripts": {
-    "tegami": "node scripts/tegami.mts"
+    "build": "turbo run build",
+    "check": "turbo run check",
+    "lint": "turbo run lint",
+    "tegami": "node scripts/tegami.mts",
+    "test": "turbo run test"
   },
   "devDependencies": {
-    "tegami": "^1.2.2"
+    "tegami": "^1.2.2",
+    "turbo": "^2.10.3"
   }
 }

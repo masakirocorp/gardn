@@ -23,7 +23,7 @@ class VendorLibghosttyVtTests(unittest.TestCase):
             self.assertEqual(parse_archive_root(archive), "libghostty-vt-1.0.0")
 
     def test_vendored_tree_contains_required_upstream_files(self) -> None:
-        root = Path(__file__).resolve().parent.parent / "vendor" / "libghostty-vt"
+        root = Path(__file__).resolve().parent.parent / "apps" / "hako" / "vendor" / "libghostty-vt"
         required = [
             root / "build.zig",
             root / "build.zig.zon",
@@ -39,7 +39,7 @@ class VendorLibghosttyVtTests(unittest.TestCase):
 
     def test_vendor_metadata_exists_and_points_at_vendored_tree(self) -> None:
         project_root = Path(__file__).resolve().parent.parent
-        metadata = project_root / "vendor" / "libghostty-vt.vendor.json"
+        metadata = project_root / "apps" / "hako" / "vendor" / "libghostty-vt.vendor.json"
         self.assertTrue(metadata.exists())
         text = metadata.read_text()
         self.assertIn('"source_commit"', text)
@@ -48,8 +48,8 @@ class VendorLibghosttyVtTests(unittest.TestCase):
 
     def test_local_vendor_patches_are_listed_in_patch_index(self) -> None:
         project_root = Path(__file__).resolve().parent.parent
-        index = project_root / "vendor" / "libghostty-vt.patches.md"
-        patch_dir = project_root / "vendor" / "patches" / "libghostty-vt"
+        index = project_root / "apps" / "hako" / "vendor" / "libghostty-vt.patches.md"
+        patch_dir = project_root / "apps" / "hako" / "vendor" / "patches" / "libghostty-vt"
         patches = sorted(patch_dir.glob("*.patch"))
 
         if not patches:
@@ -66,7 +66,7 @@ class VendorLibghosttyVtTests(unittest.TestCase):
 
     def test_local_vendor_patches_are_applied_to_vendored_tree(self) -> None:
         project_root = Path(__file__).resolve().parent.parent
-        patch_dir = project_root / "vendor" / "patches" / "libghostty-vt"
+        patch_dir = project_root / "apps" / "hako" / "vendor" / "patches" / "libghostty-vt"
 
         for patch in sorted(patch_dir.glob("*.patch")):
             result = subprocess.run(
@@ -84,7 +84,7 @@ class VendorLibghosttyVtTests(unittest.TestCase):
             )
 
     def test_embedded_libghostty_logging_is_silenced(self) -> None:
-        root = Path(__file__).resolve().parent.parent / "vendor" / "libghostty-vt"
+        root = Path(__file__).resolve().parent.parent / "apps" / "hako" / "vendor" / "libghostty-vt"
         lib_vt = root / "src" / "lib_vt.zig"
         sys_zig = root / "src" / "terminal" / "c" / "sys.zig"
         lib_text = lib_vt.read_text()

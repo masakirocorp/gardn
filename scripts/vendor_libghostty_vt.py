@@ -82,12 +82,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--destination",
-        default="vendor/libghostty-vt",
+        default="apps/hako/vendor/libghostty-vt",
         help="Destination directory for the extracted libghostty-vt source dist",
     )
     parser.add_argument(
         "--metadata",
-        default="vendor/libghostty-vt.vendor.json",
+        default="apps/hako/vendor/libghostty-vt.vendor.json",
         help="Path to write vendoring metadata JSON",
     )
     args = parser.parse_args()

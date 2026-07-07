@@ -4,7 +4,7 @@ status: accepted
 
 # Cache Kitty graphics by host view state
 
-Hako treats Kitty graphics synchronization as Host Graphics cache reconciliation, not as normal text rendering and not as terminal-core ownership. The terminal core reports visible image placements, while `src/kitty_graphics.rs` owns the client-host side effects that upload image data, display placements, delete stale placements, and clear host image state when the app is no longer in terminal mode or cannot compute a usable cell size.
+Hako treats Kitty graphics synchronization as Host Graphics cache reconciliation, not as normal text rendering and not as terminal-core ownership. The terminal core reports visible image placements, while `apps/hako/src/kitty_graphics.rs` owns the client-host side effects that upload image data, display placements, delete stale placements, and clear host image state when the app is no longer in terminal mode or cannot compute a usable cell size.
 
 Uploaded images and displayed placements are cached separately. Image cache entries are keyed by host image id and an image signature derived from dimensions, format, data length, and data fingerprint; unchanged images are not re-uploaded. Placement cache entries are keyed by host image id plus host placement id and include clipped geometry, source rectangle, offsets, z-index, and scrollback offset; unchanged placements are suppressed only while the active host view key is unchanged.
 
