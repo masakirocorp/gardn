@@ -2020,6 +2020,25 @@ pub(crate) fn update_settings_state_for_view(
     action
 }
 
+pub(crate) fn update_settings_mouse_for_view(
+    state: &AppState,
+    view: &mut ClientViewState,
+    mouse: MouseEvent,
+) -> Option<SettingsAction> {
+    let mut local_state = state.clone();
+    local_state.mode = view.mode;
+    local_state.settings = view.settings.clone();
+    local_state.drag = view.drag.clone();
+    local_state.view = view.computed.clone();
+
+    let action = local_state.handle_settings_mouse(mouse);
+
+    view.mode = local_state.mode;
+    view.settings = local_state.settings;
+    view.drag = local_state.drag;
+    action
+}
+
 pub(crate) fn open_settings(state: &mut AppState) {
     open_settings_at(state, SettingsSection::Theme);
 }

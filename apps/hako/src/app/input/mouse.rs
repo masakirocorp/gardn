@@ -1659,7 +1659,16 @@ impl AppState {
         pane_id: crate::layout::PaneId,
     ) -> Option<crate::pane::ScrollMetrics> {
         self.active
-            .and_then(|i| self.runtime_for_pane_in_workspace(terminal_runtimes, i, pane_id))
+            .and_then(|i| self.pane_scroll_metrics_in_workspace(terminal_runtimes, i, pane_id))
+    }
+
+    pub(crate) fn pane_scroll_metrics_in_workspace(
+        &self,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> Option<crate::pane::ScrollMetrics> {
+        self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, pane_id)
             .and_then(crate::terminal::TerminalRuntime::scroll_metrics)
     }
 
@@ -1725,7 +1734,7 @@ impl AppState {
         self.forward_pane_mouse_button_in_workspace(terminal_runtimes, ws_idx, info, mouse)
     }
 
-    fn forward_pane_mouse_button_in_workspace(
+    pub(crate) fn forward_pane_mouse_button_in_workspace(
         &self,
         terminal_runtimes: &TerminalRuntimeRegistry,
         ws_idx: usize,

@@ -11,7 +11,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ModalAction {
+pub(crate) enum ModalAction {
     Continue,
     Save,
     Clear,
@@ -947,15 +947,15 @@ pub(super) fn open_confirm_delete_group(state: &mut AppState, group_idx: usize) 
     }
 }
 
-pub(super) fn confirm_close_accept(state: &mut AppState) {
+pub(crate) fn confirm_close_accept(state: &mut AppState) {
     state.close_selected_workspace_from_ui();
 }
 
-pub(super) fn confirm_close_cancel(state: &mut AppState) {
+pub(crate) fn confirm_close_cancel(state: &mut AppState) {
     state.mode = Mode::Navigate;
 }
 
-pub(super) fn confirm_delete_group_accept(state: &mut AppState) {
+pub(crate) fn confirm_delete_group_accept(state: &mut AppState) {
     if let Some(group_idx) = state.confirm_delete_group.take() {
         let _ = state.delete_group(group_idx);
     }
@@ -966,7 +966,7 @@ pub(super) fn confirm_delete_group_accept(state: &mut AppState) {
     }
 }
 
-pub(super) fn confirm_delete_group_cancel(state: &mut AppState) {
+pub(crate) fn confirm_delete_group_cancel(state: &mut AppState) {
     state.confirm_delete_group = None;
     state.mode = Mode::Navigate;
 }
@@ -987,7 +987,7 @@ pub(crate) fn handle_confirm_delete_group_key(state: &mut AppState, key: KeyEven
     }
 }
 
-pub(super) fn apply_context_menu_action(
+pub(crate) fn apply_context_menu_action(
     state: &mut AppState,
     terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
     menu: ContextMenuState,
@@ -1195,7 +1195,7 @@ pub(crate) fn handle_context_menu_key(
 }
 
 impl AppState {
-    pub(super) fn global_menu_item_at(&self, col: u16, row: u16) -> Option<GlobalMenuAction> {
+    pub(crate) fn global_menu_item_at(&self, col: u16, row: u16) -> Option<GlobalMenuAction> {
         let rect = self.global_menu_rect();
         if col <= rect.x
             || col >= rect.x + rect.width.saturating_sub(1)
@@ -1208,7 +1208,7 @@ impl AppState {
         global_menu_actions(self).get(idx).copied()
     }
 
-    pub(super) fn group_menu_item_at(
+    pub(crate) fn group_menu_item_at(
         &self,
         col: u16,
         row: u16,
@@ -1217,7 +1217,7 @@ impl AppState {
         self.group_menu_action_for_row(row_idx)
     }
 
-    pub(super) fn group_menu_row_at(&self, col: u16, row: u16) -> Option<usize> {
+    pub(crate) fn group_menu_row_at(&self, col: u16, row: u16) -> Option<usize> {
         let rect = self.group_menu_rect();
         if col <= rect.x
             || col >= rect.x + rect.width.saturating_sub(1)
@@ -1230,7 +1230,7 @@ impl AppState {
         (idx < self.group_menu_labels().len()).then_some(idx)
     }
 
-    pub(super) fn agent_menu_item_at(
+    pub(crate) fn agent_menu_item_at(
         &self,
         col: u16,
         row: u16,
@@ -1239,7 +1239,7 @@ impl AppState {
         self.agent_menu_action_for_row(row_idx)
     }
 
-    pub(super) fn agent_menu_row_at(&self, col: u16, row: u16) -> Option<usize> {
+    pub(crate) fn agent_menu_row_at(&self, col: u16, row: u16) -> Option<usize> {
         let rect = self.agent_menu_rect();
         if col <= rect.x
             || col >= rect.x + rect.width.saturating_sub(1)

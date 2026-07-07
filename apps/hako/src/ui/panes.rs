@@ -9,7 +9,7 @@ use ratatui::{
 use super::scrollbar::{render_pane_scrollbar, should_show_scrollbar};
 use super::widgets::panel_contrast_fg;
 use crate::app::state::Palette;
-use crate::app::{AppState, Mode};
+use crate::app::{AppState, ClientViewState, Mode};
 use crate::layout::PaneInfo;
 use crate::terminal::{TerminalRuntime, TerminalRuntimeRegistry};
 
@@ -244,6 +244,194 @@ pub(super) fn compute_pane_infos(
     pane_infos
 }
 
+pub(super) fn compute_pane_infos_for_view(
+    app: &AppState,
+    client_view: &ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    area: Rect,
+    resize_panes: bool,
+    cell_size: crate::kitty_graphics::HostCellSize,
+) -> Vec<PaneInfo> {
+    let Some(ws_idx) = client_view.active_workspace else {
+        return Vec::new();
+    };
+    let Some(ws) = app.workspaces.get(ws_idx) else {
+        return Vec::new();
+    };
+    let Some(tab_idx) = client_view.active_tab_index_for_workspace(app, ws_idx) else {
+        return Vec::new();
+    };
+    let Some(tab) = ws.tabs.get(tab_idx) else {
+        return Vec::new();
+    };
+    let focused_id = client_view
+        .focused_pane_for_tab(&ws.id, tab_idx + 1)
+        .unwrap_or_else(|| tab.layout.focused());
+    let multi_pane = tab.layout.pane_count() > 1;
+    let terminal_active = client_view.mode == Mode::Terminal;
+
+    if client_view.tab_is_zoomed(&ws.id, tab_idx + 1) {
+        let pane_inner = pane_inner_rect(area, multi_pane);
+        let mut inner_rect = pane_inner;
+        let mut scrollbar_rect = None;
+        if let Some((terminal_id, rt)) = runtime_for_tab_pane(terminal_runtimes, tab, focused_id) {
+            (inner_rect, scrollbar_rect) = stable_scrollbar_gutter(rt, pane_inner);
+            if resize_panes && !app.direct_attach_resize_locks.contains(terminal_id) {
+                rt.resize(
+                    inner_rect.height,
+                    inner_rect.width,
+                    cell_size.width_px,
+                    cell_size.height_px,
+                );
+            }
+        }
+        return vec![PaneInfo {
+            id: focused_id,
+            rect: area,
+            inner_rect,
+            scrollbar_rect,
+            is_focused: true,
+        }];
+    }
+
+    let mut pane_infos = tab.layout.panes(area);
+    for info in &mut pane_infos {
+        info.is_focused = info.id == focused_id;
+        let pane_inner = if multi_pane {
+            let border_set = if info.is_focused && terminal_active {
+                ratatui::symbols::border::THICK
+            } else {
+                ratatui::symbols::border::PLAIN
+            };
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_set(border_set);
+            block.inner(info.rect)
+        } else {
+            area
+        };
+
+        let mut inner_rect = pane_inner;
+        let mut scrollbar_rect = None;
+        if let Some((terminal_id, rt)) = runtime_for_tab_pane(terminal_runtimes, tab, info.id) {
+            (inner_rect, scrollbar_rect) = stable_scrollbar_gutter(rt, pane_inner);
+            if resize_panes && !app.direct_attach_resize_locks.contains(terminal_id) {
+                rt.resize(
+                    inner_rect.height,
+                    inner_rect.width,
+                    cell_size.width_px,
+                    cell_size.height_px,
+                );
+            }
+        }
+
+        info.inner_rect = inner_rect;
+        info.scrollbar_rect = scrollbar_rect;
+    }
+    pane_infos
+}
+
+pub(super) fn render_panes_for_view(
+    app: &AppState,
+    client_view: &ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let Some(ws_idx) = client_view.active_workspace else {
+        render_empty(app, frame, area);
+        return;
+    };
+    let Some(ws) = app.workspaces.get(ws_idx) else {
+        render_empty(app, frame, area);
+        return;
+    };
+    let Some(tab_idx) = client_view.active_tab_index_for_workspace(app, ws_idx) else {
+        render_empty(app, frame, area);
+        return;
+    };
+    let Some(tab) = ws.tabs.get(tab_idx) else {
+        render_empty(app, frame, area);
+        return;
+    };
+
+    let multi_pane = tab.layout.pane_count() > 1;
+    let active_accent = app.palette_for_workspace(ws_idx).accent;
+    let terminal_active = client_view.mode == Mode::Terminal;
+
+    for info in &client_view.computed.pane_infos {
+        let pane_state = tab.panes.get(&info.id);
+
+        if let Some((_, rt)) = runtime_for_tab_pane(terminal_runtimes, tab, info.id) {
+            if multi_pane {
+                let (border_style, border_set) = if info.is_focused && terminal_active {
+                    (
+                        Style::default().fg(active_accent),
+                        ratatui::symbols::border::THICK,
+                    )
+                } else if info.is_focused {
+                    (
+                        Style::default().fg(active_accent),
+                        ratatui::symbols::border::PLAIN,
+                    )
+                } else {
+                    (
+                        Style::default().fg(app.palette.overlay0),
+                        ratatui::symbols::border::PLAIN,
+                    )
+                };
+
+                let mut block = Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(border_style)
+                    .border_set(border_set);
+                if let Some(title) = pane_state
+                    .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
+                    .and_then(|terminal| {
+                        terminal.border_label(app.show_agent_labels_on_pane_borders)
+                    })
+                    .and_then(|label| pane_border_title(&label, info.rect.width))
+                {
+                    block = block.title(Line::from(Span::styled(title, border_style)));
+                }
+                frame.render_widget(block, info.rect);
+            }
+
+            let show_cursor = info.is_focused && terminal_active && !pane_is_scrolled_back(rt);
+            rt.render_with_theme_background(
+                frame,
+                info.inner_rect,
+                show_cursor,
+                pane_theme_background(&app.palette),
+            );
+            render_pane_scrollbar(app, frame, info, rt);
+
+            let should_dim = !info.is_focused && multi_pane && !terminal_active;
+            if should_dim {
+                let inner = info.inner_rect;
+                let buf = frame.buffer_mut();
+                for y in inner.y..inner.y + inner.height {
+                    for x in inner.x..inner.x + inner.width {
+                        let cell = &mut buf[(x, y)];
+                        cell.set_style(cell.style().add_modifier(Modifier::DIM));
+                    }
+                }
+            }
+
+            render_selection_highlight(
+                &client_view.selection,
+                frame,
+                info.id,
+                info.inner_rect,
+                rt.scroll_metrics(),
+                &app.palette,
+                app.host_terminal_theme,
+            );
+            render_copy_mode_cursor_for_view(app, client_view, frame, info);
+        }
+    }
+}
+
 pub(super) fn render_panes(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -341,10 +529,29 @@ pub(super) fn render_panes(
 }
 
 fn render_copy_mode_cursor(app: &AppState, frame: &mut Frame, info: &PaneInfo) {
-    if app.mode != Mode::Copy {
+    render_copy_mode_cursor_cell(app, app.mode, app.copy_mode, frame, info);
+}
+
+fn render_copy_mode_cursor_for_view(
+    app: &AppState,
+    client_view: &crate::app::ClientViewState,
+    frame: &mut Frame,
+    info: &PaneInfo,
+) {
+    render_copy_mode_cursor_cell(app, client_view.mode, client_view.copy_mode, frame, info);
+}
+
+fn render_copy_mode_cursor_cell(
+    app: &AppState,
+    mode: Mode,
+    copy_mode: Option<crate::app::state::CopyModeState>,
+    frame: &mut Frame,
+    info: &PaneInfo,
+) {
+    if mode != Mode::Copy {
         return;
     }
-    let Some(copy_mode) = app.copy_mode else {
+    let Some(copy_mode) = copy_mode else {
         return;
     };
     if copy_mode.pane_id != info.id

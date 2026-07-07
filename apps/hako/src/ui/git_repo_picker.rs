@@ -154,6 +154,32 @@ pub(crate) fn git_repo_picker_list_geometry(app: &AppState) -> Option<ModalListG
     Some(layout.list)
 }
 
+pub(crate) fn git_repo_picker_list_geometry_for_view(
+    view: &crate::app::view_state::ClientViewState,
+) -> Option<ModalListGeometry> {
+    let inner = git_repo_picker_inner_rect(view.screen_rect())?;
+    if inner.height < 12 || inner.width < 28 {
+        return None;
+    }
+    let content_rows = git_repo_picker_content_rows(inner)?;
+    Some(ModalListGeometry::new(
+        content_rows[4],
+        view.git_repo_picker.roots.len() * 2,
+        view.git_repo_picker.scroll * 2,
+    ))
+}
+
+pub(crate) fn git_repo_picker_index_at_for_view(
+    view: &crate::app::view_state::ClientViewState,
+    col: u16,
+    row: u16,
+) -> Option<usize> {
+    let list = git_repo_picker_list_geometry_for_view(view)?;
+    let visual_row = list.hit_visual_row(col, row)?;
+    let index = visual_row / 2;
+    (index < view.git_repo_picker.roots.len()).then_some(index)
+}
+
 pub(crate) fn git_repo_picker_index_at(app: &AppState, col: u16, row: u16) -> Option<usize> {
     let layout = git_repo_picker_layout(app)?;
     let visual_row = layout.list.hit_visual_row(col, row)?;

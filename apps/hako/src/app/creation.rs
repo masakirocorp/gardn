@@ -157,6 +157,33 @@ impl App {
         }
     }
 
+    pub(crate) fn create_tab_for_workspace(
+        &mut self,
+        ws_idx: usize,
+        custom_name: Option<String>,
+    ) -> std::io::Result<usize> {
+        let previous_active = self.state.active;
+        let previous_mode = self.state.mode;
+        self.state.active = Some(ws_idx);
+        let follow_cwd = self.seed_cwd_from_workspace(ws_idx);
+        let initial_cwd = self.resolve_new_terminal_cwd(follow_cwd);
+        let tab_idx = self.create_tab_with_options(initial_cwd, false)?;
+        if let Some(name) = custom_name {
+            if let Some(tab) = self
+                .state
+                .workspaces
+                .get_mut(ws_idx)
+                .and_then(|workspace| workspace.tabs.get_mut(tab_idx))
+            {
+                tab.set_custom_name(name);
+                self.schedule_session_save();
+            }
+        }
+        self.state.active = previous_active;
+        self.state.mode = previous_mode;
+        Ok(tab_idx)
+    }
+
     pub(super) fn create_tab_with_options(
         &mut self,
         initial_cwd: PathBuf,

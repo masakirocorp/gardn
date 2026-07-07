@@ -574,9 +574,11 @@ impl App {
             detach_requested: false,
             request_new_workspace: false,
             request_new_tab: false,
+            request_new_tab_for_client: None,
             request_agent_profile_tab: None,
             request_reload_config: false,
             request_open_git_diff_command: false,
+            request_open_git_diff_workspace: None,
             git_repo_picker: state::GitRepoPickerState {
                 ws_idx: 0,
                 roots: Vec::new(),
@@ -838,7 +840,7 @@ impl App {
                 .and_then(|ws| ws.focused_pane_id().map(|pane_id| (idx, pane_id)))
         });
 
-        let default_client_view = ClientViewState::from_app_state(&state);
+        let default_client_view = ClientViewState::from_default_client_state(&state);
 
         Self {
             config_diagnostic_deadline: None,
@@ -990,7 +992,7 @@ impl App {
         } else {
             state::Mode::Navigate
         };
-        app.default_client_view = ClientViewState::from_app_state(&app.state);
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
         app.last_focus = app.state.active.and_then(|idx| {
             app.state
                 .workspaces
@@ -1055,6 +1057,17 @@ impl App {
             self.state.request_new_tab = false;
             self.create_tab();
             changed = true;
+        }
+
+        if let Some((ws_idx, custom_name)) = self.state.request_new_tab_for_client.take() {
+            match self.create_tab_for_workspace(ws_idx, custom_name) {
+                Ok(_) => {
+                    changed = true;
+                }
+                Err(err) => {
+                    tracing::error!(err = %err, ws_idx, "failed to create client tab");
+                }
+            }
         }
 
         changed | self.process_agent_profile_tab_request()
@@ -1128,11 +1141,16 @@ impl App {
                 self.state.request_open_git_diff_command = false;
                 self.refresh_host_terminal_theme_for(Duration::from_millis(500))
                     .await;
+                let target_workspace = self.state.request_open_git_diff_workspace.take();
                 let previous_toast = self.state.toast.clone();
-                if let Err(err) = self
-                    .state
-                    .open_git_diff_command(&mut self.terminal_runtimes)
-                {
+                let result = if let Some(ws_idx) = target_workspace {
+                    self.state
+                        .open_git_diff_command_for_workspace(&mut self.terminal_runtimes, ws_idx)
+                } else {
+                    self.state
+                        .open_git_diff_command(&mut self.terminal_runtimes)
+                };
+                if let Err(err) = result {
                     self.state.toast = Some(crate::app::state::ToastNotification {
                         kind: crate::app::state::ToastKind::NeedsAttention,
                         title: "git diff command failed".to_string(),
@@ -1856,9 +1874,42 @@ impl App {
             return;
         }
 
-        self.apply_client_view_local_app_action(client_view, |app| {
-            app.handle_prefix_key(raw_key);
-        });
+        self.handle_prefix_key_for_view(client_view, raw_key);
+    }
+
+    fn handle_prefix_key_for_view(
+        &mut self,
+        client_view: &mut ClientViewState,
+        raw_key: crate::input::TerminalKey,
+    ) {
+        let key = raw_key.as_key_event();
+        self.state.update_dismissed = true;
+
+        if self.state.is_prefix_key(raw_key) {
+            if !self.send_terminal_key_for_view(client_view, raw_key) {
+                Self::leave_client_view_command_mode(client_view);
+            }
+            return;
+        }
+
+        if key.code == crossterm::event::KeyCode::Esc {
+            Self::leave_client_view_command_mode(client_view);
+            return;
+        }
+
+        if let Some(action) =
+            input::action_for_key(&self.state, raw_key, input::BindingDispatch::Prefix)
+        {
+            self.execute_client_view_navigate_action(
+                client_view,
+                action,
+                input::ActionContext::Prefix,
+            );
+            self.selection_autoscroll_deadline = None;
+            return;
+        }
+
+        Self::leave_client_view_command_mode(client_view);
     }
 
     fn handle_client_view_modal_key(
@@ -1869,27 +1920,19 @@ impl App {
         let key = raw_key.as_key_event();
         match client_view.mode {
             Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
-                self.apply_client_view_local_key(client_view, |state| {
-                    input::handle_rename_key(state, key);
-                });
+                self.handle_client_view_rename_key(client_view, key);
             }
             Mode::EditWorktreeDirectory => {
-                self.apply_client_view_local_key(client_view, |state| {
-                    input::handle_worktree_directory_key(state, key);
-                });
+                self.handle_client_view_worktree_directory_key(client_view, key);
             }
             Mode::KeybindHelp => {
-                self.apply_client_view_local_key(client_view, |state| {
-                    input::handle_keybind_help_key(state, key);
-                });
+                self.handle_client_view_keybind_help_key(client_view, key);
             }
             Mode::Navigator => {
                 if key.code == crossterm::event::KeyCode::Enter {
                     self.accept_client_view_navigator_selection(client_view);
                 } else {
-                    self.apply_client_view_local_key(client_view, |state| {
-                        input::handle_navigator_key(state, key);
-                    });
+                    self.handle_client_view_navigator_key(client_view, key);
                 }
             }
             Mode::CommandPalette => {
@@ -1910,208 +1953,734 @@ impl App {
                 if key.code == crossterm::event::KeyCode::Enter {
                     self.accept_client_view_global_menu_selection(client_view);
                 } else {
-                    self.apply_client_view_local_key(client_view, |state| {
-                        input::handle_global_menu_key(state, key);
-                    });
+                    self.handle_client_view_global_menu_key(client_view, key);
                 }
             }
             Mode::GroupMenu => {
                 if key.code == crossterm::event::KeyCode::Enter {
                     self.accept_client_view_group_menu_selection(client_view);
                 } else {
-                    self.apply_client_view_local_key(client_view, |state| {
-                        input::handle_group_menu_key(state, key);
-                    });
+                    self.handle_client_view_group_menu_key(client_view, key);
                 }
             }
             Mode::AgentMenu => {
                 if key.code == crossterm::event::KeyCode::Enter {
                     self.accept_client_view_agent_menu_selection(client_view);
                 } else {
-                    self.apply_client_view_local_key(client_view, |state| {
-                        input::handle_agent_menu_key(state, key);
-                    });
+                    self.handle_client_view_agent_menu_key(client_view, key);
                 }
             }
-            Mode::ReleaseNotes => {
-                self.apply_client_view_local_key(client_view, |state| match key.code {
-                    crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
-                        let max_scroll = state.release_notes_max_scroll();
-                        if let Some(notes) = &mut state.release_notes {
-                            notes.scroll = notes.scroll.saturating_sub(1).min(max_scroll);
-                        }
-                    }
-                    crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
-                        let max_scroll = state.release_notes_max_scroll();
-                        if let Some(notes) = &mut state.release_notes {
-                            notes.scroll = notes.scroll.saturating_add(1).min(max_scroll);
-                        }
-                    }
-                    crossterm::event::KeyCode::PageUp => {
-                        let max_scroll = state.release_notes_max_scroll();
-                        if let Some(notes) = &mut state.release_notes {
-                            notes.scroll = notes.scroll.saturating_sub(8).min(max_scroll);
-                        }
-                    }
-                    crossterm::event::KeyCode::PageDown => {
-                        let max_scroll = state.release_notes_max_scroll();
-                        if let Some(notes) = &mut state.release_notes {
-                            notes.scroll = notes.scroll.saturating_add(8).min(max_scroll);
-                        }
-                    }
-                    crossterm::event::KeyCode::Home => {
-                        if let Some(notes) = &mut state.release_notes {
-                            notes.scroll = 0;
-                        }
-                    }
-                    crossterm::event::KeyCode::End => {
-                        let max_scroll = state.release_notes_max_scroll();
-                        if let Some(notes) = &mut state.release_notes {
-                            notes.scroll = max_scroll;
-                        }
-                    }
-                    _ => {}
-                });
-            }
+            Mode::ReleaseNotes => self.handle_client_view_release_notes_key(client_view, key),
             Mode::ProductAnnouncement => {
-                self.apply_client_view_local_key(client_view, |state| match key.code {
-                    crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
-                        let max_scroll = state.product_announcement_max_scroll();
-                        if let Some(announcement) = &mut state.product_announcement {
-                            announcement.scroll =
-                                announcement.scroll.saturating_sub(1).min(max_scroll);
-                        }
-                    }
-                    crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
-                        let max_scroll = state.product_announcement_max_scroll();
-                        if let Some(announcement) = &mut state.product_announcement {
-                            announcement.scroll =
-                                announcement.scroll.saturating_add(1).min(max_scroll);
-                        }
-                    }
-                    crossterm::event::KeyCode::PageUp => {
-                        let max_scroll = state.product_announcement_max_scroll();
-                        if let Some(announcement) = &mut state.product_announcement {
-                            announcement.scroll =
-                                announcement.scroll.saturating_sub(8).min(max_scroll);
-                        }
-                    }
-                    crossterm::event::KeyCode::PageDown => {
-                        let max_scroll = state.product_announcement_max_scroll();
-                        if let Some(announcement) = &mut state.product_announcement {
-                            announcement.scroll =
-                                announcement.scroll.saturating_add(8).min(max_scroll);
-                        }
-                    }
-                    crossterm::event::KeyCode::Home => {
-                        if let Some(announcement) = &mut state.product_announcement {
-                            announcement.scroll = 0;
-                        }
-                    }
-                    crossterm::event::KeyCode::End => {
-                        let max_scroll = state.product_announcement_max_scroll();
-                        if let Some(announcement) = &mut state.product_announcement {
-                            announcement.scroll = max_scroll;
-                        }
-                    }
-                    _ => {}
-                });
+                self.handle_client_view_product_announcement_key(client_view, key)
             }
             Mode::AgentProfilePicker => {
-                self.apply_client_view_local_key(client_view, |state| {
-                    input::agent_profile_picker::handle_agent_profile_picker_key_for_view(
-                        state, key,
+                input::agent_profile_picker::handle_agent_profile_picker_key_for_view(
+                    &mut self.state,
+                    client_view,
+                    key,
+                );
+            }
+            Mode::Resize => self.handle_client_view_resize_key(client_view, raw_key),
+            Mode::ConfirmClose => {
+                self.execute_targeted_client_view_app_action(client_view, |app| {
+                    input::handle_confirm_close_key(&mut app.state, key);
+                })
+            }
+            Mode::ConfirmDeleteGroup => {
+                self.execute_targeted_client_view_app_action(client_view, |app| {
+                    input::handle_confirm_delete_group_key(&mut app.state, key);
+                });
+            }
+            Mode::ContextMenu => self.execute_targeted_client_view_app_action(client_view, |app| {
+                input::handle_context_menu_key(&mut app.state, &mut app.terminal_runtimes, key);
+            }),
+            Mode::GitRepoPicker => {
+                self.execute_targeted_client_view_app_action(client_view, |app| {
+                    app.handle_git_repo_picker_key(key);
+                })
+            }
+            Mode::Copy => self.execute_targeted_client_view_app_action(client_view, |app| {
+                app.handle_copy_mode_key(raw_key);
+            }),
+            Mode::Navigate => {
+                if let Some(action) =
+                    input::action_for_key(&self.state, raw_key, input::BindingDispatch::Prefix)
+                {
+                    self.execute_client_view_navigate_action(
+                        client_view,
+                        action,
+                        input::ActionContext::Navigate,
                     );
-                });
+                }
             }
-            Mode::Resize => {
-                self.apply_client_view_local_key(client_view, |state| {
-                    input::handle_resize_key(state, raw_key);
-                });
-            }
-            Mode::ConfirmClose
-            | Mode::ConfirmDeleteGroup
-            | Mode::ContextMenu
-            | Mode::Onboarding
-            | Mode::GitRepoPicker
-            | Mode::Copy
-            | Mode::Navigate
-            | Mode::Prefix
-            | Mode::Terminal => {}
+            Mode::Onboarding | Mode::Prefix | Mode::Terminal => {}
         }
     }
 
-    fn apply_client_view_local_key(
+    fn handle_client_view_keybind_help_key(
         &mut self,
         client_view: &mut ClientViewState,
-        handle: impl FnOnce(&mut AppState),
+        key: crossterm::event::KeyEvent,
     ) {
-        let before_shared = self.state.clone();
-        let mut local_state = self.state.clone();
-        crate::app::view_state::apply_client_view_to_app_state(&mut local_state, client_view);
-        handle(&mut local_state);
-        let pending_tab_focus =
-            Self::pending_client_tab_focus_after_deferred_request(&before_shared, &local_state);
-        self.apply_shared_client_view_effects_from_local(&before_shared, local_state.clone());
-        Self::copy_client_view_local_modal_state(client_view, local_state);
-        client_view.reconcile(&self.state);
-        if let Some((workspace_id, tab_idx)) = pending_tab_focus {
-            client_view
-                .pending_active_tabs
-                .insert(workspace_id, tab_idx);
+        match key.code {
+            crossterm::event::KeyCode::Esc => Self::leave_client_view_command_mode(client_view),
+            crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
+                client_view.keybind_help.scroll = client_view.keybind_help.scroll.saturating_sub(1);
+            }
+            crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
+                client_view.keybind_help.scroll = client_view.keybind_help.scroll.saturating_add(1);
+            }
+            _ => {}
         }
     }
 
-    fn apply_client_view_local_app_action(
+    fn handle_client_view_global_menu_key(
         &mut self,
         client_view: &mut ClientViewState,
-        handle: impl FnOnce(&mut Self),
+        key: crossterm::event::KeyEvent,
     ) {
-        let before_shared = self.state.clone();
-        let mut local_state = self.state.clone();
-        crate::app::view_state::apply_client_view_to_app_state(&mut local_state, client_view);
-
-        let shared_state = std::mem::replace(&mut self.state, local_state);
-        handle(self);
-        let local_state = std::mem::replace(&mut self.state, shared_state);
-
-        let pending_tab_focus =
-            Self::pending_client_tab_focus_after_deferred_request(&before_shared, &local_state);
-        self.apply_shared_client_view_effects_from_local(&before_shared, local_state.clone());
-        *client_view = ClientViewState::from_app_state(&local_state);
-        client_view.reconcile(&self.state);
-        if let Some((workspace_id, tab_idx)) = pending_tab_focus {
-            client_view
-                .pending_active_tabs
-                .insert(workspace_id, tab_idx);
+        let actions = input::global_menu_actions(&self.state);
+        match key.code {
+            crossterm::event::KeyCode::Esc => Self::leave_client_view_command_mode(client_view),
+            crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
+                client_view.global_menu.move_prev()
+            }
+            crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
+                client_view.global_menu.move_next(actions.len())
+            }
+            _ => {}
         }
     }
 
-    fn copy_client_view_local_modal_state(client_view: &mut ClientViewState, state: AppState) {
-        client_view.mode = state.mode;
-        client_view.settings = state.settings;
-        client_view.command_palette = state.command_palette;
-        client_view.navigator = state.navigator;
-        client_view.agent_profile_picker = state.agent_profile_picker;
-        client_view.keybind_help = state.keybind_help;
-        client_view.global_menu = state.global_menu;
-        client_view.group_menu = state.group_menu;
-        client_view.agent_menu = state.agent_menu;
-        client_view.creating_new_tab = state.creating_new_tab;
-        client_view.creating_new_group = state.creating_new_group;
-        client_view.group_icon_input = state.group_icon_input;
-        client_view.group_default_directory_input = state.group_default_directory_input;
-        client_view.group_modal_selected_field = state.group_modal_selected_field;
-        client_view.group_icon_picker_open = state.group_icon_picker_open;
-        client_view.rename_group_target = state.rename_group_target;
-        client_view.requested_new_tab_name = state.requested_new_tab_name;
-        client_view.rename_pane_target = state.rename_pane_target;
-        client_view.confirm_delete_group = state.confirm_delete_group;
-        client_view.name_input = state.name_input;
-        client_view.name_input_replace_on_type = state.name_input_replace_on_type;
-        client_view.release_notes = state.release_notes;
-        client_view.product_announcement = state.product_announcement;
-        client_view.context_menu = state.context_menu;
+    fn handle_client_view_group_menu_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        key: crossterm::event::KeyEvent,
+    ) {
+        match key.code {
+            crossterm::event::KeyCode::Esc => Self::leave_client_view_command_mode(client_view),
+            crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
+                let len = self.state.group_menu_labels().len();
+                for _ in 0..len {
+                    client_view.group_menu.move_prev();
+                    if self
+                        .state
+                        .group_menu_action_for_row(client_view.group_menu.highlighted)
+                        .is_some()
+                    {
+                        break;
+                    }
+                }
+            }
+            crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
+                let len = self.state.group_menu_labels().len();
+                for _ in 0..len {
+                    client_view.group_menu.move_next(len);
+                    if self
+                        .state
+                        .group_menu_action_for_row(client_view.group_menu.highlighted)
+                        .is_some()
+                    {
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_client_view_agent_menu_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        key: crossterm::event::KeyEvent,
+    ) {
+        let labels = self.state.agent_menu_labels();
+        match key.code {
+            crossterm::event::KeyCode::Esc => Self::leave_client_view_command_mode(client_view),
+            crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
+                let mut idx = client_view.agent_menu.highlighted;
+                while idx > 0 {
+                    idx -= 1;
+                    if self.state.agent_menu_action_for_row(idx).is_some() {
+                        client_view.agent_menu.highlighted = idx;
+                        break;
+                    }
+                }
+            }
+            crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
+                let mut idx = client_view.agent_menu.highlighted;
+                while idx + 1 < labels.len() {
+                    idx += 1;
+                    if self.state.agent_menu_action_for_row(idx).is_some() {
+                        client_view.agent_menu.highlighted = idx;
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn navigator_view_rows(&self, client_view: &ClientViewState) -> Vec<state::NavigatorRow> {
+        self.state
+            .navigator_rows_for_view(client_view, &self.terminal_runtimes)
+    }
+
+    fn ensure_client_view_navigator_selection_visible(&self, client_view: &mut ClientViewState) {
+        let viewport = 10usize;
+        if viewport == 0 {
+            client_view.navigator.scroll = 0;
+            return;
+        }
+        let max_scroll = self
+            .navigator_view_rows(client_view)
+            .len()
+            .saturating_sub(viewport);
+        if client_view.navigator.selected < client_view.navigator.scroll {
+            client_view.navigator.scroll = client_view.navigator.selected;
+        } else if client_view.navigator.selected
+            >= client_view.navigator.scroll.saturating_add(viewport)
+        {
+            client_view.navigator.scroll = client_view
+                .navigator
+                .selected
+                .saturating_add(1)
+                .saturating_sub(viewport);
+        }
+        client_view.navigator.scroll = client_view.navigator.scroll.min(max_scroll);
+    }
+
+    fn clamp_client_view_navigator_selection(&self, client_view: &mut ClientViewState) {
+        let count = self.navigator_view_rows(client_view).len();
+        client_view.navigator.selected =
+            client_view.navigator.selected.min(count.saturating_sub(1));
+        self.ensure_client_view_navigator_selection_visible(client_view);
+    }
+
+    fn move_client_view_navigator_selection(
+        &self,
+        client_view: &mut ClientViewState,
+        delta: isize,
+    ) {
+        let count = self.navigator_view_rows(client_view).len();
+        if count == 0 {
+            client_view.navigator.selected = 0;
+            client_view.navigator.scroll = 0;
+            return;
+        }
+        let current = client_view.navigator.selected.min(count - 1) as isize;
+        client_view.navigator.selected = (current + delta).clamp(0, count as isize - 1) as usize;
+        self.ensure_client_view_navigator_selection_visible(client_view);
+    }
+
+    fn handle_client_view_navigator_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        key: crossterm::event::KeyEvent,
+    ) {
+        if client_view.navigator.search_focused {
+            match key.code {
+                crossterm::event::KeyCode::Esc => {
+                    if client_view.navigator.query.is_empty() {
+                        client_view.navigator.search_focused = false;
+                        Self::leave_client_view_command_mode(client_view);
+                    } else {
+                        client_view.navigator.query.clear();
+                        client_view.navigator.state_filter = None;
+                        client_view.navigator.search_focused = false;
+                        self.clamp_client_view_navigator_selection(client_view);
+                    }
+                }
+                crossterm::event::KeyCode::Backspace => {
+                    client_view.navigator.state_filter = None;
+                    client_view.navigator.query.pop();
+                    self.clamp_client_view_navigator_selection(client_view);
+                }
+                crossterm::event::KeyCode::Up => {
+                    self.move_client_view_navigator_selection(client_view, -1)
+                }
+                crossterm::event::KeyCode::Down => {
+                    self.move_client_view_navigator_selection(client_view, 1)
+                }
+                crossterm::event::KeyCode::Char('n')
+                    if key.modifiers == crossterm::event::KeyModifiers::CONTROL =>
+                {
+                    self.move_client_view_navigator_selection(client_view, 1)
+                }
+                crossterm::event::KeyCode::Char('p')
+                    if key.modifiers == crossterm::event::KeyModifiers::CONTROL =>
+                {
+                    self.move_client_view_navigator_selection(client_view, -1)
+                }
+                crossterm::event::KeyCode::Char('u')
+                    if key.modifiers == crossterm::event::KeyModifiers::CONTROL =>
+                {
+                    client_view.navigator.query.clear();
+                    client_view.navigator.state_filter = None;
+                    self.clamp_client_view_navigator_selection(client_view);
+                }
+                crossterm::event::KeyCode::Char(c)
+                    if key.modifiers.is_empty()
+                        || key.modifiers == crossterm::event::KeyModifiers::SHIFT =>
+                {
+                    client_view.navigator.query.push(c);
+                    self.clamp_client_view_navigator_selection(client_view);
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        match key.code {
+            crossterm::event::KeyCode::Esc => {
+                if client_view.navigator.query.is_empty()
+                    && client_view.navigator.state_filter.is_none()
+                {
+                    Self::leave_client_view_command_mode(client_view);
+                } else {
+                    client_view.navigator.query.clear();
+                    client_view.navigator.state_filter = None;
+                    self.clamp_client_view_navigator_selection(client_view);
+                }
+            }
+            crossterm::event::KeyCode::Char('/') => {
+                client_view.navigator.query.clear();
+                client_view.navigator.state_filter = None;
+                client_view.navigator.search_focused = true;
+                self.clamp_client_view_navigator_selection(client_view);
+            }
+            crossterm::event::KeyCode::Backspace
+                if client_view.navigator.state_filter.is_some() =>
+            {
+                client_view.navigator.state_filter = None;
+                self.clamp_client_view_navigator_selection(client_view);
+            }
+            crossterm::event::KeyCode::Char('a') if key.modifiers.is_empty() => {
+                client_view.navigator.query.clear();
+                client_view.navigator.state_filter = None;
+                self.clamp_client_view_navigator_selection(client_view);
+            }
+            crossterm::event::KeyCode::Char('b') if key.modifiers.is_empty() => {
+                client_view.navigator.query.clear();
+                client_view.navigator.state_filter = Some(state::NavigatorStateFilter::Blocked);
+                self.clamp_client_view_navigator_selection(client_view);
+            }
+            crossterm::event::KeyCode::Char('w') if key.modifiers.is_empty() => {
+                client_view.navigator.query.clear();
+                client_view.navigator.state_filter = Some(state::NavigatorStateFilter::Working);
+                self.clamp_client_view_navigator_selection(client_view);
+            }
+            crossterm::event::KeyCode::Char('i') if key.modifiers.is_empty() => {
+                client_view.navigator.query.clear();
+                client_view.navigator.state_filter = Some(state::NavigatorStateFilter::Idle);
+                self.clamp_client_view_navigator_selection(client_view);
+            }
+            crossterm::event::KeyCode::Char('d') if key.modifiers.is_empty() => {
+                client_view.navigator.query.clear();
+                client_view.navigator.state_filter = Some(state::NavigatorStateFilter::Done);
+                self.clamp_client_view_navigator_selection(client_view);
+            }
+            crossterm::event::KeyCode::Char('j') | crossterm::event::KeyCode::Down => {
+                self.move_client_view_navigator_selection(client_view, 1)
+            }
+            crossterm::event::KeyCode::Char('k') | crossterm::event::KeyCode::Up => {
+                self.move_client_view_navigator_selection(client_view, -1)
+            }
+            crossterm::event::KeyCode::Char('d')
+                if key.modifiers == crossterm::event::KeyModifiers::CONTROL =>
+            {
+                self.move_client_view_navigator_selection(client_view, 5)
+            }
+            crossterm::event::KeyCode::Char('u')
+                if key.modifiers == crossterm::event::KeyModifiers::CONTROL =>
+            {
+                self.move_client_view_navigator_selection(client_view, -5)
+            }
+            crossterm::event::KeyCode::Char(' ') => {
+                let Some(row) = self
+                    .navigator_view_rows(client_view)
+                    .get(client_view.navigator.selected)
+                    .cloned()
+                else {
+                    return;
+                };
+                let state::NavigatorTarget::Workspace { ws_idx } = row.target else {
+                    return;
+                };
+                let Some(workspace_id) = self.state.workspaces.get(ws_idx).map(|ws| ws.id.clone())
+                else {
+                    return;
+                };
+                if client_view
+                    .navigator
+                    .expanded_workspaces
+                    .contains(&workspace_id)
+                {
+                    client_view
+                        .navigator
+                        .expanded_workspaces
+                        .remove(&workspace_id);
+                } else {
+                    client_view
+                        .navigator
+                        .expanded_workspaces
+                        .insert(workspace_id);
+                }
+                self.clamp_client_view_navigator_selection(client_view);
+            }
+            crossterm::event::KeyCode::Home => {
+                client_view.navigator.selected = 0;
+                self.ensure_client_view_navigator_selection_visible(client_view);
+            }
+            crossterm::event::KeyCode::End | crossterm::event::KeyCode::Char('G') => {
+                client_view.navigator.selected = self
+                    .navigator_view_rows(client_view)
+                    .len()
+                    .saturating_sub(1);
+                self.ensure_client_view_navigator_selection_visible(client_view);
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_client_view_rename_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        key: crossterm::event::KeyEvent,
+    ) {
+        match key.code {
+            crossterm::event::KeyCode::Enter => {
+                let new_name = client_view.name_input.trim().to_string();
+                match client_view.mode {
+                    Mode::RenameWorkspace if !new_name.is_empty() => {
+                        if let Some(ws_idx) = client_view.active_workspace {
+                            if let Some(workspace) = self.state.workspaces.get_mut(ws_idx) {
+                                workspace.set_custom_name(new_name);
+                                self.state.mark_session_dirty();
+                            }
+                        }
+                    }
+                    Mode::RenameTab if client_view.creating_new_tab => {
+                        if let Some(ws_idx) = client_view.active_workspace {
+                            let custom_name = (!new_name.is_empty()).then_some(new_name);
+                            self.state.request_new_tab_for_client = Some((ws_idx, custom_name));
+                            if let Some(ws) = self.state.workspaces.get(ws_idx) {
+                                client_view
+                                    .pending_active_tabs
+                                    .insert(ws.id.clone(), ws.tabs.len());
+                            }
+                        }
+                    }
+                    Mode::RenameTab => {
+                        if let Some(ws_idx) = client_view.active_workspace {
+                            if let Some(tab_idx) =
+                                client_view.active_tab_index_for_workspace(&self.state, ws_idx)
+                            {
+                                if let Some(tab) = self
+                                    .state
+                                    .workspaces
+                                    .get_mut(ws_idx)
+                                    .and_then(|ws| ws.tabs.get_mut(tab_idx))
+                                {
+                                    if !new_name.is_empty() {
+                                        tab.set_custom_name(new_name);
+                                        self.state.mark_session_dirty();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Mode::RenameGroup if client_view.creating_new_group => {
+                        let name = if new_name.is_empty() {
+                            format!("group {}", self.state.groups.len() + 1)
+                        } else {
+                            new_name
+                        };
+                        let dir = client_view.group_default_directory_input.trim();
+                        let group_idx = self.state.create_group_with_icon_and_default_directory(
+                            name,
+                            client_view.group_icon_input.clone(),
+                            (!dir.is_empty()).then_some(std::path::PathBuf::from(dir)),
+                        );
+                        client_view.active_group = group_idx;
+                        client_view.group_filter_enabled = true;
+                    }
+                    Mode::RenameGroup if !new_name.is_empty() => {
+                        let group_idx = client_view
+                            .rename_group_target
+                            .unwrap_or(client_view.active_group);
+                        self.state.rename_group(group_idx, new_name);
+                        self.state
+                            .set_group_icon(group_idx, client_view.group_icon_input.clone());
+                    }
+                    Mode::RenamePane => {
+                        if let Some(pane_id) = client_view.rename_pane_target {
+                            if let Some(terminal_id) = self.state.workspaces.iter().find_map(|ws| {
+                                ws.pane_state(pane_id)
+                                    .map(|pane| pane.attached_terminal_id.clone())
+                            }) {
+                                if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
+                                    terminal.set_manual_label(new_name);
+                                    self.state.mark_session_dirty();
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                client_view.creating_new_tab = false;
+                client_view.creating_new_group = false;
+                client_view.group_icon_picker_open = false;
+                client_view.group_default_directory_input.clear();
+                client_view.group_modal_selected_field = 0;
+                client_view.rename_group_target = None;
+                client_view.rename_pane_target = None;
+                client_view.name_input.clear();
+                client_view.name_input_replace_on_type = false;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            crossterm::event::KeyCode::Esc | crossterm::event::KeyCode::Char('c')
+                if key.code == crossterm::event::KeyCode::Esc
+                    || key
+                        .modifiers
+                        .contains(crossterm::event::KeyModifiers::CONTROL) =>
+            {
+                client_view.creating_new_tab = false;
+                client_view.creating_new_group = false;
+                client_view.group_icon_picker_open = false;
+                client_view.group_default_directory_input.clear();
+                client_view.group_modal_selected_field = 0;
+                client_view.rename_group_target = None;
+                client_view.requested_new_tab_name = None;
+                client_view.rename_pane_target = None;
+                client_view.name_input.clear();
+                client_view.name_input_replace_on_type = false;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            crossterm::event::KeyCode::Backspace => {
+                if client_view.mode == Mode::RenameGroup
+                    && client_view.creating_new_group
+                    && client_view.group_modal_selected_field == 1
+                {
+                    client_view.group_default_directory_input.pop();
+                } else {
+                    client_view.name_input.pop();
+                }
+                client_view.name_input_replace_on_type = false;
+            }
+            crossterm::event::KeyCode::Tab
+                if client_view.mode == Mode::RenameGroup
+                    && client_view.creating_new_group
+                    && !key
+                        .modifiers
+                        .contains(crossterm::event::KeyModifiers::SHIFT) =>
+            {
+                client_view.group_modal_selected_field =
+                    (client_view.group_modal_selected_field + 1) % 2;
+                client_view.name_input_replace_on_type = false;
+            }
+            crossterm::event::KeyCode::BackTab
+                if client_view.mode == Mode::RenameGroup && client_view.creating_new_group =>
+            {
+                client_view.group_modal_selected_field =
+                    (client_view.group_modal_selected_field + 1) % 2;
+                client_view.name_input_replace_on_type = false;
+            }
+            crossterm::event::KeyCode::Char(c)
+                if key
+                    .modifiers
+                    .difference(crossterm::event::KeyModifiers::SHIFT)
+                    .is_empty() =>
+            {
+                if client_view.name_input_replace_on_type {
+                    if client_view.mode == Mode::RenameGroup
+                        && client_view.creating_new_group
+                        && client_view.group_modal_selected_field == 1
+                    {
+                        client_view.group_default_directory_input.clear();
+                    } else {
+                        client_view.name_input.clear();
+                    }
+                    client_view.name_input_replace_on_type = false;
+                }
+                if client_view.mode == Mode::RenameGroup
+                    && client_view.creating_new_group
+                    && client_view.group_modal_selected_field == 1
+                {
+                    client_view.group_default_directory_input.push(c);
+                } else {
+                    client_view.name_input.push(c);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_client_view_worktree_directory_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        key: crossterm::event::KeyEvent,
+    ) {
+        match key.code {
+            crossterm::event::KeyCode::Enter => {
+                let directory = client_view.name_input.trim().to_string();
+                if !directory.is_empty() {
+                    client_view.settings.pending_worktree_directory = Some(directory);
+                    client_view.name_input.clear();
+                    client_view.name_input_replace_on_type = false;
+                    client_view.mode = Mode::Settings;
+                }
+            }
+            crossterm::event::KeyCode::Esc => {
+                client_view.name_input.clear();
+                client_view.name_input_replace_on_type = false;
+                client_view.mode = Mode::Settings;
+            }
+            crossterm::event::KeyCode::Backspace => {
+                client_view.name_input.pop();
+                client_view.name_input_replace_on_type = false;
+            }
+            crossterm::event::KeyCode::Char(c)
+                if key
+                    .modifiers
+                    .difference(crossterm::event::KeyModifiers::SHIFT)
+                    .is_empty() =>
+            {
+                if client_view.name_input_replace_on_type {
+                    client_view.name_input.clear();
+                    client_view.name_input_replace_on_type = false;
+                }
+                client_view.name_input.push(c);
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_client_view_release_notes_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        key: crossterm::event::KeyEvent,
+    ) {
+        let max_scroll = client_view
+            .release_notes
+            .as_ref()
+            .map(|notes| {
+                notes
+                    .body
+                    .lines()
+                    .count()
+                    .saturating_sub(1)
+                    .min(u16::MAX as usize) as u16
+            })
+            .unwrap_or(0);
+        if let Some(notes) = &mut client_view.release_notes {
+            match key.code {
+                crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
+                    notes.scroll = notes.scroll.saturating_sub(1).min(max_scroll)
+                }
+                crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
+                    notes.scroll = notes.scroll.saturating_add(1).min(max_scroll)
+                }
+                crossterm::event::KeyCode::PageUp => {
+                    notes.scroll = notes.scroll.saturating_sub(8).min(max_scroll)
+                }
+                crossterm::event::KeyCode::PageDown => {
+                    notes.scroll = notes.scroll.saturating_add(8).min(max_scroll)
+                }
+                crossterm::event::KeyCode::Home => notes.scroll = 0,
+                crossterm::event::KeyCode::End => notes.scroll = max_scroll,
+                crossterm::event::KeyCode::Esc => Self::leave_client_view_command_mode(client_view),
+                _ => {}
+            }
+        }
+    }
+
+    fn handle_client_view_product_announcement_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        key: crossterm::event::KeyEvent,
+    ) {
+        let max_scroll = client_view
+            .product_announcement
+            .as_ref()
+            .map(|announcement| {
+                announcement
+                    .body
+                    .lines()
+                    .count()
+                    .saturating_sub(1)
+                    .min(u16::MAX as usize) as u16
+            })
+            .unwrap_or(0);
+        if let Some(announcement) = &mut client_view.product_announcement {
+            match key.code {
+                crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
+                    announcement.scroll = announcement.scroll.saturating_sub(1).min(max_scroll)
+                }
+                crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
+                    announcement.scroll = announcement.scroll.saturating_add(1).min(max_scroll)
+                }
+                crossterm::event::KeyCode::PageUp => {
+                    announcement.scroll = announcement.scroll.saturating_sub(8).min(max_scroll)
+                }
+                crossterm::event::KeyCode::PageDown => {
+                    announcement.scroll = announcement.scroll.saturating_add(8).min(max_scroll)
+                }
+                crossterm::event::KeyCode::Home => announcement.scroll = 0,
+                crossterm::event::KeyCode::End => announcement.scroll = max_scroll,
+                crossterm::event::KeyCode::Esc => Self::leave_client_view_command_mode(client_view),
+                _ => {}
+            }
+        }
+    }
+
+    fn handle_client_view_resize_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        raw_key: crate::input::TerminalKey,
+    ) {
+        let key = raw_key.as_key_event();
+        if key.code == crossterm::event::KeyCode::Esc
+            || key.code == crossterm::event::KeyCode::Enter
+            || self.state.keybinds.resize_mode.matches_prefix_key(raw_key)
+            || self.state.keybinds.resize_mode.matches_direct_key(raw_key)
+        {
+            Self::leave_client_view_command_mode(client_view);
+            return;
+        }
+        let Some(ws_idx) = client_view.active_workspace else {
+            return;
+        };
+        let Some((tab_idx, pane_id)) = client_view.focused_pane_for_workspace(&self.state, ws_idx)
+        else {
+            return;
+        };
+        let direction = match key.code {
+            crossterm::event::KeyCode::Char('h') | crossterm::event::KeyCode::Left => {
+                crate::layout::NavDirection::Left
+            }
+            crossterm::event::KeyCode::Char('l') | crossterm::event::KeyCode::Right => {
+                crate::layout::NavDirection::Right
+            }
+            crossterm::event::KeyCode::Char('j') | crossterm::event::KeyCode::Down => {
+                crate::layout::NavDirection::Down
+            }
+            crossterm::event::KeyCode::Char('k') | crossterm::event::KeyCode::Up => {
+                crate::layout::NavDirection::Up
+            }
+            _ => return,
+        };
+        if let Some(tab) = self
+            .state
+            .workspaces
+            .get_mut(ws_idx)
+            .and_then(|ws| ws.tabs.get_mut(tab_idx))
+        {
+            tab.layout
+                .resize_pane(pane_id, direction, 1.0, client_view.computed.terminal_area);
+            self.state.mark_session_dirty();
+        }
     }
 
     fn open_client_view_keybind_help(client_view: &mut ClientViewState) {
@@ -2129,6 +2698,30 @@ impl App {
             preview: notes.preview,
         });
         client_view.mode = Mode::ReleaseNotes;
+    }
+
+    fn open_client_view_new_tab_dialog(&self, client_view: &mut ClientViewState) {
+        client_view.creating_new_tab = true;
+        client_view.creating_new_group = false;
+        client_view.requested_new_tab_name = None;
+        client_view.name_input = "tab".to_string();
+        client_view.name_input_replace_on_type = true;
+        client_view.mode = Mode::RenameTab;
+    }
+
+    fn open_client_view_rename_tab_dialog(&self, client_view: &mut ClientViewState) {
+        client_view.creating_new_tab = false;
+        client_view.requested_new_tab_name = None;
+        client_view.name_input = client_view
+            .active_workspace
+            .and_then(|ws_idx| {
+                let workspace = self.state.workspaces.get(ws_idx)?;
+                let tab_idx = client_view.active_tab_index_for_workspace(&self.state, ws_idx)?;
+                workspace.tabs.get(tab_idx).map(|tab| tab.display_name())
+            })
+            .unwrap_or_default();
+        client_view.name_input_replace_on_type = true;
+        client_view.mode = Mode::RenameTab;
     }
 
     fn open_client_view_new_group_dialog(&self, client_view: &mut ClientViewState) {
@@ -2156,7 +2749,7 @@ impl App {
             return;
         };
 
-        if self.state.focus_navigator_target(row.target) {
+        if self.focus_client_view_navigator_target(client_view, row.target) {
             client_view.mode = Mode::Terminal;
         }
     }
@@ -2168,9 +2761,7 @@ impl App {
             return;
         };
 
-        self.apply_client_view_local_app_action(client_view, |app| {
-            input::execute_command_palette_action(app, action);
-        });
+        self.execute_client_view_command_palette_action(client_view, action);
     }
 
     fn accept_client_view_global_menu_selection(&mut self, client_view: &mut ClientViewState) {
@@ -2190,24 +2781,12 @@ impl App {
                 self.state.request_reload_config = true;
                 Self::leave_client_view_command_mode(client_view);
             }
-            input::GlobalMenuAction::Settings => {
-                self.apply_client_view_local_key(client_view, |state| {
-                    input::handle_global_menu_key(
-                        state,
-                        crossterm::event::KeyEvent::new(
-                            crossterm::event::KeyCode::Enter,
-                            crossterm::event::KeyModifiers::empty(),
-                        ),
-                    );
-                });
-            }
+            input::GlobalMenuAction::Settings => self.open_client_view_settings(client_view),
             input::GlobalMenuAction::UpdateIntegrations => {
-                self.apply_client_view_local_key(client_view, |state| {
-                    input::open_settings_at(
-                        state,
-                        crate::app::state::SettingsSection::Integrations,
-                    );
-                });
+                self.open_client_view_settings_at(
+                    client_view,
+                    crate::app::state::SettingsSection::Integrations,
+                );
             }
             input::GlobalMenuAction::Keybinds => Self::open_client_view_keybind_help(client_view),
             input::GlobalMenuAction::Changelog => Self::open_client_view_changelog(client_view),
@@ -2224,18 +2803,71 @@ impl App {
 
         match action {
             input::GroupMenuAction::AllSpaces => {
-                self.state.show_all_groups();
+                self.show_all_groups_for_client_view(client_view);
                 Self::leave_client_view_command_mode(client_view);
             }
             input::GroupMenuAction::Group(idx) => {
-                self.state.switch_group(idx);
+                self.switch_client_view_group(client_view, idx);
                 Self::leave_client_view_command_mode(client_view);
             }
             input::GroupMenuAction::NewWorkspace => {
-                self.state.request_new_workspace = true;
-                Self::leave_client_view_command_mode(client_view);
+                self.create_workspace_for_client_view(client_view);
             }
             input::GroupMenuAction::NewGroup => self.open_client_view_new_group_dialog(client_view),
+        }
+    }
+
+    fn focus_client_view_navigator_target(
+        &self,
+        client_view: &mut ClientViewState,
+        target: state::NavigatorTarget,
+    ) -> bool {
+        match target {
+            state::NavigatorTarget::Workspace { ws_idx } => {
+                if self.state.workspaces.get(ws_idx).is_none() {
+                    return false;
+                }
+                client_view.active_workspace = Some(ws_idx);
+                client_view.selected_workspace = ws_idx;
+                true
+            }
+            state::NavigatorTarget::Tab { ws_idx, tab_idx } => {
+                let Some(workspace) = self.state.workspaces.get(ws_idx) else {
+                    return false;
+                };
+                if tab_idx >= workspace.tabs.len() {
+                    return false;
+                }
+                client_view.active_workspace = Some(ws_idx);
+                client_view.selected_workspace = ws_idx;
+                client_view
+                    .active_tabs
+                    .insert(workspace.id.clone(), tab_idx);
+                true
+            }
+            state::NavigatorTarget::Pane {
+                ws_idx,
+                tab_idx,
+                pane_id,
+            } => {
+                let Some(workspace) = self.state.workspaces.get(ws_idx) else {
+                    return false;
+                };
+                if !workspace
+                    .tabs
+                    .get(tab_idx)
+                    .is_some_and(|tab| tab.panes.contains_key(&pane_id))
+                {
+                    return false;
+                }
+                client_view.active_workspace = Some(ws_idx);
+                client_view.selected_workspace = ws_idx;
+                client_view
+                    .active_tabs
+                    .insert(workspace.id.clone(), tab_idx);
+                client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, pane_id);
+                true
+            }
         }
     }
 
@@ -2257,33 +2889,635 @@ impl App {
         Self::leave_client_view_command_mode(client_view);
     }
 
+    fn open_client_view_settings(&self, client_view: &mut ClientViewState) {
+        self.open_client_view_settings_at(client_view, crate::app::state::SettingsSection::Theme);
+    }
+
+    fn open_client_view_settings_at(
+        &self,
+        client_view: &mut ClientViewState,
+        section: crate::app::state::SettingsSection,
+    ) {
+        client_view.settings = self.state.settings.clone();
+        client_view.settings.original_palette = Some(self.state.palette.clone());
+        client_view.settings.original_theme = Some(self.state.theme_name.clone());
+        client_view.settings.section = section;
+        client_view.mode = Mode::Settings;
+    }
+
+    fn launch_focused_scrollback_editor_for_view(&mut self, client_view: &ClientViewState) {
+        let previous_active = self.state.active;
+        if let Some(ws_idx) = client_view.active_workspace {
+            self.state.active = Some(ws_idx);
+        }
+        self.launch_focused_scrollback_editor();
+        self.state.active = previous_active;
+    }
+
+    fn execute_client_view_command_palette_action(
+        &mut self,
+        client_view: &mut ClientViewState,
+        action: crate::app::command_palette::CommandPaletteAction,
+    ) {
+        match action {
+            crate::app::command_palette::CommandPaletteAction::NewWorkspace => {
+                self.create_workspace_for_client_view(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::PreviousWorkspace => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::PreviousWorkspace,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::NextWorkspace => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::NextWorkspace,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::SwitchWorkspace(idx) => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::SwitchWorkspace(idx),
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::NewTab => {
+                self.open_client_view_new_tab_dialog(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::SwitchTab(idx) => {
+                if let Some(ws_idx) = client_view.active_workspace {
+                    if let Some(ws) = self.state.workspaces.get(ws_idx) {
+                        client_view.pending_active_tabs.insert(ws.id.clone(), idx);
+                    }
+                }
+                Self::leave_client_view_command_mode(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::RenameTab => {
+                self.open_client_view_rename_tab_dialog(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::PreviousTab => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::PreviousTab,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::NextTab => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::NextTab,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::ResizeMode => {
+                client_view.mode = Mode::Resize;
+            }
+            crate::app::command_palette::CommandPaletteAction::OpenGroupMenu => {
+                let highlighted = if client_view.group_filter_enabled {
+                    client_view.active_group + 3
+                } else {
+                    0
+                };
+                client_view.group_menu = state::MenuListState::new(highlighted);
+                client_view.mode = Mode::GroupMenu;
+            }
+            crate::app::command_palette::CommandPaletteAction::ShowAllGroups => {
+                self.show_all_groups_for_client_view(client_view);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::NewGroup => {
+                self.open_client_view_new_group_dialog(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::RenameGroup => {
+                client_view.creating_new_group = false;
+                client_view.rename_group_target = Some(client_view.active_group);
+                client_view.name_input = self
+                    .state
+                    .groups
+                    .get(client_view.active_group)
+                    .map(|group| group.name.clone())
+                    .unwrap_or_default();
+                client_view.name_input_replace_on_type = true;
+                client_view.mode = Mode::RenameGroup;
+            }
+            crate::app::command_palette::CommandPaletteAction::ToggleGroupFilter => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::ToggleGroupFilter,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::PreviousGroup => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::PreviousGroup,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::NextGroup => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::NextGroup,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::SwitchGroup(idx) => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::SwitchGroup(idx),
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::OpenAgentMenu => {
+                let highlighted = match client_view.agent_panel_scope {
+                    state::AgentPanelScope::AllWorkspaces => 0,
+                    state::AgentPanelScope::CurrentWorkspace => 2,
+                    state::AgentPanelScope::CurrentGroup => 4,
+                };
+                client_view.agent_menu = state::MenuListState::new(highlighted);
+                client_view.mode = Mode::AgentMenu;
+            }
+            crate::app::command_palette::CommandPaletteAction::SetAgentScope(scope) => {
+                client_view.agent_panel_scope = scope;
+                client_view.agent_panel_scroll = 0;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::OpenGlobalMenu => {
+                client_view.global_menu = state::MenuListState::new(0);
+                client_view.mode = Mode::GlobalMenu;
+            }
+            crate::app::command_palette::CommandPaletteAction::OpenSettings => {
+                self.open_client_view_settings(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::OpenKeybinds => {
+                Self::open_client_view_keybind_help(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::ReloadConfig => {
+                self.state.request_reload_config = true;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::OpenGitDiff => {
+                self.state.request_open_git_diff_command = true;
+                self.state.request_open_git_diff_workspace = client_view.active_workspace;
+                if let Some(ws_idx) = client_view.active_workspace {
+                    if let Some(ws) = self.state.workspaces.get(ws_idx) {
+                        client_view
+                            .pending_active_tabs
+                            .insert(ws.id.clone(), ws.tabs.len());
+                    }
+                }
+                Self::leave_client_view_command_mode(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::ToggleSidebar => {
+                client_view.sidebar_collapsed = !client_view.sidebar_collapsed;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::DetachOrQuit => {
+                input::request_detach(&mut self.state);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            other => {
+                self.execute_targeted_client_view_app_action(client_view, |app| {
+                    input::execute_command_palette_action(app, other);
+                });
+            }
+        }
+    }
+
+    fn sync_app_state_view_fields(state: &mut AppState, view: &ClientViewState) {
+        state.active = view.active_workspace;
+        state.selected = view
+            .selected_workspace
+            .min(state.workspaces.len().saturating_sub(1));
+        state.active_group = view.active_group.min(state.groups.len().saturating_sub(1));
+        state.group_filter_enabled = view.group_filter_enabled;
+        state.agent_panel_scope = view.agent_panel_scope;
+        state.workspace_scroll = view.workspace_scroll;
+        state.agent_panel_scroll = view.agent_panel_scroll;
+        state.tab_scroll = view.tab_scroll;
+        state.tab_scroll_follow_active = view.tab_scroll_follow_active;
+        state.hovered_tab = view.hovered_tab;
+        state.mobile_switcher_scroll = view.mobile_switcher_scroll;
+        state.sidebar_width = view.sidebar_width;
+        state.sidebar_width_source = view.sidebar_width_source;
+        state.sidebar_collapsed = view.sidebar_collapsed;
+        state.right_sidebar_collapsed = view.right_sidebar_collapsed;
+        state.right_sidebar_width = view.right_sidebar_width;
+        state.sidebar_section_split = view.sidebar_section_split;
+        state.activity_agents_expanded = view.activity_agents_expanded;
+        state.activity_commands_expanded = view.activity_commands_expanded;
+        state.activity_ports_expanded = view.activity_ports_expanded;
+        state.collapsed_agent_sections = view.collapsed_agent_sections.clone();
+        state.collapsed_command_groups = view.collapsed_command_groups.clone();
+        state.collapsed_command_status_groups = view.collapsed_command_status_groups.clone();
+        state.collapsed_workspace_groups = view.collapsed_workspace_groups.clone();
+        state.mode = view.mode;
+        state.settings = view.settings.clone();
+        state.command_palette = view.command_palette.clone();
+        state.navigator = view.navigator.clone();
+        state.agent_profile_picker = view.agent_profile_picker.clone();
+        state.git_repo_picker = view.git_repo_picker.clone();
+        state.context_menu = view.context_menu.clone();
+        state.selection = view.selection.clone();
+        state.selection_autoscroll = view.selection_autoscroll.clone();
+        state.copy_mode = view.copy_mode;
+        state.drag = view.drag.clone();
+        state.workspace_press = view.workspace_press.clone();
+        state.tab_press = view.tab_press.clone();
+        state.previous_pane_focus = view.previous_pane_focus.clone();
+        state.keybind_help = view.keybind_help.clone();
+        state.global_menu = view.global_menu;
+        state.group_menu = view.group_menu;
+        state.agent_menu = view.agent_menu;
+        state.creating_new_tab = view.creating_new_tab;
+        state.creating_new_group = view.creating_new_group;
+        state.group_icon_input = view.group_icon_input.clone();
+        state.group_default_directory_input = view.group_default_directory_input.clone();
+        state.group_modal_selected_field = view.group_modal_selected_field;
+        state.group_icon_picker_open = view.group_icon_picker_open;
+        state.rename_group_target = view.rename_group_target;
+        state.requested_new_tab_name = view.requested_new_tab_name.clone();
+        state.rename_pane_target = view.rename_pane_target;
+        state.confirm_delete_group = view.confirm_delete_group;
+        state.name_input = view.name_input.clone();
+        state.name_input_replace_on_type = view.name_input_replace_on_type;
+        state.release_notes = view.release_notes.clone();
+        state.product_announcement = view.product_announcement.clone();
+        state.view = view.computed.clone();
+
+        for workspace in &mut state.workspaces {
+            if let Some(tab_idx) = view
+                .active_tabs
+                .get(&workspace.id)
+                .copied()
+                .filter(|idx| *idx < workspace.tabs.len())
+            {
+                workspace.switch_tab(tab_idx);
+            }
+            for (tab_idx, tab) in workspace.tabs.iter_mut().enumerate() {
+                let tab_number = tab_idx + 1;
+                if let Some(pane_id) = view.focused_pane_for_tab(&workspace.id, tab_number) {
+                    if tab.panes.contains_key(&pane_id) {
+                        tab.layout.focus_pane(pane_id);
+                    }
+                }
+                tab.zoomed = view.tab_is_zoomed(&workspace.id, tab_number);
+            }
+        }
+    }
+
+    fn execute_targeted_client_view_app_action(
+        &mut self,
+        client_view: &mut ClientViewState,
+        action: impl FnOnce(&mut Self),
+    ) {
+        let mut default_view = ClientViewState::from_default_client_state(&self.state);
+        Self::sync_app_state_view_fields(&mut self.state, client_view);
+        action(self);
+        if self.state.request_open_git_diff_command
+            && self.state.request_open_git_diff_workspace.is_none()
+        {
+            self.state.request_open_git_diff_workspace = self.state.active;
+        }
+        let mut updated_client_view = ClientViewState::from_default_client_state(&self.state);
+        default_view.reconcile(&self.state);
+        Self::sync_app_state_view_fields(&mut self.state, &default_view);
+        updated_client_view.reconcile(&self.state);
+        *client_view = updated_client_view;
+    }
+
+    fn client_view_workspace_in_active_group(
+        &self,
+        client_view: &ClientViewState,
+        ws_idx: usize,
+    ) -> bool {
+        if !client_view.group_filter_enabled {
+            return self.state.workspaces.get(ws_idx).is_some();
+        }
+        let active_group_id = self
+            .state
+            .groups
+            .get(client_view.active_group)
+            .map(|group| group.id.as_str())
+            .unwrap_or(crate::workspace::DEFAULT_GROUP_ID);
+        self.state
+            .workspaces
+            .get(ws_idx)
+            .is_some_and(|workspace| workspace.group_id == active_group_id)
+    }
+
+    fn first_client_view_visible_workspace(&self, client_view: &ClientViewState) -> Option<usize> {
+        self.state
+            .workspaces
+            .iter()
+            .enumerate()
+            .find_map(|(idx, _)| {
+                self.client_view_workspace_in_active_group(client_view, idx)
+                    .then_some(idx)
+            })
+    }
+
+    fn switch_client_view_workspace(&self, client_view: &mut ClientViewState, ws_idx: usize) {
+        if !self.client_view_workspace_in_active_group(client_view, ws_idx) {
+            return;
+        }
+        let Some(workspace) = self.state.workspaces.get(ws_idx) else {
+            return;
+        };
+        client_view.active_workspace = Some(ws_idx);
+        client_view.selected_workspace = ws_idx;
+        if let Some(group_idx) = self
+            .state
+            .groups
+            .iter()
+            .position(|group| group.id == workspace.group_id)
+        {
+            client_view.active_group = group_idx;
+        }
+        client_view.mode = Mode::Terminal;
+        client_view.tab_scroll_follow_active = true;
+        if matches!(
+            client_view.agent_panel_scope,
+            state::AgentPanelScope::CurrentWorkspace
+        ) {
+            client_view.agent_panel_scroll = 0;
+        }
+    }
+
+    fn switch_client_view_group(&self, client_view: &mut ClientViewState, group_idx: usize) {
+        if group_idx >= self.state.groups.len() {
+            return;
+        }
+        client_view.active_group = group_idx;
+        client_view.group_filter_enabled = true;
+        client_view.workspace_scroll = 0;
+        client_view.agent_panel_scroll = 0;
+        if let Some(ws_idx) = self.first_client_view_visible_workspace(client_view) {
+            self.switch_client_view_workspace(client_view, ws_idx);
+        } else {
+            client_view.active_workspace = None;
+            client_view.selected_workspace = 0;
+            client_view.tab_scroll = 0;
+            if client_view.mode == Mode::Terminal {
+                client_view.mode = Mode::Navigate;
+            }
+        }
+    }
+
+    fn show_all_groups_for_client_view(&self, client_view: &mut ClientViewState) {
+        client_view.group_filter_enabled = false;
+        client_view.workspace_scroll = 0;
+        client_view.agent_panel_scroll = 0;
+        if client_view.active_workspace.is_none() {
+            if let Some(ws_idx) = self.first_client_view_visible_workspace(client_view) {
+                self.switch_client_view_workspace(client_view, ws_idx);
+            }
+        }
+    }
+
+    fn previous_client_view_workspace(&self, client_view: &mut ClientViewState) {
+        let visible = self
+            .state
+            .workspaces
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, _)| {
+                self.client_view_workspace_in_active_group(client_view, idx)
+                    .then_some(idx)
+            })
+            .collect::<Vec<_>>();
+        let Some(&first_visible) = visible.first() else {
+            return;
+        };
+        let current = client_view.active_workspace.unwrap_or(first_visible);
+        let position = visible.iter().position(|idx| *idx == current).unwrap_or(0);
+        let next = if position == 0 {
+            *visible.last().unwrap_or(&first_visible)
+        } else {
+            visible[position - 1]
+        };
+        self.switch_client_view_workspace(client_view, next);
+    }
+
+    fn next_client_view_workspace(&self, client_view: &mut ClientViewState) {
+        let visible = self
+            .state
+            .workspaces
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, _)| {
+                self.client_view_workspace_in_active_group(client_view, idx)
+                    .then_some(idx)
+            })
+            .collect::<Vec<_>>();
+        let Some(&first_visible) = visible.first() else {
+            return;
+        };
+        let current = client_view.active_workspace.unwrap_or(first_visible);
+        let position = visible.iter().position(|idx| *idx == current).unwrap_or(0);
+        let next = visible.get(position + 1).copied().unwrap_or(first_visible);
+        self.switch_client_view_workspace(client_view, next);
+    }
+
+    fn previous_client_view_group(&self, client_view: &mut ClientViewState) {
+        if self.state.groups.is_empty() {
+            return;
+        }
+        let group_idx = if client_view.active_group == 0 {
+            self.state.groups.len() - 1
+        } else {
+            client_view.active_group - 1
+        };
+        self.switch_client_view_group(client_view, group_idx);
+    }
+
+    fn next_client_view_group(&self, client_view: &mut ClientViewState) {
+        if self.state.groups.is_empty() {
+            return;
+        }
+        self.switch_client_view_group(
+            client_view,
+            (client_view.active_group + 1) % self.state.groups.len(),
+        );
+    }
+
+    fn create_workspace_for_client_view(&mut self, client_view: &mut ClientViewState) {
+        let source = client_view
+            .active_workspace
+            .filter(|idx| self.state.workspaces.get(*idx).is_some());
+        let group_id = source
+            .and_then(|ws_idx| self.state.workspaces.get(ws_idx))
+            .map(|ws| ws.group_id.clone())
+            .or_else(|| {
+                self.state
+                    .groups
+                    .get(client_view.active_group)
+                    .map(|group| group.id.clone())
+            })
+            .unwrap_or_else(|| crate::workspace::DEFAULT_GROUP_ID.to_string());
+        let initial_cwd = self.group_default_directory(&group_id).unwrap_or_else(|| {
+            let follow_cwd = source.and_then(|ws_idx| self.seed_cwd_from_workspace(ws_idx));
+            self.resolve_new_terminal_cwd(follow_cwd)
+        });
+        match self.create_workspace_with_launch_env_in_group(
+            initial_cwd,
+            false,
+            group_id,
+            Vec::new(),
+        ) {
+            Ok(ws_idx) => {
+                self.switch_client_view_workspace(client_view, ws_idx);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            Err(err) => {
+                tracing::error!(err = %err, "failed to create client workspace");
+                client_view.mode = Mode::Navigate;
+            }
+        }
+    }
+
     fn execute_client_view_navigate_action(
         &mut self,
         client_view: &mut ClientViewState,
         action: input::NavigateAction,
         context: input::ActionContext,
     ) {
-        self.apply_client_view_local_app_action(client_view, |app| {
-            let previous_mode = app.state.mode;
-            if action == input::NavigateAction::EditScrollback {
-                app.launch_focused_scrollback_editor();
+        match action {
+            input::NavigateAction::Settings => {
+                self.open_client_view_settings(client_view);
+            }
+            input::NavigateAction::OpenCommandPalette => {
+                client_view.command_palette.query.clear();
+                client_view.command_palette.selected = 0;
+                client_view.command_palette.scroll = 0;
+                client_view.mode = Mode::CommandPalette;
+            }
+            input::NavigateAction::SwitchWorkspace(idx) => {
+                self.switch_client_view_workspace(client_view, idx);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::PreviousWorkspace => {
+                self.previous_client_view_workspace(client_view);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::NextWorkspace => {
+                self.next_client_view_workspace(client_view);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::NewWorkspace => {
+                self.create_workspace_for_client_view(client_view);
+            }
+            input::NavigateAction::SwitchTab(idx) => {
+                if let Some(ws_idx) = client_view.active_workspace {
+                    if let Some(ws) = self.state.workspaces.get(ws_idx) {
+                        if idx < ws.tabs.len() {
+                            client_view.active_tabs.insert(ws.id.clone(), idx);
+                        }
+                    }
+                }
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::PreviousTab | input::NavigateAction::NextTab => {
+                if let Some(ws_idx) = client_view.active_workspace {
+                    if let Some(ws) = self.state.workspaces.get(ws_idx) {
+                        let current = client_view
+                            .active_tab_for_workspace(&ws.id)
+                            .unwrap_or(ws.active_tab)
+                            .min(ws.tabs.len().saturating_sub(1));
+                        let next = if action == input::NavigateAction::PreviousTab {
+                            current.saturating_sub(1)
+                        } else {
+                            (current + 1).min(ws.tabs.len().saturating_sub(1))
+                        };
+                        client_view.active_tabs.insert(ws.id.clone(), next);
+                    }
+                }
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::NewTab => {
+                if self.state.prompt_new_tab_name {
+                    self.open_client_view_new_tab_dialog(client_view);
+                } else {
+                    if let Some(ws_idx) = client_view.active_workspace {
+                        self.state.request_new_tab_for_client = Some((ws_idx, None));
+                        if let Some(ws) = self.state.workspaces.get(ws_idx) {
+                            client_view
+                                .pending_active_tabs
+                                .insert(ws.id.clone(), ws.tabs.len());
+                        }
+                    }
+                    Self::leave_client_view_command_mode(client_view);
+                }
+            }
+            input::NavigateAction::Help => Self::open_client_view_keybind_help(client_view),
+            input::NavigateAction::OpenGroupMenu => {
+                let highlighted = if client_view.group_filter_enabled {
+                    client_view.active_group + 3
+                } else {
+                    0
+                };
+                client_view.group_menu = state::MenuListState::new(highlighted);
+                client_view.mode = Mode::GroupMenu;
+            }
+            input::NavigateAction::SwitchGroup(idx) => {
+                self.switch_client_view_group(client_view, idx);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::ToggleGroupFilter => {
+                if client_view.group_filter_enabled {
+                    self.show_all_groups_for_client_view(client_view);
+                } else {
+                    client_view.group_filter_enabled = true;
+                    client_view.workspace_scroll = 0;
+                    client_view.agent_panel_scroll = 0;
+                    if let Some(ws_idx) = self.first_client_view_visible_workspace(client_view) {
+                        self.switch_client_view_workspace(client_view, ws_idx);
+                    }
+                }
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::PreviousGroup => {
+                self.previous_client_view_group(client_view);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::NextGroup => {
+                self.next_client_view_group(client_view);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::OpenAgentMenu => {
+                let highlighted = match client_view.agent_panel_scope {
+                    state::AgentPanelScope::AllWorkspaces => 0,
+                    state::AgentPanelScope::CurrentWorkspace => 2,
+                    state::AgentPanelScope::CurrentGroup => 4,
+                };
+                client_view.agent_menu = state::MenuListState::new(highlighted);
+                client_view.mode = Mode::AgentMenu;
+            }
+            input::NavigateAction::EditScrollback => {
+                let previous_mode = client_view.mode;
+                self.launch_focused_scrollback_editor_for_view(client_view);
                 if matches!(
                     context,
                     input::ActionContext::Direct | input::ActionContext::Prefix
-                ) && app.state.mode == previous_mode
+                ) && client_view.mode == previous_mode
                 {
-                    app.state.return_to_active_workspace_mode();
+                    Self::leave_client_view_command_mode(client_view);
                 }
-                return;
             }
-
-            input::execute_navigate_action_in_context(
-                &mut app.state,
-                &mut app.terminal_runtimes,
-                action,
-                context,
-            );
-        });
+            _ => {
+                self.execute_targeted_client_view_app_action(client_view, |app| {
+                    input::execute_navigate_action_in_context(
+                        &mut app.state,
+                        &mut app.terminal_runtimes,
+                        action,
+                        context,
+                    );
+                });
+            }
+        }
     }
 
     fn send_terminal_key_for_view(
@@ -2403,322 +3637,1125 @@ impl App {
             return;
         }
 
-        let before_shared = self.state.clone();
-        let mut local_state = self.state.clone();
-        crate::app::view_state::apply_client_view_to_app_state(&mut local_state, client_view);
-        let mut settings_action = None;
-        if !Self::handle_client_view_picker_mouse(&mut local_state, mouse) {
-            settings_action = local_state.handle_mouse(&mut self.terminal_runtimes, mouse);
+        if self.handle_client_view_settings_mouse(client_view, mouse) {
+            return;
         }
-        let pending_tab_focus =
-            Self::pending_client_tab_focus_after_deferred_request(&before_shared, &local_state);
-        self.apply_shared_client_view_effects_from_local(&before_shared, local_state.clone());
-        if let Some(action) = settings_action {
-            let screen = local_state.screen_rect();
+        if self.handle_client_view_menu_mouse(client_view, mouse) {
+            return;
+        }
+        if self.handle_client_view_confirm_mouse(client_view, mouse) {
+            return;
+        }
+        if self.handle_client_view_toast_mouse(client_view, mouse) {
+            return;
+        }
+
+        if input::handle_command_palette_mouse_for_view(&self.state, client_view, mouse) {
+            return;
+        }
+        if Self::handle_client_view_git_repo_picker_mouse(client_view, mouse) {
+            return;
+        }
+        if self.handle_client_view_agent_profile_picker_mouse(client_view, mouse) {
+            return;
+        }
+        if self.handle_client_view_context_menu_mouse(client_view, mouse) {
+            return;
+        }
+        if self.handle_client_view_sidebar_workspace_mouse(client_view, mouse) {
+            return;
+        }
+        if self.handle_client_view_sidebar_chrome_mouse(client_view, mouse) {
+            return;
+        }
+        if Self::handle_client_view_tab_hover_mouse(client_view, mouse) {
+            return;
+        }
+        if self.handle_client_view_tab_close_mouse(client_view, mouse) {
+            return;
+        }
+        if self.handle_client_view_tab_button_mouse(client_view, mouse) {
+            return;
+        }
+        if self.handle_client_view_new_tab_button_mouse(client_view, mouse) {
+            return;
+        }
+
+        if self.handle_client_view_terminal_pane_left_click(client_view, mouse) {
+            return;
+        }
+        client_view.reconcile(&self.state);
+    }
+
+    fn handle_client_view_confirm_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if !matches!(
+            client_view.mode,
+            Mode::ConfirmClose | Mode::ConfirmDeleteGroup
+        ) || mouse.kind != MouseEventKind::Down(MouseButton::Left)
+        {
+            return false;
+        }
+
+        let popup = crate::ui::confirm_close_popup_rect(client_view.computed.terminal_area)
+            .unwrap_or_default();
+        let inner = Rect::new(
+            popup.x + 1,
+            popup.y + 1,
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
+        );
+        let (confirm, cancel) = crate::ui::confirm_close_button_rects(inner);
+        let clicked_confirm = Self::rect_contains(confirm, mouse.column, mouse.row);
+        let clicked_cancel = Self::rect_contains(cancel, mouse.column, mouse.row);
+
+        match client_view.mode {
+            Mode::ConfirmClose if clicked_confirm => {
+                self.state.selected = client_view.selected_workspace;
+                input::confirm_close_accept(&mut self.state);
+                client_view.reconcile(&self.state);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            Mode::ConfirmDeleteGroup if clicked_confirm => {
+                self.state.confirm_delete_group = client_view.confirm_delete_group;
+                input::confirm_delete_group_accept(&mut self.state);
+                client_view.confirm_delete_group = None;
+                client_view.reconcile(&self.state);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            Mode::ConfirmClose
+                if clicked_cancel || !Self::rect_contains(inner, mouse.column, mouse.row) =>
+            {
+                input::confirm_close_cancel(&mut self.state);
+                self.state.mode = Mode::Terminal;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            Mode::ConfirmDeleteGroup
+                if clicked_cancel || !Self::rect_contains(inner, mouse.column, mouse.row) =>
+            {
+                input::confirm_delete_group_cancel(&mut self.state);
+                self.state.mode = Mode::Terminal;
+                client_view.confirm_delete_group = None;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            _ => {}
+        }
+
+        true
+    }
+
+    fn handle_client_view_toast_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if client_view.mode != Mode::Terminal
+            || !matches!(
+                mouse.kind,
+                MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left)
+            )
+            || self
+                .state
+                .toast
+                .as_ref()
+                .is_none_or(|toast| toast.target.is_none())
+            || !Self::rect_contains(client_view.computed.toast_hit_area, mouse.column, mouse.row)
+        {
+            return false;
+        }
+
+        if mouse.kind == MouseEventKind::Up(MouseButton::Left) {
+            return true;
+        }
+
+        let Some(target) = self
+            .state
+            .toast
+            .as_ref()
+            .and_then(|toast| toast.target.clone())
+        else {
+            return true;
+        };
+        let Some(ws_idx) = self
+            .state
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.id == target.workspace_id)
+        else {
+            return true;
+        };
+        let Some(tab_idx) = self.state.workspaces[ws_idx].find_tab_index_for_pane(target.pane_id)
+        else {
+            return true;
+        };
+
+        client_view.active_workspace = Some(ws_idx);
+        client_view.selected_workspace = ws_idx;
+        client_view.active_tabs.insert(target.workspace_id, tab_idx);
+        client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, target.pane_id);
+        client_view.mode = Mode::Terminal;
+        self.state.toast = None;
+        true
+    }
+
+    fn handle_client_view_tab_close_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if client_view.mode != Mode::Terminal
+            || mouse.kind != MouseEventKind::Down(MouseButton::Left)
+        {
+            return false;
+        }
+        let Some((tab_idx, _)) = client_view
+            .computed
+            .tab_close_hit_areas
+            .iter()
+            .enumerate()
+            .find(|(_, rect)| Self::rect_contains(**rect, mouse.column, mouse.row))
+        else {
+            return false;
+        };
+        let Some(ws_idx) = client_view.active_workspace else {
+            return false;
+        };
+
+        let before_active = self.state.active;
+        let before_selected = self.state.selected;
+        self.state.active = Some(ws_idx);
+        self.state.selected = ws_idx;
+        let _ = self.state.close_tab_at(tab_idx);
+        self.state.active = before_active.filter(|idx| *idx < self.state.workspaces.len());
+        self.state.selected = before_selected.min(self.state.workspaces.len().saturating_sub(1));
+        client_view.hovered_tab = None;
+        client_view.tab_scroll_follow_active = true;
+        client_view.reconcile(&self.state);
+        true
+    }
+
+    fn handle_client_view_new_tab_button_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if client_view.mode != Mode::Terminal
+            || mouse.kind != MouseEventKind::Down(MouseButton::Left)
+            || !Self::rect_contains(
+                client_view.computed.new_tab_hit_area,
+                mouse.column,
+                mouse.row,
+            )
+        {
+            return false;
+        }
+        let Some(ws_idx) = client_view.active_workspace else {
+            return false;
+        };
+        let can_diff = !self
+            .state
+            .observed_git_repos_for_workspace(&self.terminal_runtimes, ws_idx)
+            .is_empty();
+        client_view.context_menu = Some(state::ContextMenuState {
+            kind: state::ContextMenuKind::NewTabButton { ws_idx, can_diff },
+            x: mouse.column,
+            y: mouse.row,
+            list: state::MenuListState::new(1),
+        });
+        client_view.mode = Mode::ContextMenu;
+        true
+    }
+
+    fn rect_contains(rect: Rect, col: u16, row: u16) -> bool {
+        rect.width > 0
+            && col >= rect.x
+            && col < rect.x + rect.width
+            && row >= rect.y
+            && row < rect.y + rect.height
+    }
+
+    fn handle_client_view_terminal_pane_left_click(
+        &self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
+            return false;
+        }
+        if client_view.mode != Mode::Terminal {
+            return false;
+        }
+        let Some(ws_idx) = client_view.active_workspace else {
+            return false;
+        };
+        let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) else {
+            return false;
+        };
+        let Some(info) = client_view
+            .computed
+            .pane_infos
+            .iter()
+            .find(|p| {
+                mouse.column >= p.inner_rect.x
+                    && mouse.column < p.inner_rect.x + p.inner_rect.width
+                    && mouse.row >= p.inner_rect.y
+                    && mouse.row < p.inner_rect.y + p.inner_rect.height
+            })
+            .cloned()
+        else {
+            return false;
+        };
+
+        client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, info.id);
+        if client_view.mode != Mode::Terminal {
+            client_view.mode = Mode::Terminal;
+        }
+
+        if self.state.forward_pane_mouse_button_in_workspace(
+            &self.terminal_runtimes,
+            ws_idx,
+            &info,
+            mouse,
+        ) {
+            client_view.selection = None;
+            client_view.selection_autoscroll = None;
+            return true;
+        }
+
+        let row = mouse.row - info.inner_rect.y;
+        let col = mouse.column - info.inner_rect.x;
+        client_view.selection = Some(crate::selection::Selection::anchor(
+            info.id,
+            row,
+            col,
+            self.state
+                .pane_scroll_metrics_in_workspace(&self.terminal_runtimes, ws_idx, info.id),
+        ));
+        true
+    }
+    fn handle_client_view_settings_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        if client_view.mode != Mode::Settings {
+            return false;
+        }
+
+        let screen = client_view.screen_rect();
+        if let Some(action) = input::update_settings_mouse_for_view(&self.state, client_view, mouse)
+        {
             self.apply_settings_action(action);
             crate::ui::compute_view_with_runtime_registry(
                 &mut self.state,
                 &self.terminal_runtimes,
                 screen,
             );
-            Self::copy_client_view_local_modal_state(client_view, local_state);
             client_view.reconcile(&self.state);
             let mut client_local_state = self.state.clone();
-            crate::app::view_state::apply_client_view_to_app_state(
-                &mut client_local_state,
-                client_view,
-            );
+            client_local_state.active = client_view.active_workspace;
+            client_local_state.selected = client_view.selected_workspace;
+            client_local_state.mode = client_view.mode;
+            client_local_state.view = client_view.computed.clone();
+            client_local_state.settings = client_view.settings.clone();
             crate::ui::compute_view_with_runtime_registry(
                 &mut client_local_state,
                 &self.terminal_runtimes,
                 screen,
             );
             client_view.computed = client_local_state.view;
-        } else {
-            *client_view = ClientViewState::from_app_state(&local_state);
-            client_view.reconcile(&self.state);
         }
+
+        true
+    }
+
+    fn handle_client_view_menu_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if !matches!(
+            client_view.mode,
+            Mode::GlobalMenu | Mode::GroupMenu | Mode::AgentMenu
+        ) {
+            return false;
+        }
+
+        let mut view_state = self.state.clone();
+        view_state.mode = client_view.mode;
+        view_state.view = client_view.computed.clone();
+        view_state.global_menu = client_view.global_menu;
+        view_state.group_menu = client_view.group_menu;
+        view_state.agent_menu = client_view.agent_menu;
+
+        match (client_view.mode, mouse.kind) {
+            (Mode::GlobalMenu, MouseEventKind::Moved) => {
+                let actions = input::global_menu_actions(&view_state);
+                let hovered = view_state
+                    .global_menu_item_at(mouse.column, mouse.row)
+                    .and_then(|action| actions.iter().position(|item| *item == action));
+                client_view.global_menu.hover(hovered);
+            }
+            (Mode::GlobalMenu, MouseEventKind::Down(MouseButton::Left)) => {
+                let actions = input::global_menu_actions(&view_state);
+                if let Some(action) = view_state.global_menu_item_at(mouse.column, mouse.row) {
+                    if let Some(idx) = actions.iter().position(|item| *item == action) {
+                        client_view.global_menu.highlighted = idx;
+                    }
+                    self.accept_client_view_global_menu_selection(client_view);
+                } else {
+                    Self::leave_client_view_command_mode(client_view);
+                }
+            }
+            (Mode::GroupMenu, MouseEventKind::Moved) => {
+                client_view.group_menu.hover(
+                    view_state
+                        .group_menu_row_at(mouse.column, mouse.row)
+                        .filter(|idx| view_state.group_menu_action_for_row(*idx).is_some()),
+                );
+            }
+            (Mode::GroupMenu, MouseEventKind::Down(MouseButton::Left)) => {
+                if let Some(row) = view_state
+                    .group_menu_row_at(mouse.column, mouse.row)
+                    .filter(|idx| view_state.group_menu_action_for_row(*idx).is_some())
+                {
+                    client_view.group_menu.highlighted = row;
+                    self.accept_client_view_group_menu_selection(client_view);
+                } else {
+                    let rect = view_state.group_menu_rect();
+                    let inside_menu = mouse.column >= rect.x
+                        && mouse.column < rect.x + rect.width
+                        && mouse.row >= rect.y
+                        && mouse.row < rect.y + rect.height;
+                    if !inside_menu {
+                        Self::leave_client_view_command_mode(client_view);
+                    }
+                }
+            }
+            (Mode::AgentMenu, MouseEventKind::Moved) => {
+                client_view
+                    .agent_menu
+                    .hover(view_state.agent_menu_row_at(mouse.column, mouse.row));
+            }
+            (Mode::AgentMenu, MouseEventKind::Down(MouseButton::Left)) => {
+                if let Some(row) = view_state
+                    .agent_menu_row_at(mouse.column, mouse.row)
+                    .filter(|idx| view_state.agent_menu_action_for_row(*idx).is_some())
+                {
+                    client_view.agent_menu.highlighted = row;
+                    self.accept_client_view_agent_menu_selection(client_view);
+                } else {
+                    let rect = view_state.agent_menu_rect();
+                    let inside_menu = mouse.column >= rect.x
+                        && mouse.column < rect.x + rect.width
+                        && mouse.row >= rect.y
+                        && mouse.row < rect.y + rect.height;
+                    if !inside_menu {
+                        Self::leave_client_view_command_mode(client_view);
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        true
+    }
+
+    fn handle_client_view_sidebar_chrome_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if self.client_view_on_sidebar_divider(client_view, mouse) {
+                    client_view.drag = Some(state::DragState {
+                        target: state::DragTarget::SidebarDivider,
+                    });
+                    self.set_client_view_sidebar_width(client_view, mouse.column);
+                    return true;
+                }
+                if Self::client_view_on_right_sidebar_divider(client_view, mouse)
+                    && !Self::client_view_on_right_sidebar_toggle(client_view, mouse)
+                {
+                    client_view.drag = Some(state::DragState {
+                        target: state::DragTarget::RightSidebarDivider,
+                    });
+                    Self::set_client_view_right_sidebar_width(client_view, mouse.column);
+                    return true;
+                }
+                if self.client_view_on_sidebar_section_divider(client_view, mouse) {
+                    client_view.drag = Some(state::DragState {
+                        target: state::DragTarget::SidebarSectionDivider,
+                    });
+                    Self::set_client_view_sidebar_section_split(client_view, mouse.row);
+                    return true;
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                let Some(drag) = &client_view.drag else {
+                    return false;
+                };
+                match drag.target {
+                    state::DragTarget::SidebarDivider => {
+                        self.set_client_view_sidebar_width(client_view, mouse.column);
+                        return true;
+                    }
+                    state::DragTarget::RightSidebarDivider => {
+                        Self::set_client_view_right_sidebar_width(client_view, mouse.column);
+                        return true;
+                    }
+                    state::DragTarget::SidebarSectionDivider => {
+                        Self::set_client_view_sidebar_section_split(client_view, mouse.row);
+                        return true;
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+
+        false
+    }
+
+    fn client_view_sidebar_is_combined_right(&self) -> bool {
+        self.state.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight
+            && self.state.view.right_sidebar_rect == Rect::default()
+    }
+
+    fn client_view_on_sidebar_divider(
+        &self,
+        client_view: &ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        if client_view.sidebar_collapsed {
+            return false;
+        }
+        let sidebar = client_view.computed.sidebar_rect;
+        let divider_x = if self.client_view_sidebar_is_combined_right() {
+            sidebar.x
+        } else {
+            sidebar.x + sidebar.width.saturating_sub(1)
+        };
+        sidebar.width > 0
+            && mouse.column == divider_x
+            && mouse.row >= sidebar.y
+            && mouse.row < sidebar.y + sidebar.height
+    }
+
+    fn client_view_on_right_sidebar_divider(
+        client_view: &ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        if client_view.right_sidebar_collapsed {
+            return false;
+        }
+        let sidebar = client_view.computed.right_sidebar_rect;
+        sidebar.width > 0
+            && mouse.column == sidebar.x
+            && mouse.row >= sidebar.y
+            && mouse.row < sidebar.y + sidebar.height
+    }
+
+    fn client_view_on_right_sidebar_toggle(
+        client_view: &ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        if client_view.computed.layout == crate::app::state::ViewLayout::Mobile
+            || client_view.computed.right_sidebar_rect == Rect::default()
+        {
+            return false;
+        }
+        let rect = crate::ui::right_sidebar_toggle_rect(
+            client_view.computed.right_sidebar_rect,
+            client_view.right_sidebar_collapsed,
+        );
+        let on_divider_at_toggle =
+            mouse.row == rect.y && mouse.column == client_view.computed.right_sidebar_rect.x;
+        rect.width > 0
+            && ((mouse.column >= rect.x
+                && mouse.column < rect.x + rect.width
+                && mouse.row >= rect.y
+                && mouse.row < rect.y + rect.height)
+                || on_divider_at_toggle)
+    }
+
+    fn client_view_on_sidebar_section_divider(
+        &self,
+        client_view: &ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        if client_view.sidebar_collapsed
+            || client_view.computed.right_sidebar_rect != Rect::default()
+        {
+            return false;
+        }
+        let rect = if self.client_view_sidebar_is_combined_right() {
+            crate::ui::right_aligned_sidebar_section_divider_rect(
+                client_view.computed.sidebar_rect,
+                client_view.sidebar_section_split,
+            )
+        } else {
+            crate::ui::sidebar_section_divider_rect(
+                client_view.computed.sidebar_rect,
+                client_view.sidebar_section_split,
+            )
+        };
+        rect.width > 0
+            && mouse.column >= rect.x
+            && mouse.column < rect.x + rect.width
+            && mouse.row >= rect.y
+            && mouse.row < rect.y + rect.height
+    }
+
+    fn set_client_view_sidebar_width(&self, client_view: &mut ClientViewState, divider_col: u16) {
+        let sidebar = client_view.computed.sidebar_rect;
+        let width = if self.client_view_sidebar_is_combined_right() {
+            sidebar
+                .x
+                .saturating_add(sidebar.width)
+                .saturating_sub(divider_col)
+        } else {
+            divider_col.saturating_sub(sidebar.x).saturating_add(1)
+        };
+        client_view.sidebar_width =
+            width.clamp(self.state.sidebar_min_width, self.state.sidebar_max_width);
+        client_view.sidebar_width_source = state::SidebarWidthSource::Manual;
+    }
+
+    fn set_client_view_right_sidebar_width(client_view: &mut ClientViewState, divider_col: u16) {
+        let sidebar = client_view.computed.right_sidebar_rect;
+        let right_edge = sidebar.x.saturating_add(sidebar.width);
+        let width = right_edge.saturating_sub(divider_col);
+        client_view.right_sidebar_width = width.clamp(
+            crate::ui::MIN_RIGHT_SIDEBAR_WIDTH,
+            crate::ui::MAX_RIGHT_SIDEBAR_WIDTH,
+        );
+    }
+
+    fn set_client_view_sidebar_section_split(client_view: &mut ClientViewState, row: u16) {
+        if client_view.computed.right_sidebar_rect != Rect::default() {
+            return;
+        }
+        let sidebar = client_view.computed.sidebar_rect;
+        let content_height = sidebar.height;
+        if content_height < 6 {
+            return;
+        }
+        let relative_y = row.saturating_sub(sidebar.y).saturating_sub(1);
+        let ratio = (relative_y as f32) / (content_height as f32);
+        client_view.sidebar_section_split = ratio.clamp(0.1, 0.9);
+    }
+
+    fn handle_client_view_sidebar_workspace_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let Some(card) = client_view
+                    .computed
+                    .workspace_card_areas
+                    .iter()
+                    .find(|card| Self::rect_contains(card.rect, mouse.column, mouse.row))
+                else {
+                    return false;
+                };
+                client_view.workspace_press = Some(state::WorkspacePressState {
+                    ws_idx: card.ws_idx,
+                    start_col: mouse.column,
+                    start_row: mouse.row,
+                });
+                true
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                let Some(press) = client_view.workspace_press.take() else {
+                    return false;
+                };
+                if press.ws_idx >= self.state.workspaces.len() {
+                    return false;
+                }
+                client_view.active_workspace = Some(press.ws_idx);
+                client_view.selected_workspace = press.ws_idx;
+                client_view.mode = Mode::Terminal;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn handle_client_view_context_menu_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if client_view.mode != Mode::ContextMenu {
+            return false;
+        }
+
+        match mouse.kind {
+            MouseEventKind::Moved => {
+                let hovered = Self::context_menu_item_at_for_client_view(
+                    client_view,
+                    mouse.column,
+                    mouse.row,
+                );
+                if let Some(menu) = &mut client_view.context_menu {
+                    menu.hover(hovered);
+                }
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                let item_idx = Self::context_menu_item_at_for_client_view(
+                    client_view,
+                    mouse.column,
+                    mouse.row,
+                );
+                let Some(mut menu) = client_view.context_menu.take() else {
+                    Self::leave_client_view_command_mode(client_view);
+                    return true;
+                };
+
+                let Some(idx) = item_idx else {
+                    Self::leave_client_view_command_mode(client_view);
+                    return true;
+                };
+
+                if !menu.item_is_selectable(idx) {
+                    menu.hover(Some(idx));
+                    client_view.context_menu = Some(menu);
+                    client_view.mode = Mode::ContextMenu;
+                    return true;
+                }
+
+                self.prepare_shared_state_for_client_view_context_action(client_view, &menu);
+                input::apply_context_menu_action(
+                    &mut self.state,
+                    &mut self.terminal_runtimes,
+                    menu,
+                    idx,
+                );
+                self.copy_context_action_modal_state_to_client(client_view);
+            }
+            _ => {}
+        }
+
+        true
+    }
+
+    fn prepare_shared_state_for_client_view_context_action(
+        &mut self,
+        client_view: &ClientViewState,
+        menu: &state::ContextMenuState,
+    ) {
+        match menu.kind {
+            state::ContextMenuKind::Pane {
+                ws_idx, pane_id, ..
+            } => {
+                self.state.active = Some(ws_idx);
+                self.state.selected = ws_idx;
+                if let Some(workspace) = self.state.workspaces.get(ws_idx) {
+                    if let Some(tab_idx) = client_view.active_tab_for_workspace(&workspace.id) {
+                        self.state.switch_tab(tab_idx);
+                    }
+                }
+                self.state.focus_pane(pane_id);
+            }
+            state::ContextMenuKind::Tab {
+                ws_idx, tab_idx, ..
+            } => {
+                self.state.active = Some(ws_idx);
+                self.state.selected = ws_idx;
+                self.state.switch_tab(tab_idx);
+            }
+            state::ContextMenuKind::Workspace { ws_idx, .. }
+            | state::ContextMenuKind::NewTabButton { ws_idx, .. } => {
+                self.state.active = Some(ws_idx);
+                self.state.selected = ws_idx;
+            }
+            state::ContextMenuKind::Group { group_idx, .. } => {
+                self.state.active_group = group_idx;
+            }
+        }
+    }
+
+    fn copy_context_action_modal_state_to_client(&mut self, client_view: &mut ClientViewState) {
+        if self.state.request_open_git_diff_command
+            && self.state.request_open_git_diff_workspace.is_none()
+        {
+            self.state.request_open_git_diff_workspace = self.state.active;
+        }
+        let pending_tab_focus = self
+            .state
+            .request_agent_profile_tab
+            .as_ref()
+            .map(|(ws_idx, _)| *ws_idx)
+            .or(self.state.request_open_git_diff_workspace)
+            .or_else(|| {
+                (self.state.request_open_git_diff_command || self.state.request_new_tab)
+                    .then_some(self.state.active.unwrap_or(self.state.selected))
+            })
+            .and_then(|ws_idx| {
+                let workspace = self.state.workspaces.get(ws_idx)?;
+                Some((workspace.id.clone(), workspace.tabs.len()))
+            });
+        let state_mode = self.state.mode;
+        match state_mode {
+            Mode::AgentProfilePicker => {
+                client_view.mode = Mode::AgentProfilePicker;
+                client_view.agent_profile_picker = self.state.agent_profile_picker.clone();
+                self.state.mode = Mode::Terminal;
+            }
+            Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
+                client_view.mode = state_mode;
+                client_view.creating_new_tab = self.state.creating_new_tab;
+                client_view.creating_new_group = self.state.creating_new_group;
+                client_view.group_icon_input = self.state.group_icon_input.clone();
+                client_view.group_default_directory_input =
+                    self.state.group_default_directory_input.clone();
+                client_view.group_modal_selected_field = self.state.group_modal_selected_field;
+                client_view.group_icon_picker_open = self.state.group_icon_picker_open;
+                client_view.rename_group_target = self.state.rename_group_target;
+                client_view.requested_new_tab_name = self.state.requested_new_tab_name.clone();
+                client_view.rename_pane_target = self.state.rename_pane_target;
+                client_view.name_input = self.state.name_input.clone();
+                client_view.name_input_replace_on_type = self.state.name_input_replace_on_type;
+                self.state.mode = Mode::Terminal;
+            }
+            Mode::Settings => {
+                client_view.mode = Mode::Settings;
+                client_view.settings = self.state.settings.clone();
+                self.state.mode = Mode::Terminal;
+            }
+            Mode::ConfirmClose | Mode::ConfirmDeleteGroup => {
+                client_view.mode = state_mode;
+                client_view.confirm_delete_group = self.state.confirm_delete_group;
+                self.state.mode = Mode::Terminal;
+            }
+            Mode::ContextMenu => {
+                client_view.mode = Mode::ContextMenu;
+                client_view.context_menu = self.state.context_menu.clone();
+                self.state.context_menu = None;
+                self.state.mode = Mode::Terminal;
+            }
+            _ => {
+                Self::leave_client_view_command_mode(client_view);
+            }
+        }
+        client_view.reconcile(&self.state);
         if let Some((workspace_id, tab_idx)) = pending_tab_focus {
             client_view
                 .pending_active_tabs
                 .insert(workspace_id, tab_idx);
         }
     }
-    fn handle_client_view_picker_mouse(
-        state: &mut AppState,
+
+    fn context_menu_item_at_for_client_view(
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> Option<usize> {
+        let menu = client_view.context_menu.as_ref()?;
+        let screen = client_view.screen_rect();
+        let max_item_w = menu
+            .items()
+            .iter()
+            .map(|item| item.len() as u16)
+            .max()
+            .unwrap_or(0);
+        let menu_w = (max_item_w + 4).max(14).min(screen.width.max(1));
+        let menu_h = (menu.items().len() as u16 + 2).min(screen.height.max(1));
+        let menu_x = menu.x.min(screen.x + screen.width.saturating_sub(menu_w));
+        let menu_y = menu.y.min(screen.y + screen.height.saturating_sub(menu_h));
+        let inner_x = menu_x + 1;
+        let inner_y = menu_y + 1;
+        let inner_w = menu_w.saturating_sub(2);
+        let inner_h = menu_h.saturating_sub(2);
+        let item_count = menu.items().len() as u16;
+
+        if col >= inner_x
+            && col < inner_x + inner_w
+            && row >= inner_y
+            && row < inner_y + inner_h.min(item_count)
+        {
+            Some((row - inner_y) as usize)
+        } else {
+            None
+        }
+    }
+
+    fn handle_client_view_tab_hover_mouse(
+        client_view: &mut ClientViewState,
         mouse: crossterm::event::MouseEvent,
     ) -> bool {
-        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
+        use crossterm::event::MouseEventKind;
 
-        match state.mode {
-            Mode::CommandPalette => match mouse.kind {
-                MouseEventKind::Moved => {
-                    input::hover_command_palette_selection(state, mouse.column, mouse.row);
-                }
-                MouseEventKind::Down(MouseButton::Left) => {
-                    if input::command_palette_contains_point(state, mouse.column, mouse.row) {
-                        input::hover_command_palette_selection(state, mouse.column, mouse.row);
-                    } else {
-                        input::close_command_palette(state);
-                    }
-                }
-                MouseEventKind::ScrollDown => {
-                    input::scroll_command_palette_rows(state, input::MODAL_WHEEL_SCROLL_ROWS);
-                }
-                MouseEventKind::ScrollUp => {
-                    input::scroll_command_palette_rows(state, -input::MODAL_WHEEL_SCROLL_ROWS);
-                }
-                MouseEventKind::Up(MouseButton::Left) | MouseEventKind::Drag(MouseButton::Left) => {
-                }
-                _ => {}
-            },
-            Mode::GitRepoPicker => match mouse.kind {
-                MouseEventKind::Moved | MouseEventKind::Down(MouseButton::Left) => {
-                    if let Some(idx) = crate::ui::git_repo_picker::git_repo_picker_index_at(
-                        state,
-                        mouse.column,
-                        mouse.row,
-                    ) {
-                        state.git_repo_picker.selected = idx;
-                    } else if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
-                        state.return_to_active_workspace_mode();
-                    }
-                }
-                MouseEventKind::ScrollDown => {
-                    let visible_repos =
-                        crate::ui::git_repo_picker::git_repo_picker_list_geometry(state)
-                            .map(|list| (list.scroll_area.body.height as usize).div_ceil(2).max(1))
-                            .unwrap_or(1);
-                    let max_scroll = state
-                        .git_repo_picker
-                        .roots
-                        .len()
-                        .saturating_sub(visible_repos);
-                    state.git_repo_picker.scroll = state
-                        .git_repo_picker
-                        .scroll
-                        .saturating_add((input::MODAL_WHEEL_SCROLL_ROWS as usize).div_ceil(2))
-                        .min(max_scroll);
-                }
-                MouseEventKind::ScrollUp => {
-                    state.git_repo_picker.scroll = state
-                        .git_repo_picker
-                        .scroll
-                        .saturating_sub((input::MODAL_WHEEL_SCROLL_ROWS as usize).div_ceil(2));
-                }
-                _ => {}
-            },
-            Mode::AgentProfilePicker => match mouse.kind {
-                MouseEventKind::Moved => {
-                    input::agent_profile_picker::hover_agent_profile_picker_selection(
-                        state,
-                        mouse.column,
-                        mouse.row,
-                    );
-                }
-                MouseEventKind::Down(MouseButton::Left) => {
-                    if let Some(inner) =
-                        crate::ui::agent_profile_picker_inner_rect(state.screen_rect())
-                    {
-                        let (start, close) = crate::ui::agent_profile_picker_button_rects(inner);
-                        if mouse.column >= start.x
-                            && mouse.column < start.x + start.width
-                            && mouse.row >= start.y
-                            && mouse.row < start.y + start.height
-                        {
-                            input::agent_profile_picker::handle_agent_profile_picker_key_for_view(
-                                state,
-                                KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
-                            );
-                            return true;
-                        }
-                        if mouse.column >= close.x
-                            && mouse.column < close.x + close.width
-                            && mouse.row >= close.y
-                            && mouse.row < close.y + close.height
-                        {
-                            input::agent_profile_picker::close_agent_profile_picker(state);
-                            return true;
-                        }
-                    }
+        if client_view.mode != Mode::Terminal || !matches!(mouse.kind, MouseEventKind::Moved) {
+            return false;
+        }
 
-                    if input::agent_profile_picker::select_agent_profile_picker_tab_at(
-                        state,
-                        mouse.column,
-                        mouse.row,
-                    ) {
-                        return true;
-                    }
+        let tab_bar = client_view.computed.tab_bar_rect;
+        let on_tab_bar = mouse.column >= tab_bar.x
+            && mouse.column < tab_bar.x + tab_bar.width
+            && mouse.row >= tab_bar.y
+            && mouse.row < tab_bar.y + tab_bar.height;
+        client_view.hovered_tab = if on_tab_bar {
+            client_view.computed.tab_hit_areas.iter().position(|rect| {
+                mouse.column >= rect.x
+                    && mouse.column < rect.x + rect.width
+                    && mouse.row >= rect.y
+                    && mouse.row < rect.y + rect.height
+            })
+        } else {
+            None
+        };
 
-                    if input::agent_profile_picker::agent_profile_picker_contains_point(
-                        state,
-                        mouse.column,
-                        mouse.row,
-                    ) {
-                        input::agent_profile_picker::hover_agent_profile_picker_selection(
-                            state,
-                            mouse.column,
-                            mouse.row,
-                        );
-                    } else {
-                        input::agent_profile_picker::close_agent_profile_picker(state);
-                    }
+        on_tab_bar
+    }
+
+    fn handle_client_view_tab_button_mouse(
+        &self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if client_view.mode != Mode::Terminal {
+            return false;
+        }
+
+        if mouse.kind == MouseEventKind::Up(MouseButton::Left) {
+            let Some(press) = client_view.tab_press.take() else {
+                return false;
+            };
+            let Some(workspace) = self.state.workspaces.get(press.ws_idx) else {
+                return false;
+            };
+            if press.tab_idx >= workspace.tabs.len() {
+                return false;
+            }
+            client_view.active_workspace = Some(press.ws_idx);
+            client_view.selected_workspace = press.ws_idx;
+            client_view
+                .active_tabs
+                .insert(workspace.id.clone(), press.tab_idx);
+            client_view.tab_scroll_follow_active = true;
+            return true;
+        }
+
+        if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+            return false;
+        }
+
+        if client_view.computed.tab_close_hit_areas.iter().any(|rect| {
+            mouse.column >= rect.x
+                && mouse.column < rect.x + rect.width
+                && mouse.row >= rect.y
+                && mouse.row < rect.y + rect.height
+        }) {
+            return false;
+        }
+
+        let left = client_view.computed.tab_scroll_left_hit_area;
+        if left.width > 0
+            && mouse.column >= left.x
+            && mouse.column < left.x + left.width
+            && mouse.row >= left.y
+            && mouse.row < left.y + left.height
+        {
+            client_view.tab_scroll = client_view.tab_scroll.saturating_sub(1);
+            client_view.tab_scroll_follow_active = false;
+            return true;
+        }
+
+        let right = client_view.computed.tab_scroll_right_hit_area;
+        if right.width > 0
+            && mouse.column >= right.x
+            && mouse.column < right.x + right.width
+            && mouse.row >= right.y
+            && mouse.row < right.y + right.height
+        {
+            client_view.tab_scroll = client_view.tab_scroll.saturating_add(1);
+            client_view.tab_scroll_follow_active = false;
+            return true;
+        }
+
+        let Some((tab_idx, _)) =
+            client_view
+                .computed
+                .tab_hit_areas
+                .iter()
+                .enumerate()
+                .find(|(_, rect)| {
+                    mouse.column >= rect.x
+                        && mouse.column < rect.x + rect.width
+                        && mouse.row >= rect.y
+                        && mouse.row < rect.y + rect.height
+                })
+        else {
+            return false;
+        };
+        let Some(ws_idx) = client_view.active_workspace else {
+            return false;
+        };
+
+        client_view.tab_press = Some(state::TabPressState {
+            ws_idx,
+            tab_idx,
+            start_col: mouse.column,
+            start_row: mouse.row,
+        });
+        true
+    }
+
+    fn handle_client_view_git_repo_picker_mouse(
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if client_view.mode != Mode::GitRepoPicker {
+            return false;
+        }
+
+        match mouse.kind {
+            MouseEventKind::Moved | MouseEventKind::Down(MouseButton::Left) => {
+                if let Some(idx) = crate::ui::git_repo_picker::git_repo_picker_index_at_for_view(
+                    client_view,
+                    mouse.column,
+                    mouse.row,
+                ) {
+                    client_view.git_repo_picker.selected = idx;
+                } else if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                    client_view.return_to_active_workspace_mode();
                 }
-                MouseEventKind::ScrollDown => {
-                    input::agent_profile_picker::scroll_agent_profile_picker_rows(
-                        state,
-                        input::MODAL_WHEEL_SCROLL_ROWS,
-                    );
-                }
-                MouseEventKind::ScrollUp => {
-                    input::agent_profile_picker::scroll_agent_profile_picker_rows(
-                        state,
-                        -input::MODAL_WHEEL_SCROLL_ROWS,
-                    );
-                }
-                MouseEventKind::Up(MouseButton::Left) | MouseEventKind::Drag(MouseButton::Left) => {
-                }
-                _ => {}
-            },
-            _ => return false,
+            }
+            MouseEventKind::ScrollDown => {
+                let visible_repos =
+                    crate::ui::git_repo_picker::git_repo_picker_list_geometry_for_view(client_view)
+                        .map(|list| (list.scroll_area.body.height as usize).div_ceil(2).max(1))
+                        .unwrap_or(1);
+                let max_scroll = client_view
+                    .git_repo_picker
+                    .roots
+                    .len()
+                    .saturating_sub(visible_repos);
+                client_view.git_repo_picker.scroll = client_view
+                    .git_repo_picker
+                    .scroll
+                    .saturating_add((input::MODAL_WHEEL_SCROLL_ROWS as usize).div_ceil(2))
+                    .min(max_scroll);
+            }
+            MouseEventKind::ScrollUp => {
+                client_view.git_repo_picker.scroll = client_view
+                    .git_repo_picker
+                    .scroll
+                    .saturating_sub((input::MODAL_WHEEL_SCROLL_ROWS as usize).div_ceil(2));
+            }
+            _ => {}
         }
 
         true
     }
 
-    fn pending_client_tab_focus_after_deferred_request(
-        before: &AppState,
-        local: &AppState,
-    ) -> Option<(String, usize)> {
-        let ws_idx = local
-            .request_agent_profile_tab
-            .as_ref()
-            .map(|(ws_idx, _)| *ws_idx)
-            .or_else(|| {
-                (local.request_open_git_diff_command && !before.request_open_git_diff_command)
-                    .then_some(local.active.unwrap_or(local.selected))
-            })
-            .or_else(|| {
-                (local.request_new_tab && !before.request_new_tab)
-                    .then_some(local.active.unwrap_or(local.selected))
-            })?;
-        let workspace = local.workspaces.get(ws_idx)?;
-        Some((workspace.id.clone(), workspace.tabs.len()))
-    }
-
-    fn apply_shared_client_view_effects_from_local(
+    fn handle_client_view_agent_profile_picker_mouse(
         &mut self,
-        before: &AppState,
-        mut local: AppState,
-    ) {
-        if local.sidebar_collapsed != before.sidebar_collapsed {
-            self.state.sidebar_collapsed = local.sidebar_collapsed;
-            self.state.mark_session_dirty();
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if client_view.mode != Mode::AgentProfilePicker {
+            return false;
         }
 
-        if local.right_sidebar_collapsed != before.right_sidebar_collapsed {
-            self.state.right_sidebar_collapsed = local.right_sidebar_collapsed;
-            self.state.mark_session_dirty();
-        }
-
-        if local.update_dismissed != before.update_dismissed {
-            self.state.update_dismissed = local.update_dismissed;
-        }
-
-        if local.toast.is_none() && before.toast.is_some() {
-            self.state.toast = None;
-        }
-
-        if local.group_filter_enabled != before.group_filter_enabled
-            || local.active_group != before.active_group
-        {
-            self.state.group_filter_enabled = local.group_filter_enabled;
-            self.state.active_group = local
-                .active_group
-                .min(self.state.groups.len().saturating_sub(1));
-            self.state.mark_session_dirty();
-        }
-
-        if local.agent_panel_scope != before.agent_panel_scope
-            || local.agent_panel_scroll != before.agent_panel_scroll
-        {
-            self.state.agent_panel_scope = local.agent_panel_scope;
-            self.state.agent_panel_scroll = local.agent_panel_scroll;
-            self.state.mark_session_dirty();
-        }
-
-        if local.groups != before.groups {
-            self.state.groups = local.groups;
-            self.state.active_group = local
-                .active_group
-                .min(self.state.groups.len().saturating_sub(1));
-        }
-
-        if !same_workspace_structure(&local.workspaces, &before.workspaces) {
-            preserve_shared_workspace_view_state(&before.workspaces, &mut local.workspaces);
-            let workspace_count_changed = local.workspaces.len() != before.workspaces.len();
-            self.state.workspaces = local.workspaces;
-            if workspace_count_changed {
-                self.state.active = local.active;
-                self.state.selected = local.selected;
-                self.state.mode = local.mode;
-            } else if self
-                .state
-                .active
-                .is_some_and(|idx| idx >= self.state.workspaces.len())
-            {
-                self.state.active = self.state.workspaces.len().checked_sub(1);
+        match mouse.kind {
+            MouseEventKind::Moved => {
+                input::agent_profile_picker::hover_agent_profile_picker_selection_for_view(
+                    &self.state,
+                    client_view,
+                    mouse.column,
+                    mouse.row,
+                );
             }
-            self.state.selected = self
-                .state
-                .selected
-                .min(self.state.workspaces.len().saturating_sub(1));
-            self.state.mark_session_dirty();
+            MouseEventKind::Down(MouseButton::Left) => {
+                if let Some(action) =
+                    input::agent_profile_picker::agent_profile_picker_action_button_at_for_view(
+                        client_view,
+                        mouse.column,
+                        mouse.row,
+                    )
+                {
+                    match action {
+                        input::ModalAction::Apply => {
+                            self.accept_client_view_agent_profile_picker_selection(client_view);
+                        }
+                        input::ModalAction::Close => {
+                            Self::leave_client_view_command_mode(client_view);
+                        }
+                        _ => {}
+                    }
+                } else if input::agent_profile_picker::select_agent_profile_picker_tab_at_for_view(
+                    &self.state,
+                    client_view,
+                    mouse.column,
+                    mouse.row,
+                ) {
+                } else if input::agent_profile_picker::agent_profile_picker_contains_point_for_view(
+                    client_view,
+                    mouse.column,
+                    mouse.row,
+                ) {
+                    input::agent_profile_picker::hover_agent_profile_picker_selection_for_view(
+                        &self.state,
+                        client_view,
+                        mouse.column,
+                        mouse.row,
+                    );
+                } else {
+                    Self::leave_client_view_command_mode(client_view);
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                input::agent_profile_picker::scroll_agent_profile_picker_rows_for_view(
+                    &self.state,
+                    client_view,
+                    input::MODAL_WHEEL_SCROLL_ROWS,
+                );
+            }
+            MouseEventKind::ScrollUp => {
+                input::agent_profile_picker::scroll_agent_profile_picker_rows_for_view(
+                    &self.state,
+                    client_view,
+                    -input::MODAL_WHEEL_SCROLL_ROWS,
+                );
+            }
+            MouseEventKind::Up(MouseButton::Left) | MouseEventKind::Drag(MouseButton::Left) => {}
+            _ => {}
         }
 
-        if local.request_new_tab && !before.request_new_tab {
-            self.state.active = local.active;
-            self.state.selected = local.selected;
-            self.state.requested_new_tab_name = local.requested_new_tab_name.take();
-            self.state.request_new_tab = true;
-        }
-
-        if local.request_agent_profile_tab != before.request_agent_profile_tab {
-            self.state.request_agent_profile_tab = local.request_agent_profile_tab.take();
-        }
-
-        if local.request_new_workspace && !before.request_new_workspace {
-            self.state.active_group = local
-                .active_group
-                .min(self.state.groups.len().saturating_sub(1));
-            self.state.request_new_workspace = true;
-        }
-
-        if local.request_open_git_diff_command && !before.request_open_git_diff_command {
-            self.state.active = local.active;
-            self.state.selected = local.selected;
-            self.state.request_open_git_diff_command = true;
-        }
-
-        if local.request_reload_config && !before.request_reload_config {
-            self.state.request_reload_config = true;
-        }
-
-        if local.request_complete_onboarding && !before.request_complete_onboarding {
-            self.state.request_complete_onboarding = true;
-        }
-
-        if local.request_clipboard_write != before.request_clipboard_write {
-            self.state.request_clipboard_write = local.request_clipboard_write.take();
-        }
-
-        if local.detach_requested && !before.detach_requested {
-            self.state.detach_requested = true;
-        }
-
-        if local.should_quit && !before.should_quit {
-            self.state.should_quit = true;
-        }
+        true
     }
 
     fn leave_client_view_command_mode(client_view: &mut ClientViewState) {
@@ -2727,6 +4764,35 @@ impl App {
         } else {
             Mode::Navigate
         };
+    }
+
+    fn accept_client_view_agent_profile_picker_selection(
+        &mut self,
+        client_view: &mut ClientViewState,
+    ) {
+        let Some(entry) =
+            crate::app::agent_profile_picker::agent_profile_picker_filtered_entries_for_picker(
+                &self.state,
+                &client_view.agent_profile_picker,
+            )
+            .get(client_view.agent_profile_picker.selected)
+            .cloned()
+        else {
+            return;
+        };
+
+        self.state.request_agent_profile_tab =
+            Some((client_view.agent_profile_picker.ws_idx, entry.profile_id));
+        if let Some(ws) = self
+            .state
+            .workspaces
+            .get(client_view.agent_profile_picker.ws_idx)
+        {
+            client_view
+                .pending_active_tabs
+                .insert(ws.id.clone(), ws.tabs.len());
+        }
+        Self::leave_client_view_command_mode(client_view);
     }
 
     fn sync_prefix_input_source_for_mode_transition(
@@ -2842,104 +4908,6 @@ impl App {
     }
 }
 
-fn same_workspace_structure(
-    left: &[crate::workspace::Workspace],
-    right: &[crate::workspace::Workspace],
-) -> bool {
-    if left.len() != right.len() {
-        return false;
-    }
-
-    left.iter().zip(right).all(|(left_ws, right_ws)| {
-        left_ws.id == right_ws.id
-            && left_ws.custom_name == right_ws.custom_name
-            && left_ws.group_id == right_ws.group_id
-            && left_ws.default_cwd == right_ws.default_cwd
-            && left_ws.tabs.len() == right_ws.tabs.len()
-            && left_ws
-                .tabs
-                .iter()
-                .zip(&right_ws.tabs)
-                .all(|(left_tab, right_tab)| {
-                    left_tab.number == right_tab.number
-                        && left_tab.custom_name == right_tab.custom_name
-                        && left_tab.root_pane == right_tab.root_pane
-                        && same_tile_layout_structure(&left_tab.layout, &right_tab.layout)
-                        && left_tab.panes.keys().collect::<HashSet<_>>()
-                            == right_tab.panes.keys().collect::<HashSet<_>>()
-                })
-    })
-}
-
-fn same_tile_layout_structure(
-    left: &crate::layout::TileLayout,
-    right: &crate::layout::TileLayout,
-) -> bool {
-    same_layout_node(left.root(), right.root())
-}
-
-fn same_layout_node(left: &crate::layout::Node, right: &crate::layout::Node) -> bool {
-    match (left, right) {
-        (crate::layout::Node::Pane(left_id), crate::layout::Node::Pane(right_id)) => {
-            left_id == right_id
-        }
-        (
-            crate::layout::Node::Split {
-                direction: left_direction,
-                ratio: left_ratio,
-                first: left_first,
-                second: left_second,
-            },
-            crate::layout::Node::Split {
-                direction: right_direction,
-                ratio: right_ratio,
-                first: right_first,
-                second: right_second,
-            },
-        ) => {
-            left_direction == right_direction
-                && left_ratio.to_bits() == right_ratio.to_bits()
-                && same_layout_node(left_first, right_first)
-                && same_layout_node(left_second, right_second)
-        }
-        _ => false,
-    }
-}
-
-fn preserve_shared_workspace_view_state(
-    before: &[crate::workspace::Workspace],
-    after: &mut [crate::workspace::Workspace],
-) {
-    let before_by_id: HashMap<&str, &crate::workspace::Workspace> = before
-        .iter()
-        .map(|workspace| (workspace.id.as_str(), workspace))
-        .collect();
-
-    for workspace in after {
-        let Some(before_workspace) = before_by_id.get(workspace.id.as_str()) else {
-            continue;
-        };
-        workspace.active_tab = before_workspace
-            .active_tab
-            .min(workspace.tabs.len().saturating_sub(1));
-
-        for tab in &mut workspace.tabs {
-            let Some(before_tab) = before_workspace
-                .tabs
-                .iter()
-                .find(|before_tab| before_tab.number == tab.number)
-            else {
-                continue;
-            };
-            tab.zoomed = before_tab.zoomed;
-            let before_focused = before_tab.layout.focused();
-            if tab.panes.contains_key(&before_focused) {
-                tab.layout.focus_pane(before_focused);
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3006,10 +4974,13 @@ mod tests {
         client_view: &mut ClientViewState,
         area: ratatui::layout::Rect,
     ) {
-        let mut local_state = app.state.clone();
-        crate::app::view_state::apply_client_view_to_app_state(&mut local_state, client_view);
-        crate::ui::compute_view(&mut local_state, area);
-        client_view.computed = local_state.view;
+        let mut state = app.state.clone();
+        crate::ui::compute_view_for_client_without_resizing_panes(
+            &mut state,
+            client_view,
+            &app.terminal_runtimes,
+            area,
+        );
     }
 
     fn rendered_text_point_at_or_after_row(
@@ -3044,12 +5015,11 @@ mod tests {
     }
 
     fn confirm_button_for_client_view(
-        app: &App,
+        _app: &App,
         client_view: &ClientViewState,
     ) -> ratatui::layout::Rect {
-        let mut local_state = app.state.clone();
-        crate::app::view_state::apply_client_view_to_app_state(&mut local_state, client_view);
-        let popup = local_state.confirm_close_rect();
+        let popup = crate::ui::confirm_close_popup_rect(client_view.computed.terminal_area)
+            .unwrap_or_default();
         let inner = ratatui::layout::Rect::new(
             popup.x + 1,
             popup.y + 1,
@@ -3060,12 +5030,25 @@ mod tests {
     }
 
     fn context_menu_rect_for_client_view(
-        app: &App,
+        _app: &App,
         client_view: &ClientViewState,
     ) -> ratatui::layout::Rect {
-        let mut local_state = app.state.clone();
-        crate::app::view_state::apply_client_view_to_app_state(&mut local_state, client_view);
-        local_state.context_menu_rect().expect("context menu rect")
+        let menu = client_view
+            .context_menu
+            .as_ref()
+            .expect("context menu rect");
+        let screen = client_view.screen_rect();
+        let max_item_w = menu
+            .items()
+            .iter()
+            .map(|item| item.len() as u16)
+            .max()
+            .unwrap_or(0);
+        let menu_w = (max_item_w + 4).max(14).min(screen.width.max(1));
+        let menu_h = (menu.items().len() as u16 + 2).min(screen.height.max(1));
+        let x = menu.x.min(screen.x + screen.width.saturating_sub(menu_w));
+        let y = menu.y.min(screen.y + screen.height.saturating_sub(menu_h));
+        ratatui::layout::Rect::new(x, y, menu_w, menu_h)
     }
 
     #[tokio::test]
@@ -5734,8 +7717,8 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut first_client = ClientViewState::from_app_state(&app.state);
-        let second_client = ClientViewState::from_app_state(&app.state);
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
+        let second_client = ClientViewState::from_default_client_state(&app.state);
 
         app.route_client_events_for_view(
             &mut first_client,
@@ -5774,8 +7757,8 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut first_client = ClientViewState::from_app_state(&app.state);
-        let second_client = ClientViewState::from_app_state(&app.state);
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
+        let second_client = ClientViewState::from_default_client_state(&app.state);
 
         app.route_client_events_for_view(
             &mut first_client,
@@ -5808,8 +7791,8 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut first_client = ClientViewState::from_app_state(&app.state);
-        let second_client = ClientViewState::from_app_state(&app.state);
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
+        let second_client = ClientViewState::from_default_client_state(&app.state);
 
         app.route_client_events_for_view(
             &mut first_client,
@@ -5833,19 +7816,22 @@ mod tests {
         assert_eq!(app.state.mode, Mode::Terminal);
     }
 
-    #[test]
-    fn route_client_events_for_view_prefix_new_tab_queues_shared_tab() {
+    #[tokio::test]
+    async fn route_client_events_for_view_prefix_new_tab_queues_invoking_client_tab() {
         let mut app = test_app();
-        app.state.workspaces = vec![Workspace::test_new("shell")];
+        app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app.state.prompt_new_tab_name = false;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
-        let other_client = ClientViewState::from_app_state(&app.state);
-        let workspace_id = app.state.workspaces[0].id.clone();
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+        client.reconcile(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
+        let workspace_id = app.state.workspaces[1].id.clone();
 
         app.route_client_events_for_view(
             &mut client,
@@ -5865,12 +7851,14 @@ mod tests {
         );
 
         assert_eq!(client.mode, Mode::Terminal);
-        assert!(app.state.request_new_tab);
+        assert_eq!(app.state.request_new_tab_for_client, Some((1, None)));
+        assert_eq!(app.state.workspaces[0].tabs.len(), 1);
         assert_eq!(
-            app.state.workspaces[0].tabs.len(),
+            app.state.workspaces[1].tabs.len(),
             1,
-            "prefix+c queues creation for the shared app cycle instead of mutating tabs inline"
+            "prefix+c queues creation for the app cycle instead of mutating tabs inline"
         );
+        assert_eq!(app.state.active, Some(0));
         assert_eq!(client.active_tab_for_workspace(&workspace_id), Some(0));
         assert_eq!(
             client.pending_active_tabs.get(&workspace_id),
@@ -5882,6 +7870,14 @@ mod tests {
             None,
             "other clients must not inherit the invoking client's pending tab focus"
         );
+
+        assert!(app.process_deferred_workspace_requests());
+        client.reconcile(&app.state);
+
+        assert_eq!(app.state.workspaces[0].tabs.len(), 1);
+        assert_eq!(app.state.workspaces[1].tabs.len(), 2);
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(client.active_tab_for_workspace(&workspace_id), Some(1));
     }
 
     #[tokio::test]
@@ -5893,7 +7889,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
 
         app.route_client_events_for_view(
             &mut client,
@@ -5929,8 +7925,8 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut first_client = ClientViewState::from_app_state(&app.state);
-        let second_client = ClientViewState::from_app_state(&app.state);
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
+        let second_client = ClientViewState::from_default_client_state(&app.state);
 
         app.route_client_events_for_view(
             &mut first_client,
@@ -5966,7 +7962,7 @@ mod tests {
     }
 
     #[test]
-    fn route_client_events_for_view_accepts_command_palette_shared_toggle_sidebar() {
+    fn route_client_events_for_view_command_palette_toggle_sidebar_is_client_local() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("test")];
         app.state.ensure_test_terminals();
@@ -5975,7 +7971,8 @@ mod tests {
         app.state.mode = Mode::Terminal;
         app.state.sidebar_collapsed = false;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
 
         let mut events = vec![
             raw_key(
@@ -6004,7 +8001,9 @@ mod tests {
 
         app.route_client_events_for_view(&mut client, events, true);
 
-        assert!(app.state.sidebar_collapsed);
+        assert!(!app.state.sidebar_collapsed);
+        assert!(client.sidebar_collapsed);
+        assert!(!other_client.sidebar_collapsed);
         assert_eq!(app.state.mode, Mode::Terminal);
         assert_eq!(client.mode, Mode::Terminal);
     }
@@ -6019,7 +8018,7 @@ mod tests {
         app.state.mode = Mode::Terminal;
         app.state.request_open_git_diff_command = false;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
 
         let mut events = vec![
             raw_key(
@@ -6074,6 +8073,184 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn eng57_client_copy_mode_escape_exits_client_opened_copy_mode() {
+        let mut app = test_app();
+        let workspace = Workspace::test_new("copy-client");
+        let pane_id = workspace.tabs[0].root_pane;
+        let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.terminal_runtimes.insert(
+            terminal_id,
+            TerminalRuntime::test_with_screen_bytes(20, 5, b"alpha\r\nbeta\r\n"),
+        );
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 100, 20));
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_key(
+                    KeyCode::Char('b'),
+                    KeyModifiers::CONTROL,
+                    KeyEventKind::Press,
+                ),
+                raw_key(
+                    KeyCode::Char('['),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                ),
+            ],
+            true,
+        );
+        assert_eq!(client.mode, Mode::Copy);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Esc,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        assert_eq!(
+            client.mode,
+            Mode::Terminal,
+            "Esc in client-opened copy mode should return that client to terminal input"
+        );
+        assert_eq!(
+            app.state.mode,
+            Mode::Terminal,
+            "client copy-mode exit must not move the shared server view"
+        );
+    }
+
+    #[test]
+    fn eng57_client_group_menu_switches_group_without_moving_shared_view() {
+        let mut app = test_app();
+        let work_group = app.state.create_group("Work".to_string());
+        let work_group_id = app.state.groups[work_group].id.clone();
+        let first = Workspace::test_new("home");
+        let mut second = Workspace::test_new("api");
+        second.group_id = work_group_id;
+        app.state.workspaces = vec![first, second];
+        app.state.ensure_test_terminals();
+        app.state.active_group = 0;
+        app.state.group_filter_enabled = true;
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.group_menu = state::MenuListState::new(3 + work_group);
+        client.mode = Mode::GroupMenu;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(client.active_group, work_group);
+        assert_eq!(client.active_workspace, Some(1));
+        assert_eq!(client.selected_workspace, 1);
+        assert_eq!(app.state.active_group, 0);
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
+    }
+
+    #[test]
+    fn eng57_client_navigator_workspace_enter_stays_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Navigator;
+        client.navigator.selected = 1;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(client.active_workspace, Some(1));
+        assert_eq!(client.selected_workspace, 1);
+        assert_eq!(
+            app.state.active,
+            Some(0),
+            "accepting a navigator workspace in one client must not move the shared server focus"
+        );
+        assert_eq!(app.state.selected, 0);
+    }
+
+    #[tokio::test]
+    async fn eng57_deferred_client_tab_creation_preserves_shared_workspace_active_tab() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.prompt_new_tab_name = false;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+        client.reconcile(&app.state);
+        let workspace_id = app.state.workspaces[1].id.clone();
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_key(
+                    KeyCode::Char('b'),
+                    KeyModifiers::CONTROL,
+                    KeyEventKind::Press,
+                ),
+                raw_key(
+                    KeyCode::Char('c'),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                ),
+            ],
+            true,
+        );
+
+        assert_eq!(app.state.request_new_tab_for_client, Some((1, None)));
+        assert!(app.process_deferred_workspace_requests());
+        client.reconcile(&app.state);
+
+        assert_eq!(app.state.workspaces[1].tabs.len(), 2);
+        assert_eq!(
+            app.state.workspaces[1].active_tab_index(),
+            0,
+            "deferred tab creation for a client should not change the shared workspace active tab"
+        );
+        assert_eq!(client.active_tab_for_workspace(&workspace_id), Some(1));
+        assert_eq!(app.state.active, Some(0));
+    }
+
     #[test]
     fn route_client_events_for_view_command_palette_next_tab_stays_client_local() {
         let mut app = test_app();
@@ -6085,8 +8262,8 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
-        let other_client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
         let workspace_id = app.state.workspaces[0].id.clone();
 
         route_client_command_palette_enter(&mut app, &mut client, "next tab");
@@ -6113,7 +8290,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
 
         route_client_command_palette_enter(&mut app, &mut client, "new tab");
 
@@ -6129,24 +8306,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn route_client_events_for_view_command_palette_split_pane_updates_shared_layout() {
-        let mut app = test_app();
-        app.state.workspaces = vec![Workspace::test_new("shell")];
-        app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
-
-        let mut client = ClientViewState::from_app_state(&app.state);
-
-        route_client_command_palette_enter(&mut app, &mut client, "split pane vertical");
-
-        assert_eq!(client.mode, Mode::Terminal);
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 2);
-    }
-
-    #[test]
-    fn route_client_events_for_view_accepts_navigator_selection_against_shared_state() {
+    async fn route_client_events_for_view_command_palette_new_tab_names_invoking_client_workspace()
+    {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
         app.state.ensure_test_terminals();
@@ -6154,7 +8315,86 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+        client.reconcile(&app.state);
+        let workspace_id = app.state.workspaces[1].id.clone();
+
+        route_client_command_palette_enter(&mut app, &mut client, "new tab");
+        assert_eq!(client.mode, Mode::RenameTab);
+
+        let mut events = Vec::new();
+        for ch in "client logs".chars() {
+            events.push(raw_key(
+                KeyCode::Char(ch),
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            ));
+        }
+        events.push(raw_key(
+            KeyCode::Enter,
+            KeyModifiers::empty(),
+            KeyEventKind::Press,
+        ));
+        app.route_client_events_for_view(&mut client, events, true);
+
+        assert_eq!(
+            app.state.request_new_tab_for_client,
+            Some((1, Some("client logs".to_string())))
+        );
+        assert_eq!(app.state.workspaces[0].tabs.len(), 1);
+        assert_eq!(app.state.workspaces[1].tabs.len(), 1);
+        assert_eq!(app.state.active, Some(0));
+
+        assert!(app.process_deferred_workspace_requests());
+        client.reconcile(&app.state);
+
+        assert_eq!(app.state.workspaces[0].tabs.len(), 1);
+        assert_eq!(app.state.workspaces[1].tabs.len(), 2);
+        assert_eq!(
+            app.state.workspaces[1].tabs[1].display_name(),
+            "client logs"
+        );
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(client.active_tab_for_workspace(&workspace_id), Some(1));
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_command_palette_split_pane_targets_invoking_client_workspace(
+    ) {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+        client.reconcile(&app.state);
+
+        route_client_command_palette_enter(&mut app, &mut client, "split pane vertical");
+
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 1);
+        assert_eq!(app.state.workspaces[1].tabs[0].layout.pane_count(), 2);
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
+        assert_eq!(client.active_workspace, Some(1));
+    }
+
+    #[test]
+    fn route_client_events_for_view_accepts_navigator_selection_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.mode = Mode::Navigator;
         client.navigator.selected = 1;
 
@@ -6168,8 +8408,10 @@ mod tests {
             true,
         );
 
-        assert_eq!(app.state.active, Some(1));
-        assert_eq!(app.state.selected, 1);
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
+        assert_eq!(client.active_workspace, Some(1));
+        assert_eq!(client.selected_workspace, 1);
         assert_eq!(client.mode, Mode::Terminal);
     }
 
@@ -6182,12 +8424,12 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut first_client = ClientViewState::from_app_state(&app.state);
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
         first_client.mode = Mode::Settings;
         first_client.settings.section = state::SettingsSection::Theme;
         first_client.settings.list.selected = 0;
         first_client.settings.selection_active = false;
-        let second_client = ClientViewState::from_app_state(&app.state);
+        let second_client = ClientViewState::from_default_client_state(&app.state);
 
         app.route_client_events_for_view(
             &mut first_client,
@@ -6218,14 +8460,14 @@ mod tests {
         app.state.request_reload_config = false;
         app.state.global_menu = state::MenuListState::new(2);
 
-        let mut first_client = ClientViewState::from_app_state(&app.state);
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
         first_client.mode = Mode::GlobalMenu;
         let keybinds_idx = crate::app::input::global_menu_actions(&app.state)
             .iter()
             .position(|action| *action == crate::app::input::GlobalMenuAction::Keybinds)
             .expect("keybinds action should be present");
         first_client.global_menu = state::MenuListState::new(keybinds_idx);
-        let second_client = ClientViewState::from_app_state(&app.state);
+        let second_client = ClientViewState::from_default_client_state(&app.state);
 
         app.route_client_events_for_view(
             &mut first_client,
@@ -6244,6 +8486,57 @@ mod tests {
     }
 
     #[test]
+    fn route_client_events_for_view_global_menu_keybinds_mouse_click_stays_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
+        first_client.mode = Mode::GlobalMenu;
+        first_client.global_menu = state::MenuListState::new(0);
+        let second_client = ClientViewState::from_default_client_state(&app.state);
+
+        compute_client_view(
+            &app,
+            &mut first_client,
+            ratatui::layout::Rect::new(0, 0, 120, 30),
+        );
+        let mut view_state = app.state.clone();
+        view_state.mode = first_client.mode;
+        view_state.view = first_client.computed.clone();
+        view_state.global_menu = first_client.global_menu;
+        let keybinds_row = crate::app::input::global_menu_actions(&view_state)
+            .iter()
+            .position(|action| *action == crate::app::input::GlobalMenuAction::Keybinds)
+            .expect("keybinds action should be present");
+        let menu = view_state.global_menu_rect();
+        let click_col = menu.x + 2;
+        let click_row = menu.y + 1 + keybinds_row as u16;
+        assert_eq!(
+            view_state.global_menu_item_at(click_col, click_row),
+            Some(crate::app::input::GlobalMenuAction::Keybinds)
+        );
+
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                click_col,
+                click_row,
+            )],
+            true,
+        );
+
+        assert_eq!(first_client.mode, Mode::KeybindHelp);
+        assert_eq!(second_client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
     fn route_client_events_for_view_group_menu_new_group_stays_client_local() {
         let mut app = test_app();
         app.state.create_group("Work".to_string());
@@ -6258,10 +8551,10 @@ mod tests {
         let group_count = app.state.groups.len();
         let expected_name = format!("group {}", group_count + 1);
         let new_group_row = app.state.group_menu_labels().len() - 1;
-        let mut first_client = ClientViewState::from_app_state(&app.state);
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
         first_client.mode = Mode::GroupMenu;
         first_client.group_menu = state::MenuListState::new(new_group_row);
-        let second_client = ClientViewState::from_app_state(&app.state);
+        let second_client = ClientViewState::from_default_client_state(&app.state);
 
         app.route_client_events_for_view(
             &mut first_client,
@@ -6295,7 +8588,7 @@ mod tests {
         app.state.agent_panel_scope = state::AgentPanelScope::CurrentWorkspace;
         app.state.agent_menu = state::MenuListState::new(0);
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.mode = Mode::AgentMenu;
         client.agent_menu = state::MenuListState::new(4);
 
@@ -6327,11 +8620,11 @@ mod tests {
         app.state.name_input = "shared-tab-name".into();
         app.state.name_input_replace_on_type = true;
 
-        let mut first_client = ClientViewState::from_app_state(&app.state);
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
         first_client.mode = Mode::RenameTab;
         first_client.name_input = "replace-me".into();
         first_client.name_input_replace_on_type = true;
-        let mut second_client = ClientViewState::from_app_state(&app.state);
+        let mut second_client = ClientViewState::from_default_client_state(&app.state);
         second_client.mode = Mode::RenameTab;
         second_client.name_input = "other-client-tab".into();
         second_client.name_input_replace_on_type = true;
@@ -6364,11 +8657,11 @@ mod tests {
         app.state.name_input = "/shared/worktrees".into();
         app.state.name_input_replace_on_type = true;
 
-        let mut first_client = ClientViewState::from_app_state(&app.state);
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
         first_client.mode = Mode::EditWorktreeDirectory;
         first_client.name_input = "/tmp/old".into();
         first_client.name_input_replace_on_type = true;
-        let mut second_client = ClientViewState::from_app_state(&app.state);
+        let mut second_client = ClientViewState::from_default_client_state(&app.state);
         second_client.mode = Mode::EditWorktreeDirectory;
         second_client.name_input = "/tmp/other".into();
         second_client.name_input_replace_on_type = true;
@@ -6402,12 +8695,12 @@ mod tests {
         app.state.navigator.search_focused = true;
         app.state.navigator.state_filter = Some(state::NavigatorStateFilter::Working);
 
-        let mut first_client = ClientViewState::from_app_state(&app.state);
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
         first_client.mode = Mode::Navigator;
         first_client.navigator.query = "fea".into();
         first_client.navigator.search_focused = true;
         first_client.navigator.state_filter = Some(state::NavigatorStateFilter::Blocked);
-        let mut second_client = ClientViewState::from_app_state(&app.state);
+        let mut second_client = ClientViewState::from_default_client_state(&app.state);
         second_client.mode = Mode::Navigator;
         second_client.navigator.query = "other".into();
         second_client.navigator.search_focused = true;
@@ -6464,8 +8757,8 @@ mod tests {
         app.state.workspaces[0].insert_test_runtime(first_pane, first_runtime);
         app.state.workspaces[1].insert_test_runtime(second_pane, second_runtime);
 
-        let first_client = ClientViewState::from_app_state(&app.state);
-        let mut second_client = ClientViewState::from_app_state(&app.state);
+        let first_client = ClientViewState::from_default_client_state(&app.state);
+        let mut second_client = ClientViewState::from_default_client_state(&app.state);
         second_client.active_workspace = Some(1);
         second_client.selected_workspace = 1;
         second_client.reconcile(&app.state);
@@ -6538,7 +8831,7 @@ mod tests {
 
         let area = ratatui::layout::Rect::new(0, 0, 150, 40);
         crate::ui::compute_view(&mut app.state, area);
-        let mut client_view = ClientViewState::from_app_state(&app.state);
+        let mut client_view = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client_view, area);
         let list_area = crate::ui::settings_section_list_rect(app.state.settings_content_rect());
         let (arrangement_x, arrangement_y) =
@@ -6575,8 +8868,8 @@ mod tests {
         app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
 
         let area = ratatui::layout::Rect::new(0, 0, 120, 30);
-        let mut client = ClientViewState::from_app_state(&app.state);
-        let other_client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, area);
         let sidebar = client.computed.sidebar_rect;
         let divider_col = sidebar.x + sidebar.width.saturating_sub(1);
@@ -6626,8 +8919,8 @@ mod tests {
         app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::Separate;
 
         let area = ratatui::layout::Rect::new(0, 0, 150, 30);
-        let mut client = ClientViewState::from_app_state(&app.state);
-        let other_client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, area);
         let right_sidebar = client.computed.right_sidebar_rect;
         assert_ne!(
@@ -6679,8 +8972,8 @@ mod tests {
         app.state.sidebar_section_split = 0.4;
 
         let area = ratatui::layout::Rect::new(0, 0, 120, 30);
-        let mut client = ClientViewState::from_app_state(&app.state);
-        let other_client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, area);
         let divider = crate::ui::sidebar_section_divider_rect(
             client.computed.sidebar_rect,
@@ -6739,7 +9032,7 @@ mod tests {
             .layout
             .splits(app.state.view.terminal_area)[0]
             .pos;
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.mode = Mode::Resize;
 
         app.route_client_events_for_view(
@@ -6789,7 +9082,7 @@ mod tests {
         });
 
         let area = ratatui::layout::Rect::new(0, 0, 120, 30);
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, area);
         let toast = client.computed.toast_hit_area;
         assert!(toast.width > 0, "toast hit area is visible");
@@ -6825,8 +9118,8 @@ mod tests {
         app.state.mouse_capture = true;
         crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 120, 30));
 
-        let mut first_client = ClientViewState::from_app_state(&app.state);
-        let second_client = ClientViewState::from_app_state(&app.state);
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
+        let second_client = ClientViewState::from_default_client_state(&app.state);
         let card = first_client
             .computed
             .workspace_card_areas
@@ -6879,21 +9172,16 @@ mod tests {
         app.state.mouse_capture = true;
         crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 120, 30));
 
-        let first_client = ClientViewState::from_app_state(&app.state);
-        let mut second_client = ClientViewState::from_app_state(&app.state);
+        let first_client = ClientViewState::from_default_client_state(&app.state);
+        let mut second_client = ClientViewState::from_default_client_state(&app.state);
         second_client.active_workspace = Some(1);
         second_client.selected_workspace = 1;
         second_client.reconcile(&app.state);
-        let mut second_local_state = app.state.clone();
-        crate::app::view_state::apply_client_view_to_app_state(
-            &mut second_local_state,
-            &second_client,
-        );
-        crate::ui::compute_view(
-            &mut second_local_state,
+        compute_client_view(
+            &app,
+            &mut second_client,
             ratatui::layout::Rect::new(0, 0, 120, 30),
         );
-        second_client.computed = second_local_state.view.clone();
 
         let tab = second_client.computed.tab_hit_areas[1];
         app.route_client_events_for_view(
@@ -6929,6 +9217,44 @@ mod tests {
     }
 
     #[test]
+    fn route_client_events_for_view_tab_hover_stays_client_local() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("shell");
+        workspace.test_add_tab(Some("logs"));
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 120, 30));
+
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
+        let second_client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(
+            &app,
+            &mut first_client,
+            ratatui::layout::Rect::new(0, 0, 120, 30),
+        );
+        let second_tab = first_client.computed.tab_hit_areas[1];
+        assert!(second_tab.width > 0, "second tab hit area is visible");
+
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Moved,
+                second_tab.x + 1,
+                second_tab.y,
+            )],
+            true,
+        );
+
+        assert_eq!(first_client.hovered_tab, Some(1));
+        assert_eq!(second_client.hovered_tab, None);
+        assert_eq!(app.state.hovered_tab, None);
+    }
+
+    #[test]
     fn route_client_events_for_view_tab_close_click_closes_shared_tab() {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("shell");
@@ -6941,7 +9267,7 @@ mod tests {
         app.state.mode = Mode::Terminal;
         app.state.mouse_capture = true;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.hovered_tab = Some(1);
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
         let close = client.computed.tab_close_hit_areas[1];
@@ -6976,7 +9302,7 @@ mod tests {
         app.state.mouse_capture = true;
         app.state.prompt_new_tab_name = false;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
         let plus = client.computed.new_tab_hit_area;
         assert!(plus.width > 0, "new-tab plus hit area is visible");
@@ -7026,7 +9352,7 @@ mod tests {
         app.state.mouse_capture = true;
         install_two_agent_profiles(&mut app.state);
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
         let plus = client.computed.new_tab_hit_area;
         assert!(plus.width > 0, "new-tab plus hit area is visible");
@@ -7097,7 +9423,7 @@ mod tests {
             app.state.mouse_capture = true;
             app.state.prompt_new_tab_name = false;
 
-            let mut client = ClientViewState::from_app_state(&app.state);
+            let mut client = ClientViewState::from_default_client_state(&app.state);
             client.context_menu = Some(state::ContextMenuState {
                 kind,
                 x: 4,
@@ -7159,16 +9485,13 @@ mod tests {
         app.state.mode = Mode::CommandPalette;
         app.state.mouse_capture = true;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         let area = ratatui::layout::Rect::new(0, 0, 120, 30);
         compute_client_view(&app, &mut client, area);
-        let mut rendered_state = app.state.clone();
-        crate::app::view_state::apply_client_view_to_app_state(&mut rendered_state, &client);
-        crate::ui::compute_view(&mut rendered_state, area);
         let list = crate::ui::command_palette_list_geometry(
-            rendered_state.screen_rect(),
+            client.screen_rect(),
             64,
-            rendered_state.command_palette.scroll,
+            client.command_palette.scroll,
         )
         .expect("command palette list is visible");
 
@@ -7200,7 +9523,7 @@ mod tests {
         app.state.mode = Mode::Terminal;
         app.state.mouse_capture = true;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         input::open_command_palette_for_view(&mut client);
         client.command_palette.query = "open git diff".to_string();
 
@@ -7237,12 +9560,12 @@ mod tests {
             scroll: 0,
         };
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         let area = ratatui::layout::Rect::new(0, 0, 120, 30);
         compute_client_view(&app, &mut client, area);
         let mut rendered_state = app.state.clone();
-        crate::app::view_state::apply_client_view_to_app_state(&mut rendered_state, &client);
-        crate::ui::compute_view(&mut rendered_state, area);
+        rendered_state.view = client.computed.clone();
+        rendered_state.git_repo_picker = client.git_repo_picker.clone();
         let list = crate::ui::git_repo_picker::git_repo_picker_list_geometry(&rendered_state)
             .expect("git picker list is visible");
 
@@ -7275,7 +9598,7 @@ mod tests {
         app.state.mouse_capture = true;
         install_two_agent_profiles(&mut app.state);
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.context_menu = Some(state::ContextMenuState {
             kind: state::ContextMenuKind::NewTabButton {
                 ws_idx: 0,
@@ -7344,22 +9667,18 @@ mod tests {
         install_two_agent_profiles(&mut app.state);
         input::agent_profile_picker::open_new_agent_picker_for_workspace(&mut app.state, 0);
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         let area = ratatui::layout::Rect::new(0, 0, 120, 30);
         compute_client_view(&app, &mut client, area);
 
-        let mut rendered_state = app.state.clone();
-        crate::app::view_state::apply_client_view_to_app_state(&mut rendered_state, &client);
-        crate::ui::compute_view(&mut rendered_state, area);
-        let row_count = crate::app::agent_profile_picker::agent_profile_picker_filtered_entries(
-            &rendered_state,
-        )
-        .len();
+        let row_count =
+            crate::app::agent_profile_picker::agent_profile_picker_filtered_entries(&app.state)
+                .len();
         assert!(row_count >= 2, "test profile list has a second row");
         let list = crate::ui::agent_profile_picker_list_geometry(
-            rendered_state.screen_rect(),
+            client.screen_rect(),
             row_count,
-            rendered_state.agent_profile_picker.scroll,
+            client.agent_profile_picker.scroll,
         )
         .expect("agent picker list is visible");
 
@@ -7382,6 +9701,72 @@ mod tests {
     }
 
     #[test]
+    fn route_client_events_for_view_agent_picker_apply_click_queues_shared_agent_tab() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("shell")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        install_two_agent_profiles(&mut app.state);
+        input::agent_profile_picker::open_new_agent_picker_for_workspace(&mut app.state, 0);
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.agent_profile_picker.selected = 1;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_profile_picker.selected = 0;
+
+        let area = ratatui::layout::Rect::new(0, 0, 120, 30);
+        compute_client_view(&app, &mut client, area);
+        let inner = crate::ui::agent_profile_picker_inner_rect(client.screen_rect())
+            .expect("agent picker is visible in the invoking client");
+        let (start, _) = crate::ui::agent_profile_picker_button_rects(inner);
+        assert!(
+            start.width > 0 && start.height > 0,
+            "agent picker start button is clickable"
+        );
+
+        let entries =
+            crate::app::agent_profile_picker::agent_profile_picker_filtered_entries_for_picker(
+                &app.state,
+                &client.agent_profile_picker,
+            );
+        let selected_profile_id = entries
+            .get(client.agent_profile_picker.selected)
+            .expect("client-selected agent profile")
+            .profile_id
+            .clone();
+        assert_ne!(
+            app.state.agent_profile_picker.selected, client.agent_profile_picker.selected,
+            "test separates shared and invoking-client picker selection"
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                start.x + start.width / 2,
+                start.y,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(
+            app.state.request_agent_profile_tab,
+            Some((0, selected_profile_id))
+        );
+        let workspace_id = app.state.workspaces[0].id.clone();
+        assert_eq!(
+            client.pending_active_tabs.get(&workspace_id),
+            Some(&1),
+            "invoking client tracks the shared agent tab that will be focused after creation"
+        );
+    }
+
+    #[test]
     fn route_client_events_for_view_agent_picker_enter_queues_shared_agent_tab() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("shell")];
@@ -7392,7 +9777,7 @@ mod tests {
         app.state.mouse_capture = true;
         install_two_agent_profiles(&mut app.state);
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         input::agent_profile_picker::open_new_agent_picker_for_workspace(&mut app.state, 0);
         client.mode = app.state.mode;
         client.agent_profile_picker = app.state.agent_profile_picker.clone();
@@ -7430,7 +9815,49 @@ mod tests {
     }
 
     #[test]
-    fn route_client_events_for_view_prompted_new_tab_enter_queues_shared_tab() {
+    fn route_client_events_for_view_agent_picker_query_clamps_selection_before_enter() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("shell")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        install_two_agent_profiles(&mut app.state);
+
+        input::agent_profile_picker::open_new_agent_picker_for_workspace(&mut app.state, 0);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.agent_profile_picker.selected = 1;
+        app.state.mode = Mode::Terminal;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_key(
+                    KeyCode::Char('p'),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                ),
+                raw_key(
+                    KeyCode::Char('i'),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                ),
+                raw_key(KeyCode::Enter, KeyModifiers::empty(), KeyEventKind::Press),
+            ],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(
+            app.state.request_agent_profile_tab,
+            Some((0, "system:pi".to_string()))
+        );
+        let workspace_id = app.state.workspaces[0].id.clone();
+        assert_eq!(client.pending_active_tabs.get(&workspace_id), Some(&1));
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_prompted_new_tab_enter_queues_client_tab_request() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("shell")];
         app.state.ensure_test_terminals();
@@ -7440,7 +9867,7 @@ mod tests {
         app.state.mouse_capture = true;
         app.state.prompt_new_tab_name = true;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.context_menu = Some(state::ContextMenuState {
             kind: state::ContextMenuKind::NewTabButton {
                 ws_idx: 0,
@@ -7467,19 +9894,32 @@ mod tests {
         assert_eq!(client.mode, Mode::RenameTab);
         assert!(client.creating_new_tab);
         assert!(!app.state.request_new_tab);
+        assert_eq!(app.state.request_new_tab_for_client, None);
 
-        app.route_client_events_for_view(
-            &mut client,
-            vec![raw_key(
-                KeyCode::Enter,
+        let mut events = Vec::new();
+        for ch in "named tab".chars() {
+            events.push(raw_key(
+                KeyCode::Char(ch),
                 KeyModifiers::empty(),
                 KeyEventKind::Press,
-            )],
-            true,
-        );
+            ));
+        }
+        events.push(raw_key(
+            KeyCode::Enter,
+            KeyModifiers::empty(),
+            KeyEventKind::Press,
+        ));
+        app.route_client_events_for_view(&mut client, events, true);
 
         assert_eq!(client.mode, Mode::Terminal);
-        assert!(app.state.request_new_tab);
+        assert!(!app.state.request_new_tab);
+        assert_eq!(
+            app.state.request_new_tab_for_client,
+            Some((0, Some("named tab".to_string())))
+        );
+        assert!(app.process_deferred_workspace_requests());
+        assert_eq!(app.state.workspaces[0].tabs.len(), 2);
+        assert_eq!(app.state.workspaces[0].tabs[1].display_name(), "named tab");
     }
 
     #[test]
@@ -7492,7 +9932,7 @@ mod tests {
         app.state.mode = Mode::Terminal;
         app.state.mouse_capture = true;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.context_menu = Some(state::ContextMenuState {
             kind: state::ContextMenuKind::NewTabButton {
                 ws_idx: 0,
@@ -7552,7 +9992,7 @@ mod tests {
         app.state.mode = Mode::Terminal;
         app.state.mouse_capture = true;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.context_menu = Some(state::ContextMenuState {
             kind: state::ContextMenuKind::Group {
                 group_idx: 0,
@@ -7596,7 +10036,7 @@ mod tests {
         app.state.mouse_capture = true;
         crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 120, 30));
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.focus_pane_in_workspace(&app.state, 0, 0, closed_pane);
         client.context_menu = Some(state::ContextMenuState {
             kind: state::ContextMenuKind::Pane {
@@ -7642,7 +10082,7 @@ mod tests {
         app.state.mouse_capture = true;
         crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 120, 30));
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.mode = Mode::ConfirmDeleteGroup;
         client.confirm_delete_group = Some(work_group);
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
@@ -7682,7 +10122,7 @@ mod tests {
         app.state.mouse_capture = true;
         crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 120, 30));
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.mode = Mode::ConfirmClose;
         client.selected_workspace = 0;
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
@@ -7714,7 +10154,7 @@ mod tests {
         app.state.mode = Mode::Terminal;
         let shared_focus_before = app.state.workspaces[1].tabs[0].layout.focused();
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.active_workspace = Some(1);
         client.selected_workspace = 1;
         client.reconcile(&app.state);
@@ -7770,7 +10210,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         let workspace_id = app.state.workspaces[0].id.clone();
         let original_focus = app.state.workspaces[0].tabs[0].root_pane;
 
@@ -7815,7 +10255,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.active_workspace = Some(0);
         client.selected_workspace = 0;
         client.reconcile(&app.state);
@@ -7878,7 +10318,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.active_workspace = Some(1);
         client.selected_workspace = 1;
         client.reconcile(&app.state);
@@ -7932,7 +10372,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.active_workspace = Some(1);
         client.selected_workspace = 1;
         client.reconcile(&app.state);
@@ -7981,7 +10421,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         let workspace_id = app.public_workspace_id(1);
 
         let response = app.handle_api_request_for_view(
@@ -8014,7 +10454,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
 
         let response = app.handle_api_request_for_view(
             &mut client,
@@ -8051,7 +10491,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.active_workspace = Some(1);
         client.selected_workspace = 1;
         client.reconcile(&app.state);
@@ -8088,7 +10528,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         let workspace_id = app.state.workspaces[0].id.clone();
         let tab_id = app.public_tab_id(0, 1).expect("tab id");
 
@@ -8121,7 +10561,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let mut client = ClientViewState::from_app_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
         client.active_workspace = Some(1);
         client.selected_workspace = 1;
         client.reconcile(&app.state);

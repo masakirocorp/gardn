@@ -906,7 +906,7 @@ impl AppState {
         self.open_git_diff_command_for_workspace(terminal_runtimes, ws_idx)
     }
 
-    fn open_git_diff_command_for_workspace(
+    pub(crate) fn open_git_diff_command_for_workspace(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
         ws_idx: usize,

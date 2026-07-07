@@ -1,11 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::app::state::{
-    AgentProfilePickerState, AppState, CommandPaletteState, ContextMenuState, CopyModeState,
-    DragState, GitRepoPickerState, GroupPressState, KeybindHelpState, MenuListState, Mode,
-    NavigatorState, PaneFocusTarget, ProductAnnouncementState, ReleaseNotesState,
-    RightClickPassthroughGesture, SelectionAutoscroll, SettingsState, TabPressState, ViewState,
-    WorkspacePressState,
+    AgentProfilePickerState, AppState, CommandPaletteState, ContextMenuState, DragState,
+    GitRepoPickerState, KeybindHelpState, MenuListState, Mode, NavigatorState, PaneFocusTarget,
+    ProductAnnouncementState, ReleaseNotesState, SelectionAutoscroll, SettingsState, TabPressState,
+    ViewState, WorkspacePressState,
 };
 use crate::layout::PaneId;
 use crate::terminal::{TerminalId, TerminalRuntimeRegistry};
@@ -46,7 +45,6 @@ pub(crate) struct ClientViewState {
     pub(crate) mobile_switcher_scroll: usize,
     pub(crate) sidebar_width: u16,
     pub(crate) sidebar_width_source: crate::app::state::SidebarWidthSource,
-    pub(crate) sidebar_width_auto: bool,
     pub(crate) sidebar_collapsed: bool,
     pub(crate) right_sidebar_collapsed: bool,
     pub(crate) right_sidebar_width: u16,
@@ -70,15 +68,13 @@ pub(crate) struct ClientViewState {
     pub(crate) agent_profile_picker: AgentProfilePickerState,
     pub(crate) git_repo_picker: GitRepoPickerState,
     pub(crate) context_menu: Option<ContextMenuState>,
-    pub(crate) copy_mode: Option<CopyModeState>,
     pub(crate) selection: Option<crate::selection::Selection>,
     pub(crate) selection_autoscroll: Option<SelectionAutoscroll>,
+    pub(crate) copy_mode: Option<crate::app::state::CopyModeState>,
     pub(crate) drag: Option<DragState>,
     pub(crate) workspace_press: Option<WorkspacePressState>,
-    pub(crate) group_press: Option<GroupPressState>,
     pub(crate) tab_press: Option<TabPressState>,
     pub(crate) previous_pane_focus: Option<PaneFocusTarget>,
-    pub(crate) right_click_passthrough: Option<RightClickPassthroughGesture>,
     pub(crate) keybind_help: KeybindHelpState,
     pub(crate) global_menu: MenuListState,
     pub(crate) group_menu: MenuListState,
@@ -101,7 +97,7 @@ pub(crate) struct ClientViewState {
 }
 
 impl ClientViewState {
-    pub(crate) fn from_app_state(state: &AppState) -> Self {
+    pub(crate) fn from_default_client_state(state: &AppState) -> Self {
         let mut view = Self {
             active_workspace: state.active,
             selected_workspace: state.selected,
@@ -116,7 +112,6 @@ impl ClientViewState {
             mobile_switcher_scroll: state.mobile_switcher_scroll,
             sidebar_width: state.sidebar_width,
             sidebar_width_source: state.sidebar_width_source,
-            sidebar_width_auto: state.sidebar_width_auto,
             sidebar_collapsed: state.sidebar_collapsed,
             right_sidebar_collapsed: state.right_sidebar_collapsed,
             right_sidebar_width: state.right_sidebar_width,
@@ -140,15 +135,13 @@ impl ClientViewState {
             agent_profile_picker: state.agent_profile_picker.clone(),
             git_repo_picker: state.git_repo_picker.clone(),
             context_menu: state.context_menu.clone(),
-            copy_mode: state.copy_mode,
             selection: state.selection.clone(),
             selection_autoscroll: state.selection_autoscroll.clone(),
+            copy_mode: state.copy_mode,
             drag: state.drag.clone(),
             workspace_press: state.workspace_press.clone(),
-            group_press: state.group_press.clone(),
             tab_press: state.tab_press.clone(),
             previous_pane_focus: state.previous_pane_focus.clone(),
-            right_click_passthrough: state.right_click_passthrough.clone(),
             keybind_help: state.keybind_help.clone(),
             global_menu: state.global_menu,
             group_menu: state.group_menu,
@@ -437,82 +430,39 @@ impl ClientViewState {
             self.zoomed_tabs.remove(&key);
         }
     }
-}
 
-pub(crate) fn apply_client_view_to_app_state(state: &mut AppState, view: &ClientViewState) {
-    state.active = view.active_workspace;
-    state.selected = view.selected_workspace;
-    state.active_group = view.active_group;
-    state.group_filter_enabled = view.group_filter_enabled;
-    state.agent_panel_scope = view.agent_panel_scope;
-    state.workspace_scroll = view.workspace_scroll;
-    state.agent_panel_scroll = view.agent_panel_scroll;
-    state.tab_scroll = view.tab_scroll;
-    state.tab_scroll_follow_active = view.tab_scroll_follow_active;
-    state.hovered_tab = view.hovered_tab;
-    state.mobile_switcher_scroll = view.mobile_switcher_scroll;
-    state.sidebar_width = view.sidebar_width;
-    state.sidebar_width_source = view.sidebar_width_source;
-    state.sidebar_width_auto = view.sidebar_width_auto;
-    state.sidebar_collapsed = view.sidebar_collapsed;
-    state.right_sidebar_collapsed = view.right_sidebar_collapsed;
-    state.right_sidebar_width = view.right_sidebar_width;
-    state.sidebar_section_split = view.sidebar_section_split;
-    state.activity_agents_expanded = view.activity_agents_expanded;
-    state.activity_commands_expanded = view.activity_commands_expanded;
-    state.activity_ports_expanded = view.activity_ports_expanded;
-    state.collapsed_agent_sections = view.collapsed_agent_sections.clone();
-    state.collapsed_command_groups = view.collapsed_command_groups.clone();
-    state.collapsed_command_status_groups = view.collapsed_command_status_groups.clone();
-    state.collapsed_workspace_groups = view.collapsed_workspace_groups.clone();
-    state.mode = view.mode;
-    state.view = view.computed.clone();
-    state.settings = view.settings.clone();
-    state.command_palette = view.command_palette.clone();
-    state.navigator = view.navigator.clone();
-    state.agent_profile_picker = view.agent_profile_picker.clone();
-    state.git_repo_picker = view.git_repo_picker.clone();
-    state.context_menu = view.context_menu.clone();
-    state.copy_mode = view.copy_mode;
-    state.selection = view.selection.clone();
-    state.selection_autoscroll = view.selection_autoscroll.clone();
-    state.drag = view.drag.clone();
-    state.workspace_press = view.workspace_press.clone();
-    state.group_press = view.group_press.clone();
-    state.tab_press = view.tab_press.clone();
-    state.previous_pane_focus = view.previous_pane_focus.clone();
-    state.right_click_passthrough = view.right_click_passthrough.clone();
-    state.keybind_help = view.keybind_help.clone();
-    state.global_menu = view.global_menu;
-    state.group_menu = view.group_menu;
-    state.agent_menu = view.agent_menu;
-    state.creating_new_tab = view.creating_new_tab;
-    state.creating_new_group = view.creating_new_group;
-    state.group_icon_input = view.group_icon_input.clone();
-    state.group_default_directory_input = view.group_default_directory_input.clone();
-    state.group_modal_selected_field = view.group_modal_selected_field;
-    state.group_icon_picker_open = view.group_icon_picker_open;
-    state.rename_group_target = view.rename_group_target;
-    state.requested_new_tab_name = view.requested_new_tab_name.clone();
-    state.rename_pane_target = view.rename_pane_target;
-    state.confirm_delete_group = view.confirm_delete_group;
-    state.name_input = view.name_input.clone();
-    state.name_input_replace_on_type = view.name_input_replace_on_type;
-    state.release_notes = view.release_notes.clone();
-    state.product_announcement = view.product_announcement.clone();
+    pub(crate) fn screen_rect(&self) -> ratatui::layout::Rect {
+        let sidebar = self.computed.sidebar_rect;
+        let right_sidebar = self.computed.right_sidebar_rect;
+        let terminal = self.computed.terminal_area;
+        let mobile_header = self.computed.mobile_header_rect;
+        let x = sidebar
+            .x
+            .min(right_sidebar.x)
+            .min(terminal.x)
+            .min(mobile_header.x);
+        let y = sidebar
+            .y
+            .min(right_sidebar.y)
+            .min(terminal.y)
+            .min(mobile_header.y);
+        let right = (sidebar.x + sidebar.width)
+            .max(right_sidebar.x + right_sidebar.width)
+            .max(terminal.x + terminal.width)
+            .max(mobile_header.x + mobile_header.width);
+        let bottom = (sidebar.y + sidebar.height)
+            .max(right_sidebar.y + right_sidebar.height)
+            .max(terminal.y + terminal.height)
+            .max(mobile_header.y + mobile_header.height);
+        ratatui::layout::Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
+    }
 
-    for workspace in &mut state.workspaces {
-        if let Some(active_tab) = view.active_tab_for_workspace(&workspace.id) {
-            workspace.active_tab = active_tab.min(workspace.tabs.len().saturating_sub(1));
-        }
-
-        for (tab_idx, tab) in workspace.tabs.iter_mut().enumerate() {
-            let tab_number = tab_idx + 1;
-            if let Some(focused_pane) = view.focused_pane_for_tab(&workspace.id, tab_number) {
-                tab.layout.focus_pane(focused_pane);
-            }
-            tab.zoomed = view.tab_is_zoomed(&workspace.id, tab_number);
-        }
+    pub(crate) fn return_to_active_workspace_mode(&mut self) {
+        self.mode = if self.active_workspace.is_some() {
+            Mode::Terminal
+        } else {
+            Mode::Navigate
+        };
     }
 }
 
@@ -576,7 +526,7 @@ mod tests {
     fn default_view_matches_current_empty_app_state() {
         let state = AppState::test_new();
 
-        let view = ClientViewState::from_app_state(&state);
+        let view = ClientViewState::from_default_client_state(&state);
 
         assert_eq!(view.active_workspace, None);
         assert_eq!(view.selected_workspace, 0);
@@ -606,7 +556,7 @@ mod tests {
         let first_focused = state.workspaces[0].tabs[0].layout.focused();
         let second_focused = state.workspaces[1].tabs[0].layout.focused();
 
-        let view = ClientViewState::from_app_state(&state);
+        let view = ClientViewState::from_default_client_state(&state);
 
         assert_eq!(view.active_workspace, Some(1));
         assert_eq!(view.selected_workspace, 1);
@@ -634,7 +584,7 @@ mod tests {
         let removed_workspace_id = state.workspaces[1].id.clone();
         let removed_pane = state.workspaces[1].tabs[0].layout.focused();
 
-        let mut view = ClientViewState::from_app_state(&state);
+        let mut view = ClientViewState::from_default_client_state(&state);
         view.active_workspace = Some(9);
         view.selected_workspace = 9;
         view.active_tabs.insert(removed_workspace_id.clone(), 7);
@@ -668,7 +618,7 @@ mod tests {
         state.workspaces[0].active_tab = 0;
         let workspace_id = state.workspaces[0].id.clone();
 
-        let mut view = ClientViewState::from_app_state(&state);
+        let mut view = ClientViewState::from_default_client_state(&state);
         view.pending_active_tabs.insert(workspace_id.clone(), 1);
         view.reconcile(&state);
 
@@ -698,7 +648,7 @@ mod tests {
         state.active_group = 0;
         state.group_filter_enabled = true;
 
-        let mut view = ClientViewState::from_app_state(&state);
+        let mut view = ClientViewState::from_default_client_state(&state);
         view.active_group = 1;
         view.active_workspace = None;
         view.selected_workspace = 0;
@@ -707,72 +657,6 @@ mod tests {
         assert_eq!(view.active_group, 1);
         assert_eq!(view.active_workspace, None);
         assert_eq!(view.selected_workspace, 0);
-    }
-
-    #[test]
-    fn settings_draft_state_is_client_local() {
-        let mut state = AppState::test_new();
-        let mut first_client = ClientViewState::from_app_state(&state);
-        let second_client = ClientViewState::from_app_state(&state);
-
-        first_client.mode = Mode::Settings;
-        first_client.settings.pending_sound_enabled = Some(false);
-        first_client.settings.section = crate::app::state::SettingsSection::Sound;
-
-        apply_client_view_to_app_state(&mut state, &first_client);
-        assert_eq!(state.mode, Mode::Settings);
-        assert_eq!(state.settings.pending_sound_enabled, Some(false));
-
-        apply_client_view_to_app_state(&mut state, &second_client);
-        assert_ne!(state.mode, Mode::Settings);
-        assert_eq!(state.settings.pending_sound_enabled, None);
-    }
-
-    #[test]
-    fn command_palette_state_is_client_local() {
-        let mut state = AppState::test_new();
-        let mut first_client = ClientViewState::from_app_state(&state);
-        let second_client = ClientViewState::from_app_state(&state);
-
-        first_client.mode = Mode::CommandPalette;
-        first_client.command_palette.query = "git".to_string();
-        first_client.command_palette.selected = 3;
-
-        apply_client_view_to_app_state(&mut state, &first_client);
-        assert_eq!(state.mode, Mode::CommandPalette);
-        assert_eq!(state.command_palette.query, "git");
-        assert_eq!(state.command_palette.selected, 3);
-
-        apply_client_view_to_app_state(&mut state, &second_client);
-        assert_ne!(state.mode, Mode::CommandPalette);
-        assert!(state.command_palette.query.is_empty());
-        assert_eq!(state.command_palette.selected, 0);
-    }
-
-    #[test]
-    fn agent_panel_scope_state_is_client_local() {
-        let mut state = AppState::test_new();
-        let mut first_client = ClientViewState::from_app_state(&state);
-        let second_client = ClientViewState::from_app_state(&state);
-
-        first_client.agent_panel_scope = crate::app::state::AgentPanelScope::AllWorkspaces;
-        apply_client_view_to_app_state(&mut state, &first_client);
-        assert_eq!(
-            state.agent_panel_scope,
-            crate::app::state::AgentPanelScope::AllWorkspaces
-        );
-
-        apply_client_view_to_app_state(&mut state, &second_client);
-        assert_eq!(
-            state.agent_panel_scope,
-            crate::app::state::AgentPanelScope::CurrentWorkspace
-        );
-
-        apply_client_view_to_app_state(&mut state, &first_client);
-        assert_eq!(
-            state.agent_panel_scope,
-            crate::app::state::AgentPanelScope::AllWorkspaces
-        );
     }
 
     #[tokio::test]
@@ -796,8 +680,8 @@ mod tests {
             ),
         );
 
-        let mut first_client = ClientViewState::from_app_state(&state);
-        let mut second_client = ClientViewState::from_app_state(&state);
+        let mut first_client = ClientViewState::from_default_client_state(&state);
+        let mut second_client = ClientViewState::from_default_client_state(&state);
         capture_terminal_offsets_from_app_state(&state, &runtimes, &mut first_client);
         capture_terminal_offsets_from_app_state(&state, &runtimes, &mut second_client);
         assert_eq!(

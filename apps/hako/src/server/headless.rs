@@ -932,11 +932,17 @@ impl HeadlessServer {
         }
 
         self.app.state.request_open_git_diff_command = false;
-        if let Err(err) = self
-            .app
-            .state
-            .open_git_diff_command(&mut self.app.terminal_runtimes)
-        {
+        let target_workspace = self.app.state.request_open_git_diff_workspace.take();
+        let result = if let Some(ws_idx) = target_workspace {
+            self.app
+                .state
+                .open_git_diff_command_for_workspace(&mut self.app.terminal_runtimes, ws_idx)
+        } else {
+            self.app
+                .state
+                .open_git_diff_command(&mut self.app.terminal_runtimes)
+        };
+        if let Err(err) = result {
             self.app.state.toast = Some(app::state::ToastNotification {
                 kind: app::state::ToastKind::NeedsAttention,
                 title: "git diff command failed".to_string(),
@@ -1809,7 +1815,7 @@ impl HeadlessServer {
                 );
                 if !direct_attach_requested {
                     let mut view_state = if first_app_client {
-                        crate::app::ClientViewState::from_app_state(&self.app.state)
+                        crate::app::ClientViewState::from_default_client_state(&self.app.state)
                     } else {
                         self.app
                             .default_client_view
@@ -2585,14 +2591,17 @@ impl HeadlessServer {
                 if graphics_surface_reset_pending {
                     frame.graphics = next_graphics_cache.clear_bytes();
                 }
-                frame
-                    .graphics
-                    .extend(crate::kitty_graphics::encode_local_pane_graphics(
-                        &self.app.state,
-                        &self.app.terminal_runtimes,
-                        cell_size,
-                        &mut next_graphics_cache,
-                    ));
+                if let Some(view_state) = client.view_state.as_ref() {
+                    frame.graphics.extend(
+                        crate::kitty_graphics::encode_local_pane_graphics_for_view(
+                            &self.app.state,
+                            view_state,
+                            &self.app.terminal_runtimes,
+                            cell_size,
+                            &mut next_graphics_cache,
+                        ),
+                    );
+                }
             } else {
                 frame.graphics = next_graphics_cache.clear_bytes();
             }
@@ -3602,7 +3611,7 @@ next_tab = ""
         server.app.state.settings.list.selected = 0;
         server.app.state.settings.selection_active = true;
         if let Some(client) = server.clients.get_mut(&1) {
-            client.view_state = Some(crate::app::ClientViewState::from_app_state(
+            client.view_state = Some(crate::app::ClientViewState::from_default_client_state(
                 &server.app.state,
             ));
         }
@@ -3685,7 +3694,7 @@ next_tab = ""
         server.app.state.settings.section = crate::app::state::SettingsSection::Toast;
         server.app.state.settings.list.selected = 1;
         if let Some(client) = server.clients.get_mut(&1) {
-            client.view_state = Some(crate::app::ClientViewState::from_app_state(
+            client.view_state = Some(crate::app::ClientViewState::from_default_client_state(
                 &server.app.state,
             ));
         }
@@ -4665,7 +4674,7 @@ next_tab = ""
             writer: b_tx,
         }));
 
-        let mut b_view = crate::app::ClientViewState::from_app_state(&server.app.state);
+        let mut b_view = crate::app::ClientViewState::from_default_client_state(&server.app.state);
         b_view.active_group = 1;
         b_view.group_filter_enabled = true;
         b_view.active_workspace = None;
@@ -5575,10 +5584,12 @@ next_tab = ""
             RenderEncoding::SemanticFrame,
             Some(foreground_tx),
         );
-        let mut background_view = crate::app::ClientViewState::from_app_state(&server.app.state);
+        let mut background_view =
+            crate::app::ClientViewState::from_default_client_state(&server.app.state);
         background_view.active_workspace = Some(1);
         background_view.selected_workspace = 1;
-        let foreground_view = crate::app::ClientViewState::from_app_state(&server.app.state);
+        let foreground_view =
+            crate::app::ClientViewState::from_default_client_state(&server.app.state);
         background_client.view_state = Some(background_view);
         foreground_client.view_state = Some(foreground_view);
         server.clients.insert(1, background_client);
@@ -5664,8 +5675,10 @@ next_tab = ""
             RenderEncoding::SemanticFrame,
             Some(foreground_tx),
         );
-        let background_view = crate::app::ClientViewState::from_app_state(&server.app.state);
-        let mut foreground_view = crate::app::ClientViewState::from_app_state(&server.app.state);
+        let background_view =
+            crate::app::ClientViewState::from_default_client_state(&server.app.state);
+        let mut foreground_view =
+            crate::app::ClientViewState::from_default_client_state(&server.app.state);
         foreground_view.active_workspace = Some(1);
         foreground_view.selected_workspace = 1;
         background_client.view_state = Some(background_view);

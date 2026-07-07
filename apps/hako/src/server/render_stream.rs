@@ -5,8 +5,7 @@ use ratatui::layout::{Position, Rect, Size};
 
 use crate::app::state::AppState;
 use crate::app::view_state::{
-    apply_client_view_to_app_state, apply_terminal_offsets_to_runtimes,
-    capture_terminal_offsets_from_app_state, ClientViewState,
+    apply_terminal_offsets_to_runtimes, capture_terminal_offsets_from_app_state, ClientViewState,
 };
 use crate::app::Mode;
 use crate::protocol::render_ansi::{BlitEncoder, EncodedBlit};
@@ -296,6 +295,40 @@ pub(crate) fn render_virtual_with_runtime_registry(
 
     (buffer, cursor)
 }
+fn capture_terminal_offsets(
+    app_state: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+) -> std::collections::HashMap<crate::terminal::TerminalId, usize> {
+    let mut offsets = std::collections::HashMap::new();
+    for workspace in &app_state.workspaces {
+        for tab in &workspace.tabs {
+            for pane in tab.panes.values() {
+                let Some(terminal_id) = pane.terminal_id() else {
+                    continue;
+                };
+                let Some(metrics) = terminal_runtimes
+                    .get(terminal_id)
+                    .and_then(|runtime| runtime.scroll_metrics())
+                else {
+                    continue;
+                };
+                offsets.insert(terminal_id.clone(), metrics.offset_from_bottom);
+            }
+        }
+    }
+    offsets
+}
+
+fn restore_terminal_offsets(
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    offsets: &std::collections::HashMap<crate::terminal::TerminalId, usize>,
+) {
+    for (terminal_id, offset) in offsets {
+        if let Some(runtime) = terminal_runtimes.get(terminal_id) {
+            runtime.set_scroll_offset_from_bottom(*offset);
+        }
+    }
+}
 
 pub(crate) fn render_virtual_for_client_view(
     app_state: &mut AppState,
@@ -309,26 +342,49 @@ pub(crate) fn render_virtual_for_client_view(
     Option<CursorState>,
     RenderedKittyImages,
 ) {
-    let mut shared_view = ClientViewState::from_app_state(app_state);
-    capture_terminal_offsets_from_app_state(app_state, terminal_runtimes, &mut shared_view);
+    let shared_offsets = capture_terminal_offsets(app_state, terminal_runtimes);
 
     client_view.reconcile(app_state);
-    let mut render_state = app_state.clone();
-    apply_client_view_to_app_state(&mut render_state, client_view);
-    apply_terminal_offsets_to_runtimes(&render_state, terminal_runtimes, client_view);
+    apply_terminal_offsets_to_runtimes(app_state, terminal_runtimes, client_view);
 
-    let (buffer, cursor) = render_virtual_with_runtime_registry(
-        &mut render_state,
-        terminal_runtimes,
-        area,
-        resize_panes,
-        cell_size,
-    );
-    let hyperlinks = visible_hyperlinks(&render_state, terminal_runtimes);
+    if resize_panes {
+        crate::ui::compute_view_for_client_with_cell_size(
+            app_state,
+            client_view,
+            terminal_runtimes,
+            area,
+            cell_size,
+        );
+    } else {
+        crate::ui::compute_view_for_client_without_resizing_panes(
+            app_state,
+            client_view,
+            terminal_runtimes,
+            area,
+        );
+    }
 
-    *client_view = ClientViewState::from_app_state(&render_state);
-    capture_terminal_offsets_from_app_state(&render_state, terminal_runtimes, client_view);
-    apply_terminal_offsets_to_runtimes(app_state, terminal_runtimes, &shared_view);
+    let backend = CursorTrackingBackend::new(area.width, area.height);
+    let mut terminal = ratatui::Terminal::new(backend).expect("TestBackend::new should never fail");
+
+    terminal
+        .draw(|frame| {
+            crate::ui::render_with_runtime_registry_for_view(
+                app_state,
+                client_view,
+                terminal_runtimes,
+                frame,
+            );
+        })
+        .expect("render to TestBackend should never fail");
+
+    let buffer = terminal.backend().buffer().clone();
+    let cursor = focused_terminal_cursor_for_view(app_state, client_view, terminal_runtimes)
+        .or_else(|| terminal.backend().rendered_cursor());
+    let hyperlinks = visible_hyperlinks_for_view(app_state, client_view, terminal_runtimes);
+
+    capture_terminal_offsets_from_app_state(app_state, terminal_runtimes, client_view);
+    restore_terminal_offsets(terminal_runtimes, &shared_offsets);
     (buffer, cursor, hyperlinks)
 }
 
@@ -360,23 +416,26 @@ pub(crate) fn render_terminal_virtual(
     (buffer, cursor)
 }
 
-pub(crate) fn visible_hyperlinks(
+pub(crate) fn visible_hyperlinks_for_view(
     app_state: &AppState,
+    client_view: &ClientViewState,
     terminal_runtimes: &TerminalRuntimeRegistry,
 ) -> Vec<((u16, u16), String, String)> {
-    let Some(ws_idx) = app_state.active else {
+    let Some(ws_idx) = client_view.active_workspace else {
         return Vec::new();
     };
-    let Some(tab) = app_state
-        .workspaces
-        .get(ws_idx)
-        .and_then(crate::workspace::Workspace::active_tab)
-    else {
+    let Some(workspace) = app_state.workspaces.get(ws_idx) else {
+        return Vec::new();
+    };
+    let Some(tab_idx) = client_view.active_tab_index_for_workspace(app_state, ws_idx) else {
+        return Vec::new();
+    };
+    let Some(tab) = workspace.tabs.get(tab_idx) else {
         return Vec::new();
     };
 
     let mut links = Vec::new();
-    for info in &app_state.view.pane_infos {
+    for info in &client_view.computed.pane_infos {
         if let Some(runtime) = tab
             .terminal_id(info.id)
             .and_then(|terminal_id| terminal_runtimes.get(terminal_id))
@@ -385,6 +444,63 @@ pub(crate) fn visible_hyperlinks(
         }
     }
     links
+}
+
+fn focused_terminal_cursor_for_view(
+    app_state: &AppState,
+    client_view: &ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+) -> Option<CursorState> {
+    if client_view.mode != Mode::Terminal {
+        return None;
+    }
+
+    let ws_idx = client_view.active_workspace?;
+    let info = client_view
+        .computed
+        .pane_infos
+        .iter()
+        .find(|info| info.is_focused)?;
+    let workspace = app_state.workspaces.get(ws_idx)?;
+    let terminal_id = workspace.terminal_id(info.id)?;
+    let rt = terminal_runtimes.get(terminal_id)?;
+    let scrolled_back = crate::ui::pane_is_scrolled_back(rt);
+
+    let reveal = app_state.reveal_hidden_cursor_for_cjk_ime
+        && (!app_state.cjk_ime_agent_filter_configured || {
+            let detected = app_state
+                .terminals
+                .get(terminal_id)
+                .and_then(|t| t.detected_agent);
+            detected.is_some_and(|agent| app_state.cjk_ime_agents.contains(&agent))
+        });
+
+    if let Some(cursor) = rt.cursor_state(info.inner_rect, true) {
+        let visible = if reveal {
+            !scrolled_back
+        } else {
+            cursor.visible && !scrolled_back
+        };
+        Some(CursorState {
+            x: cursor.x,
+            y: cursor.y,
+            visible,
+            shape: if reveal && visible {
+                app_state.cjk_ime_cursor_shape
+            } else {
+                cursor.shape
+            },
+        })
+    } else if reveal && !scrolled_back {
+        Some(CursorState {
+            x: info.inner_rect.x,
+            y: info.inner_rect.y,
+            visible: true,
+            shape: app_state.cjk_ime_cursor_shape,
+        })
+    } else {
+        None
+    }
 }
 
 fn focused_terminal_cursor(
@@ -460,6 +576,16 @@ mod tests {
     use crate::app::ClientViewState;
     use crate::workspace::Workspace;
 
+    fn buffer_text(buffer: &ratatui::buffer::Buffer) -> String {
+        let mut text = String::new();
+        for y in buffer.area.y..buffer.area.y + buffer.area.height {
+            for x in buffer.area.x..buffer.area.x + buffer.area.width {
+                text.push_str(buffer[(x, y)].symbol());
+            }
+            text.push('\n');
+        }
+        text
+    }
     #[test]
     fn client_view_rendering_keeps_shared_view_state_isolated() {
         let mut state = AppState::test_new();
@@ -467,10 +593,10 @@ mod tests {
         state.active = Some(0);
         state.selected = 0;
         crate::ui::compute_view(&mut state, Rect::new(0, 0, 100, 30));
-        let shared_before = ClientViewState::from_app_state(&state);
+        let shared_before = ClientViewState::from_default_client_state(&state);
 
-        let mut first_client = ClientViewState::from_app_state(&state);
-        let mut second_client = ClientViewState::from_app_state(&state);
+        let mut first_client = ClientViewState::from_default_client_state(&state);
+        let mut second_client = ClientViewState::from_default_client_state(&state);
         second_client.active_workspace = Some(1);
         second_client.selected_workspace = 1;
 
@@ -492,7 +618,7 @@ mod tests {
             crate::kitty_graphics::HostCellSize::default(),
         );
 
-        let shared_after = ClientViewState::from_app_state(&state);
+        let shared_after = ClientViewState::from_default_client_state(&state);
         assert_eq!(
             shared_after.active_workspace,
             shared_before.active_workspace
@@ -510,6 +636,115 @@ mod tests {
         assert_ne!(
             first_client.computed.terminal_area,
             second_client.computed.terminal_area
+        );
+    }
+
+    #[test]
+    fn client_view_rendering_uses_client_workspace_tab_and_sidebar_state() {
+        let mut state = AppState::test_new();
+        let mut shared_workspace = Workspace::test_new("leftspace");
+        let shared_tab = shared_workspace.test_add_tab(Some("sharedtab"));
+        shared_workspace.switch_tab(shared_tab);
+        let mut client_workspace = Workspace::test_new("rightspace");
+        client_workspace.test_add_tab(Some("clienttab"));
+        let client_workspace_id = client_workspace.id.clone();
+
+        state.workspaces = vec![shared_workspace, client_workspace];
+        state.active = Some(0);
+        state.selected = 0;
+        state.mode = crate::app::Mode::Terminal;
+        state.sidebar_collapsed = false;
+
+        let mut client = ClientViewState::from_default_client_state(&state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+        client.sidebar_collapsed = true;
+        client.active_tabs.insert(client_workspace_id, 1);
+
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let (buffer, _, _) = render_virtual_for_client_view(
+            &mut state,
+            &mut client,
+            &terminal_runtimes,
+            Rect::new(0, 0, 120, 30),
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        let text = buffer_text(&buffer);
+
+        assert!(
+            text.contains("clienttab"),
+            "client render should show the invoking client's active tab:\n{text}"
+        );
+        assert!(
+            !text.contains("sharedtab"),
+            "client render must not use the shared active workspace tab bar:\n{text}"
+        );
+        assert!(
+            !text.contains("leftspace"),
+            "client render must respect the invoking client's collapsed sidebar:\n{text}"
+        );
+        assert_eq!(state.active, Some(0));
+        assert!(!state.sidebar_collapsed);
+    }
+
+    #[tokio::test]
+    async fn eng57_client_render_draws_copy_mode_cursor() {
+        let mut state = AppState::test_new();
+        let workspace = Workspace::test_new("copy-render");
+        let pane_id = workspace.tabs[0].root_pane;
+        let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
+        state.workspaces = vec![workspace];
+        state.ensure_test_terminals();
+        state.active = Some(0);
+        state.selected = 0;
+        state.mode = crate::app::Mode::Terminal;
+        state.copy_mode = Some(crate::app::state::CopyModeState {
+            pane_id,
+            cursor_row: 1,
+            cursor_col: 2,
+            entry_offset_from_bottom: 0,
+            selection: None,
+        });
+
+        let mut client = ClientViewState::from_default_client_state(&state);
+        client.mode = crate::app::Mode::Copy;
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+        terminal_runtimes.insert(
+            terminal_id,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(
+                20,
+                5,
+                b"alpha\r\nbeta\r\ngamma\r\n",
+            ),
+        );
+
+        let (buffer, _, _) = render_virtual_for_client_view(
+            &mut state,
+            &mut client,
+            &terminal_runtimes,
+            Rect::new(0, 0, 100, 20),
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+
+        let pane = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| info.id == pane_id)
+            .expect("copy-mode pane rendered");
+        let cell = &buffer[(pane.inner_rect.x + 2, pane.inner_rect.y + 1)];
+        assert_eq!(
+            cell.style().bg,
+            Some(state.active_workspace_accent_color()),
+            "client copy mode should draw the visible cursor with the active workspace accent"
+        );
+        assert!(
+            cell.style()
+                .add_modifier
+                .contains(ratatui::style::Modifier::BOLD),
+            "client copy-mode cursor should be visibly emphasized"
         );
     }
 }

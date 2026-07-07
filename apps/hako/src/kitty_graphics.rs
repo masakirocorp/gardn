@@ -10,7 +10,7 @@ use base64::Engine;
 use ratatui::layout::Rect;
 
 use crate::app::state::AppState;
-use crate::app::Mode;
+use crate::app::{ClientViewState, Mode};
 use crate::ghostty::{KittyImageDescriptor, KittyImageFormat, KittyImagePlacement};
 use crate::layout::PaneId;
 use crate::terminal::TerminalRuntimeRegistry;
@@ -215,6 +215,50 @@ pub(crate) fn encode_local_pane_graphics(
     bytes
 }
 
+pub(crate) fn encode_local_pane_graphics_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    cell_size: HostCellSize,
+    cache: &mut HostGraphicsCache,
+) -> Vec<u8> {
+    let mode_ok = view.mode == Mode::Terminal;
+    let cell_ok = cell_size.is_known();
+    tracing::debug!(
+        mode_ok,
+        cell_ok,
+        cell_width_px = cell_size.width_px,
+        cell_height_px = cell_size.height_px,
+        active = ?view.active_workspace,
+        pane_infos_len = view.computed.pane_infos.len(),
+        "paint_local_pane_graphics_for_view entry"
+    );
+    if !mode_ok || !cell_ok {
+        return cache.clear_bytes();
+    }
+
+    let view_key = active_view_key_for_view(app, view);
+    let uploaded_images = cache.images.clone();
+    let placements = collect_visible_placements_for_view(
+        app,
+        view,
+        terminal_runtimes,
+        cell_size,
+        &uploaded_images,
+    );
+
+    let mut bytes = Vec::new();
+    let view_changed = cache.update_view(view_key);
+    encode_graphics_update(
+        &mut bytes,
+        &placements,
+        view_changed,
+        &mut cache.images,
+        &mut cache.placements,
+    );
+    bytes
+}
+
 fn encode_graphics_update(
     bytes: &mut Vec<u8>,
     placements: &[HostPlacement],
@@ -355,6 +399,67 @@ fn active_view_key(app: &AppState) -> Option<HostViewKey> {
         workspace_index: ws_idx,
         tab_index: ws.active_tab_index(),
     })
+}
+
+fn active_view_key_for_view(app: &AppState, view: &ClientViewState) -> Option<HostViewKey> {
+    let ws_idx = view.active_workspace?;
+    let ws = app.workspaces.get(ws_idx)?;
+    Some(HostViewKey {
+        workspace_index: ws_idx,
+        tab_index: view
+            .active_tab_for_workspace(&ws.id)
+            .unwrap_or_else(|| ws.active_tab_index()),
+    })
+}
+
+fn collect_visible_placements_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    cell_size: HostCellSize,
+    uploaded_images: &HashMap<u32, ImageSignature>,
+) -> Vec<HostPlacement> {
+    let Some(ws_idx) = view.active_workspace else {
+        return Vec::new();
+    };
+    if app.workspaces.get(ws_idx).is_none() {
+        return Vec::new();
+    }
+
+    let mut placements = Vec::new();
+    let Some(workspace) = app.workspaces.get(ws_idx) else {
+        return Vec::new();
+    };
+    for info in &view.computed.pane_infos {
+        let Some(terminal_id) = workspace.terminal_id(info.id) else {
+            continue;
+        };
+        let Some(runtime) = terminal_runtimes.get(terminal_id) else {
+            continue;
+        };
+        for placement in runtime.kitty_image_placements_with_data_filter(|descriptor| {
+            let format_code = kitty_format_code(descriptor.format);
+            let signature = image_signature_from_descriptor(descriptor, format_code);
+            let host_id = host_image_id_for_signature(info.id, signature);
+            uploaded_images.get(&host_id).copied() != Some(signature)
+        }) {
+            let scrollback_offset = view
+                .terminal_offsets_from_bottom
+                .get(terminal_id)
+                .copied()
+                .or_else(|| runtime.scroll_metrics().map(|m| m.offset_from_bottom))
+                .map(|offset| offset as u32)
+                .unwrap_or(0);
+            placements.push(HostPlacement {
+                pane_id: info.id,
+                area: info.inner_rect,
+                cell_size,
+                placement,
+                scrollback_offset,
+            });
+        }
+    }
+    placements
 }
 
 fn collect_visible_placements(

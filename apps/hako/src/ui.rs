@@ -43,7 +43,10 @@ use self::mobile::{
 use self::navigator::render_navigator_overlay;
 pub(crate) use self::onboarding::onboarding_welcome_continue_rect;
 use self::onboarding::render_onboarding_overlay;
-use self::panes::{compute_pane_infos, render_panes, resize_tab_panes};
+use self::panes::{
+    compute_pane_infos, compute_pane_infos_for_view, render_panes, render_panes_for_view,
+    resize_tab_panes,
+};
 pub(crate) use self::release_notes::{
     product_announcement_display_lines, release_notes_close_button_rect,
     release_notes_display_lines, release_notes_wrapped_line_count, PRODUCT_ANNOUNCEMENT_MODAL_SIZE,
@@ -119,7 +122,7 @@ pub(crate) use self::{
     },
 };
 use crate::app::state::ViewLayout;
-use crate::app::{AppState, Mode};
+use crate::app::{AppState, ClientViewState, Mode};
 use crate::terminal::TerminalRuntimeRegistry;
 
 const COLLAPSED_WIDTH: u16 = 4; // num + space + dot + separator
@@ -189,6 +192,161 @@ pub(crate) fn compute_view_without_resizing_panes(
         false,
         crate::kitty_graphics::HostCellSize::default(),
     );
+}
+
+pub(crate) fn compute_view_for_client_with_cell_size(
+    app: &mut AppState,
+    client_view: &mut ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    area: Rect,
+    cell_size: crate::kitty_graphics::HostCellSize,
+) {
+    compute_view_for_client_internal(app, client_view, terminal_runtimes, area, true, cell_size);
+}
+
+pub(crate) fn compute_view_for_client_without_resizing_panes(
+    app: &mut AppState,
+    client_view: &mut ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    area: Rect,
+) {
+    compute_view_for_client_internal(
+        app,
+        client_view,
+        terminal_runtimes,
+        area,
+        false,
+        crate::kitty_graphics::HostCellSize::default(),
+    );
+}
+
+fn hydrate_client_render_state(state: &mut AppState, view: &ClientViewState) {
+    state.active = view.active_workspace;
+    state.selected = view
+        .selected_workspace
+        .min(state.workspaces.len().saturating_sub(1));
+    state.active_group = view.active_group.min(state.groups.len().saturating_sub(1));
+    state.group_filter_enabled = view.group_filter_enabled;
+    state.agent_panel_scope = view.agent_panel_scope;
+    state.workspace_scroll = view.workspace_scroll;
+    state.agent_panel_scroll = view.agent_panel_scroll;
+    state.tab_scroll = view.tab_scroll;
+    state.tab_scroll_follow_active = view.tab_scroll_follow_active;
+    state.hovered_tab = view.hovered_tab;
+    state.mobile_switcher_scroll = view.mobile_switcher_scroll;
+    state.sidebar_width = view.sidebar_width;
+    state.sidebar_width_source = view.sidebar_width_source;
+    state.sidebar_collapsed = view.sidebar_collapsed;
+    state.right_sidebar_collapsed = view.right_sidebar_collapsed;
+    state.right_sidebar_width = view.right_sidebar_width;
+    state.sidebar_section_split = view.sidebar_section_split;
+    state.activity_agents_expanded = view.activity_agents_expanded;
+    state.activity_commands_expanded = view.activity_commands_expanded;
+    state.activity_ports_expanded = view.activity_ports_expanded;
+    state.collapsed_agent_sections = view.collapsed_agent_sections.clone();
+    state.collapsed_command_groups = view.collapsed_command_groups.clone();
+    state.collapsed_command_status_groups = view.collapsed_command_status_groups.clone();
+    state.collapsed_workspace_groups = view.collapsed_workspace_groups.clone();
+    state.mode = view.mode;
+    state.settings = view.settings.clone();
+    state.command_palette = view.command_palette.clone();
+    state.navigator = view.navigator.clone();
+    state.agent_profile_picker = view.agent_profile_picker.clone();
+    state.git_repo_picker = view.git_repo_picker.clone();
+    state.context_menu = view.context_menu.clone();
+    state.selection = view.selection.clone();
+    state.selection_autoscroll = view.selection_autoscroll.clone();
+    state.drag = view.drag.clone();
+    state.workspace_press = view.workspace_press.clone();
+    state.tab_press = view.tab_press.clone();
+    state.previous_pane_focus = view.previous_pane_focus.clone();
+    state.keybind_help = view.keybind_help.clone();
+    state.global_menu = view.global_menu;
+    state.group_menu = view.group_menu;
+    state.agent_menu = view.agent_menu;
+    state.creating_new_tab = view.creating_new_tab;
+    state.creating_new_group = view.creating_new_group;
+    state.group_icon_input = view.group_icon_input.clone();
+    state.group_default_directory_input = view.group_default_directory_input.clone();
+    state.group_modal_selected_field = view.group_modal_selected_field;
+    state.group_icon_picker_open = view.group_icon_picker_open;
+    state.rename_group_target = view.rename_group_target;
+    state.requested_new_tab_name = view.requested_new_tab_name.clone();
+    state.rename_pane_target = view.rename_pane_target;
+    state.confirm_delete_group = view.confirm_delete_group;
+    state.name_input = view.name_input.clone();
+    state.name_input_replace_on_type = view.name_input_replace_on_type;
+    state.release_notes = view.release_notes.clone();
+    state.product_announcement = view.product_announcement.clone();
+    state.view = view.computed.clone();
+
+    for workspace in &mut state.workspaces {
+        if let Some(tab_idx) = view
+            .active_tabs
+            .get(&workspace.id)
+            .copied()
+            .filter(|idx| *idx < workspace.tabs.len())
+        {
+            workspace.switch_tab(tab_idx);
+        }
+        for (tab_idx, tab) in workspace.tabs.iter_mut().enumerate() {
+            let tab_number = tab_idx + 1;
+            if let Some(pane_id) = view.focused_pane_for_tab(&workspace.id, tab_number) {
+                if tab.panes.contains_key(&pane_id) {
+                    tab.layout.focus_pane(pane_id);
+                }
+            }
+            tab.zoomed = view.tab_is_zoomed(&workspace.id, tab_number);
+        }
+    }
+}
+
+fn compute_view_for_client_internal(
+    app: &mut AppState,
+    client_view: &mut ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    area: Rect,
+    resize_panes: bool,
+    cell_size: crate::kitty_graphics::HostCellSize,
+) {
+    let mut render_state = app.clone();
+    hydrate_client_render_state(&mut render_state, client_view);
+    compute_view_internal(
+        &mut render_state,
+        terminal_runtimes,
+        area,
+        resize_panes,
+        cell_size,
+    );
+    client_view.computed = render_state.view.clone();
+    client_view.computed.pane_infos = compute_pane_infos_for_view(
+        &render_state,
+        client_view,
+        terminal_runtimes,
+        client_view.computed.terminal_area,
+        resize_panes,
+        cell_size,
+    );
+    let tab_bar_view = client_view
+        .active_workspace
+        .and_then(|idx| render_state.workspaces.get(idx))
+        .map(|workspace| {
+            compute_tab_bar_view(
+                workspace,
+                client_view.computed.tab_bar_rect,
+                client_view.tab_scroll,
+                client_view.tab_scroll_follow_active,
+                render_state.mouse_capture,
+                client_view.hovered_tab,
+            )
+        })
+        .unwrap_or_default();
+    client_view.tab_scroll = tab_bar_view.scroll;
+    client_view.computed.tab_hit_areas = tab_bar_view.tab_hit_areas;
+    client_view.computed.tab_close_hit_areas = tab_bar_view.tab_close_hit_areas;
+    client_view.computed.tab_scroll_left_hit_area = tab_bar_view.scroll_left_hit_area;
+    client_view.computed.tab_scroll_right_hit_area = tab_bar_view.scroll_right_hit_area;
+    client_view.computed.new_tab_hit_area = tab_bar_view.new_tab_hit_area;
 }
 
 fn resize_background_tab_panes_to_terminal_area(
@@ -551,6 +709,88 @@ pub fn render_with_runtime_registry(
         Mode::CommandPalette => render_command_palette_overlay(app, frame),
         Mode::AgentProfilePicker => render_agent_profile_picker_overlay(app, frame),
         Mode::GitRepoPicker => render_git_repo_picker_overlay(app, frame),
+        Mode::Terminal => {}
+    }
+}
+
+pub fn render_with_runtime_registry_for_view(
+    app: &AppState,
+    client_view: &ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+) {
+    let mut render_state = app.clone();
+    hydrate_client_render_state(&mut render_state, client_view);
+    fill_rect(
+        frame,
+        frame.area(),
+        Style::default().bg(render_state.palette.panel_bg),
+    );
+    let sidebar_area = client_view.computed.sidebar_rect;
+    let right_sidebar_area = client_view.computed.right_sidebar_rect;
+    let tab_bar_area = client_view.computed.tab_bar_rect;
+    let terminal_area = client_view.computed.terminal_area;
+
+    if client_view.computed.layout == ViewLayout::Mobile {
+        render_mobile_header(
+            &render_state,
+            terminal_runtimes,
+            frame,
+            client_view.computed.mobile_header_rect,
+        );
+    } else if client_view.sidebar_collapsed {
+        render_sidebar_collapsed(&render_state, frame, sidebar_area);
+    } else {
+        render_sidebar(&render_state, terminal_runtimes, frame, sidebar_area);
+    }
+    if client_view.computed.layout != ViewLayout::Mobile {
+        render_tab_bar(&render_state, frame, tab_bar_area);
+    }
+    render_panes_for_view(
+        &render_state,
+        client_view,
+        terminal_runtimes,
+        frame,
+        terminal_area,
+    );
+    if right_sidebar_area != Rect::default() {
+        render_right_sidebar(&render_state, terminal_runtimes, frame, right_sidebar_area);
+    }
+
+    render_notifications(&render_state, frame, terminal_area);
+
+    match client_view.mode {
+        Mode::Onboarding => render_onboarding_overlay(&render_state, frame, frame.area()),
+        Mode::ReleaseNotes => render_release_notes_overlay(&render_state, frame, frame.area()),
+        Mode::ProductAnnouncement => {
+            render_product_announcement_overlay(&render_state, frame, frame.area())
+        }
+        Mode::Navigate if client_view.computed.layout == ViewLayout::Mobile => {
+            render_mobile_panel(&render_state, terminal_runtimes, frame, frame.area())
+        }
+        Mode::Navigate => render_navigate_overlay(&render_state, frame, terminal_area),
+        Mode::Prefix => render_prefix_overlay(&render_state, frame, terminal_area),
+        Mode::Copy => render_copy_mode_overlay(&render_state, frame, terminal_area),
+        Mode::Resize => render_resize_overlay(&render_state, frame, terminal_area),
+        Mode::ConfirmClose => render_confirm_close_overlay(&render_state, frame, terminal_area),
+        Mode::ConfirmDeleteGroup => {
+            render_confirm_delete_group_overlay(&render_state, frame, terminal_area)
+        }
+        Mode::ContextMenu => render_context_menu(&render_state, frame),
+        Mode::Settings => render_settings_overlay(&render_state, frame, frame.area()),
+        Mode::RenameWorkspace
+        | Mode::RenameGroup
+        | Mode::RenameTab
+        | Mode::RenamePane
+        | Mode::EditWorktreeDirectory => render_rename_overlay(&render_state, frame, frame.area()),
+        Mode::GlobalMenu => render_global_launcher_menu(&render_state, frame),
+        Mode::GroupMenu => render_group_menu(&render_state, frame),
+        Mode::AgentMenu => render_agent_menu(&render_state, frame),
+        Mode::KeybindHelp => render_keybind_help_overlay(&render_state, frame),
+        Mode::Navigator => render_navigator_overlay(&render_state, frame),
+        Mode::CommandPalette => render_command_palette_overlay(&render_state, frame),
+        Mode::AgentProfilePicker => render_agent_profile_picker_overlay(&render_state, frame),
+        Mode::GitRepoPicker => render_git_repo_picker_overlay(&render_state, frame),
         Mode::Terminal => {}
     }
 }

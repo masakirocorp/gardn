@@ -49,31 +49,30 @@ mod terminal;
 
 pub(crate) use self::{
     command_palette::{
-        close_command_palette, command_palette_contains_point, execute_command_palette_action,
-        handle_command_palette_key_for_view, hover_command_palette_selection,
-        scroll_command_palette_rows, selected_command_palette_action_for_view,
+        execute_command_palette_action, handle_command_palette_key_for_view,
+        handle_command_palette_mouse_for_view, selected_command_palette_action_for_view,
     },
     modal::{
-        global_menu_actions, handle_agent_menu_key, handle_confirm_close_key,
-        handle_confirm_delete_group_key, handle_context_menu_key, handle_global_menu_key,
-        handle_group_menu_key, handle_keybind_help_key, handle_navigator_key, handle_rename_key,
-        handle_resize_key, handle_worktree_directory_key, insert_navigator_search_text,
-        insert_rename_input_text, request_detach, GlobalMenuAction,
+        apply_context_menu_action, confirm_close_accept, confirm_close_cancel,
+        confirm_delete_group_accept, confirm_delete_group_cancel, global_menu_actions,
+        handle_agent_menu_key, handle_confirm_close_key, handle_confirm_delete_group_key,
+        handle_context_menu_key, handle_global_menu_key, handle_group_menu_key,
+        handle_keybind_help_key, handle_navigator_key, handle_rename_key, handle_resize_key,
+        handle_worktree_directory_key, insert_navigator_search_text, insert_rename_input_text,
+        request_detach, GlobalMenuAction, ModalAction,
     },
     navigate::{
-        execute_navigate_action_in_context, terminal_direct_navigation_action, ActionContext,
-        NavigateAction,
+        action_for_key, execute_navigate_action_in_context, terminal_direct_navigation_action,
+        ActionContext, BindingDispatch, NavigateAction,
     },
-    settings::{open_settings_at, update_settings_state_for_view},
+    settings::{open_settings_at, update_settings_mouse_for_view, update_settings_state_for_view},
     sidebar::{AgentMenuAction, GroupMenuAction},
 };
 
 #[cfg(test)]
 pub(crate) use self::command_palette::open_command_palette_for_view;
 use self::{
-    modal::{
-        modal_action_from_key, ModalAction, ONBOARDING_WELCOME_ACTIONS, RELEASE_NOTES_ACTIONS,
-    },
+    modal::{modal_action_from_key, ONBOARDING_WELCOME_ACTIONS, RELEASE_NOTES_ACTIONS},
     settings::SettingsAction,
 };
 use super::state::{AppState, DragState, DragTarget, Mode};

@@ -95,7 +95,9 @@ impl ClientConnection {
     ) -> Self {
         #[cfg(test)]
         let view_state = (matches!(mode, ClientConnectionMode::App) && !pending_terminal_attach)
-            .then(|| ClientViewState::from_app_state(&crate::app::state::AppState::test_new()));
+            .then(|| {
+                ClientViewState::from_default_client_state(&crate::app::state::AppState::test_new())
+            });
         #[cfg(not(test))]
         let view_state = None;
         Self {

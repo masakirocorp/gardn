@@ -1,9 +1,10 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Direction, Rect};
 
 use crate::app::{
     command_palette::{
-        command_palette_filtered_commands, CommandPaletteAction, CommandPaletteCommand,
+        command_palette_filtered_commands, command_palette_filtered_commands_for_view,
+        CommandPaletteAction, CommandPaletteCommand,
     },
     state::{AppState, Mode},
     view_state::ClientViewState,
@@ -35,51 +36,47 @@ pub(crate) fn handle_command_palette_key_for_view(
     view: &mut ClientViewState,
     key: KeyEvent,
 ) {
-    let mut local_state = state.clone();
-    local_state.mode = view.mode;
-    local_state.command_palette = view.command_palette.clone();
-
     match key.code {
-        KeyCode::Esc => leave_command_palette(&mut local_state),
+        KeyCode::Esc => {
+            view.return_to_active_workspace_mode();
+        }
         KeyCode::Enter => {}
         KeyCode::Up => {
-            move_command_palette_selection(&mut local_state, false);
+            move_command_palette_selection_for_view(state, view, false);
         }
         KeyCode::Down => {
-            move_command_palette_selection(&mut local_state, true);
+            move_command_palette_selection_for_view(state, view, true);
         }
-        KeyCode::PageUp => scroll_command_palette_rows(&mut local_state, -MODAL_PAGE_SCROLL_ROWS),
-        KeyCode::PageDown => scroll_command_palette_rows(&mut local_state, MODAL_PAGE_SCROLL_ROWS),
+        KeyCode::PageUp => {
+            scroll_command_palette_rows_for_view(state, view, -MODAL_PAGE_SCROLL_ROWS)
+        }
+        KeyCode::PageDown => {
+            scroll_command_palette_rows_for_view(state, view, MODAL_PAGE_SCROLL_ROWS)
+        }
         KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            move_command_palette_selection(&mut local_state, false);
+            move_command_palette_selection_for_view(state, view, false);
         }
         KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            move_command_palette_selection(&mut local_state, true);
+            move_command_palette_selection_for_view(state, view, true);
         }
         KeyCode::Backspace => {
-            local_state.command_palette.query.pop();
-            clamp_command_palette_selection(&mut local_state);
+            view.command_palette.query.pop();
+            clamp_command_palette_selection_for_view(state, view);
         }
         KeyCode::Char(c) if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
-            local_state.command_palette.query.push(c);
-            clamp_command_palette_selection(&mut local_state);
+            view.command_palette.query.push(c);
+            clamp_command_palette_selection_for_view(state, view);
         }
         _ => {}
     }
-
-    view.mode = local_state.mode;
-    view.command_palette = local_state.command_palette;
 }
 
 pub(crate) fn selected_command_palette_action_for_view(
     state: &AppState,
     view: &ClientViewState,
 ) -> Option<CommandPaletteAction> {
-    let mut local_state = state.clone();
-    local_state.mode = view.mode;
-    local_state.command_palette = view.command_palette.clone();
-    command_palette_visible_commands(&local_state)
-        .get(local_state.command_palette.selected)
+    command_palette_filtered_commands_for_view(state, view)
+        .get(view.command_palette.selected)
         .map(|command| command.action.clone())
 }
 
@@ -257,6 +254,162 @@ pub(crate) fn command_palette_contains_point(state: &AppState, col: u16, row: u1
     })
 }
 
+pub(crate) fn handle_command_palette_mouse_for_view(
+    state: &AppState,
+    view: &mut ClientViewState,
+    mouse: MouseEvent,
+) -> bool {
+    if view.mode != Mode::CommandPalette {
+        return false;
+    }
+
+    match mouse.kind {
+        MouseEventKind::Moved => {
+            hover_command_palette_selection_for_view(state, view, mouse.column, mouse.row);
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            if command_palette_contains_point_for_view(view, mouse.column, mouse.row) {
+                hover_command_palette_selection_for_view(state, view, mouse.column, mouse.row);
+            } else {
+                view.return_to_active_workspace_mode();
+                view.command_palette.query.clear();
+                view.command_palette.selected = 0;
+                view.command_palette.scroll = 0;
+            }
+        }
+        MouseEventKind::ScrollDown => {
+            scroll_command_palette_rows_for_view(state, view, super::MODAL_WHEEL_SCROLL_ROWS);
+        }
+        MouseEventKind::ScrollUp => {
+            scroll_command_palette_rows_for_view(state, view, -super::MODAL_WHEEL_SCROLL_ROWS);
+        }
+        MouseEventKind::Up(MouseButton::Left) | MouseEventKind::Drag(MouseButton::Left) => {}
+        _ => {}
+    }
+
+    true
+}
+
+fn clamp_command_palette_selection_for_view(state: &AppState, view: &mut ClientViewState) {
+    let count = command_palette_filtered_commands_for_view(state, view).len();
+    if count == 0 {
+        view.command_palette.selected = 0;
+        view.command_palette.scroll = 0;
+        return;
+    }
+
+    view.command_palette.selected = view.command_palette.selected.min(count - 1);
+    ensure_command_palette_selection_visible_for_view(state, view);
+}
+
+fn move_command_palette_selection_for_view(
+    state: &AppState,
+    view: &mut ClientViewState,
+    down: bool,
+) -> bool {
+    let count = command_palette_filtered_commands_for_view(state, view).len();
+    if count == 0 {
+        view.command_palette.selected = 0;
+        view.command_palette.scroll = 0;
+        return false;
+    }
+
+    let next = if down {
+        (view.command_palette.selected + 1).min(count - 1)
+    } else {
+        view.command_palette.selected.saturating_sub(1)
+    };
+    let changed = next != view.command_palette.selected;
+    view.command_palette.selected = next;
+    ensure_command_palette_selection_visible_for_view(state, view);
+    changed
+}
+
+fn scroll_command_palette_rows_for_view(state: &AppState, view: &mut ClientViewState, delta: i16) {
+    let max_scroll = command_palette_max_scroll_for_view(state, view);
+    let next = if delta.is_negative() {
+        view.command_palette
+            .scroll
+            .saturating_sub(delta.unsigned_abs() as usize)
+    } else {
+        view.command_palette
+            .scroll
+            .saturating_add(delta as usize)
+            .min(max_scroll)
+    };
+    view.command_palette.scroll = next.min(max_scroll);
+}
+
+fn hover_command_palette_selection_for_view(
+    state: &AppState,
+    view: &mut ClientViewState,
+    col: u16,
+    row: u16,
+) {
+    let Some((list, rows)) = command_palette_viewport_for_view(state, view) else {
+        return;
+    };
+    let Some(row_idx) = list.hit_visual_row(col, row) else {
+        return;
+    };
+
+    if let Some(Some(command_idx)) = rows.get(row_idx) {
+        view.command_palette.selected = *command_idx;
+    }
+}
+
+fn command_palette_contains_point_for_view(view: &ClientViewState, col: u16, row: u16) -> bool {
+    crate::ui::command_palette_popup_rect(view.screen_rect()).is_some_and(|popup| {
+        col >= popup.x
+            && col < popup.x + popup.width
+            && row >= popup.y
+            && row < popup.y + popup.height
+    })
+}
+
+fn command_palette_max_scroll_for_view(state: &AppState, view: &ClientViewState) -> usize {
+    command_palette_viewport_for_view(state, view)
+        .map(|(list, _)| list.viewport.max_scroll())
+        .unwrap_or(0)
+}
+
+fn command_palette_viewport_for_view(
+    state: &AppState,
+    view: &ClientViewState,
+) -> Option<(crate::ui::ModalListGeometry, Vec<Option<usize>>)> {
+    let rows = command_palette_rows_for_view(state, view)?;
+    let list = crate::ui::command_palette_list_geometry(
+        view.screen_rect(),
+        rows.len(),
+        view.command_palette.scroll,
+    )?;
+    Some((list, rows))
+}
+
+fn command_palette_rows_for_view(
+    state: &AppState,
+    view: &ClientViewState,
+) -> Option<Vec<Option<usize>>> {
+    let commands = command_palette_filtered_commands_for_view(state, view);
+    if commands.is_empty() {
+        return None;
+    }
+    let mut rows = Vec::new();
+    let mut last_group = None;
+    for (idx, command) in commands.iter().enumerate() {
+        if last_group != Some(command.group) {
+            if last_group.is_some() {
+                rows.push(None);
+            }
+            rows.push(None);
+            last_group = Some(command.group);
+        }
+        rows.push(Some(idx));
+    }
+
+    Some(rows)
+}
+
 pub(super) fn command_palette_scrollbar_target_at(
     state: &AppState,
     col: u16,
@@ -322,6 +475,28 @@ fn command_palette_max_scroll(state: &AppState) -> usize {
 fn command_palette_scrollbar_track(state: &AppState) -> Option<Rect> {
     let (list, _) = command_palette_viewport(state)?;
     list.scroll_area.track
+}
+
+fn ensure_command_palette_selection_visible_for_view(state: &AppState, view: &mut ClientViewState) {
+    let Some((list, rows)) = command_palette_viewport_for_view(state, view) else {
+        view.command_palette.scroll = 0;
+        return;
+    };
+
+    let Some(selected_row) = rows
+        .iter()
+        .position(|row| *row == Some(view.command_palette.selected))
+    else {
+        view.command_palette.scroll = list.viewport.scroll();
+        return;
+    };
+
+    let first_section_row = selected_row
+        .checked_sub(1)
+        .filter(|idx| rows.get(*idx).is_some_and(Option::is_none));
+    view.command_palette.scroll = list
+        .viewport
+        .ensure_visible(selected_row, first_section_row);
 }
 
 fn ensure_command_palette_selection_visible(state: &mut AppState) {

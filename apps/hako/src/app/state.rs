@@ -2360,9 +2360,11 @@ pub struct AppState {
     pub detach_requested: bool,
     pub request_new_workspace: bool,
     pub request_new_tab: bool,
+    pub request_new_tab_for_client: Option<(usize, Option<String>)>,
     pub request_agent_profile_tab: Option<(usize, String)>,
     pub request_reload_config: bool,
     pub request_open_git_diff_command: bool,
+    pub request_open_git_diff_workspace: Option<usize>,
     /// Set when the headless server should ask attached clients to reload
     /// their client-local sound config from disk.
     pub request_client_config_reload: bool,
@@ -3071,9 +3073,11 @@ impl AppState {
             detach_requested: false,
             request_new_workspace: false,
             request_new_tab: false,
+            request_new_tab_for_client: None,
             request_agent_profile_tab: None,
             request_reload_config: false,
             request_open_git_diff_command: false,
+            request_open_git_diff_workspace: None,
             request_client_config_reload: false,
             request_clipboard_write: None,
             creating_new_tab: false,

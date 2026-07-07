@@ -1,5 +1,8 @@
 use crate::{
-    app::{agent_profile_picker::workspace_agent_profile_ids, state::AgentPanelScope, AppState},
+    app::{
+        agent_profile_picker::workspace_agent_profile_ids, state::AgentPanelScope,
+        view_state::ClientViewState, AppState,
+    },
     layout::NavDirection,
 };
 
@@ -401,8 +404,65 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
     }
 }
 
+pub(crate) fn command_palette_commands_for_view(
+    state: &AppState,
+    view: &ClientViewState,
+) -> Vec<CommandPaletteCommand> {
+    let mut commands = command_palette_commands(state);
+    commands.retain(|command| {
+        !matches!(
+            command.action,
+            CommandPaletteAction::SwitchTab(_) | CommandPaletteAction::NewAgent
+        )
+    });
+    if let Some(ws) = view
+        .active_workspace
+        .and_then(|idx| state.workspaces.get(idx))
+    {
+        commands.extend(ws.tabs.iter().enumerate().map(|(idx, tab)| {
+            CommandPaletteCommand::new(
+                format!("switch to tab: {}", tab.display_name()),
+                "tabs",
+                CommandPaletteAction::SwitchTab(idx),
+            )
+            .with_key_label(indexed_keybind_label(&state.keybinds.switch_tab, idx))
+        }));
+    }
+    if view
+        .active_workspace
+        .is_some_and(|ws_idx| workspace_agent_profile_ids(state, ws_idx).next().is_some())
+    {
+        commands.push(CommandPaletteCommand::new(
+            "new agent",
+            "agents",
+            CommandPaletteAction::NewAgent,
+        ));
+    }
+    commands
+}
+
+pub(crate) fn command_palette_filtered_commands_for_view(
+    state: &AppState,
+    view: &ClientViewState,
+) -> Vec<CommandPaletteCommand> {
+    let mut commands = command_palette_commands_for_view(state, view)
+        .into_iter()
+        .enumerate()
+        .filter(|(_, command)| command.matches(view.command_palette.query.as_str()))
+        .collect::<Vec<_>>();
+
+    commands.sort_by_key(|(idx, command)| (command_palette_group_order(command.group), *idx));
+    commands.into_iter().map(|(_, command)| command).collect()
+}
+
 pub(crate) fn command_palette_filtered_commands(state: &AppState) -> Vec<CommandPaletteCommand> {
-    let query = state.command_palette.query.as_str();
+    command_palette_filtered_commands_for_query(state, state.command_palette.query.as_str())
+}
+
+pub(crate) fn command_palette_filtered_commands_for_query(
+    state: &AppState,
+    query: &str,
+) -> Vec<CommandPaletteCommand> {
     let mut commands = command_palette_commands(state)
         .into_iter()
         .enumerate()

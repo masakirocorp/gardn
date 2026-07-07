@@ -55,6 +55,13 @@ pub(crate) fn agent_profile_picker_entries(state: &AppState) -> Vec<AgentProfile
     agent_profile_picker_entries_for_workspace(state, state.agent_profile_picker.ws_idx)
 }
 
+pub(crate) fn agent_profile_picker_entries_for_picker(
+    state: &AppState,
+    picker: &super::state::AgentProfilePickerState,
+) -> Vec<AgentProfilePickerEntry> {
+    agent_profile_picker_entries_for_workspace(state, picker.ws_idx)
+}
+
 pub(crate) fn agent_profile_picker_entries_for_workspace(
     state: &AppState,
     ws_idx: usize,
@@ -99,6 +106,19 @@ pub(crate) fn agent_profile_picker_filtered_entries(
     let query = state.agent_profile_picker.query.as_str();
     let kind_filter = state.agent_profile_picker.kind_filter;
     agent_profile_picker_entries(state)
+        .into_iter()
+        .filter(|entry| kind_filter.is_none_or(|kind| entry.kind == kind))
+        .filter(|entry| entry.matches(query))
+        .collect()
+}
+
+pub(crate) fn agent_profile_picker_filtered_entries_for_picker(
+    state: &AppState,
+    picker: &super::state::AgentProfilePickerState,
+) -> Vec<AgentProfilePickerEntry> {
+    let query = picker.query.as_str();
+    let kind_filter = picker.kind_filter;
+    agent_profile_picker_entries_for_picker(state, picker)
         .into_iter()
         .filter(|entry| kind_filter.is_none_or(|kind| entry.kind == kind))
         .filter(|entry| entry.matches(query))
