@@ -513,12 +513,16 @@ pub(super) fn render_global_launcher_menu(app: &AppState, frame: &mut Frame) {
         };
 
         let line = if app.global_menu_item_has_badge(item) {
+            let label = format!(" {item}");
+            let label_width = label.chars().count() as u16;
+            let gap_width = rect.width.saturating_sub(label_width.saturating_add(1)) as usize;
             Line::from(vec![
-                Span::styled(" ●", badge_style),
-                Span::styled(format!(" {item} "), item_style),
+                Span::styled(label, item_style),
+                Span::styled(" ".repeat(gap_width), item_style),
+                Span::styled("●", badge_style),
             ])
         } else {
-            Line::from(Span::styled(format!(" {item} "), item_style))
+            Line::from(Span::styled(format!(" {item}"), item_style))
         };
         frame.render_widget(Paragraph::new(line).alignment(Alignment::Left), rect);
     }

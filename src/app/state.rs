@@ -2886,12 +2886,15 @@ impl AppState {
     }
 
     pub(crate) fn global_menu_attention_badge_visible(&self) -> bool {
-        self.update_available.is_some() || self.integration_updates_available()
+        self.update_available.is_some()
+            || self.latest_release_notes_available
+            || self.integration_updates_available()
     }
 
     pub(crate) fn global_menu_item_has_badge(&self, item: &str) -> bool {
-        (item == "update ready" && self.update_available.is_some())
-            || (item == "update integrations" && self.integration_updates_available())
+        (item == "what's new"
+            && (self.update_available.is_some() || self.latest_release_notes_available))
+            || (item == "integrations" && self.integration_updates_available())
     }
 
     pub(crate) fn focused_pane_requests_mouse_capture_from_view(

@@ -79,18 +79,19 @@ pub(crate) enum GlobalMenuAction {
 }
 
 pub(crate) fn global_menu_actions(state: &AppState) -> Vec<GlobalMenuAction> {
-    let mut actions = vec![
-        GlobalMenuAction::Settings,
-        GlobalMenuAction::Keybinds,
-        GlobalMenuAction::ReloadConfig,
-    ];
-    if state.integration_updates_available() {
-        actions.push(GlobalMenuAction::UpdateIntegrations);
-    }
+    let mut actions = Vec::new();
     if state.update_available.is_some() || state.latest_release_notes_available {
         actions.push(GlobalMenuAction::WhatsNew);
     }
-    actions.push(GlobalMenuAction::Detach);
+    if state.integration_updates_available() {
+        actions.push(GlobalMenuAction::UpdateIntegrations);
+    }
+    actions.extend([
+        GlobalMenuAction::Settings,
+        GlobalMenuAction::Keybinds,
+        GlobalMenuAction::ReloadConfig,
+        GlobalMenuAction::Detach,
+    ]);
     actions
 }
 
@@ -1298,16 +1299,16 @@ mod tests {
         state.integration_recommendations = vec![outdated_codex_recommendation()];
 
         let labels = state.global_menu_labels();
-        let update_integrations_idx = labels
+        let integrations_idx = labels
             .iter()
-            .position(|label| *label == "update integrations")
+            .position(|label| *label == "integrations")
             .expect("outdated integration should surface a distinct global menu entry");
-        assert_ne!(labels[update_integrations_idx], "settings");
+        assert_ne!(labels[integrations_idx], "settings");
         assert!(!state.global_menu_item_has_badge("settings"));
-        assert!(state.global_menu_item_has_badge("update integrations"));
+        assert!(state.global_menu_item_has_badge("integrations"));
 
         open_global_menu(&mut state);
-        state.global_menu.highlighted = update_integrations_idx;
+        state.global_menu.highlighted = integrations_idx;
         handle_global_menu_key(
             &mut state,
             KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),

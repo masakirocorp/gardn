@@ -6222,7 +6222,11 @@ mod tests {
 
         let mut first_client = ClientViewState::from_app_state(&app.state);
         first_client.mode = Mode::GlobalMenu;
-        first_client.global_menu = state::MenuListState::new(1);
+        let keybinds_idx = crate::app::input::global_menu_actions(&app.state)
+            .iter()
+            .position(|action| *action == crate::app::input::GlobalMenuAction::Keybinds)
+            .expect("keybinds action should be present");
+        first_client.global_menu = state::MenuListState::new(keybinds_idx);
         let second_client = ClientViewState::from_app_state(&app.state);
 
         app.route_client_events_for_view(

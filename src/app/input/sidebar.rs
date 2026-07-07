@@ -238,36 +238,22 @@ impl AppState {
         }
 
         let footer = self.sidebar_footer_rect();
-
-        let width = if self.integration_updates_available() {
-            14
-        } else if self.global_menu_attention_badge_visible() {
-            8
-        } else {
-            6
+        if footer == Rect::default() {
+            return Rect::default();
         }
-        .min(footer.width.max(1));
-        let x = if !self.sidebar_collapsed && footer.width > width.saturating_add(2) {
-            crate::ui::expanded_sidebar_toggle_rect(self.view.sidebar_rect)
-                .x
-                .saturating_sub(width + 1)
-        } else {
-            footer.x + footer.width.saturating_sub(width)
-        };
-        Rect::new(x, footer.y, width, footer.height)
+
+        Rect::new(footer.x, footer.y, 1.min(footer.width), footer.height)
     }
 
     pub(crate) fn global_menu_labels(&self) -> Vec<&'static str> {
-        let mut labels = vec!["settings", "keybinds", "reload config"];
-        if self.integration_updates_available() {
-            labels.push("update integrations");
-        }
-        if self.update_available.is_some() {
-            labels.push("update ready");
-        } else if self.latest_release_notes_available {
+        let mut labels = Vec::new();
+        if self.update_available.is_some() || self.latest_release_notes_available {
             labels.push("what's new");
         }
-        labels.push("detach");
+        if self.integration_updates_available() {
+            labels.push("integrations");
+        }
+        labels.extend(["settings", "keybinds", "reload config", "detach"]);
         labels
     }
 
@@ -587,6 +573,15 @@ impl AppState {
         } else {
             crate::ui::expanded_sidebar_toggle_rect(self.view.sidebar_rect)
         };
+        rect.width > 0
+            && col >= rect.x
+            && col < rect.x + rect.width
+            && row >= rect.y
+            && row < rect.y + rect.height
+    }
+
+    pub(super) fn on_global_launcher(&self, col: u16, row: u16) -> bool {
+        let rect = self.global_launcher_rect();
         rect.width > 0
             && col >= rect.x
             && col < rect.x + rect.width
@@ -1399,7 +1394,7 @@ mod tests {
     }
 
     #[test]
-    fn clicking_old_footer_menu_area_does_not_open_global_menu() {
+    fn clicking_footer_help_opens_global_menu() {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::Terminal;
         app.state.mouse_capture = true;
@@ -1407,11 +1402,11 @@ mod tests {
 
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            rect.x + 2,
+            rect.x,
             rect.y,
         ));
 
-        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::GlobalMenu);
     }
 
     #[test]
@@ -1818,6 +1813,7 @@ mod tests {
     #[test]
     fn hovering_global_menu_updates_highlight() {
         let mut app = app_for_mouse_test();
+        app.state.integration_recommendations.clear();
         app.state.mode = Mode::GlobalMenu;
 
         let menu = app.state.global_menu_rect();
@@ -1829,6 +1825,7 @@ mod tests {
     #[test]
     fn clicking_keybinds_menu_item_opens_help() {
         let mut app = app_for_mouse_test();
+        app.state.integration_recommendations.clear();
         app.state.mode = Mode::GlobalMenu;
 
         let menu = app.state.global_menu_rect();
@@ -1844,6 +1841,7 @@ mod tests {
     #[test]
     fn clicking_settings_menu_item_opens_settings() {
         let mut app = app_for_mouse_test();
+        app.state.integration_recommendations.clear();
         app.state.mode = Mode::GlobalMenu;
 
         let menu = app.state.global_menu_rect();
@@ -1859,6 +1857,7 @@ mod tests {
     #[test]
     fn clicking_reload_config_menu_item_requests_reload() {
         let mut app = app_for_mouse_test();
+        app.state.integration_recommendations.clear();
         app.state.mode = Mode::GlobalMenu;
 
         let menu = app.state.global_menu_rect();
@@ -1889,19 +1888,24 @@ mod tests {
         assert_eq!(
             app.state.global_menu_labels(),
             vec![
+                "integrations",
                 "settings",
                 "keybinds",
                 "reload config",
-                "update integrations",
                 "detach"
             ]
         );
 
+        let (text, buffer) = render_app(&mut app, 120, 30);
         let menu = app.state.global_menu_rect();
+        let marker_x = menu.x + menu.width.saturating_sub(2);
+        assert_eq!(buffer[(marker_x, menu.y + 1)].symbol(), "●");
+        assert!(text.contains("integrations"));
+
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 4,
+            menu.y + 1,
         ));
 
         assert_eq!(app.state.mode, Mode::Settings);
@@ -1909,7 +1913,7 @@ mod tests {
     }
 
     #[test]
-    fn outdated_integration_renders_update_hint_in_expanded_sidebar_without_opening_menu() {
+    fn outdated_integration_marks_footer_help_without_replacing_it() {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::Terminal;
         app.state.sidebar_collapsed = false;
@@ -1924,25 +1928,24 @@ mod tests {
             }];
 
         let (text, buffer) = render_app(&mut app, 120, 30);
-        let launcher_text = buffer_rect_text(&buffer, app.state.global_launcher_rect());
+        let launcher = app.state.global_launcher_rect();
+        let launcher_text = buffer_rect_text(&buffer, launcher);
 
         assert_eq!(app.state.mode, Mode::Terminal);
         assert_eq!(
-            app.state.global_launcher_rect().y,
+            launcher.y,
             app.state.view.sidebar_rect.y + app.state.view.sidebar_rect.height.saturating_sub(1)
         );
+        assert_eq!(launcher.x, app.state.sidebar_footer_rect().x);
+        assert_eq!(launcher_text, "?");
         assert!(
-            launcher_text.contains("integrations"),
-            "expanded sidebar global launcher should visibly hint that integration updates are available; launcher text: {launcher_text:?}\nrendered app:\n{text}"
-        );
-        assert!(
-            !text.contains("update integrations"),
-            "the update hint should not require the global menu to be open; rendered app:\n{text}"
+            !text.contains("integrations"),
+            "the footer should only expose the help affordance before the menu is open; rendered app:\n{text}"
         );
     }
 
     #[test]
-    fn update_pending_menu_surfaces_update_ready_entry() {
+    fn update_pending_menu_surfaces_whats_new_entry() {
         let mut app = app_for_mouse_test();
         app.state.update_available = Some("0.3.2".into());
         app.state.latest_release_notes_available = true;
@@ -1951,10 +1954,10 @@ mod tests {
         assert_eq!(
             app.state.global_menu_labels(),
             vec![
+                "what's new",
                 "settings",
                 "keybinds",
                 "reload config",
-                "update ready",
                 "detach"
             ]
         );
@@ -1964,6 +1967,7 @@ mod tests {
     #[test]
     fn persistence_mode_menu_surfaces_detach_action() {
         let mut app = app_for_mouse_test();
+        app.state.integration_recommendations.clear();
         app.state.detach_exits = false;
         app.state.mode = Mode::GlobalMenu;
 
@@ -1988,14 +1992,15 @@ mod tests {
     fn whats_new_remains_in_menu_for_latest_installed_release_notes() {
         let mut app = app_for_mouse_test();
         app.state.latest_release_notes_available = true;
+        app.state.integration_recommendations.clear();
 
         assert_eq!(
             app.state.global_menu_labels(),
             vec![
+                "what's new",
                 "settings",
                 "keybinds",
                 "reload config",
-                "what's new",
                 "detach"
             ]
         );

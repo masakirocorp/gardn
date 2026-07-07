@@ -551,6 +551,11 @@ impl AppState {
 
                     return None;
                 } else if in_sidebar {
+                    if self.on_global_launcher(mouse.column, mouse.row) {
+                        super::modal::open_global_menu(self);
+                        return None;
+                    }
+
                     if self.on_sidebar_toggle(mouse.column, mouse.row) {
                         self.sidebar_collapsed = !self.sidebar_collapsed;
                         self.mark_session_dirty();

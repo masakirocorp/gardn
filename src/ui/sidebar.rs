@@ -1573,28 +1573,20 @@ pub(crate) fn workspace_drop_indicator_row(
         })
 }
 
-fn render_global_launcher_notice(app: &AppState, frame: &mut Frame) {
-    if !app.integration_updates_available() {
-        return;
-    }
-
+fn render_global_launcher(app: &AppState, frame: &mut Frame) {
     let area = app.global_launcher_rect();
     if area == Rect::default() {
         return;
     }
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("●", Style::default().fg(app.palette.accent)),
-            Span::styled(
-                " integrations",
-                Style::default()
-                    .fg(app.palette.accent)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ])),
-        area,
-    );
+    let style = if app.global_menu_attention_badge_visible() {
+        Style::default()
+            .fg(app.palette.accent)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(app.palette.overlay0)
+    };
+    frame.render_widget(Paragraph::new(Span::styled("?", style)), area);
 }
 
 pub(super) fn render_sidebar(
@@ -1639,7 +1631,7 @@ pub(super) fn render_sidebar(
         render_agent_detail_from(app, terminal_runtimes, frame, detail_area, true);
         render_workspace_list_from(app, terminal_runtimes, frame, ws_area, is_navigating);
     }
-    render_global_launcher_notice(app, frame);
+    render_global_launcher(app, frame);
     render_sidebar_toggle(app, frame, area, false, p);
 }
 
@@ -2435,7 +2427,7 @@ pub(crate) fn expanded_sidebar_toggle_rect(area: Rect) -> Rect {
 }
 
 fn render_sidebar_toggle(
-    app: &AppState,
+    _app: &AppState,
     frame: &mut Frame,
     area: Rect,
     collapsed: bool,
@@ -2449,11 +2441,7 @@ fn render_sidebar_toggle(
     if toggle_area == Rect::default() {
         return;
     }
-    let icon_style = if app.global_menu_attention_badge_visible() {
-        Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(p.overlay0)
-    };
+    let icon_style = Style::default().fg(p.overlay0);
     let icon = if collapsed { "»" } else { "«" };
     frame.render_widget(Paragraph::new(Span::styled(icon, icon_style)), toggle_area);
 }
