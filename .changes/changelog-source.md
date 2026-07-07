@@ -1,0 +1,1 @@
+- Added a Tegami-style pending changefile source so unreleased changes can appear in the in-app changelog before they are rolled into `CHANGELOG.md` during release.

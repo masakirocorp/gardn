@@ -116,6 +116,69 @@ fn resolve_zig(required_version: &str) -> String {
     );
 }
 
+fn normalize_changelog_body(body: &str) -> String {
+    body.lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+fn strip_changelog_title(body: &str) -> &str {
+    body.strip_prefix("# Changelog")
+        .and_then(|rest| rest.strip_prefix("\n\n"))
+        .unwrap_or(body)
+}
+
+fn pending_change_entries(manifest_dir: &Path) -> Vec<String> {
+    let changes_dir = manifest_dir.join(".changes");
+    println!("cargo:rerun-if-changed={}", changes_dir.display());
+    let Ok(entries) = fs::read_dir(&changes_dir) else {
+        return Vec::new();
+    };
+
+    let mut paths = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
+        .collect::<Vec<_>>();
+    paths.sort();
+
+    paths
+        .into_iter()
+        .filter_map(|path| {
+            println!("cargo:rerun-if-changed={}", path.display());
+            let body = normalize_changelog_body(&fs::read_to_string(path).ok()?);
+            (!body.is_empty()).then_some(body)
+        })
+        .collect()
+}
+
+fn write_generated_changelog(manifest_dir: &Path) {
+    println!("cargo:rerun-if-changed=CHANGELOG.md");
+
+    let base = fs::read_to_string(manifest_dir.join("CHANGELOG.md")).unwrap_or_else(|_| {
+        "# Changelog\n\nNo changelog entries are available in this build.\n".into()
+    });
+    let pending = pending_change_entries(manifest_dir);
+    let body = if pending.is_empty() {
+        normalize_changelog_body(&base)
+    } else {
+        format!(
+            "# Changelog\n\n## Unreleased\n\n{}\n\n{}",
+            pending.join("\n\n"),
+            strip_changelog_title(normalize_changelog_body(&base).as_str())
+        )
+        .trim()
+        .to_string()
+    };
+
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
+    fs::write(out_dir.join("hako_changelog.md"), body)
+        .expect("failed to write generated changelog");
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=vendor/libghostty-vt.vendor.json");
@@ -132,6 +195,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=ZIG");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    write_generated_changelog(&manifest_dir);
     let vendored_dir = manifest_dir.join("vendor/libghostty-vt");
     let optimize = env::var("LIBGHOSTTY_VT_OPTIMIZE").unwrap_or_else(|_| "ReleaseFast".into());
     let simd = env_bool("LIBGHOSTTY_VT_SIMD").unwrap_or(true);

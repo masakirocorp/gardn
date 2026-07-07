@@ -1432,7 +1432,7 @@ mod tests {
     }
 
     #[test]
-    fn global_menu_changelog_opens_empty_state_without_saved_notes() {
+    fn global_menu_changelog_opens_bundled_changelog_without_saved_notes() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("changelog-empty-state");
         let _config_path_env =
@@ -1446,13 +1446,15 @@ mod tests {
         apply_global_menu_action(&mut state, GlobalMenuAction::Changelog);
 
         assert_eq!(state.mode, Mode::ReleaseNotes);
-        assert_eq!(
-            state
-                .release_notes
-                .as_ref()
-                .map(|notes| notes.body.as_str()),
-            Some("No changelog entries are available in this build.")
-        );
+        let notes = state
+            .release_notes
+            .as_ref()
+            .expect("release notes modal state");
+        assert!(notes.body.contains("# Changelog"));
+        assert!(notes
+            .body
+            .contains("Tegami-style pending changefile source"));
+        assert!(notes.body.contains("stable `changelog` global-menu item"));
     }
 
     #[test]
