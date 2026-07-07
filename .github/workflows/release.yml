@@ -188,7 +188,7 @@ jobs:
         uses: actions/download-artifact@v8
 
       - name: Prepare release notes
-        run: printf 'Hako %s\n' "$GITHUB_REF_NAME" > RELEASE_NOTES.md
+        run: python3 scripts/extract_release_notes.py apps/hako/CHANGELOG.md hako "${GITHUB_REF_NAME#v}" > RELEASE_NOTES.md
 
       - name: Create release
         uses: softprops/action-gh-release@v3

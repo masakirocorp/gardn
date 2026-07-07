@@ -1,29 +1,34 @@
 import { tegami } from "tegami";
 import { runCli } from "tegami/cli";
 import { cargo } from "tegami/plugins/cargo";
+import { pathToFileURL } from "node:url";
 
-const paper = tegami({
-  cwd: process.cwd(),
-  npm: {
-    client: "pnpm",
-    updateLockFile: true,
-  },
-  plugins: [
-    cargo({
+export function createPaper() {
+  return tegami({
+    cwd: process.cwd(),
+    npm: {
+      client: "pnpm",
       updateLockFile: true,
-    }),
-  ],
-  packages: {
-    hako: {
-      publish: false,
     },
-    "hako-docs": {
-      publish: false,
+    plugins: [
+      cargo({
+        updateLockFile: true,
+      }),
+    ],
+    packages: {
+      hako: {
+        publish: false,
+      },
+      "hako-docs": {
+        publish: false,
+      },
+      "hako-nix": {
+        publish: false,
+      },
     },
-    "hako-nix": {
-      publish: false,
-    },
-  },
-});
+  });
+}
 
-await runCli(paper);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await runCli(createPaper());
+}

@@ -21,7 +21,8 @@ Rules:
 
 - Add a `.tegami/*.md` file for user-facing app, docs, Nix, or website changes.
 - Skip `.tegami/` for pure tests, refactors, or internal chores.
-- Target `hako` for the binary/app, `hako-docs` for docs, and `hako-nix` for Nix packaging.
+- Every release-worthy changefile must target `hako`; `just release` rejects pending changefiles that do not.
+- Also target `hako-docs` for docs and `hako-nix` for Nix packaging so their package changelogs stay surface-specific.
 - Keep prose user-facing. No implementation notes.
 - Do not edit package `CHANGELOG.md` files by hand.
 
@@ -46,10 +47,11 @@ just release
 `just release`:
 
 1. requires a clean tree
-2. runs `CI=true pnpm tegami version`
-3. runs `just check`
-4. commits Tegami's version/changelog changes
-5. tags `v<version>`
-6. pushes the branch and tag
+2. verifies every pending Tegami changefile includes `hako`
+3. runs `CI=true pnpm tegami version`
+4. runs `just check`
+5. commits Tegami's version/changelog changes
+6. tags `v<version>`
+7. pushes the branch and tag
 
-The GitHub Release workflow builds binary assets from the pushed tag.
+The GitHub Release workflow builds binary assets from the pushed tag and uses the generated `apps/hako/CHANGELOG.md` section as the release body.
