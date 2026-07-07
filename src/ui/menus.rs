@@ -524,7 +524,15 @@ pub(super) fn render_global_launcher_menu(app: &AppState, frame: &mut Frame) {
         } else {
             Line::from(Span::styled(format!(" {item}"), item_style))
         };
-        frame.render_widget(Paragraph::new(line).alignment(Alignment::Left), rect);
+        render_menu_row(
+            frame,
+            inner,
+            idx,
+            line,
+            selected,
+            selected_style,
+            item_style,
+        );
     }
 }
 
@@ -893,6 +901,40 @@ mod tests {
             Some(app.group_accent_color(group_idx))
         );
         assert!(buffer_text(buffer, 80, 20).contains("work"));
+    }
+
+    #[test]
+    fn global_menu_selected_row_background_fills_inner_width() {
+        let mut app = AppState::test_new();
+        app.integration_recommendations.clear();
+        app.update_available = None;
+        app.latest_release_notes_available = false;
+        app.global_menu = crate::app::state::MenuListState::new(1);
+        app.view.sidebar_rect = Rect::new(0, 0, 24, 20);
+        app.view.terminal_area = Rect::new(24, 0, 56, 20);
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_global_launcher_menu(&app, frame))
+            .unwrap();
+
+        let rect = app.global_menu_rect();
+        let inner = Rect::new(
+            rect.x + 1,
+            rect.y + 1,
+            rect.width.saturating_sub(2),
+            rect.height.saturating_sub(2),
+        );
+        let selected_y = inner.y + app.global_menu.highlighted as u16;
+        let buffer = terminal.backend().buffer();
+        for x in inner.x..inner.x + inner.width {
+            assert_eq!(
+                buffer[(x, selected_y)].style().bg,
+                Some(app.palette.accent),
+                "selected global menu row background should fill the inner width at x={x}"
+            );
+        }
     }
 
     fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {
