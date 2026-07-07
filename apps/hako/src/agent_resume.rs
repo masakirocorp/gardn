@@ -256,7 +256,7 @@ pub fn plan_with_launch_argv(
     let mut plan = plan(source, agent, session_ref)?;
     if let Some(command) = launch_argv
         .and_then(|argv| argv.first())
-        .filter(|command| valid_launch_command(command) && launch_command_available(command))
+        .filter(|command| valid_launch_command(command))
         .cloned()
     {
         if let Some(planned_command) = plan.argv.first_mut() {
@@ -299,15 +299,6 @@ fn is_official_agent_source(source: &str, agent: &str) -> bool {
             | ("hako:opencode", "opencode")
             | ("hako:cursor", "cursor")
     )
-}
-
-fn launch_command_available(command: &str) -> bool {
-    let path = Path::new(command);
-    if path.components().count() > 1 {
-        return true;
-    }
-    std::env::var_os("PATH")
-        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(command).is_file()))
 }
 
 fn valid_session_id(value: &str) -> bool {
@@ -552,19 +543,20 @@ mod tests {
     }
 
     #[test]
-    fn planner_ignores_unavailable_omp_profile_alias_and_preserves_launch_env() {
+    fn planner_preserves_shell_resolved_profile_command_and_launch_env() {
         let home = std::env::var("HOME").expect("HOME should be set in tests");
         let session_path =
             format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako/session.jsonl");
         let session_dir = format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako");
         let agent_dir = format!("{home}/.omp-mk/agent");
         let omp_profile_ref = AgentSessionRef::path(session_path.clone()).unwrap();
+        let shell_resolved_profile = "omp-profile-alias".to_string();
 
         let plan = plan_with_launch_context(
             "hako:omp",
             "omp",
             &omp_profile_ref,
-            Some(&["hako-missing-omp-profile-alias-for-test".to_string()]),
+            Some(std::slice::from_ref(&shell_resolved_profile)),
             &[
                 ("PI_CONFIG_DIR".to_string(), ".omp-mk".to_string()),
                 ("PI_CODING_AGENT_DIR".to_string(), agent_dir.clone()),
@@ -575,7 +567,7 @@ mod tests {
         assert_eq!(
             plan.argv,
             vec![
-                "omp",
+                &shell_resolved_profile,
                 "--resume",
                 &session_path,
                 "--session-dir",

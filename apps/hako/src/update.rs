@@ -177,6 +177,39 @@ fn fetch_github_latest_release() -> Result<GitHubRelease, String> {
         .map_err(|e| format!("failed to parse latest GitHub release JSON: {e}"))
 }
 
+fn github_release_notes_body(release: &GitHubRelease, version: &Version) -> String {
+    release
+        .body
+        .as_deref()
+        .map(str::trim)
+        .filter(|body| !body.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("Hako v{version}"))
+}
+
+fn release_notes_body_from_github_release_for_version(
+    release: &GitHubRelease,
+    version: &Version,
+) -> Result<Option<String>, String> {
+    let release_version = Version::parse(&release.tag_name).ok_or_else(|| {
+        format!(
+            "invalid version in latest GitHub release: {}",
+            release.tag_name
+        )
+    })?;
+    if release_version != *version {
+        return Ok(None);
+    }
+    Ok(Some(github_release_notes_body(release, version)))
+}
+
+fn fetch_github_release_notes_body_for_version(
+    version: &Version,
+) -> Result<Option<String>, String> {
+    let release = fetch_github_latest_release()?;
+    release_notes_body_from_github_release_for_version(&release, version)
+}
+
 fn release_info_from_github_release(
     release: &GitHubRelease,
 ) -> Result<Option<ReleaseInfo>, String> {
@@ -198,13 +231,7 @@ fn release_info_from_github_release(
         .find(|asset| asset.name == asset_name)
         .map(|asset| asset.browser_download_url.clone())
         .ok_or_else(|| format!("no binary asset named {asset_name} in latest GitHub release"))?;
-    let notes_body = release
-        .body
-        .as_deref()
-        .map(str::trim)
-        .filter(|body| !body.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("Hako v{latest}"));
+    let notes_body = github_release_notes_body(release, &latest);
 
     Ok(Some(ReleaseInfo {
         identity: latest.to_string(),
@@ -1687,7 +1714,14 @@ fn auto_update_homebrew(events: tokio::sync::mpsc::Sender<crate::events::AppEven
     };
 
     crate::logging::update_available(&version.to_string());
-    let notes_body = homebrew_release_notes_body(&version);
+    let notes_body = match fetch_github_release_notes_body_for_version(&version) {
+        Ok(Some(body)) => body,
+        Ok(None) => homebrew_release_notes_body(&version),
+        Err(err) => {
+            tracing::warn!("failed to fetch GitHub release notes for Homebrew update: {err}");
+            homebrew_release_notes_body(&version)
+        }
+    };
     if let Err(e) = crate::release_notes::save_pending(&version.to_string(), &notes_body) {
         tracing::warn!("failed to save pending release notes: {e}");
     }
@@ -2532,6 +2566,32 @@ mod tests {
         assert_eq!(info.version, Version::parse("99.99.99").unwrap());
         assert_eq!(info.download_url, "https://example.com/hako");
         assert_eq!(info.notes_body, "### Changed\n- GitHub release");
+    }
+
+    #[test]
+    fn release_notes_body_from_github_release_requires_matching_version() {
+        let release = GitHubRelease {
+            tag_name: "1.2.3".to_string(),
+            body: Some("### Changed\n- Real release notes".to_string()),
+            assets: Vec::new(),
+        };
+
+        assert_eq!(
+            release_notes_body_from_github_release_for_version(
+                &release,
+                &Version::parse("1.2.3").unwrap()
+            )
+            .unwrap(),
+            Some("### Changed\n- Real release notes".to_string())
+        );
+        assert_eq!(
+            release_notes_body_from_github_release_for_version(
+                &release,
+                &Version::parse("1.2.4").unwrap()
+            )
+            .unwrap(),
+            None
+        );
     }
 
     #[test]

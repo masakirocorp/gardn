@@ -44,6 +44,8 @@ jobs:
 
       - name: Check Tegami release scope
         run: node scripts/check-tegami-release-scope.mts hako
+      - name: Run Tegami release-scope tests
+        run: python3 -m unittest scripts.test_check_tegami_release_scope
 
   check:
     name: check (${{ matrix.os }})
@@ -111,4 +113,4 @@ jobs:
 
       - name: Run maintenance tests
         if: runner.os == 'Linux'
-        run: python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines scripts.test_extract_release_notes scripts.test_check_tegami_release_scope
+        run: python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines scripts.test_extract_release_notes
