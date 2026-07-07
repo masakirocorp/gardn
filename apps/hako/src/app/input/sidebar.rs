@@ -1,6 +1,6 @@
 use ratatui::layout::Rect;
 
-use crate::app::state::{AppState, Mode, ViewLayout};
+use crate::app::state::{AgentPanelScope, AppState, ViewLayout};
 
 use super::ScrollbarClickTarget;
 
@@ -312,15 +312,18 @@ impl AppState {
     }
 
     pub(crate) fn group_menu_labels(&self) -> Vec<String> {
-        let all_marker = if self.group_filter_enabled { " " } else { "*" };
+        let all_marker = if self.group_filter_enabled {
+            " "
+        } else {
+            "✓"
+        };
         let mut labels = vec![
+            "filter".to_string(),
             format!("{all_marker} all {}", self.workspaces.len()),
-            "---".to_string(),
-            "groups".to_string(),
         ];
         labels.extend(self.groups.iter().enumerate().map(|(idx, group)| {
             let marker = if self.group_filter_enabled && idx == self.active_group {
-                "*"
+                "✓"
             } else {
                 " "
             };
@@ -339,18 +342,11 @@ impl AppState {
     }
 
     pub(crate) fn group_menu_action_for_row(&self, row_idx: usize) -> Option<GroupMenuAction> {
-        if row_idx == 0 {
+        if row_idx == 1 {
             return Some(GroupMenuAction::AllSpaces);
         }
-        if row_idx == 1 {
-            return None;
-        }
 
-        if row_idx == 2 {
-            return None;
-        }
-
-        let group_start = 3;
+        let group_start = 2;
         let group_end = group_start + self.groups.len();
         if (group_start..group_end).contains(&row_idx) {
             return Some(GroupMenuAction::Group(row_idx - group_start));
@@ -407,85 +403,34 @@ impl AppState {
     }
 
     pub(crate) fn agent_menu_labels(&self) -> Vec<String> {
-        vec![
-            "all".to_string(),
-            "---".to_string(),
-            "follow space".to_string(),
-            format!("  {}", self.agent_menu_space_context_label()),
-            "follow group".to_string(),
-            format!("  {}", self.agent_menu_group_context_label()),
-        ]
-    }
-
-    fn agent_menu_current_workspace_idx(&self) -> Option<usize> {
-        let idx = if matches!(
-            self.mode,
-            Mode::Navigate
-                | Mode::RenameWorkspace
-                | Mode::RenameGroup
-                | Mode::RenamePane
-                | Mode::EditWorktreeDirectory
-                | Mode::Resize
-                | Mode::ConfirmClose
-                | Mode::ConfirmDeleteGroup
-                | Mode::ContextMenu
-                | Mode::Settings
-                | Mode::GlobalMenu
-                | Mode::GroupMenu
-                | Mode::AgentMenu
-                | Mode::KeybindHelp
-                | Mode::CommandPalette
-                | Mode::AgentProfilePicker
-                | Mode::GitRepoPicker
-        ) {
-            Some(self.selected)
+        let all_marker = if matches!(self.agent_panel_scope, AgentPanelScope::AllWorkspaces) {
+            "✓"
         } else {
-            self.active
-        }?;
-        self.workspace_in_active_group(idx).then_some(idx)
-    }
-
-    fn agent_menu_space_context_label(&self) -> String {
-        self.agent_menu_current_workspace_idx()
-            .and_then(|idx| self.workspaces.get(idx))
-            .map(|ws| ws.display_name())
-            .unwrap_or_else(|| "no space".to_string())
-    }
-
-    pub(crate) fn agent_menu_group_context_idx(&self) -> Option<usize> {
-        if let Some(group_id) = self
-            .agent_menu_current_workspace_idx()
-            .and_then(|idx| self.workspaces.get(idx))
-            .map(|ws| ws.group_id.as_str())
-        {
-            return self.group_index_by_id(group_id);
-        }
-
-        Some(self.active_group)
-    }
-
-    fn agent_menu_group_context_label(&self) -> String {
-        if let Some(group_id) = self
-            .agent_menu_current_workspace_idx()
-            .and_then(|idx| self.workspaces.get(idx))
-            .map(|ws| ws.group_id.as_str())
-        {
-            return self
-                .groups
-                .iter()
-                .find(|group| group.id == group_id)
-                .map(|group| group.name.clone())
-                .unwrap_or_else(|| "group 1".to_string());
-        }
-
-        self.active_group_name().to_string()
+            " "
+        };
+        let space_marker = if matches!(self.agent_panel_scope, AgentPanelScope::CurrentWorkspace) {
+            "✓"
+        } else {
+            " "
+        };
+        let group_marker = if matches!(self.agent_panel_scope, AgentPanelScope::CurrentGroup) {
+            "✓"
+        } else {
+            " "
+        };
+        vec![
+            "filter".to_string(),
+            format!("{all_marker} all"),
+            format!("{space_marker} space"),
+            format!("{group_marker} group"),
+        ]
     }
 
     pub(crate) fn agent_menu_action_for_row(&self, row_idx: usize) -> Option<AgentMenuAction> {
         match row_idx {
-            0 => Some(AgentMenuAction::AllAgents),
+            1 => Some(AgentMenuAction::AllAgents),
             2 => Some(AgentMenuAction::ThisSpace),
-            4 => Some(AgentMenuAction::ThisGroup),
+            3 => Some(AgentMenuAction::ThisGroup),
             _ => None,
         }
     }
@@ -1067,7 +1012,7 @@ mod tests {
         ));
 
         assert_eq!(app.state.mode, Mode::GroupMenu);
-        assert_eq!(app.state.group_menu.highlighted, 4);
+        assert_eq!(app.state.group_menu.highlighted, 3);
     }
 
     #[test]
@@ -1432,15 +1377,14 @@ mod tests {
 
         let labels = app.state.group_menu_labels();
 
-        assert!(labels[0].contains("all 2"));
-        assert_eq!(labels[1], "---");
-        assert_eq!(labels[2], "groups");
-        assert!(labels[3].contains("group 1 1"));
-        assert!(labels[4].contains("Work 1"));
-        assert_eq!(labels[5], "---");
-        assert_eq!(labels[6], "new");
-        assert_eq!(labels[7], "  space");
-        assert_eq!(labels[8], "  group");
+        assert_eq!(labels[0], "filter");
+        assert!(labels[1].contains("all 2"));
+        assert!(labels[2].contains("group 1 1"));
+        assert!(labels[3].contains("Work 1"));
+        assert_eq!(labels[4], "---");
+        assert_eq!(labels[5], "new");
+        assert_eq!(labels[6], "  space");
+        assert_eq!(labels[7], "  group");
     }
 
     #[test]
@@ -1800,7 +1744,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 1,
+            menu.y + 2,
         ));
 
         assert!(!app.state.group_filter_enabled);
@@ -2164,7 +2108,7 @@ mod tests {
             ),
             (
                 Mode::AgentMenu,
-                0,
+                1,
                 scope_toggle.y + scope_toggle.height,
                 first_tab,
                 first_pane,
@@ -2290,36 +2234,22 @@ mod tests {
 
         assert_eq!(
             app.state.agent_menu_labels(),
-            vec![
-                "all",
-                "---",
-                "follow space",
-                "  triage",
-                "follow group",
-                "  group 1",
-            ]
+            vec!["filter", "  all", "✓ space", "  group"]
         );
     }
 
     #[test]
-    fn agent_scope_menu_context_labels_do_not_widen_menu() {
-        let mut app = app_for_mouse_test();
-        let mut ws = Workspace::test_new("very-long-space-name-that-should-clip");
-        let pane = ws.tabs[0].root_pane;
-        ws.tabs[0].panes.get_mut(&pane).unwrap().detected_agent = Some(Agent::Claude);
-        app.state.workspaces = vec![ws];
-        app.state.active = Some(0);
-        app.state.selected = 0;
+    fn agent_scope_menu_uses_short_scope_labels() {
+        let app = app_for_mouse_test();
 
-        let labels_width = app
-            .state
-            .agent_menu_labels()
-            .iter()
-            .map(|label| label.chars().count() as u16)
-            .max()
-            .unwrap();
-
-        assert!(labels_width > app.state.agent_menu_rect().width);
+        assert_eq!(
+            app.state.agent_menu_labels(),
+            vec!["filter", "  all", "✓ space", "  group"]
+        );
+        assert_eq!(
+            app.state.agent_menu_rect().width,
+            "  space".len() as u16 + 4
+        );
     }
 
     #[test]
@@ -2347,7 +2277,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 1,
+            menu.y + 2,
         ));
 
         assert_eq!(app.state.agent_panel_scope, AgentPanelScope::AllWorkspaces);
@@ -2809,7 +2739,7 @@ mod tests {
         ));
 
         assert_eq!(app.state.mode, Mode::GroupMenu);
-        assert_eq!(app.state.group_menu.highlighted, 4);
+        assert_eq!(app.state.group_menu.highlighted, 3);
         assert!(app.state.group_menu_rect().width > app.state.view.sidebar_rect.width);
     }
 

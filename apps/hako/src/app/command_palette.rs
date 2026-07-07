@@ -208,12 +208,12 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
             CommandPaletteAction::OpenAgentMenu,
         ),
         CommandPaletteCommand::new(
-            "agents: follow space",
+            "agents: space",
             "agents",
             CommandPaletteAction::SetAgentScope(AgentPanelScope::CurrentWorkspace),
         ),
         CommandPaletteCommand::new(
-            "agents: follow group",
+            "agents: group",
             "agents",
             CommandPaletteAction::SetAgentScope(AgentPanelScope::CurrentGroup),
         ),

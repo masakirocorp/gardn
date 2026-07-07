@@ -127,7 +127,6 @@ use crate::terminal::TerminalRuntimeRegistry;
 
 const COLLAPSED_WIDTH: u16 = 4; // num + space + dot + separator
 const RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH: u16 = 56;
-const DESKTOP_SAFE_AREA_INSET: u16 = 1;
 #[allow(dead_code)]
 pub(crate) const MIN_SIDEBAR_WIDTH: u16 = 18;
 #[allow(dead_code)]
@@ -377,8 +376,6 @@ fn compute_view_internal(
         return;
     }
 
-    let area = desktop_safe_area(area);
-
     let sidebar_w = if app.sidebar_collapsed {
         COLLAPSED_WIDTH
     } else {
@@ -551,20 +548,6 @@ fn compute_view_internal(
         pane_infos,
         split_borders,
     };
-}
-
-fn desktop_safe_area(area: Rect) -> Rect {
-    let inset = DESKTOP_SAFE_AREA_INSET;
-    if area.width <= inset.saturating_mul(2) || area.height <= inset.saturating_mul(2) {
-        return area;
-    }
-
-    Rect::new(
-        area.x + inset,
-        area.y + inset,
-        area.width - inset.saturating_mul(2),
-        area.height - inset.saturating_mul(2),
-    )
 }
 
 fn compute_mobile_view(
@@ -994,6 +977,31 @@ mod tests {
         assert_eq!(app.view.layout, ViewLayout::Mobile);
         assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 80, 2));
         assert_eq!(app.view.terminal_area, Rect::new(0, 2, 80, 18));
+    }
+
+    #[test]
+    fn desktop_layout_uses_full_terminal_frame_without_outer_inset() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("one")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        let area = Rect::new(0, 0, 80, 20);
+        compute_view(&mut app, area);
+
+        assert_eq!(app.view.layout, ViewLayout::Desktop);
+        assert_eq!(app.view.sidebar_rect.x, area.x);
+        assert_eq!(app.view.sidebar_rect.y, area.y);
+        assert_eq!(app.view.sidebar_rect.height, area.height);
+        assert_eq!(
+            app.view.terminal_area.x + app.view.terminal_area.width,
+            area.width
+        );
+        assert_eq!(
+            app.view.terminal_area.y + app.view.terminal_area.height,
+            area.height
+        );
     }
 
     #[tokio::test]

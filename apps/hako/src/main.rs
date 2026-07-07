@@ -267,7 +267,7 @@ diff_command = "lazygit"
 # show detected/reported agent labels in split pane borders when no manual pane name is set.
 # show_agent_labels_on_pane_borders = false
 
-# agent panel scope: "current" (follow space), "group" (follow group), or "all".
+# agent panel scope: "current" (space), "group", or "all".
 # changing it from the agents menu saves this setting.
 # agent_panel_scope = "current"
 

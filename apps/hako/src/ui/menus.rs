@@ -66,7 +66,7 @@ fn render_menu_row(
 }
 
 fn group_menu_group_index(app: &AppState, row_idx: usize) -> Option<usize> {
-    let group_start = 3;
+    let group_start = 2;
     if (group_start..group_start + app.groups.len()).contains(&row_idx) {
         Some(row_idx - group_start)
     } else {
@@ -83,7 +83,7 @@ fn right_aligned_count_gap(width: u16, left_width: usize, count_width: usize) ->
 }
 
 fn group_menu_all_line(app: &AppState, selected: bool, width: u16) -> Line<'static> {
-    let marker = if app.group_filter_enabled { " " } else { "*" };
+    let marker = if app.group_filter_enabled { " " } else { "✓" };
     let count = app.workspaces.len().to_string();
     let left = format!("{marker} all");
     let selected_style = Style::default()
@@ -121,7 +121,7 @@ fn group_menu_group_line(
         return Line::raw("");
     };
     let marker = if app.group_filter_enabled && group_idx == app.active_group {
-        "*"
+        "✓"
     } else {
         " "
     };
@@ -244,13 +244,12 @@ fn render_bottom_bar(frame: &mut Frame, area: Rect, line: Line<'_>, bg: ratatui:
 }
 
 pub(super) fn render_prefix_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
-    let key = Style::default()
-        .fg(app.palette.accent)
-        .add_modifier(Modifier::BOLD);
+    let accent = app.active_workspace_accent_color();
+    let key = Style::default().fg(accent).add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(app.palette.overlay0);
     let mode_style = Style::default()
         .fg(panel_contrast_fg(&app.palette))
-        .bg(app.palette.accent)
+        .bg(accent)
         .add_modifier(Modifier::BOLD);
 
     let mut spans = vec![Span::styled(" PREFIX ", mode_style), Span::raw(" ")];
@@ -358,13 +357,12 @@ pub(super) fn render_prefix_overlay(app: &AppState, frame: &mut Frame, area: Rec
 }
 
 pub(super) fn render_copy_mode_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
-    let key = Style::default()
-        .fg(app.palette.accent)
-        .add_modifier(Modifier::BOLD);
+    let accent = app.active_workspace_accent_color();
+    let key = Style::default().fg(accent).add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(app.palette.overlay0);
     let mode_style = Style::default()
         .fg(panel_contrast_fg(&app.palette))
-        .bg(app.palette.accent)
+        .bg(accent)
         .add_modifier(Modifier::BOLD);
 
     let select = if app
@@ -394,14 +392,13 @@ pub(super) fn render_copy_mode_overlay(app: &AppState, frame: &mut Frame, area: 
 }
 
 pub(super) fn render_navigate_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
-    let key = Style::default()
-        .fg(app.palette.accent)
-        .add_modifier(Modifier::BOLD);
+    let accent = app.active_workspace_accent_color();
+    let key = Style::default().fg(accent).add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(app.palette.overlay0);
 
     let mode_style = Style::default()
         .fg(panel_contrast_fg(&app.palette))
-        .bg(app.palette.accent)
+        .bg(accent)
         .add_modifier(Modifier::BOLD);
 
     let kb = &app.keybinds;
@@ -552,7 +549,7 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
 
     for (idx, item) in app.group_menu_labels().iter().enumerate() {
         let selected = idx == app.group_menu.highlighted;
-        if idx == 0 {
+        if idx == 1 {
             render_menu_row(
                 frame,
                 inner,
@@ -633,45 +630,15 @@ pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
 
     for (idx, item) in app.agent_menu_labels().iter().enumerate() {
         let selected = idx == app.agent_menu.highlighted;
-        if item == "---" {
-            render_menu_separator(frame, inner, idx, dim_style);
-        } else if app.agent_menu_action_for_row(idx).is_none() {
-            if idx == 5 {
-                if let Some(group_idx) = app.agent_menu_group_context_idx() {
-                    render_menu_row(
-                        frame,
-                        inner,
-                        idx,
-                        Line::from(vec![
-                            Span::styled("  ", dim_style),
-                            Span::styled(
-                                item.trim_start().to_string(),
-                                Style::default()
-                                    .fg(app.group_accent_color(group_idx))
-                                    .add_modifier(Modifier::BOLD),
-                            ),
-                        ]),
-                        false,
-                        selected_style,
-                        dim_style,
-                    );
-                } else {
-                    render_menu_row(
-                        frame,
-                        inner,
-                        idx,
-                        Line::from(item.clone()),
-                        false,
-                        selected_style,
-                        dim_style,
-                    );
-                }
+        if app.agent_menu_action_for_row(idx).is_none() {
+            if item == "---" {
+                render_menu_separator(frame, inner, idx, dim_style);
             } else {
                 render_menu_row(
                     frame,
                     inner,
                     idx,
-                    Line::from(item.clone()),
+                    Line::from(format!(" {item}")),
                     false,
                     selected_style,
                     dim_style,
@@ -707,9 +674,8 @@ pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
 }
 
 pub(super) fn render_resize_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
-    let key = Style::default()
-        .fg(app.palette.accent)
-        .add_modifier(Modifier::BOLD);
+    let accent = app.active_workspace_accent_color();
+    let key = Style::default().fg(accent).add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(app.palette.overlay0);
 
     let mode_style = Style::default()
@@ -833,6 +799,30 @@ mod tests {
     }
 
     #[test]
+    fn prefix_overlay_key_hint_uses_active_group_accent() {
+        let mut app = AppState::test_new();
+        app.palette.accent = ratatui::style::Color::Rgb(1, 2, 3);
+        let group_idx = app.create_group("work".to_string());
+        app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Cyan));
+        app.active_group = group_idx;
+        app.group_filter_enabled = true;
+        app.active = None;
+        let expected_accent = app.group_accent_color(group_idx);
+        assert_ne!(expected_accent, app.palette.accent);
+
+        let backend = TestBackend::new(96, 8);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_prefix_overlay(&app, frame, Rect::new(0, 0, 96, 8)))
+            .expect("render prefix overlay");
+
+        let buffer = terminal.backend().buffer();
+        let (x, y) = first_cell_with_text(buffer, 96, 8, "esc").expect("esc hint");
+        assert_eq!(buffer[(x, y)].style().fg, Some(expected_accent));
+        assert_eq!(buffer[(x, y)].style().bg, Some(app.palette.panel_bg));
+    }
+
+    #[test]
     fn group_menu_count_lines_right_align_counts() {
         let mut app = AppState::test_new();
         let group_idx = app.create_group("work".to_string());
@@ -843,7 +833,7 @@ mod tests {
 
         let all = group_menu_all_line(&app, false, 12);
         let all_text = line_text(&all);
-        assert!(all_text.starts_with("* all"));
+        assert!(all_text.starts_with("✓ all"));
         assert_eq!(all_text.chars().last(), Some('1'));
         assert_eq!(all_text.chars().count(), 11);
         let all_count = all
@@ -874,19 +864,11 @@ mod tests {
     }
 
     #[test]
-    fn agent_menu_group_detail_uses_group_accent() {
+    fn agent_menu_renders_short_scope_labels() {
         let mut app = AppState::test_new();
-        let group_idx = app.create_group("work".to_string());
-        app.groups[group_idx].icon = "■".to_string();
-        app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Blue));
-        app.active_group = group_idx;
-        app.group_filter_enabled = true;
-        app.workspaces = vec![crate::workspace::Workspace::test_new("space")];
-        app.active = Some(0);
-        app.selected = 0;
-        app.workspaces[app.selected].group_id = app.groups[group_idx].id.clone();
         app.view.sidebar_rect = Rect::new(0, 0, 24, 20);
         app.view.terminal_area = Rect::new(24, 0, 56, 20);
+        app.agent_menu = crate::app::state::MenuListState::new(0);
 
         let backend = TestBackend::new(80, 20);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -895,12 +877,58 @@ mod tests {
             .unwrap();
 
         let buffer = terminal.backend().buffer();
-        let (x, y) = first_cell_with_text(buffer, 80, 20, "work").expect("rendered group name");
+        let text = buffer_text(buffer, 80, 20);
+        assert!(text.contains("all"));
+        assert!(text.contains("space"));
+        assert!(text.contains("group"));
+        assert!(!text.contains("follow"));
+
+        let (agent_filter_x, agent_filter_y) =
+            first_cell_with_text(buffer, 80, 20, "filter").expect("agent filter row");
         assert_eq!(
-            buffer[(x, y)].style().fg,
-            Some(app.group_accent_color(group_idx))
+            buffer[(agent_filter_x, agent_filter_y)].style().fg,
+            Some(app.palette.overlay0)
         );
-        assert!(buffer_text(buffer, 80, 20).contains("work"));
+        assert_ne!(
+            buffer[(agent_filter_x, agent_filter_y)].style().bg,
+            Some(app.palette.accent),
+            "agent filter row should not use selected background"
+        );
+
+        for label in ["all", "space", "group"] {
+            let (x, y) = first_cell_with_text(buffer, 80, 20, label)
+                .unwrap_or_else(|| panic!("{label} agent scope row"));
+            assert_eq!(
+                buffer[(x, y)].style().fg,
+                Some(app.palette.text),
+                "{label} agent scope row should use normal action text"
+            );
+            assert_ne!(
+                buffer[(x, y)].style().bg,
+                Some(app.palette.accent),
+                "{label} agent scope row should not be selected when only the filter row is highlighted"
+            );
+        }
+
+        let mut group_app = AppState::test_new();
+        group_app.view.sidebar_rect = app.view.sidebar_rect;
+        group_app.view.terminal_area = app.view.terminal_area;
+        group_app.group_menu = crate::app::state::MenuListState::new(0);
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_group_menu(&group_app, frame))
+            .unwrap();
+
+        let group_buffer = terminal.backend().buffer();
+        let (group_filter_x, group_filter_y) =
+            first_cell_with_text(group_buffer, 80, 20, "filter").expect("group filter row");
+        assert_eq!(
+            buffer[(agent_filter_x, agent_filter_y)].style(),
+            group_buffer[(group_filter_x, group_filter_y)].style(),
+            "agent filter row should match spaces filter row muted styling"
+        );
     }
 
     #[test]

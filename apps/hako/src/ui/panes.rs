@@ -739,6 +739,7 @@ fn render_empty(app: &AppState, frame: &mut Frame, area: Rect) {
                 .unwrap_or_else(|| "unset".to_string()),
         )
     };
+    let accent = app.active_workspace_accent_color();
     let lines = vec![
         Line::from(""),
         Line::from(""),
@@ -751,7 +752,7 @@ fn render_empty(app: &AppState, frame: &mut Frame, area: Rect) {
             Span::styled("  press ", Style::default().fg(p.overlay0)),
             Span::styled(
                 action_label,
-                Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+                Style::default().fg(accent).add_modifier(Modifier::BOLD),
             ),
             Span::styled(" to create one", Style::default().fg(p.overlay0)),
         ]),
@@ -807,13 +808,18 @@ mod tests {
     }
 
     #[test]
-    fn main_empty_state_mentions_empty_group_when_spaces_are_hidden() {
+    fn main_empty_state_action_key_uses_empty_group_accent() {
         let mut app = AppState::test_new();
+        app.palette.accent = Color::Rgb(1, 2, 3);
+        app.keybinds.new_workspace = crate::config::ActionKeybinds::prefix("shift+n");
         app.workspaces = vec![Workspace::test_new("hidden")];
-        app.create_group("work".to_string());
-        app.active_group = 1;
+        let group_idx = app.create_group("work".to_string());
+        app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Magenta));
+        app.active_group = group_idx;
         app.group_filter_enabled = true;
         app.active = None;
+        let expected_accent = app.group_accent_color(group_idx);
+        assert_ne!(expected_accent, app.palette.accent);
 
         let backend = TestBackend::new(72, 14);
         let mut terminal = Terminal::new(backend).expect("test backend");
@@ -821,10 +827,14 @@ mod tests {
             .draw(|frame| render_empty(&app, frame, Rect::new(0, 0, 72, 14)))
             .expect("render empty pane");
 
-        let text = buffer_text(terminal.backend().buffer(), 72, 14);
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, 72, 14);
         assert!(text.contains("no spaces in this group"));
         assert!(text.contains("switch groups or create one here"));
         assert!(text.contains("hidden spaces stay in the group menu"));
+        let (x, y) = first_cell_with_text(buffer, 72, 14, "prefix+shift+n")
+            .expect("new workspace action key");
+        assert_eq!(buffer[(x, y)].style().fg, Some(expected_accent));
     }
 
     #[tokio::test]
@@ -867,6 +877,27 @@ mod tests {
             text.push('\n');
         }
         text
+    }
+
+    fn first_cell_with_text(
+        buffer: &Buffer,
+        width: u16,
+        height: u16,
+        text: &str,
+    ) -> Option<(u16, u16)> {
+        let target: Vec<char> = text.chars().collect();
+        for y in 0..height {
+            for x in 0..width.saturating_sub(target.len().saturating_sub(1) as u16) {
+                let matches = target.iter().enumerate().all(|(idx, ch)| {
+                    let mut encoded = [0; 4];
+                    buffer[(x + idx as u16, y)].symbol() == ch.encode_utf8(&mut encoded)
+                });
+                if matches {
+                    return Some((x, y));
+                }
+            }
+        }
+        None
     }
 
     #[tokio::test]

@@ -99,9 +99,9 @@ pub(super) fn open_global_menu(state: &mut AppState) {
 
 pub(super) fn open_group_menu(state: &mut AppState) {
     let highlighted = if state.group_filter_enabled {
-        state.active_group + 3
+        state.active_group + 2
     } else {
-        0
+        1
     };
     state.group_menu = MenuListState::new(highlighted);
     state.mode = Mode::GroupMenu;
@@ -109,9 +109,9 @@ pub(super) fn open_group_menu(state: &mut AppState) {
 
 pub(super) fn open_agent_menu(state: &mut AppState) {
     let highlighted = match state.agent_panel_scope {
-        crate::app::state::AgentPanelScope::AllWorkspaces => 0,
+        crate::app::state::AgentPanelScope::AllWorkspaces => 1,
         crate::app::state::AgentPanelScope::CurrentWorkspace => 2,
-        crate::app::state::AgentPanelScope::CurrentGroup => 4,
+        crate::app::state::AgentPanelScope::CurrentGroup => 3,
     };
     state.agent_menu = MenuListState::new(highlighted);
     state.mode = Mode::AgentMenu;
