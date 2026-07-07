@@ -2,17 +2,21 @@
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
     "build": {
+      "cache": false,
       "dependsOn": ["^build"],
       "outputs": []
     },
     "check": {
+      "cache": false,
       "dependsOn": ["^check"],
       "outputs": []
     },
     "lint": {
+      "cache": false,
       "outputs": []
     },
     "test": {
+      "cache": false,
       "dependsOn": ["^test"],
       "outputs": []
     }

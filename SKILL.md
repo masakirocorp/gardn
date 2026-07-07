@@ -296,7 +296,7 @@ hako pane read 1-3 --source recent-unwrapped --lines 40
 hako pane split 1-2 --direction right --no-focus
 hako pane run 1-3 "claude"
 hako wait output 1-3 --match ">" --timeout 15000
-hako pane run 1-3 "review the test coverage in src/api/"
+hako pane run 1-3 "review the test coverage in apps/hako/src/api/"
 ```
 
 ### coordinate with another agent

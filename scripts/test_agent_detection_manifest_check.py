@@ -116,6 +116,13 @@ class AgentDetectionManifestCheckTests(unittest.TestCase):
 
             self.assertIn("codex", manifests)
 
+    def test_default_repo_paths_point_at_moved_app_tree(self):
+        engine_version = check.read_engine_version(None)
+        manifests = check.load_manifest_dir(check.DEFAULT_BUNDLED_DIR, engine_version)
+
+        self.assertGreaterEqual(engine_version, 1)
+        self.assertIn("codex", manifests)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -11,9 +11,10 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_BUNDLED_DIR = PROJECT_ROOT / "src" / "manifests"
+APP_SRC_DIR = PROJECT_ROOT / "apps" / "hako" / "src"
+DEFAULT_BUNDLED_DIR = APP_SRC_DIR / "manifests"
 DEFAULT_WEBSITE_DIR = PROJECT_ROOT / "website" / "agent-detection"
-ENGINE_SOURCE = PROJECT_ROOT / "src" / "manifest_update.rs"
+ENGINE_SOURCE = APP_SRC_DIR / "manifest_update.rs"
 
 MANIFEST_KEYS = {"id", "version", "min_engine_version", "updated_at", "aliases", "rules"}
 RULE_KEYS = {

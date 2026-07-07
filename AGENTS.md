@@ -139,12 +139,13 @@ Hako is pre-public. Old GitHub releases are internal artifacts; do not preserve 
 
 After cutting a release, wait for GitHub CI, Nix, and Release workflows to pass. Verify the GitHub release exists and contains all expected assets.
 
-The release workflow must publish these four assets:
+The release workflow must publish these five assets:
 
 - `hako-linux-x86_64`
 - `hako-linux-aarch64`
 - `hako-macos-x86_64`
 - `hako-macos-aarch64`
+- `hako-windows-x86_64.exe`
 
 When updating local binaries, build release and debug binaries, copy them to `~/.local/bin/hako` and `~/.local/bin/hako-dev`, codesign both on macOS, and stop the `hako-dev` server so the next launch uses the new binary. Run `cargo clean` after installing local binaries to avoid accumulating large debug build artifacts.
 
