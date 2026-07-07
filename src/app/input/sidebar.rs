@@ -246,10 +246,7 @@ impl AppState {
     }
 
     pub(crate) fn global_menu_labels(&self) -> Vec<&'static str> {
-        let mut labels = Vec::new();
-        if self.update_available.is_some() || self.latest_release_notes_available {
-            labels.push("what's new");
-        }
+        let mut labels = vec!["changelog"];
         if self.integration_updates_available() {
             labels.push("integrations");
         }
@@ -1832,7 +1829,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 2,
+            menu.y + 3,
         ));
 
         assert_eq!(app.state.mode, Mode::KeybindHelp);
@@ -1848,7 +1845,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 1,
+            menu.y + 2,
         ));
 
         assert_eq!(app.state.mode, Mode::Settings);
@@ -1864,7 +1861,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 3,
+            menu.y + 4,
         ));
 
         assert!(app.state.request_reload_config);
@@ -1888,6 +1885,7 @@ mod tests {
         assert_eq!(
             app.state.global_menu_labels(),
             vec![
+                "changelog",
                 "integrations",
                 "settings",
                 "keybinds",
@@ -1899,13 +1897,13 @@ mod tests {
         let (text, buffer) = render_app(&mut app, 120, 30);
         let menu = app.state.global_menu_rect();
         let marker_x = menu.x + menu.width.saturating_sub(2);
-        assert_eq!(buffer[(marker_x, menu.y + 1)].symbol(), "●");
+        assert_eq!(buffer[(marker_x, menu.y + 2)].symbol(), "●");
         assert!(text.contains("integrations"));
 
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 1,
+            menu.y + 2,
         ));
 
         assert_eq!(app.state.mode, Mode::Settings);
@@ -1945,7 +1943,7 @@ mod tests {
     }
 
     #[test]
-    fn update_pending_menu_surfaces_whats_new_entry() {
+    fn update_pending_marks_changelog_entry() {
         let mut app = app_for_mouse_test();
         app.state.update_available = Some("0.3.2".into());
         app.state.latest_release_notes_available = true;
@@ -1954,7 +1952,7 @@ mod tests {
         assert_eq!(
             app.state.global_menu_labels(),
             vec![
-                "what's new",
+                "changelog",
                 "settings",
                 "keybinds",
                 "reload config",
@@ -1973,14 +1971,20 @@ mod tests {
 
         assert_eq!(
             app.state.global_menu_labels(),
-            vec!["settings", "keybinds", "reload config", "detach"]
+            vec![
+                "changelog",
+                "settings",
+                "keybinds",
+                "reload config",
+                "detach"
+            ]
         );
 
         let menu = app.state.global_menu_rect();
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 4,
+            menu.y + 5,
         ));
 
         assert!(app.state.detach_requested);
@@ -1989,7 +1993,7 @@ mod tests {
     }
 
     #[test]
-    fn whats_new_remains_in_menu_for_latest_installed_release_notes() {
+    fn changelog_remains_in_menu_for_latest_installed_release_notes() {
         let mut app = app_for_mouse_test();
         app.state.latest_release_notes_available = true;
         app.state.integration_recommendations.clear();
@@ -1997,7 +2001,7 @@ mod tests {
         assert_eq!(
             app.state.global_menu_labels(),
             vec![
-                "what's new",
+                "changelog",
                 "settings",
                 "keybinds",
                 "reload config",

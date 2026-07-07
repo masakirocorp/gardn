@@ -57,7 +57,7 @@ pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, ar
     let subtitle = if notes.preview {
         "update ready"
     } else {
-        "what's new in this release"
+        "changelog"
     };
     render_modal_subtitle(frame, header_rows[1], subtitle, &app.palette);
 

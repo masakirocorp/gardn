@@ -2119,10 +2119,8 @@ impl App {
         client_view.mode = Mode::KeybindHelp;
     }
 
-    fn open_client_view_release_notes(client_view: &mut ClientViewState) {
-        let Some(notes) = crate::release_notes::load_latest() else {
-            return;
-        };
+    fn open_client_view_changelog(client_view: &mut ClientViewState) {
+        let notes = crate::release_notes::load_changelog();
 
         client_view.release_notes = Some(state::ReleaseNotesState {
             version: notes.version,
@@ -2212,7 +2210,7 @@ impl App {
                 });
             }
             input::GlobalMenuAction::Keybinds => Self::open_client_view_keybind_help(client_view),
-            input::GlobalMenuAction::WhatsNew => Self::open_client_view_release_notes(client_view),
+            input::GlobalMenuAction::Changelog => Self::open_client_view_changelog(client_view),
         }
     }
 

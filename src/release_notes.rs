@@ -74,6 +74,14 @@ pub fn load_latest() -> Option<ReleaseNotes> {
     load_latest_from_path(&pending_path(), env!("CARGO_PKG_VERSION"))
 }
 
+pub fn load_changelog() -> ReleaseNotes {
+    load_latest().unwrap_or_else(|| ReleaseNotes {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        body: "No changelog entries are available in this build.".to_string(),
+        preview: false,
+    })
+}
+
 fn load_latest_from_path(path: &Path, current_version: &str) -> Option<ReleaseNotes> {
     let stored = load_stored_from_path(path)?;
     release_notes_from_stored(stored, current_version)

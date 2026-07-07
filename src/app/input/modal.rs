@@ -72,17 +72,14 @@ pub(super) fn modal_action_from_buttons<A: Copy>(
 pub(crate) enum GlobalMenuAction {
     Detach,
     UpdateIntegrations,
-    WhatsNew,
+    Changelog,
     Keybinds,
     ReloadConfig,
     Settings,
 }
 
 pub(crate) fn global_menu_actions(state: &AppState) -> Vec<GlobalMenuAction> {
-    let mut actions = Vec::new();
-    if state.update_available.is_some() || state.latest_release_notes_available {
-        actions.push(GlobalMenuAction::WhatsNew);
-    }
+    let mut actions = vec![GlobalMenuAction::Changelog];
     if state.integration_updates_available() {
         actions.push(GlobalMenuAction::UpdateIntegrations);
     }
@@ -125,10 +122,8 @@ pub(super) fn open_keybind_help(state: &mut AppState) {
     state.mode = Mode::KeybindHelp;
 }
 
-fn open_update_release_notes(state: &mut AppState) {
-    let Some(notes) = crate::release_notes::load_latest() else {
-        return;
-    };
+fn open_changelog(state: &mut AppState) {
+    let notes = crate::release_notes::load_changelog();
 
     state.release_notes = Some(crate::app::state::ReleaseNotesState {
         version: notes.version,
@@ -153,7 +148,7 @@ pub(super) fn apply_global_menu_action(state: &mut AppState, action: GlobalMenuA
             leave_modal(state);
             request_detach(state);
         }
-        GlobalMenuAction::WhatsNew => open_update_release_notes(state),
+        GlobalMenuAction::Changelog => open_changelog(state),
         GlobalMenuAction::UpdateIntegrations => super::settings::open_settings_at(
             state,
             crate::app::state::SettingsSection::Integrations,
@@ -1409,9 +1404,9 @@ mod tests {
     }
 
     #[test]
-    fn global_menu_whats_new_opens_saved_release_notes() {
+    fn global_menu_changelog_opens_saved_release_notes() {
         let _guard = config_env_lock().lock().unwrap();
-        let path = temp_config_path("whats-new-saved-release-notes");
+        let path = temp_config_path("changelog-saved-release-notes");
         let _config_path_env =
             crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
         crate::release_notes::save_pending(env!("CARGO_PKG_VERSION"), "### Changed\n- Menu")
@@ -1420,9 +1415,9 @@ mod tests {
         let mut state = state_with_workspaces(&["test"]);
         state.latest_release_notes_available = true;
 
-        assert!(global_menu_actions(&state).contains(&GlobalMenuAction::WhatsNew));
+        assert!(global_menu_actions(&state).contains(&GlobalMenuAction::Changelog));
 
-        apply_global_menu_action(&mut state, GlobalMenuAction::WhatsNew);
+        apply_global_menu_action(&mut state, GlobalMenuAction::Changelog);
 
         assert_eq!(state.mode, Mode::ReleaseNotes);
         assert_eq!(
@@ -1434,6 +1429,30 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn global_menu_changelog_opens_empty_state_without_saved_notes() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("changelog-empty-state");
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+
+        let mut state = state_with_workspaces(&["test"]);
+
+        assert!(global_menu_actions(&state).contains(&GlobalMenuAction::Changelog));
+
+        apply_global_menu_action(&mut state, GlobalMenuAction::Changelog);
+
+        assert_eq!(state.mode, Mode::ReleaseNotes);
+        assert_eq!(
+            state
+                .release_notes
+                .as_ref()
+                .map(|notes| notes.body.as_str()),
+            Some("No changelog entries are available in this build.")
+        );
     }
 
     #[test]

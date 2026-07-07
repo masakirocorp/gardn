@@ -2892,7 +2892,7 @@ impl AppState {
     }
 
     pub(crate) fn global_menu_item_has_badge(&self, item: &str) -> bool {
-        (item == "what's new"
+        (item == "changelog"
             && (self.update_available.is_some() || self.latest_release_notes_available))
             || (item == "integrations" && self.integration_updates_available())
     }
