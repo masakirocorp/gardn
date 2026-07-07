@@ -18,6 +18,33 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  monorepo:
+    name: monorepo tooling
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check Turbo task graph
+        run: pnpm turbo run check --dry=json
+
+      - name: Check Tegami release scope
+        run: node scripts/check-tegami-release-scope.mts hako
+
   check:
     name: check (${{ matrix.os }})
     strategy:
@@ -84,4 +111,4 @@ jobs:
 
       - name: Run maintenance tests
         if: runner.os == 'Linux'
-        run: python3 -m unittest scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines
+        run: python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines scripts.test_extract_release_notes scripts.test_check_tegami_release_scope
