@@ -6,7 +6,7 @@ status: accepted
 
 Hako provides Nix flake outputs for users who already use Nix, but Nix is not the authoritative test, update, or release channel. The flake exposes packages, apps, checks, dev shells, a formatter, and an overlay; the README directs Nix users to update through their own Nix workflow, while Hako's direct updater and release process remain based on GitHub Release assets.
 
-The Nix derivation builds Hako from source with Rust checks disabled, and the dedicated Nix workflow evaluates flake shape with `nix flake check --all-systems --no-build` instead of duplicating the Rust test suite or building release packages. That keeps Nix useful as a native packaging and development path without making the project maintain two equivalent release/test pipelines.
+The Nix derivation builds Hako from source with Rust checks disabled, and the dedicated Nix workflow runs a current-system `nix flake check` build plus an all-systems `nix flake check --all-systems --no-build` shape evaluation. That keeps Nix useful as a native packaging and development path without making the project maintain a second Rust test suite or multi-platform release pipeline.
 
 This is separate from ADR 0012's install ownership decision. ADR 0012 records why managed installs do not self-update through Hako; this ADR records the narrower flake topology and the choice to keep Nix optional rather than authoritative.
 

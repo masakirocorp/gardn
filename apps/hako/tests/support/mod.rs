@@ -643,12 +643,17 @@ fn runtime_dir_owner_alive(runtime_dir: &Path) -> bool {
     process_exists(owner_pid)
 }
 
-fn current_checkout_root() -> &'static Path {
+fn current_checkout_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("apps/hako package should live under the workspace root")
+        .to_path_buf()
 }
 
 fn is_test_hako_binary(path: &Path) -> bool {
-    path.ends_with("target/debug/hako") && path.starts_with(current_checkout_root())
+    let checkout_root = current_checkout_root();
+    path.ends_with("target/debug/hako") && path.starts_with(&checkout_root)
 }
 
 extern "C" fn run_atexit_cleanup() {
