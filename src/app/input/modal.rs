@@ -1450,11 +1450,7 @@ mod tests {
             .release_notes
             .as_ref()
             .expect("release notes modal state");
-        assert!(notes.body.contains("# Changelog"));
-        assert!(notes
-            .body
-            .contains("Tegami-style pending changefile source"));
-        assert!(notes.body.contains("stable `changelog` global-menu item"));
+        assert_eq!(notes.body, "No public releases yet.");
     }
 
     #[test]

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 const PENDING_RELEASE_NOTES_PATH: &str = "release-notes.json";
-const BUNDLED_CHANGELOG: &str = include_str!(concat!(env!("OUT_DIR"), "/hako_changelog.md"));
+const BUNDLED_CHANGELOG: &str = include_str!("../CHANGELOG.md");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReleaseNotes {
@@ -80,9 +80,15 @@ pub fn load_changelog() -> ReleaseNotes {
 }
 
 fn bundled_changelog() -> ReleaseNotes {
+    let body = normalize_body(BUNDLED_CHANGELOG);
+
     ReleaseNotes {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        body: normalize_body(BUNDLED_CHANGELOG),
+        body: if body.is_empty() {
+            "No public releases yet.".to_string()
+        } else {
+            body
+        },
         preview: false,
     }
 }
@@ -161,18 +167,12 @@ mod tests {
     }
 
     #[test]
-    fn bundled_changelog_contains_checked_in_and_pending_entries() {
+    fn bundled_changelog_starts_clean_before_public_release() {
         let notes = bundled_changelog();
 
         assert_eq!(notes.version, env!("CARGO_PKG_VERSION"));
         assert!(!notes.preview);
-        assert!(notes.body.contains("# Changelog"));
-        assert!(notes.body.contains("## Unreleased"));
-        assert!(notes
-            .body
-            .contains("Tegami-style pending changefile source"));
-        assert!(notes.body.contains("## v0.2.18-dev"));
-        assert!(notes.body.contains("stable `changelog` global-menu item"));
+        assert_eq!(notes.body, "No public releases yet.");
     }
 
     #[test]

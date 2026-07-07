@@ -130,12 +130,12 @@ Default release flow:
 
 ```bash
 just check
-just release 0.x.y
+just release
 ```
 
-Hako release history is independent of upstream Herdr. Ignore inherited upstream `v*` tags; Hako's release line starts at `v0.1.0`.
+Hako is pre-public. Old GitHub releases are internal artifacts; do not preserve their changelog shape. Tegami owns version/changelog drafting from `.tegami/*.md`; see `docs/release.md`.
 
-`just release 0.x.y` bumps `Cargo.toml`, runs tests, commits, tags, and pushes. GitHub Actions builds the binaries after the tag is pushed, creates the GitHub release, and uploads all four binary assets.
+`just release` runs Tegami versioning, runs tests, commits, tags, and pushes. GitHub Actions builds the binaries after the tag is pushed, creates the GitHub release, and uploads all release assets.
 
 After cutting a release, wait for GitHub CI, Nix, and Release workflows to pass. Verify the GitHub release exists and contains all expected assets.
 

@@ -3,7 +3,7 @@
 # Run local tests with incremental compilation
 test:
     cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
-    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines scripts.test_codex_status_smoke_fallback scripts.test_changelog
+    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines scripts.test_codex_status_smoke_fallback
 
 # Run one nextest filter, e.g. `just test-one codex_stale_working`
 test-one filter:
@@ -23,7 +23,7 @@ ci: lint ci-test
 
 # Check formatting + run unit tests + maintenance script tests
 check: ci
-    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines scripts.test_codex_status_smoke_fallback scripts.test_pi_omp_status_smoke_validation scripts.test_qoder_proxy_status_smoke_validation scripts.test_agent_smoke_status_acceptance_invariant scripts.test_smoke_model_candidates scripts.test_remaining_status_smoke_fallback scripts.test_changelog
+    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_testing_guidelines scripts.test_codex_status_smoke_fallback scripts.test_pi_omp_status_smoke_validation scripts.test_qoder_proxy_status_smoke_validation scripts.test_agent_smoke_status_acceptance_invariant scripts.test_smoke_model_candidates scripts.test_remaining_status_smoke_fallback
     node ci/agent-smoke/qoder-openrouter-proxy-test.mjs
     @echo "docs reminder: if this changes user-facing behavior, update README.md or call it out before release."
 
@@ -46,13 +46,21 @@ sync-upstream:
 upstream-status:
     python3 scripts/upstream_status.py --check
 
-# Bump version, commit, tag, push, and trigger the GitHub Release workflow (usage: just release 0.1.1)
-release version:
+# Run Tegami release/changelog tooling
+tegami *args:
+    pnpm tegami {{args}}
+
+
+# Draft a Tegami version commit, tag it, push, and trigger the GitHub Release workflow
+release:
     @if [ -n "$(git status --porcelain)" ]; then \
         echo "error: commit your changes first"; \
         exit 1; \
     fi
-    @tag="v{{version}}"; \
+    CI=true pnpm tegami version
+    just check
+    @version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"; \
+    tag="v$version"; \
     if git rev-parse "$tag" >/dev/null 2>&1; then \
         echo "error: tag $tag already exists"; \
         exit 1; \
@@ -60,17 +68,13 @@ release version:
     if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then \
         echo "error: origin tag $tag already exists"; \
         exit 1; \
-    fi
-    sed -i.bak 's/^version = ".*"/version = "{{version}}"/' Cargo.toml && rm -f Cargo.toml.bak
-    cargo update -p hako --offline
-    python3 scripts/changelog.py "{{version}}" >/dev/null
-    just check
-    git add Cargo.toml Cargo.lock CHANGELOG.md .changes
-    git diff --cached --quiet || git commit -m "release: v{{version}}"
-    git tag -a v{{version}} -m "v{{version}}"
-    git push origin HEAD
-    git push origin v{{version}}
-    @echo "v{{version}} released — GitHub Actions building binaries"
+    fi; \
+    git add Cargo.toml Cargo.lock CHANGELOG.md .tegami; \
+    git diff --cached --quiet || git commit -m "release: v$version"; \
+    git tag -a "$tag" -m "$tag"; \
+    git push origin HEAD; \
+    git push origin "$tag"; \
+    echo "$tag released — GitHub Actions building binaries"
 
 # Build optional real-agent smoke-test image
 agent-smoke-image:
