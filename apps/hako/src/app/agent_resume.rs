@@ -3,7 +3,7 @@ use std::time::Instant;
 use crate::app::state::{ToastKind, ToastNotification, ToastTarget};
 use bytes::Bytes;
 
-use super::App;
+use super::{App, ClientViewState};
 
 struct PendingAgentResumeCandidate {
     pane_id: crate::layout::PaneId,
@@ -48,6 +48,48 @@ impl App {
 
     pub(crate) fn start_pending_agent_resumes(&mut self, allow_empty_theme: bool) -> bool {
         let pending = self.pending_agent_resume_candidates();
+        let changed = self.start_pending_agent_resume_candidates(pending, allow_empty_theme);
+
+        if changed {
+            self.schedule_session_save();
+        }
+        if !self.has_pending_agent_resume_pane_without_runtime() {
+            self.pending_agent_resume_deadline = None;
+        } else if self.pending_agent_resume_candidates().is_empty() {
+            self.pending_agent_resume_deadline =
+                Some(Instant::now() + super::PENDING_AGENT_RESUME_THEME_WAIT);
+        }
+        changed
+    }
+
+    pub(crate) fn start_pending_agent_resumes_for_client_view(
+        &mut self,
+        view: &ClientViewState,
+        allow_empty_theme: bool,
+    ) -> bool {
+        let pending = self.pending_agent_resume_candidates_for_client_view(view);
+        let changed = self.start_pending_agent_resume_candidates(pending, allow_empty_theme);
+
+        if changed {
+            self.schedule_session_save();
+        }
+        if !self.has_pending_agent_resume_pane_without_runtime() {
+            self.pending_agent_resume_deadline = None;
+        } else if self
+            .pending_agent_resume_candidates_for_client_view(view)
+            .is_empty()
+        {
+            self.pending_agent_resume_deadline =
+                Some(Instant::now() + super::PENDING_AGENT_RESUME_THEME_WAIT);
+        }
+        changed
+    }
+
+    fn start_pending_agent_resume_candidates(
+        &mut self,
+        pending: Vec<PendingAgentResumeCandidate>,
+        allow_empty_theme: bool,
+    ) -> bool {
         let mut changed = false;
         for PendingAgentResumeCandidate {
             pane_id,
@@ -72,15 +114,6 @@ impl App {
             );
         }
 
-        if changed {
-            self.schedule_session_save();
-        }
-        if !self.has_pending_agent_resume_pane_without_runtime() {
-            self.pending_agent_resume_deadline = None;
-        } else if self.pending_agent_resume_candidates().is_empty() {
-            self.pending_agent_resume_deadline =
-                Some(Instant::now() + super::PENDING_AGENT_RESUME_THEME_WAIT);
-        }
         changed
     }
 
@@ -94,7 +127,33 @@ impl App {
         let Some(tab) = ws.tabs.get(ws.active_tab) else {
             return Vec::new();
         };
+        self.pending_agent_resume_candidates_for_tab(tab, &self.state.view.pane_infos)
+    }
 
+    fn pending_agent_resume_candidates_for_client_view(
+        &self,
+        view: &ClientViewState,
+    ) -> Vec<PendingAgentResumeCandidate> {
+        let Some(ws_idx) = view.active_workspace else {
+            return Vec::new();
+        };
+        let Some(ws) = self.state.workspaces.get(ws_idx) else {
+            return Vec::new();
+        };
+        let tab_idx = view
+            .active_tab_for_workspace(&ws.id)
+            .unwrap_or(ws.active_tab);
+        let Some(tab) = ws.tabs.get(tab_idx) else {
+            return Vec::new();
+        };
+        self.pending_agent_resume_candidates_for_tab(tab, &view.computed.pane_infos)
+    }
+
+    fn pending_agent_resume_candidates_for_tab(
+        &self,
+        tab: &crate::workspace::Tab,
+        pane_infos: &[crate::layout::PaneInfo],
+    ) -> Vec<PendingAgentResumeCandidate> {
         let mut pending = Vec::new();
         for pane_id in tab.layout.pane_ids() {
             let Some(pane) = tab.panes.get(&pane_id) else {
@@ -107,13 +166,7 @@ impl App {
             {
                 continue;
             }
-            let Some(info) = self
-                .state
-                .view
-                .pane_infos
-                .iter()
-                .find(|info| info.id == pane_id)
-            else {
+            let Some(info) = pane_infos.iter().find(|info| info.id == pane_id) else {
                 continue;
             };
             let Some(terminal) = self.state.terminals.get(&pane.attached_terminal_id) else {

@@ -1620,7 +1620,11 @@ fn integration_install(args: &[String]) -> std::io::Result<i32> {
         return Ok(2);
     };
 
-    match crate::integration::install_target(target) {
+    let loaded_config = crate::config::Config::load();
+    let agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+        &loaded_config.config.agent_profiles,
+    );
+    match crate::integration::install_target_for_agent_profiles(target, &agent_profiles) {
         Ok(messages) => {
             print_integration_messages(messages);
             Ok(0)

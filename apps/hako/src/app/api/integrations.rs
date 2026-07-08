@@ -10,7 +10,10 @@ impl App {
         params: crate::api::schema::IntegrationInstallParams,
     ) -> String {
         let target = params.target;
-        let messages = match crate::integration::install_target(target) {
+        let messages = match crate::integration::install_target_for_agent_profiles(
+            target,
+            &self.state.agent_profiles,
+        ) {
             Ok(messages) => messages,
             Err(err) => return encode_error(id, "integration_install_failed", err.to_string()),
         };

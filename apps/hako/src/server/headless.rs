@@ -340,11 +340,15 @@ impl HeadlessServer {
             // 7. Render virtually and stream frames.
             if needs_render && self.app.can_render_now(now) {
                 self.app.render_dirty.swap(false, Ordering::AcqRel);
-                self.render_and_stream();
                 self.app.sync_pending_agent_resume_deadline(now);
-                if self
-                    .app
-                    .start_pending_agent_resumes(self.app.pending_agent_resume_due(now))
+                let allow_pending_agent_resume_empty_theme = self.app.pending_agent_resume_due(now);
+                let pending_resume_started = self.render_and_stream_with_pending_agent_resume(
+                    allow_pending_agent_resume_empty_theme,
+                );
+                if pending_resume_started
+                    || self
+                        .app
+                        .start_pending_agent_resumes(allow_pending_agent_resume_empty_theme)
                 {
                     self.app.render_dirty.store(true, Ordering::Release);
                     self.app.render_notify.notify_one();
@@ -2512,7 +2516,16 @@ impl HeadlessServer {
 
     /// Renders the current state to client-sized virtual buffers and streams
     /// frames to all connected clients.
+    #[cfg(test)]
     fn render_and_stream(&mut self) {
+        let _ = self.render_and_stream_with_pending_agent_resume(false);
+    }
+
+    fn render_and_stream_with_pending_agent_resume(
+        &mut self,
+        allow_empty_pending_agent_theme: bool,
+    ) -> bool {
+        let mut pending_resume_started = false;
         let render_targets = render_targets(&self.clients, self.foreground_client_id);
 
         if render_targets.is_empty() {
@@ -2530,7 +2543,7 @@ impl HeadlessServer {
                 cols,
                 rows, resize_panes, "rendered virtual frame with no attached clients"
             );
-            return;
+            return false;
         }
 
         let mut broken_clients: Vec<u64> = Vec::new();
@@ -2560,6 +2573,10 @@ impl HeadlessServer {
                             is_foreground,
                             render_cell_size,
                         );
+                    pending_resume_started |= self.app.start_pending_agent_resumes_for_client_view(
+                        view_state,
+                        allow_empty_pending_agent_theme,
+                    );
                     FrameData::from_ratatui_buffer_with_hyperlinks(&buffer, cursor, &hyperlinks)
                 }
                 ClientConnectionMode::TerminalAttach { terminal_id } => {
@@ -2711,6 +2728,7 @@ impl HeadlessServer {
 
         let (cols, rows) = self.effective_size;
         debug!(cols, rows, foreground_client_id = ?self.foreground_client_id, "rendered virtual frame(s)");
+        pending_resume_started
     }
 
     /// Handle scheduled tasks for the headless server.
@@ -4577,6 +4595,100 @@ next_tab = ""
 
         assert_eq!((desktop_frame.width, desktop_frame.height), (120, 40));
         assert_eq!((phone_frame.width, phone_frame.height), (80, 24));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn render_and_stream_starts_pending_agent_resume_for_client_visible_tab() {
+        let mut server = test_headless_server();
+        let mut workspace = crate::workspace::Workspace::test_new("restore");
+        let workspace_id = workspace.id.clone();
+        let restored_tab = workspace.test_add_tab(Some("restored agent"));
+        let restored_pane = workspace.tabs[restored_tab].root_pane;
+        let restored_terminal = workspace.tabs[restored_tab]
+            .terminal_id(restored_pane)
+            .cloned()
+            .expect("restored pane should have terminal");
+        workspace.active_tab = 0;
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.state.ensure_test_terminals();
+        server.app.state.host_terminal_theme = crate::terminal_theme::TerminalTheme {
+            foreground: Some(crate::terminal_theme::RgbColor {
+                r: 220,
+                g: 220,
+                b: 220,
+            }),
+            background: Some(crate::terminal_theme::RgbColor {
+                r: 20,
+                g: 20,
+                b: 20,
+            }),
+            ..crate::terminal_theme::TerminalTheme::default()
+        };
+        {
+            let terminal = server
+                .app
+                .state
+                .terminals
+                .get_mut(&restored_terminal)
+                .expect("restored terminal should exist");
+            terminal.set_agent_name("codex".into());
+            terminal.pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
+                agent: "codex".into(),
+                argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
+                env: Vec::new(),
+                dedupe_key: "hako:codex\0codex\0Id\0client-visible-session".into(),
+            });
+        }
+
+        let (client_tx, _client_control_rx, client_rx) = test_client_writer();
+        let mut client = ClientConnection::new(
+            (100, 30),
+            crate::kitty_graphics::HostCellSize::default(),
+            crate::terminal_theme::TerminalTheme::default(),
+            Some(true),
+            1,
+            RenderEncoding::SemanticFrame,
+            Some(client_tx),
+        );
+        let mut client_view =
+            crate::app::ClientViewState::from_default_client_state(&server.app.state);
+        client_view.active_tabs.insert(workspace_id, restored_tab);
+        client.view_state = Some(client_view);
+        server.clients.insert(1, client);
+        server.foreground_client_id = Some(1);
+
+        server.render_and_stream();
+        let _ = client_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("client-visible restored tab should render a frame");
+
+        assert!(
+            server.app.terminal_runtimes.get(&restored_terminal).is_some(),
+            "rendering the client-visible restored tab should start its pending native-agent runtime"
+        );
+        assert!(
+            server
+                .app
+                .state
+                .terminals
+                .get(&restored_terminal)
+                .expect("restored terminal should survive launch")
+                .pending_agent_resume_plan
+                .is_none(),
+            "started native-agent resume should clear the pending plan"
+        );
+        assert_eq!(
+            server.app.state.workspaces[0].active_tab, 0,
+            "client-visible resume should not steal the shared app tab focus"
+        );
+
+        for (_, runtime) in server.app.terminal_runtimes.drain() {
+            runtime.shutdown();
+        }
     }
 
     #[test]
