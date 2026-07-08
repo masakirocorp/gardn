@@ -1,0 +1,13 @@
+id: rust-client-sidebar-hit-test-no-global-view-geometry
+language: rust
+severity: error
+message: Client-view sidebar hit testing must use client_view.computed geometry, not self.state.view/default geometry.
+rule:
+  pattern: self.state.view.$FIELD
+  inside:
+    kind: function_item
+    has:
+      field: name
+      kind: identifier
+      regex: '^(handle_client_view_sidebar_chrome_mouse|client_view_.*(sidebar|agent|global_launcher|group_selector|right_sidebar).*)$'
+    stopBy: end

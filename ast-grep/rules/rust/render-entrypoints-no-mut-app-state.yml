@@ -1,0 +1,16 @@
+id: rust-render-entrypoints-no-mut-app-state
+language: rust
+severity: error
+message: Render entrypoints must draw from immutable AppState; mutate layout/view state in compute_view* instead.
+files:
+  - apps/hako/src/ui.rs
+  - apps/hako/src/ui/**/*.rs
+rule:
+  any:
+    - pattern: 'fn $NAME($ARG: &mut AppState, $$$ARGS) { $$$BODY }'
+    - pattern: 'fn $NAME($$$BEFORE, $ARG: &mut AppState, $$$AFTER) { $$$BODY }'
+    - pattern: 'fn $NAME($ARG: &mut crate::app::state::AppState, $$$ARGS) { $$$BODY }'
+    - pattern: 'fn $NAME($$$BEFORE, $ARG: &mut crate::app::state::AppState, $$$AFTER) { $$$BODY }'
+constraints:
+  NAME:
+    regex: '^render'

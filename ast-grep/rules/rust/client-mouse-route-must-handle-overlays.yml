@@ -1,0 +1,16 @@
+id: rust-client-mouse-route-must-handle-overlays
+language: rust
+severity: error
+message: handle_mouse_for_view must route client overlay modals before other mouse handlers.
+rule:
+  all:
+    - kind: function_item
+    - has:
+        field: name
+        kind: identifier
+        regex: '^handle_mouse_for_view$'
+        stopBy: end
+    - not:
+        has:
+          pattern: self.handle_client_view_overlay_mouse(client_view, mouse)
+          stopBy: end

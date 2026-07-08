@@ -1,0 +1,18 @@
+id: rust-no-legacy-client-view-projection
+language: rust
+severity: error
+message: Do not resurrect broad client-view projection shims; use explicit sync or client-view-aware compute/render helpers.
+rule:
+  any:
+    - pattern: apply_client_view_to_app_state($$$ARGS)
+    - pattern: crate::app::view_state::apply_client_view_to_app_state($$$ARGS)
+    - pattern: ClientViewState::from_app_state($$$ARGS)
+    - pattern: self.apply_client_view_local_key($$$ARGS)
+    - pattern: self.apply_client_view_local_app_action($$$ARGS)
+    - all:
+        - kind: function_item
+        - has:
+            field: name
+            kind: identifier
+            regex: '^(apply_client_view_to_app_state|apply_client_view_local_key|apply_client_view_local_app_action)$'
+            stopBy: end

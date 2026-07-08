@@ -1,0 +1,24 @@
+id: rust-app-state-no-terminal-runtime
+language: rust
+severity: error
+message: AppState is pure data; keep live terminal runtimes in App/TerminalRuntimeRegistry and pass them across the boundary.
+rule:
+  all:
+    - kind: field_declaration
+    - has:
+        field: name
+        kind: field_identifier
+        regex: '^(terminal_runtimes|runtime)$'
+        stopBy: end
+    - has:
+        field: type
+        regex: '(TerminalRuntime|TerminalRuntimeRegistry)'
+        stopBy: end
+    - inside:
+        kind: struct_item
+        has:
+          field: name
+          kind: type_identifier
+          regex: '^AppState$'
+          stopBy: end
+        stopBy: end

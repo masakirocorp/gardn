@@ -4562,9 +4562,10 @@ impl App {
             .any(|id| id == group_id)
     }
 
-    fn client_view_workspace_group_header_at_row(
+    fn client_view_workspace_group_header_at(
         &self,
         client_view: &ClientViewState,
+        col: u16,
         row: u16,
     ) -> Option<usize> {
         if client_view.sidebar_collapsed || client_view.group_filter_enabled {
@@ -4576,19 +4577,20 @@ impl App {
             .workspace_group_header_areas
             .iter()
             .find_map(|header| {
-                (row >= header.rect.y && row < header.rect.y + header.rect.height)
-                    .then_some(header.group_idx)
+                Self::rect_contains(header.rect, col, row).then_some(header.group_idx)
             })
     }
 
-    fn client_view_workspace_at_row(client_view: &ClientViewState, row: u16) -> Option<usize> {
+    fn client_view_workspace_at(
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> Option<usize> {
         client_view
             .computed
             .workspace_card_areas
             .iter()
-            .find_map(|card| {
-                (row >= card.rect.y && row < card.rect.y + card.rect.height).then_some(card.ws_idx)
-            })
+            .find_map(|card| Self::rect_contains(card.rect, col, row).then_some(card.ws_idx))
     }
 
     fn client_view_sidebar_visible_workspace_indices(
@@ -4705,7 +4707,7 @@ impl App {
                     return false;
                 }
                 if let Some(group_idx) =
-                    self.client_view_workspace_group_header_at_row(client_view, mouse.row)
+                    self.client_view_workspace_group_header_at(client_view, mouse.column, mouse.row)
                 {
                     self.toggle_client_view_workspace_group(client_view, group_idx);
                     return true;
@@ -4750,7 +4752,7 @@ impl App {
                 }
 
                 if let Some(group_idx) =
-                    self.client_view_workspace_group_header_at_row(client_view, mouse.row)
+                    self.client_view_workspace_group_header_at(client_view, mouse.column, mouse.row)
                 {
                     client_view.context_menu = Some(state::ContextMenuState {
                         kind: state::ContextMenuKind::Group {
@@ -4765,7 +4767,9 @@ impl App {
                     return true;
                 }
 
-                if let Some(idx) = Self::client_view_workspace_at_row(client_view, mouse.row) {
+                if let Some(idx) =
+                    Self::client_view_workspace_at(client_view, mouse.column, mouse.row)
+                {
                     client_view.selected_workspace = idx;
                     let can_diff = !self
                         .state
@@ -9986,6 +9990,67 @@ mod tests {
     }
 
     #[test]
+    fn route_client_events_for_view_pane_clicks_do_not_toggle_sidebar_group_headers() {
+        let mut app = test_app();
+        let work_group = app.state.create_group("work".to_string());
+        let work_group_id = app.state.groups[work_group].id.clone();
+        let mut home = Workspace::test_new("home");
+        home.group_id = app.state.groups[0].id.clone();
+        let mut api = Workspace::test_new("api");
+        api.group_id = work_group_id.clone();
+        app.state.workspaces = vec![home, api];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.group_filter_enabled = false;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+
+        let area = ratatui::layout::Rect::new(0, 0, 120, 30);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, area);
+        let header = client
+            .computed
+            .workspace_group_header_areas
+            .iter()
+            .find(|header| header.group_idx == work_group)
+            .expect("work group header should be visible")
+            .rect;
+        let click_col = client.computed.terminal_area.x;
+        let initial_active_workspace = client.active_workspace;
+        let initial_selected_workspace = client.selected_workspace;
+        assert!(
+            click_col >= client.computed.sidebar_rect.x + client.computed.sidebar_rect.width,
+            "click should be outside the sidebar"
+        );
+        assert!(
+            header.y >= client.computed.terminal_area.y
+                && header.y
+                    < client.computed.terminal_area.y + client.computed.terminal_area.height,
+            "group header row should also pass through the terminal pane"
+        );
+        assert!(!client.collapsed_workspace_groups.contains(&work_group_id));
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                click_col,
+                header.y,
+            )],
+            true,
+        );
+
+        assert!(
+            !client.collapsed_workspace_groups.contains(&work_group_id),
+            "clicking the terminal pane on a sidebar group header row should not collapse the group"
+        );
+        assert_eq!(client.active_workspace, initial_active_workspace);
+        assert_eq!(client.selected_workspace, initial_selected_workspace);
+    }
+
+    #[test]
     fn route_client_events_for_view_sidebar_mouse_parity_agent_status_header_toggle_is_client_local(
     ) {
         let mut app = test_app();
@@ -10137,6 +10202,72 @@ mod tests {
         assert_eq!(other_client.mode, Mode::Terminal);
         assert_eq!(app.state.mode, Mode::Terminal);
         assert!(app.state.context_menu.is_none());
+    }
+
+    #[test]
+    fn route_client_events_for_view_sidebar_right_click_on_workspace_row_chrome_does_not_open_workspace_menu(
+    ) {
+        let mut app = test_app();
+        let work_group = app.state.create_group("work".to_string());
+        let work_group_id = app.state.groups[work_group].id.clone();
+        let mut home = Workspace::test_new("home");
+        home.group_id = app.state.groups[0].id.clone();
+        let mut api = Workspace::test_new("api");
+        api.group_id = work_group_id;
+        app.state.workspaces = vec![home, api];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.group_filter_enabled = false;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+
+        let area = ratatui::layout::Rect::new(0, 0, 120, 30);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, area);
+        let space_card = client
+            .computed
+            .workspace_card_areas
+            .iter()
+            .find(|card| card.ws_idx == 1)
+            .expect("work space card should be visible")
+            .rect;
+        let click_col = client.computed.sidebar_rect.x + client.computed.sidebar_rect.width - 1;
+        let click_row = space_card.y;
+        let initial_active_workspace = client.active_workspace;
+        let initial_selected_workspace = client.selected_workspace;
+        assert!(
+            click_col >= client.computed.sidebar_rect.x
+                && click_col < client.computed.sidebar_rect.x + client.computed.sidebar_rect.width,
+            "click column should be inside the sidebar"
+        );
+        assert!(
+            click_col < space_card.x || click_col >= space_card.x + space_card.width,
+            "click column should be outside the workspace card while sharing its row"
+        );
+        assert!(
+            click_row >= space_card.y && click_row < space_card.y + space_card.height,
+            "click row should cross the workspace card"
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Right),
+                click_col,
+                click_row,
+            )],
+            true,
+        );
+
+        assert!(
+            client.context_menu.is_none(),
+            "right-clicking sidebar chrome on a workspace row should not open a workspace context menu"
+        );
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(client.active_workspace, initial_active_workspace);
+        assert_eq!(client.selected_workspace, initial_selected_workspace);
     }
 
     #[test]

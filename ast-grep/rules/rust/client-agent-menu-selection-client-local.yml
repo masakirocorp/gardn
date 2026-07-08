@@ -1,0 +1,16 @@
+id: rust-client-agent-menu-selection-client-local
+language: rust
+severity: error
+message: Client-view agent menu selection must mutate client_view, not self.state/session state.
+rule:
+  any:
+    - pattern: self.state.agent_panel_scope = $VALUE
+    - pattern: self.state.agent_panel_scroll = $VALUE
+    - pattern: self.state.mark_session_dirty()
+  inside:
+    kind: function_item
+    has:
+      field: name
+      kind: identifier
+      regex: '^accept_client_view_agent_menu_selection$'
+    stopBy: end

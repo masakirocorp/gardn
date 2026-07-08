@@ -9,10 +9,15 @@ test:
 test-one filter:
     cargo nextest run --locked "{{filter}}" --status-level fail --final-status-level fail --failure-output final --success-output never
 
+# Run structural Rust guardrails
+ast-grep:
+    ast-grep scan --config sgconfig.yml apps/hako/src --report-style short --error
+
 # Run fast local lint checks
 lint:
     cargo fmt --check
     CARGO_INCREMENTAL=0 cargo clippy --all-targets --locked -- -D warnings
+    just ast-grep
 
 # Run Rust tests with CI settings
 ci-test:

@@ -1,0 +1,13 @@
+id: rust-client-view-no-direct-app-overlay-mouse
+language: rust
+severity: error
+message: Client-view mouse paths must use handle_client_view_overlay_mouse; handle_overlay_mouse mutates app-global overlay state.
+rule:
+  pattern: self.handle_overlay_mouse($MOUSE)
+  inside:
+    kind: function_item
+    has:
+      field: name
+      kind: identifier
+      regex: '^(handle_mouse_for_view|.*client.*view.*mouse.*)$'
+    stopBy: end

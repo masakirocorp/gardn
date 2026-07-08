@@ -1,0 +1,25 @@
+id: rust-client-render-must-use-client-view-ui
+language: rust
+severity: error
+message: Client-view render path must use *_for_view UI helpers; default helpers leak the default client view.
+rule:
+  any:
+    - pattern: crate::ui::compute_view($$$ARGS)
+    - pattern: crate::ui::compute_view_with_runtime_registry($$$ARGS)
+    - pattern: crate::ui::compute_view_with_cell_size($$$ARGS)
+    - pattern: crate::ui::compute_view_without_resizing_panes($$$ARGS)
+    - pattern: crate::ui::render($$$ARGS)
+    - pattern: crate::ui::render_with_runtime_registry($$$ARGS)
+    - pattern: compute_view($$$ARGS)
+    - pattern: compute_view_with_runtime_registry($$$ARGS)
+    - pattern: compute_view_with_cell_size($$$ARGS)
+    - pattern: compute_view_without_resizing_panes($$$ARGS)
+    - pattern: render($$$ARGS)
+    - pattern: render_with_runtime_registry($$$ARGS)
+  inside:
+    kind: function_item
+    has:
+      field: name
+      kind: identifier
+      regex: '^render_virtual_for_client_view$'
+    stopBy: end
