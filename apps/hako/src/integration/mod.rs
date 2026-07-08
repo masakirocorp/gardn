@@ -484,6 +484,9 @@ fn codex_home_dir_for_profile(
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or(command);
+    if command_name == "codex" {
+        return codex_dir().map(Some);
+    }
     let Some(profile_suffix) = command_name.strip_prefix("codex-") else {
         return Ok(None);
     };
@@ -492,6 +495,50 @@ fn codex_home_dir_for_profile(
     }
 
     Ok(Some(home_dir()?.join(format!(".codex-{profile_suffix}"))))
+}
+
+pub(crate) fn agent_profile_integration_warning(
+    profile: &crate::agent_profiles::AgentProfile,
+) -> Option<String> {
+    let target = profile.kind.integration_target()?;
+    if target != crate::api::schema::IntegrationTarget::Codex {
+        return None;
+    }
+    let dir = match codex_home_dir_for_profile(profile) {
+        Ok(Some(dir)) => dir,
+        Ok(None) => {
+            return Some(format!(
+                "{} uses `{}`, but Hako cannot determine its Codex home. Set CODEX_HOME on this profile, or use a codex-* command name.",
+                profile.name, profile.command
+            ));
+        }
+        Err(err) => {
+            return Some(format!(
+                "{} uses `{}`, but Hako could not inspect its Codex home: {err}",
+                profile.name, profile.command
+            ));
+        }
+    };
+    let status = integration_status_at(
+        target,
+        dir.join(CODEX_HOOK_INSTALL_NAME),
+        CODEX_INTEGRATION_VERSION,
+    );
+    match status.state {
+        IntegrationStatusKind::Current => None,
+        IntegrationStatusKind::NotInstalled => Some(format!(
+            "{} uses {}, but Hako's codex integration is not installed for {}. Run `hako integration install codex`, then restart the pane.",
+            profile.name,
+            profile.command,
+            dir.display()
+        )),
+        IntegrationStatusKind::Outdated => Some(format!(
+            "{} uses {}, but Hako's codex integration is outdated for {}. Run `hako integration install codex`, then restart the pane.",
+            profile.name,
+            profile.command,
+            dir.display()
+        )),
+    }
 }
 
 fn install_codex_for_agent_profiles_inner(
@@ -4572,6 +4619,51 @@ mod tests {
         assert!(messages.iter().any(
             |message| message.starts_with(INSTALL_WARNING_PREFIX) && message.contains(".codex")
         ));
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn codex_mk_profile_warning_clears_when_profile_home_hook_is_current() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let home = base.join("home");
+        let custom_codex_dir = home.join(".codex-mk");
+        fs::create_dir_all(&custom_codex_dir).unwrap();
+        let _home_env = TestEnvVar::set("HOME", &home);
+        let catalog = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:codex-mk".into()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "codex-mk".into(),
+                    name: "codex mk".into(),
+                    kind: crate::agent_profiles::AgentKind::Codex,
+                    command: "codex-mk".into(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }],
+            },
+        );
+        let profile = catalog.get("user:codex-mk").unwrap();
+
+        let warning = agent_profile_integration_warning(profile)
+            .expect("missing profile-specific codex hook should warn");
+
+        assert!(warning.contains("codex mk"), "{warning}");
+        assert!(warning.contains(".codex-mk"), "{warning}");
+        assert!(
+            warning.contains("hako integration install codex"),
+            "{warning}"
+        );
+
+        fs::write(
+            custom_codex_dir.join(CODEX_HOOK_INSTALL_NAME),
+            CODEX_HOOK_ASSET,
+        )
+        .unwrap();
+
+        assert_eq!(agent_profile_integration_warning(profile), None);
 
         let _ = fs::remove_dir_all(base);
     }

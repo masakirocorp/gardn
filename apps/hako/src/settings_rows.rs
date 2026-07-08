@@ -463,8 +463,11 @@ fn agent_profile_badge(
     profile: &crate::agent_profiles::AgentProfile,
     is_favorite: bool,
     is_default: bool,
+    integration_warning: Option<&str>,
 ) -> Option<Cow<'static, str>> {
-    if !profile.available() {
+    if integration_warning.is_some() {
+        Some("needs integration".into())
+    } else if !profile.available() {
         Some("unavailable".into())
     } else if is_default {
         Some("default".into())
@@ -612,13 +615,33 @@ fn agent_profile_row(
     is_default: bool,
     tone: SettingsMarkerTone,
 ) -> SettingsListRow {
+    let integration_warning = crate::integration::agent_profile_integration_warning(profile);
+    let tone = if integration_warning.is_some() {
+        SettingsMarkerTone::Warning
+    } else {
+        tone
+    };
     SettingsListRow::Profile {
         index,
         name: profile.name.clone().into(),
         detail: agent_profile_detail(profile).into(),
-        badge: agent_profile_badge(profile, is_favorite, is_default),
+        badge: agent_profile_badge(
+            profile,
+            is_favorite,
+            is_default,
+            integration_warning.as_deref(),
+        ),
         tone,
     }
+}
+
+fn profile_visible_in_group_settings(
+    app: &AppState,
+    profile: &crate::agent_profiles::AgentProfile,
+) -> bool {
+    profile.available()
+        && (app.agent_profile_launchable(profile)
+            || crate::integration::agent_profile_integration_warning(profile).is_some())
 }
 
 fn group_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
@@ -633,11 +656,11 @@ fn group_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
     let (favorite, available) = app.agent_profiles.group_sections(favorites);
     let favorite: Vec<_> = favorite
         .into_iter()
-        .filter(|profile| app.agent_profile_launchable(profile))
+        .filter(|profile| profile_visible_in_group_settings(app, profile))
         .collect();
     let available: Vec<_> = available
         .into_iter()
-        .filter(|profile| app.agent_profile_launchable(profile))
+        .filter(|profile| profile_visible_in_group_settings(app, profile))
         .collect();
     let mut rows = Vec::new();
     let mut index = 0;
@@ -1104,6 +1127,72 @@ mod tests {
         assert_eq!(option_index_for_visual_row(&rows, 1), Some(3));
         assert_eq!(option_index_for_visual_row(&rows, 2), Some(4));
         assert_eq!(option_index_for_visual_row(&rows, 3), None);
+    }
+
+    #[test]
+    fn custom_codex_profile_rows_mark_missing_profile_hook_as_warning() {
+        let _lock = crate::integration::integration_env_lock();
+        let base = std::env::temp_dir().join(format!(
+            "hako-settings-codex-profile-warning-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let home = base.join("home");
+        std::fs::create_dir_all(home.join(".codex-mk")).unwrap();
+        let _codex_home_env = crate::config::TestEnvVar::remove("CODEX_HOME");
+        let _home_env = crate::config::TestEnvVar::set("HOME", &home);
+        let mut app = AppState::test_new();
+        app.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:codex-mk".to_string()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "codex-mk".to_string(),
+                    name: "codex mk".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Codex,
+                    command: "codex-mk".to_string(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }],
+            },
+        );
+        app.integration_recommendations = vec![crate::integration::IntegrationRecommendation {
+            target: crate::api::schema::IntegrationTarget::Codex,
+            label: "codex",
+            command: "codex",
+            available: true,
+            path: std::path::PathBuf::from("/tmp/hako-test-codex"),
+            state: crate::integration::IntegrationStatusKind::Current,
+        }];
+
+        let rows = rows_for_section(&app, SettingsSection::Agents).expect("agent rows");
+        let row = rows
+            .iter()
+            .find(|row| {
+                matches!(
+                    row,
+                    SettingsListRow::Profile { name, .. } if name.as_ref() == "codex mk"
+                )
+            })
+            .expect("custom codex profile row remains visible");
+
+        match row {
+            SettingsListRow::Profile { badge, tone, .. } => {
+                assert_eq!(*tone, SettingsMarkerTone::Warning);
+                let badge = badge
+                    .as_ref()
+                    .expect("profile row should expose integration warning badge");
+                assert!(
+                    badge.contains("integration") || badge.contains("hook"),
+                    "{badge}"
+                );
+            }
+            _ => unreachable!("matched profile row"),
+        }
+
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]

@@ -5713,6 +5713,65 @@ mod tests {
         let _ = std::fs::remove_dir_all(base);
     }
 
+    #[test]
+    fn profile_specific_codex_hook_warning_surfaces_as_launch_toast() {
+        let _lock = crate::integration::integration_env_lock();
+        let _env = clear_integration_path_env();
+        let base = std::env::temp_dir().join(format!(
+            "hako-profile-launch-warning-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let home = base.join("home");
+        std::fs::create_dir_all(home.join(".codex-mk")).unwrap();
+        let _home_env = crate::config::TestEnvVar::set("HOME", &home);
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:codex-mk".to_string()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "codex-mk".to_string(),
+                    name: "codex mk".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Codex,
+                    command: "codex-mk".to_string(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }],
+            },
+        );
+        app.state.integration_recommendations = vec![current_integration_for(
+            crate::agent_profiles::AgentKind::Codex,
+        )];
+        app.state.request_agent_profile_tab = Some((0, "user:codex-mk".to_string()));
+
+        assert!(app.process_deferred_workspace_requests());
+
+        let toast = app
+            .state
+            .toast
+            .as_ref()
+            .expect("launch failure should be user-facing");
+        assert_eq!(toast.kind, state::ToastKind::NeedsAttention);
+        assert_eq!(toast.title, "agent launch failed");
+        assert!(toast.context.contains("codex mk"), "{}", toast.context);
+        assert!(
+            toast.context.contains("hako integration install codex"),
+            "{}",
+            toast.context
+        );
+        assert!(toast.context.contains(".codex-mk"), "{}", toast.context);
+        assert_eq!(app.state.workspaces[0].tabs.len(), 1);
+
+        let _ = std::fs::remove_dir_all(base);
+    }
+
     fn test_snapshot(
         groups: Vec<crate::persist::GroupSnapshot>,
         workspaces: Vec<crate::persist::WorkspaceSnapshot>,

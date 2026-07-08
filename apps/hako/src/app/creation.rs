@@ -244,6 +244,12 @@ impl App {
                 "agent profile not found",
             ));
         };
+        if let Some(warning) = crate::integration::agent_profile_integration_warning(&profile) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                warning,
+            ));
+        }
         if !self.state.agent_profile_launchable(&profile) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,

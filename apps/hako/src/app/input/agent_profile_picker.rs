@@ -930,6 +930,59 @@ mod tests {
     }
 
     #[test]
+    fn picker_keeps_custom_codex_profile_visible_with_profile_hook_warning() {
+        let _lock = crate::integration::integration_env_lock();
+        let base = std::env::temp_dir().join(format!(
+            "hako-picker-codex-profile-warning-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let home = base.join("home");
+        std::fs::create_dir_all(home.join(".codex-mk")).unwrap();
+        let _codex_home_env = crate::config::TestEnvVar::remove("CODEX_HOME");
+        let _home_env = crate::config::TestEnvVar::set("HOME", &home);
+        let mut app = app_with_space();
+        app.state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:codex-mk".to_string()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "codex-mk".to_string(),
+                    name: "codex mk".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Codex,
+                    command: "codex-mk".to_string(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }],
+            },
+        );
+        app.state.integration_recommendations = vec![current_integration_for(
+            crate::agent_profiles::AgentKind::Codex,
+        )];
+
+        let entries = crate::app::agent_profile_picker::agent_profile_picker_entries(&app.state);
+        let entry = entries
+            .iter()
+            .find(|entry| entry.profile_id == "user:codex-mk")
+            .expect("custom codex profile remains visible while its profile hook needs install");
+        let warning = entry
+            .integration_warning
+            .as_deref()
+            .expect("visible custom codex profile carries an integration warning");
+
+        assert_eq!(entry.name, "codex mk");
+        assert!(warning.contains(".codex-mk"), "{warning}");
+        assert!(
+            warning.contains("hako integration install codex"),
+            "{warning}"
+        );
+
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
     fn picker_keeps_outdated_integrations_available() {
         let mut app = app_with_space();
         app.state.integration_recommendations =

@@ -8,6 +8,7 @@ pub(crate) struct AgentProfilePickerEntry {
     pub name: String,
     pub kind: AgentKind,
     pub section: &'static str,
+    pub integration_warning: Option<String>,
 }
 
 impl AgentProfilePickerEntry {
@@ -61,6 +62,14 @@ pub(crate) fn agent_profile_picker_entries_for_picker(
 ) -> Vec<AgentProfilePickerEntry> {
     agent_profile_picker_entries_for_workspace(state, picker.ws_idx)
 }
+fn profile_visible_in_picker(
+    state: &AppState,
+    profile: &crate::agent_profiles::AgentProfile,
+) -> bool {
+    profile.available()
+        && (state.agent_profile_launchable(profile)
+            || crate::integration::agent_profile_integration_warning(profile).is_some())
+}
 
 pub(crate) fn agent_profile_picker_entries_for_workspace(
     state: &AppState,
@@ -79,22 +88,26 @@ pub(crate) fn agent_profile_picker_entries_for_workspace(
     let (favorite, available) = state.agent_profiles.group_sections(favorites);
     favorite
         .into_iter()
-        .filter(|profile| state.agent_profile_launchable(profile))
+        .filter(|profile| profile_visible_in_picker(state, profile))
         .map(|profile| AgentProfilePickerEntry {
             profile_id: profile.id.clone(),
             name: profile.name.clone(),
             kind: profile.kind,
             section: "favorites",
+            integration_warning: crate::integration::agent_profile_integration_warning(profile),
         })
         .chain(
             available
                 .into_iter()
-                .filter(|profile| state.agent_profile_launchable(profile))
+                .filter(|profile| profile_visible_in_picker(state, profile))
                 .map(|profile| AgentProfilePickerEntry {
                     profile_id: profile.id.clone(),
                     name: profile.name.clone(),
                     kind: profile.kind,
                     section: "available",
+                    integration_warning: crate::integration::agent_profile_integration_warning(
+                        profile,
+                    ),
                 }),
         )
         .collect()
