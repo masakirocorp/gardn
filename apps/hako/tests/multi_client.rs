@@ -820,7 +820,7 @@ fn multi_client_eventually_broadcasts_frame_updates_to_all_clients() {
             .unwrap_or(0)
     );
 
-    send_client_input(&mut client_a, marker.as_bytes());
+    send_client_input(&mut client_a, format!("echo {marker}\n").as_bytes());
     let received = wait_for_frame_matching(&mut client_b, Duration::from_secs(15), |frame| {
         frame_contains_text(frame, &marker)
     })
