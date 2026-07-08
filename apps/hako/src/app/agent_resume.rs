@@ -15,19 +15,25 @@ struct PendingAgentResumeCandidate {
 }
 
 impl App {
-    pub(crate) fn has_pending_agent_resumes(&self) -> bool {
-        self.state
-            .terminals
-            .values()
-            .any(|terminal| terminal.pending_agent_resume_plan.is_some())
+    fn has_pending_agent_resume_pane_without_runtime(&self) -> bool {
+        self.state.workspaces.iter().any(|workspace| {
+            workspace.tabs.iter().any(|tab| {
+                tab.panes.values().any(|pane| {
+                    self.terminal_runtimes
+                        .get(&pane.attached_terminal_id)
+                        .is_none()
+                        && self
+                            .state
+                            .terminals
+                            .get(&pane.attached_terminal_id)
+                            .is_some_and(|terminal| terminal.pending_agent_resume_plan.is_some())
+                })
+            })
+        })
     }
 
     pub(crate) fn sync_pending_agent_resume_deadline(&mut self, now: Instant) {
-        if !self.has_pending_agent_resumes() {
-            self.pending_agent_resume_deadline = None;
-            return;
-        }
-        if self.pending_agent_resume_candidates().is_empty() {
+        if !self.has_pending_agent_resume_pane_without_runtime() {
             self.pending_agent_resume_deadline = None;
             return;
         }
@@ -69,8 +75,11 @@ impl App {
         if changed {
             self.schedule_session_save();
         }
-        if !self.has_pending_agent_resumes() || self.pending_agent_resume_candidates().is_empty() {
+        if !self.has_pending_agent_resume_pane_without_runtime() {
             self.pending_agent_resume_deadline = None;
+        } else if self.pending_agent_resume_candidates().is_empty() {
+            self.pending_agent_resume_deadline =
+                Some(Instant::now() + super::PENDING_AGENT_RESUME_THEME_WAIT);
         }
         changed
     }
@@ -743,7 +752,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pending_agent_resume_skips_hidden_panes_without_visible_geometry() {
+    async fn pending_agent_resume_keeps_hidden_panes_scheduled_after_visible_resumes_start() {
         let mut app = test_app();
         let active_workspace = crate::workspace::Workspace::test_new("active");
         let active_pane = active_workspace.tabs[0].root_pane;
@@ -789,8 +798,8 @@ mod tests {
         assert!(app.terminal_runtimes.get(&active_terminal).is_some());
         assert!(app.terminal_runtimes.get(&hidden_terminal).is_none());
         assert!(
-            app.pending_agent_resume_deadline.is_none(),
-            "hidden-only pending resumes should not keep an expired wakeup deadline active"
+            app.pending_agent_resume_deadline.is_some(),
+            "hidden pending resumes should keep a wakeup deadline active after visible resumes start"
         );
         assert!(
             app.state
@@ -802,13 +811,31 @@ mod tests {
             "hidden restored panes should wait until their tab has computed geometry"
         );
 
+        app.state.active = Some(1);
+        let hidden_pane_infos = app.state.workspaces[1].tabs[0]
+            .layout
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+        app.state.view.pane_infos = hidden_pane_infos;
+
+        assert!(app.start_pending_agent_resumes(false));
+        assert!(app.terminal_runtimes.get(&hidden_terminal).is_some());
+        assert!(
+            app.state
+                .terminals
+                .get(&hidden_terminal)
+                .expect("hidden terminal should still exist")
+                .pending_agent_resume_plan
+                .is_none(),
+            "hidden restored panes should launch after their tab gets fresh geometry"
+        );
+
         for (_, runtime) in app.terminal_runtimes.drain() {
             runtime.shutdown();
         }
     }
 
     #[tokio::test]
-    async fn pending_agent_resume_ignores_stale_geometry_from_previous_active_view() {
+    async fn pending_agent_resume_keeps_hidden_panes_scheduled_when_only_stale_geometry_exists() {
         let mut app = test_app();
         let previous_workspace = crate::workspace::Workspace::test_new("previous");
         let previous_pane = previous_workspace.tabs[0].root_pane;
@@ -848,8 +875,15 @@ mod tests {
         });
 
         app.sync_pending_agent_resume_deadline(std::time::Instant::now());
-        assert!(app.pending_agent_resume_deadline.is_none());
+        assert!(
+            app.pending_agent_resume_deadline.is_some(),
+            "hidden pending resumes should stay scheduled even when only stale geometry exists"
+        );
         assert!(!app.start_pending_agent_resumes(false));
+        assert!(
+            app.pending_agent_resume_deadline.is_some(),
+            "hidden pending resumes should remain retryable after a hidden-only resume pass"
+        );
         assert!(app.terminal_runtimes.get(&previous_terminal).is_none());
         assert!(
             app.state
@@ -860,6 +894,28 @@ mod tests {
                 .is_some(),
             "a pane hidden by navigation should wait for a fresh visible geometry snapshot"
         );
+
+        app.state.active = Some(0);
+        let previous_pane_infos = app.state.workspaces[0].tabs[0]
+            .layout
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+        app.state.view.pane_infos = previous_pane_infos;
+
+        assert!(app.start_pending_agent_resumes(false));
+        assert!(app.terminal_runtimes.get(&previous_terminal).is_some());
+        assert!(
+            app.state
+                .terminals
+                .get(&previous_terminal)
+                .expect("previous terminal should still exist")
+                .pending_agent_resume_plan
+                .is_none(),
+            "a pane hidden by navigation should launch after receiving fresh visible geometry"
+        );
+
+        for (_, runtime) in app.terminal_runtimes.drain() {
+            runtime.shutdown();
+        }
     }
 
     #[tokio::test]
