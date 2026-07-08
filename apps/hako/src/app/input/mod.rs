@@ -65,7 +65,10 @@ pub(crate) use self::{
         action_for_key, execute_navigate_action_in_context, terminal_direct_navigation_action,
         ActionContext, BindingDispatch, NavigateAction,
     },
-    settings::{open_settings_at, update_settings_mouse_for_view, update_settings_state_for_view},
+    settings::{
+        open_settings_at, prepare_general_settings_state, update_settings_mouse_for_view,
+        update_settings_state_for_view,
+    },
     sidebar::{AgentMenuAction, GroupMenuAction},
 };
 

@@ -2900,10 +2900,7 @@ impl App {
         client_view: &mut ClientViewState,
         section: crate::app::state::SettingsSection,
     ) {
-        client_view.settings = self.state.settings.clone();
-        client_view.settings.original_palette = Some(self.state.palette.clone());
-        client_view.settings.original_theme = Some(self.state.theme_name.clone());
-        client_view.settings.section = section;
+        input::prepare_general_settings_state(&self.state, &mut client_view.settings, section);
         client_view.mode = Mode::Settings;
     }
 
@@ -8415,6 +8412,44 @@ mod tests {
         assert_eq!(first_client.mode, Mode::Settings);
         assert_eq!(second_client.mode, Mode::Terminal);
         assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn route_client_events_for_view_prefix_settings_opens_general_settings_from_stale_group_target()
+    {
+        let mut app = test_app();
+        let work_group = app.state.create_group("Work".to_string());
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.settings.section = state::SettingsSection::GroupGeneral;
+        app.state.settings.group_settings_target = Some(work_group);
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_key(
+                    KeyCode::Char('b'),
+                    KeyModifiers::CONTROL,
+                    KeyEventKind::Press,
+                ),
+                raw_key(
+                    KeyCode::Char('s'),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                ),
+            ],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Settings);
+        assert_eq!(client.settings.section, state::SettingsSection::Theme);
+        assert_eq!(client.settings.group_settings_target, None);
+        assert_eq!(client.settings.workspace_settings_target, None);
     }
 
     #[test]

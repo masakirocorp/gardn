@@ -6,7 +6,7 @@ use crate::{
     app::{
         state::{
             normalize_theme_name, theme_names_for_appearance, AppState, DragState, DragTarget,
-            SettingsSection, THEME_NAMES,
+            SettingsSection, SettingsState, THEME_NAMES,
         },
         view_state::ClientViewState,
         App, Mode,
@@ -2043,39 +2043,51 @@ pub(crate) fn open_settings(state: &mut AppState) {
     open_settings_at(state, SettingsSection::Theme);
 }
 
-pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
-    state.integration_install_messages.clear();
-    state.settings.original_palette = Some(state.palette.clone());
-    state.settings.original_theme = Some(state.theme_name.clone());
-    state.settings.pending_theme_name = Some(state.global_theme_name.clone());
-    state.settings.pending_theme_mode = Some(state.global_theme_mode);
-    state.settings.pending_light_theme_name = Some(state.global_light_theme_name.clone());
-    state.settings.pending_dark_theme_name = Some(state.global_dark_theme_name.clone());
-    state.settings.pending_terminal_light_accent = Some(state.global_terminal_light_accent);
-    state.settings.pending_terminal_dark_accent = Some(state.global_terminal_dark_accent);
-    state.settings.pending_sound_enabled = Some(state.sound_enabled());
-    state.settings.pending_toast_delivery = Some(state.toast_delivery());
-    state.settings.pending_confirm_close = Some(state.confirm_close_enabled());
-    state.settings.pending_prompt_new_tab_name = Some(state.prompt_new_tab_name_enabled());
-    state.settings.pending_new_terminal_cwd = Some(state.new_terminal_cwd.clone());
-    state.settings.pending_mouse_scroll_lines = Some(state.mouse_scroll_lines);
-    state.settings.pending_sidebar_width = Some(state.default_sidebar_width);
-    state.settings.pending_sidebar_min_width = Some(state.sidebar_min_width);
-    state.settings.pending_sidebar_max_width = Some(state.sidebar_max_width);
-    state.settings.pending_sidebar_arrangement = Some(state.sidebar_arrangement);
-    state.settings.pending_worktree_directory = None;
-    state.settings.pending_agent_border_labels = Some(state.agent_border_labels_enabled());
-    state.settings.pending_agent_profile_id = None;
-    state.settings.pending_agent_profile_name = None;
-    state.settings.pending_agent_profile_kind = Some(state.default_agent_profile_kind_choice());
-    state.settings.pending_agent_profile_command = None;
-    state.settings.pending_workspace_name = None;
-    state.settings.pending_workspace_default_cwd = None;
-    state.settings.group_settings_target = None;
-    state.settings.workspace_settings_target = None;
-    state.settings.section = section;
-    state.settings.list.selected = match section {
-        SettingsSection::Theme => target_theme_index(state),
+pub(crate) fn prepare_general_settings_state(
+    state: &AppState,
+    settings: &mut SettingsState,
+    section: SettingsSection,
+) {
+    settings.original_palette = Some(state.palette.clone());
+    settings.original_theme = Some(state.theme_name.clone());
+    settings.pending_theme_name = Some(state.global_theme_name.clone());
+    settings.pending_theme_mode = Some(state.global_theme_mode);
+    settings.pending_light_theme_name = Some(state.global_light_theme_name.clone());
+    settings.pending_dark_theme_name = Some(state.global_dark_theme_name.clone());
+    settings.pending_terminal_light_accent = Some(state.global_terminal_light_accent);
+    settings.pending_terminal_dark_accent = Some(state.global_terminal_dark_accent);
+    settings.pending_sound_enabled = Some(state.sound_enabled());
+    settings.pending_toast_delivery = Some(state.toast_delivery());
+    settings.pending_confirm_close = Some(state.confirm_close_enabled());
+    settings.pending_prompt_new_tab_name = Some(state.prompt_new_tab_name_enabled());
+    settings.pending_new_terminal_cwd = Some(state.new_terminal_cwd.clone());
+    settings.pending_mouse_scroll_lines = Some(state.mouse_scroll_lines);
+    settings.pending_sidebar_width = Some(state.default_sidebar_width);
+    settings.pending_sidebar_min_width = Some(state.sidebar_min_width);
+    settings.pending_sidebar_max_width = Some(state.sidebar_max_width);
+    settings.pending_sidebar_arrangement = Some(state.sidebar_arrangement);
+    settings.pending_worktree_directory = None;
+    settings.pending_agent_border_labels = Some(state.agent_border_labels_enabled());
+    settings.pending_agent_profile_id = None;
+    settings.pending_agent_profile_name = None;
+    settings.pending_agent_profile_kind = Some(state.default_agent_profile_kind_choice());
+    settings.pending_agent_profile_command = None;
+    settings.pending_workspace_name = None;
+    settings.pending_workspace_default_cwd = None;
+    settings.group_settings_target = None;
+    settings.workspace_settings_target = None;
+    settings.section = section;
+    settings.list.selected = match section {
+        SettingsSection::Theme => {
+            if state.global_theme_mode == ThemeMode::System
+                && normalize_theme_name(&state.global_light_theme_name) == "system"
+                && normalize_theme_name(&state.global_dark_theme_name) == "system"
+            {
+                0
+            } else {
+                2 + current_theme_mode_index(state.global_theme_mode)
+            }
+        }
         SettingsSection::Layout => 0,
         SettingsSection::Sound => 0,
         SettingsSection::Toast => 0,
@@ -2087,7 +2099,15 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
         SettingsSection::GroupProfiles => 0,
         SettingsSection::WorkspaceGeneral => 0,
     };
-    state.settings.scroll = 0;
+    settings.scroll = 0;
+    settings.selection_active = false;
+}
+
+pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
+    state.integration_install_messages.clear();
+    let mut settings = state.settings.clone();
+    prepare_general_settings_state(state, &mut settings, section);
+    state.settings = settings;
     clear_settings_selection(state);
     ensure_settings_selection_visible(state);
     if section == SettingsSection::Theme {
