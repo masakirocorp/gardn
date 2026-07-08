@@ -262,10 +262,14 @@ fn shell_command_from_plan(plan: &crate::agent_resume::AgentResumePlan) -> Optio
         return Some(command);
     }
 
-    let mut prefixed = String::from("env");
-    for (key, value) in &plan.env {
-        prefixed.push(' ');
-        prefixed.push_str(&shell_quote(&format!("{key}={value}")));
+    let mut prefixed = String::new();
+    for (idx, (key, value)) in plan.env.iter().enumerate() {
+        if idx > 0 {
+            prefixed.push(' ');
+        }
+        prefixed.push_str(key);
+        prefixed.push('=');
+        prefixed.push_str(&shell_quote(value));
     }
     prefixed.push(' ');
     prefixed.push_str(&command);
@@ -934,7 +938,7 @@ mod tests {
         };
         assert_eq!(
             shell_command_from_plan(&plan).as_deref(),
-            Some("env 'CODEX_HOME=/profiles/codex with space' codex resume session")
+            Some("CODEX_HOME='/profiles/codex with space' codex resume session")
         );
     }
 }

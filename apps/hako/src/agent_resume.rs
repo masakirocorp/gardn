@@ -543,6 +543,30 @@ mod tests {
     }
 
     #[test]
+    fn planner_uses_omp_launch_command_for_path_resume() {
+        let home = std::env::var("HOME").expect("HOME should be set in tests");
+        let session_path =
+            format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako/session.jsonl");
+        let session_dir = format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako");
+        let session_ref = AgentSessionRef::path(session_path.clone()).unwrap();
+        let launch_argv = vec!["omp-mk".to_string(), "--ignored-launch-arg".to_string()];
+
+        let plan = plan_with_launch_argv("hako:omp", "omp", &session_ref, Some(&launch_argv))
+            .expect("official OMP path ref should be resumable");
+
+        assert_eq!(
+            plan.argv,
+            vec![
+                "omp-mk",
+                "--resume",
+                &session_path,
+                "--session-dir",
+                &session_dir
+            ]
+        );
+    }
+
+    #[test]
     fn planner_preserves_shell_resolved_profile_command_and_launch_env() {
         let home = std::env::var("HOME").expect("HOME should be set in tests");
         let session_path =

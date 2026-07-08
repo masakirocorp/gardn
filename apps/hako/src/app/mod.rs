@@ -3684,10 +3684,49 @@ impl App {
             return;
         }
 
+        if self.handle_client_view_scroll_mouse(client_view, mouse) {
+            return;
+        }
+
         if self.handle_client_view_terminal_pane_left_click(client_view, mouse) {
             return;
         }
         client_view.reconcile(&self.state);
+    }
+
+    fn handle_client_view_scroll_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        if !matches!(
+            mouse.kind,
+            crossterm::event::MouseEventKind::ScrollUp
+                | crossterm::event::MouseEventKind::ScrollDown
+                | crossterm::event::MouseEventKind::ScrollLeft
+                | crossterm::event::MouseEventKind::ScrollRight
+        ) {
+            return false;
+        }
+
+        let mut local_state = self.state.clone();
+        Self::sync_app_state_view_fields(&mut local_state, client_view);
+        crate::app::view_state::apply_terminal_offsets_to_runtimes(
+            &local_state,
+            &self.terminal_runtimes,
+            client_view,
+        );
+        let _ = local_state.handle_mouse(&mut self.terminal_runtimes, mouse);
+
+        let mut updated_client_view = ClientViewState::from_default_client_state(&local_state);
+        crate::app::view_state::capture_terminal_offsets_from_app_state(
+            &local_state,
+            &self.terminal_runtimes,
+            &mut updated_client_view,
+        );
+        updated_client_view.reconcile(&self.state);
+        *client_view = updated_client_view;
+        true
     }
 
     fn handle_client_view_confirm_mouse(
@@ -8255,6 +8294,90 @@ mod tests {
             Some(0)
         );
         assert_eq!(app.state.workspaces[0].active_tab_index(), 0);
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_mouse_wheel_scrolls_sidebar_and_terminal_client_locally()
+    {
+        let mut app = test_app();
+        app.state.workspaces = (0..16)
+            .map(|idx| Workspace::test_new(&format!("workspace-{idx}")))
+            .collect();
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.mouse_scroll_lines = 2;
+
+        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .terminal_id(root_pane)
+            .cloned()
+            .expect("root pane should have terminal id");
+        app.terminal_runtimes.insert(
+            terminal_id.clone(),
+            TerminalRuntime::test_with_scrollback_bytes(
+                80,
+                4,
+                10_000,
+                b"one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n",
+            ),
+        );
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 100, 12));
+        let workspace_list = app.client_view_workspace_list_rect(&client);
+        let local_state = client_local_app_state(&app, &client);
+        assert!(
+            crate::ui::workspace_list_scroll_metrics(&local_state, workspace_list)
+                .max_offset_from_bottom
+                > 0,
+            "test fixture should make the sidebar workspace list scrollable"
+        );
+        let sidebar_col = workspace_list.x + 1;
+        let sidebar_row = workspace_list.y + workspace_list.height / 2;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::ScrollDown,
+                sidebar_col,
+                sidebar_row,
+            )],
+            true,
+        );
+
+        assert_eq!(client.workspace_scroll, 1);
+        assert_eq!(app.state.workspace_scroll, 0);
+
+        let pane = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == root_pane)
+            .expect("root pane should be rendered");
+        let terminal_col = pane.inner_rect.x + pane.inner_rect.width / 2;
+        let terminal_row = pane.inner_rect.y + pane.inner_rect.height / 2;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::ScrollUp,
+                terminal_col,
+                terminal_row,
+            )],
+            true,
+        );
+
+        assert_eq!(
+            client
+                .terminal_offsets_from_bottom
+                .get(&terminal_id)
+                .copied(),
+            Some(app.state.mouse_scroll_lines)
+        );
+        assert_eq!(app.state.workspace_scroll, 0);
     }
 
     #[test]
