@@ -867,7 +867,7 @@ mod tests {
 
         assert_eq!(
             app.state.groups[app.state.active_group].favorite_agent_profile_ids,
-            vec!["system:codex".to_string()]
+            vec!["system:claude".to_string()]
         );
         assert!(app.state.session_dirty);
     }
@@ -883,7 +883,7 @@ mod tests {
 
         assert_eq!(
             app.state.request_agent_profile_tab,
-            Some((0, "system:omp".to_string()))
+            Some((0, "system:pi".to_string()))
         );
         assert_eq!(app.state.mode, Mode::Terminal);
     }
@@ -1134,10 +1134,10 @@ mod tests {
             .expect("render agent picker");
 
         let buffer = terminal.backend().buffer();
-        let (omp_x, omp_y) = (0..48)
+        let (codex_x, codex_y) = (0..48)
             .flat_map(|y| {
                 (0..153).filter_map(move |x| {
-                    ["o", "m", "p"]
+                    ["c", "o", "d", "e", "x"]
                         .iter()
                         .enumerate()
                         .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == *ch)
@@ -1145,29 +1145,29 @@ mod tests {
                 })
             })
             .last()
-            .expect("omp profile");
-        let omp_idx = agent_profile_picker_filtered_entries(&app.state)
+            .expect("codex profile");
+        let codex_idx = agent_profile_picker_filtered_entries(&app.state)
             .iter()
-            .position(|entry| entry.profile_id == "system:omp")
-            .expect("omp profile index");
+            .position(|entry| entry.profile_id == "system:codex")
+            .expect("codex profile index");
 
         app.handle_mouse(super::super::mouse(
             crossterm::event::MouseEventKind::Moved,
-            omp_x,
-            omp_y,
+            codex_x,
+            codex_y,
         ));
 
-        assert_eq!(app.state.agent_profile_picker.selected, omp_idx);
+        assert_eq!(app.state.agent_profile_picker.selected, codex_idx);
         terminal
             .draw(|frame| crate::ui::render(&app.state, frame))
             .expect("render hovered agent picker");
         let hovered = terminal.backend().buffer();
         assert_eq!(
-            hovered[(omp_x, omp_y)].style().bg,
+            hovered[(codex_x, codex_y)].style().bg,
             Some(app.state.palette_for_workspace(0).accent)
         );
         assert_ne!(
-            hovered[(omp_x, omp_y.saturating_add(1))].style().bg,
+            hovered[(codex_x, codex_y.saturating_add(1))].style().bg,
             Some(app.state.palette_for_workspace(0).accent)
         );
     }

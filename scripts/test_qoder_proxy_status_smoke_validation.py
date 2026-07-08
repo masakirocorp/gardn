@@ -9,6 +9,21 @@ from pathlib import Path
 
 
 class QoderProxyStatusSmokeValidationTests(unittest.TestCase):
+    def test_openrouter_proxy_routes_only_inference_requests(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            ["node", str(repo_root / "ci" / "agent-smoke" / "qoder-openrouter-proxy-test.mjs")],
+            cwd=repo_root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("qoder proxy inference URL matching test ok", output)
+
     def test_forbidden_pricing_response_is_retryable_status_acceptance_failure(self):
         result = self.run_smoke_with_fake_qodercli("entitlement_forbidden")
 

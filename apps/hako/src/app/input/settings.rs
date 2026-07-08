@@ -3207,11 +3207,11 @@ mod tests {
         assert_eq!(action, None);
         assert_eq!(
             state.groups[group_idx].default_agent_profile_id.as_deref(),
-            Some("system:claude")
+            Some("system:codex")
         );
         assert_eq!(
             state.groups[group_idx].favorite_agent_profile_ids,
-            vec!["system:claude".to_string()]
+            vec!["system:codex".to_string()]
         );
         assert!(state.session_dirty);
 
@@ -3228,7 +3228,7 @@ mod tests {
         assert!(state.groups[group_idx].default_agent_profile_id.is_none());
         assert_eq!(
             state.groups[group_idx].favorite_agent_profile_ids,
-            vec!["system:claude".to_string()]
+            vec!["system:codex".to_string()]
         );
         assert!(state.session_dirty);
     }
@@ -3266,7 +3266,7 @@ mod tests {
         );
         assert_eq!(
             state.groups[group_idx].favorite_agent_profile_ids,
-            vec!["system:claude".to_string()]
+            vec!["system:codex".to_string()]
         );
     }
 

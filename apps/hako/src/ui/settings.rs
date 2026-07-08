@@ -1468,7 +1468,7 @@ mod tests {
                 state: crate::integration::IntegrationStatusKind::Current,
             },
         ];
-        app.settings.list.selected = 1;
+        app.settings.list.selected = 2;
         app.settings.selection_active = true;
 
         let area = Rect::new(0, 0, 100, 40);

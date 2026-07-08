@@ -22,33 +22,33 @@ pub enum AgentKind {
 
 impl AgentKind {
     pub const ALL: [Self; 13] = [
-        Self::Codex,
         Self::Claude,
-        Self::Cursor,
-        Self::Opencode,
+        Self::Codex,
         Self::Copilot,
+        Self::Cursor,
+        Self::Custom,
         Self::Devin,
-        Self::Pi,
-        Self::Omp,
-        Self::Kimi,
         Self::Droid,
         Self::Hermes,
+        Self::Kimi,
+        Self::Omp,
+        Self::Opencode,
+        Self::Pi,
         Self::Qodercli,
-        Self::Custom,
     ];
 
     pub const SYSTEM: [Self; 12] = [
-        Self::Codex,
         Self::Claude,
-        Self::Cursor,
-        Self::Opencode,
+        Self::Codex,
         Self::Copilot,
+        Self::Cursor,
         Self::Devin,
-        Self::Pi,
-        Self::Omp,
-        Self::Kimi,
         Self::Droid,
         Self::Hermes,
+        Self::Kimi,
+        Self::Omp,
+        Self::Opencode,
+        Self::Pi,
         Self::Qodercli,
     ];
 
@@ -319,7 +319,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_system_profiles_start_with_popular_agents() {
+    fn default_system_profiles_are_alphabetical() {
         let catalog = AgentProfileCatalog::from_config(&AgentProfilesConfig::default());
 
         assert_eq!(
@@ -329,7 +329,7 @@ mod tests {
                 .take(3)
                 .map(|profile| profile.id.as_str())
                 .collect::<Vec<_>>(),
-            ["system:codex", "system:claude", "system:cursor"]
+            ["system:claude", "system:codex", "system:copilot"]
         );
     }
 
