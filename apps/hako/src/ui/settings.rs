@@ -423,15 +423,19 @@ fn render_settings_integrations(
         .integration_recommendations
         .get(app.settings.list.selected)
     {
+        let missing_profile_hooks = crate::integration::missing_profile_hook_count_for_target(
+            item.target,
+            &app.agent_profiles,
+        );
         match item.state {
+            crate::integration::IntegrationStatusKind::Current if missing_profile_hooks > 0 => {
+                "press enter to repair profile hooks".to_string()
+            }
             crate::integration::IntegrationStatusKind::Current => {
-                "press enter to uninstall selected integration".to_string()
+                "press enter to uninstall selected integration (affects all profiles)".to_string()
             }
             crate::integration::IntegrationStatusKind::Outdated => {
                 "press enter to update selected integration".to_string()
-            }
-            crate::integration::IntegrationStatusKind::MissingProfileHooks => {
-                "press enter to install missing profile hooks".to_string()
             }
             crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
                 "press enter to install selected integration".to_string()

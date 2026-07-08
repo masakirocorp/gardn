@@ -1199,20 +1199,26 @@ fn selected_integration_action(state: &AppState) -> Option<SettingsAction> {
         .integration_recommendations
         .get(state.settings.list.selected)?;
 
+    if recommendation.state == crate::integration::IntegrationStatusKind::Current {
+        let missing_profile_hooks = crate::integration::missing_profile_hook_count_for_target(
+            recommendation.target,
+            &state.agent_profiles,
+        );
+        if missing_profile_hooks > 0 {
+            return Some(SettingsAction::InstallIntegration(recommendation.target));
+        }
+        return Some(SettingsAction::UninstallIntegration(recommendation.target));
+    }
+
     match recommendation.state {
-        crate::integration::IntegrationStatusKind::Current => {
-            Some(SettingsAction::UninstallIntegration(recommendation.target))
-        }
         crate::integration::IntegrationStatusKind::Outdated => {
-            Some(SettingsAction::InstallIntegration(recommendation.target))
-        }
-        crate::integration::IntegrationStatusKind::MissingProfileHooks => {
             Some(SettingsAction::InstallIntegration(recommendation.target))
         }
         crate::integration::IntegrationStatusKind::NotInstalled if recommendation.available => {
             Some(SettingsAction::InstallIntegration(recommendation.target))
         }
-        crate::integration::IntegrationStatusKind::NotInstalled => None,
+        crate::integration::IntegrationStatusKind::NotInstalled
+        | crate::integration::IntegrationStatusKind::Current => None,
     }
 }
 
@@ -4095,10 +4101,50 @@ mod tests {
 
     #[test]
     fn integrations_enter_installs_selected_missing_profile_hooks_row() {
+        let _lock = crate::integration::integration_env_lock();
+        let base = std::env::temp_dir().join(format!(
+            "hako-settings-enter-codex-profile-hook-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let home = base.join("home");
+        let default_codex_dir = home.join(".codex");
+        let custom_codex_dir = home.join(".codex-frs");
+        std::fs::create_dir_all(&default_codex_dir).unwrap();
+        std::fs::create_dir_all(&custom_codex_dir).unwrap();
+        std::fs::write(
+            default_codex_dir.join("config.toml"),
+            "model = \"gpt-5.4\"\n",
+        )
+        .unwrap();
+        let _codex_home_env = crate::config::TestEnvVar::remove("CODEX_HOME");
+        let _home_env = crate::config::TestEnvVar::set("HOME", &home);
+
+        crate::integration::install_target(crate::api::schema::IntegrationTarget::Codex)
+            .expect("install default codex integration");
+        assert!(default_codex_dir.join("hako-agent-state.sh").is_file());
+        assert!(!custom_codex_dir.join("hako-agent-state.sh").exists());
+
         let mut state = state_with_workspaces(&["test"]);
+        state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:codex-frs".to_string()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "codex-frs".to_string(),
+                    name: "codex frs".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Codex,
+                    command: "codex-frs".to_string(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }],
+            },
+        );
         state.integration_recommendations = vec![integration_recommendation_for(
             crate::api::schema::IntegrationTarget::Codex,
-            crate::integration::IntegrationStatusKind::MissingProfileHooks,
+            crate::integration::IntegrationStatusKind::Current,
             true,
         )];
         open_settings_at(&mut state, SettingsSection::Integrations);
@@ -4115,6 +4161,7 @@ mod tests {
                 crate::api::schema::IntegrationTarget::Codex
             ))
         );
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]

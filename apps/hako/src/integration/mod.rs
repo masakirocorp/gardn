@@ -277,7 +277,6 @@ pub(crate) struct IntegrationStatus {
 pub(crate) enum IntegrationStatusKind {
     NotInstalled,
     Current,
-    MissingProfileHooks,
     Outdated,
 }
 
@@ -294,19 +293,13 @@ pub(crate) struct IntegrationRecommendation {
 impl IntegrationRecommendation {
     pub fn needs_install(&self) -> bool {
         self.state == IntegrationStatusKind::Outdated
-            || (self.available
-                && matches!(
-                    self.state,
-                    IntegrationStatusKind::MissingProfileHooks
-                        | IntegrationStatusKind::NotInstalled
-                ))
+            || (self.available && self.state == IntegrationStatusKind::NotInstalled)
     }
 
     pub fn status_label(&self) -> &'static str {
         match (self.available, self.state) {
             (_, IntegrationStatusKind::Current) => "installed",
             (_, IntegrationStatusKind::Outdated) => "update available",
-            (_, IntegrationStatusKind::MissingProfileHooks) => "needs integration",
             (true, IntegrationStatusKind::NotInstalled) => "available",
             (false, IntegrationStatusKind::NotInstalled) => "not found",
         }
@@ -534,23 +527,40 @@ pub(crate) fn agent_profile_integration_warning(
     match status.state {
         IntegrationStatusKind::Current => None,
         IntegrationStatusKind::NotInstalled => Some(format!(
-            "{} uses {}, but Hako's codex integration is not installed for {}. Run `hako integration install codex`, then restart the pane.",
-            profile.name,
-            profile.command,
-            dir.display()
-        )),
-        IntegrationStatusKind::MissingProfileHooks => Some(format!(
-            "{} uses {}, but Hako's codex integration is missing profile hooks for {}. Run `hako integration install codex`, then restart the pane.",
+            "{} uses {}, but Hako's codex hook is missing for {}. Run `hako integration install codex`, then restart the pane.",
             profile.name,
             profile.command,
             dir.display()
         )),
         IntegrationStatusKind::Outdated => Some(format!(
-            "{} uses {}, but Hako's codex integration is outdated for {}. Run `hako integration install codex`, then restart the pane.",
+            "{} uses {}, but Hako's codex hook is outdated for {}. Run `hako integration install codex`, then restart the pane.",
             profile.name,
             profile.command,
             dir.display()
         )),
+    }
+}
+
+pub(crate) fn agent_profile_integration_badge(
+    profile: &crate::agent_profiles::AgentProfile,
+) -> Option<&'static str> {
+    let target = profile.kind.integration_target()?;
+    if target != crate::api::schema::IntegrationTarget::Codex {
+        return None;
+    }
+    let dir = match codex_home_dir_for_profile(profile) {
+        Ok(Some(dir)) => dir,
+        Ok(None) | Err(_) => return Some("codex home unknown"),
+    };
+    let status = integration_status_at(
+        target,
+        dir.join(CODEX_HOOK_INSTALL_NAME),
+        CODEX_INTEGRATION_VERSION,
+    );
+    match status.state {
+        IntegrationStatusKind::Current => None,
+        IntegrationStatusKind::NotInstalled => Some("hook missing"),
+        IntegrationStatusKind::Outdated => Some("hook outdated"),
     }
 }
 
@@ -1204,26 +1214,18 @@ pub(crate) fn integration_recommendations() -> Vec<IntegrationRecommendation> {
         .collect()
 }
 
-pub(crate) fn integration_recommendations_for_agent_profiles(
+pub(crate) fn missing_profile_hook_count_for_target(
+    target: crate::api::schema::IntegrationTarget,
     agent_profiles: &crate::agent_profiles::AgentProfileCatalog,
-) -> Vec<IntegrationRecommendation> {
-    let mut recommendations = integration_recommendations();
-    for recommendation in &mut recommendations {
-        if recommendation.target != crate::api::schema::IntegrationTarget::Codex {
-            continue;
-        }
-        if recommendation.state != IntegrationStatusKind::Current {
-            continue;
-        }
-        if agent_profiles
-            .profiles()
-            .iter()
-            .any(codex_profile_needs_hook_install)
-        {
-            recommendation.state = IntegrationStatusKind::MissingProfileHooks;
-        }
+) -> usize {
+    if target != crate::api::schema::IntegrationTarget::Codex {
+        return 0;
     }
-    recommendations
+    agent_profiles
+        .profiles()
+        .iter()
+        .filter(|profile| codex_profile_needs_hook_install(profile))
+        .count()
 }
 
 fn codex_profile_needs_hook_install(profile: &crate::agent_profiles::AgentProfile) -> bool {

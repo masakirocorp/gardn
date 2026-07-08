@@ -463,10 +463,10 @@ fn agent_profile_badge(
     profile: &crate::agent_profiles::AgentProfile,
     is_favorite: bool,
     is_default: bool,
-    integration_warning: Option<&str>,
+    integration_badge: Option<&str>,
 ) -> Option<Cow<'static, str>> {
-    if integration_warning.is_some() {
-        Some("needs integration".into())
+    if let Some(badge) = integration_badge {
+        Some(badge.to_string().into())
     } else if !profile.available() {
         Some("unavailable".into())
     } else if is_default {
@@ -615,8 +615,8 @@ fn agent_profile_row(
     is_default: bool,
     tone: SettingsMarkerTone,
 ) -> SettingsListRow {
-    let integration_warning = crate::integration::agent_profile_integration_warning(profile);
-    let tone = if integration_warning.is_some() {
+    let integration_badge = crate::integration::agent_profile_integration_badge(profile);
+    let tone = if integration_badge.is_some() {
         SettingsMarkerTone::Warning
     } else {
         tone
@@ -625,12 +625,7 @@ fn agent_profile_row(
         index,
         name: profile.name.clone().into(),
         detail: agent_profile_detail(profile).into(),
-        badge: agent_profile_badge(
-            profile,
-            is_favorite,
-            is_default,
-            integration_warning.as_deref(),
-        ),
+        badge: agent_profile_badge(profile, is_favorite, is_default, integration_badge),
         tone,
     }
 }
@@ -891,23 +886,42 @@ fn integration_rows(app: &AppState) -> Vec<SettingsListRow> {
         .iter()
         .enumerate()
         .map(|(index, item)| {
-            let tone = match item.state {
-                crate::integration::IntegrationStatusKind::Current => SettingsMarkerTone::Good,
-                crate::integration::IntegrationStatusKind::Outdated => SettingsMarkerTone::Warning,
-                crate::integration::IntegrationStatusKind::MissingProfileHooks => {
-                    SettingsMarkerTone::Warning
+            let missing_profile_hooks = crate::integration::missing_profile_hook_count_for_target(
+                item.target,
+                &app.agent_profiles,
+            );
+            let profile_hooks_missing = item.state
+                == crate::integration::IntegrationStatusKind::Current
+                && missing_profile_hooks > 0;
+            let tone = if profile_hooks_missing {
+                SettingsMarkerTone::Warning
+            } else {
+                match item.state {
+                    crate::integration::IntegrationStatusKind::Current => SettingsMarkerTone::Good,
+                    crate::integration::IntegrationStatusKind::Outdated => {
+                        SettingsMarkerTone::Warning
+                    }
+                    crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
+                        SettingsMarkerTone::Accent
+                    }
+                    crate::integration::IntegrationStatusKind::NotInstalled => {
+                        SettingsMarkerTone::Disabled
+                    }
                 }
-                crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
-                    SettingsMarkerTone::Accent
+            };
+            let status = if profile_hooks_missing {
+                if missing_profile_hooks == 1 {
+                    "installed · 1 profile hook missing".to_string()
+                } else {
+                    format!("installed · {missing_profile_hooks} profile hooks missing")
                 }
-                crate::integration::IntegrationStatusKind::NotInstalled => {
-                    SettingsMarkerTone::Disabled
-                }
+            } else {
+                item.status_label().to_string()
             };
             SettingsListRow::Status {
                 index,
                 label: item.label.into(),
-                status: item.status_label().into(),
+                status: status.into(),
                 tone,
             }
         })
@@ -1184,12 +1198,12 @@ mod tests {
         match row {
             SettingsListRow::Profile { badge, tone, .. } => {
                 assert_eq!(*tone, SettingsMarkerTone::Warning);
-                let badge = badge
-                    .as_ref()
-                    .expect("profile row should expose integration warning badge");
-                assert!(
-                    badge.contains("integration") || badge.contains("hook"),
-                    "{badge}"
+                assert_eq!(
+                    badge
+                        .as_ref()
+                        .expect("profile row should expose missing hook badge")
+                        .as_ref(),
+                    "hook missing"
                 );
             }
             _ => unreachable!("matched profile row"),
@@ -1241,8 +1255,14 @@ mod tests {
                 }],
             },
         );
-        app.integration_recommendations =
-            crate::integration::integration_recommendations_for_agent_profiles(&app.agent_profiles);
+        app.integration_recommendations = vec![crate::integration::IntegrationRecommendation {
+            target: crate::api::schema::IntegrationTarget::Codex,
+            label: "codex",
+            command: "codex",
+            available: true,
+            path: default_codex_dir.join("hako-agent-state.sh"),
+            state: crate::integration::IntegrationStatusKind::Current,
+        }];
 
         let rows = rows_for_section(&app, SettingsSection::Integrations).expect("integration rows");
         let codex_row = rows
@@ -1257,7 +1277,7 @@ mod tests {
 
         match codex_row {
             SettingsListRow::Status { status, tone, .. } => {
-                assert_eq!(status.as_ref(), "needs integration");
+                assert_eq!(status.as_ref(), "installed · 1 profile hook missing");
                 assert_eq!(*tone, SettingsMarkerTone::Warning);
             }
             _ => unreachable!("matched status row"),

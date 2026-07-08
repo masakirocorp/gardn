@@ -275,7 +275,7 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
                 };
                 agent_profile_picker_entry_line(
                     &entry.name,
-                    entry.integration_warning.is_some(),
+                    entry.integration_badge,
                     *shortcut,
                     *default,
                     list_width,
@@ -441,7 +441,7 @@ fn agent_profile_picker_rows<'a>(
 
 fn agent_profile_picker_entry_line<'a>(
     title: &str,
-    needs_integration: bool,
+    integration_badge: Option<&str>,
     shortcut: Option<usize>,
     is_default: bool,
     width: usize,
@@ -450,13 +450,13 @@ fn agent_profile_picker_entry_line<'a>(
     row_style: Style,
 ) -> Line<'a> {
     let title_text = format!("  {title}");
-    let meta_text = match (needs_integration, is_default, shortcut) {
-        (true, _, Some(shortcut)) => Some(format!("needs integration  alt+{shortcut}")),
-        (true, _, None) => Some("needs integration".to_string()),
-        (false, true, Some(shortcut)) => Some(format!("default  alt+{shortcut}")),
-        (false, true, None) => Some("default".to_string()),
-        (false, false, Some(shortcut)) => Some(format!("alt+{shortcut}")),
-        (false, false, None) => None,
+    let meta_text = match (integration_badge, is_default, shortcut) {
+        (Some(badge), _, Some(shortcut)) => Some(format!("{badge}  alt+{shortcut}")),
+        (Some(badge), _, None) => Some(badge.to_string()),
+        (None, true, Some(shortcut)) => Some(format!("default  alt+{shortcut}")),
+        (None, true, None) => Some("default".to_string()),
+        (None, false, Some(shortcut)) => Some(format!("alt+{shortcut}")),
+        (None, false, None) => None,
     };
     let Some(meta_text) = meta_text else {
         return Line::from(Span::styled(

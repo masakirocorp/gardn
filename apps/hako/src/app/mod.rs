@@ -555,8 +555,7 @@ impl App {
         let agent_manifest_summaries = crate::detect::manifest::reload_manifests();
         let agent_profiles =
             crate::agent_profiles::AgentProfileCatalog::from_config(&config.agent_profiles);
-        let integration_recommendations =
-            crate::integration::integration_recommendations_for_agent_profiles(&agent_profiles);
+        let integration_recommendations = crate::integration::integration_recommendations();
 
         let mut state = AppState {
             groups,
@@ -1372,10 +1371,7 @@ impl App {
     }
 
     pub(crate) fn refresh_integration_recommendations(&mut self) {
-        self.state.integration_recommendations =
-            crate::integration::integration_recommendations_for_agent_profiles(
-                &self.state.agent_profiles,
-            );
+        self.state.integration_recommendations = crate::integration::integration_recommendations();
     }
 
     pub(crate) fn install_integration(&mut self, target: crate::api::schema::IntegrationTarget) {

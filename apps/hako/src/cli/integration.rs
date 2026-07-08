@@ -47,9 +47,6 @@ fn integration_status(args: &[String]) -> std::io::Result<i32> {
             crate::integration::IntegrationStatusKind::Current => {
                 format!("current ({version})")
             }
-            crate::integration::IntegrationStatusKind::MissingProfileHooks => {
-                "missing profile hooks".to_string()
-            }
             crate::integration::IntegrationStatusKind::Outdated => {
                 format!("outdated ({version}; expected v{})", status.expected_version)
             }

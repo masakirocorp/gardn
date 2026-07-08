@@ -9,6 +9,7 @@ pub(crate) struct AgentProfilePickerEntry {
     pub kind: AgentKind,
     pub section: &'static str,
     pub integration_warning: Option<String>,
+    pub integration_badge: Option<&'static str>,
 }
 
 impl AgentProfilePickerEntry {
@@ -95,6 +96,7 @@ pub(crate) fn agent_profile_picker_entries_for_workspace(
             kind: profile.kind,
             section: "favorites",
             integration_warning: crate::integration::agent_profile_integration_warning(profile),
+            integration_badge: crate::integration::agent_profile_integration_badge(profile),
         })
         .chain(
             available
@@ -108,6 +110,7 @@ pub(crate) fn agent_profile_picker_entries_for_workspace(
                     integration_warning: crate::integration::agent_profile_integration_warning(
                         profile,
                     ),
+                    integration_badge: crate::integration::agent_profile_integration_badge(profile),
                 }),
         )
         .collect()
