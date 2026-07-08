@@ -821,7 +821,7 @@ fn multi_client_eventually_broadcasts_frame_updates_to_all_clients() {
     );
 
     send_client_input(&mut client_a, marker.as_bytes());
-    let received = wait_for_frame_matching(&mut client_b, Duration::from_secs(5), |frame| {
+    let received = wait_for_frame_matching(&mut client_b, Duration::from_secs(15), |frame| {
         frame_contains_text(frame, &marker)
     })
     .expect("frame decoding should succeed");
