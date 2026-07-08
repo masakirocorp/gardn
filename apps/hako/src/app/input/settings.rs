@@ -2207,17 +2207,7 @@ impl AppState {
     }
 
     fn settings_overlay_rect(&self) -> Rect {
-        let screen = self.screen_rect();
-        if self.view.layout == crate::app::state::ViewLayout::Desktop {
-            Rect::new(
-                screen.x,
-                screen.y,
-                screen.width.saturating_add(1),
-                screen.height.saturating_add(1),
-            )
-        } else {
-            screen
-        }
+        self.screen_rect()
     }
 
     fn settings_inner_rect(&self) -> Rect {
@@ -4588,6 +4578,43 @@ mod tests {
             app.state.sidebar_arrangement,
             crate::config::SidebarArrangementConfig::Separate
         );
+    }
+
+    #[test]
+    fn settings_mouse_click_hits_rendered_one_line_option_in_odd_height_modal() {
+        const WIDTH: u16 = 150;
+        const HEIGHT: u16 = 41;
+
+        let mut app = app_for_mouse_test();
+        app.state.sound.enabled = true;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, WIDTH, HEIGHT));
+        open_settings_at(&mut app.state, SettingsSection::Sound);
+
+        let (_, heading_y) = rendered_text_point(&app, "sound alerts", WIDTH, HEIGHT);
+        let (sound_x, sound_y) =
+            rendered_text_point_at_or_after_row(&app, "sound alerts", heading_y + 1, WIDTH, HEIGHT);
+        let action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            sound_x,
+            sound_y,
+        ));
+
+        assert_eq!(
+            app.state.settings.list.selected, 0,
+            "clicking the rendered sound alerts row at {sound_x},{sound_y} should select the sound toggle"
+        );
+        assert_eq!(app.state.settings.pending_sound_enabled, Some(false));
+        match action {
+            Some(SettingsAction::SaveSettings { sound_enabled, .. }) => assert!(
+                !sound_enabled,
+                "clicking the rendered sound alerts row should disable sound"
+            ),
+            other => panic!(
+                "expected sound save action, got {other:?}; point={sound_x},{sound_y}; content={:?}; screen={:?}",
+                app.state.settings_content_rect(),
+                app.state.screen_rect()
+            ),
+        }
     }
 
     #[test]
