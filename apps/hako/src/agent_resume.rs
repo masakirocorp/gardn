@@ -56,14 +56,25 @@ pub fn session_ref_from_report(
     source: &str,
     agent: &str,
     agent_session_id: Option<String>,
-    _agent_session_path: Option<String>,
+    agent_session_path: Option<String>,
 ) -> Option<AgentSessionRef> {
     if !is_official_agent_source(source, agent) {
         return None;
     }
 
-    if matches!(agent, "pi" | "omp") {
-        return _agent_session_path
+    if agent == "omp" {
+        let path_ref = agent_session_path.and_then(AgentSessionRef::path);
+        if path_ref
+            .as_ref()
+            .is_some_and(|session_ref| Path::new(&session_ref.value).is_file())
+        {
+            return path_ref;
+        }
+        return agent_session_id.and_then(AgentSessionRef::id);
+    }
+
+    if agent == "pi" {
+        return agent_session_path
             .and_then(AgentSessionRef::path)
             .or_else(|| agent_session_id.and_then(AgentSessionRef::id));
     }
@@ -446,6 +457,61 @@ mod tests {
     }
 
     #[test]
+    fn omp_report_uses_session_id_when_reported_path_is_not_a_file() {
+        let missing_path = std::env::temp_dir()
+            .join(format!(
+                "hako-missing-omp-session-{}-{}.jsonl",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ))
+            .to_string_lossy()
+            .to_string();
+
+        let session_ref = session_ref_from_report(
+            "hako:omp",
+            "omp",
+            Some("stable-omp-session-id".into()),
+            Some(missing_path),
+        )
+        .expect("report with durable id should remain resumable");
+
+        assert_eq!(
+            session_ref,
+            AgentSessionRef {
+                kind: AgentSessionRefKind::Id,
+                value: "stable-omp-session-id".into()
+            }
+        );
+    }
+
+    #[test]
+    fn omp_report_prefers_existing_session_path_over_session_id() {
+        let existing_path = std::env::current_exe()
+            .expect("test executable path should be available")
+            .to_string_lossy()
+            .to_string();
+
+        let session_ref = session_ref_from_report(
+            "hako:omp",
+            "omp",
+            Some("stable-omp-session-id".into()),
+            Some(existing_path.clone()),
+        )
+        .expect("existing OMP path should remain resumable");
+
+        assert_eq!(
+            session_ref,
+            AgentSessionRef {
+                kind: AgentSessionRefKind::Path,
+                value: existing_path
+            }
+        );
+    }
+
+    #[test]
     fn planner_preserves_available_launch_command_for_every_resumable_agent() {
         let launch_command = std::env::current_exe()
             .expect("test executable path should be available")
@@ -703,15 +769,19 @@ mod tests {
         .unwrap();
         assert_eq!(session_ref.kind, AgentSessionRefKind::Path);
         assert_eq!(session_ref.value, "/tmp/pi-session.jsonl");
+        let omp_path = std::env::current_exe()
+            .expect("test executable path should be available")
+            .to_string_lossy()
+            .to_string();
         let omp_session_ref = session_ref_from_report(
             "hako:omp",
             "omp",
             Some("omp-id".into()),
-            Some("/tmp/omp-session.jsonl".into()),
+            Some(omp_path.clone()),
         )
         .unwrap();
         assert_eq!(omp_session_ref.kind, AgentSessionRefKind::Path);
-        assert_eq!(omp_session_ref.value, "/tmp/omp-session.jsonl");
+        assert_eq!(omp_session_ref.value, omp_path);
 
         assert!(session_ref_from_report("hako:pi", "pi", Some("bad\nid".into()), None).is_none());
         assert!(

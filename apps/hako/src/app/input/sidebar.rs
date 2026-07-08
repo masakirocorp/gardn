@@ -765,15 +765,15 @@ impl AppState {
 
             let drops = crate::ui::compute_workspace_group_drop_areas_in_list(self, list);
 
-            return drops.iter().find_map(|drop| {
-                (row >= drop.rect.y && row < drop.rect.y + drop.rect.height).then_some(
-                    WorkspaceDropTarget {
-                        insert_idx: drop.insert_idx,
-                        group_idx: Some(drop.group_idx),
-                        indicator_row: Some(drop.rect.y),
-                    },
-                )
-            });
+            return drops
+                .iter()
+                .filter(|drop| row >= drop.rect.y && row < drop.rect.y + drop.rect.height)
+                .min_by_key(|drop| drop.insert_idx)
+                .map(|drop| WorkspaceDropTarget {
+                    insert_idx: drop.insert_idx,
+                    group_idx: Some(drop.group_idx),
+                    indicator_row: Some(drop.rect.y),
+                });
         }
 
         let cards = if self.view.workspace_card_areas.is_empty() {
@@ -805,7 +805,7 @@ impl AppState {
             match best {
                 Some((best_idx, best_distance))
                     if distance > best_distance
-                        || (distance == best_distance && insert_idx < best_idx) => {}
+                        || (distance == best_distance && insert_idx > best_idx) => {}
                 _ => best = Some((insert_idx, distance)),
             }
         }
@@ -3286,11 +3286,13 @@ mod tests {
         let first_root = first.tabs[0].root_pane;
         first.identity_cwd = first_repo.clone();
         first.refresh_git_ahead_behind();
+        first.cached_git_work_summary = Some(crate::workspace::GitWorkSummary::default());
 
         let mut second = Workspace::test_new("b");
         let second_root = second.tabs[0].root_pane;
         second.identity_cwd = second_repo.clone();
         second.refresh_git_ahead_behind();
+        second.cached_git_work_summary = Some(crate::workspace::GitWorkSummary::default());
 
         app.state.workspaces = vec![first, second];
         app.state.ensure_test_terminals();
@@ -3323,10 +3325,11 @@ mod tests {
                 .workspace_drop_index_at_row(first.y + first.height),
             Some(1)
         );
+        assert_eq!(app.state.workspace_drop_index_at_row(second.y), Some(1));
         assert_eq!(
             app.state
-                .workspace_drop_index_at_row(second.y.saturating_sub(1)),
-            Some(1)
+                .workspace_drop_index_at_row(second.y + second.height),
+            Some(2)
         );
 
         let _ = fs::remove_dir_all(first_repo);
@@ -3352,7 +3355,7 @@ mod tests {
         .unwrap();
 
         let last = cards.last().unwrap().rect;
-        assert_eq!(bottom_slot, last.y + last.height.saturating_sub(1));
+        assert_eq!(bottom_slot, last.y + last.height);
         assert!(bottom_slot < app.state.sidebar_footer_rect().y);
     }
 

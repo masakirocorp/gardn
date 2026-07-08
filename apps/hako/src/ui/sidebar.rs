@@ -1551,7 +1551,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
 
 pub(crate) fn workspace_drop_indicator_row(
     cards: &[crate::app::state::WorkspaceCardArea],
-    _area: Rect,
+    area: Rect,
     insert_idx: usize,
 ) -> Option<u16> {
     let first = cards.first()?;
@@ -1567,9 +1567,11 @@ pub(crate) fn workspace_drop_indicator_row(
         .last()
         .filter(|card| insert_idx == card.ws_idx.saturating_add(1))
         .map(|card| {
+            let body_bottom = area.y.saturating_add(area.height);
             card.rect
                 .y
-                .saturating_add(card.rect.height.saturating_sub(1))
+                .saturating_add(card.rect.height)
+                .min(body_bottom.saturating_sub(1))
         })
 }
 

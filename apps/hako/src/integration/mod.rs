@@ -452,6 +452,77 @@ pub(crate) fn install_target(
     result
 }
 
+pub(crate) fn install_target_for_agent_profiles(
+    target: crate::api::schema::IntegrationTarget,
+    agent_profiles: &crate::agent_profiles::AgentProfileCatalog,
+) -> io::Result<Vec<String>> {
+    if target != crate::api::schema::IntegrationTarget::Codex {
+        return install_target(target);
+    }
+
+    let result = install_codex_for_agent_profiles_inner(agent_profiles);
+    let outcome = if result.is_ok() { "ok" } else { "error" };
+    crate::logging::integration_action("install", integration_target_label(target), outcome);
+    result
+}
+
+fn install_codex_for_agent_profiles_inner(
+    agent_profiles: &crate::agent_profiles::AgentProfileCatalog,
+) -> io::Result<Vec<String>> {
+    if !integration_target_supported(crate::api::schema::IntegrationTarget::Codex) {
+        return Err(io::Error::other(
+            "codex integration is not supported on Windows",
+        ));
+    }
+
+    let mut dirs = vec![codex_dir()?];
+    for profile in agent_profiles.profiles() {
+        if profile.kind != crate::agent_profiles::AgentKind::Codex || !profile.enabled {
+            continue;
+        }
+        let Some((_, codex_home)) = profile
+            .env
+            .iter()
+            .find(|(key, _)| key == CODEX_HOME_ENV_VAR)
+        else {
+            continue;
+        };
+        let dir = expand_tilde_path(PathBuf::from(codex_home))?;
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    }
+
+    let mut messages = Vec::new();
+    let mut skipped_missing_dirs = Vec::new();
+    for dir in dirs {
+        if dir.is_dir() {
+            messages.extend(codex_install_messages(install_codex_at(&dir)?));
+        } else {
+            skipped_missing_dirs.push(dir);
+        }
+    }
+
+    if messages.is_empty() {
+        let dir = skipped_missing_dirs
+            .first()
+            .cloned()
+            .unwrap_or_else(|| PathBuf::from("<unknown>"));
+        return Err(io::Error::other(format!(
+            "codex config directory not found at {}. install codex first",
+            dir.display()
+        )));
+    }
+
+    messages.extend(skipped_missing_dirs.into_iter().map(|dir| {
+        format!(
+            "{INSTALL_WARNING_PREFIX} skipped missing codex config directory at {}",
+            dir.display()
+        )
+    }));
+    Ok(messages)
+}
+
 fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Result<Vec<String>> {
     if !integration_target_supported(target) {
         return Err(io::Error::other(format!(
@@ -503,20 +574,7 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
                 ),
             ]
         }
-        crate::api::schema::IntegrationTarget::Codex => {
-            let installed = install_codex()?;
-            vec![
-                format!(
-                    "installed codex integration hook to {}",
-                    installed.hook_path.display()
-                ),
-                format!("ensured codex hooks at {}", installed.hooks_path.display()),
-                format!(
-                    "ensured codex config at {}",
-                    installed.config_path.display()
-                ),
-            ]
-        }
+        crate::api::schema::IntegrationTarget::Codex => codex_install_messages(install_codex()?),
         crate::api::schema::IntegrationTarget::Copilot => {
             let installed = install_copilot()?;
             vec![
@@ -1401,13 +1459,16 @@ pub(crate) fn install_claude() -> io::Result<ClaudeInstallPaths> {
 
 pub(crate) fn install_codex() -> io::Result<CodexInstallPaths> {
     let dir = codex_dir()?;
+    install_codex_at(&dir)
+}
+
+fn install_codex_at(dir: &Path) -> io::Result<CodexInstallPaths> {
     if !dir.is_dir() {
         return Err(io::Error::other(format!(
             "codex config directory not found at {}. install codex first",
             dir.display()
         )));
     }
-
     let hook_path = dir.join(CODEX_HOOK_INSTALL_NAME);
     fs::write(&hook_path, CODEX_HOOK_ASSET)?;
     make_executable(&hook_path)?;
@@ -1472,6 +1533,20 @@ pub(crate) fn install_codex() -> io::Result<CodexInstallPaths> {
         hooks_path,
         config_path,
     })
+}
+
+fn codex_install_messages(installed: CodexInstallPaths) -> Vec<String> {
+    vec![
+        format!(
+            "installed codex integration hook to {}",
+            installed.hook_path.display()
+        ),
+        format!("ensured codex hooks at {}", installed.hooks_path.display()),
+        format!(
+            "ensured codex config at {}",
+            installed.config_path.display()
+        ),
+    ]
 }
 
 pub(crate) fn install_kimi() -> io::Result<KimiInstallPaths> {
@@ -4365,6 +4440,115 @@ mod tests {
         assert!(config.contains("[features]"));
         assert!(config.contains("hooks = true"));
         assert!(!config.contains("codex_hooks"));
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn install_codex_for_agent_profiles_installs_each_configured_home() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let home = base.join("home");
+        let default_codex_dir = home.join(".codex");
+        let custom_codex_dir = base.join("codex-mk");
+        fs::create_dir_all(&default_codex_dir).unwrap();
+        fs::create_dir_all(&custom_codex_dir).unwrap();
+        fs::write(
+            default_codex_dir.join("config.toml"),
+            "model = \"gpt-5.4\"\n",
+        )
+        .unwrap();
+        fs::write(
+            custom_codex_dir.join("config.toml"),
+            "model = \"gpt-5.5\"\n",
+        )
+        .unwrap();
+        let _home_env = TestEnvVar::set("HOME", &home);
+        let mut env = std::collections::BTreeMap::new();
+        env.insert(
+            CODEX_HOME_ENV_VAR.to_string(),
+            custom_codex_dir.to_string_lossy().to_string(),
+        );
+        let catalog = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:codex-mk".into()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "codex-mk".into(),
+                    name: "codex mk".into(),
+                    kind: crate::agent_profiles::AgentKind::Codex,
+                    command: "codex-mk".into(),
+                    env,
+                    enabled: true,
+                }],
+            },
+        );
+
+        let messages = install_target_for_agent_profiles(
+            crate::api::schema::IntegrationTarget::Codex,
+            &catalog,
+        )
+        .unwrap();
+
+        assert!(default_codex_dir.join(CODEX_HOOK_INSTALL_NAME).is_file());
+        assert!(default_codex_dir.join("hooks.json").is_file());
+        assert!(custom_codex_dir.join(CODEX_HOOK_INSTALL_NAME).is_file());
+        assert!(custom_codex_dir.join("hooks.json").is_file());
+        assert_eq!(
+            messages
+                .iter()
+                .filter(|message| message.starts_with("installed codex integration hook"))
+                .count(),
+            2
+        );
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn install_codex_for_agent_profiles_skips_missing_default_when_profile_home_exists() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let home = base.join("home");
+        let custom_codex_dir = base.join("codex-mk");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&custom_codex_dir).unwrap();
+        fs::write(
+            custom_codex_dir.join("config.toml"),
+            "model = \"gpt-5.5\"\n",
+        )
+        .unwrap();
+        let _home_env = TestEnvVar::set("HOME", &home);
+        let mut env = std::collections::BTreeMap::new();
+        env.insert(
+            CODEX_HOME_ENV_VAR.to_string(),
+            custom_codex_dir.to_string_lossy().to_string(),
+        );
+        let catalog = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:codex-mk".into()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "codex-mk".into(),
+                    name: "codex mk".into(),
+                    kind: crate::agent_profiles::AgentKind::Codex,
+                    command: "codex-mk".into(),
+                    env,
+                    enabled: true,
+                }],
+            },
+        );
+
+        let messages = install_target_for_agent_profiles(
+            crate::api::schema::IntegrationTarget::Codex,
+            &catalog,
+        )
+        .unwrap();
+
+        assert!(custom_codex_dir.join(CODEX_HOOK_INSTALL_NAME).is_file());
+        assert!(messages.iter().any(
+            |message| message.starts_with(INSTALL_WARNING_PREFIX) && message.contains(".codex")
+        ));
 
         let _ = fs::remove_dir_all(base);
     }

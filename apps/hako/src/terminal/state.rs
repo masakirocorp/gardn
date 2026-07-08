@@ -520,10 +520,7 @@ impl TerminalState {
         if self.known_agent_label_conflicts_with_detected_agent(&agent_label) {
             return None;
         }
-        let session_ref = session_ref.map(|session_ref| {
-            self.conflicting_current_session_ref(&source, &agent_label, &session_ref)
-                .unwrap_or(session_ref)
-        });
+        let session_ref = self.resolved_report_session_ref(&source, &agent_label, session_ref);
         self.commit_hook_sequence(&source, seq, reset_sequence);
         self.persisted_agent_session = None;
         self.hook_authority = Some(HookAuthority {
@@ -630,6 +627,107 @@ impl TerminalState {
                 session.session_ref.value.clone(),
             )
         })
+    }
+
+    fn resolved_report_session_ref(
+        &self,
+        source: &str,
+        agent_label: &str,
+        session_ref: Option<crate::agent_resume::AgentSessionRef>,
+    ) -> Option<crate::agent_resume::AgentSessionRef> {
+        if source == "hako:omp" && agent_label == "omp" {
+            let current_ref = self.current_matching_session_ref(source, agent_label);
+            if let Some(session_ref) = session_ref {
+                if self.reported_omp_subagent_ref_would_replace_current(&session_ref, current_ref) {
+                    return current_ref.cloned();
+                }
+                return Some(
+                    self.conflicting_current_session_ref(source, agent_label, &session_ref)
+                        .unwrap_or(session_ref),
+                );
+            }
+            return current_ref
+                .filter(|session_ref| {
+                    Self::session_ref_available_for_report(source, agent_label, session_ref)
+                })
+                .cloned();
+        }
+
+        session_ref.map(|session_ref| {
+            self.conflicting_current_session_ref(source, agent_label, &session_ref)
+                .unwrap_or(session_ref)
+        })
+    }
+
+    fn current_matching_session_ref(
+        &self,
+        source: &str,
+        agent_label: &str,
+    ) -> Option<&crate::agent_resume::AgentSessionRef> {
+        self.hook_authority
+            .as_ref()
+            .and_then(|authority| {
+                (authority.source == source && authority.agent_label == agent_label)
+                    .then_some(authority.session_ref.as_ref())
+                    .flatten()
+            })
+            .or_else(|| {
+                self.persisted_agent_session.as_ref().and_then(|session| {
+                    (session.source == source && session.agent == agent_label)
+                        .then_some(&session.session_ref)
+                })
+            })
+    }
+
+    fn session_ref_available_for_report(
+        source: &str,
+        agent_label: &str,
+        session_ref: &crate::agent_resume::AgentSessionRef,
+    ) -> bool {
+        if source == "hako:omp"
+            && agent_label == "omp"
+            && session_ref.kind == crate::agent_resume::AgentSessionRefKind::Path
+        {
+            return std::path::Path::new(&session_ref.value).is_file();
+        }
+        true
+    }
+
+    fn reported_omp_subagent_ref_would_replace_current(
+        &self,
+        session_ref: &crate::agent_resume::AgentSessionRef,
+        current_ref: Option<&crate::agent_resume::AgentSessionRef>,
+    ) -> bool {
+        current_ref.is_some_and(|current_ref| {
+            Self::session_ref_available_for_report("hako:omp", "omp", current_ref)
+                && current_ref != session_ref
+                && Self::is_distinguishable_omp_subagent_ref(session_ref)
+        })
+    }
+
+    fn is_distinguishable_omp_subagent_ref(
+        session_ref: &crate::agent_resume::AgentSessionRef,
+    ) -> bool {
+        if session_ref.kind != crate::agent_resume::AgentSessionRefKind::Path {
+            return false;
+        }
+        let path = std::path::Path::new(&session_ref.value);
+        if path.extension() != Some(std::ffi::OsStr::new("jsonl")) {
+            return false;
+        }
+        let Some(parent_dir) = path.parent() else {
+            return false;
+        };
+        let Some(parent_name) = parent_dir.file_name() else {
+            return false;
+        };
+        let Some(project_dir) = parent_dir.parent() else {
+            return false;
+        };
+        project_dir
+            .join(parent_name)
+            .with_extension("jsonl")
+            .is_file()
     }
 
     fn conflicting_current_session_ref(
@@ -1112,6 +1210,17 @@ mod tests {
         TerminalState::new(TerminalId::alloc(), "/tmp".into())
     }
 
+    fn unique_temp_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "hako-terminal-state-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
     #[test]
     fn claude_working_is_sticky_for_short_gap() {
         let now = std::time::Instant::now();
@@ -1268,6 +1377,139 @@ mod tests {
         assert_eq!(terminal.fallback_state, AgentState::Idle);
         assert_eq!(terminal.effective_agent_label(), Some("omp"));
         assert_eq!(terminal.state, AgentState::Working);
+    }
+
+    #[test]
+    fn omp_hook_report_without_new_ref_keeps_existing_file_path_ref() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::OhMyPi), AgentState::Idle);
+        let session_path = unique_temp_path("parent.jsonl");
+        std::fs::write(&session_path, b"session").unwrap();
+        let session_ref = crate::agent_resume::AgentSessionRef {
+            kind: crate::agent_resume::AgentSessionRefKind::Path,
+            value: session_path.to_string_lossy().to_string(),
+        };
+        terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
+            source: "hako:omp".into(),
+            agent: "omp".into(),
+            session_ref: session_ref.clone(),
+        });
+
+        let mutation = terminal
+            .set_hook_authority_with_session_ref(
+                "hako:omp".into(),
+                "omp".into(),
+                AgentState::Working,
+                None,
+                None,
+                None,
+                Some(1),
+            )
+            .expect("state report should update hook authority");
+
+        assert!(!mutation.session_ref_changed);
+        assert_eq!(terminal.state, AgentState::Working);
+        assert_eq!(
+            terminal
+                .hook_authority
+                .as_ref()
+                .and_then(|authority| authority.session_ref.as_ref()),
+            Some(&session_ref)
+        );
+        let _ = std::fs::remove_file(session_path);
+    }
+
+    #[test]
+    fn omp_hook_report_does_not_replace_parent_ref_with_subagent_transcript() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::OhMyPi), AgentState::Idle);
+        let root = unique_temp_path("session-root");
+        let parent_path = root.join("parent.jsonl");
+        let subagent_dir = root.join("parent");
+        let subagent_path = subagent_dir.join("SubagentAudit.jsonl");
+        std::fs::create_dir_all(&subagent_dir).unwrap();
+        std::fs::write(&parent_path, b"parent").unwrap();
+        std::fs::write(&subagent_path, b"subagent").unwrap();
+        let parent_ref = crate::agent_resume::AgentSessionRef {
+            kind: crate::agent_resume::AgentSessionRefKind::Path,
+            value: parent_path.to_string_lossy().to_string(),
+        };
+        let subagent_ref = crate::agent_resume::AgentSessionRef {
+            kind: crate::agent_resume::AgentSessionRefKind::Path,
+            value: subagent_path.to_string_lossy().to_string(),
+        };
+
+        terminal
+            .set_hook_authority_with_session_ref(
+                "hako:omp".into(),
+                "omp".into(),
+                AgentState::Idle,
+                None,
+                None,
+                Some(parent_ref.clone()),
+                Some(1),
+            )
+            .expect("parent report should establish hook authority");
+        let mutation = terminal
+            .set_hook_authority_with_session_ref(
+                "hako:omp".into(),
+                "omp".into(),
+                AgentState::Working,
+                None,
+                None,
+                Some(subagent_ref),
+                Some(2),
+            )
+            .expect("subagent activity should still update visible state");
+
+        assert!(!mutation.session_ref_changed);
+        assert_eq!(terminal.state, AgentState::Working);
+        assert_eq!(
+            terminal
+                .hook_authority
+                .as_ref()
+                .and_then(|authority| authority.session_ref.as_ref()),
+            Some(&parent_ref)
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn omp_hook_report_drops_existing_path_ref_when_file_is_missing() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::OhMyPi), AgentState::Idle);
+        terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
+            source: "hako:omp".into(),
+            agent: "omp".into(),
+            session_ref: crate::agent_resume::AgentSessionRef {
+                kind: crate::agent_resume::AgentSessionRefKind::Path,
+                value: unique_temp_path("missing.jsonl")
+                    .to_string_lossy()
+                    .to_string(),
+            },
+        });
+
+        let mutation = terminal
+            .set_hook_authority_with_session_ref(
+                "hako:omp".into(),
+                "omp".into(),
+                AgentState::Working,
+                None,
+                None,
+                None,
+                Some(1),
+            )
+            .expect("state report should update hook authority");
+
+        assert!(mutation.session_ref_changed);
+        assert_eq!(terminal.state, AgentState::Working);
+        assert_eq!(
+            terminal
+                .hook_authority
+                .as_ref()
+                .and_then(|authority| authority.session_ref.as_ref()),
+            None
+        );
     }
 
     #[test]

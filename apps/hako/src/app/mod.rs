@@ -1376,7 +1376,10 @@ impl App {
     pub(crate) fn install_integration(&mut self, target: crate::api::schema::IntegrationTarget) {
         let label = crate::integration::integration_target_label(target);
         self.state.integration_install_messages.clear();
-        match crate::integration::install_target(target) {
+        match crate::integration::install_target_for_agent_profiles(
+            target,
+            &self.state.agent_profiles,
+        ) {
             Ok(messages) => {
                 self.state
                     .integration_install_messages
