@@ -359,6 +359,7 @@ impl App {
             self.apply_config_from_disk(false);
         } else {
             self.state.agent_profiles = next_catalog;
+            self.refresh_integration_recommendations();
         }
     }
 }

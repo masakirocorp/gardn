@@ -2849,6 +2849,7 @@ impl AppState {
                     item.state,
                     crate::integration::IntegrationStatusKind::Current
                         | crate::integration::IntegrationStatusKind::Outdated
+                        | crate::integration::IntegrationStatusKind::MissingProfileHooks
                 )
         })
     }

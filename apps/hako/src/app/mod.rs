@@ -553,6 +553,10 @@ impl App {
         };
 
         let agent_manifest_summaries = crate::detect::manifest::reload_manifests();
+        let agent_profiles =
+            crate::agent_profiles::AgentProfileCatalog::from_config(&config.agent_profiles);
+        let integration_recommendations =
+            crate::integration::integration_recommendations_for_agent_profiles(&agent_profiles);
 
         let mut state = AppState {
             groups,
@@ -721,9 +725,7 @@ impl App {
             sound: config.ui.sound.clone(),
             local_sound_playback: true,
             toast_config: config.ui.toast.clone(),
-            agent_profiles: crate::agent_profiles::AgentProfileCatalog::from_config(
-                &config.agent_profiles,
-            ),
+            agent_profiles,
             keybinds: config.keybinds(),
             spinner_tick: 0,
             palette: global_palette.clone(),
@@ -782,7 +784,7 @@ impl App {
                 group_settings_target: None,
                 workspace_settings_target: None,
             },
-            integration_recommendations: crate::integration::integration_recommendations(),
+            integration_recommendations,
             agent_manifest_summaries,
             agent_manifest_update_status: crate::detect::manifest_update::load_status(),
             integration_install_messages: Vec::new(),
@@ -1370,7 +1372,10 @@ impl App {
     }
 
     pub(crate) fn refresh_integration_recommendations(&mut self) {
-        self.state.integration_recommendations = crate::integration::integration_recommendations();
+        self.state.integration_recommendations =
+            crate::integration::integration_recommendations_for_agent_profiles(
+                &self.state.agent_profiles,
+            );
     }
 
     pub(crate) fn install_integration(&mut self, target: crate::api::schema::IntegrationTarget) {
@@ -1399,8 +1404,7 @@ impl App {
                 .integration_install_messages
                 .push(format!("{label}: {err}")),
         }
-        self.state.integration_recommendations = crate::integration::integration_recommendations();
-        self.state.mark_session_dirty();
+        self.refresh_integration_recommendations();
     }
 
     pub(crate) fn uninstall_integration(&mut self, target: crate::api::schema::IntegrationTarget) {
@@ -1413,8 +1417,7 @@ impl App {
                 .integration_install_messages
                 .push(format!("{label}: {err}")),
         }
-        self.state.integration_recommendations = crate::integration::integration_recommendations();
-        self.state.mark_session_dirty();
+        self.refresh_integration_recommendations();
     }
 
     pub(crate) fn reload_config(&mut self) -> crate::config::ConfigReloadReport {
@@ -1571,6 +1574,7 @@ impl App {
         if !invalid_section("agent_profiles") {
             self.state.agent_profiles =
                 crate::agent_profiles::AgentProfileCatalog::from_config(&config.agent_profiles);
+            self.refresh_integration_recommendations();
         }
 
         if !invalid_section("terminal") {

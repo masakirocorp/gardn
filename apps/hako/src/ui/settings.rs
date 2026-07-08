@@ -430,6 +430,9 @@ fn render_settings_integrations(
             crate::integration::IntegrationStatusKind::Outdated => {
                 "press enter to update selected integration".to_string()
             }
+            crate::integration::IntegrationStatusKind::MissingProfileHooks => {
+                "press enter to install missing profile hooks".to_string()
+            }
             crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
                 "press enter to install selected integration".to_string()
             }

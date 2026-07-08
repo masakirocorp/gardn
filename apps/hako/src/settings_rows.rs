@@ -894,6 +894,9 @@ fn integration_rows(app: &AppState) -> Vec<SettingsListRow> {
             let tone = match item.state {
                 crate::integration::IntegrationStatusKind::Current => SettingsMarkerTone::Good,
                 crate::integration::IntegrationStatusKind::Outdated => SettingsMarkerTone::Warning,
+                crate::integration::IntegrationStatusKind::MissingProfileHooks => {
+                    SettingsMarkerTone::Warning
+                }
                 crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
                     SettingsMarkerTone::Accent
                 }
@@ -1190,6 +1193,74 @@ mod tests {
                 );
             }
             _ => unreachable!("matched profile row"),
+        }
+
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn integrations_row_warns_when_custom_codex_profile_home_missing_hook() {
+        let _lock = crate::integration::integration_env_lock();
+        let base = std::env::temp_dir().join(format!(
+            "hako-settings-integrations-codex-profile-hook-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let home = base.join("home");
+        let default_codex_dir = home.join(".codex");
+        let custom_codex_dir = home.join(".codex-frs");
+        std::fs::create_dir_all(&default_codex_dir).unwrap();
+        std::fs::create_dir_all(&custom_codex_dir).unwrap();
+        std::fs::write(
+            default_codex_dir.join("config.toml"),
+            "model = \"gpt-5.4\"\n",
+        )
+        .unwrap();
+        let _codex_home_env = crate::config::TestEnvVar::remove("CODEX_HOME");
+        let _home_env = crate::config::TestEnvVar::set("HOME", &home);
+
+        crate::integration::install_target(crate::api::schema::IntegrationTarget::Codex)
+            .expect("install default codex integration");
+        assert!(default_codex_dir.join("hako-agent-state.sh").is_file());
+        assert!(!custom_codex_dir.join("hako-agent-state.sh").exists());
+
+        let mut app = AppState::test_new();
+        app.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:codex-frs".to_string()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "codex-frs".to_string(),
+                    name: "codex frs".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Codex,
+                    command: "codex-frs".to_string(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }],
+            },
+        );
+        app.integration_recommendations =
+            crate::integration::integration_recommendations_for_agent_profiles(&app.agent_profiles);
+
+        let rows = rows_for_section(&app, SettingsSection::Integrations).expect("integration rows");
+        let codex_row = rows
+            .iter()
+            .find(|row| {
+                matches!(
+                    row,
+                    SettingsListRow::Status { label, .. } if label.as_ref() == "codex"
+                )
+            })
+            .expect("codex integration row");
+
+        match codex_row {
+            SettingsListRow::Status { status, tone, .. } => {
+                assert_eq!(status.as_ref(), "needs integration");
+                assert_eq!(*tone, SettingsMarkerTone::Warning);
+            }
+            _ => unreachable!("matched status row"),
         }
 
         let _ = std::fs::remove_dir_all(base);

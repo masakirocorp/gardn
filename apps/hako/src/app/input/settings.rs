@@ -1206,6 +1206,9 @@ fn selected_integration_action(state: &AppState) -> Option<SettingsAction> {
         crate::integration::IntegrationStatusKind::Outdated => {
             Some(SettingsAction::InstallIntegration(recommendation.target))
         }
+        crate::integration::IntegrationStatusKind::MissingProfileHooks => {
+            Some(SettingsAction::InstallIntegration(recommendation.target))
+        }
         crate::integration::IntegrationStatusKind::NotInstalled if recommendation.available => {
             Some(SettingsAction::InstallIntegration(recommendation.target))
         }
@@ -4086,6 +4089,30 @@ mod tests {
             action,
             Some(SettingsAction::InstallIntegration(
                 crate::api::schema::IntegrationTarget::Omp
+            ))
+        );
+    }
+
+    #[test]
+    fn integrations_enter_installs_selected_missing_profile_hooks_row() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.integration_recommendations = vec![integration_recommendation_for(
+            crate::api::schema::IntegrationTarget::Codex,
+            crate::integration::IntegrationStatusKind::MissingProfileHooks,
+            true,
+        )];
+        open_settings_at(&mut state, SettingsSection::Integrations);
+        state.settings.selection_active = true;
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::InstallIntegration(
+                crate::api::schema::IntegrationTarget::Codex
             ))
         );
     }
