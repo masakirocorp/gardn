@@ -113,11 +113,20 @@ fn toast_agent_label(agent_label: &str) -> &str {
     agent_label
 }
 
-fn titlecase_ascii_label(label: &str) -> String {
-    let mut chars = label.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().chain(chars).collect(),
-        None => String::new(),
+fn missing_integration_agent_title(agent: Agent) -> String {
+    match agent {
+        Agent::OhMyPi => "OMP".to_string(),
+        Agent::OpenCode => "OpenCode".to_string(),
+        Agent::GithubCopilot => "Copilot".to_string(),
+        Agent::Qodercli => "Qoder CLI".to_string(),
+        _ => {
+            let label = crate::detect::agent_label(agent);
+            let mut chars = label.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().chain(chars).collect(),
+                None => String::new(),
+            }
+        }
     }
 }
 
@@ -3150,7 +3159,10 @@ impl AppState {
                     })
                     .into_iter()
                     .collect();
-                if !process_exited && self.toast.is_none() {
+                if !process_exited
+                    && (visible_blocker || visible_idle || visible_working)
+                    && self.toast.is_none()
+                {
                     self.show_missing_integration_warning_if_needed(pane_id, observed_at);
                 }
                 updates
@@ -3409,7 +3421,7 @@ impl AppState {
         };
 
         let agent_label = crate::detect::agent_label(agent);
-        let agent_title = titlecase_ascii_label(agent_label);
+        let agent_title = missing_integration_agent_title(agent);
         let workspace_id = self.workspaces[ws_idx].id.clone();
         let workspace_label = self.workspaces[ws_idx].display_name();
         let context = format!(
@@ -5382,6 +5394,44 @@ mod tests {
         });
 
         assert!(state.toast.is_none());
+    }
+
+    #[test]
+    fn detected_installable_agent_families_warn_without_hako_integration() {
+        for (agent, title, install_target) in [
+            (Agent::Pi, "Pi", "pi"),
+            (Agent::OhMyPi, "OMP", "omp"),
+            (Agent::Claude, "Claude", "claude"),
+            (Agent::OpenCode, "OpenCode", "opencode"),
+        ] {
+            let mut state = app_with_workspaces(&["manual"]);
+            state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+            let pane_id = state.workspaces[0].tabs[0].root_pane;
+
+            state.handle_app_event(AppEvent::StateChanged {
+                pane_id,
+                agent: Some(agent),
+                state: AgentState::Idle,
+                visible_blocker: false,
+                visible_idle: true,
+                visible_working: false,
+                process_exited: false,
+                observed_at: std::time::Instant::now(),
+            });
+
+            let toast = state.toast.as_ref().expect("missing integration toast");
+            assert_eq!(
+                toast.title,
+                format!("{title} detected without Hako integration")
+            );
+            assert!(
+                toast
+                    .context
+                    .contains(&format!("hako integration install {install_target}")),
+                "{}",
+                toast.context
+            );
+        }
     }
 
     #[test]

@@ -1036,9 +1036,21 @@ impl TerminalState {
     }
 
     fn agent_supports_hako_integration(agent: Agent) -> bool {
-        let label = crate::detect::agent_label(agent);
-        let source = format!("hako:{label}");
-        crate::detect::full_lifecycle_hook_authority(&source, label)
+        matches!(
+            agent,
+            Agent::Pi
+                | Agent::OhMyPi
+                | Agent::Claude
+                | Agent::Codex
+                | Agent::GithubCopilot
+                | Agent::Devin
+                | Agent::Kimi
+                | Agent::Droid
+                | Agent::Cursor
+                | Agent::OpenCode
+                | Agent::Hermes
+                | Agent::Qodercli
+        )
     }
 
     fn hako_report_identity_matches_agent(
