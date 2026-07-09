@@ -128,7 +128,7 @@ impl App {
         true
     }
 
-    pub(super) fn launch_custom_command(
+    pub(crate) fn launch_custom_command(
         &mut self,
         binding: crate::config::CustomCommandKeybind,
         context: ActionContext,

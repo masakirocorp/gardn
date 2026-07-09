@@ -10,7 +10,7 @@ use super::scrollbar::{render_scrollbar, should_show_scrollbar};
 use super::status::{agent_icon, state_dot, state_label, state_label_color};
 use super::widgets::fill_rect;
 use crate::app::state::{AgentPanelScope, Palette};
-use crate::app::{AppState, Mode};
+use crate::app::{AppState, ClientViewState, Mode};
 use crate::detect::AgentState;
 use crate::terminal::TerminalRuntimeRegistry;
 
@@ -136,34 +136,6 @@ fn sidebar_section_divider_rect_with_separator(
     Rect::new(content.x, content.y + ws_h + 1, content.width, 1)
 }
 
-fn agent_panel_current_workspace_idx(app: &AppState) -> Option<usize> {
-    let idx = if matches!(
-        app.mode,
-        Mode::Navigate
-            | Mode::RenameWorkspace
-            | Mode::RenameGroup
-            | Mode::RenamePane
-            | Mode::EditWorktreeDirectory
-            | Mode::Resize
-            | Mode::ConfirmClose
-            | Mode::ConfirmDeleteGroup
-            | Mode::ContextMenu
-            | Mode::Settings
-            | Mode::GlobalMenu
-            | Mode::AgentMenu
-            | Mode::KeybindHelp
-            | Mode::CommandPalette
-            | Mode::AgentProfilePicker
-            | Mode::GitRepoPicker
-            | Mode::ProductAnnouncement
-    ) {
-        Some(app.selected)
-    } else {
-        app.active
-    }?;
-    app.workspace_in_active_group(idx).then_some(idx)
-}
-
 fn agent_panel_toggle_label(scope: AgentPanelScope) -> &'static str {
     match scope {
         AgentPanelScope::CurrentWorkspace => "space",
@@ -220,11 +192,42 @@ pub(crate) fn agent_panel_entries_from(
 ) -> Vec<AgentPanelEntry> {
     agent_panel_entries_with_runtimes(app, Some(terminal_runtimes), app.agent_panel_scope)
 }
+pub(crate) fn agent_panel_entries_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+) -> Vec<AgentPanelEntry> {
+    agent_panel_entries_with_context(
+        app,
+        Some(terminal_runtimes),
+        view.agent_panel_scope,
+        view.active_workspace,
+        view.active_group,
+    )
+}
+
+pub(crate) fn agent_panel_sections_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+) -> Vec<AgentPanelSection> {
+    agent_panel_sections_from_entries(agent_panel_entries_for_view(app, terminal_runtimes, view))
+}
 
 fn agent_panel_entries_with_runtimes(
     app: &AppState,
     terminal_runtimes: Option<&TerminalRuntimeRegistry>,
     scope: AgentPanelScope,
+) -> Vec<AgentPanelEntry> {
+    agent_panel_entries_with_context(app, terminal_runtimes, scope, app.active, app.active_group)
+}
+
+fn agent_panel_entries_with_context(
+    app: &AppState,
+    terminal_runtimes: Option<&TerminalRuntimeRegistry>,
+    scope: AgentPanelScope,
+    active_workspace: Option<usize>,
+    active_group: usize,
 ) -> Vec<AgentPanelEntry> {
     let empty_runtimes;
     let terminal_runtimes = match terminal_runtimes {
@@ -237,7 +240,7 @@ fn agent_panel_entries_with_runtimes(
 
     match scope {
         AgentPanelScope::CurrentWorkspace => {
-            let Some(ws_idx) = agent_panel_current_workspace_idx(app) else {
+            let Some(ws_idx) = active_workspace else {
                 return Vec::new();
             };
             let Some(ws) = app.workspaces.get(ws_idx) else {
@@ -264,10 +267,10 @@ fn agent_panel_entries_with_runtimes(
                 .collect()
         }
         AgentPanelScope::CurrentGroup => {
-            let group_id = app
-                .active
+            let group_id = active_workspace
                 .and_then(|idx| app.workspaces.get(idx))
                 .map(|ws| ws.group_id.as_str())
+                .or_else(|| app.groups.get(active_group).map(|group| group.id.as_str()))
                 .unwrap_or_else(|| app.active_group_id());
             app.workspaces
                 .iter()
@@ -364,7 +367,12 @@ fn agent_panel_sections_from(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
 ) -> Vec<AgentPanelSection> {
-    let scoped_entries = agent_panel_entries_from(app, terminal_runtimes);
+    agent_panel_sections_from_entries(agent_panel_entries_from(app, terminal_runtimes))
+}
+
+fn agent_panel_sections_from_entries(
+    scoped_entries: Vec<AgentPanelEntry>,
+) -> Vec<AgentPanelSection> {
     let mut sections = Vec::new();
 
     let mut triage: Vec<_> = scoped_entries
@@ -549,6 +557,12 @@ fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
 
 fn agent_panel_section_collapsed(app: &AppState, section_label: &str) -> bool {
     app.agent_section_collapsed(section_label)
+}
+
+fn agent_panel_section_collapsed_for_view(view: &ClientViewState, section_label: &str) -> bool {
+    view.collapsed_agent_sections
+        .iter()
+        .any(|key| key == section_label)
 }
 
 fn agent_panel_section_display_label(section_label: &str) -> &str {
@@ -826,6 +840,67 @@ pub(crate) fn agent_panel_scroll_metrics(
     }
 }
 
+pub(crate) fn agent_panel_scroll_metrics_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+    area: Rect,
+    leading_separator: bool,
+) -> crate::pane::ScrollMetrics {
+    let body = agent_panel_body_rect(area, false, leading_separator);
+    let sections = agent_panel_sections_for_view(app, terminal_runtimes, view);
+    let show_agent_labels = agent_panel_should_show_agent_labels(&sections);
+    let mut remaining_rows = body.height;
+    let mut viewport_rows = 0usize;
+    let mut skip = view.agent_panel_scroll;
+    if body.width > 0 && body.height > 0 {
+        for section in &sections {
+            if agent_panel_section_collapsed_for_view(view, section.label) {
+                if remaining_rows < 1 {
+                    break;
+                }
+                remaining_rows = remaining_rows.saturating_sub(1);
+                continue;
+            }
+            if skip >= section.entries.len() {
+                skip -= section.entries.len();
+                continue;
+            }
+            if remaining_rows < 1 {
+                break;
+            }
+
+            remaining_rows = remaining_rows.saturating_sub(1);
+            let show_status = agent_panel_section_shows_entry_status(section.label);
+            for detail in section.entries.iter().skip(skip) {
+                let row_height =
+                    agent_panel_entry_row_height(app, show_status, show_agent_labels, detail);
+                if remaining_rows < row_height {
+                    break;
+                }
+                remaining_rows = remaining_rows.saturating_sub(row_height);
+                viewport_rows += 1;
+            }
+            skip = 0;
+        }
+    }
+
+    let total_rows = sections
+        .iter()
+        .filter(|section| !agent_panel_section_collapsed_for_view(view, section.label))
+        .map(|section| section.entries.len())
+        .sum::<usize>();
+    let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
+    let offset_from_bottom = total_rows
+        .saturating_sub(view.agent_panel_scroll)
+        .saturating_sub(viewport_rows);
+
+    crate::pane::ScrollMetrics {
+        offset_from_bottom,
+        max_offset_from_bottom,
+        viewport_rows,
+    }
+}
 pub(crate) fn agent_panel_scrollbar_rect(
     app: &AppState,
     area: Rect,
@@ -1375,6 +1450,33 @@ pub(crate) fn collapsed_agent_panel_entry_at_row(
         }
     }
 
+    None
+}
+
+pub(crate) fn collapsed_agent_panel_entry_at_row_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+    area: Rect,
+    row: u16,
+) -> Option<AgentPanelEntry> {
+    let rows = collapsed_agent_panel_body_rect(area);
+    if rows == Rect::default() || row < rows.y || row >= rows.y + rows.height {
+        return None;
+    }
+
+    let mut row_y = rows.y;
+    for section in agent_panel_sections_for_view(app, terminal_runtimes, view) {
+        for entry in section.entries {
+            if row_y >= rows.y + rows.height {
+                break;
+            }
+            if row == row_y {
+                return Some(entry);
+            }
+            row_y = row_y.saturating_add(1);
+        }
+    }
     None
 }
 
@@ -2259,6 +2361,104 @@ pub(crate) fn agent_panel_header_target_at_row(
 
     for section in sections {
         let collapsed = agent_panel_section_collapsed(app, section.label);
+        if !collapsed && skip >= section.entries.len() {
+            skip -= section.entries.len();
+            continue;
+        }
+        if row_y >= body_bottom {
+            break;
+        }
+
+        if row == row_y {
+            return Some(AgentPanelHeaderTarget {
+                section: section.label.to_string(),
+            });
+        }
+        row_y = row_y.saturating_add(1);
+
+        if collapsed {
+            continue;
+        }
+        let show_status = agent_panel_section_shows_entry_status(section.label);
+        for detail in section.entries.iter().skip(skip) {
+            row_y = row_y.saturating_add(agent_panel_entry_row_height(
+                app,
+                show_status,
+                show_agent_labels,
+                detail,
+            ));
+        }
+        skip = 0;
+    }
+
+    None
+}
+
+pub(crate) fn agent_panel_entry_at_row_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+    body: Rect,
+    row: u16,
+) -> Option<AgentPanelEntry> {
+    let mut row_y = body.y;
+    let body_bottom = body.y + body.height;
+    let mut skip = view.agent_panel_scroll;
+    let sections = agent_panel_sections_for_view(app, terminal_runtimes, view);
+    let show_agent_labels = agent_panel_should_show_agent_labels(&sections);
+
+    for section in sections {
+        let collapsed = agent_panel_section_collapsed_for_view(view, section.label);
+        if collapsed {
+            row_y = row_y.saturating_add(1);
+            continue;
+        }
+        if skip >= section.entries.len() {
+            skip -= section.entries.len();
+            continue;
+        }
+        if row_y >= body_bottom {
+            break;
+        }
+
+        row_y = row_y.saturating_add(1);
+        let show_status = agent_panel_section_shows_entry_status(section.label);
+        for detail in section.entries.iter().skip(skip) {
+            let row_height =
+                agent_panel_entry_row_height(app, show_status, show_agent_labels, detail);
+            if row_y.saturating_add(row_height) > body_bottom {
+                break;
+            }
+            if row >= row_y && row < row_y.saturating_add(row_height) {
+                return Some(detail.clone());
+            }
+            row_y = row_y.saturating_add(row_height);
+        }
+        skip = 0;
+    }
+
+    None
+}
+
+pub(crate) fn agent_panel_header_target_at_row_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+    body: Rect,
+    row: u16,
+) -> Option<AgentPanelHeaderTarget> {
+    if body == Rect::default() || row < body.y || row >= body.y + body.height {
+        return None;
+    }
+
+    let mut row_y = body.y;
+    let body_bottom = body.y + body.height;
+    let mut skip = view.agent_panel_scroll;
+    let sections = agent_panel_sections_for_view(app, terminal_runtimes, view);
+    let show_agent_labels = agent_panel_should_show_agent_labels(&sections);
+
+    for section in sections {
+        let collapsed = agent_panel_section_collapsed_for_view(view, section.label);
         if !collapsed && skip >= section.entries.len() {
             skip -= section.entries.len();
             continue;

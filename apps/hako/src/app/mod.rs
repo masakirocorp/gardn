@@ -1985,26 +1985,18 @@ impl App {
             }
             Mode::Resize => self.handle_client_view_resize_key(client_view, raw_key),
             Mode::ConfirmClose => {
-                self.execute_targeted_client_view_app_action(client_view, |app| {
-                    input::handle_confirm_close_key(&mut app.state, key);
-                })
+                self.handle_client_view_confirm_close_key(client_view, key);
             }
             Mode::ConfirmDeleteGroup => {
-                self.execute_targeted_client_view_app_action(client_view, |app| {
-                    input::handle_confirm_delete_group_key(&mut app.state, key);
-                });
+                self.handle_client_view_confirm_delete_group_key(client_view, key);
             }
-            Mode::ContextMenu => self.execute_targeted_client_view_app_action(client_view, |app| {
-                input::handle_context_menu_key(&mut app.state, &mut app.terminal_runtimes, key);
-            }),
+            Mode::ContextMenu => {
+                self.handle_client_view_context_menu_key(client_view, key);
+            }
             Mode::GitRepoPicker => {
-                self.execute_targeted_client_view_app_action(client_view, |app| {
-                    app.handle_git_repo_picker_key(key);
-                })
+                self.handle_client_view_git_repo_picker_key(client_view, key);
             }
-            Mode::Copy => self.execute_targeted_client_view_app_action(client_view, |app| {
-                app.handle_copy_mode_key(raw_key);
-            }),
+            Mode::Copy => self.handle_client_view_copy_mode_key(client_view, raw_key),
             Mode::Navigate => {
                 if let Some(action) =
                     input::action_for_key(&self.state, raw_key, input::BindingDispatch::Prefix)
@@ -2726,6 +2718,150 @@ impl App {
         client_view.mode = Mode::RenameTab;
     }
 
+    fn open_client_view_rename_workspace_dialog(
+        &self,
+        client_view: &mut ClientViewState,
+        ws_idx: usize,
+    ) {
+        let Some(workspace) = self.state.workspaces.get(ws_idx) else {
+            return;
+        };
+        client_view.creating_new_tab = false;
+        client_view.creating_new_group = false;
+        client_view.group_icon_picker_open = false;
+        client_view.requested_new_tab_name = None;
+        client_view.rename_group_target = None;
+        client_view.rename_pane_target = None;
+        client_view.name_input =
+            workspace.display_name_from(&self.state.terminals, &self.terminal_runtimes);
+        client_view.name_input_replace_on_type = false;
+        client_view.mode = Mode::RenameWorkspace;
+    }
+
+    fn open_client_view_rename_group_dialog(
+        &self,
+        client_view: &mut ClientViewState,
+        group_idx: usize,
+    ) {
+        let Some(group) = self.state.groups.get(group_idx) else {
+            return;
+        };
+        client_view.creating_new_tab = false;
+        client_view.creating_new_group = false;
+        client_view.group_icon_input = group.icon.clone();
+        client_view.group_icon_picker_open = false;
+        client_view.requested_new_tab_name = None;
+        client_view.rename_group_target = Some(group_idx);
+        client_view.rename_pane_target = None;
+        client_view.name_input = group.name.clone();
+        client_view.name_input_replace_on_type = false;
+        client_view.mode = Mode::RenameGroup;
+    }
+
+    fn open_client_view_rename_pane_dialog(
+        &self,
+        client_view: &mut ClientViewState,
+        pane_id: crate::layout::PaneId,
+    ) {
+        let Some(ws_idx) = client_view.active_workspace else {
+            return;
+        };
+        let Some(workspace) = self.state.workspaces.get(ws_idx) else {
+            return;
+        };
+        let Some(pane) = workspace.pane_state(pane_id) else {
+            return;
+        };
+        let terminal = self.state.terminals.get(&pane.attached_terminal_id);
+        client_view.creating_new_tab = false;
+        client_view.creating_new_group = false;
+        client_view.group_icon_picker_open = false;
+        client_view.requested_new_tab_name = None;
+        client_view.rename_group_target = None;
+        client_view.rename_pane_target = Some(pane_id);
+        client_view.name_input = terminal
+            .and_then(|terminal| terminal.manual_label.clone())
+            .unwrap_or_default();
+        client_view.name_input_replace_on_type = terminal
+            .and_then(|terminal| terminal.manual_label.as_ref())
+            .is_none();
+        client_view.mode = Mode::RenamePane;
+    }
+
+    fn open_client_view_confirm_close(&self, client_view: &mut ClientViewState, ws_idx: usize) {
+        if self.state.workspaces.get(ws_idx).is_some() {
+            client_view.selected_workspace = ws_idx;
+            client_view.mode = Mode::ConfirmClose;
+        }
+    }
+
+    fn open_client_view_confirm_delete_group(
+        &self,
+        client_view: &mut ClientViewState,
+        group_idx: usize,
+    ) {
+        if group_idx < self.state.groups.len() && self.state.groups.len() > 1 {
+            client_view.confirm_delete_group = Some(group_idx);
+            client_view.mode = Mode::ConfirmDeleteGroup;
+        }
+    }
+
+    fn open_new_agent_picker_for_client_view(
+        &mut self,
+        client_view: &mut ClientViewState,
+        ws_idx: usize,
+    ) {
+        if let Some(default_profile_id) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| self.state.group_index_by_id(&workspace.group_id))
+            .and_then(|group_idx| self.state.groups.get(group_idx))
+            .and_then(|group| group.default_agent_profile_id.as_ref())
+            .filter(|profile_id| {
+                self.state
+                    .agent_profiles
+                    .get(profile_id.as_str())
+                    .is_some_and(|profile| self.state.agent_profile_launchable(profile))
+            })
+            .cloned()
+        {
+            self.state.request_agent_profile_tab = Some((ws_idx, default_profile_id));
+            if let Some(workspace) = self.state.workspaces.get(ws_idx) {
+                client_view
+                    .pending_active_tabs
+                    .insert(workspace.id.clone(), workspace.tabs.len());
+            }
+            client_view.return_to_active_workspace_mode();
+            return;
+        }
+
+        let profile_ids =
+            crate::app::agent_profile_picker::workspace_agent_profile_ids(&self.state, ws_idx)
+                .collect::<Vec<_>>();
+        match profile_ids.as_slice() {
+            [] => {}
+            [profile_id] => {
+                self.state.request_agent_profile_tab = Some((ws_idx, profile_id.clone()));
+                if let Some(workspace) = self.state.workspaces.get(ws_idx) {
+                    client_view
+                        .pending_active_tabs
+                        .insert(workspace.id.clone(), workspace.tabs.len());
+                }
+                client_view.return_to_active_workspace_mode();
+            }
+            _ => {
+                client_view.selected_workspace = ws_idx;
+                client_view.agent_profile_picker.kind_filter = None;
+                client_view.agent_profile_picker.ws_idx = ws_idx;
+                client_view.agent_profile_picker.query.clear();
+                client_view.agent_profile_picker.selected = 0;
+                client_view.agent_profile_picker.scroll = 0;
+                client_view.mode = Mode::AgentProfilePicker;
+            }
+        }
+    }
+
     fn open_client_view_new_group_dialog(&self, client_view: &mut ClientViewState) {
         client_view.creating_new_group = true;
         client_view.creating_new_tab = false;
@@ -3077,10 +3213,132 @@ impl App {
                 input::request_detach(&mut self.state);
                 Self::leave_client_view_command_mode(client_view);
             }
-            other => {
-                self.execute_targeted_client_view_app_action(client_view, |app| {
-                    input::execute_command_palette_action(app, other);
-                });
+            crate::app::command_palette::CommandPaletteAction::RenameWorkspace => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::RenameWorkspace,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::CloseWorkspace => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::CloseWorkspace,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::CloseTab => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::CloseTab,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::SplitVertical => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::SplitVertical,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::SplitHorizontal => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::SplitHorizontal,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::ClosePane => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::ClosePane,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::RenamePane => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::RenamePane,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::Fullscreen => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::Zoom,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::EditScrollback => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::EditScrollback,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::FocusPane(direction) => {
+                self.navigate_pane_for_client_view(client_view, direction);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::CyclePaneNext => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::CyclePaneNext,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::CyclePanePrevious => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::CyclePanePrevious,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::DeleteGroup => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::DeleteGroup,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::PreviousAgent => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::PreviousAgent,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::NextAgent => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::NextAgent,
+                    input::ActionContext::Navigate,
+                );
+            }
+            crate::app::command_palette::CommandPaletteAction::ToggleRightSidebar => {
+                client_view.right_sidebar_collapsed = !client_view.right_sidebar_collapsed;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::OpenNotificationTarget => {
+                self.focus_toast_target_for_client_view(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::CustomCommand(idx) => {
+                let Some(binding) = self.state.keybinds.custom_commands.get(idx).cloned() else {
+                    return;
+                };
+                let previous_active = self.state.active;
+                let previous_selected = self.state.selected;
+                self.state.active = client_view.active_workspace;
+                self.state.selected = client_view.selected_workspace;
+                self.launch_custom_command(binding, input::ActionContext::Navigate);
+                self.state.active = previous_active;
+                self.state.selected = previous_selected;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::NewAgent => {
+                if let Some(ws_idx) = client_view.active_workspace {
+                    self.open_new_agent_picker_for_client_view(client_view, ws_idx);
+                }
             }
         }
     }
@@ -3168,26 +3426,6 @@ impl App {
         }
     }
 
-    fn execute_targeted_client_view_app_action(
-        &mut self,
-        client_view: &mut ClientViewState,
-        action: impl FnOnce(&mut Self),
-    ) {
-        let mut default_view = ClientViewState::from_default_client_state(&self.state);
-        Self::sync_app_state_view_fields(&mut self.state, client_view);
-        action(self);
-        if self.state.request_open_git_diff_command
-            && self.state.request_open_git_diff_workspace.is_none()
-        {
-            self.state.request_open_git_diff_workspace = self.state.active;
-        }
-        let mut updated_client_view = ClientViewState::from_default_client_state(&self.state);
-        default_view.reconcile(&self.state);
-        Self::sync_app_state_view_fields(&mut self.state, &default_view);
-        updated_client_view.reconcile(&self.state);
-        *client_view = updated_client_view;
-    }
-
     fn client_view_workspace_in_active_group(
         &self,
         client_view: &ClientViewState,
@@ -3244,6 +3482,949 @@ impl App {
         ) {
             client_view.agent_panel_scroll = 0;
         }
+    }
+
+    fn remap_workspace_index_after_close(
+        index: usize,
+        removed_indices: &[usize],
+        remaining_len: usize,
+    ) -> Option<usize> {
+        if remaining_len == 0 {
+            return None;
+        }
+        let removed_before = removed_indices
+            .iter()
+            .filter(|removed| **removed < index)
+            .count();
+        Some(index.saturating_sub(removed_before).min(remaining_len - 1))
+    }
+
+    fn close_workspace_for_client_view(
+        &mut self,
+        client_view: &mut ClientViewState,
+        ws_idx: usize,
+    ) {
+        if self.state.workspaces.get(ws_idx).is_none() {
+            return;
+        }
+        let mut close_indices = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.worktree_space())
+            .filter(|space| !space.is_linked_worktree)
+            .map(|space| {
+                self.state
+                    .workspaces
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, workspace)| {
+                        workspace
+                            .worktree_space()
+                            .is_some_and(|member| member.key == space.key)
+                            .then_some(idx)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .filter(|indices| indices.len() >= 2)
+            .unwrap_or_else(|| vec![ws_idx]);
+        close_indices.sort_unstable();
+        close_indices.dedup();
+
+        let mut terminal_ids = Vec::new();
+        let mut pane_ids = Vec::new();
+        for idx in &close_indices {
+            terminal_ids.extend(self.state.terminal_ids_for_workspace(*idx));
+            pane_ids.extend(self.state.pane_ids_for_workspace(*idx));
+            if let Some(workspace_id) = self.state.workspaces.get(*idx).map(|ws| ws.id.clone()) {
+                crate::logging::workspace_closed(&workspace_id);
+            }
+        }
+
+        self.state.selection = None;
+        self.state.selection_autoscroll = None;
+        self.state.mark_session_dirty();
+        self.state.remove_plugin_pane_records(pane_ids);
+        for idx in close_indices.iter().rev() {
+            self.state.workspaces.remove(*idx);
+        }
+        self.state.remove_unattached_terminal_ids(terminal_ids);
+
+        let remaining_len = self.state.workspaces.len();
+        self.state.active = self.state.active.and_then(|idx| {
+            Self::remap_workspace_index_after_close(idx, &close_indices, remaining_len)
+        });
+        self.state.selected = Self::remap_workspace_index_after_close(
+            self.state.selected,
+            &close_indices,
+            remaining_len,
+        )
+        .unwrap_or(0);
+        client_view.active_workspace = client_view.active_workspace.and_then(|idx| {
+            Self::remap_workspace_index_after_close(idx, &close_indices, remaining_len)
+        });
+        client_view.selected_workspace = Self::remap_workspace_index_after_close(
+            client_view.selected_workspace,
+            &close_indices,
+            remaining_len,
+        )
+        .unwrap_or(0);
+        client_view.reconcile(&self.state);
+        client_view.return_to_active_workspace_mode();
+    }
+
+    fn close_active_tab_for_client_view(&mut self, client_view: &mut ClientViewState) -> bool {
+        let Some(ws_idx) = client_view.active_workspace else {
+            return false;
+        };
+        let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) else {
+            return false;
+        };
+        if self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .is_none_or(|workspace| workspace.tabs.get(tab_idx).is_none())
+        {
+            return false;
+        }
+        self.state.selection = None;
+        self.state.selection_autoscroll = None;
+        let terminal_ids = self.state.terminal_ids_for_tab(ws_idx, tab_idx);
+        let pane_ids = self.state.pane_ids_for_tab(ws_idx, tab_idx);
+        let workspace_id = self.state.workspaces[ws_idx].id.clone();
+        let closing_tab_id = self.state.workspaces[ws_idx]
+            .public_tab_number(tab_idx)
+            .map(|number| crate::workspace::public_tab_id_for_number(&workspace_id, number))
+            .unwrap_or_else(|| format!("{}:{}", workspace_id, tab_idx + 1));
+        let Some(workspace) = self.state.workspaces.get_mut(ws_idx) else {
+            return false;
+        };
+        if !workspace.close_tab_allow_empty(tab_idx) {
+            return false;
+        }
+        self.state.remove_plugin_pane_records(pane_ids);
+        self.state.remove_unattached_terminal_ids(terminal_ids);
+        crate::logging::tab_closed(&workspace_id, &closing_tab_id);
+        self.state.mark_session_dirty();
+        client_view.hovered_tab = None;
+        client_view.tab_scroll_follow_active = true;
+        client_view.reconcile(&self.state);
+        client_view.return_to_active_workspace_mode();
+        false
+    }
+
+    fn close_focused_pane_for_client_view(&mut self, client_view: &mut ClientViewState) -> bool {
+        let Some(ws_idx) = client_view.active_workspace else {
+            return false;
+        };
+        let Some((_, pane_id)) = client_view.focused_pane_for_workspace(&self.state, ws_idx) else {
+            return false;
+        };
+        if self.state.close_pane_would_close_workspace(ws_idx, pane_id)
+            && self
+                .state
+                .workspace_close_would_close_worktree_group(ws_idx)
+            && self.state.confirm_close
+        {
+            self.open_client_view_confirm_close(client_view, ws_idx);
+            return true;
+        }
+        self.state.selection = None;
+        self.state.selection_autoscroll = None;
+        self.state.mark_session_dirty();
+        let terminal_ids = self
+            .state
+            .terminal_id_for_pane(ws_idx, pane_id)
+            .into_iter()
+            .collect::<Vec<_>>();
+        let should_close_workspace = self
+            .state
+            .workspaces
+            .get_mut(ws_idx)
+            .is_some_and(|workspace| workspace.close_pane(pane_id));
+        self.state.remove_plugin_pane_records([pane_id]);
+        if should_close_workspace {
+            self.close_workspace_for_client_view(client_view, ws_idx);
+        } else {
+            self.state.remove_unattached_terminal_ids(terminal_ids);
+            client_view.reconcile(&self.state);
+            client_view.return_to_active_workspace_mode();
+        }
+        false
+    }
+
+    fn navigate_pane_for_client_view(
+        &mut self,
+        client_view: &mut ClientViewState,
+        direction: crate::layout::NavDirection,
+    ) {
+        let Some(ws_idx) = client_view.active_workspace else {
+            return;
+        };
+        let Some((tab_idx, pane_id)) = client_view.focused_pane_for_workspace(&self.state, ws_idx)
+        else {
+            return;
+        };
+        let Some(tab) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.tabs.get(tab_idx))
+        else {
+            return;
+        };
+        let panes = if client_view.tab_is_zoomed(&self.state.workspaces[ws_idx].id, tab_idx + 1) {
+            tab.layout.panes(client_view.computed.terminal_area)
+        } else {
+            client_view.computed.pane_infos.clone()
+        };
+        let Some(focused) = panes.iter().find(|info| info.id == pane_id) else {
+            return;
+        };
+        if let Some(target) = crate::layout::find_in_direction(focused, direction, &panes) {
+            client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, target);
+        }
+    }
+
+    fn cycle_pane_for_client_view(&self, client_view: &mut ClientViewState, reverse: bool) {
+        let Some(ws_idx) = client_view.active_workspace else {
+            return;
+        };
+        let Some((tab_idx, pane_id)) = client_view.focused_pane_for_workspace(&self.state, ws_idx)
+        else {
+            return;
+        };
+        let Some(tab) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.tabs.get(tab_idx))
+        else {
+            return;
+        };
+        let ids = tab.layout.pane_ids();
+        let Some(pos) = ids.iter().position(|id| *id == pane_id) else {
+            return;
+        };
+        let target = if reverse {
+            ids[(pos + ids.len() - 1) % ids.len()]
+        } else {
+            ids[(pos + 1) % ids.len()]
+        };
+        client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, target);
+    }
+
+    fn last_pane_for_client_view(&self, client_view: &mut ClientViewState) {
+        let Some(target) = client_view.previous_pane_focus.clone() else {
+            return;
+        };
+        let Some(ws_idx) = self
+            .state
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.id == target.workspace_id)
+        else {
+            client_view.previous_pane_focus = None;
+            return;
+        };
+        let Some(tab_idx) = self.state.workspaces[ws_idx].find_tab_index_for_pane(target.pane_id)
+        else {
+            client_view.previous_pane_focus = None;
+            return;
+        };
+        let current = client_view.current_pane_focus_target(&self.state);
+        if current.as_ref() == Some(&target) {
+            client_view.previous_pane_focus = None;
+            return;
+        }
+        client_view.active_workspace = Some(ws_idx);
+        client_view.selected_workspace = ws_idx;
+        client_view
+            .active_tabs
+            .insert(target.workspace_id.clone(), tab_idx);
+        client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, target.pane_id);
+        client_view.previous_pane_focus = current;
+    }
+
+    fn enter_copy_mode_for_client_view(&mut self, client_view: &mut ClientViewState) {
+        let Some(ws_idx) = client_view.active_workspace else {
+            return;
+        };
+        let Some((_, pane_id)) = client_view.focused_pane_for_workspace(&self.state, ws_idx) else {
+            return;
+        };
+        let Some(info) = client_view
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| info.id == pane_id)
+            .cloned()
+        else {
+            return;
+        };
+        if info.inner_rect.width == 0 || info.inner_rect.height == 0 {
+            return;
+        }
+
+        let cursor = self
+            .state
+            .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, info.id)
+            .and_then(|rt| rt.cursor_state(info.inner_rect, true))
+            .filter(|cursor| cursor.visible)
+            .map(|cursor| {
+                (
+                    cursor.y.saturating_sub(info.inner_rect.y),
+                    cursor.x.saturating_sub(info.inner_rect.x),
+                )
+            })
+            .unwrap_or_else(|| (info.inner_rect.height.saturating_sub(1), 0));
+        let entry_offset_from_bottom = self
+            .state
+            .pane_scroll_metrics(&self.terminal_runtimes, info.id)
+            .map_or(0, |metrics| metrics.offset_from_bottom);
+
+        client_view.selection = None;
+        client_view.selection_autoscroll = None;
+        client_view.copy_mode = Some(state::CopyModeState {
+            pane_id: info.id,
+            cursor_row: cursor.0.min(info.inner_rect.height.saturating_sub(1)),
+            cursor_col: cursor.1.min(info.inner_rect.width.saturating_sub(1)),
+            entry_offset_from_bottom,
+            selection: None,
+        });
+        client_view.mode = Mode::Copy;
+    }
+
+    fn toggle_zoom_for_client_view(&mut self, client_view: &mut ClientViewState) {
+        let Some(ws_idx) = client_view.active_workspace else {
+            return;
+        };
+        let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) else {
+            return;
+        };
+        let Some(tab) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.tabs.get(tab_idx))
+        else {
+            return;
+        };
+        if tab.layout.pane_count() <= 1 {
+            return;
+        }
+        let workspace_id = self.state.workspaces[ws_idx].id.clone();
+        let tab_number = tab_idx + 1;
+        let zoomed = !client_view.tab_is_zoomed(&workspace_id, tab_number);
+        client_view.set_tab_zoomed(&workspace_id, tab_number, zoomed);
+        self.state.mark_session_dirty();
+    }
+
+    fn split_pane_for_client_view(
+        &mut self,
+        client_view: &mut ClientViewState,
+        direction: Direction,
+    ) {
+        let Some(ws_idx) = client_view.active_workspace else {
+            return;
+        };
+        let Some((tab_idx, pane_id)) = client_view.focused_pane_for_workspace(&self.state, ws_idx)
+        else {
+            return;
+        };
+        let (rows, cols) = self.state.estimate_pane_size();
+        let new_rows = (rows / 2).max(4);
+        let new_cols = (cols / 2).max(10);
+        let follow_cwd = self.state.workspaces.get(ws_idx).and_then(|workspace| {
+            let tab = workspace.tabs.get(tab_idx)?;
+            tab.cwd_for_pane(pane_id, &self.state.terminals, &self.terminal_runtimes)
+        });
+        let cwd = Some(self.resolve_new_terminal_cwd(follow_cwd));
+        let previous_focus = client_view.current_pane_focus_target(&self.state);
+        let Some(workspace) = self.state.workspaces.get_mut(ws_idx) else {
+            return;
+        };
+        if let Some(tab) = workspace.tabs.get_mut(tab_idx) {
+            tab.layout.focus_pane(pane_id);
+            workspace.active_tab = tab_idx;
+        }
+        let Ok(new_pane) = workspace.split_focused(
+            direction,
+            new_rows,
+            new_cols,
+            cwd,
+            self.state.pane_scrollback_limit_bytes,
+            self.state.host_terminal_theme,
+            crate::pane::PaneShellConfig::new(&self.state.default_shell, self.state.shell_mode),
+            Vec::new(),
+        ) else {
+            return;
+        };
+        let new_id = new_pane.pane_id;
+        self.terminal_runtimes
+            .insert(new_pane.terminal.id.clone(), new_pane.runtime);
+        self.state
+            .terminals
+            .insert(new_pane.terminal.id.clone(), new_pane.terminal);
+        self.state.remove_alias_shadowed_by_new_pane(new_id);
+        client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, new_id);
+        client_view.previous_pane_focus = previous_focus;
+        self.state.mark_session_dirty();
+        client_view.return_to_active_workspace_mode();
+    }
+
+    fn focus_agent_entry_for_client_view(
+        &self,
+        client_view: &mut ClientViewState,
+        idx: usize,
+    ) -> bool {
+        let entries = crate::ui::agent_panel_entries_for_view(
+            &self.state,
+            &self.terminal_runtimes,
+            client_view,
+        );
+        let Some(target) = entries.get(idx) else {
+            return false;
+        };
+        client_view.active_workspace = Some(target.ws_idx);
+        client_view.selected_workspace = target.ws_idx;
+        if let Some(workspace) = self.state.workspaces.get(target.ws_idx) {
+            client_view
+                .active_tabs
+                .insert(workspace.id.clone(), target.tab_idx);
+        }
+        client_view.focus_pane_in_workspace(
+            &self.state,
+            target.ws_idx,
+            target.tab_idx,
+            target.pane_id,
+        );
+        client_view.agent_panel_scroll = client_view.agent_panel_scroll.min(idx);
+        true
+    }
+
+    fn handle_client_view_confirm_close_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        key: crossterm::event::KeyEvent,
+    ) {
+        match key.code {
+            crossterm::event::KeyCode::Enter => {
+                if let Some(ws_idx) = client_view.active_workspace {
+                    self.close_workspace_for_client_view(client_view, ws_idx);
+                }
+            }
+            crossterm::event::KeyCode::Esc => {
+                client_view.mode = Mode::Navigate;
+            }
+            crossterm::event::KeyCode::Char('c')
+                if key
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
+            {
+                client_view.mode = Mode::Navigate;
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_client_view_confirm_delete_group_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        key: crossterm::event::KeyEvent,
+    ) {
+        match key.code {
+            crossterm::event::KeyCode::Enter => {
+                if let Some(group_idx) = client_view.confirm_delete_group.take() {
+                    let _ = self.state.delete_group(group_idx);
+                }
+                client_view.reconcile(&self.state);
+                client_view.return_to_active_workspace_mode();
+            }
+            crossterm::event::KeyCode::Esc => {
+                client_view.confirm_delete_group = None;
+                client_view.mode = Mode::Navigate;
+            }
+            crossterm::event::KeyCode::Char('c')
+                if key
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
+            {
+                client_view.confirm_delete_group = None;
+                client_view.mode = Mode::Navigate;
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_client_view_git_repo_picker_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        key: crossterm::event::KeyEvent,
+    ) {
+        match key.code {
+            crossterm::event::KeyCode::Esc => client_view.return_to_active_workspace_mode(),
+            crossterm::event::KeyCode::Enter | crossterm::event::KeyCode::Char(' ') => {
+                let previous_picker = self.state.git_repo_picker.clone();
+                self.state.git_repo_picker = client_view.git_repo_picker.clone();
+                if let Err(err) = self
+                    .state
+                    .open_selected_git_diff_command(&mut self.terminal_runtimes)
+                {
+                    self.state.toast = Some(crate::app::state::ToastNotification {
+                        kind: crate::app::state::ToastKind::NeedsAttention,
+                        title: "git diff command failed".to_string(),
+                        context: err,
+                        position: None,
+                        target: None,
+                    });
+                }
+                self.state.git_repo_picker = previous_picker;
+                client_view.reconcile(&self.state);
+                client_view.return_to_active_workspace_mode();
+            }
+            crossterm::event::KeyCode::Up => {
+                client_view.git_repo_picker.selected =
+                    client_view.git_repo_picker.selected.saturating_sub(1);
+                if client_view.git_repo_picker.selected < client_view.git_repo_picker.scroll {
+                    client_view.git_repo_picker.scroll = client_view.git_repo_picker.selected;
+                }
+            }
+            crossterm::event::KeyCode::Down => {
+                let max = client_view.git_repo_picker.roots.len().saturating_sub(1);
+                client_view.git_repo_picker.selected =
+                    (client_view.git_repo_picker.selected + 1).min(max);
+                let visible_repos = 5;
+                if client_view.git_repo_picker.selected
+                    >= client_view.git_repo_picker.scroll + visible_repos
+                {
+                    client_view.git_repo_picker.scroll =
+                        client_view.git_repo_picker.selected + 1 - visible_repos;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_client_view_context_menu_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        key: crossterm::event::KeyEvent,
+    ) {
+        match key.code {
+            crossterm::event::KeyCode::Esc => {
+                client_view.context_menu = None;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            crossterm::event::KeyCode::Up => {
+                if let Some(menu) = &mut client_view.context_menu {
+                    menu.move_prev();
+                }
+            }
+            crossterm::event::KeyCode::Down => {
+                if let Some(menu) = &mut client_view.context_menu {
+                    menu.move_next();
+                }
+            }
+            crossterm::event::KeyCode::Enter => {
+                if let Some(menu) = client_view.context_menu.take() {
+                    let idx = menu.list.highlighted;
+                    if !menu.item_is_selectable(idx) {
+                        let mut menu = menu;
+                        menu.hover(Some(idx));
+                        client_view.context_menu = Some(menu);
+                        client_view.mode = Mode::ContextMenu;
+                        return;
+                    }
+                    self.apply_client_view_context_menu_action(client_view, menu, idx);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn open_client_view_workspace_settings(
+        &self,
+        client_view: &mut ClientViewState,
+        ws_idx: usize,
+    ) {
+        let mut settings_state = self.state.clone();
+        input::open_workspace_settings(&mut settings_state, ws_idx);
+        client_view.settings = settings_state.settings;
+        client_view.mode = Mode::Settings;
+    }
+
+    fn open_client_view_group_settings(&self, client_view: &mut ClientViewState, group_idx: usize) {
+        let mut settings_state = self.state.clone();
+        input::open_group_settings(&mut settings_state, group_idx);
+        client_view.settings = settings_state.settings;
+        client_view.mode = Mode::Settings;
+    }
+
+    fn apply_client_view_context_menu_action(
+        &mut self,
+        client_view: &mut ClientViewState,
+        menu: state::ContextMenuState,
+        idx: usize,
+    ) {
+        let item = menu.items().get(idx).copied();
+        if item.is_some_and(|item| {
+            state::ContextMenuState::item_is_separator(item)
+                || state::ContextMenuState::item_is_section_header(item)
+        }) {
+            client_view.context_menu = Some(menu);
+            client_view.mode = Mode::ContextMenu;
+            return;
+        }
+
+        match (menu.kind, item) {
+            (state::ContextMenuKind::Group { group_idx, .. }, Some("space")) => {
+                self.switch_client_view_group(client_view, group_idx);
+                self.state.request_new_workspace = true;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            (state::ContextMenuKind::Group { group_idx, .. }, Some("group")) => {
+                client_view.active_group = group_idx.min(self.state.groups.len().saturating_sub(1));
+                self.open_client_view_new_group_dialog(client_view);
+            }
+            (state::ContextMenuKind::Workspace { ws_idx, .. }, Some("agent"))
+            | (state::ContextMenuKind::NewTabButton { ws_idx, .. }, Some("agent")) => {
+                client_view.selected_workspace = ws_idx;
+                client_view.active_workspace = Some(ws_idx);
+                self.open_new_agent_picker_for_client_view(client_view, ws_idx);
+            }
+            (state::ContextMenuKind::Workspace { ws_idx, .. }, Some("tab"))
+            | (state::ContextMenuKind::NewTabButton { ws_idx, .. }, Some("tab")) => {
+                client_view.selected_workspace = ws_idx;
+                client_view.active_workspace = Some(ws_idx);
+                if self.state.prompt_new_tab_name {
+                    self.open_client_view_new_tab_dialog(client_view);
+                } else {
+                    self.state.active = Some(ws_idx);
+                    self.state.selected = ws_idx;
+                    self.state.request_new_tab = true;
+                    if let Some(workspace) = self.state.workspaces.get(ws_idx) {
+                        client_view
+                            .pending_active_tabs
+                            .insert(workspace.id.clone(), workspace.tabs.len());
+                    }
+                    Self::leave_client_view_command_mode(client_view);
+                }
+            }
+            (state::ContextMenuKind::Workspace { ws_idx, .. }, Some("diff"))
+            | (state::ContextMenuKind::NewTabButton { ws_idx, .. }, Some("diff")) => {
+                client_view.selected_workspace = ws_idx;
+                client_view.active_workspace = Some(ws_idx);
+                self.state.request_open_git_diff_workspace = Some(ws_idx);
+                self.state.request_open_git_diff_command = true;
+                if let Some(workspace) = self.state.workspaces.get(ws_idx) {
+                    client_view
+                        .pending_active_tabs
+                        .insert(workspace.id.clone(), workspace.tabs.len());
+                }
+                Self::leave_client_view_command_mode(client_view);
+            }
+            (state::ContextMenuKind::Workspace { ws_idx, .. }, Some("rename")) => {
+                self.open_client_view_rename_workspace_dialog(client_view, ws_idx);
+            }
+            (state::ContextMenuKind::Workspace { ws_idx, .. }, Some("settings")) => {
+                self.open_client_view_workspace_settings(client_view, ws_idx);
+            }
+            (state::ContextMenuKind::Group { group_idx, .. }, Some("settings")) => {
+                self.open_client_view_group_settings(client_view, group_idx);
+            }
+            (
+                state::ContextMenuKind::Group {
+                    group_idx,
+                    can_delete: true,
+                    ..
+                },
+                Some("delete"),
+            ) => {
+                self.open_client_view_confirm_delete_group(client_view, group_idx);
+            }
+            (state::ContextMenuKind::Workspace { ws_idx, .. }, Some("close")) => {
+                client_view.selected_workspace = ws_idx;
+                if self.state.confirm_close {
+                    self.open_client_view_confirm_close(client_view, ws_idx);
+                } else {
+                    self.close_workspace_for_client_view(client_view, ws_idx);
+                    Self::leave_client_view_command_mode(client_view);
+                }
+            }
+            (
+                state::ContextMenuKind::Tab {
+                    ws_idx, tab_idx, ..
+                },
+                Some("rename"),
+            ) => {
+                if self.focus_client_view_tab_context_target(client_view, ws_idx, tab_idx) {
+                    self.open_client_view_rename_tab_dialog(client_view);
+                }
+            }
+            (
+                state::ContextMenuKind::Tab {
+                    ws_idx, tab_idx, ..
+                },
+                Some("close"),
+            ) => {
+                if self.focus_client_view_tab_context_target(client_view, ws_idx, tab_idx) {
+                    self.close_active_tab_for_client_view(client_view);
+                    Self::leave_client_view_command_mode(client_view);
+                }
+            }
+            (
+                state::ContextMenuKind::Tab {
+                    ws_idx, tab_idx, ..
+                },
+                Some("close other tabs"),
+            ) => {
+                self.close_other_tabs_for_client_view(client_view, ws_idx, tab_idx);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            (
+                state::ContextMenuKind::Pane {
+                    ws_idx, pane_id, ..
+                },
+                Some("rename pane"),
+            ) => {
+                if self.focus_client_view_pane_context_target(client_view, ws_idx, pane_id) {
+                    self.open_client_view_rename_pane_dialog(client_view, pane_id);
+                }
+            }
+            (
+                state::ContextMenuKind::Pane {
+                    ws_idx, pane_id, ..
+                },
+                Some("clear pane name"),
+            ) => {
+                self.clear_client_view_pane_name(ws_idx, pane_id);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            (
+                state::ContextMenuKind::Pane {
+                    ws_idx, pane_id, ..
+                },
+                Some("split vertical"),
+            ) => {
+                if self.focus_client_view_pane_context_target(client_view, ws_idx, pane_id) {
+                    self.split_pane_for_client_view(client_view, Direction::Horizontal);
+                }
+                Self::leave_client_view_command_mode(client_view);
+            }
+            (
+                state::ContextMenuKind::Pane {
+                    ws_idx, pane_id, ..
+                },
+                Some("split horizontal"),
+            ) => {
+                if self.focus_client_view_pane_context_target(client_view, ws_idx, pane_id) {
+                    self.split_pane_for_client_view(client_view, Direction::Vertical);
+                }
+                Self::leave_client_view_command_mode(client_view);
+            }
+            (
+                state::ContextMenuKind::Pane {
+                    ws_idx, pane_id, ..
+                },
+                Some("zoom"),
+            ) => {
+                if self.focus_client_view_pane_context_target(client_view, ws_idx, pane_id) {
+                    self.toggle_zoom_for_client_view(client_view);
+                }
+                Self::leave_client_view_command_mode(client_view);
+            }
+            (
+                state::ContextMenuKind::Pane {
+                    ws_idx, pane_id, ..
+                },
+                Some("close pane"),
+            ) => {
+                if self.focus_client_view_pane_context_target(client_view, ws_idx, pane_id) {
+                    self.close_focused_pane_for_client_view(client_view);
+                }
+                Self::leave_client_view_command_mode(client_view);
+            }
+            _ => Self::leave_client_view_command_mode(client_view),
+        }
+    }
+
+    fn focus_client_view_tab_context_target(
+        &self,
+        client_view: &mut ClientViewState,
+        ws_idx: usize,
+        tab_idx: usize,
+    ) -> bool {
+        let Some(workspace) = self.state.workspaces.get(ws_idx) else {
+            return false;
+        };
+        if tab_idx >= workspace.tabs.len() {
+            return false;
+        }
+        client_view.selected_workspace = ws_idx;
+        client_view.active_workspace = Some(ws_idx);
+        client_view
+            .active_tabs
+            .insert(workspace.id.clone(), tab_idx);
+        true
+    }
+
+    fn focus_client_view_pane_context_target(
+        &self,
+        client_view: &mut ClientViewState,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> bool {
+        let Some(workspace) = self.state.workspaces.get(ws_idx) else {
+            return false;
+        };
+        let Some(tab_idx) = workspace.find_tab_index_for_pane(pane_id) else {
+            return false;
+        };
+        client_view.selected_workspace = ws_idx;
+        client_view.active_workspace = Some(ws_idx);
+        client_view
+            .active_tabs
+            .insert(workspace.id.clone(), tab_idx);
+        client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, pane_id);
+        true
+    }
+
+    fn close_other_tabs_for_client_view(
+        &mut self,
+        client_view: &mut ClientViewState,
+        ws_idx: usize,
+        tab_idx: usize,
+    ) {
+        if !self.focus_client_view_tab_context_target(client_view, ws_idx, tab_idx) {
+            return;
+        }
+        let Some(workspace) = self.state.workspaces.get(ws_idx) else {
+            return;
+        };
+        let tab_count = workspace.tabs.len();
+        if tab_count <= 1 {
+            return;
+        }
+        let workspace_id = workspace.id.clone();
+        let mut terminal_ids = Vec::new();
+        let mut pane_ids = Vec::new();
+        for idx in (0..tab_count).rev() {
+            if idx == tab_idx {
+                continue;
+            }
+            terminal_ids.extend(self.state.terminal_ids_for_tab(ws_idx, idx));
+            pane_ids.extend(self.state.pane_ids_for_tab(ws_idx, idx));
+            if let Some(workspace) = self.state.workspaces.get_mut(ws_idx) {
+                let _ = workspace.close_tab_allow_empty(idx);
+            }
+        }
+        self.state.remove_plugin_pane_records(pane_ids);
+        self.state.remove_unattached_terminal_ids(terminal_ids);
+        if let Some(workspace) = self.state.workspaces.get_mut(ws_idx) {
+            workspace.active_tab = 0;
+        }
+        client_view.active_tabs.insert(workspace_id, 0);
+        client_view.hovered_tab = None;
+        client_view.reconcile(&self.state);
+        self.state.mark_session_dirty();
+    }
+
+    fn clear_client_view_pane_name(&mut self, ws_idx: usize, pane_id: crate::layout::PaneId) {
+        let terminal_id = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|ws| ws.pane_state(pane_id))
+            .map(|pane| pane.attached_terminal_id.clone());
+        if let Some(terminal_id) = terminal_id {
+            if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
+                terminal.clear_manual_label();
+                self.state.mark_session_dirty();
+            }
+        }
+    }
+
+    fn handle_client_view_copy_mode_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        key: crate::input::TerminalKey,
+    ) {
+        if key.kind == crossterm::event::KeyEventKind::Release {
+            return;
+        }
+        self.state.update_dismissed = true;
+        let mut local_state = self.client_view_mouse_state(client_view);
+        local_state.handle_copy_mode_key(&self.terminal_runtimes, key);
+        client_view.mode = local_state.mode;
+        client_view.copy_mode = local_state.copy_mode;
+        client_view.selection = local_state.selection;
+        client_view.selection_autoscroll = local_state.selection_autoscroll;
+        if let Some(content) = local_state.request_clipboard_write.take() {
+            if self
+                .event_tx
+                .try_send(crate::events::AppEvent::ClipboardWrite { content })
+                .is_err()
+            {
+                tracing::warn!("failed to queue clipboard write event");
+            }
+        }
+    }
+
+    fn cycle_agent_entry_for_client_view(&self, client_view: &mut ClientViewState, forward: bool) {
+        let entries = crate::ui::agent_panel_entries_for_view(
+            &self.state,
+            &self.terminal_runtimes,
+            client_view,
+        );
+        if entries.is_empty() {
+            return;
+        }
+        let focused = client_view
+            .active_workspace
+            .and_then(|idx| client_view.focused_pane_for_workspace(&self.state, idx))
+            .map(|(_, pane_id)| pane_id);
+        let current_idx =
+            focused.and_then(|pane_id| entries.iter().position(|entry| entry.pane_id == pane_id));
+        let target_idx = match (current_idx, forward) {
+            (Some(idx), true) => (idx + 1) % entries.len(),
+            (Some(0), false) => entries.len() - 1,
+            (Some(idx), false) => idx - 1,
+            (None, _) => 0,
+        };
+        self.focus_agent_entry_for_client_view(client_view, target_idx);
+    }
+
+    fn focus_toast_target_for_client_view(&mut self, client_view: &mut ClientViewState) {
+        let Some(target) = self
+            .state
+            .toast
+            .as_ref()
+            .and_then(|toast| toast.target.clone())
+        else {
+            return;
+        };
+        let Some(ws_idx) = self
+            .state
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.id == target.workspace_id)
+        else {
+            return;
+        };
+        let Some(tab_idx) = self.state.workspaces[ws_idx].find_tab_index_for_pane(target.pane_id)
+        else {
+            return;
+        };
+        client_view.active_workspace = Some(ws_idx);
+        client_view.selected_workspace = ws_idx;
+        client_view
+            .active_tabs
+            .insert(target.workspace_id.clone(), tab_idx);
+        client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, target.pane_id);
+        self.state.toast = None;
+        client_view.mode = Mode::Terminal;
     }
 
     fn switch_client_view_group(&self, client_view: &mut ClientViewState, group_idx: usize) {
@@ -3506,15 +4687,130 @@ impl App {
                     Self::leave_client_view_command_mode(client_view);
                 }
             }
-            _ => {
-                self.execute_targeted_client_view_app_action(client_view, |app| {
-                    input::execute_navigate_action_in_context(
-                        &mut app.state,
-                        &mut app.terminal_runtimes,
-                        action,
-                        context,
-                    );
-                });
+            input::NavigateAction::RenameWorkspace => {
+                if let Some(ws_idx) = client_view.active_workspace {
+                    self.open_client_view_rename_workspace_dialog(client_view, ws_idx);
+                }
+            }
+            input::NavigateAction::CloseWorkspace => {
+                if let Some(ws_idx) = client_view.active_workspace {
+                    if self.state.confirm_close {
+                        self.open_client_view_confirm_close(client_view, ws_idx);
+                    } else {
+                        self.close_workspace_for_client_view(client_view, ws_idx);
+                        Self::leave_client_view_command_mode(client_view);
+                    }
+                }
+            }
+            input::NavigateAction::WorkspacePicker => {
+                client_view.navigator = state::NavigatorState::default();
+                client_view.mode = Mode::Navigator;
+            }
+            input::NavigateAction::NewGroup => {
+                self.open_client_view_new_group_dialog(client_view);
+            }
+            input::NavigateAction::RenameGroup => {
+                self.open_client_view_rename_group_dialog(client_view, client_view.active_group);
+            }
+            input::NavigateAction::DeleteGroup => {
+                self.open_client_view_confirm_delete_group(client_view, client_view.active_group);
+            }
+            input::NavigateAction::FocusAgent(idx) => {
+                self.focus_agent_entry_for_client_view(client_view, idx);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::PreviousAgent => {
+                self.cycle_agent_entry_for_client_view(client_view, false);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::NextAgent => {
+                self.cycle_agent_entry_for_client_view(client_view, true);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::RenameTab => {
+                self.open_client_view_rename_tab_dialog(client_view);
+            }
+            input::NavigateAction::CloseTab => {
+                self.close_active_tab_for_client_view(client_view);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::RenamePane => {
+                if let Some(ws_idx) = client_view.active_workspace {
+                    if let Some(target) =
+                        client_view.focused_pane_for_workspace(&self.state, ws_idx)
+                    {
+                        self.open_client_view_rename_pane_dialog(client_view, target.1);
+                    }
+                }
+            }
+            input::NavigateAction::FocusPaneLeft => {
+                self.navigate_pane_for_client_view(client_view, crate::layout::NavDirection::Left);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::FocusPaneDown => {
+                self.navigate_pane_for_client_view(client_view, crate::layout::NavDirection::Down);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::FocusPaneUp => {
+                self.navigate_pane_for_client_view(client_view, crate::layout::NavDirection::Up);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::FocusPaneRight => {
+                self.navigate_pane_for_client_view(client_view, crate::layout::NavDirection::Right);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::SplitVertical => {
+                self.split_pane_for_client_view(client_view, Direction::Horizontal);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::SplitHorizontal => {
+                self.split_pane_for_client_view(client_view, Direction::Vertical);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::ClosePane => {
+                self.close_focused_pane_for_client_view(client_view);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::CopyMode => {
+                self.enter_copy_mode_for_client_view(client_view);
+            }
+            input::NavigateAction::Zoom => {
+                self.toggle_zoom_for_client_view(client_view);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::EnterResizeMode => {
+                client_view.mode = Mode::Resize;
+            }
+            input::NavigateAction::ToggleSidebar => {
+                client_view.sidebar_collapsed = !client_view.sidebar_collapsed;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::ToggleRightSidebar => {
+                client_view.right_sidebar_collapsed = !client_view.right_sidebar_collapsed;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::CyclePaneNext => {
+                self.cycle_pane_for_client_view(client_view, false);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::CyclePanePrevious => {
+                self.cycle_pane_for_client_view(client_view, true);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::LastPane => {
+                self.last_pane_for_client_view(client_view);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::ReloadConfig => {
+                self.state.request_reload_config = true;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::OpenNotificationTarget => {
+                self.focus_toast_target_for_client_view(client_view);
+            }
+            input::NavigateAction::Detach => {
+                input::request_detach(&mut self.state);
+                Self::leave_client_view_command_mode(client_view);
             }
         }
     }
@@ -5539,9 +6835,7 @@ impl App {
         column: u16,
         row: u16,
     ) -> Option<crate::ui::AgentPanelHeaderTarget> {
-        let mut view_state = self.state.clone();
-        Self::sync_app_state_view_fields(&mut view_state, client_view);
-
+        let view = client_view;
         if client_view.sidebar_collapsed
             && client_view.computed.right_sidebar_rect == Rect::default()
         {
@@ -5553,11 +6847,7 @@ impl App {
             if !Self::rect_contains(detail_area, column, row) {
                 return None;
             }
-            return crate::ui::collapsed_agent_panel_header_target_at_row(
-                &view_state,
-                detail_area,
-                row,
-            );
+            return None;
         }
 
         let area = self.client_view_agent_panel_rect(client_view);
@@ -5565,13 +6855,25 @@ impl App {
             return None;
         }
         let leading_separator = client_view.computed.right_sidebar_rect == Rect::default();
-        let metrics = crate::ui::agent_panel_scroll_metrics(&view_state, area, leading_separator);
+        let metrics = crate::ui::agent_panel_scroll_metrics_for_view(
+            &self.state,
+            &self.terminal_runtimes,
+            view,
+            area,
+            leading_separator,
+        );
         let body = crate::ui::agent_panel_body_rect(
             area,
             crate::ui::should_show_scrollbar(metrics),
             leading_separator,
         );
-        crate::ui::agent_panel_header_target_at_row(&view_state, body, row)
+        crate::ui::agent_panel_header_target_at_row_for_view(
+            &self.state,
+            &self.terminal_runtimes,
+            view,
+            body,
+            row,
+        )
     }
 
     fn client_view_agent_detail_target_at(
@@ -5580,9 +6882,7 @@ impl App {
         column: u16,
         row: u16,
     ) -> Option<(usize, usize, crate::layout::PaneId)> {
-        let mut view_state = self.state.clone();
-        Self::sync_app_state_view_fields(&mut view_state, client_view);
-
+        let view = client_view;
         if client_view.sidebar_collapsed
             && client_view.computed.right_sidebar_rect == Rect::default()
         {
@@ -5594,8 +6894,14 @@ impl App {
             if !Self::rect_contains(detail_area, column, row) {
                 return None;
             }
-            return crate::ui::collapsed_agent_panel_entry_at_row(&view_state, detail_area, row)
-                .map(|detail| (detail.ws_idx, detail.tab_idx, detail.pane_id));
+            return crate::ui::collapsed_agent_panel_entry_at_row_for_view(
+                &self.state,
+                &self.terminal_runtimes,
+                view,
+                detail_area,
+                row,
+            )
+            .map(|detail| (detail.ws_idx, detail.tab_idx, detail.pane_id));
         }
 
         let detail_area = self.client_view_agent_panel_rect(client_view);
@@ -5603,8 +6909,13 @@ impl App {
             return None;
         }
         let leading_separator = client_view.computed.right_sidebar_rect == Rect::default();
-        let metrics =
-            crate::ui::agent_panel_scroll_metrics(&view_state, detail_area, leading_separator);
+        let metrics = crate::ui::agent_panel_scroll_metrics_for_view(
+            &self.state,
+            &self.terminal_runtimes,
+            view,
+            detail_area,
+            leading_separator,
+        );
         let body = crate::ui::agent_panel_body_rect(
             detail_area,
             crate::ui::should_show_scrollbar(metrics),
@@ -5614,8 +6925,14 @@ impl App {
             return None;
         }
 
-        crate::ui::agent_panel_entry_at_row(&view_state, body, row)
-            .map(|detail| (detail.ws_idx, detail.tab_idx, detail.pane_id))
+        crate::ui::agent_panel_entry_at_row_for_view(
+            &self.state,
+            &self.terminal_runtimes,
+            view,
+            body,
+            row,
+        )
+        .map(|detail| (detail.ws_idx, detail.tab_idx, detail.pane_id))
     }
 
     fn toggle_client_view_agent_section(client_view: &mut ClientViewState, section_key: String) {
@@ -5631,13 +6948,17 @@ impl App {
     }
 
     fn clamp_client_view_agent_panel_scroll(&self, client_view: &mut ClientViewState) {
-        let mut view_state = self.state.clone();
-        Self::sync_app_state_view_fields(&mut view_state, client_view);
         let area = self.client_view_agent_panel_rect(client_view);
         let leading_separator = client_view.computed.right_sidebar_rect == Rect::default();
         client_view.agent_panel_scroll = client_view.agent_panel_scroll.min(
-            crate::ui::agent_panel_scroll_metrics(&view_state, area, leading_separator)
-                .max_offset_from_bottom,
+            crate::ui::agent_panel_scroll_metrics_for_view(
+                &self.state,
+                &self.terminal_runtimes,
+                client_view,
+                area,
+                leading_separator,
+            )
+            .max_offset_from_bottom,
         );
     }
 
@@ -5775,6 +7096,30 @@ impl App {
             .any(|id| id == group_id)
     }
 
+    fn client_view_workspace_list_entry_count(&self, client_view: &ClientViewState) -> usize {
+        client_view.computed.workspace_group_header_areas.len()
+            + client_view.computed.workspace_card_areas.len()
+            + client_view.computed.workspace_group_empty_areas.len()
+    }
+
+    fn client_view_sidebar_visible_workspace_indices(
+        &self,
+        client_view: &ClientViewState,
+    ) -> Vec<usize> {
+        self.state
+            .workspaces
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, workspace)| {
+                if Self::client_view_workspace_group_collapsed(client_view, &workspace.group_id) {
+                    return None;
+                }
+                self.client_view_workspace_in_active_group(client_view, idx)
+                    .then_some(idx)
+            })
+            .collect()
+    }
+
     fn client_view_workspace_group_header_at(
         &self,
         client_view: &ClientViewState,
@@ -5784,7 +7129,6 @@ impl App {
         if client_view.sidebar_collapsed || client_view.group_filter_enabled {
             return None;
         }
-
         client_view
             .computed
             .workspace_group_header_areas
@@ -5804,58 +7148,6 @@ impl App {
             .workspace_card_areas
             .iter()
             .find_map(|card| Self::rect_contains(card.rect, col, row).then_some(card.ws_idx))
-    }
-
-    fn client_view_sidebar_visible_workspace_indices(
-        &self,
-        client_view: &ClientViewState,
-    ) -> Vec<usize> {
-        self.state
-            .workspaces
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, workspace)| {
-                (!Self::client_view_workspace_group_collapsed(client_view, &workspace.group_id))
-                    .then_some(idx)
-            })
-            .collect()
-    }
-
-    fn client_view_workspace_list_entry_count(&self, client_view: &ClientViewState) -> usize {
-        if client_view.group_filter_enabled {
-            let Some(group_id) = self
-                .state
-                .groups
-                .get(client_view.active_group)
-                .map(|group| group.id.as_str())
-            else {
-                return 0;
-            };
-            return self
-                .state
-                .workspaces
-                .iter()
-                .filter(|workspace| workspace.group_id == group_id)
-                .count();
-        }
-
-        self.state
-            .groups
-            .iter()
-            .map(|group| {
-                let workspace_count =
-                    if Self::client_view_workspace_group_collapsed(client_view, &group.id) {
-                        0
-                    } else {
-                        self.state
-                            .workspaces
-                            .iter()
-                            .filter(|workspace| workspace.group_id == group.id)
-                            .count()
-                    };
-                1 + workspace_count
-            })
-            .sum()
     }
 
     fn toggle_client_view_workspace_group(
@@ -6043,126 +7335,12 @@ impl App {
                     return true;
                 }
 
-                self.prepare_shared_state_for_client_view_context_action(client_view, &menu);
-                input::apply_context_menu_action(
-                    &mut self.state,
-                    &mut self.terminal_runtimes,
-                    menu,
-                    idx,
-                );
-                self.copy_context_action_modal_state_to_client(client_view);
+                self.apply_client_view_context_menu_action(client_view, menu, idx);
             }
             _ => {}
         }
 
         true
-    }
-
-    fn prepare_shared_state_for_client_view_context_action(
-        &mut self,
-        client_view: &ClientViewState,
-        menu: &state::ContextMenuState,
-    ) {
-        match menu.kind {
-            state::ContextMenuKind::Pane {
-                ws_idx, pane_id, ..
-            } => {
-                self.state.active = Some(ws_idx);
-                self.state.selected = ws_idx;
-                if let Some(workspace) = self.state.workspaces.get(ws_idx) {
-                    if let Some(tab_idx) = client_view.active_tab_for_workspace(&workspace.id) {
-                        self.state.switch_tab(tab_idx);
-                    }
-                }
-                self.state.focus_pane(pane_id);
-            }
-            state::ContextMenuKind::Tab {
-                ws_idx, tab_idx, ..
-            } => {
-                self.state.active = Some(ws_idx);
-                self.state.selected = ws_idx;
-                self.state.switch_tab(tab_idx);
-            }
-            state::ContextMenuKind::Workspace { ws_idx, .. }
-            | state::ContextMenuKind::NewTabButton { ws_idx, .. } => {
-                self.state.active = Some(ws_idx);
-                self.state.selected = ws_idx;
-            }
-            state::ContextMenuKind::Group { group_idx, .. } => {
-                self.state.active_group = group_idx;
-            }
-        }
-    }
-
-    fn copy_context_action_modal_state_to_client(&mut self, client_view: &mut ClientViewState) {
-        if self.state.request_open_git_diff_command
-            && self.state.request_open_git_diff_workspace.is_none()
-        {
-            self.state.request_open_git_diff_workspace = self.state.active;
-        }
-        let pending_tab_focus = self
-            .state
-            .request_agent_profile_tab
-            .as_ref()
-            .map(|(ws_idx, _)| *ws_idx)
-            .or(self.state.request_open_git_diff_workspace)
-            .or_else(|| {
-                (self.state.request_open_git_diff_command || self.state.request_new_tab)
-                    .then_some(self.state.active.unwrap_or(self.state.selected))
-            })
-            .and_then(|ws_idx| {
-                let workspace = self.state.workspaces.get(ws_idx)?;
-                Some((workspace.id.clone(), workspace.tabs.len()))
-            });
-        let state_mode = self.state.mode;
-        match state_mode {
-            Mode::AgentProfilePicker => {
-                client_view.mode = Mode::AgentProfilePicker;
-                client_view.agent_profile_picker = self.state.agent_profile_picker.clone();
-                self.state.mode = Mode::Terminal;
-            }
-            Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
-                client_view.mode = state_mode;
-                client_view.creating_new_tab = self.state.creating_new_tab;
-                client_view.creating_new_group = self.state.creating_new_group;
-                client_view.group_icon_input = self.state.group_icon_input.clone();
-                client_view.group_default_directory_input =
-                    self.state.group_default_directory_input.clone();
-                client_view.group_modal_selected_field = self.state.group_modal_selected_field;
-                client_view.group_icon_picker_open = self.state.group_icon_picker_open;
-                client_view.rename_group_target = self.state.rename_group_target;
-                client_view.requested_new_tab_name = self.state.requested_new_tab_name.clone();
-                client_view.rename_pane_target = self.state.rename_pane_target;
-                client_view.name_input = self.state.name_input.clone();
-                client_view.name_input_replace_on_type = self.state.name_input_replace_on_type;
-                self.state.mode = Mode::Terminal;
-            }
-            Mode::Settings => {
-                client_view.mode = Mode::Settings;
-                client_view.settings = self.state.settings.clone();
-                self.state.mode = Mode::Terminal;
-            }
-            Mode::ConfirmClose | Mode::ConfirmDeleteGroup => {
-                client_view.mode = state_mode;
-                client_view.confirm_delete_group = self.state.confirm_delete_group;
-                self.state.mode = Mode::Terminal;
-            }
-            Mode::ContextMenu => {
-                client_view.mode = Mode::ContextMenu;
-                client_view.context_menu = self.state.context_menu.clone();
-                self.state.context_menu = None;
-                self.state.mode = Mode::Terminal;
-            }
-            _ => {
-                Self::leave_client_view_command_mode(client_view);
-            }
-        }
-        client_view.reconcile(&self.state);
-        if let Some((workspace_id, tab_idx)) = pending_tab_focus {
-            client_view
-                .pending_active_tabs
-                .insert(workspace_id, tab_idx);
-        }
     }
 
     fn context_menu_item_at_for_client_view(
