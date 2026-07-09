@@ -2093,19 +2093,21 @@ impl ContextMenuState {
             ContextMenuKind::Group {
                 can_delete: false, ..
             } => &["new", "space", "group", "---", "manage", "settings"],
-            ContextMenuKind::Workspace { can_diff: true, .. }
-            | ContextMenuKind::Tab { can_diff: true, .. } => &[
+            ContextMenuKind::Workspace { can_diff: true, .. } => &[
                 "new", "tab", "agent", "diff", "---", "manage", "rename", "settings", "---",
                 "danger", "close",
             ],
             ContextMenuKind::Workspace {
                 can_diff: false, ..
-            }
-            | ContextMenuKind::Tab {
-                can_diff: false, ..
             } => &[
                 "new", "tab", "agent", "---", "manage", "rename", "settings", "---", "danger",
                 "close",
+            ],
+            ContextMenuKind::Tab { .. } => &[
+                "rename",
+                "close",
+                "close other tabs",
+                "close tabs to the right",
             ],
             ContextMenuKind::NewTabButton { can_diff: true, .. } => {
                 &["new", "tab", "agent", "diff"]
@@ -2231,6 +2233,39 @@ mod context_menu_tests {
 
         assert!(with_diff.items().contains(&"diff"));
         assert!(!without_diff.items().contains(&"diff"));
+    }
+
+    #[test]
+    fn tab_context_menu_exposes_only_tab_operations_even_when_workspace_can_diff() {
+        let expected = &[
+            "rename",
+            "close",
+            "close other tabs",
+            "close tabs to the right",
+        ];
+        let with_diff = ContextMenuState {
+            kind: ContextMenuKind::Tab {
+                ws_idx: 0,
+                tab_idx: 1,
+                can_diff: true,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(0),
+        };
+        let without_diff = ContextMenuState {
+            kind: ContextMenuKind::Tab {
+                ws_idx: 0,
+                tab_idx: 1,
+                can_diff: false,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(0),
+        };
+
+        assert_eq!(with_diff.items(), expected);
+        assert_eq!(without_diff.items(), expected);
     }
 }
 

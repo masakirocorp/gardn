@@ -4671,7 +4671,7 @@ impl App {
             },
             x: mouse.column,
             y: mouse.row,
-            list: state::MenuListState::new(1),
+            list: state::MenuListState::new(0),
         });
         client_view.mode = Mode::ContextMenu;
         true

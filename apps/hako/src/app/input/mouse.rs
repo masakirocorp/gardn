@@ -1221,7 +1221,7 @@ impl AppState {
                         },
                         x: mouse.column,
                         y: mouse.row,
-                        list: MenuListState::new(1),
+                        list: MenuListState::new(0),
                     });
                     self.mode = Mode::ContextMenu;
                 }
