@@ -6209,15 +6209,15 @@ impl App {
                     return true;
                 }
             }
-            MouseEventKind::Moved => {
+            MouseEventKind::Moved
                 if self.state.forward_pane_mouse_motion_in_workspace(
                     &self.terminal_runtimes,
                     ws_idx,
                     &info,
                     mouse,
-                ) {
-                    return true;
-                }
+                ) =>
+            {
+                return true;
             }
             _ => {}
         }
