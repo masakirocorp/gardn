@@ -1833,7 +1833,7 @@ impl AppState {
         true
     }
 
-    pub(super) fn forward_pane_wheel(
+    pub(crate) fn forward_pane_wheel(
         &self,
         terminal_runtimes: &TerminalRuntimeRegistry,
         info: &PaneInfo,
@@ -1951,7 +1951,7 @@ impl AppState {
             ..mouse
         }
     }
-    pub(super) fn set_pane_scroll_offset(
+    pub(crate) fn set_pane_scroll_offset(
         &self,
         terminal_runtimes: &TerminalRuntimeRegistry,
         pane_id: crate::layout::PaneId,
@@ -1965,7 +1965,7 @@ impl AppState {
         }
     }
 
-    pub(super) fn scrollbar_target_at(
+    pub(crate) fn scrollbar_target_at(
         &self,
         terminal_runtimes: &TerminalRuntimeRegistry,
         col: u16,
@@ -1998,7 +1998,7 @@ impl AppState {
         }
     }
 
-    pub(super) fn scrollbar_offset_for_pane_row(
+    pub(crate) fn scrollbar_offset_for_pane_row(
         &self,
         terminal_runtimes: &TerminalRuntimeRegistry,
         pane_id: crate::layout::PaneId,

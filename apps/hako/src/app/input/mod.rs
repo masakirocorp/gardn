@@ -7,7 +7,7 @@ use crate::input::TerminalKey;
 use ratatui::layout::Direction;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ScrollbarClickTarget {
+pub(crate) enum ScrollbarClickTarget {
     Thumb { grab_row_offset: u16 },
     Track { offset_from_bottom: usize },
 }

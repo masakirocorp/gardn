@@ -76,7 +76,7 @@ impl AppState {
     pub(super) fn agent_panel_has_leading_separator(&self) -> bool {
         self.view.right_sidebar_rect == Rect::default()
     }
-    pub(super) fn workspace_list_scrollbar_target_at(
+    pub(crate) fn workspace_list_scrollbar_target_at(
         &self,
         col: u16,
         row: u16,
@@ -100,7 +100,7 @@ impl AppState {
         }
     }
 
-    pub(super) fn workspace_list_offset_for_drag_row(
+    pub(crate) fn workspace_list_offset_for_drag_row(
         &self,
         row: u16,
         grab_row_offset: u16,
@@ -116,7 +116,7 @@ impl AppState {
         ))
     }
 
-    pub(super) fn set_workspace_list_offset_from_bottom(&mut self, offset_from_bottom: usize) {
+    pub(crate) fn set_workspace_list_offset_from_bottom(&mut self, offset_from_bottom: usize) {
         let area = self.workspace_list_rect();
         let metrics = crate::ui::workspace_list_scroll_metrics(self, area);
         self.workspace_scroll = metrics
@@ -124,7 +124,7 @@ impl AppState {
             .saturating_sub(offset_from_bottom);
     }
 
-    pub(super) fn scroll_workspace_list(&mut self, delta: i16) {
+    pub(crate) fn scroll_workspace_list(&mut self, delta: i16) {
         if delta.is_negative() {
             self.workspace_scroll = self
                 .workspace_scroll
@@ -141,7 +141,7 @@ impl AppState {
             .min(max_scroll);
     }
 
-    pub(super) fn agent_panel_scrollbar_target_at(
+    pub(crate) fn agent_panel_scrollbar_target_at(
         &self,
         col: u16,
         row: u16,
@@ -166,7 +166,7 @@ impl AppState {
         }
     }
 
-    pub(super) fn agent_panel_offset_for_drag_row(
+    pub(crate) fn agent_panel_offset_for_drag_row(
         &self,
         row: u16,
         grab_row_offset: u16,
@@ -183,7 +183,7 @@ impl AppState {
         ))
     }
 
-    pub(super) fn set_agent_panel_offset_from_bottom(&mut self, offset_from_bottom: usize) {
+    pub(crate) fn set_agent_panel_offset_from_bottom(&mut self, offset_from_bottom: usize) {
         let area = self.agent_panel_rect();
         let metrics = crate::ui::agent_panel_scroll_metrics(
             self,
@@ -195,7 +195,7 @@ impl AppState {
             .saturating_sub(offset_from_bottom);
     }
 
-    pub(super) fn scroll_agent_panel(&mut self, delta: i16) {
+    pub(crate) fn scroll_agent_panel(&mut self, delta: i16) {
         let area = self.agent_panel_rect();
         let max_scroll = crate::ui::agent_panel_scroll_metrics(
             self,

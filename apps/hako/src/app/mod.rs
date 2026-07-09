@@ -3665,6 +3665,9 @@ impl App {
         if self.handle_client_view_context_menu_mouse(client_view, mouse) {
             return;
         }
+        if self.handle_client_view_scrollbar_mouse(client_view, mouse) {
+            return;
+        }
         if self.handle_client_view_drag_mouse(client_view, mouse) {
             return;
         }
@@ -3688,6 +3691,12 @@ impl App {
         }
 
         if self.handle_client_view_scroll_mouse(client_view, mouse) {
+            return;
+        }
+        if self.handle_client_view_tab_context_menu_mouse(client_view, mouse) {
+            return;
+        }
+        if self.handle_client_view_pane_context_menu_mouse(client_view, mouse) {
             return;
         }
 
@@ -3721,25 +3730,206 @@ impl App {
             client_view.selection_autoscroll = None;
         }
 
-        let mut local_state = self.state.clone();
-        Self::sync_app_state_view_fields(&mut local_state, client_view);
-        local_state.view = client_view.computed.clone();
-        crate::app::view_state::apply_terminal_offsets_to_runtimes(
-            &local_state,
-            &self.terminal_runtimes,
-            client_view,
+        let mut local_state = self.client_view_mouse_state(client_view);
+        let in_sidebar =
+            Self::rect_contains(client_view.computed.sidebar_rect, mouse.column, mouse.row);
+        let in_right_sidebar = Self::rect_contains(
+            client_view.computed.right_sidebar_rect,
+            mouse.column,
+            mouse.row,
         );
-        let _ = local_state.handle_mouse(&mut self.terminal_runtimes, mouse);
 
-        let mut updated_client_view = ClientViewState::from_default_client_state(&local_state);
-        crate::app::view_state::capture_terminal_offsets_from_app_state(
-            &local_state,
-            &self.terminal_runtimes,
-            &mut updated_client_view,
-        );
-        updated_client_view.reconcile(&self.state);
-        *client_view = updated_client_view;
+        match mouse.kind {
+            crossterm::event::MouseEventKind::ScrollUp if in_right_sidebar => {
+                local_state.scroll_agent_panel(-1);
+                client_view.agent_panel_scroll = local_state.agent_panel_scroll;
+            }
+            crossterm::event::MouseEventKind::ScrollDown if in_right_sidebar => {
+                local_state.scroll_agent_panel(1);
+                client_view.agent_panel_scroll = local_state.agent_panel_scroll;
+            }
+            crossterm::event::MouseEventKind::ScrollUp if in_sidebar => {
+                let agent_area = self.client_view_agent_panel_rect(client_view);
+                let over_agent_panel = Self::rect_contains(agent_area, mouse.column, mouse.row);
+                if over_agent_panel {
+                    local_state.scroll_agent_panel(-1);
+                    client_view.agent_panel_scroll = local_state.agent_panel_scroll;
+                } else {
+                    local_state.scroll_workspace_list(-1);
+                    client_view.workspace_scroll = local_state.workspace_scroll;
+                }
+            }
+            crossterm::event::MouseEventKind::ScrollDown if in_sidebar => {
+                let agent_area = self.client_view_agent_panel_rect(client_view);
+                let over_agent_panel = Self::rect_contains(agent_area, mouse.column, mouse.row);
+                if over_agent_panel {
+                    local_state.scroll_agent_panel(1);
+                    client_view.agent_panel_scroll = local_state.agent_panel_scroll;
+                } else {
+                    local_state.scroll_workspace_list(1);
+                    client_view.workspace_scroll = local_state.workspace_scroll;
+                }
+            }
+            crossterm::event::MouseEventKind::ScrollUp
+            | crossterm::event::MouseEventKind::ScrollDown
+            | crossterm::event::MouseEventKind::ScrollLeft
+            | crossterm::event::MouseEventKind::ScrollRight => {
+                client_view.selection = None;
+                client_view.selection_autoscroll = None;
+                self.handle_client_view_terminal_wheel(client_view, &local_state, mouse);
+                crate::app::view_state::capture_terminal_offsets_from_app_state(
+                    &local_state,
+                    &self.terminal_runtimes,
+                    client_view,
+                );
+            }
+            _ => {}
+        }
+        client_view.reconcile(&self.state);
         true
+    }
+
+    fn handle_client_view_scrollbar_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        use input::ScrollbarClickTarget;
+
+        if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
+            return false;
+        }
+
+        let mut local_state = self.client_view_mouse_state(client_view);
+        if let Some(target) =
+            local_state.workspace_list_scrollbar_target_at(mouse.column, mouse.row)
+        {
+            match target {
+                ScrollbarClickTarget::Thumb { grab_row_offset } => {
+                    client_view.drag = Some(state::DragState {
+                        target: state::DragTarget::WorkspaceListScrollbar { grab_row_offset },
+                    });
+                }
+                ScrollbarClickTarget::Track { offset_from_bottom } => {
+                    local_state.set_workspace_list_offset_from_bottom(offset_from_bottom);
+                    client_view.workspace_scroll = local_state.workspace_scroll;
+                }
+            }
+            return true;
+        }
+
+        if let Some(target) = local_state.agent_panel_scrollbar_target_at(mouse.column, mouse.row) {
+            match target {
+                ScrollbarClickTarget::Thumb { grab_row_offset } => {
+                    client_view.drag = Some(state::DragState {
+                        target: state::DragTarget::AgentPanelScrollbar { grab_row_offset },
+                    });
+                }
+                ScrollbarClickTarget::Track { offset_from_bottom } => {
+                    local_state.set_agent_panel_offset_from_bottom(offset_from_bottom);
+                    client_view.agent_panel_scroll = local_state.agent_panel_scroll;
+                }
+            }
+            return true;
+        }
+
+        if let Some((pane_id, target)) =
+            local_state.scrollbar_target_at(&self.terminal_runtimes, mouse.column, mouse.row)
+        {
+            match target {
+                ScrollbarClickTarget::Thumb { grab_row_offset } => {
+                    client_view.drag = Some(state::DragState {
+                        target: state::DragTarget::PaneScrollbar {
+                            pane_id,
+                            grab_row_offset,
+                        },
+                    });
+                }
+                ScrollbarClickTarget::Track { offset_from_bottom } => {
+                    local_state.set_pane_scroll_offset(
+                        &self.terminal_runtimes,
+                        pane_id,
+                        offset_from_bottom,
+                    );
+                }
+            }
+            return true;
+        }
+
+        false
+    }
+
+    fn handle_client_view_terminal_wheel(
+        &self,
+        client_view: &mut ClientViewState,
+        local_state: &AppState,
+        mouse: crossterm::event::MouseEvent,
+    ) {
+        let lines_per_notch = self.state.mouse_scroll_lines;
+        let Some(ws_idx) = client_view.active_workspace else {
+            return;
+        };
+
+        if let Some(info) = client_view
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| Self::rect_contains(info.inner_rect, mouse.column, mouse.row))
+            .cloned()
+        {
+            if let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) {
+                client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, info.id);
+            }
+            if local_state.forward_pane_wheel(&self.terminal_runtimes, &info, mouse) {
+                return;
+            }
+            self.scroll_client_view_pane(ws_idx, info.id, mouse, lines_per_notch);
+            return;
+        }
+
+        if let Some(info) = client_view
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| Self::rect_contains(info.rect, mouse.column, mouse.row))
+            .cloned()
+        {
+            if let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) {
+                client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, info.id);
+            }
+            self.scroll_client_view_pane(ws_idx, info.id, mouse, lines_per_notch);
+            return;
+        }
+
+        if let Some((_, pane_id)) = client_view.focused_pane_for_workspace(&self.state, ws_idx) {
+            self.scroll_client_view_pane(ws_idx, pane_id, mouse, lines_per_notch);
+        }
+    }
+
+    fn scroll_client_view_pane(
+        &self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+        mouse: crossterm::event::MouseEvent,
+        lines_per_notch: usize,
+    ) {
+        let Some(terminal_id) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.terminal_id(pane_id))
+        else {
+            return;
+        };
+        let Some(runtime) = self.terminal_runtimes.get(terminal_id) else {
+            return;
+        };
+        match mouse.kind {
+            crossterm::event::MouseEventKind::ScrollUp => runtime.scroll_up(lines_per_notch),
+            crossterm::event::MouseEventKind::ScrollDown => runtime.scroll_down(lines_per_notch),
+            _ => {}
+        }
     }
 
     fn handle_client_view_confirm_mouse(
@@ -4090,7 +4280,7 @@ impl App {
                     return true;
                 }
 
-                let local_state = self.client_view_mouse_state(client_view);
+                let mut local_state = self.client_view_mouse_state(client_view);
                 let workspace_drop_target = local_state.workspace_drop_target_at_row(mouse.row);
                 let group_drag_source_idx = client_view
                     .group_press
@@ -4179,6 +4369,42 @@ impl App {
                     }
                     Some(state::DragTarget::TabReorder { insert_idx, .. }) => {
                         *insert_idx = tab_drop_index;
+                        true
+                    }
+                    Some(state::DragTarget::WorkspaceListScrollbar { grab_row_offset }) => {
+                        if let Some(offset_from_bottom) = local_state
+                            .workspace_list_offset_for_drag_row(mouse.row, *grab_row_offset)
+                        {
+                            local_state.set_workspace_list_offset_from_bottom(offset_from_bottom);
+                            client_view.workspace_scroll = local_state.workspace_scroll;
+                        }
+                        true
+                    }
+                    Some(state::DragTarget::AgentPanelScrollbar { grab_row_offset }) => {
+                        if let Some(offset_from_bottom) =
+                            local_state.agent_panel_offset_for_drag_row(mouse.row, *grab_row_offset)
+                        {
+                            local_state.set_agent_panel_offset_from_bottom(offset_from_bottom);
+                            client_view.agent_panel_scroll = local_state.agent_panel_scroll;
+                        }
+                        true
+                    }
+                    Some(state::DragTarget::PaneScrollbar {
+                        pane_id,
+                        grab_row_offset,
+                    }) => {
+                        if let Some(offset_from_bottom) = local_state.scrollbar_offset_for_pane_row(
+                            &self.terminal_runtimes,
+                            *pane_id,
+                            mouse.row,
+                            *grab_row_offset,
+                        ) {
+                            local_state.set_pane_scroll_offset(
+                                &self.terminal_runtimes,
+                                *pane_id,
+                                offset_from_bottom,
+                            );
+                        }
                         true
                     }
                     _ => false,
@@ -4398,6 +4624,112 @@ impl App {
         ));
         true
     }
+
+    fn handle_client_view_tab_context_menu_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if client_view.mode != Mode::Terminal
+            || mouse.kind != MouseEventKind::Down(MouseButton::Right)
+        {
+            return false;
+        }
+        let Some((tab_idx, _)) = client_view
+            .computed
+            .tab_hit_areas
+            .iter()
+            .enumerate()
+            .find(|(_, rect)| Self::rect_contains(**rect, mouse.column, mouse.row))
+        else {
+            return false;
+        };
+        let Some(ws_idx) = client_view.active_workspace else {
+            return false;
+        };
+        let Some(workspace) = self.state.workspaces.get(ws_idx) else {
+            return false;
+        };
+        if tab_idx >= workspace.tabs.len() {
+            return false;
+        }
+
+        client_view
+            .active_tabs
+            .insert(workspace.id.clone(), tab_idx);
+        let can_diff = !self
+            .state
+            .observed_git_repos_for_workspace(&self.terminal_runtimes, ws_idx)
+            .is_empty();
+        client_view.context_menu = Some(state::ContextMenuState {
+            kind: state::ContextMenuKind::Tab {
+                ws_idx,
+                tab_idx,
+                can_diff,
+            },
+            x: mouse.column,
+            y: mouse.row,
+            list: state::MenuListState::new(1),
+        });
+        client_view.mode = Mode::ContextMenu;
+        true
+    }
+
+    fn handle_client_view_pane_context_menu_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if client_view.mode != Mode::Terminal
+            || mouse.kind != MouseEventKind::Down(MouseButton::Right)
+        {
+            return false;
+        }
+        let Some(ws_idx) = client_view.active_workspace else {
+            return false;
+        };
+        let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) else {
+            return false;
+        };
+        let Some(info) = client_view
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| {
+                Self::rect_contains(info.inner_rect, mouse.column, mouse.row)
+                    || Self::rect_contains(info.rect, mouse.column, mouse.row)
+            })
+            .cloned()
+        else {
+            return false;
+        };
+
+        client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, info.id);
+        let has_manual_label = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.pane_state(info.id))
+            .and_then(|pane| self.state.terminals.get(&pane.attached_terminal_id))
+            .and_then(|terminal| terminal.manual_label.as_ref())
+            .is_some();
+        client_view.context_menu = Some(state::ContextMenuState {
+            kind: state::ContextMenuKind::Pane {
+                ws_idx,
+                pane_id: info.id,
+                has_manual_label,
+            },
+            x: mouse.column,
+            y: mouse.row,
+            list: state::MenuListState::new(0),
+        });
+        client_view.mode = Mode::ContextMenu;
+        true
+    }
     fn handle_client_view_settings_mouse(
         &mut self,
         client_view: &mut ClientViewState,
@@ -4552,6 +4884,10 @@ impl App {
                 }
                 if self.client_view_on_agent_panel_scope_toggle(client_view, mouse) {
                     Self::open_client_view_agent_menu(client_view);
+                    return true;
+                }
+                if Self::client_view_on_right_sidebar_toggle(client_view, mouse) {
+                    client_view.right_sidebar_collapsed = !client_view.right_sidebar_collapsed;
                     return true;
                 }
                 if let Some(target) =
@@ -8914,6 +9250,230 @@ mod tests {
             Some(app.state.mouse_scroll_lines)
         );
         assert_eq!(app.state.workspace_scroll, 0);
+    }
+
+    #[test]
+    fn route_client_events_for_view_client_mouse_parity_right_sidebar_toggle_is_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::Separate;
+        app.state.right_sidebar_collapsed = false;
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 160, 30));
+        let toggle = crate::ui::right_sidebar_toggle_rect(
+            client.computed.right_sidebar_rect,
+            client.right_sidebar_collapsed,
+        );
+        assert!(
+            toggle.width > 0 && toggle.height > 0,
+            "test fixture should render a clickable right-sidebar toggle"
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                toggle.x + toggle.width / 2,
+                toggle.y,
+            )],
+            true,
+        );
+
+        assert!(client.right_sidebar_collapsed);
+        assert!(!app.state.right_sidebar_collapsed);
+        assert!(!app.default_client_view.right_sidebar_collapsed);
+        assert!(!other_client.right_sidebar_collapsed);
+    }
+
+    #[test]
+    fn route_client_events_for_view_client_mouse_parity_tab_right_click_opens_invoking_client_context_menu_locally(
+    ) {
+        let mut app = test_app();
+        let server_workspace = Workspace::test_new("server");
+        let mut client_workspace = Workspace::test_new("client");
+        client_workspace.tabs[0].set_custom_name("main".into());
+        client_workspace.test_add_tab(Some("logs"));
+        app.state.workspaces = vec![server_workspace, client_workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+
+        let client_workspace_id = app.state.workspaces[1].id.clone();
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+        client.active_tabs.insert(client_workspace_id.clone(), 1);
+        client.reconcile(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let tab = client.computed.tab_hit_areas[0];
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Right),
+                tab.x + tab.width / 2,
+                tab.y,
+            )],
+            true,
+        );
+
+        let menu = client
+            .context_menu
+            .as_ref()
+            .expect("right-clicking a visible client tab should open its context menu");
+        match menu.kind {
+            state::ContextMenuKind::Tab {
+                ws_idx, tab_idx, ..
+            } => {
+                assert_eq!(ws_idx, 1);
+                assert_eq!(tab_idx, 0);
+            }
+            other => panic!("expected tab context menu, got {other:?}"),
+        }
+        assert_eq!(menu.x, tab.x + tab.width / 2);
+        assert_eq!(menu.y, tab.y);
+        assert_eq!(client.mode, Mode::ContextMenu);
+        assert!(other_client.context_menu.is_none());
+        assert_eq!(other_client.mode, Mode::Terminal);
+        assert!(app.state.context_menu.is_none());
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(app.state.active, Some(0));
+        assert!(app.default_client_view.context_menu.is_none());
+    }
+
+    #[test]
+    fn route_client_events_for_view_client_mouse_parity_pane_right_click_opens_invoking_client_context_menu_locally(
+    ) {
+        let mut app = test_app();
+        let server_workspace = Workspace::test_new("server");
+        let client_workspace = Workspace::test_new("client");
+        let pane_id = client_workspace.tabs[0].root_pane;
+        app.state.workspaces = vec![server_workspace, client_workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+        client.reconcile(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let pane = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == pane_id)
+            .expect("client pane should be visible");
+        let click_col = pane.inner_rect.x + pane.inner_rect.width / 2;
+        let click_row = pane.inner_rect.y + pane.inner_rect.height / 2;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Right),
+                click_col,
+                click_row,
+            )],
+            true,
+        );
+
+        let menu = client
+            .context_menu
+            .as_ref()
+            .expect("right-clicking a visible client pane should open its context menu");
+        match menu.kind {
+            state::ContextMenuKind::Pane {
+                ws_idx,
+                pane_id: menu_pane,
+                has_manual_label,
+            } => {
+                assert_eq!(ws_idx, 1);
+                assert_eq!(menu_pane, pane_id);
+                assert!(!has_manual_label);
+            }
+            other => panic!("expected pane context menu, got {other:?}"),
+        }
+        assert_eq!(menu.x, click_col);
+        assert_eq!(menu.y, click_row);
+        assert_eq!(client.mode, Mode::ContextMenu);
+        assert!(other_client.context_menu.is_none());
+        assert_eq!(other_client.mode, Mode::Terminal);
+        assert!(app.state.context_menu.is_none());
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(app.state.active, Some(0));
+        assert!(app.default_client_view.context_menu.is_none());
+    }
+
+    #[test]
+    fn route_client_events_for_view_client_mouse_parity_workspace_scrollbar_click_scrolls_invoking_client_locally(
+    ) {
+        let mut app = test_app();
+        app.state.workspaces = (0..18)
+            .map(|idx| Workspace::test_new(&format!("workspace-{idx}")))
+            .collect();
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+        app.state.workspace_scroll = 0;
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 100, 12));
+        let workspace_list = app.client_view_workspace_list_rect(&client);
+        let local_state = client_local_app_state(&app, &client);
+        let metrics = crate::ui::workspace_list_scroll_metrics(&local_state, workspace_list);
+        assert!(
+            metrics.max_offset_from_bottom > 0,
+            "test fixture should make the workspace list scrollable"
+        );
+        let track = crate::ui::workspace_list_scrollbar_rect(&local_state, workspace_list)
+            .expect("scrollable workspace list should render a scrollbar");
+        let click_row = track.y + track.height.saturating_sub(1);
+        let expected_scroll =
+            metrics
+                .max_offset_from_bottom
+                .saturating_sub(crate::ui::scrollbar_offset_from_row(
+                    metrics, track, click_row,
+                ));
+        assert!(
+            expected_scroll > 0,
+            "clicking the lower scrollbar track should move the workspace list"
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                track.x,
+                click_row,
+            )],
+            true,
+        );
+
+        assert_eq!(client.workspace_scroll, expected_scroll);
+        assert_eq!(app.state.workspace_scroll, 0);
+        assert_eq!(app.default_client_view.workspace_scroll, 0);
+        assert_eq!(other_client.workspace_scroll, 0);
     }
 
     #[test]
