@@ -4561,6 +4561,12 @@ impl App {
                     self.clamp_client_view_agent_panel_scroll(client_view);
                     return true;
                 }
+                if let Some((ws_idx, tab_idx, pane_id)) =
+                    self.client_view_agent_detail_target_at(client_view, mouse.column, mouse.row)
+                {
+                    client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, pane_id);
+                    return true;
+                }
                 if self.client_view_on_sidebar_divider(client_view, mouse) {
                     client_view.drag = Some(state::DragState {
                         target: state::DragTarget::SidebarDivider,
@@ -4852,6 +4858,50 @@ impl App {
             leading_separator,
         );
         crate::ui::agent_panel_header_target_at_row(&view_state, body, row)
+    }
+
+    fn client_view_agent_detail_target_at(
+        &self,
+        client_view: &ClientViewState,
+        column: u16,
+        row: u16,
+    ) -> Option<(usize, usize, crate::layout::PaneId)> {
+        let mut view_state = self.state.clone();
+        Self::sync_app_state_view_fields(&mut view_state, client_view);
+
+        if client_view.sidebar_collapsed
+            && client_view.computed.right_sidebar_rect == Rect::default()
+        {
+            let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+                client_view.computed.sidebar_rect,
+                true,
+                client_view.sidebar_section_split,
+            );
+            if !Self::rect_contains(detail_area, column, row) {
+                return None;
+            }
+            return crate::ui::collapsed_agent_panel_entry_at_row(&view_state, detail_area, row)
+                .map(|detail| (detail.ws_idx, detail.tab_idx, detail.pane_id));
+        }
+
+        let detail_area = self.client_view_agent_panel_rect(client_view);
+        if !Self::rect_contains(detail_area, column, row) {
+            return None;
+        }
+        let leading_separator = client_view.computed.right_sidebar_rect == Rect::default();
+        let metrics =
+            crate::ui::agent_panel_scroll_metrics(&view_state, detail_area, leading_separator);
+        let body = crate::ui::agent_panel_body_rect(
+            detail_area,
+            crate::ui::should_show_scrollbar(metrics),
+            leading_separator,
+        );
+        if body.height < 2 || row < body.y || row >= body.y + body.height {
+            return None;
+        }
+
+        crate::ui::agent_panel_entry_at_row(&view_state, body, row)
+            .map(|detail| (detail.ws_idx, detail.tab_idx, detail.pane_id))
     }
 
     fn toggle_client_view_agent_section(client_view: &mut ClientViewState, section_key: String) {
@@ -11125,6 +11175,104 @@ mod tests {
             .map(|entry| (entry.ws_idx, entry.tab_idx, entry.pane_id)),
             None,
             "collapsed triage section should not expose the child agent row to client-local hit testing"
+        );
+    }
+
+    #[test]
+    fn route_client_events_for_view_agent_detail_click_focuses_invoking_client_tab_and_pane() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("test");
+        workspace.tabs[0].set_custom_name("main".into());
+        let first_tab = 0;
+        let first_pane = workspace.tabs[first_tab].root_pane;
+        let agent_tab = workspace.test_add_tab(Some("agent"));
+        let agent_pane = workspace.tabs[agent_tab].root_pane;
+        let first_state = workspace.tabs[first_tab]
+            .panes
+            .get_mut(&first_pane)
+            .expect("first pane");
+        first_state.detected_agent = Some(Agent::Pi);
+        first_state.state = AgentState::Idle;
+        let agent_state = workspace.tabs[agent_tab]
+            .panes
+            .get_mut(&agent_pane)
+            .expect("agent pane");
+        agent_state.detected_agent = Some(Agent::Claude);
+        agent_state.state = AgentState::Working;
+
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.agent_panel_scope = state::AgentPanelScope::CurrentWorkspace;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::Separate;
+
+        let workspace_id = app.state.workspaces[0].id.clone();
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 140, 30));
+        assert_ne!(
+            client.computed.right_sidebar_rect,
+            ratatui::layout::Rect::default(),
+            "test fixture should render the agents panel in the right sidebar"
+        );
+        let client_state = client_local_app_state(&app, &client);
+        let detail_area = crate::ui::right_sidebar_content_rect(client.computed.right_sidebar_rect);
+        let metrics = crate::ui::agent_panel_scroll_metrics(&client_state, detail_area, false);
+        let body = crate::ui::agent_panel_body_rect(
+            detail_area,
+            crate::ui::should_show_scrollbar(metrics),
+            false,
+        );
+        let agent_rows: Vec<_> = (body.y..body.y + body.height)
+            .filter(|row| {
+                crate::ui::agent_panel_entry_at_row(&client_state, body, *row).is_some_and(
+                    |entry| {
+                        (entry.ws_idx, entry.tab_idx, entry.pane_id) == (0, agent_tab, agent_pane)
+                    },
+                )
+            })
+            .collect();
+        assert!(
+            agent_rows.len() >= 2,
+            "agent entry should render a visible detail row"
+        );
+        let agent_detail_row = *agent_rows.last().expect("agent detail row");
+        assert_eq!(
+            client.active_tab_for_workspace(&workspace_id),
+            Some(first_tab)
+        );
+        assert_eq!(
+            client.focused_pane_for_tab(&workspace_id, first_tab + 1),
+            Some(first_pane)
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                body.x + 2,
+                agent_detail_row,
+            )],
+            true,
+        );
+
+        assert_eq!(client.active_workspace, Some(0));
+        assert_eq!(client.selected_workspace, 0);
+        assert_eq!(
+            client.active_tab_for_workspace(&workspace_id),
+            Some(agent_tab)
+        );
+        assert_eq!(
+            client.focused_pane_for_tab(&workspace_id, agent_tab + 1),
+            Some(agent_pane)
+        );
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(app.state.workspaces[0].active_tab_index(), first_tab);
+        assert_eq!(
+            app.state.workspaces[0].tabs[first_tab].layout.focused(),
+            first_pane
         );
     }
 
