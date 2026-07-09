@@ -1465,7 +1465,7 @@ impl AppState {
             })
     }
 
-    pub(super) fn tab_drop_index_at(&self, col: u16, row: u16) -> Option<usize> {
+    pub(crate) fn tab_drop_index_at(&self, col: u16, row: u16) -> Option<usize> {
         if !self.on_tab_bar(col, row) {
             return None;
         }

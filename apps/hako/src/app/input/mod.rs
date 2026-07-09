@@ -20,8 +20,8 @@ enum WheelRouting {
     AlternateScroll,
 }
 
-const WORKSPACE_DRAG_THRESHOLD: u16 = 1;
-const TAB_DRAG_THRESHOLD: u16 = 1;
+pub(super) const WORKSPACE_DRAG_THRESHOLD: u16 = 1;
+pub(super) const TAB_DRAG_THRESHOLD: u16 = 1;
 pub(super) const MODAL_WHEEL_SCROLL_ROWS: i16 = 3;
 const MODAL_PAGE_SCROLL_ROWS: i16 = 8;
 

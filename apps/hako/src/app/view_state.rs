@@ -2,9 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use crate::app::state::{
     AgentProfilePickerState, AppState, CommandPaletteState, ContextMenuState, DragState,
-    GitRepoPickerState, KeybindHelpState, MenuListState, Mode, NavigatorState, PaneFocusTarget,
-    ProductAnnouncementState, ReleaseNotesState, SelectionAutoscroll, SettingsState, TabPressState,
-    ViewState, WorkspacePressState,
+    GitRepoPickerState, GroupPressState, KeybindHelpState, MenuListState, Mode, NavigatorState,
+    PaneFocusTarget, ProductAnnouncementState, ReleaseNotesState, SelectionAutoscroll,
+    SettingsState, TabPressState, ViewState, WorkspacePressState,
 };
 use crate::layout::PaneId;
 use crate::terminal::{TerminalId, TerminalRuntimeRegistry};
@@ -73,6 +73,7 @@ pub(crate) struct ClientViewState {
     pub(crate) copy_mode: Option<crate::app::state::CopyModeState>,
     pub(crate) drag: Option<DragState>,
     pub(crate) workspace_press: Option<WorkspacePressState>,
+    pub(crate) group_press: Option<GroupPressState>,
     pub(crate) tab_press: Option<TabPressState>,
     pub(crate) previous_pane_focus: Option<PaneFocusTarget>,
     pub(crate) keybind_help: KeybindHelpState,
@@ -140,6 +141,7 @@ impl ClientViewState {
             copy_mode: state.copy_mode,
             drag: state.drag.clone(),
             workspace_press: state.workspace_press.clone(),
+            group_press: state.group_press.clone(),
             tab_press: state.tab_press.clone(),
             previous_pane_focus: state.previous_pane_focus.clone(),
             keybind_help: state.keybind_help.clone(),

@@ -5,14 +5,14 @@ use crate::app::state::{AgentPanelScope, AppState, ViewLayout};
 use super::ScrollbarClickTarget;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct WorkspaceDropTarget {
+pub(crate) struct WorkspaceDropTarget {
     pub insert_idx: usize,
     pub group_idx: Option<usize>,
     pub indicator_row: Option<u16>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct GroupDropTarget {
+pub(crate) struct GroupDropTarget {
     pub insert_idx: usize,
     pub indicator_row: Option<u16>,
 }
@@ -656,7 +656,7 @@ impl AppState {
                 .then_some(header.group_idx)
         })
     }
-    pub(super) fn group_drop_target_at_row(
+    pub(crate) fn group_drop_target_at_row(
         &self,
         row: u16,
         source_group_idx: usize,
@@ -734,7 +734,7 @@ impl AppState {
             .map(|target| target.insert_idx)
     }
 
-    pub(super) fn workspace_drop_target_at_row(&self, row: u16) -> Option<WorkspaceDropTarget> {
+    pub(crate) fn workspace_drop_target_at_row(&self, row: u16) -> Option<WorkspaceDropTarget> {
         let area = self.workspace_list_rect();
         let footer = self.sidebar_footer_rect();
         if area == Rect::default() || row < area.y || row >= footer.y {
