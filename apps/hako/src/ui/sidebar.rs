@@ -1938,6 +1938,77 @@ fn render_global_launcher(app: &AppState, frame: &mut Frame) {
     frame.render_widget(Paragraph::new(Span::styled("?", style)), area);
 }
 
+fn render_global_launcher_for_view(
+    app: &AppState,
+    client_view: &ClientViewState,
+    frame: &mut Frame,
+) {
+    let area = client_view_global_launcher_rect(client_view);
+    if area == Rect::default() {
+        return;
+    }
+
+    let style = if app.global_menu_attention_badge_visible() {
+        Style::default()
+            .fg(app.palette.accent)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(app.palette.overlay0)
+    };
+    frame.render_widget(Paragraph::new(Span::styled("?", style)), area);
+}
+
+fn client_view_global_launcher_rect(client_view: &ClientViewState) -> Rect {
+    if client_view.computed.layout == crate::app::state::ViewLayout::Mobile {
+        return client_view.computed.mobile_menu_hit_area;
+    }
+
+    let footer = client_view_sidebar_footer_rect(client_view);
+    if footer == Rect::default() {
+        return Rect::default();
+    }
+
+    Rect::new(footer.x, footer.y, 1.min(footer.width), footer.height)
+}
+
+fn client_view_sidebar_footer_rect(client_view: &ClientViewState) -> Rect {
+    let sidebar = client_view.computed.sidebar_rect;
+    if client_view.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
+        return Rect::default();
+    }
+
+    Rect::new(
+        sidebar.x,
+        sidebar.y + sidebar.height.saturating_sub(1),
+        sidebar.width,
+        1,
+    )
+}
+
+fn active_workspace_accent_color_for_view(
+    app: &AppState,
+    client_view: &ClientViewState,
+) -> ratatui::style::Color {
+    if !client_view.group_filter_enabled {
+        if let Some(group_idx) = client_view
+            .active_workspace
+            .and_then(|idx| app.workspaces.get(idx))
+            .map(|workspace| workspace.group_id.as_str())
+            .and_then(|group_id| app.group_index_by_id(group_id))
+        {
+            return app.group_accent_color(group_idx);
+        }
+    }
+
+    app.group_accent_color(client_view.active_group)
+}
+
+fn sidebar_is_combined_right_for_view(app: &AppState, client_view: &ClientViewState) -> bool {
+    app.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight
+        && !client_view.right_sidebar_collapsed
+        && client_view.computed.right_sidebar_rect == Rect::default()
+}
+
 pub(super) fn render_sidebar_for_view(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -1945,24 +2016,80 @@ pub(super) fn render_sidebar_for_view(
     frame: &mut Frame,
     area: Rect,
 ) {
-    let mut render_app = app.clone();
-    render_app.active = client_view.active_workspace;
-    render_app.selected = client_view.selected_workspace;
-    render_app.active_group = client_view.active_group;
-    render_app.group_filter_enabled = client_view.group_filter_enabled;
-    render_app.agent_panel_scope = client_view.agent_panel_scope;
-    render_app.workspace_scroll = client_view.workspace_scroll;
-    render_app.agent_panel_scroll = client_view.agent_panel_scroll;
-    render_app.sidebar_width = client_view.sidebar_width;
-    render_app.sidebar_collapsed = client_view.sidebar_collapsed;
-    render_app.right_sidebar_collapsed = client_view.right_sidebar_collapsed;
-    render_app.right_sidebar_width = client_view.right_sidebar_width;
-    render_app.sidebar_section_split = client_view.sidebar_section_split;
-    render_app.collapsed_workspace_groups = client_view.collapsed_workspace_groups.clone();
-    render_app.collapsed_agent_sections = client_view.collapsed_agent_sections.clone();
-    render_app.mode = client_view.mode;
-    render_app.view = client_view.computed.clone();
-    render_sidebar(&render_app, terminal_runtimes, frame, area);
+    let p = &app.palette;
+    fill_rect(frame, area, Style::default().bg(p.panel_bg));
+    let is_navigating = matches!(client_view.mode, Mode::Navigate);
+    let sep_style = if is_navigating {
+        Style::default()
+            .fg(active_workspace_accent_color_for_view(app, client_view))
+            .bg(p.panel_bg)
+    } else {
+        Style::default().fg(p.overlay0).bg(p.panel_bg)
+    };
+
+    let combined_right = sidebar_is_combined_right_for_view(app, client_view);
+    let sep_x = if combined_right {
+        area.x
+    } else {
+        area.x + area.width.saturating_sub(1)
+    };
+    let buf = frame.buffer_mut();
+    for y in area.y..area.y + area.height {
+        buf[(sep_x, y)].set_symbol("│");
+        buf[(sep_x, y)].set_style(sep_style);
+    }
+
+    if client_view.computed.right_sidebar_rect != Rect::default() {
+        let ws_area = left_sidebar_workspace_rect(area);
+        render_workspace_list_from_for_view(
+            app,
+            terminal_runtimes,
+            client_view,
+            frame,
+            ws_area,
+            is_navigating,
+        );
+    } else if combined_right {
+        let (ws_area, detail_area) =
+            right_aligned_expanded_sidebar_sections(area, client_view.sidebar_section_split);
+        render_agent_detail_from_for_view(
+            app,
+            terminal_runtimes,
+            client_view,
+            frame,
+            detail_area,
+            true,
+        );
+        render_workspace_list_from_for_view(
+            app,
+            terminal_runtimes,
+            client_view,
+            frame,
+            ws_area,
+            is_navigating,
+        );
+    } else {
+        let (ws_area, detail_area) =
+            expanded_sidebar_sections(area, client_view.sidebar_section_split);
+        render_agent_detail_from_for_view(
+            app,
+            terminal_runtimes,
+            client_view,
+            frame,
+            detail_area,
+            true,
+        );
+        render_workspace_list_from_for_view(
+            app,
+            terminal_runtimes,
+            client_view,
+            frame,
+            ws_area,
+            is_navigating,
+        );
+    }
+    render_global_launcher_for_view(app, client_view, frame);
+    render_sidebar_toggle(app, frame, area, false, p);
 }
 
 pub(super) fn render_sidebar(
@@ -2034,24 +2161,47 @@ pub(super) fn render_right_sidebar_for_view(
     frame: &mut Frame,
     area: Rect,
 ) {
-    let mut render_app = app.clone();
-    render_app.active = client_view.active_workspace;
-    render_app.selected = client_view.selected_workspace;
-    render_app.active_group = client_view.active_group;
-    render_app.group_filter_enabled = client_view.group_filter_enabled;
-    render_app.agent_panel_scope = client_view.agent_panel_scope;
-    render_app.workspace_scroll = client_view.workspace_scroll;
-    render_app.agent_panel_scroll = client_view.agent_panel_scroll;
-    render_app.sidebar_width = client_view.sidebar_width;
-    render_app.sidebar_collapsed = client_view.sidebar_collapsed;
-    render_app.right_sidebar_collapsed = client_view.right_sidebar_collapsed;
-    render_app.right_sidebar_width = client_view.right_sidebar_width;
-    render_app.sidebar_section_split = client_view.sidebar_section_split;
-    render_app.collapsed_workspace_groups = client_view.collapsed_workspace_groups.clone();
-    render_app.collapsed_agent_sections = client_view.collapsed_agent_sections.clone();
-    render_app.mode = client_view.mode;
-    render_app.view = client_view.computed.clone();
-    render_right_sidebar(&render_app, terminal_runtimes, frame, area);
+    if area == Rect::default() {
+        return;
+    }
+    let p = &app.palette;
+    fill_rect(frame, area, Style::default().bg(p.panel_bg));
+    let has_active_workspace = client_view
+        .active_workspace
+        .and_then(|idx| app.workspaces.get(idx))
+        .is_some();
+    let sep_style = if !has_active_workspace && matches!(client_view.mode, Mode::Navigate) {
+        Style::default()
+            .fg(active_workspace_accent_color_for_view(app, client_view))
+            .bg(p.panel_bg)
+    } else {
+        Style::default().fg(p.overlay0).bg(p.panel_bg)
+    };
+    let buf = frame.buffer_mut();
+    for y in area.y..area.y + area.height {
+        buf[(area.x, y)].set_symbol("│");
+        buf[(area.x, y)].set_style(sep_style);
+    }
+    if client_view.right_sidebar_collapsed {
+        render_collapsed_agent_panel(
+            app,
+            terminal_runtimes,
+            frame,
+            right_sidebar_content_rect(area),
+            p,
+        );
+        render_right_sidebar_toggle(app, frame, area, true, p);
+    } else {
+        render_agent_detail_from_for_view(
+            app,
+            terminal_runtimes,
+            client_view,
+            frame,
+            right_sidebar_content_rect(area),
+            false,
+        );
+        render_right_sidebar_toggle(app, frame, area, false, p);
+    }
 }
 
 pub(super) fn render_right_sidebar(
@@ -2367,6 +2517,305 @@ fn render_workspace_list_from(
     if let Some(track) = scrollbar_rect {
         render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▕");
     }
+}
+
+fn render_workspace_list_from_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    client_view: &ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+    is_navigating: bool,
+) {
+    let p = &app.palette;
+    let dragged_ws_idx = match client_view.drag.as_ref().map(|drag| &drag.target) {
+        Some(crate::app::state::DragTarget::WorkspaceReorder { source_ws_idx, .. }) => {
+            Some(*source_ws_idx)
+        }
+        _ => None,
+    };
+    let dragged_group_idx = match client_view.drag.as_ref().map(|drag| &drag.target) {
+        Some(crate::app::state::DragTarget::GroupReorder {
+            source_group_idx, ..
+        }) => Some(*source_group_idx),
+        _ => None,
+    };
+    let insertion_row = match client_view.drag.as_ref().map(|drag| &drag.target) {
+        Some(crate::app::state::DragTarget::WorkspaceReorder { indicator_row, .. })
+        | Some(crate::app::state::DragTarget::GroupReorder { indicator_row, .. }) => *indicator_row,
+        _ => None,
+    };
+
+    let list_bottom = area.y + area.height.saturating_sub(1);
+    if area.height > 0 {
+        let selector_rect = client_view_group_selector_rect(client_view);
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "spaces",
+                Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
+            )),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+
+        if selector_rect != Rect::default() {
+            let group_color = if client_view.group_filter_enabled {
+                app.group_accent_color(client_view.active_group)
+            } else {
+                active_workspace_accent_color_for_view(app, client_view)
+            };
+            let base = Style::default().fg(group_color).bg(p.surface0);
+            let count = Style::default().fg(p.overlay0).bg(p.surface0);
+
+            frame.render_widget(
+                Paragraph::new(centered_count_line(
+                    &group_selector_label_for_view(app, client_view),
+                    selector_rect.width,
+                    base,
+                    count,
+                )),
+                selector_rect,
+            );
+        }
+
+        if area.height > 1 {
+            let sep_line = "─".repeat(area.width as usize);
+            frame.render_widget(
+                Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.overlay0))),
+                Rect::new(area.x, area.y + 1, area.width, 1),
+            );
+        }
+    }
+
+    let metrics = workspace_list_scroll_metrics_for_view(app, client_view, area);
+    let scrollbar_rect = workspace_list_scrollbar_rect_for_view(app, client_view, area);
+    let body = workspace_list_body_rect(area, should_show_scrollbar(metrics));
+    let cards = &client_view.computed.workspace_card_areas;
+    let headers = &client_view.computed.workspace_group_header_areas;
+    let empty_rows = &client_view.computed.workspace_group_empty_areas;
+    if cards.is_empty()
+        && headers.is_empty()
+        && empty_rows.is_empty()
+        && body.height > 0
+        && body.width > 10
+    {
+        let title = if app.workspaces.is_empty() {
+            " no spaces"
+        } else {
+            " empty group"
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                title,
+                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+            ))),
+            Rect::new(body.x, body.y, body.width, 1),
+        );
+    }
+
+    for header in headers {
+        let Some(group) = app.groups.get(header.group_idx) else {
+            continue;
+        };
+        let is_dragged_group = dragged_group_idx == Some(header.group_idx);
+        let count = app
+            .workspaces
+            .iter()
+            .filter(|workspace| workspace.group_id == group.id)
+            .count();
+        let chevron = if workspace_group_collapsed_for_view(client_view, &group.id) {
+            "▸"
+        } else {
+            "▾"
+        };
+        let group_style = Style::default()
+            .fg(app.group_accent_color(header.group_idx))
+            .add_modifier(Modifier::BOLD);
+        if is_dragged_group {
+            let buf = frame.buffer_mut();
+            for x in header.rect.x..header.rect.x + header.rect.width {
+                buf[(x, header.rect.y)].set_style(Style::default().bg(p.surface1));
+            }
+        }
+        let line = Line::from(vec![
+            Span::styled(chevron.to_string(), Style::default().fg(p.overlay1)),
+            Span::styled(
+                " ".repeat(
+                    SIDEBAR_GROUP_ICON_COL.saturating_sub(SIDEBAR_GROUP_CHEVRON_COL + 1) as usize,
+                ),
+                Style::default(),
+            ),
+            Span::styled(group.icon.clone(), group_style),
+            Span::styled(
+                " ".repeat(
+                    SIDEBAR_GROUP_NAME_COL.saturating_sub(SIDEBAR_GROUP_ICON_COL + 1) as usize,
+                ),
+                Style::default(),
+            ),
+            Span::styled(group.name.clone(), group_style),
+        ]);
+        frame.render_widget(Paragraph::new(line), header.rect);
+        let count_label = count.to_string();
+        let count_width = count_label.chars().count() as u16;
+        if header.rect.width > count_width + SIDEBAR_GROUP_COUNT_RIGHT_PAD {
+            frame.render_widget(
+                Paragraph::new(Span::styled(count_label, Style::default().fg(p.overlay0))),
+                Rect::new(
+                    header.rect.x
+                        + header
+                            .rect
+                            .width
+                            .saturating_sub(count_width + SIDEBAR_GROUP_COUNT_RIGHT_PAD),
+                    header.rect.y,
+                    count_width,
+                    1,
+                ),
+            );
+        }
+    }
+
+    for empty in empty_rows {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                format!(
+                    "{}no spaces",
+                    " ".repeat(SIDEBAR_WORKSPACE_NAME_COL as usize)
+                ),
+                Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+            )),
+            empty.rect,
+        );
+    }
+
+    for card in cards {
+        let i = card.ws_idx;
+        let ws = &app.workspaces[i];
+        let row_y = card.rect.y;
+        let row_height = card.rect.height;
+        let selected = i == client_view.selected_workspace && is_navigating;
+        let is_active = Some(i) == client_view.active_workspace;
+        let is_dragged = dragged_ws_idx == Some(i);
+        let highlighted = selected || is_active || is_dragged;
+        let (agg_state, agg_seen) = ws.aggregate_state(&app.terminals);
+
+        if highlighted {
+            let bg = if selected {
+                p.surface0
+            } else if is_dragged {
+                p.surface1
+            } else {
+                p.surface_dim
+            };
+            let buf = frame.buffer_mut();
+            for y in row_y..row_y + row_height {
+                if y >= list_bottom {
+                    break;
+                }
+                for x in card.rect.x..card.rect.x + card.rect.width {
+                    buf[(x, y)].set_style(Style::default().bg(bg));
+                }
+            }
+        }
+
+        if is_active {
+            let buf = frame.buffer_mut();
+            for y in row_y..row_y + row_height {
+                if y >= list_bottom {
+                    break;
+                }
+                buf[(card.rect.x, y)].set_symbol("▌");
+                buf[(card.rect.x, y)].set_style(
+                    Style::default().fg(active_workspace_accent_color_for_view(app, client_view)),
+                );
+            }
+        }
+
+        let name_style = if selected || is_active || is_dragged {
+            Style::default().fg(p.text).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(p.subtext0)
+        };
+
+        let (icon, icon_style) = state_dot(agg_state, agg_seen, p);
+        let line1 = vec![
+            Span::styled(
+                " ".repeat(SIDEBAR_WORKSPACE_STATE_COL as usize),
+                Style::default(),
+            ),
+            Span::styled(icon, icon_style),
+            Span::styled(
+                " ".repeat(
+                    SIDEBAR_WORKSPACE_NAME_COL.saturating_sub(SIDEBAR_WORKSPACE_STATE_COL + 1)
+                        as usize,
+                ),
+                Style::default(),
+            ),
+            Span::styled(
+                ws.display_name_from(&app.terminals, terminal_runtimes),
+                name_style,
+            ),
+        ];
+
+        frame.render_widget(
+            Paragraph::new(Line::from(line1)),
+            Rect::new(card.rect.x, row_y, card.rect.width, 1),
+        );
+
+        if row_height > 1 && row_y + 1 < list_bottom {
+            let max_summary_len =
+                (card.rect.width as usize).saturating_sub(SIDEBAR_WORKSPACE_NAME_COL as usize);
+            let mut spans = vec![Span::styled(
+                " ".repeat(SIDEBAR_WORKSPACE_NAME_COL as usize),
+                Style::default(),
+            )];
+            spans.extend(workspace_summary_spans(ws, p, max_summary_len));
+            frame.render_widget(
+                Paragraph::new(Line::from(spans)),
+                Rect::new(card.rect.x, row_y + 1, card.rect.width, 1),
+            );
+        }
+    }
+
+    if let Some(y) = insertion_row.filter(|y| *y < list_bottom) {
+        let indicator_right = scrollbar_rect
+            .map(|rect| rect.x)
+            .unwrap_or(area.x + area.width);
+        let buf = frame.buffer_mut();
+        for x in area.x..indicator_right {
+            buf[(x, y)].set_symbol("─");
+            buf[(x, y)].set_style(
+                Style::default().fg(active_workspace_accent_color_for_view(app, client_view)),
+            );
+        }
+    }
+
+    if let Some(track) = scrollbar_rect {
+        render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▕");
+    }
+}
+
+fn client_view_group_selector_rect(client_view: &ClientViewState) -> Rect {
+    let footer = client_view_sidebar_footer_rect(client_view);
+    if footer == Rect::default() {
+        return Rect::default();
+    }
+
+    Rect::new(
+        footer.x + 1,
+        footer.y,
+        footer.width.saturating_sub(2),
+        footer.height,
+    )
+}
+
+fn group_selector_label_for_view(app: &AppState, client_view: &ClientViewState) -> String {
+    if client_view.group_filter_enabled {
+        let Some(group) = app.groups.get(client_view.active_group) else {
+            return "all spaces".to_string();
+        };
+        return format!("{} {}", group.icon, group.name);
+    }
+
+    "all spaces".to_string()
 }
 
 fn workspace_summary_spans(
@@ -2906,6 +3355,160 @@ fn render_agent_detail_from(
     if let Some(track) = scrollbar_rect {
         render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▕");
     }
+}
+
+fn render_agent_detail_from_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    client_view: &ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+    leading_separator: bool,
+) {
+    let p = &app.palette;
+
+    if area.height <= u16::from(leading_separator) {
+        return;
+    }
+
+    let header_y = area.y;
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "agents",
+            Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
+        )),
+        Rect::new(area.x, header_y, area.width, 1),
+    );
+    let sep_line = "─".repeat(area.width as usize);
+    frame.render_widget(
+        Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.overlay0))),
+        Rect::new(area.x, header_y.saturating_add(1), area.width, 1),
+    );
+    let toggle_rect =
+        agent_panel_toggle_rect(area, client_view.agent_panel_scope, leading_separator);
+    if toggle_rect != Rect::default() {
+        let style = Style::default().fg(p.overlay1).bg(p.surface0);
+        frame.render_widget(
+            Paragraph::new(centered_count_line(
+                agent_panel_toggle_label(client_view.agent_panel_scope),
+                toggle_rect.width,
+                style,
+                style,
+            )),
+            toggle_rect,
+        );
+    }
+
+    if !leading_separator && !app.activity_agents_expanded {
+        return;
+    }
+
+    let metrics = agent_panel_scroll_metrics_for_view(
+        app,
+        terminal_runtimes,
+        client_view,
+        area,
+        leading_separator,
+    );
+    let scrollbar_rect = agent_panel_scrollbar_rect_for_view(
+        app,
+        terminal_runtimes,
+        client_view,
+        area,
+        leading_separator,
+    );
+    let body = agent_panel_body_rect(area, should_show_scrollbar(metrics), leading_separator);
+    if body == Rect::default() {
+        return;
+    }
+
+    let sections = agent_panel_sections_for_view(app, terminal_runtimes, client_view);
+    if sections.is_empty() && body.height > 0 {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                " no agents",
+                Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
+            )),
+            Rect::new(body.x, body.y, body.width, 1),
+        );
+        if let Some(track) = scrollbar_rect {
+            render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▕");
+        }
+        return;
+    }
+
+    let show_agent_labels = agent_panel_should_show_agent_labels(&sections);
+    let mut row_y = body.y;
+    let body_bottom = body.y + body.height;
+    let mut skip = client_view.agent_panel_scroll;
+    for section in sections {
+        let collapsed = agent_panel_section_collapsed_for_view(client_view, section.label);
+        if collapsed {
+            if row_y >= body_bottom {
+                break;
+            }
+            render_agent_section_header(app, frame, &section, true, body, row_y);
+            row_y = row_y.saturating_add(1);
+            continue;
+        }
+        if skip >= section.entries.len() {
+            skip -= section.entries.len();
+            continue;
+        }
+        if row_y >= body_bottom {
+            break;
+        }
+
+        render_agent_section_header(app, frame, &section, false, body, row_y);
+        row_y = row_y.saturating_add(1);
+        let show_status = agent_panel_section_shows_entry_status(section.label);
+
+        for detail in section.entries.iter().skip(skip) {
+            let row_height =
+                agent_panel_entry_row_height(app, show_status, show_agent_labels, detail);
+            if row_y.saturating_add(row_height) > body_bottom {
+                break;
+            }
+            render_agent_entry(
+                app,
+                frame,
+                show_status,
+                show_agent_labels,
+                detail,
+                body,
+                row_y,
+            );
+            row_y = row_y.saturating_add(row_height);
+        }
+        skip = 0;
+    }
+
+    if let Some(track) = scrollbar_rect {
+        render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▕");
+    }
+}
+
+fn agent_panel_scrollbar_rect_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    client_view: &ClientViewState,
+    area: Rect,
+    leading_separator: bool,
+) -> Option<Rect> {
+    let metrics = agent_panel_scroll_metrics_for_view(
+        app,
+        terminal_runtimes,
+        client_view,
+        area,
+        leading_separator,
+    );
+    let body = agent_panel_body_rect(area, true, leading_separator);
+    (should_show_scrollbar(metrics) && body.width > 0 && body.height > 0).then_some(Rect::new(
+        area.x + area.width.saturating_sub(1),
+        body.y,
+        1,
+        body.height,
+    ))
 }
 
 pub(crate) fn collapsed_sidebar_toggle_rect(area: Rect) -> Rect {
