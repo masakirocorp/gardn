@@ -52,7 +52,7 @@ use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute, terminal,
 };
-use ratatui::layout::Rect;
+use ratatui::layout::{Direction, Rect};
 use ratatui::DefaultTerminal;
 use tokio::sync::{mpsc, Notify};
 use tracing::{debug, info};
@@ -3665,6 +3665,9 @@ impl App {
         if self.handle_client_view_context_menu_mouse(client_view, mouse) {
             return;
         }
+        if self.handle_client_view_pane_split_mouse(client_view, mouse) {
+            return;
+        }
         if self.handle_client_view_scrollbar_mouse(client_view, mouse) {
             return;
         }
@@ -3858,6 +3861,59 @@ impl App {
         }
 
         false
+    }
+
+    fn handle_client_view_pane_split_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if client_view.mode != Mode::Terminal
+            || mouse.kind != MouseEventKind::Down(MouseButton::Left)
+        {
+            return false;
+        }
+
+        let Some(border) = Self::client_view_split_border_at(client_view, mouse.column, mouse.row)
+        else {
+            return false;
+        };
+
+        client_view.drag = Some(state::DragState {
+            target: state::DragTarget::PaneSplit {
+                path: border.path.clone(),
+                direction: border.direction,
+                area: border.area,
+            },
+        });
+        true
+    }
+
+    fn client_view_split_border_at(
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> Option<&crate::layout::SplitBorder> {
+        client_view
+            .computed
+            .split_borders
+            .iter()
+            .find(|border| match border.direction {
+                Direction::Horizontal => {
+                    col >= border.pos.saturating_sub(1)
+                        && col <= border.pos
+                        && row >= border.area.y
+                        && row < border.area.y + border.area.height
+                }
+                Direction::Vertical => {
+                    row >= border.pos.saturating_sub(1)
+                        && row <= border.pos
+                        && col >= border.area.x
+                        && col < border.area.x + border.area.width
+                }
+            })
     }
 
     fn handle_client_view_terminal_wheel(
@@ -4405,6 +4461,43 @@ impl App {
                                 offset_from_bottom,
                             );
                         }
+                        true
+                    }
+                    Some(state::DragTarget::PaneSplit {
+                        path,
+                        direction,
+                        area,
+                    }) => {
+                        let ratio = match direction {
+                            Direction::Horizontal => {
+                                (mouse.column.saturating_sub(area.x)) as f32
+                                    / area.width.max(1) as f32
+                            }
+                            Direction::Vertical => {
+                                (mouse.row.saturating_sub(area.y)) as f32
+                                    / area.height.max(1) as f32
+                            }
+                        }
+                        .clamp(0.1, 0.9);
+                        let path = path.clone();
+                        let Some(ws_idx) = client_view.active_workspace else {
+                            return true;
+                        };
+                        let Some(tab_idx) =
+                            client_view.active_tab_index_for_workspace(&self.state, ws_idx)
+                        else {
+                            return true;
+                        };
+                        if let Some(tab) = self
+                            .state
+                            .workspaces
+                            .get_mut(ws_idx)
+                            .and_then(|workspace| workspace.tabs.get_mut(tab_idx))
+                        {
+                            tab.layout.set_ratio_at(&path, ratio);
+                            self.state.mark_session_dirty();
+                        }
+                        client_view.reconcile(&self.state);
                         true
                     }
                     _ => false,
@@ -9250,6 +9343,107 @@ mod tests {
             Some(app.state.mouse_scroll_lines)
         );
         assert_eq!(app.state.workspace_scroll, 0);
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_dragging_pane_split_updates_invoking_client_tab_layout() {
+        fn root_split_ratio(workspace: &Workspace, tab_idx: usize) -> f32 {
+            let crate::layout::Node::Split { ratio, .. } = workspace.tabs[tab_idx].layout.root()
+            else {
+                panic!("test fixture should use a split layout");
+            };
+            *ratio
+        }
+
+        let mut app = test_app();
+        let mut server_workspace = Workspace::test_new("server");
+        server_workspace.test_split(ratatui::layout::Direction::Horizontal);
+
+        let mut client_workspace = Workspace::test_new("client");
+        client_workspace.test_split(ratatui::layout::Direction::Horizontal);
+        let client_active_tab = client_workspace.test_add_tab(Some("logs"));
+        client_workspace.switch_tab(client_active_tab);
+        client_workspace.test_split(ratatui::layout::Direction::Horizontal);
+        client_workspace.switch_tab(0);
+
+        app.state.workspaces = vec![server_workspace, client_workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+
+        let client_workspace_id = app.state.workspaces[1].id.clone();
+        let server_ratio_before = root_split_ratio(&app.state.workspaces[0], 0);
+        let client_inactive_tab_ratio_before = root_split_ratio(&app.state.workspaces[1], 0);
+        let client_active_tab_ratio_before =
+            root_split_ratio(&app.state.workspaces[1], client_active_tab);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+        client
+            .active_tabs
+            .insert(client_workspace_id.clone(), client_active_tab);
+        client.reconcile(&app.state);
+
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 140, 32));
+        let border = client
+            .computed
+            .split_borders
+            .iter()
+            .find(|border| border.direction == ratatui::layout::Direction::Horizontal)
+            .cloned()
+            .expect("client active tab should render a horizontal pane split border");
+        let drag_row = border.area.y + border.area.height / 2;
+        let drag_col = (border.pos + 10).min(border.area.x + border.area.width.saturating_sub(1));
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    border.pos,
+                    drag_row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                    drag_col,
+                    drag_row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+                    drag_col,
+                    drag_row,
+                ),
+            ],
+            true,
+        );
+
+        assert_ne!(
+            root_split_ratio(&app.state.workspaces[1], client_active_tab),
+            client_active_tab_ratio_before,
+            "dragging a rendered pane split in a client view should resize that client's active tab"
+        );
+        assert_eq!(
+            root_split_ratio(&app.state.workspaces[1], 0),
+            client_inactive_tab_ratio_before,
+            "the client workspace tab that is not active in the invoking client should not resize"
+        );
+        assert_eq!(
+            root_split_ratio(&app.state.workspaces[0], 0),
+            server_ratio_before,
+            "the server/global active workspace should not receive the client-view split drag"
+        );
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
+        assert!(app.state.drag.is_none());
+        assert!(client.drag.is_none());
+        assert_eq!(
+            other_client.active_tab_for_workspace(&client_workspace_id),
+            Some(0)
+        );
     }
 
     #[test]
