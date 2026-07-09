@@ -417,9 +417,17 @@ fn render_settings_integrations(
     let found_any = app.integration_recommendations.iter().any(|item| {
         item.available || item.state != crate::integration::IntegrationStatusKind::NotInstalled
     });
-    let hint = if !app.integration_install_messages.is_empty() {
-        app.integration_install_messages.join("\n ")
-    } else if let Some(item) = app
+    if !app.integration_install_messages.is_empty() {
+        render_settings_integration_feedback(
+            frame,
+            hint_area,
+            p,
+            &app.integration_install_messages,
+        );
+        return;
+    }
+
+    let hint = if let Some(item) = app
         .integration_recommendations
         .get(app.settings.list.selected)
     {
@@ -460,6 +468,59 @@ fn render_settings_integrations(
         Paragraph::new(format!(" {hint}")).style(Style::default().fg(p.overlay0)),
         hint_area,
     );
+}
+
+fn render_settings_integration_feedback(
+    frame: &mut Frame,
+    area: Rect,
+    p: &crate::app::state::Palette,
+    messages: &[String],
+) {
+    let Some(first) = messages.first() else {
+        return;
+    };
+    let (label, accent, text_style, text) =
+        if let Some(warning) = first.strip_prefix(crate::integration::INSTALL_WARNING_PREFIX) {
+            (
+                " warning ",
+                p.yellow,
+                Style::default().fg(p.text),
+                warning.trim_start().to_string(),
+            )
+        } else if first.contains(": ") {
+            (
+                " error ",
+                p.red,
+                Style::default().fg(p.text),
+                first.to_string(),
+            )
+        } else {
+            (
+                " hint ",
+                p.green,
+                Style::default().fg(p.subtext0),
+                first.to_string(),
+            )
+        };
+    let mut spans = vec![
+        Span::raw(" "),
+        Span::styled(
+            label,
+            Style::default()
+                .fg(panel_contrast_fg(p))
+                .bg(accent)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(text, text_style),
+    ];
+    if messages.len() > 1 {
+        spans.push(Span::styled(
+            format!(" · {} more", messages.len() - 1),
+            Style::default().fg(p.overlay1),
+        ));
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 fn render_settings_sectioned_toggle_list(
@@ -1840,6 +1901,68 @@ mod tests {
                 .style()
                 .fg,
             Some(panel_contrast_fg(&app.palette))
+        );
+    }
+
+    #[test]
+    fn integration_success_feedback_renders_as_styled_hint_not_log() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Integrations;
+        app.integration_recommendations = vec![crate::integration::IntegrationRecommendation {
+            target: crate::api::schema::IntegrationTarget::Codex,
+            label: "codex",
+            command: "codex",
+            available: true,
+            path: std::path::PathBuf::from("/tmp/hako-test-codex"),
+            state: crate::integration::IntegrationStatusKind::Current,
+        }];
+        let restart_guidance = "restart running codex panes to use the updated hook";
+        app.integration_install_messages =
+            vec![restart_guidance.to_string(), "installed codex".to_string()];
+
+        let area = Rect::new(0, 0, 120, 32);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, area.width, area.height);
+        assert!(
+            !text.contains("installed codex"),
+            "post-install feedback should not render the old install log:\n{text}"
+        );
+        assert_eq!(text.matches(restart_guidance).count(), 1, "{text}");
+        assert!(text.contains("move ↑↓"), "{text}");
+        assert!(text.contains("action space/↵"), "{text}");
+        assert!(text.contains("section ←→/tab"), "{text}");
+
+        let (hint_y, _) = find_text_cell(&text, restart_guidance).expect("restart hint");
+        let hint_line = text.lines().nth(hint_y as usize).expect("restart hint row");
+        assert!(
+            hint_line.contains(restart_guidance) && !hint_line.contains("installed codex"),
+            "restart guidance should be a single hint row, got {hint_line:?}"
+        );
+        let (label_y, label_x) = find_text_cell(&text, " hint ").expect("hint label");
+        assert_eq!(label_y, hint_y);
+        assert_eq!(
+            buffer[(label_x, label_y)].style().bg,
+            Some(app.palette.green),
+            "restart instruction should have a distinct hint label style"
+        );
+        let guidance_x = find_text_cell(&text, restart_guidance)
+            .expect("restart hint")
+            .1;
+        assert_eq!(
+            buffer[(guidance_x, hint_y)].style().fg,
+            Some(app.palette.subtext0),
+            "restart instruction should use muted hint text, not the old dim log style"
+        );
+        assert_ne!(
+            buffer[(guidance_x, hint_y)].style().fg,
+            Some(app.palette.overlay0),
+            "restart instruction should not use the old dim log style"
         );
     }
 

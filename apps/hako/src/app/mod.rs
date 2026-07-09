@@ -1382,13 +1382,9 @@ impl App {
             &self.state.agent_profiles,
         ) {
             Ok(messages) => {
-                self.state
-                    .integration_install_messages
-                    .push(format!("installed {label}"));
-                self.state.integration_install_messages.push(
-                    "restart affected panes so already-running agents load the updated hook/extension"
-                        .to_string(),
-                );
+                self.state.integration_install_messages.push(format!(
+                    "restart running {label} panes to use the updated hook"
+                ));
                 self.state
                     .integration_install_messages
                     .extend(messages.into_iter().filter(|message| {
@@ -5565,6 +5561,23 @@ mod tests {
         panic!("rendered text not found: {text}");
     }
 
+    fn rendered_app_text(app: &App, width: u16, height: u16) -> String {
+        let backend = ratatui::backend::TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render app");
+        let buffer = terminal.backend().buffer();
+        let mut text = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                text.push_str(buffer[(x, y)].symbol());
+            }
+            text.push('\n');
+        }
+        text
+    }
+
     fn confirm_button_for_client_view(
         _app: &App,
         client_view: &ClientViewState,
@@ -5681,7 +5694,7 @@ mod tests {
     }
 
     #[test]
-    fn install_integration_message_tells_users_to_restart_affected_panes() {
+    fn install_integration_feedback_renders_restart_hint_without_old_log() {
         let _lock = crate::integration::integration_env_lock();
         let _env = clear_integration_path_env();
         let path = temp_config_path("install-integration-restart-guidance");
@@ -5700,19 +5713,16 @@ mod tests {
         crate::app::input::open_settings_at(&mut app.state, state::SettingsSection::Integrations);
         app.install_integration(crate::api::schema::IntegrationTarget::Codex);
 
-        let restart_guidance =
-            "restart affected panes so already-running agents load the updated hook/extension";
-        assert_eq!(app.state.integration_install_messages[0], "installed codex");
+        let restart_guidance = "restart running codex panes to use the updated hook";
+        let text = rendered_app_text(&app, 120, 32);
         assert!(
-            app.state
-                .integration_install_messages
-                .iter()
-                .any(|message| message == restart_guidance),
-            "expected restart guidance in install messages, got {:?}",
-            app.state.integration_install_messages
+            !text.contains("installed codex"),
+            "successful installs should not render the old log line:\n{text}"
         );
-        rendered_text_point_at_or_after_row(&app, restart_guidance, 0, 120, 32);
-
+        assert_eq!(text.matches(restart_guidance).count(), 1, "{text}");
+        assert!(text.contains("move ↑↓"), "{text}");
+        assert!(text.contains("action space/↵"), "{text}");
+        assert!(text.contains("section ←→/tab"), "{text}");
         let _ = std::fs::remove_dir_all(base);
     }
 
