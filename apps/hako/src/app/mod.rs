@@ -3343,7 +3343,7 @@ impl App {
         }
     }
 
-    fn sync_app_state_view_fields(state: &mut AppState, view: &ClientViewState) {
+    fn apply_client_view_state_for_local_helpers(state: &mut AppState, view: &ClientViewState) {
         state.active = view.active_workspace;
         state.selected = view
             .selected_workspace
@@ -4355,7 +4355,7 @@ impl App {
             return;
         }
         self.state.update_dismissed = true;
-        let mut local_state = self.client_view_mouse_state(client_view);
+        let mut local_state = self.local_helper_state_for_client_view(client_view);
         local_state.handle_copy_mode_key(&self.terminal_runtimes, key);
         client_view.mode = local_state.mode;
         client_view.copy_mode = local_state.copy_mode;
@@ -5038,7 +5038,7 @@ impl App {
             client_view.selection_autoscroll = None;
         }
 
-        let mut local_state = self.client_view_mouse_state(client_view);
+        let mut local_state = self.local_helper_state_for_client_view(client_view);
         let in_sidebar =
             Self::rect_contains(client_view.computed.sidebar_rect, mouse.column, mouse.row);
         let in_right_sidebar = Self::rect_contains(
@@ -5109,7 +5109,7 @@ impl App {
             return false;
         }
 
-        let mut local_state = self.client_view_mouse_state(client_view);
+        let mut local_state = self.local_helper_state_for_client_view(client_view);
         if let Some(target) =
             local_state.workspace_list_scrollbar_target_at(mouse.column, mouse.row)
         {
@@ -5212,7 +5212,7 @@ impl App {
             return false;
         }
 
-        let local_state = self.client_view_mouse_state(client_view);
+        let local_state = self.local_helper_state_for_client_view(client_view);
         let areas = crate::ui::mobile_switcher_areas(&local_state);
         if Self::rect_contains(areas.close, mouse.column, mouse.row) {
             client_view.mode = Mode::Terminal;
@@ -5274,7 +5274,7 @@ impl App {
     }
 
     fn scroll_client_view_mobile_switcher(&self, client_view: &mut ClientViewState, delta: i16) {
-        let local_state = self.client_view_mouse_state(client_view);
+        let local_state = self.local_helper_state_for_client_view(client_view);
         let max_scroll = crate::ui::mobile_switcher_max_scroll(&local_state);
         let delta = delta.saturating_mul(2);
         if delta.is_negative() {
@@ -5612,9 +5612,9 @@ impl App {
             && row < rect.y + rect.height
     }
 
-    fn client_view_mouse_state(&self, client_view: &ClientViewState) -> AppState {
+    fn local_helper_state_for_client_view(&self, client_view: &ClientViewState) -> AppState {
         let mut state = self.state.clone();
-        Self::sync_app_state_view_fields(&mut state, client_view);
+        Self::apply_client_view_state_for_local_helpers(&mut state, client_view);
         state.view = client_view.computed.clone();
         state
     }
@@ -5762,7 +5762,7 @@ impl App {
                     return true;
                 }
 
-                let mut local_state = self.client_view_mouse_state(client_view);
+                let mut local_state = self.local_helper_state_for_client_view(client_view);
                 let workspace_drop_target = local_state.workspace_drop_target_at_row(mouse.row);
                 let group_drag_source_idx = client_view
                     .group_press
@@ -7877,7 +7877,7 @@ mod tests {
 
     fn client_view_app_state(app: &App, client_view: &ClientViewState) -> state::AppState {
         let mut state = app.state.clone();
-        App::sync_app_state_view_fields(&mut state, client_view);
+        App::apply_client_view_state_for_local_helpers(&mut state, client_view);
         state.view = client_view.computed.clone();
         state
     }

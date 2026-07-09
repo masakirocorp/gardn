@@ -254,7 +254,7 @@ impl App {
         mouse: MouseEvent,
     ) -> bool {
         let mut view_state = self.state.clone();
-        Self::sync_app_state_view_fields(&mut view_state, client_view);
+        Self::apply_client_view_state_for_local_helpers(&mut view_state, client_view);
 
         match client_view.mode {
             Mode::ReleaseNotes => {
