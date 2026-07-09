@@ -253,31 +253,60 @@ impl App {
         client_view: &mut ClientViewState,
         mouse: MouseEvent,
     ) -> bool {
-        let mut view_state = self.state.clone();
-        view_state.mode = client_view.mode;
-        view_state.drag = client_view.drag.clone();
-        view_state.release_notes = client_view.release_notes.clone();
-        view_state.product_announcement = client_view.product_announcement.clone();
-        view_state.keybind_help = client_view.keybind_help.clone();
-        view_state.view = client_view.computed.clone();
+        let saved_mode = self.state.mode;
+        std::mem::swap(&mut self.state.drag, &mut client_view.drag);
+        std::mem::swap(
+            &mut self.state.release_notes,
+            &mut client_view.release_notes,
+        );
+        std::mem::swap(
+            &mut self.state.product_announcement,
+            &mut client_view.product_announcement,
+        );
+        std::mem::swap(&mut self.state.keybind_help, &mut client_view.keybind_help);
+        std::mem::swap(&mut self.state.view, &mut client_view.computed);
+        self.state.mode = client_view.mode;
+
         match client_view.mode {
             Mode::ReleaseNotes => {
-                handle_release_notes_mouse_for_state(&mut view_state, mouse);
+                handle_release_notes_mouse_for_state(&mut self.state, mouse);
             }
             Mode::ProductAnnouncement => {
-                handle_product_announcement_mouse_for_state(&mut view_state, mouse);
+                handle_product_announcement_mouse_for_state(&mut self.state, mouse);
             }
             Mode::KeybindHelp => {
-                handle_keybind_help_mouse_for_state(&mut view_state, mouse);
+                handle_keybind_help_mouse_for_state(&mut self.state, mouse);
             }
-            _ => return false,
+            _ => {
+                self.state.mode = saved_mode;
+                std::mem::swap(&mut self.state.drag, &mut client_view.drag);
+                std::mem::swap(
+                    &mut self.state.release_notes,
+                    &mut client_view.release_notes,
+                );
+                std::mem::swap(
+                    &mut self.state.product_announcement,
+                    &mut client_view.product_announcement,
+                );
+                std::mem::swap(&mut self.state.keybind_help, &mut client_view.keybind_help);
+                std::mem::swap(&mut self.state.view, &mut client_view.computed);
+                return false;
+            }
         }
 
-        client_view.mode = view_state.mode;
-        client_view.drag = view_state.drag;
-        client_view.release_notes = view_state.release_notes;
-        client_view.product_announcement = view_state.product_announcement;
-        client_view.keybind_help = view_state.keybind_help;
+        client_view.mode = self.state.mode;
+        self.state.mode = saved_mode;
+        std::mem::swap(&mut self.state.drag, &mut client_view.drag);
+        std::mem::swap(
+            &mut self.state.release_notes,
+            &mut client_view.release_notes,
+        );
+        std::mem::swap(
+            &mut self.state.product_announcement,
+            &mut client_view.product_announcement,
+        );
+        std::mem::swap(&mut self.state.keybind_help, &mut client_view.keybind_help);
+        std::mem::swap(&mut self.state.view, &mut client_view.computed);
         true
     }
 }

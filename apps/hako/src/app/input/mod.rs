@@ -66,8 +66,8 @@ pub(crate) use self::{
         NavigateAction,
     },
     settings::{
-        open_group_settings, open_settings_at, open_workspace_settings,
-        prepare_general_settings_state, update_settings_mouse_for_view,
+        open_settings_at, prepare_general_settings_state, prepare_group_settings_state,
+        prepare_workspace_settings_state, update_settings_mouse_for_view,
         update_settings_state_for_view,
     },
     sidebar::{AgentMenuAction, GroupDropTarget, GroupMenuAction, WorkspaceDropTarget},

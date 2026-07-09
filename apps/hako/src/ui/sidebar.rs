@@ -1020,6 +1020,33 @@ pub(crate) fn compute_workspace_group_drop_areas_in_list(
 ) -> Vec<crate::app::state::WorkspaceGroupDropArea> {
     compute_workspace_list_areas_in_list(app, ws_area).3
 }
+pub(crate) fn compute_workspace_card_areas_in_list_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    ws_area: Rect,
+) -> Vec<crate::app::state::WorkspaceCardArea> {
+    compute_workspace_list_areas_in_list_for_view(app, view, ws_area).0
+}
+
+pub(crate) fn compute_workspace_group_header_areas_in_list_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    ws_area: Rect,
+) -> Vec<crate::app::state::WorkspaceGroupHeaderArea> {
+    compute_workspace_list_areas_in_list_for_view(app, view, ws_area).1
+}
+
+pub(crate) fn compute_workspace_group_empty_areas_in_list_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    ws_area: Rect,
+) -> Vec<crate::app::state::WorkspaceGroupEmptyArea> {
+    compute_workspace_list_areas_in_list_for_view(app, view, ws_area).2
+}
+
+pub(crate) fn workspace_list_entry_count_for_view(app: &AppState, view: &ClientViewState) -> usize {
+    workspace_list_entries_for_view(app, view).len()
+}
 
 pub(crate) fn workspace_list_entry_count(app: &AppState) -> usize {
     workspace_list_entries(app).len()
@@ -1063,6 +1090,96 @@ fn compute_workspace_list_areas_in_list(
     let entries = workspace_list_entries(app);
     for entry in entries.iter().copied().skip(app.workspace_scroll) {
         let row_height = entry.row_height(app);
+        if row_y.saturating_add(row_height) > body_bottom {
+            break;
+        }
+
+        match entry {
+            WorkspaceListEntry::GroupGap => {}
+            WorkspaceListEntry::GroupHeader { group_idx } => {
+                headers.push(crate::app::state::WorkspaceGroupHeaderArea {
+                    group_idx,
+                    rect: Rect::new(body.x, row_y, body.width, 1),
+                });
+            }
+            WorkspaceListEntry::EmptyGroup { group_idx } => {
+                empties.push(crate::app::state::WorkspaceGroupEmptyArea {
+                    group_idx,
+                    rect: Rect::new(body.x, row_y, body.width, 1),
+                });
+            }
+            WorkspaceListEntry::Workspace { ws_idx, group_idx } => {
+                let Some(ws) = app.workspaces.get(ws_idx) else {
+                    continue;
+                };
+                let row_height = workspace_row_height(ws);
+                cards.push(crate::app::state::WorkspaceCardArea {
+                    ws_idx,
+                    rect: Rect::new(body.x, row_y, body.width, row_height),
+                });
+                if let Some(group_idx) = group_idx {
+                    let group_is_seen =
+                        drops
+                            .iter()
+                            .any(|drop: &crate::app::state::WorkspaceGroupDropArea| {
+                                drop.group_idx == group_idx
+                            });
+                    if !group_is_seen {
+                        drops.push(crate::app::state::WorkspaceGroupDropArea {
+                            group_idx,
+                            insert_idx: ws_idx,
+                            rect: Rect::new(body.x, row_y, body.width, 1),
+                        });
+                    }
+                    drops.push(crate::app::state::WorkspaceGroupDropArea {
+                        group_idx,
+                        insert_idx: ws_idx + 1,
+                        rect: Rect::new(
+                            body.x,
+                            workspace_after_drop_row(row_y, row_height, body_bottom),
+                            body.width,
+                            1,
+                        ),
+                    });
+                }
+            }
+        }
+        row_y = row_y.saturating_add(row_height);
+    }
+
+    (cards, headers, empties, drops)
+}
+
+fn compute_workspace_list_areas_in_list_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    ws_area: Rect,
+) -> (
+    Vec<crate::app::state::WorkspaceCardArea>,
+    Vec<crate::app::state::WorkspaceGroupHeaderArea>,
+    Vec<crate::app::state::WorkspaceGroupEmptyArea>,
+    Vec<crate::app::state::WorkspaceGroupDropArea>,
+) {
+    if ws_area == Rect::default() {
+        return (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    }
+
+    let metrics = workspace_list_scroll_metrics_for_view(app, view, ws_area);
+    let body = workspace_list_body_rect(ws_area, should_show_scrollbar(metrics));
+    if body.width == 0 || body.height == 0 {
+        return (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    }
+
+    let mut row_y = body.y;
+    let body_bottom = body.y + body.height;
+    let mut cards = Vec::new();
+    let mut headers = Vec::new();
+    let mut empties = Vec::new();
+    let mut drops = Vec::new();
+
+    let entries = workspace_list_entries_for_view(app, view);
+    for entry in entries.iter().copied().skip(view.workspace_scroll) {
+        let row_height = entry.row_height_for_workspaces(&app.workspaces);
         if row_y.saturating_add(row_height) > body_bottom {
             break;
         }
@@ -1821,6 +1938,33 @@ fn render_global_launcher(app: &AppState, frame: &mut Frame) {
     frame.render_widget(Paragraph::new(Span::styled("?", style)), area);
 }
 
+pub(super) fn render_sidebar_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    client_view: &ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let mut render_app = app.clone();
+    render_app.active = client_view.active_workspace;
+    render_app.selected = client_view.selected_workspace;
+    render_app.active_group = client_view.active_group;
+    render_app.group_filter_enabled = client_view.group_filter_enabled;
+    render_app.agent_panel_scope = client_view.agent_panel_scope;
+    render_app.workspace_scroll = client_view.workspace_scroll;
+    render_app.agent_panel_scroll = client_view.agent_panel_scroll;
+    render_app.sidebar_width = client_view.sidebar_width;
+    render_app.sidebar_collapsed = client_view.sidebar_collapsed;
+    render_app.right_sidebar_collapsed = client_view.right_sidebar_collapsed;
+    render_app.right_sidebar_width = client_view.right_sidebar_width;
+    render_app.sidebar_section_split = client_view.sidebar_section_split;
+    render_app.collapsed_workspace_groups = client_view.collapsed_workspace_groups.clone();
+    render_app.collapsed_agent_sections = client_view.collapsed_agent_sections.clone();
+    render_app.mode = client_view.mode;
+    render_app.view = client_view.computed.clone();
+    render_sidebar(&render_app, terminal_runtimes, frame, area);
+}
+
 pub(super) fn render_sidebar(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -1881,6 +2025,33 @@ fn render_collapsed_agent_rail(
         right_sidebar_content_rect(area),
         p,
     );
+}
+
+pub(super) fn render_right_sidebar_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    client_view: &ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let mut render_app = app.clone();
+    render_app.active = client_view.active_workspace;
+    render_app.selected = client_view.selected_workspace;
+    render_app.active_group = client_view.active_group;
+    render_app.group_filter_enabled = client_view.group_filter_enabled;
+    render_app.agent_panel_scope = client_view.agent_panel_scope;
+    render_app.workspace_scroll = client_view.workspace_scroll;
+    render_app.agent_panel_scroll = client_view.agent_panel_scroll;
+    render_app.sidebar_width = client_view.sidebar_width;
+    render_app.sidebar_collapsed = client_view.sidebar_collapsed;
+    render_app.right_sidebar_collapsed = client_view.right_sidebar_collapsed;
+    render_app.right_sidebar_width = client_view.right_sidebar_width;
+    render_app.sidebar_section_split = client_view.sidebar_section_split;
+    render_app.collapsed_workspace_groups = client_view.collapsed_workspace_groups.clone();
+    render_app.collapsed_agent_sections = client_view.collapsed_agent_sections.clone();
+    render_app.mode = client_view.mode;
+    render_app.view = client_view.computed.clone();
+    render_right_sidebar(&render_app, terminal_runtimes, frame, area);
 }
 
 pub(super) fn render_right_sidebar(

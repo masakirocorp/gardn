@@ -1946,7 +1946,7 @@ impl App {
             }
             Mode::Settings => {
                 if let Some(action) =
-                    input::update_settings_state_for_view(&self.state, client_view, key)
+                    input::update_settings_state_for_view(&mut self.state, client_view, key)
                 {
                     self.apply_settings_action(action);
                 }
@@ -3966,17 +3966,15 @@ impl App {
         client_view: &mut ClientViewState,
         ws_idx: usize,
     ) {
-        let mut settings_state = self.state.clone();
-        input::open_workspace_settings(&mut settings_state, ws_idx);
-        client_view.settings = settings_state.settings;
-        client_view.mode = Mode::Settings;
+        if input::prepare_workspace_settings_state(&self.state, &mut client_view.settings, ws_idx) {
+            client_view.mode = Mode::Settings;
+        }
     }
 
     fn open_client_view_group_settings(&self, client_view: &mut ClientViewState, group_idx: usize) {
-        let mut settings_state = self.state.clone();
-        input::open_group_settings(&mut settings_state, group_idx);
-        client_view.settings = settings_state.settings;
-        client_view.mode = Mode::Settings;
+        if input::prepare_group_settings_state(&self.state, &mut client_view.settings, group_idx) {
+            client_view.mode = Mode::Settings;
+        }
     }
 
     fn apply_client_view_context_menu_action(
@@ -4272,13 +4270,30 @@ impl App {
             return;
         }
         self.state.update_dismissed = true;
-        let mut copy_state = self.copy_mode_state_for_client_view(client_view);
-        copy_state.handle_copy_mode_key(&self.terminal_runtimes, key);
-        client_view.mode = copy_state.mode;
-        client_view.copy_mode = copy_state.copy_mode;
-        client_view.selection = copy_state.selection;
-        client_view.selection_autoscroll = copy_state.selection_autoscroll;
-        if let Some(content) = copy_state.request_clipboard_write.take() {
+        let saved_active = self.state.active;
+        let saved_mode = self.state.mode;
+        self.state.active = client_view.active_workspace;
+        self.state.mode = client_view.mode;
+        std::mem::swap(&mut self.state.copy_mode, &mut client_view.copy_mode);
+        std::mem::swap(&mut self.state.selection, &mut client_view.selection);
+        std::mem::swap(
+            &mut self.state.selection_autoscroll,
+            &mut client_view.selection_autoscroll,
+        );
+
+        self.state
+            .handle_copy_mode_key(&self.terminal_runtimes, key);
+
+        client_view.mode = self.state.mode;
+        std::mem::swap(&mut self.state.copy_mode, &mut client_view.copy_mode);
+        std::mem::swap(&mut self.state.selection, &mut client_view.selection);
+        std::mem::swap(
+            &mut self.state.selection_autoscroll,
+            &mut client_view.selection_autoscroll,
+        );
+        self.state.active = saved_active;
+        self.state.mode = saved_mode;
+        if let Some(content) = self.state.request_clipboard_write.take() {
             if self
                 .event_tx
                 .try_send(crate::events::AppEvent::ClipboardWrite { content })
@@ -5829,36 +5844,6 @@ impl App {
         Some(last_idx + 1)
     }
 
-    fn copy_mode_state_for_client_view(&self, client_view: &ClientViewState) -> AppState {
-        let mut state = self.state.clone();
-        state.active = client_view.active_workspace;
-        state.mode = client_view.mode;
-        state.copy_mode = client_view.copy_mode;
-        state.selection = client_view.selection.clone();
-        state.selection_autoscroll = client_view.selection_autoscroll.clone();
-        state.view = client_view.computed.clone();
-        for workspace in &mut state.workspaces {
-            if let Some(tab_idx) = client_view
-                .active_tabs
-                .get(&workspace.id)
-                .copied()
-                .filter(|idx| *idx < workspace.tabs.len())
-            {
-                workspace.switch_tab(tab_idx);
-            }
-            for (tab_idx, tab) in workspace.tabs.iter_mut().enumerate() {
-                let tab_number = tab_idx + 1;
-                if let Some(pane_id) = client_view.focused_pane_for_tab(&workspace.id, tab_number) {
-                    if tab.panes.contains_key(&pane_id) {
-                        tab.layout.focus_pane(pane_id);
-                    }
-                }
-                tab.zoomed = client_view.tab_is_zoomed(&workspace.id, tab_number);
-            }
-        }
-        state
-    }
-
     fn client_view_scrollbar_target_at(
         &self,
         client_view: &ClientViewState,
@@ -6758,27 +6743,16 @@ impl App {
         }
 
         let screen = client_view.screen_rect();
-        if let Some(action) = input::update_settings_mouse_for_view(&self.state, client_view, mouse)
+        if let Some(action) =
+            input::update_settings_mouse_for_view(&mut self.state, client_view, mouse)
         {
             self.apply_settings_action(action);
-            crate::ui::compute_view_with_runtime_registry(
-                &mut self.state,
+            crate::ui::compute_view_for_client_without_resizing_panes(
+                &self.state,
+                client_view,
                 &self.terminal_runtimes,
                 screen,
             );
-            client_view.reconcile(&self.state);
-            let mut client_local_state = self.state.clone();
-            client_local_state.active = client_view.active_workspace;
-            client_local_state.selected = client_view.selected_workspace;
-            client_local_state.mode = client_view.mode;
-            client_local_state.view = client_view.computed.clone();
-            client_local_state.settings = client_view.settings.clone();
-            crate::ui::compute_view_with_runtime_registry(
-                &mut client_local_state,
-                &self.terminal_runtimes,
-                screen,
-            );
-            client_view.computed = client_local_state.view;
         }
 
         true
@@ -6798,24 +6772,19 @@ impl App {
             return false;
         }
 
-        let mut view_state = self.state.clone();
-        view_state.mode = client_view.mode;
-        view_state.view = client_view.computed.clone();
-        view_state.global_menu = client_view.global_menu;
-        view_state.group_menu = client_view.group_menu;
-        view_state.agent_menu = client_view.agent_menu;
-
         match (client_view.mode, mouse.kind) {
             (Mode::GlobalMenu, MouseEventKind::Moved) => {
-                let actions = input::global_menu_actions(&view_state);
-                let hovered = view_state
-                    .global_menu_item_at(mouse.column, mouse.row)
+                let actions = input::global_menu_actions(&self.state);
+                let hovered = self
+                    .client_view_global_menu_item_at(client_view, mouse.column, mouse.row)
                     .and_then(|action| actions.iter().position(|item| *item == action));
                 client_view.global_menu.hover(hovered);
             }
             (Mode::GlobalMenu, MouseEventKind::Down(MouseButton::Left)) => {
-                let actions = input::global_menu_actions(&view_state);
-                if let Some(action) = view_state.global_menu_item_at(mouse.column, mouse.row) {
+                let actions = input::global_menu_actions(&self.state);
+                if let Some(action) =
+                    self.client_view_global_menu_item_at(client_view, mouse.column, mouse.row)
+                {
                     if let Some(idx) = actions.iter().position(|item| *item == action) {
                         client_view.global_menu.highlighted = idx;
                     }
@@ -6825,21 +6794,22 @@ impl App {
                 }
             }
             (Mode::GroupMenu, MouseEventKind::Moved) => {
-                client_view.group_menu.hover(
-                    view_state
-                        .group_menu_row_at(mouse.column, mouse.row)
-                        .filter(|idx| view_state.group_menu_action_for_row(*idx).is_some()),
-                );
+                client_view
+                    .group_menu
+                    .hover(self.client_view_group_menu_row_at(
+                        client_view,
+                        mouse.column,
+                        mouse.row,
+                    ));
             }
             (Mode::GroupMenu, MouseEventKind::Down(MouseButton::Left)) => {
-                if let Some(row) = view_state
-                    .group_menu_row_at(mouse.column, mouse.row)
-                    .filter(|idx| view_state.group_menu_action_for_row(*idx).is_some())
+                if let Some(row) =
+                    self.client_view_group_menu_row_at(client_view, mouse.column, mouse.row)
                 {
                     client_view.group_menu.highlighted = row;
                     self.accept_client_view_group_menu_selection(client_view);
                 } else {
-                    let rect = view_state.group_menu_rect();
+                    let rect = self.client_view_group_menu_rect(client_view);
                     let inside_menu = mouse.column >= rect.x
                         && mouse.column < rect.x + rect.width
                         && mouse.row >= rect.y
@@ -6852,17 +6822,20 @@ impl App {
             (Mode::AgentMenu, MouseEventKind::Moved) => {
                 client_view
                     .agent_menu
-                    .hover(view_state.agent_menu_row_at(mouse.column, mouse.row));
+                    .hover(self.client_view_agent_menu_row_at(
+                        client_view,
+                        mouse.column,
+                        mouse.row,
+                    ));
             }
             (Mode::AgentMenu, MouseEventKind::Down(MouseButton::Left)) => {
-                if let Some(row) = view_state
-                    .agent_menu_row_at(mouse.column, mouse.row)
-                    .filter(|idx| view_state.agent_menu_action_for_row(*idx).is_some())
+                if let Some(row) =
+                    self.client_view_agent_menu_row_at(client_view, mouse.column, mouse.row)
                 {
                     client_view.agent_menu.highlighted = row;
                     self.accept_client_view_agent_menu_selection(client_view);
                 } else {
-                    let rect = view_state.agent_menu_rect();
+                    let rect = self.client_view_agent_menu_rect(client_view);
                     let inside_menu = mouse.column >= rect.x
                         && mouse.column < rect.x + rect.width
                         && mouse.row >= rect.y
@@ -7148,6 +7121,225 @@ impl App {
             mouse.column,
             mouse.row,
         )
+    }
+
+    fn client_view_global_menu_rect(&self, client_view: &ClientViewState) -> Rect {
+        let screen = client_view.screen_rect();
+        let launcher = Self::client_view_global_launcher_rect(client_view);
+        let labels = self.state.global_menu_labels();
+        let content_width = labels
+            .iter()
+            .map(|label| {
+                let badge_width = if self.state.global_menu_item_has_badge(label) {
+                    2
+                } else {
+                    0
+                };
+                label.chars().count() as u16 + badge_width
+            })
+            .max()
+            .unwrap_or(8)
+            .saturating_add(2);
+        let menu_w = content_width.saturating_add(2).min(screen.width.max(1));
+        let menu_h = (labels.len() as u16 + 2).min(screen.height.max(1));
+        let max_x = screen.x + screen.width.saturating_sub(menu_w);
+        let desired_x = launcher.x + launcher.width.saturating_sub(menu_w);
+        let x = desired_x.min(max_x);
+        let y = launcher.y.saturating_sub(menu_h);
+        Rect::new(x, y, menu_w, menu_h)
+    }
+
+    fn client_view_global_menu_item_at(
+        &self,
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> Option<input::GlobalMenuAction> {
+        let rect = self.client_view_global_menu_rect(client_view);
+        if col <= rect.x
+            || col >= rect.x + rect.width.saturating_sub(1)
+            || row <= rect.y
+            || row >= rect.y + rect.height.saturating_sub(1)
+        {
+            return None;
+        }
+        let idx = (row - rect.y - 1) as usize;
+        input::global_menu_actions(&self.state).get(idx).copied()
+    }
+
+    fn client_view_group_menu_labels(&self, client_view: &ClientViewState) -> Vec<String> {
+        let all_marker = if client_view.group_filter_enabled {
+            " "
+        } else {
+            "✓"
+        };
+        let mut labels = vec![
+            "filter".to_string(),
+            format!("{all_marker} all {}", self.state.workspaces.len()),
+        ];
+        labels.extend(self.state.groups.iter().enumerate().map(|(idx, group)| {
+            let marker = if client_view.group_filter_enabled && idx == client_view.active_group {
+                "✓"
+            } else {
+                " "
+            };
+            let count = self
+                .state
+                .workspaces
+                .iter()
+                .filter(|ws| ws.group_id == group.id)
+                .count();
+            format!("{marker} {} {} {count}", group.icon, group.name)
+        }));
+        labels.push("---".to_string());
+        labels.push("new".to_string());
+        labels.push("  space".to_string());
+        labels.push("  group".to_string());
+        labels
+    }
+
+    fn client_view_group_menu_rect(&self, client_view: &ClientViewState) -> Rect {
+        let screen = client_view.screen_rect();
+        let selector = self.client_view_group_selector_rect(client_view);
+        let labels = self.client_view_group_menu_labels(client_view);
+        let content_width = labels
+            .iter()
+            .map(|label| label.chars().count() as u16)
+            .max()
+            .unwrap_or(8)
+            .saturating_add(2);
+        let menu_w = if client_view.sidebar_collapsed {
+            content_width.saturating_add(2).min(screen.width.max(1))
+        } else {
+            content_width
+                .saturating_add(2)
+                .min(client_view.computed.sidebar_rect.width.max(1))
+                .min(screen.width.max(1))
+        };
+        let menu_h = (labels.len() as u16 + 2).min(screen.height.max(1));
+        let x = selector
+            .x
+            .min(screen.x + screen.width.saturating_sub(menu_w));
+        let max_y = screen.y + screen.height.saturating_sub(menu_h);
+        let y = selector.y.saturating_add(1).min(max_y);
+        Rect::new(x, y, menu_w, menu_h)
+    }
+
+    fn client_view_group_menu_row_at(
+        &self,
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> Option<usize> {
+        let rect = self.client_view_group_menu_rect(client_view);
+        if col <= rect.x
+            || col >= rect.x + rect.width.saturating_sub(1)
+            || row <= rect.y
+            || row >= rect.y + rect.height.saturating_sub(1)
+        {
+            return None;
+        }
+        let idx = (row - rect.y - 1) as usize;
+        (idx < self.client_view_group_menu_labels(client_view).len()
+            && self.state.group_menu_action_for_row(idx).is_some())
+        .then_some(idx)
+    }
+
+    fn client_view_agent_menu_labels(client_view: &ClientViewState) -> Vec<String> {
+        let all_marker = if matches!(
+            client_view.agent_panel_scope,
+            state::AgentPanelScope::AllWorkspaces
+        ) {
+            "✓"
+        } else {
+            " "
+        };
+        let space_marker = if matches!(
+            client_view.agent_panel_scope,
+            state::AgentPanelScope::CurrentWorkspace
+        ) {
+            "✓"
+        } else {
+            " "
+        };
+        let group_marker = if matches!(
+            client_view.agent_panel_scope,
+            state::AgentPanelScope::CurrentGroup
+        ) {
+            "✓"
+        } else {
+            " "
+        };
+        vec![
+            "filter".to_string(),
+            format!("{all_marker} all"),
+            format!("{space_marker} space"),
+            format!("{group_marker} group"),
+        ]
+    }
+
+    fn client_view_agent_menu_anchor_rect(&self, client_view: &ClientViewState) -> Rect {
+        if client_view.sidebar_collapsed
+            && client_view.computed.right_sidebar_rect == Rect::default()
+        {
+            let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+                client_view.computed.sidebar_rect,
+                true,
+                client_view.sidebar_section_split,
+            );
+            return crate::ui::collapsed_agent_panel_toggle_rect(detail_area);
+        }
+
+        crate::ui::agent_panel_toggle_rect(
+            self.client_view_agent_panel_rect(client_view),
+            client_view.agent_panel_scope,
+            Self::client_view_agent_panel_has_leading_separator(client_view),
+        )
+    }
+
+    fn client_view_agent_menu_rect(&self, client_view: &ClientViewState) -> Rect {
+        let screen = client_view.screen_rect();
+        let header = self.client_view_agent_menu_anchor_rect(client_view);
+        let labels = Self::client_view_agent_menu_labels(client_view);
+        let content_width = labels
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, label)| {
+                self.state
+                    .agent_menu_action_for_row(idx)
+                    .is_some()
+                    .then_some(label.chars().count() as u16)
+            })
+            .max()
+            .unwrap_or(8)
+            .saturating_add(2);
+        let menu_w = content_width.saturating_add(2).min(screen.width.max(1));
+        let menu_h = (labels.len() as u16 + 2).min(screen.height.max(1));
+        let desired_x = header.x;
+        let x = desired_x.min(screen.x + screen.width.saturating_sub(menu_w));
+        let max_y = screen.y + screen.height.saturating_sub(menu_h);
+        let y = header.y.saturating_add(1).min(max_y);
+        Rect::new(x, y, menu_w, menu_h)
+    }
+
+    fn client_view_agent_menu_row_at(
+        &self,
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> Option<usize> {
+        let rect = self.client_view_agent_menu_rect(client_view);
+        if col <= rect.x
+            || col >= rect.x + rect.width.saturating_sub(1)
+            || row <= rect.y
+            || row >= rect.y + rect.height.saturating_sub(1)
+        {
+            return None;
+        }
+        let idx = (row - rect.y - 1) as usize;
+        (idx < Self::client_view_agent_menu_labels(client_view).len()
+            && self.state.agent_menu_action_for_row(idx).is_some())
+        .then_some(idx)
     }
 
     fn client_view_agent_panel_rect(&self, client_view: &ClientViewState) -> Rect {
@@ -8357,34 +8549,12 @@ mod tests {
         client_view: &mut ClientViewState,
         area: ratatui::layout::Rect,
     ) {
-        let mut state = app.state.clone();
         crate::ui::compute_view_for_client_without_resizing_panes(
-            &mut state,
+            &app.state,
             client_view,
             &app.terminal_runtimes,
             area,
         );
-    }
-
-    fn client_local_app_state(app: &App, client_view: &ClientViewState) -> state::AppState {
-        let mut state = app.state.clone();
-        state.active = client_view.active_workspace;
-        state.selected = client_view.selected_workspace;
-        state.active_group = client_view.active_group;
-        state.group_filter_enabled = client_view.group_filter_enabled;
-        state.agent_panel_scope = client_view.agent_panel_scope;
-        state.workspace_scroll = client_view.workspace_scroll;
-        state.agent_panel_scroll = client_view.agent_panel_scroll;
-        state.sidebar_width = client_view.sidebar_width;
-        state.sidebar_collapsed = client_view.sidebar_collapsed;
-        state.right_sidebar_collapsed = client_view.right_sidebar_collapsed;
-        state.right_sidebar_width = client_view.right_sidebar_width;
-        state.sidebar_section_split = client_view.sidebar_section_split;
-        state.collapsed_workspace_groups = client_view.collapsed_workspace_groups.clone();
-        state.collapsed_agent_sections = client_view.collapsed_agent_sections.clone();
-        state.mode = client_view.mode;
-        state.view = client_view.computed.clone();
-        state
     }
 
     fn rendered_client_view_text(
@@ -11337,9 +11507,8 @@ mod tests {
         let mut client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 100, 12));
         let workspace_list = app.client_view_workspace_list_rect(&client);
-        let local_state = client_local_app_state(&app, &client);
         assert!(
-            crate::ui::workspace_list_scroll_metrics(&local_state, workspace_list)
+            crate::ui::workspace_list_scroll_metrics_for_view(&app.state, &client, workspace_list)
                 .max_offset_from_bottom
                 > 0,
             "test fixture should make the sidebar workspace list scrollable"
@@ -11933,14 +12102,15 @@ mod tests {
         let other_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 100, 12));
         let workspace_list = app.client_view_workspace_list_rect(&client);
-        let local_state = client_local_app_state(&app, &client);
-        let metrics = crate::ui::workspace_list_scroll_metrics(&local_state, workspace_list);
+        let metrics =
+            crate::ui::workspace_list_scroll_metrics_for_view(&app.state, &client, workspace_list);
         assert!(
             metrics.max_offset_from_bottom > 0,
             "test fixture should make the workspace list scrollable"
         );
-        let track = crate::ui::workspace_list_scrollbar_rect(&local_state, workspace_list)
-            .expect("scrollable workspace list should render a scrollbar");
+        let track =
+            crate::ui::workspace_list_scrollbar_rect_for_view(&app.state, &client, workspace_list)
+                .expect("scrollable workspace list should render a scrollbar");
         let click_row = track.y + track.height.saturating_sub(1);
         let expected_scroll =
             metrics
@@ -13380,12 +13550,7 @@ mod tests {
         let mut client = ClientViewState::from_default_client_state(&app.state);
         client.mode = Mode::KeybindHelp;
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
-        let mut view_state = client_local_app_state(&app, &client);
-        view_state.keybind_help = client.keybind_help.clone();
-        assert!(
-            view_state.keybind_help_max_scroll() > 0,
-            "test fixture should make keybind help scrollable"
-        );
+        assert_eq!(client.keybind_help.scroll, 0);
         let popup = crate::ui::centered_popup_rect(client.screen_rect(), 76, 22)
             .expect("keybind help popup");
         let scroll_col = popup.x + popup.width / 2;
@@ -13463,12 +13628,10 @@ mod tests {
             preview: false,
         });
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
-        let mut view_state = client_local_app_state(&app, &client);
-        view_state.release_notes = client.release_notes.clone();
-        assert!(
-            view_state.release_notes_max_scroll() > 0,
-            "test fixture should make release notes scrollable"
-        );
+        assert!(client
+            .release_notes
+            .as_ref()
+            .is_some_and(|notes| notes.scroll == 0));
         let popup = crate::ui::centered_popup_rect(
             client.screen_rect(),
             crate::ui::RELEASE_NOTES_MODAL_SIZE.0,
@@ -13664,7 +13827,7 @@ mod tests {
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 100, 24));
 
         let group_row = 3;
-        let menu = client_local_app_state(&app, &client).agent_menu_rect();
+        let menu = app.client_view_agent_menu_rect(&client);
         assert!(
             menu.width > 2 && menu.height > group_row as u16 + 1,
             "agent scope menu should expose the group row"
@@ -13938,7 +14101,6 @@ mod tests {
             app.state.sidebar_arrangement,
             crate::config::SidebarArrangementConfig::CombinedRight
         );
-        assert!(app.state.view.sidebar_rect.x > initial_sidebar_x);
         assert!(client_view.computed.sidebar_rect.x > initial_sidebar_x);
     }
 
@@ -14179,8 +14341,7 @@ mod tests {
         let mut client = ClientViewState::from_default_client_state(&app.state);
         let other_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, area);
-        let client_local_state = client_local_app_state(&app, &client);
-        let selector = client_local_state.group_selector_rect();
+        let selector = app.client_view_group_selector_rect(&client);
         assert!(
             selector.width > 0 && selector.height > 0,
             "expanded spaces sidebar should expose the all-groups selector"
@@ -14394,12 +14555,17 @@ mod tests {
         let mut first_client = ClientViewState::from_default_client_state(&app.state);
         let second_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut first_client, area);
-        let first_client_state = client_local_app_state(&app, &first_client);
         let (_, detail_area) = crate::ui::expanded_sidebar_sections(
             first_client.computed.sidebar_rect,
             first_client.sidebar_section_split,
         );
-        let metrics = crate::ui::agent_panel_scroll_metrics(&first_client_state, detail_area, true);
+        let metrics = crate::ui::agent_panel_scroll_metrics_for_view(
+            &app.state,
+            &app.terminal_runtimes,
+            &first_client,
+            detail_area,
+            true,
+        );
         let body = crate::ui::agent_panel_body_rect(
             detail_area,
             crate::ui::should_show_scrollbar(metrics),
@@ -14407,13 +14573,25 @@ mod tests {
         );
         let triage_row = (body.y..body.y + body.height)
             .find(|row| {
-                crate::ui::agent_panel_header_target_at_row(&first_client_state, body, *row)
-                    .is_some_and(|target| target.section == "triage")
+                crate::ui::agent_panel_header_target_at_row_for_view(
+                    &app.state,
+                    &app.terminal_runtimes,
+                    &first_client,
+                    body,
+                    *row,
+                )
+                .is_some_and(|target| target.section == "triage")
             })
             .expect("triage agent status header should be visible");
         assert_eq!(
-            crate::ui::agent_panel_entry_at_row(&first_client_state, body, triage_row + 1)
-                .map(|entry| (entry.ws_idx, entry.tab_idx, entry.pane_id)),
+            crate::ui::agent_panel_entry_at_row_for_view(
+                &app.state,
+                &app.terminal_runtimes,
+                &first_client,
+                body,
+                triage_row + 1,
+            )
+            .map(|entry| (entry.ws_idx, entry.tab_idx, entry.pane_id)),
             Some((0, 0, pane)),
             "expanded triage section should expose the blocked agent row below the header"
         );
@@ -14448,17 +14626,23 @@ mod tests {
         );
 
         compute_client_view(&app, &mut first_client, area);
-        let collapsed_first_client_state = client_local_app_state(&app, &first_client);
-        let collapsed_metrics =
-            crate::ui::agent_panel_scroll_metrics(&collapsed_first_client_state, detail_area, true);
+        let collapsed_metrics = crate::ui::agent_panel_scroll_metrics_for_view(
+            &app.state,
+            &app.terminal_runtimes,
+            &first_client,
+            detail_area,
+            true,
+        );
         let collapsed_body = crate::ui::agent_panel_body_rect(
             detail_area,
             crate::ui::should_show_scrollbar(collapsed_metrics),
             true,
         );
         assert_eq!(
-            crate::ui::agent_panel_entry_at_row(
-                &collapsed_first_client_state,
+            crate::ui::agent_panel_entry_at_row_for_view(
+                &app.state,
+                &app.terminal_runtimes,
+                &first_client,
                 collapsed_body,
                 triage_row + 1,
             )
@@ -14507,9 +14691,14 @@ mod tests {
             ratatui::layout::Rect::default(),
             "test fixture should render the agents panel in the right sidebar"
         );
-        let client_state = client_local_app_state(&app, &client);
         let detail_area = crate::ui::right_sidebar_content_rect(client.computed.right_sidebar_rect);
-        let metrics = crate::ui::agent_panel_scroll_metrics(&client_state, detail_area, false);
+        let metrics = crate::ui::agent_panel_scroll_metrics_for_view(
+            &app.state,
+            &app.terminal_runtimes,
+            &client,
+            detail_area,
+            false,
+        );
         let body = crate::ui::agent_panel_body_rect(
             detail_area,
             crate::ui::should_show_scrollbar(metrics),
@@ -14517,11 +14706,16 @@ mod tests {
         );
         let agent_rows: Vec<_> = (body.y..body.y + body.height)
             .filter(|row| {
-                crate::ui::agent_panel_entry_at_row(&client_state, body, *row).is_some_and(
-                    |entry| {
-                        (entry.ws_idx, entry.tab_idx, entry.pane_id) == (0, agent_tab, agent_pane)
-                    },
+                crate::ui::agent_panel_entry_at_row_for_view(
+                    &app.state,
+                    &app.terminal_runtimes,
+                    &client,
+                    body,
+                    *row,
                 )
+                .is_some_and(|entry| {
+                    (entry.ws_idx, entry.tab_idx, entry.pane_id) == (0, agent_tab, agent_pane)
+                })
             })
             .collect();
         assert!(

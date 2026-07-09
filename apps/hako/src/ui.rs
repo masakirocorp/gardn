@@ -37,7 +37,8 @@ use self::menus::{
 };
 use self::mobile::{
     compute_mobile_header_hit_areas, is_mobile_width, mobile_switcher_max_scroll_for_height,
-    mobile_toast_banner_rect, render_mobile_header, render_mobile_panel,
+    mobile_switcher_max_scroll_for_view_height, mobile_toast_banner_rect, render_mobile_header,
+    render_mobile_header_for_view, render_mobile_panel, render_mobile_panel_for_view,
     render_mobile_toast_banner,
 };
 use self::navigator::render_navigator_overlay;
@@ -60,12 +61,15 @@ pub(crate) use self::scrollbar::{
 use self::settings::render_settings_overlay;
 #[cfg(test)]
 pub(crate) use self::sidebar::collapsed_workspace_rows_rect;
-use self::sidebar::{render_right_sidebar, render_sidebar, render_sidebar_collapsed};
+use self::sidebar::{
+    render_right_sidebar, render_right_sidebar_for_view, render_sidebar, render_sidebar_collapsed,
+    render_sidebar_for_view,
+};
 use self::status::{
     copy_feedback_rect, render_config_diagnostic, render_copy_feedback, render_toast_notification,
     toast_notification_rect,
 };
-use self::tabs::render_tab_bar;
+use self::tabs::{render_tab_bar, render_tab_bar_for_view};
 use self::widgets::fill_rect;
 pub(crate) use self::{
     agent_profile_picker::{
@@ -100,15 +104,19 @@ pub(crate) use self::{
         collapsed_sidebar_sections_for_split, collapsed_sidebar_toggle_rect,
         collapsed_workspace_at_row, collapsed_workspace_group_header_at_row,
         compute_workspace_card_areas, compute_workspace_card_areas_in_list,
-        compute_workspace_group_drop_areas_in_list, compute_workspace_group_empty_areas_in_list,
-        compute_workspace_group_header_areas, compute_workspace_group_header_areas_in_list,
-        expanded_sidebar_sections, expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
+        compute_workspace_card_areas_in_list_for_view, compute_workspace_group_drop_areas_in_list,
+        compute_workspace_group_empty_areas_in_list,
+        compute_workspace_group_empty_areas_in_list_for_view, compute_workspace_group_header_areas,
+        compute_workspace_group_header_areas_in_list,
+        compute_workspace_group_header_areas_in_list_for_view, expanded_sidebar_sections,
+        expanded_sidebar_toggle_rect, left_sidebar_workspace_rect,
         right_aligned_expanded_sidebar_sections, right_aligned_sidebar_section_divider_rect,
         right_aligned_workspace_list_rect, right_sidebar_content_rect, right_sidebar_toggle_rect,
         sidebar_section_divider_rect, workspace_drop_indicator_row, workspace_list_entry_count,
-        workspace_list_position_for_workspace, workspace_list_rect, workspace_list_scroll_metrics,
-        workspace_list_scroll_metrics_for_view, workspace_list_scrollbar_rect,
-        workspace_list_scrollbar_rect_for_view, AgentPanelHeaderTarget,
+        workspace_list_entry_count_for_view, workspace_list_position_for_workspace,
+        workspace_list_rect, workspace_list_scroll_metrics, workspace_list_scroll_metrics_for_view,
+        workspace_list_scrollbar_rect, workspace_list_scrollbar_rect_for_view,
+        AgentPanelHeaderTarget,
     },
 };
 pub(crate) use self::{
@@ -199,7 +207,7 @@ pub(crate) fn compute_view_without_resizing_panes(
 }
 
 pub(crate) fn compute_view_for_client_with_cell_size(
-    app: &mut AppState,
+    app: &AppState,
     client_view: &mut ClientViewState,
     terminal_runtimes: &TerminalRuntimeRegistry,
     area: Rect,
@@ -209,7 +217,7 @@ pub(crate) fn compute_view_for_client_with_cell_size(
 }
 
 pub(crate) fn compute_view_for_client_without_resizing_panes(
-    app: &mut AppState,
+    app: &AppState,
     client_view: &mut ClientViewState,
     terminal_runtimes: &TerminalRuntimeRegistry,
     area: Rect,
@@ -224,133 +232,219 @@ pub(crate) fn compute_view_for_client_without_resizing_panes(
     );
 }
 
-fn hydrate_client_render_state(state: &mut AppState, view: &ClientViewState) {
-    state.active = view.active_workspace;
-    state.selected = view
-        .selected_workspace
-        .min(state.workspaces.len().saturating_sub(1));
-    state.active_group = view.active_group.min(state.groups.len().saturating_sub(1));
-    state.group_filter_enabled = view.group_filter_enabled;
-    state.agent_panel_scope = view.agent_panel_scope;
-    state.workspace_scroll = view.workspace_scroll;
-    state.agent_panel_scroll = view.agent_panel_scroll;
-    state.tab_scroll = view.tab_scroll;
-    state.tab_scroll_follow_active = view.tab_scroll_follow_active;
-    state.hovered_tab = view.hovered_tab;
-    state.mobile_switcher_scroll = view.mobile_switcher_scroll;
-    state.sidebar_width = view.sidebar_width;
-    state.sidebar_width_source = view.sidebar_width_source;
-    state.sidebar_collapsed = view.sidebar_collapsed;
-    state.right_sidebar_collapsed = view.right_sidebar_collapsed;
-    state.right_sidebar_width = view.right_sidebar_width;
-    state.sidebar_section_split = view.sidebar_section_split;
-    state.activity_agents_expanded = view.activity_agents_expanded;
-    state.activity_commands_expanded = view.activity_commands_expanded;
-    state.activity_ports_expanded = view.activity_ports_expanded;
-    state.collapsed_agent_sections = view.collapsed_agent_sections.clone();
-    state.collapsed_command_groups = view.collapsed_command_groups.clone();
-    state.collapsed_command_status_groups = view.collapsed_command_status_groups.clone();
-    state.collapsed_workspace_groups = view.collapsed_workspace_groups.clone();
-    state.mode = view.mode;
-    state.settings = view.settings.clone();
-    state.command_palette = view.command_palette.clone();
-    state.navigator = view.navigator.clone();
-    state.agent_profile_picker = view.agent_profile_picker.clone();
-    state.git_repo_picker = view.git_repo_picker.clone();
-    state.context_menu = view.context_menu.clone();
-    state.selection = view.selection.clone();
-    state.selection_autoscroll = view.selection_autoscroll.clone();
-    state.drag = view.drag.clone();
-    state.workspace_press = view.workspace_press.clone();
-    state.tab_press = view.tab_press.clone();
-    state.previous_pane_focus = view.previous_pane_focus.clone();
-    state.keybind_help = view.keybind_help.clone();
-    state.global_menu = view.global_menu;
-    state.group_menu = view.group_menu;
-    state.agent_menu = view.agent_menu;
-    state.creating_new_tab = view.creating_new_tab;
-    state.creating_new_group = view.creating_new_group;
-    state.group_icon_input = view.group_icon_input.clone();
-    state.group_default_directory_input = view.group_default_directory_input.clone();
-    state.group_modal_selected_field = view.group_modal_selected_field;
-    state.group_icon_picker_open = view.group_icon_picker_open;
-    state.rename_group_target = view.rename_group_target;
-    state.requested_new_tab_name = view.requested_new_tab_name.clone();
-    state.rename_pane_target = view.rename_pane_target;
-    state.confirm_delete_group = view.confirm_delete_group;
-    state.name_input = view.name_input.clone();
-    state.name_input_replace_on_type = view.name_input_replace_on_type;
-    state.release_notes = view.release_notes.clone();
-    state.product_announcement = view.product_announcement.clone();
-    state.view = view.computed.clone();
-
-    for workspace in &mut state.workspaces {
-        if let Some(tab_idx) = view
-            .active_tabs
-            .get(&workspace.id)
-            .copied()
-            .filter(|idx| *idx < workspace.tabs.len())
-        {
-            workspace.switch_tab(tab_idx);
-        }
-        for (tab_idx, tab) in workspace.tabs.iter_mut().enumerate() {
-            let tab_number = tab_idx + 1;
-            if let Some(pane_id) = view.focused_pane_for_tab(&workspace.id, tab_number) {
-                if tab.panes.contains_key(&pane_id) {
-                    tab.layout.focus_pane(pane_id);
-                }
-            }
-            tab.zoomed = view.tab_is_zoomed(&workspace.id, tab_number);
-        }
-    }
-}
-
 fn compute_view_for_client_internal(
-    app: &mut AppState,
+    app: &AppState,
     client_view: &mut ClientViewState,
     terminal_runtimes: &TerminalRuntimeRegistry,
     area: Rect,
     resize_panes: bool,
     cell_size: crate::kitty_graphics::HostCellSize,
 ) {
-    let mut render_state = app.clone();
-    hydrate_client_render_state(&mut render_state, client_view);
-    compute_view_internal(
-        &mut render_state,
-        terminal_runtimes,
-        area,
-        resize_panes,
-        cell_size,
-    );
-    client_view.computed = render_state.view.clone();
-    client_view.computed.pane_infos = compute_pane_infos_for_view(
-        &render_state,
-        client_view,
-        terminal_runtimes,
-        client_view.computed.terminal_area,
-        resize_panes,
-        cell_size,
-    );
+    if is_mobile_width(area, app.mobile_width_threshold) {
+        compute_mobile_view_for_client(
+            app,
+            client_view,
+            terminal_runtimes,
+            area,
+            resize_panes,
+            cell_size,
+        );
+        return;
+    }
+
+    let sidebar_w = if client_view.sidebar_collapsed {
+        COLLAPSED_WIDTH
+    } else {
+        client_view
+            .sidebar_width
+            .clamp(app.sidebar_min_width, app.sidebar_max_width)
+    };
+    let right_sidebar_w = if client_view.right_sidebar_collapsed {
+        COLLAPSED_WIDTH
+    } else {
+        client_view
+            .right_sidebar_width
+            .clamp(MIN_RIGHT_SIDEBAR_WIDTH, MAX_RIGHT_SIDEBAR_WIDTH)
+    };
+
+    let auto_separate = area.width
+        >= sidebar_w
+            .saturating_add(right_sidebar_w)
+            .saturating_add(RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH);
+    let separate_sidebars = match app.sidebar_arrangement {
+        crate::config::SidebarArrangementConfig::Auto => auto_separate,
+        crate::config::SidebarArrangementConfig::Separate => true,
+        crate::config::SidebarArrangementConfig::CombinedLeft
+        | crate::config::SidebarArrangementConfig::CombinedRight => false,
+    };
+    let combined_right =
+        app.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight;
+    let (sidebar_area, main_area, right_sidebar_area) = if separate_sidebars {
+        let [sidebar_area, main_area, right_sidebar_area] = Layout::horizontal([
+            Constraint::Length(sidebar_w),
+            Constraint::Min(1),
+            Constraint::Length(right_sidebar_w),
+        ])
+        .areas(area);
+        (sidebar_area, main_area, right_sidebar_area)
+    } else if combined_right {
+        let [main_area, sidebar_area] =
+            Layout::horizontal([Constraint::Min(1), Constraint::Length(sidebar_w)]).areas(area);
+        (sidebar_area, main_area, Rect::default())
+    } else {
+        let [sidebar_area, main_area] =
+            Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Min(1)]).areas(area);
+        (sidebar_area, main_area, Rect::default())
+    };
+
+    let has_tabs = client_view
+        .active_workspace
+        .and_then(|idx| app.workspaces.get(idx))
+        .is_some();
+    let (tab_bar_rect, terminal_area) = if has_tabs && main_area.height > 1 {
+        let [tab_bar_rect, terminal_area] =
+            Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(main_area);
+        (tab_bar_rect, terminal_area)
+    } else {
+        (Rect::default(), main_area)
+    };
+
+    client_view.workspace_scroll = client_view
+        .workspace_scroll
+        .min(workspace_list_entry_count_for_view(app, client_view).saturating_sub(1));
+    if right_sidebar_area != Rect::default() && !client_view.right_sidebar_collapsed {
+        let max_agent_scroll = agent_panel_scroll_metrics_for_view(
+            app,
+            terminal_runtimes,
+            client_view,
+            right_sidebar_content_rect(right_sidebar_area),
+            false,
+        )
+        .max_offset_from_bottom;
+        client_view.agent_panel_scroll = client_view.agent_panel_scroll.min(max_agent_scroll);
+    } else if right_sidebar_area == Rect::default() && !client_view.sidebar_collapsed {
+        let (_, agent_area) = if combined_right {
+            right_aligned_expanded_sidebar_sections(sidebar_area, client_view.sidebar_section_split)
+        } else {
+            expanded_sidebar_sections(sidebar_area, client_view.sidebar_section_split)
+        };
+        let max_agent_scroll = agent_panel_scroll_metrics_for_view(
+            app,
+            terminal_runtimes,
+            client_view,
+            agent_area,
+            true,
+        )
+        .max_offset_from_bottom;
+        client_view.agent_panel_scroll = client_view.agent_panel_scroll.min(max_agent_scroll);
+    } else {
+        client_view.agent_panel_scroll = 0;
+    }
+
+    let (workspace_card_areas, workspace_group_header_areas, workspace_group_empty_areas) =
+        if client_view.sidebar_collapsed {
+            (Vec::new(), Vec::new(), Vec::new())
+        } else if right_sidebar_area != Rect::default() {
+            let ws_area = left_sidebar_workspace_rect(sidebar_area);
+            (
+                compute_workspace_card_areas_in_list_for_view(app, client_view, ws_area),
+                compute_workspace_group_header_areas_in_list_for_view(app, client_view, ws_area),
+                compute_workspace_group_empty_areas_in_list_for_view(app, client_view, ws_area),
+            )
+        } else if combined_right {
+            let ws_area =
+                right_aligned_workspace_list_rect(sidebar_area, client_view.sidebar_section_split);
+            (
+                compute_workspace_card_areas_in_list_for_view(app, client_view, ws_area),
+                compute_workspace_group_header_areas_in_list_for_view(app, client_view, ws_area),
+                compute_workspace_group_empty_areas_in_list_for_view(app, client_view, ws_area),
+            )
+        } else {
+            let ws_area = workspace_list_rect(sidebar_area, client_view.sidebar_section_split);
+            (
+                compute_workspace_card_areas_in_list_for_view(app, client_view, ws_area),
+                compute_workspace_group_header_areas_in_list_for_view(app, client_view, ws_area),
+                compute_workspace_group_empty_areas_in_list_for_view(app, client_view, ws_area),
+            )
+        };
+
     let tab_bar_view = client_view
         .active_workspace
-        .and_then(|idx| render_state.workspaces.get(idx))
+        .and_then(|idx| app.workspaces.get(idx))
         .map(|workspace| {
             compute_tab_bar_view(
                 workspace,
-                client_view.computed.tab_bar_rect,
+                tab_bar_rect,
                 client_view.tab_scroll,
                 client_view.tab_scroll_follow_active,
-                render_state.mouse_capture,
+                app.mouse_capture,
                 client_view.hovered_tab,
             )
         })
         .unwrap_or_default();
     client_view.tab_scroll = tab_bar_view.scroll;
-    client_view.computed.tab_hit_areas = tab_bar_view.tab_hit_areas;
-    client_view.computed.tab_close_hit_areas = tab_bar_view.tab_close_hit_areas;
-    client_view.computed.tab_scroll_left_hit_area = tab_bar_view.scroll_left_hit_area;
-    client_view.computed.tab_scroll_right_hit_area = tab_bar_view.scroll_right_hit_area;
-    client_view.computed.new_tab_hit_area = tab_bar_view.new_tab_hit_area;
+
+    let split_borders = client_view
+        .active_workspace
+        .and_then(|idx| {
+            let workspace = app.workspaces.get(idx)?;
+            let tab_idx = client_view.active_tab_index_for_workspace(app, idx)?;
+            workspace.tabs.get(tab_idx)
+        })
+        .map(|tab| tab.layout.splits(terminal_area))
+        .unwrap_or_default();
+
+    let pane_infos = compute_pane_infos_for_view(
+        app,
+        client_view,
+        terminal_runtimes,
+        terminal_area,
+        resize_panes,
+        cell_size,
+    );
+    if resize_panes {
+        resize_background_tab_panes_to_terminal_area_for_view(
+            app,
+            client_view,
+            terminal_runtimes,
+            terminal_area,
+            cell_size,
+        );
+    }
+
+    let toast_hit_area = app
+        .toast
+        .as_ref()
+        .map(|toast| {
+            toast_notification_rect(
+                area,
+                toast,
+                app.config_diagnostic.is_some(),
+                toast.position.unwrap_or(app.toast_config.hako.position),
+            )
+        })
+        .unwrap_or_default();
+
+    client_view.computed = crate::app::ViewState {
+        layout: ViewLayout::Desktop,
+        sidebar_rect: sidebar_area,
+        right_sidebar_rect: right_sidebar_area,
+        workspace_card_areas,
+        workspace_group_header_areas,
+        workspace_group_empty_areas,
+        tab_bar_rect,
+        tab_hit_areas: tab_bar_view.tab_hit_areas,
+        tab_close_hit_areas: tab_bar_view.tab_close_hit_areas,
+        tab_scroll_left_hit_area: tab_bar_view.scroll_left_hit_area,
+        tab_scroll_right_hit_area: tab_bar_view.scroll_right_hit_area,
+        new_tab_hit_area: tab_bar_view.new_tab_hit_area,
+        terminal_area,
+        mobile_header_rect: Rect::default(),
+        mobile_menu_hit_area: Rect::default(),
+        toast_hit_area,
+        pane_infos,
+        split_borders,
+    };
 }
 
 fn resize_background_tab_panes_to_terminal_area(
@@ -362,6 +456,24 @@ fn resize_background_tab_panes_to_terminal_area(
     for (ws_idx, ws) in app.workspaces.iter().enumerate() {
         for (tab_idx, tab) in ws.tabs.iter().enumerate() {
             if app.active == Some(ws_idx) && tab_idx == ws.active_tab_index() {
+                continue;
+            }
+            resize_tab_panes(app, terminal_runtimes, tab, terminal_area, cell_size);
+        }
+    }
+}
+
+fn resize_background_tab_panes_to_terminal_area_for_view(
+    app: &AppState,
+    client_view: &ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    terminal_area: Rect,
+    cell_size: crate::kitty_graphics::HostCellSize,
+) {
+    for (ws_idx, ws) in app.workspaces.iter().enumerate() {
+        let active_tab_idx = client_view.active_tab_index_for_workspace(app, ws_idx);
+        for (tab_idx, tab) in ws.tabs.iter().enumerate() {
+            if client_view.active_workspace == Some(ws_idx) && active_tab_idx == Some(tab_idx) {
                 continue;
             }
             resize_tab_panes(app, terminal_runtimes, tab, terminal_area, cell_size);
@@ -629,6 +741,91 @@ fn compute_mobile_view(
     };
 }
 
+fn compute_mobile_view_for_client(
+    app: &AppState,
+    client_view: &mut ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    area: Rect,
+    resize_panes: bool,
+    cell_size: crate::kitty_graphics::HostCellSize,
+) {
+    let header_h = area.height.min(2);
+    let (header_rect, terminal_area) = if area.height > header_h {
+        let [header_rect, terminal_area] =
+            Layout::vertical([Constraint::Length(header_h), Constraint::Min(1)]).areas(area);
+        (header_rect, terminal_area)
+    } else {
+        (area, Rect::default())
+    };
+
+    if client_view.mode == Mode::Navigate {
+        let switcher_viewport_h = area.height.saturating_sub(header_h + 1);
+        let max_scroll = mobile_switcher_max_scroll_for_view_height(
+            app,
+            terminal_runtimes,
+            client_view,
+            switcher_viewport_h,
+        );
+        client_view.mobile_switcher_scroll = client_view.mobile_switcher_scroll.min(max_scroll);
+    }
+
+    let split_borders = client_view
+        .active_workspace
+        .and_then(|idx| {
+            let workspace = app.workspaces.get(idx)?;
+            let tab_idx = client_view.active_tab_index_for_workspace(app, idx)?;
+            workspace.tabs.get(tab_idx)
+        })
+        .map(|tab| tab.layout.splits(terminal_area))
+        .unwrap_or_default();
+
+    let pane_infos = compute_pane_infos_for_view(
+        app,
+        client_view,
+        terminal_runtimes,
+        terminal_area,
+        resize_panes,
+        cell_size,
+    );
+    if resize_panes {
+        resize_background_tab_panes_to_terminal_area_for_view(
+            app,
+            client_view,
+            terminal_runtimes,
+            terminal_area,
+            cell_size,
+        );
+    }
+    let header_hits = compute_mobile_header_hit_areas(app, header_rect);
+
+    let toast_hit_area = app
+        .toast
+        .as_ref()
+        .map(|_| mobile_toast_banner_rect(area, app.config_diagnostic.is_some()))
+        .unwrap_or_default();
+
+    client_view.computed = crate::app::ViewState {
+        layout: ViewLayout::Mobile,
+        sidebar_rect: Rect::default(),
+        right_sidebar_rect: Rect::default(),
+        workspace_card_areas: Vec::new(),
+        workspace_group_header_areas: Vec::new(),
+        workspace_group_empty_areas: Vec::new(),
+        tab_bar_rect: Rect::default(),
+        tab_hit_areas: Vec::new(),
+        tab_close_hit_areas: Vec::new(),
+        tab_scroll_left_hit_area: Rect::default(),
+        tab_scroll_right_hit_area: Rect::default(),
+        new_tab_hit_area: Rect::default(),
+        terminal_area,
+        mobile_header_rect: header_rect,
+        mobile_menu_hit_area: header_hits.menu,
+        toast_hit_area,
+        pane_infos,
+        split_borders,
+    };
+}
+
 /// Render the UI — reads AppState but does not mutate it.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn render(app: &AppState, frame: &mut Frame) {
@@ -707,12 +904,10 @@ pub fn render_with_runtime_registry_for_view(
     terminal_runtimes: &TerminalRuntimeRegistry,
     frame: &mut Frame,
 ) {
-    let mut render_state = app.clone();
-    hydrate_client_render_state(&mut render_state, client_view);
     fill_rect(
         frame,
         frame.area(),
-        Style::default().bg(render_state.palette.panel_bg),
+        Style::default().bg(app.palette.panel_bg),
     );
     let sidebar_area = client_view.computed.sidebar_rect;
     let right_sidebar_area = client_view.computed.right_sidebar_rect;
@@ -720,65 +915,62 @@ pub fn render_with_runtime_registry_for_view(
     let terminal_area = client_view.computed.terminal_area;
 
     if client_view.computed.layout == ViewLayout::Mobile {
-        render_mobile_header(
-            &render_state,
+        render_mobile_header_for_view(
+            app,
             terminal_runtimes,
+            client_view,
             frame,
             client_view.computed.mobile_header_rect,
         );
     } else if client_view.sidebar_collapsed {
-        render_sidebar_collapsed(&render_state, frame, sidebar_area);
+        render_sidebar_collapsed(app, frame, sidebar_area);
     } else {
-        render_sidebar(&render_state, terminal_runtimes, frame, sidebar_area);
+        render_sidebar_for_view(app, terminal_runtimes, client_view, frame, sidebar_area);
     }
     if client_view.computed.layout != ViewLayout::Mobile {
-        render_tab_bar(&render_state, frame, tab_bar_area);
+        render_tab_bar_for_view(app, client_view, frame, tab_bar_area);
     }
-    render_panes_for_view(
-        &render_state,
-        client_view,
-        terminal_runtimes,
-        frame,
-        terminal_area,
-    );
+    render_panes_for_view(app, client_view, terminal_runtimes, frame, terminal_area);
     if right_sidebar_area != Rect::default() {
-        render_right_sidebar(&render_state, terminal_runtimes, frame, right_sidebar_area);
+        render_right_sidebar_for_view(
+            app,
+            terminal_runtimes,
+            client_view,
+            frame,
+            right_sidebar_area,
+        );
     }
 
-    render_notifications(&render_state, frame, terminal_area);
+    render_notifications_for_view(app, client_view, frame, terminal_area);
 
     match client_view.mode {
-        Mode::Onboarding => render_onboarding_overlay(&render_state, frame, frame.area()),
-        Mode::ReleaseNotes => render_release_notes_overlay(&render_state, frame, frame.area()),
-        Mode::ProductAnnouncement => {
-            render_product_announcement_overlay(&render_state, frame, frame.area())
-        }
+        Mode::Onboarding => render_onboarding_overlay(app, frame, frame.area()),
+        Mode::ReleaseNotes => render_release_notes_overlay(app, frame, frame.area()),
+        Mode::ProductAnnouncement => render_product_announcement_overlay(app, frame, frame.area()),
         Mode::Navigate if client_view.computed.layout == ViewLayout::Mobile => {
-            render_mobile_panel(&render_state, terminal_runtimes, frame, frame.area())
+            render_mobile_panel_for_view(app, terminal_runtimes, client_view, frame, frame.area())
         }
-        Mode::Navigate => render_navigate_overlay(&render_state, frame, terminal_area),
-        Mode::Prefix => render_prefix_overlay(&render_state, frame, terminal_area),
-        Mode::Copy => render_copy_mode_overlay(&render_state, frame, terminal_area),
-        Mode::Resize => render_resize_overlay(&render_state, frame, terminal_area),
-        Mode::ConfirmClose => render_confirm_close_overlay(&render_state, frame, terminal_area),
-        Mode::ConfirmDeleteGroup => {
-            render_confirm_delete_group_overlay(&render_state, frame, terminal_area)
-        }
-        Mode::ContextMenu => render_context_menu(&render_state, frame),
-        Mode::Settings => render_settings_overlay(&render_state, frame, frame.area()),
+        Mode::Navigate => render_navigate_overlay(app, frame, terminal_area),
+        Mode::Prefix => render_prefix_overlay(app, frame, terminal_area),
+        Mode::Copy => render_copy_mode_overlay(app, frame, terminal_area),
+        Mode::Resize => render_resize_overlay(app, frame, terminal_area),
+        Mode::ConfirmClose => render_confirm_close_overlay(app, frame, terminal_area),
+        Mode::ConfirmDeleteGroup => render_confirm_delete_group_overlay(app, frame, terminal_area),
+        Mode::ContextMenu => render_context_menu(app, frame),
+        Mode::Settings => render_settings_overlay(app, frame, frame.area()),
         Mode::RenameWorkspace
         | Mode::RenameGroup
         | Mode::RenameTab
         | Mode::RenamePane
-        | Mode::EditWorktreeDirectory => render_rename_overlay(&render_state, frame, frame.area()),
-        Mode::GlobalMenu => render_global_launcher_menu(&render_state, frame),
-        Mode::GroupMenu => render_group_menu(&render_state, frame),
-        Mode::AgentMenu => render_agent_menu(&render_state, frame),
-        Mode::KeybindHelp => render_keybind_help_overlay(&render_state, frame),
-        Mode::Navigator => render_navigator_overlay(&render_state, frame),
-        Mode::CommandPalette => render_command_palette_overlay(&render_state, frame),
-        Mode::AgentProfilePicker => render_agent_profile_picker_overlay(&render_state, frame),
-        Mode::GitRepoPicker => render_git_repo_picker_overlay(&render_state, frame),
+        | Mode::EditWorktreeDirectory => render_rename_overlay(app, frame, frame.area()),
+        Mode::GlobalMenu => render_global_launcher_menu(app, frame),
+        Mode::GroupMenu => render_group_menu(app, frame),
+        Mode::AgentMenu => render_agent_menu(app, frame),
+        Mode::KeybindHelp => render_keybind_help_overlay(app, frame),
+        Mode::Navigator => render_navigator_overlay(app, frame),
+        Mode::CommandPalette => render_command_palette_overlay(app, frame),
+        Mode::AgentProfilePicker => render_agent_profile_picker_overlay(app, frame),
+        Mode::GitRepoPicker => render_git_repo_picker_overlay(app, frame),
         Mode::Terminal => {}
     }
 }
@@ -823,6 +1015,75 @@ fn render_notifications(app: &AppState, frame: &mut Frame, terminal_area: Rect) 
     }
     if let Some(feedback) = &app.copy_feedback {
         let area = if app.view.layout == ViewLayout::Mobile {
+            frame.area()
+        } else {
+            terminal_area
+        };
+        if let Some(toast_rect) = toast_rect {
+            copy_feedback_offset = copy_feedback_offset_for_toast(
+                area,
+                feedback,
+                copy_feedback_offset,
+                app.toast_config.clipboard.position,
+                toast_rect,
+            );
+        }
+        render_copy_feedback(
+            frame,
+            area,
+            feedback,
+            copy_feedback_offset,
+            app.toast_config.clipboard.position,
+            &app.palette,
+        );
+    }
+}
+
+fn render_notifications_for_view(
+    app: &AppState,
+    client_view: &ClientViewState,
+    frame: &mut Frame,
+    terminal_area: Rect,
+) {
+    let has_config_diagnostic = app.config_diagnostic.is_some();
+    if let Some(message) = &app.config_diagnostic {
+        render_config_diagnostic(frame, terminal_area, message, &app.palette);
+    }
+    let mut copy_feedback_offset = u16::from(has_config_diagnostic);
+    let mut toast_rect = None;
+    if let Some(toast) = &app.toast {
+        if client_view.computed.layout == ViewLayout::Mobile {
+            render_mobile_toast_banner(
+                frame,
+                frame.area(),
+                toast,
+                has_config_diagnostic,
+                &app.palette,
+            );
+            toast_rect = Some(mobile_toast_banner_rect(
+                frame.area(),
+                has_config_diagnostic,
+            ));
+        } else {
+            let position = toast.position.unwrap_or(app.toast_config.hako.position);
+            render_toast_notification(
+                frame,
+                frame.area(),
+                toast,
+                has_config_diagnostic,
+                position,
+                &app.palette,
+            );
+            toast_rect = Some(toast_notification_rect(
+                frame.area(),
+                toast,
+                has_config_diagnostic,
+                position,
+            ));
+        }
+    }
+    if let Some(feedback) = &app.copy_feedback {
+        let area = if client_view.computed.layout == ViewLayout::Mobile {
             frame.area()
         } else {
             terminal_area

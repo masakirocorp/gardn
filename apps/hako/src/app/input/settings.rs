@@ -2014,37 +2014,55 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
 }
 
 pub(crate) fn update_settings_state_for_view(
-    state: &AppState,
+    state: &mut AppState,
     view: &mut ClientViewState,
     key: KeyEvent,
 ) -> Option<SettingsAction> {
-    let mut local_state = state.clone();
-    local_state.mode = view.mode;
-    local_state.settings = view.settings.clone();
+    let shared_mode = state.mode;
+    let shared_settings = std::mem::replace(&mut state.settings, view.settings.clone());
+    let shared_palette = state.palette.clone();
+    let shared_theme_name = state.theme_name.clone();
+    let shared_groups = state.groups.clone();
 
-    let action = update_settings_state(&mut local_state, key);
+    state.mode = view.mode;
+    let action = update_settings_state(state, key);
 
-    view.mode = local_state.mode;
-    view.settings = local_state.settings;
+    view.mode = state.mode;
+    view.settings = state.settings.clone();
+    state.mode = shared_mode;
+    state.settings = shared_settings;
+    state.palette = shared_palette;
+    state.theme_name = shared_theme_name;
+    state.groups = shared_groups;
     action
 }
 
 pub(crate) fn update_settings_mouse_for_view(
-    state: &AppState,
+    state: &mut AppState,
     view: &mut ClientViewState,
     mouse: MouseEvent,
 ) -> Option<SettingsAction> {
-    let mut local_state = state.clone();
-    local_state.mode = view.mode;
-    local_state.settings = view.settings.clone();
-    local_state.drag = view.drag.clone();
-    local_state.view = view.computed.clone();
+    let shared_mode = state.mode;
+    let shared_settings = std::mem::replace(&mut state.settings, view.settings.clone());
+    let shared_drag = std::mem::replace(&mut state.drag, view.drag.clone());
+    let shared_view = std::mem::replace(&mut state.view, view.computed.clone());
+    let shared_palette = state.palette.clone();
+    let shared_theme_name = state.theme_name.clone();
+    let shared_groups = state.groups.clone();
 
-    let action = local_state.handle_settings_mouse(mouse);
+    state.mode = view.mode;
+    let action = state.handle_settings_mouse(mouse);
 
-    view.mode = local_state.mode;
-    view.settings = local_state.settings;
-    view.drag = local_state.drag;
+    view.mode = state.mode;
+    view.settings = state.settings.clone();
+    view.drag = state.drag.clone();
+    state.mode = shared_mode;
+    state.settings = shared_settings;
+    state.drag = shared_drag;
+    state.view = shared_view;
+    state.palette = shared_palette;
+    state.theme_name = shared_theme_name;
+    state.groups = shared_groups;
     action
 }
 
@@ -2110,6 +2128,75 @@ pub(crate) fn prepare_general_settings_state(
     };
     settings.scroll = 0;
     settings.selection_active = false;
+}
+
+fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsState) {
+    settings.original_palette = Some(state.palette.clone());
+    settings.original_theme = Some(state.theme_name.clone());
+    settings.pending_theme_name = None;
+    settings.pending_theme_mode = None;
+    settings.pending_light_theme_name = None;
+    settings.pending_dark_theme_name = None;
+    settings.pending_terminal_light_accent = None;
+    settings.pending_terminal_dark_accent = None;
+    settings.pending_group_accent_choice = None;
+    settings.pending_sound_enabled = None;
+    settings.pending_toast_delivery = None;
+    settings.pending_confirm_close = None;
+    settings.pending_prompt_new_tab_name = None;
+    settings.pending_new_terminal_cwd = None;
+    settings.pending_mouse_scroll_lines = None;
+    settings.pending_sidebar_width = None;
+    settings.pending_sidebar_min_width = None;
+    settings.pending_sidebar_max_width = None;
+    settings.pending_sidebar_arrangement = None;
+    settings.pending_worktree_directory = None;
+    settings.pending_agent_border_labels = None;
+    settings.pending_switch_ascii_input_source_in_prefix = None;
+}
+
+pub(crate) fn prepare_group_settings_state(
+    state: &AppState,
+    settings: &mut SettingsState,
+    group_idx: usize,
+) -> bool {
+    let Some(group) = state.groups.get(group_idx) else {
+        return false;
+    };
+    reset_settings_for_scoped_editor(state, settings);
+    settings.pending_group_name = Some(group.name.clone());
+    settings.pending_group_default_directory = None;
+    settings.pending_workspace_name = None;
+    settings.pending_workspace_default_cwd = None;
+    settings.group_settings_target = Some(group_idx);
+    settings.workspace_settings_target = None;
+    settings.section = SettingsSection::GroupGeneral;
+    settings.list.selected = 0;
+    settings.scroll = 0;
+    settings.selection_active = false;
+    true
+}
+
+pub(crate) fn prepare_workspace_settings_state(
+    state: &AppState,
+    settings: &mut SettingsState,
+    ws_idx: usize,
+) -> bool {
+    let Some(workspace) = state.workspaces.get(ws_idx) else {
+        return false;
+    };
+    reset_settings_for_scoped_editor(state, settings);
+    settings.pending_group_name = None;
+    settings.pending_group_default_directory = None;
+    settings.pending_workspace_name = Some(workspace.display_name());
+    settings.pending_workspace_default_cwd = Some(workspace.default_cwd.display().to_string());
+    settings.group_settings_target = None;
+    settings.workspace_settings_target = Some(ws_idx);
+    settings.section = SettingsSection::WorkspaceGeneral;
+    settings.list.selected = 0;
+    settings.scroll = 0;
+    settings.selection_active = false;
+    true
 }
 
 pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {

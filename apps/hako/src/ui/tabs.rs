@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 use super::widgets::panel_contrast_fg;
-use crate::app::AppState;
+use crate::app::{AppState, ClientViewState};
 
 const MIN_TAB_WIDTH: u16 = 8;
 const NEW_TAB_WIDTH: u16 = 3;
@@ -304,6 +304,243 @@ fn tab_close_overlaps_x(close_hit_areas: &[Rect], x: u16, y: u16) -> bool {
     close_hit_areas
         .iter()
         .any(|rect| rect.width > 0 && rect.y == y && x >= rect.x && x < rect.x + rect.width)
+}
+
+fn active_workspace_accent_color_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+) -> ratatui::style::Color {
+    if view.group_filter_enabled {
+        return app.group_accent_color(view.active_group);
+    }
+    view.active_workspace
+        .and_then(|idx| app.workspaces.get(idx))
+        .and_then(|workspace| app.group_index_by_id(&workspace.group_id))
+        .map(|group_idx| app.group_accent_color(group_idx))
+        .unwrap_or(app.palette.accent)
+}
+
+fn tab_drop_indicator_x_for_view(
+    view: &ClientViewState,
+    ws: &crate::workspace::Workspace,
+    insert_idx: usize,
+) -> Option<u16> {
+    let mut visible_tabs = view
+        .computed
+        .tab_hit_areas
+        .iter()
+        .enumerate()
+        .filter(|(_, rect)| rect.width > 0);
+    let first_visible = visible_tabs.clone().next()?;
+    let last_visible = visible_tabs.next_back().unwrap_or(first_visible);
+
+    if insert_idx == 0 {
+        return Some(if first_visible.0 == 0 {
+            first_visible.1.x
+        } else {
+            view.computed.tab_scroll_left_hit_area.x + view.computed.tab_scroll_left_hit_area.width
+        });
+    }
+
+    if let Some((_, rect)) = view
+        .computed
+        .tab_hit_areas
+        .iter()
+        .enumerate()
+        .find(|(idx, rect)| *idx == insert_idx && rect.width > 0)
+    {
+        return Some(rect.x.saturating_sub(1));
+    }
+
+    if insert_idx >= ws.tabs.len() {
+        return Some(if last_visible.0 + 1 >= ws.tabs.len() {
+            last_visible.1.x + last_visible.1.width
+        } else {
+            view.computed.tab_scroll_right_hit_area.x.saturating_sub(1)
+        });
+    }
+
+    None
+}
+
+pub(super) fn render_tab_bar_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let Some(active_ws_idx) = view.active_workspace else {
+        return;
+    };
+    let Some(ws) = app.workspaces.get(active_ws_idx) else {
+        return;
+    };
+    let active_tab_idx = view
+        .active_tab_index_for_workspace(app, active_ws_idx)
+        .unwrap_or_else(|| ws.active_tab_index());
+
+    let p = &app.palette;
+    let active_accent = active_workspace_accent_color_for_view(app, view);
+
+    frame.render_widget(
+        Paragraph::new(" ".repeat(area.width as usize)).style(Style::default().bg(p.panel_bg)),
+        area,
+    );
+
+    let first_visible_idx = view
+        .computed
+        .tab_hit_areas
+        .iter()
+        .enumerate()
+        .find(|(_, rect)| rect.width > 0)
+        .map(|(idx, _)| idx);
+    let last_visible_idx = view
+        .computed
+        .tab_hit_areas
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, rect)| rect.width > 0)
+        .map(|(idx, _)| idx);
+    let can_scroll_left = view.computed.tab_scroll_left_hit_area.width > 0 && view.tab_scroll > 0;
+    let can_scroll_right = view.computed.tab_scroll_right_hit_area.width > 0
+        && last_visible_idx.is_some_and(|idx| idx + 1 < ws.tabs.len());
+
+    if app.mouse_capture && view.computed.tab_scroll_left_hit_area.width > 0 {
+        let style = if can_scroll_left {
+            Style::default().fg(p.overlay1).bg(p.surface0)
+        } else {
+            Style::default()
+                .fg(p.overlay0)
+                .bg(p.surface0)
+                .add_modifier(Modifier::DIM)
+        };
+        frame.render_widget(
+            Paragraph::new(" < ").style(style),
+            view.computed.tab_scroll_left_hit_area,
+        );
+    }
+
+    if app.mouse_capture && view.computed.tab_scroll_right_hit_area.width > 0 {
+        let style = if can_scroll_right {
+            Style::default().fg(p.overlay1).bg(p.surface0)
+        } else {
+            Style::default()
+                .fg(p.overlay0)
+                .bg(p.surface0)
+                .add_modifier(Modifier::DIM)
+        };
+        frame.render_widget(
+            Paragraph::new(" > ").style(style),
+            view.computed.tab_scroll_right_hit_area,
+        );
+    }
+
+    for (idx, tab) in ws.tabs.iter().enumerate() {
+        let Some(rect) = view.computed.tab_hit_areas.get(idx).copied() else {
+            break;
+        };
+        if rect.width == 0 {
+            continue;
+        }
+        let active = idx == active_tab_idx;
+        let style = if active {
+            let base = Style::default().fg(panel_contrast_fg(p)).bg(active_accent);
+            if tab.is_auto_named() {
+                base.add_modifier(Modifier::DIM)
+            } else {
+                base.add_modifier(Modifier::BOLD)
+            }
+        } else if tab.is_auto_named() {
+            Style::default()
+                .fg(p.overlay0)
+                .bg(p.surface0)
+                .add_modifier(Modifier::DIM)
+        } else {
+            Style::default().fg(p.overlay1).bg(p.surface0)
+        };
+        let name = tab_chrome_label(tab);
+        let close_rect = view
+            .computed
+            .tab_close_hit_areas
+            .get(idx)
+            .copied()
+            .unwrap_or_default();
+        let show_close = app.mouse_capture && close_rect.width > 0;
+        let label_width = rect
+            .width
+            .saturating_sub(if show_close { close_rect.width } else { 0 });
+        let label_rect = Rect::new(rect.x, rect.y, label_width, rect.height);
+        frame.render_widget(
+            Paragraph::new(fit_tab_label(&name, label_width)).style(style),
+            label_rect,
+        );
+        if show_close {
+            frame.render_widget(
+                Paragraph::new(close_tab_label(close_rect.width))
+                    .style(style.add_modifier(Modifier::BOLD)),
+                close_rect,
+            );
+        }
+    }
+
+    if let Some(crate::app::state::DragState {
+        target:
+            crate::app::state::DragTarget::TabReorder {
+                ws_idx,
+                insert_idx: Some(insert_idx),
+                ..
+            },
+    }) = &view.drag
+    {
+        if *ws_idx == active_ws_idx {
+            if let Some(x) = tab_drop_indicator_x_for_view(view, ws, *insert_idx) {
+                frame.buffer_mut()[(x.min(area.x + area.width.saturating_sub(1)), area.y)]
+                    .set_symbol("│")
+                    .set_style(Style::default().fg(active_accent));
+            }
+        }
+    }
+
+    if app.mouse_capture && view.computed.new_tab_hit_area.width > 0 {
+        frame.render_widget(
+            Paragraph::new(" + ").style(Style::default().fg(p.overlay1)),
+            view.computed.new_tab_hit_area,
+        );
+    }
+
+    if first_visible_idx.is_some_and(|idx| idx > 0) {
+        let x = if app.mouse_capture && view.computed.tab_scroll_left_hit_area.width > 0 {
+            view.computed.tab_scroll_left_hit_area.x + view.computed.tab_scroll_left_hit_area.width
+        } else {
+            area.x
+        };
+        if x < area.x + area.width
+            && !tab_close_overlaps_x(&view.computed.tab_close_hit_areas, x, area.y)
+        {
+            frame.buffer_mut()[(x, area.y)]
+                .set_symbol("…")
+                .set_style(Style::default().fg(p.overlay0));
+        }
+    }
+    if last_visible_idx.is_some_and(|idx| idx + 1 < ws.tabs.len()) {
+        let x = if app.mouse_capture && view.computed.tab_scroll_right_hit_area.width > 0 {
+            view.computed.tab_scroll_right_hit_area.x.saturating_sub(1)
+        } else {
+            area.x + area.width.saturating_sub(1)
+        };
+        if x >= area.x
+            && x < area.x + area.width
+            && !tab_close_overlaps_x(&view.computed.tab_close_hit_areas, x, area.y)
+        {
+            frame.buffer_mut()[(x, area.y)]
+                .set_symbol("…")
+                .set_style(Style::default().fg(p.overlay0));
+        }
+    }
 }
 
 pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
