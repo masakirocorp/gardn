@@ -2404,7 +2404,7 @@ impl AppState {
                         | SettingsSection::PaneLabels => select_pending_setting(self),
                         SettingsSection::Experiments => selected_experiment_action(self),
                         SettingsSection::Agents => selected_agent_profile_action(self),
-                        SettingsSection::Integrations => None,
+                        SettingsSection::Integrations => selected_integration_action(self),
                         SettingsSection::GroupGeneral => {
                             if idx == 2 {
                                 selected_group_general_action(self)
@@ -4212,6 +4212,106 @@ mod tests {
             list_area.y + 1,
         ));
 
+        assert_eq!(app.state.settings.list.selected, 1);
+    }
+
+    #[test]
+    fn integrations_mouse_click_installs_available_not_installed_row() {
+        let mut app = app_for_mouse_test();
+        app.state.integration_recommendations = vec![
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Pi,
+                crate::integration::IntegrationStatusKind::Current,
+                true,
+            ),
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Omp,
+                crate::integration::IntegrationStatusKind::NotInstalled,
+                true,
+            ),
+        ];
+        open_settings_at(&mut app.state, SettingsSection::Integrations);
+
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::Integrations);
+        let rows = rows_for_section(&app.state, SettingsSection::Integrations).unwrap();
+        let row_for = |index| selected_visual_row(&rows, index).unwrap() as u16;
+        let action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            list_area.x + 2,
+            list_area.y + row_for(1),
+        ));
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::InstallIntegration(
+                crate::api::schema::IntegrationTarget::Omp
+            ))
+        );
+        assert_eq!(app.state.settings.list.selected, 1);
+    }
+
+    #[test]
+    fn integrations_mouse_click_uninstalls_current_row() {
+        let mut app = app_for_mouse_test();
+        app.state.integration_recommendations = vec![
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Pi,
+                crate::integration::IntegrationStatusKind::NotInstalled,
+                false,
+            ),
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Omp,
+                crate::integration::IntegrationStatusKind::Current,
+                true,
+            ),
+        ];
+        open_settings_at(&mut app.state, SettingsSection::Integrations);
+
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::Integrations);
+        let rows = rows_for_section(&app.state, SettingsSection::Integrations).unwrap();
+        let row_for = |index| selected_visual_row(&rows, index).unwrap() as u16;
+        let action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            list_area.x + 2,
+            list_area.y + row_for(1),
+        ));
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::UninstallIntegration(
+                crate::api::schema::IntegrationTarget::Omp
+            ))
+        );
+        assert_eq!(app.state.settings.list.selected, 1);
+    }
+
+    #[test]
+    fn integrations_mouse_click_unavailable_not_installed_row_only_selects() {
+        let mut app = app_for_mouse_test();
+        app.state.integration_recommendations = vec![
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Omp,
+                crate::integration::IntegrationStatusKind::NotInstalled,
+                true,
+            ),
+            integration_recommendation_for(
+                crate::api::schema::IntegrationTarget::Pi,
+                crate::integration::IntegrationStatusKind::NotInstalled,
+                false,
+            ),
+        ];
+        open_settings_at(&mut app.state, SettingsSection::Integrations);
+
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::Integrations);
+        let rows = rows_for_section(&app.state, SettingsSection::Integrations).unwrap();
+        let row_for = |index| selected_visual_row(&rows, index).unwrap() as u16;
+        let action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            list_area.x + 2,
+            list_area.y + row_for(1),
+        ));
+
+        assert_eq!(action, None);
         assert_eq!(app.state.settings.list.selected, 1);
     }
 
