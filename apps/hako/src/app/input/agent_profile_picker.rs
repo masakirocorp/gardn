@@ -3,8 +3,8 @@ use ratatui::layout::Rect;
 
 use crate::app::{
     agent_profile_picker::{
-        agent_profile_picker_filtered_entries, agent_profile_picker_filtered_entries_for_picker,
-        workspace_agent_profile_ids, AGENT_PROFILE_PICKER_TABS,
+        agent_profile_picker_entries_for_workspace, agent_profile_picker_filtered_entries,
+        agent_profile_picker_filtered_entries_for_picker, AGENT_PROFILE_PICKER_TABS,
     },
     state::{AppState, Mode},
     view_state::ClientViewState,
@@ -32,11 +32,16 @@ pub(crate) fn open_new_agent_picker_for_workspace(state: &mut AppState, ws_idx: 
         state.return_to_active_workspace_mode();
         return;
     }
-    let profile_ids = workspace_agent_profile_ids(state, ws_idx).collect::<Vec<_>>();
-    match profile_ids.as_slice() {
+    let entries = agent_profile_picker_entries_for_workspace(state, ws_idx);
+    match entries.as_slice() {
         [] => {}
-        [profile_id] => {
-            state.request_agent_profile_tab = Some((ws_idx, profile_id.clone()));
+        [entry]
+            if state
+                .agent_profiles
+                .get(&entry.profile_id)
+                .is_some_and(|profile| state.agent_profile_launchable(profile)) =>
+        {
+            state.request_agent_profile_tab = Some((ws_idx, entry.profile_id.clone()));
             state.return_to_active_workspace_mode();
         }
         _ => {
@@ -905,6 +910,19 @@ mod tests {
 
     #[test]
     fn new_agent_ignores_default_profile_without_installed_integration() {
+        let _lock = crate::integration::integration_env_lock();
+        let base = std::env::temp_dir().join(format!(
+            "hako-picker-ignore-unlaunchable-default-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let home = base.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let _codex_home_env = crate::config::TestEnvVar::remove("CODEX_HOME");
+        let _home_env = crate::config::TestEnvVar::set("HOME", &home);
         let mut app = app_with_space();
         app.state.integration_recommendations.clear();
         app.state.groups[app.state.active_group].default_agent_profile_id =
@@ -913,7 +931,8 @@ mod tests {
         open_new_agent_picker_for_workspace(&mut app.state, 0);
 
         assert_eq!(app.state.request_agent_profile_tab, None);
-        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::AgentProfilePicker);
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]
