@@ -1044,7 +1044,9 @@ impl AppState {
                 }
             }
 
-            MouseEventKind::Up(MouseButton::Middle) | MouseEventKind::Drag(MouseButton::Middle)
+            MouseEventKind::Down(MouseButton::Middle)
+            | MouseEventKind::Up(MouseButton::Middle)
+            | MouseEventKind::Drag(MouseButton::Middle)
                 if !in_chrome =>
             {
                 if let Some(info) = self.pane_mouse_target(mouse.column, mouse.row).cloned() {
@@ -1769,7 +1771,7 @@ impl AppState {
         self.forward_pane_mouse_motion_in_workspace(terminal_runtimes, ws_idx, info, mouse)
     }
 
-    fn forward_pane_mouse_motion_in_workspace(
+    pub(crate) fn forward_pane_mouse_motion_in_workspace(
         &self,
         terminal_runtimes: &TerminalRuntimeRegistry,
         ws_idx: usize,
@@ -1917,6 +1919,10 @@ impl AppState {
             return false;
         }
 
+        let Some(ws_idx) = self.active else {
+            return false;
+        };
+
         let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() else {
             return false;
         };
@@ -1935,6 +1941,7 @@ impl AppState {
         self.drag = None;
         self.context_menu = None;
         self.right_click_passthrough = Some(RightClickPassthroughGesture {
+            ws_idx,
             pane_info: info,
             modifiers,
         });
@@ -2921,6 +2928,59 @@ mod tests {
                 .map(|selection| selection.pane_id),
             Some(second_pane)
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn normal_mouse_capture_forwards_middle_button_gesture_to_pane() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let pane_id = ws.tabs[0].root_pane;
+        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let info = pane_infos[0].clone();
+        let (runtime, mut rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_screen_bytes(
+                info.inner_rect.width.max(1),
+                info.inner_rect.height.max(1),
+                b"\x1b[?1002h\x1b[?1006h",
+            );
+        ws.insert_test_runtime(pane_id, runtime);
+
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.view.pane_infos = pane_infos;
+
+        let col = info.inner_rect.x + 2;
+        let row = info.inner_rect.y + 3;
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Middle), col, row));
+        app.handle_mouse(mouse(
+            MouseEventKind::Drag(MouseButton::Middle),
+            col + 1,
+            row + 1,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Middle),
+            col + 1,
+            row + 1,
+        ));
+
+        assert_eq!(
+            rx.try_recv()
+                .expect("middle mouse down should be forwarded"),
+            Bytes::from_static(b"\x1b[<1;3;4M")
+        );
+        assert_eq!(
+            rx.try_recv()
+                .expect("middle mouse drag should be forwarded"),
+            Bytes::from_static(b"\x1b[<33;4;5M")
+        );
+        assert_eq!(
+            rx.try_recv().expect("middle mouse up should be forwarded"),
+            Bytes::from_static(b"\x1b[<1;4;5m")
+        );
+        assert!(rx.try_recv().is_err());
     }
 
     #[tokio::test]

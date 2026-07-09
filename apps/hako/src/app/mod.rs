@@ -3699,6 +3699,9 @@ impl App {
         if self.handle_client_view_scroll_mouse(client_view, mouse) {
             return;
         }
+        if self.handle_client_view_right_click_passthrough(client_view, mouse) {
+            return;
+        }
         if self.handle_client_view_tab_context_menu_mouse(client_view, mouse) {
             return;
         }
@@ -3706,6 +3709,9 @@ impl App {
             return;
         }
 
+        if self.handle_client_view_terminal_mouse_report(client_view, mouse) {
+            return;
+        }
         if self.handle_client_view_terminal_pane_left_click(client_view, mouse) {
             return;
         }
@@ -4779,6 +4785,161 @@ impl App {
             }
             _ => false,
         }
+    }
+
+    fn handle_client_view_right_click_passthrough(
+        &self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if let Some(gesture) = client_view.right_click_passthrough.clone() {
+            match mouse.kind {
+                MouseEventKind::Drag(MouseButton::Right)
+                | MouseEventKind::Up(MouseButton::Right) => {
+                    let forwarded_mouse = Self::strip_client_view_right_click_passthrough_modifiers(
+                        mouse,
+                        gesture.modifiers,
+                    );
+                    let _ = self.state.forward_pane_mouse_button_in_workspace(
+                        &self.terminal_runtimes,
+                        gesture.ws_idx,
+                        &gesture.pane_info,
+                        forwarded_mouse,
+                    );
+                    if matches!(mouse.kind, MouseEventKind::Up(MouseButton::Right)) {
+                        client_view.right_click_passthrough = None;
+                    }
+                    return true;
+                }
+                _ => {
+                    client_view.right_click_passthrough = None;
+                }
+            }
+        }
+
+        if mouse.kind != MouseEventKind::Down(MouseButton::Right)
+            || client_view.mode != Mode::Terminal
+        {
+            return false;
+        }
+        let Some(modifiers) = self.state.right_click_passthrough_modifiers else {
+            return false;
+        };
+        if mouse.modifiers != modifiers {
+            return false;
+        }
+        let Some(ws_idx) = client_view.active_workspace else {
+            return false;
+        };
+        let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) else {
+            return false;
+        };
+        let Some(info) = Self::client_view_pane_info_at(client_view, mouse.column, mouse.row)
+        else {
+            return false;
+        };
+
+        client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, info.id);
+        let forwarded_mouse =
+            Self::strip_client_view_right_click_passthrough_modifiers(mouse, modifiers);
+        if !self.state.forward_pane_mouse_button_in_workspace(
+            &self.terminal_runtimes,
+            ws_idx,
+            &info,
+            forwarded_mouse,
+        ) {
+            return false;
+        }
+
+        client_view.selection = None;
+        client_view.selection_autoscroll = None;
+        client_view.workspace_press = None;
+        client_view.group_press = None;
+        client_view.tab_press = None;
+        client_view.drag = None;
+        client_view.context_menu = None;
+        client_view.right_click_passthrough = Some(state::RightClickPassthroughGesture {
+            ws_idx,
+            pane_info: info,
+            modifiers,
+        });
+        true
+    }
+
+    fn strip_client_view_right_click_passthrough_modifiers(
+        mouse: crossterm::event::MouseEvent,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> crossterm::event::MouseEvent {
+        crossterm::event::MouseEvent {
+            modifiers: mouse.modifiers.difference(modifiers),
+            ..mouse
+        }
+    }
+
+    fn handle_client_view_terminal_mouse_report(
+        &self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if client_view.mode != Mode::Terminal {
+            return false;
+        }
+        let Some(ws_idx) = client_view.active_workspace else {
+            return false;
+        };
+        let Some(info) = Self::client_view_pane_info_at(client_view, mouse.column, mouse.row)
+        else {
+            return false;
+        };
+
+        match mouse.kind {
+            MouseEventKind::Drag(MouseButton::Left)
+            | MouseEventKind::Up(MouseButton::Left)
+            | MouseEventKind::Down(MouseButton::Middle)
+            | MouseEventKind::Drag(MouseButton::Middle)
+            | MouseEventKind::Up(MouseButton::Middle) => {
+                if self.state.forward_pane_mouse_button_in_workspace(
+                    &self.terminal_runtimes,
+                    ws_idx,
+                    &info,
+                    mouse,
+                ) {
+                    client_view.selection = None;
+                    client_view.selection_autoscroll = None;
+                    return true;
+                }
+            }
+            MouseEventKind::Moved => {
+                if self.state.forward_pane_mouse_motion_in_workspace(
+                    &self.terminal_runtimes,
+                    ws_idx,
+                    &info,
+                    mouse,
+                ) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+
+        false
+    }
+
+    fn client_view_pane_info_at(
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> Option<crate::layout::PaneInfo> {
+        client_view
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| Self::rect_contains(info.inner_rect, col, row))
+            .cloned()
     }
 
     fn handle_client_view_terminal_pane_left_click(
@@ -6456,6 +6617,20 @@ mod tests {
             column,
             row,
             modifiers: KeyModifiers::empty(),
+        })
+    }
+
+    fn raw_mouse_with_modifiers(
+        kind: crossterm::event::MouseEventKind,
+        column: u16,
+        row: u16,
+        modifiers: KeyModifiers,
+    ) -> crate::raw_input::RawInputEvent {
+        crate::raw_input::RawInputEvent::Mouse(crossterm::event::MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers,
         })
     }
 
@@ -9523,6 +9698,261 @@ mod tests {
             Some(app.state.mouse_scroll_lines)
         );
         assert_eq!(app.state.workspace_scroll, 0);
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_forwards_any_motion_from_invoking_client_active_pane() {
+        let mut app = test_app();
+        let server_workspace = Workspace::test_new("server");
+        let mut client_workspace = Workspace::test_new("client");
+        let inactive_pane = client_workspace.tabs[0].root_pane;
+        let active_tab = client_workspace.test_add_tab(Some("logs"));
+        client_workspace.switch_tab(active_tab);
+        let active_pane = client_workspace.tabs[active_tab].root_pane;
+        client_workspace.switch_tab(0);
+        app.state.workspaces = vec![server_workspace, client_workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+
+        let client_workspace_id = app.state.workspaces[1].id.clone();
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+        client
+            .active_tabs
+            .insert(client_workspace_id.clone(), active_tab);
+        client.reconcile(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let pane = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == active_pane)
+            .expect("client active tab pane should be visible")
+            .clone();
+        let (inactive_runtime, mut inactive_rx) =
+            TerminalRuntime::test_with_channel_and_screen_bytes(
+                pane.inner_rect.width.max(1),
+                pane.inner_rect.height.max(1),
+                b"\x1b[?1003h\x1b[?1006h",
+            );
+        let (active_runtime, mut active_rx) = TerminalRuntime::test_with_channel_and_screen_bytes(
+            pane.inner_rect.width.max(1),
+            pane.inner_rect.height.max(1),
+            b"\x1b[?1003h\x1b[?1006h",
+        );
+        app.state.workspaces[1].insert_test_runtime(inactive_pane, inactive_runtime);
+        app.state.workspaces[1].insert_test_runtime(active_pane, active_runtime);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Moved,
+                pane.inner_rect.x + 3,
+                pane.inner_rect.y + 2,
+            )],
+            true,
+        );
+
+        assert!(inactive_rx.try_recv().is_err());
+        assert_eq!(
+            active_rx
+                .try_recv()
+                .expect("any-motion event should be forwarded to invoking client's active pane"),
+            bytes::Bytes::from_static(b"\x1b[<35;4;3M")
+        );
+        assert!(active_rx.try_recv().is_err());
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(app.state.workspaces[1].active_tab_index(), 0);
+        assert_eq!(
+            other_client.active_tab_for_workspace(&client_workspace_id),
+            Some(0)
+        );
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_forwards_middle_button_gesture_to_invoking_client_pane() {
+        let mut app = test_app();
+        let server_workspace = Workspace::test_new("server");
+        let client_workspace = Workspace::test_new("client");
+        let pane_id = client_workspace.tabs[0].root_pane;
+        app.state.workspaces = vec![server_workspace, client_workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+        client.reconcile(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let pane = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == pane_id)
+            .expect("client pane should be visible")
+            .clone();
+        let (runtime, mut rx) = TerminalRuntime::test_with_channel_and_screen_bytes(
+            pane.inner_rect.width.max(1),
+            pane.inner_rect.height.max(1),
+            b"\x1b[?1002h\x1b[?1006h",
+        );
+        app.state.workspaces[1].insert_test_runtime(pane_id, runtime);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Middle),
+                    pane.inner_rect.x + 4,
+                    pane.inner_rect.y + 2,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Middle),
+                    pane.inner_rect.x + 6,
+                    pane.inner_rect.y + 3,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Middle),
+                    pane.inner_rect.x + 6,
+                    pane.inner_rect.y + 3,
+                ),
+            ],
+            true,
+        );
+
+        assert_eq!(
+            rx.try_recv()
+                .expect("middle mouse down should be forwarded"),
+            bytes::Bytes::from_static(b"\x1b[<1;5;3M")
+        );
+        assert_eq!(
+            rx.try_recv()
+                .expect("middle mouse drag should be forwarded"),
+            bytes::Bytes::from_static(b"\x1b[<33;7;4M")
+        );
+        assert_eq!(
+            rx.try_recv().expect("middle mouse up should be forwarded"),
+            bytes::Bytes::from_static(b"\x1b[<1;7;4m")
+        );
+        assert!(rx.try_recv().is_err());
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(other_client.active_workspace, Some(0));
+        assert_eq!(other_client.mode, Mode::Terminal);
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_right_click_passthrough_forwards_gesture_without_context_menu(
+    ) {
+        let mut app = test_app();
+        let server_workspace = Workspace::test_new("server");
+        let client_workspace = Workspace::test_new("client");
+        let server_pane = server_workspace.tabs[0].root_pane;
+        let pane_id = client_workspace.tabs[0].root_pane;
+        app.state.workspaces = vec![server_workspace, client_workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.right_click_passthrough_modifiers = Some(KeyModifiers::CONTROL);
+        app.state.selection = Some(crate::selection::Selection::anchor(server_pane, 0, 0, None));
+        app.state.drag = Some(state::DragState {
+            target: state::DragTarget::SidebarDivider,
+        });
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+        client.selection = Some(crate::selection::Selection::anchor(pane_id, 0, 0, None));
+        client.drag = Some(state::DragState {
+            target: state::DragTarget::SidebarDivider,
+        });
+        client.reconcile(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let pane = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == pane_id)
+            .expect("client pane should be visible")
+            .clone();
+        let (runtime, mut rx) = TerminalRuntime::test_with_channel_and_screen_bytes(
+            pane.inner_rect.width.max(1),
+            pane.inner_rect.height.max(1),
+            b"\x1b[?1002h\x1b[?1006h",
+        );
+        app.state.workspaces[1].insert_test_runtime(pane_id, runtime);
+
+        let col = pane.inner_rect.x + 2;
+        let row = pane.inner_rect.y + 3;
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_mouse_with_modifiers(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Right),
+                    col,
+                    row,
+                    KeyModifiers::CONTROL,
+                ),
+                raw_mouse_with_modifiers(
+                    crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Right),
+                    col + 1,
+                    row + 1,
+                    KeyModifiers::CONTROL,
+                ),
+                raw_mouse_with_modifiers(
+                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Right),
+                    col + 1,
+                    row + 1,
+                    KeyModifiers::CONTROL,
+                ),
+            ],
+            true,
+        );
+
+        assert_eq!(
+            rx.try_recv()
+                .expect("right mouse down should be forwarded without modifiers"),
+            bytes::Bytes::from_static(b"\x1b[<2;3;4M")
+        );
+        assert_eq!(
+            rx.try_recv()
+                .expect("right mouse drag should be forwarded without modifiers"),
+            bytes::Bytes::from_static(b"\x1b[<34;4;5M")
+        );
+        assert_eq!(
+            rx.try_recv()
+                .expect("right mouse up should be forwarded without modifiers"),
+            bytes::Bytes::from_static(b"\x1b[<2;4;5m")
+        );
+        assert!(rx.try_recv().is_err());
+        assert!(client.context_menu.is_none());
+        assert_eq!(client.mode, Mode::Terminal);
+        assert!(client.selection.is_none());
+        assert!(client.drag.is_none());
+        assert!(other_client.context_menu.is_none());
+        assert_eq!(other_client.mode, Mode::Terminal);
+        assert!(app.state.context_menu.is_none());
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(app.state.selection.is_some());
+        assert!(app.state.drag.is_some());
+        assert!(app.state.right_click_passthrough.is_none());
     }
 
     #[tokio::test]

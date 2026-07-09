@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use crate::app::state::{
     AgentProfilePickerState, AppState, CommandPaletteState, ContextMenuState, DragState,
     GitRepoPickerState, GroupPressState, KeybindHelpState, MenuListState, Mode, NavigatorState,
-    PaneFocusTarget, ProductAnnouncementState, ReleaseNotesState, SelectionAutoscroll,
-    SettingsState, TabPressState, ViewState, WorkspacePressState,
+    PaneFocusTarget, ProductAnnouncementState, ReleaseNotesState, RightClickPassthroughGesture,
+    SelectionAutoscroll, SettingsState, TabPressState, ViewState, WorkspacePressState,
 };
 use crate::layout::PaneId;
 use crate::terminal::{TerminalId, TerminalRuntimeRegistry};
@@ -76,6 +76,7 @@ pub(crate) struct ClientViewState {
     pub(crate) group_press: Option<GroupPressState>,
     pub(crate) tab_press: Option<TabPressState>,
     pub(crate) previous_pane_focus: Option<PaneFocusTarget>,
+    pub(crate) right_click_passthrough: Option<RightClickPassthroughGesture>,
     pub(crate) keybind_help: KeybindHelpState,
     pub(crate) global_menu: MenuListState,
     pub(crate) group_menu: MenuListState,
@@ -144,6 +145,7 @@ impl ClientViewState {
             group_press: state.group_press.clone(),
             tab_press: state.tab_press.clone(),
             previous_pane_focus: state.previous_pane_focus.clone(),
+            right_click_passthrough: state.right_click_passthrough.clone(),
             keybind_help: state.keybind_help.clone(),
             global_menu: state.global_menu,
             group_menu: state.group_menu,

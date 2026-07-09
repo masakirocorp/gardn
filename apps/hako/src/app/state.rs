@@ -50,6 +50,7 @@ pub(crate) struct SelectionAutoscroll {
 
 #[derive(Clone)]
 pub(crate) struct RightClickPassthroughGesture {
+    pub ws_idx: usize,
     pub pane_info: PaneInfo,
     pub modifiers: KeyModifiers,
 }
