@@ -113,6 +113,14 @@ fn toast_agent_label(agent_label: &str) -> &str {
     agent_label
 }
 
+fn titlecase_ascii_label(label: &str) -> String {
+    let mut chars = label.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
 fn toast_event_text(kind: ToastKind) -> &'static str {
     match kind {
         ToastKind::NeedsAttention => "needs attention",
@@ -3127,20 +3135,26 @@ impl AppState {
                 visible_working,
                 process_exited,
                 observed_at,
-            } => self
-                .update_terminal_state_at(pane_id, observed_at, |terminal| {
-                    Some(terminal.set_detected_state_with_screen_signals_at(
-                        agent,
-                        state,
-                        visible_blocker,
-                        visible_idle,
-                        visible_working,
-                        process_exited,
-                        observed_at,
-                    ))
-                })
-                .into_iter()
-                .collect(),
+            } => {
+                let updates: Vec<_> = self
+                    .update_terminal_state_at(pane_id, observed_at, |terminal| {
+                        Some(terminal.set_detected_state_with_screen_signals_at(
+                            agent,
+                            state,
+                            visible_blocker,
+                            visible_idle,
+                            visible_working,
+                            process_exited,
+                            observed_at,
+                        ))
+                    })
+                    .into_iter()
+                    .collect();
+                if !process_exited && self.toast.is_none() {
+                    self.show_missing_integration_warning_if_needed(pane_id, observed_at);
+                }
+                updates
+            }
             AppEvent::HookStateReported {
                 pane_id,
                 source,
@@ -3151,25 +3165,29 @@ impl AppState {
                 seq,
                 session_ref,
                 launch_env,
-            } => self
-                .update_terminal_state(pane_id, |terminal| {
-                    let mut mutation = terminal.set_hook_authority_with_session_ref(
-                        source,
-                        agent_label,
-                        state,
-                        message,
-                        custom_status,
-                        session_ref,
-                        seq,
-                    )?;
-                    if terminal.launch_env != launch_env {
-                        terminal.launch_env = launch_env;
-                        mutation.session_ref_changed = true;
-                    }
-                    Some(mutation)
-                })
-                .into_iter()
-                .collect(),
+            } => {
+                let updates: Vec<_> = self
+                    .update_terminal_state(pane_id, |terminal| {
+                        let mut mutation = terminal.set_hook_authority_with_session_ref(
+                            source,
+                            agent_label,
+                            state,
+                            message,
+                            custom_status,
+                            session_ref,
+                            seq,
+                        )?;
+                        if terminal.launch_env != launch_env {
+                            terminal.launch_env = launch_env;
+                            mutation.session_ref_changed = true;
+                        }
+                        Some(mutation)
+                    })
+                    .into_iter()
+                    .collect();
+                self.clear_missing_integration_warning_if_integrated(pane_id);
+                updates
+            }
             AppEvent::HookSessionReported {
                 pane_id,
                 source,
@@ -3177,18 +3195,26 @@ impl AppState {
                 seq,
                 session_ref,
                 launch_env,
-            } => self
-                .update_terminal_state(pane_id, |terminal| {
-                    let mut mutation =
-                        terminal.set_agent_session_ref(source, agent_label, session_ref, seq)?;
-                    if terminal.launch_env != launch_env {
-                        terminal.launch_env = launch_env;
-                        mutation.session_ref_changed = true;
-                    }
-                    Some(mutation)
-                })
-                .into_iter()
-                .collect(),
+            } => {
+                let updates: Vec<_> = self
+                    .update_terminal_state(pane_id, |terminal| {
+                        let mut mutation = terminal.set_agent_session_ref(
+                            source,
+                            agent_label,
+                            session_ref,
+                            seq,
+                        )?;
+                        if terminal.launch_env != launch_env {
+                            terminal.launch_env = launch_env;
+                            mutation.session_ref_changed = true;
+                        }
+                        Some(mutation)
+                    })
+                    .into_iter()
+                    .collect();
+                self.clear_missing_integration_warning_if_integrated(pane_id);
+                updates
+            }
             AppEvent::HookMetadataReported {
                 pane_id,
                 source,
@@ -3204,26 +3230,30 @@ impl AppState {
                 clear_state_labels,
                 seq,
                 ttl,
-            } => self
-                .update_terminal_state(pane_id, |terminal| {
-                    terminal.set_agent_metadata(crate::terminal::AgentMetadataReport {
-                        source,
-                        agent_label,
-                        applies_to_source,
-                        title,
-                        display_agent,
-                        custom_status,
-                        state_labels,
-                        clear_title,
-                        clear_display_agent,
-                        clear_custom_status,
-                        clear_state_labels,
-                        ttl,
-                        seq,
+            } => {
+                let updates: Vec<_> = self
+                    .update_terminal_state(pane_id, |terminal| {
+                        terminal.set_agent_metadata(crate::terminal::AgentMetadataReport {
+                            source,
+                            agent_label,
+                            applies_to_source,
+                            title,
+                            display_agent,
+                            custom_status,
+                            state_labels,
+                            clear_title,
+                            clear_display_agent,
+                            clear_custom_status,
+                            clear_state_labels,
+                            ttl,
+                            seq,
+                        })
                     })
-                })
-                .into_iter()
-                .collect(),
+                    .into_iter()
+                    .collect();
+                self.clear_missing_integration_warning_if_integrated(pane_id);
+                updates
+            }
             AppEvent::HookAuthorityCleared {
                 pane_id,
                 source,
@@ -3317,6 +3347,85 @@ impl AppState {
         };
         self.apply_pane_state_change(ws_idx, pane_id, &change);
         Some(update)
+    }
+
+    fn clear_missing_integration_warning_if_integrated(&mut self, pane_id: PaneId) {
+        let Some(terminal_id) = self
+            .workspaces
+            .iter()
+            .find_map(|ws| ws.terminal_id(pane_id).cloned())
+        else {
+            return;
+        };
+        let integrated = self.terminals.get(&terminal_id).is_some_and(|terminal| {
+            terminal.has_hako_integration_evidence_for_detected_agent_at(std::time::Instant::now())
+        });
+        if integrated && self.toast_is_missing_integration_warning_for_pane(pane_id) {
+            self.toast = None;
+        }
+    }
+
+    fn toast_is_missing_integration_warning_for_pane(&self, pane_id: PaneId) -> bool {
+        self.toast.as_ref().is_some_and(|toast| {
+            toast
+                .target
+                .as_ref()
+                .is_some_and(|target| target.pane_id == pane_id)
+                && toast.context.contains("hako integration install")
+        })
+    }
+
+    fn show_missing_integration_warning_if_needed(
+        &mut self,
+        pane_id: PaneId,
+        now: std::time::Instant,
+    ) {
+        if !matches!(
+            self.toast_config.delivery,
+            crate::config::ToastDelivery::Hako
+        ) {
+            return;
+        }
+
+        let Some(ws_idx) = self
+            .workspaces
+            .iter()
+            .position(|ws| ws.pane_state(pane_id).is_some())
+        else {
+            return;
+        };
+        let Some(terminal_id) = self.workspaces[ws_idx]
+            .pane_state(pane_id)
+            .map(|pane| pane.attached_terminal_id.clone())
+        else {
+            return;
+        };
+        let Some(agent) = self
+            .terminals
+            .get_mut(&terminal_id)
+            .and_then(|terminal| terminal.take_missing_integration_warning_agent(now))
+        else {
+            return;
+        };
+
+        let agent_label = crate::detect::agent_label(agent);
+        let agent_title = titlecase_ascii_label(agent_label);
+        let workspace_id = self.workspaces[ws_idx].id.clone();
+        let workspace_label = self.workspaces[ws_idx].display_name();
+        let context = format!(
+            "{}; run `hako integration install {agent_label}`, then restart agent",
+            notification_context(&self.workspaces[ws_idx], &workspace_label, ws_idx, pane_id)
+        );
+        self.toast = Some(ToastNotification {
+            kind: ToastKind::NeedsAttention,
+            title: format!("{agent_title} detected without Hako integration"),
+            context,
+            position: None,
+            target: Some(ToastTarget {
+                workspace_id,
+                pane_id,
+            }),
+        });
     }
 
     pub(crate) fn publish_pane_process_exit_if_agent(
@@ -5230,6 +5339,129 @@ mod tests {
         let terminal = state.terminals.get(&terminal_id).unwrap();
         assert_eq!(terminal.state, AgentState::Working);
         assert_eq!(terminal.detected_agent, Some(Agent::Pi));
+    }
+
+    #[test]
+    fn detected_codex_without_hako_integration_warns_once() {
+        let mut state = app_with_workspaces(&["manual"]);
+        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        let pane_id = state.workspaces[0].tabs[0].root_pane;
+        let observed_at = std::time::Instant::now();
+
+        state.handle_app_event(AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Codex),
+            state: AgentState::Idle,
+            visible_blocker: false,
+            visible_idle: true,
+            visible_working: false,
+            process_exited: false,
+            observed_at,
+        });
+
+        let toast = state.toast.as_ref().expect("missing integration toast");
+        assert_eq!(toast.kind, ToastKind::NeedsAttention);
+        assert_eq!(toast.title, "Codex detected without Hako integration");
+        assert!(toast.context.contains("manual · 1"));
+        assert!(toast.context.contains("hako integration install codex"));
+        assert_eq!(
+            toast.target.as_ref().map(|target| target.pane_id),
+            Some(pane_id)
+        );
+
+        state.toast = None;
+        state.handle_app_event(AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Codex),
+            state: AgentState::Working,
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: true,
+            process_exited: false,
+            observed_at: observed_at + std::time::Duration::from_millis(1),
+        });
+
+        assert!(state.toast.is_none());
+    }
+
+    #[test]
+    fn hako_session_report_suppresses_missing_integration_warning() {
+        let mut state = app_with_workspaces(&["integrated"]);
+        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        let pane_id = state.workspaces[0].tabs[0].root_pane;
+
+        state.handle_app_event(AppEvent::HookSessionReported {
+            pane_id,
+            source: "hako:codex".into(),
+            agent_label: "codex".into(),
+            seq: Some(1),
+            session_ref: Some(crate::agent_resume::AgentSessionRef::id("codex-session").unwrap()),
+            launch_env: Vec::new(),
+        });
+        state.handle_app_event(AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Codex),
+            state: AgentState::Idle,
+            visible_blocker: false,
+            visible_idle: true,
+            visible_working: false,
+            process_exited: false,
+            observed_at: std::time::Instant::now(),
+        });
+
+        assert!(state.toast.is_none());
+    }
+
+    #[test]
+    fn process_exit_allows_next_manual_codex_session_to_warn() {
+        let mut state = app_with_workspaces(&["manual"]);
+        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        let pane_id = state.workspaces[0].tabs[0].root_pane;
+        let observed_at = std::time::Instant::now();
+
+        state.handle_app_event(AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Codex),
+            state: AgentState::Idle,
+            visible_blocker: false,
+            visible_idle: true,
+            visible_working: false,
+            process_exited: false,
+            observed_at,
+        });
+        assert_eq!(
+            state.toast.as_ref().map(|toast| toast.title.as_str()),
+            Some("Codex detected without Hako integration")
+        );
+
+        state.toast = None;
+        state.handle_app_event(AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Codex),
+            state: AgentState::Idle,
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: false,
+            process_exited: true,
+            observed_at: observed_at + std::time::Duration::from_millis(1),
+        });
+        assert!(state.toast.is_none());
+
+        state.handle_app_event(AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Codex),
+            state: AgentState::Idle,
+            visible_blocker: false,
+            visible_idle: true,
+            visible_working: false,
+            process_exited: false,
+            observed_at: observed_at + std::time::Duration::from_millis(2),
+        });
+
+        assert_eq!(
+            state.toast.as_ref().map(|toast| toast.title.as_str()),
+            Some("Codex detected without Hako integration")
+        );
     }
 
     #[test]

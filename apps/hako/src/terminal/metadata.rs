@@ -498,7 +498,7 @@ impl TerminalState {
             .collect()
     }
 
-    fn agent_metadata_is_valid(
+    pub(super) fn agent_metadata_is_valid(
         &self,
         metadata: &AgentMetadata,
         now: Instant,

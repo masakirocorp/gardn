@@ -111,6 +111,7 @@ Supported built-in detection includes:
 - **Agent labels** — manual, detected, and integration-reported labels are surfaced in lists and pane borders.
 - **State notifications** — background state changes can trigger Hako toasts, terminal toasts, system toasts, and sounds.
 - **Integration authority** — installed hooks either report native session identity for restore or report state directly. Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, and Qoder-style integrations can report state directly; Kimi, Droid, and Cursor use session identity plus screen detection for state.
+- **Missing integration warning** — if screen detection sees an integration-capable agent such as Codex but no accepted Hako hook, session, or metadata report arrives for that pane, Hako shows a pane-targeted toast with the matching `hako integration install <agent>` command.
 
 
 ### Agent profiles

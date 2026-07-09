@@ -140,6 +140,7 @@ pub struct TerminalState {
     pub pending_agent_resume_plan: Option<crate::agent_resume::AgentResumePlan>,
     last_meaningful_agent_activity_seq: u64,
     last_meaningful_agent_activity_unix_secs: Option<u64>,
+    missing_integration_warning_reported_for: Option<Agent>,
 }
 
 impl TerminalState {
@@ -169,6 +170,7 @@ impl TerminalState {
             pending_agent_resume_plan: None,
             last_meaningful_agent_activity_seq: 0,
             last_meaningful_agent_activity_unix_secs: None,
+            missing_integration_warning_reported_for: None,
         }
     }
 
@@ -387,6 +389,9 @@ impl TerminalState {
             || detected_agent_changed_or_disappeared && persisted_agent_was_previously_detected
         {
             self.persisted_agent_session = None;
+        }
+        if process_exited || agent != previous_detected_agent {
+            self.missing_integration_warning_reported_for = None;
         }
         self.update_stale_hook_idle_window(now);
         TerminalStateMutation {
@@ -933,6 +938,7 @@ impl TerminalState {
         self.hook_authority = None;
         self.stale_hook_idle_since = None;
         self.persisted_agent_session = None;
+        self.missing_integration_warning_reported_for = None;
         Some(TerminalStateMutation {
             effective_state_change: self.recompute_effective_state(
                 previous_agent_label,
@@ -982,6 +988,67 @@ impl TerminalState {
                 .as_deref()
                 .and_then(crate::detect::parse_agent_label)
         })
+    }
+
+    pub fn take_missing_integration_warning_agent(&mut self, now: Instant) -> Option<Agent> {
+        let agent = self.detected_agent?;
+        if !Self::agent_supports_hako_integration(agent)
+            || self.has_hako_integration_evidence_for_agent_at(agent, now)
+            || self.missing_integration_warning_reported_for == Some(agent)
+        {
+            return None;
+        }
+
+        self.missing_integration_warning_reported_for = Some(agent);
+        Some(agent)
+    }
+
+    pub fn has_hako_integration_evidence_for_detected_agent_at(&self, now: Instant) -> bool {
+        self.detected_agent
+            .is_some_and(|agent| self.has_hako_integration_evidence_for_agent_at(agent, now))
+    }
+
+    fn has_hako_integration_evidence_for_agent_at(&self, agent: Agent, now: Instant) -> bool {
+        self.hook_authority.as_ref().is_some_and(|authority| {
+            Self::hako_report_identity_matches_agent(
+                &authority.source,
+                Some(&authority.agent_label),
+                agent,
+            )
+        }) || self
+            .persisted_agent_session
+            .as_ref()
+            .is_some_and(|session| {
+                Self::hako_report_identity_matches_agent(
+                    &session.source,
+                    Some(&session.agent),
+                    agent,
+                )
+            })
+            || self.agent_metadata.values().any(|metadata| {
+                self.agent_metadata_is_valid(metadata, now, true)
+                    && Self::hako_report_identity_matches_agent(
+                        &metadata.source,
+                        metadata.agent_label.as_ref(),
+                        agent,
+                    )
+            })
+    }
+
+    fn agent_supports_hako_integration(agent: Agent) -> bool {
+        let label = crate::detect::agent_label(agent);
+        let source = format!("hako:{label}");
+        crate::detect::full_lifecycle_hook_authority(&source, label)
+    }
+
+    fn hako_report_identity_matches_agent(
+        source: &str,
+        agent_label: Option<&String>,
+        agent: Agent,
+    ) -> bool {
+        let label = crate::detect::agent_label(agent);
+        source == format!("hako:{label}")
+            && agent_label.is_none_or(|agent_label| agent_label == label)
     }
 
     pub fn full_lifecycle_hook_authority_active(&self) -> bool {
@@ -1077,6 +1144,7 @@ impl TerminalState {
         self.respawn_shell_on_exit = false;
         self.pending_agent_resume_plan = None;
         self.clear_agent_name();
+        self.missing_integration_warning_reported_for = None;
     }
 
     pub fn is_agent_terminal(&self) -> bool {
