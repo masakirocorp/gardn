@@ -466,6 +466,20 @@ pub(crate) fn install_target_for_agent_profiles(
     result
 }
 
+pub(crate) fn uninstall_target_for_agent_profiles(
+    target: crate::api::schema::IntegrationTarget,
+    agent_profiles: &crate::agent_profiles::AgentProfileCatalog,
+) -> io::Result<Vec<String>> {
+    if target != crate::api::schema::IntegrationTarget::Codex {
+        return uninstall_target(target);
+    }
+
+    let result = uninstall_codex_for_agent_profiles_inner(agent_profiles);
+    let outcome = if result.is_ok() { "ok" } else { "error" };
+    crate::logging::integration_action("uninstall", integration_target_label(target), outcome);
+    result
+}
+
 fn codex_home_dir_for_profile(
     profile: &crate::agent_profiles::AgentProfile,
 ) -> io::Result<Option<PathBuf>> {
@@ -564,15 +578,9 @@ pub(crate) fn agent_profile_integration_badge(
     }
 }
 
-fn install_codex_for_agent_profiles_inner(
+fn codex_dirs_for_agent_profiles(
     agent_profiles: &crate::agent_profiles::AgentProfileCatalog,
-) -> io::Result<Vec<String>> {
-    if !integration_target_supported(crate::api::schema::IntegrationTarget::Codex) {
-        return Err(io::Error::other(
-            "codex integration is not supported on Windows",
-        ));
-    }
-
+) -> io::Result<Vec<PathBuf>> {
     let mut dirs = vec![codex_dir()?];
     for profile in agent_profiles.profiles() {
         if profile.kind != crate::agent_profiles::AgentKind::Codex || !profile.enabled {
@@ -585,6 +593,19 @@ fn install_codex_for_agent_profiles_inner(
             dirs.push(dir);
         }
     }
+    Ok(dirs)
+}
+
+fn install_codex_for_agent_profiles_inner(
+    agent_profiles: &crate::agent_profiles::AgentProfileCatalog,
+) -> io::Result<Vec<String>> {
+    if !integration_target_supported(crate::api::schema::IntegrationTarget::Codex) {
+        return Err(io::Error::other(
+            "codex integration is not supported on Windows",
+        ));
+    }
+
+    let dirs = codex_dirs_for_agent_profiles(agent_profiles)?;
 
     let mut messages = Vec::new();
     let mut skipped_missing_dirs = Vec::new();
@@ -613,6 +634,30 @@ fn install_codex_for_agent_profiles_inner(
             dir.display()
         )
     }));
+    Ok(messages)
+}
+
+fn uninstall_codex_for_agent_profiles_inner(
+    agent_profiles: &crate::agent_profiles::AgentProfileCatalog,
+) -> io::Result<Vec<String>> {
+    if !integration_target_supported(crate::api::schema::IntegrationTarget::Codex) {
+        return Err(io::Error::other(
+            "codex integration is not supported on Windows",
+        ));
+    }
+
+    let dirs = codex_dirs_for_agent_profiles(agent_profiles)?;
+    let mut messages = Vec::new();
+    for (index, dir) in dirs.into_iter().enumerate() {
+        if index > 0 && !dir.is_dir() {
+            messages.push(format!(
+                "{INSTALL_WARNING_PREFIX} skipped missing codex config directory at {}",
+                dir.display()
+            ));
+            continue;
+        }
+        messages.extend(codex_uninstall_messages(uninstall_codex_at(&dir)?));
+    }
     Ok(messages)
 }
 
@@ -838,35 +883,7 @@ pub(crate) fn uninstall_target(
             messages
         }
         crate::api::schema::IntegrationTarget::Codex => {
-            let result = uninstall_codex()?;
-            let mut messages = Vec::new();
-            if result.removed_hook_file {
-                messages.push(format!(
-                    "removed codex hook at {}",
-                    result.hook_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no codex hook found at {}",
-                    result.hook_path.display()
-                ));
-            }
-            if result.updated_hooks {
-                messages.push(format!(
-                    "removed hako codex hook entries from {}",
-                    result.hooks_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no hako codex hook entries found in {}",
-                    result.hooks_path.display()
-                ));
-            }
-            messages.push(format!(
-                "left codex config unchanged at {}",
-                result.config_path.display()
-            ));
-            messages
+            codex_uninstall_messages(uninstall_codex()?)
         }
         crate::api::schema::IntegrationTarget::Kimi => {
             let result = uninstall_kimi()?;
@@ -1675,6 +1692,37 @@ fn codex_install_messages(installed: CodexInstallPaths) -> Vec<String> {
     ]
 }
 
+fn codex_uninstall_messages(result: CodexUninstallResult) -> Vec<String> {
+    let mut messages = Vec::new();
+    if result.removed_hook_file {
+        messages.push(format!(
+            "removed codex hook at {}",
+            result.hook_path.display()
+        ));
+    } else {
+        messages.push(format!(
+            "no codex hook found at {}",
+            result.hook_path.display()
+        ));
+    }
+    if result.updated_hooks {
+        messages.push(format!(
+            "removed hako codex hook entries from {}",
+            result.hooks_path.display()
+        ));
+    } else {
+        messages.push(format!(
+            "no hako codex hook entries found in {}",
+            result.hooks_path.display()
+        ));
+    }
+    messages.push(format!(
+        "left codex config unchanged at {}",
+        result.config_path.display()
+    ));
+    messages
+}
+
 pub(crate) fn install_kimi() -> io::Result<KimiInstallPaths> {
     let dir = kimi_dir()?;
     if !dir.is_dir() {
@@ -2042,10 +2090,14 @@ pub(crate) fn uninstall_claude() -> io::Result<ClaudeUninstallResult> {
 }
 
 pub(crate) fn uninstall_codex() -> io::Result<CodexUninstallResult> {
-    let codex_dir = codex_dir()?;
-    let hook_path = codex_dir.join(CODEX_HOOK_INSTALL_NAME);
-    let hooks_path = codex_dir.join("hooks.json");
-    let config_path = codex_dir.join("config.toml");
+    let dir = codex_dir()?;
+    uninstall_codex_at(&dir)
+}
+
+fn uninstall_codex_at(dir: &Path) -> io::Result<CodexUninstallResult> {
+    let hook_path = dir.join(CODEX_HOOK_INSTALL_NAME);
+    let hooks_path = dir.join("hooks.json");
+    let config_path = dir.join("config.toml");
     let mut updated_hooks = false;
 
     if hooks_path.is_file() {
@@ -3590,6 +3642,71 @@ mod tests {
         ))
     }
 
+    fn codex_profile_catalog_with_home(
+        profile_id: &str,
+        command: &str,
+        codex_home: &Path,
+    ) -> crate::agent_profiles::AgentProfileCatalog {
+        let mut env = std::collections::BTreeMap::new();
+        env.insert(
+            CODEX_HOME_ENV_VAR.to_string(),
+            codex_home.to_string_lossy().to_string(),
+        );
+        crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec![format!("user:{profile_id}")],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: profile_id.into(),
+                    name: profile_id.into(),
+                    kind: crate::agent_profiles::AgentKind::Codex,
+                    command: command.into(),
+                    env,
+                    enabled: true,
+                }],
+            },
+        )
+    }
+
+    fn add_non_hako_codex_hook(codex_dir: &Path, command: &str) {
+        let hooks_path = codex_dir.join("hooks.json");
+        let mut hooks_file: Value =
+            serde_json::from_str(&fs::read_to_string(&hooks_path).unwrap()).unwrap();
+        hooks_file["hooks"]["UserPromptSubmit"][0]["hooks"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "type": "command",
+                "command": command,
+                "timeout": 10
+            }));
+        fs::write(
+            &hooks_path,
+            serde_json::to_string_pretty(&hooks_file).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn codex_hook_commands(codex_dir: &Path) -> Vec<String> {
+        let hooks_file: Value =
+            serde_json::from_str(&fs::read_to_string(codex_dir.join("hooks.json")).unwrap())
+                .unwrap();
+        let mut commands = Vec::new();
+        if let Some(hooks) = hooks_file.get("hooks").and_then(Value::as_object) {
+            for entries in hooks.values().filter_map(Value::as_array) {
+                for entry in entries {
+                    if let Some(command_hooks) = entry.get("hooks").and_then(Value::as_array) {
+                        for hook in command_hooks {
+                            if let Some(command) = hook.get("command").and_then(Value::as_str) {
+                                commands.push(command.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        commands
+    }
+
     #[test]
     #[cfg(unix)]
     fn command_available_requires_executable_file_on_path() {
@@ -4914,6 +5031,129 @@ mod tests {
         );
         assert!(config.contains("hooks = true"));
         assert!(config.contains("other = true"));
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn uninstall_codex_for_agent_profiles_removes_default_and_custom_hooks() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let home = base.join("home");
+        let default_codex_dir = home.join(".codex");
+        let custom_codex_dir = base.join("codex-mk");
+        fs::create_dir_all(&default_codex_dir).unwrap();
+        fs::create_dir_all(&custom_codex_dir).unwrap();
+        fs::write(
+            default_codex_dir.join("config.toml"),
+            "model = \"gpt-5.4\"\n",
+        )
+        .unwrap();
+        fs::write(
+            custom_codex_dir.join("config.toml"),
+            "model = \"gpt-5.5\"\n[features]\nother = true\n",
+        )
+        .unwrap();
+        let _home_env = TestEnvVar::set("HOME", &home);
+        let catalog = codex_profile_catalog_with_home("codex-mk", "codex-mk", &custom_codex_dir);
+
+        install_target_for_agent_profiles(crate::api::schema::IntegrationTarget::Codex, &catalog)
+            .unwrap();
+        add_non_hako_codex_hook(&default_codex_dir, "echo keep default");
+        add_non_hako_codex_hook(&custom_codex_dir, "echo keep custom");
+        let custom_config_before =
+            fs::read_to_string(custom_codex_dir.join("config.toml")).unwrap();
+
+        let messages = uninstall_target_for_agent_profiles(
+            crate::api::schema::IntegrationTarget::Codex,
+            &catalog,
+        )
+        .unwrap();
+        let default_hook_path = default_codex_dir.join(CODEX_HOOK_INSTALL_NAME);
+        let custom_hook_path = custom_codex_dir.join(CODEX_HOOK_INSTALL_NAME);
+        let default_hook_path_text = default_hook_path.display().to_string();
+        let custom_hook_path_text = custom_hook_path.display().to_string();
+        let default_commands = codex_hook_commands(&default_codex_dir);
+        let custom_commands = codex_hook_commands(&custom_codex_dir);
+
+        assert!(!default_hook_path.exists());
+        assert!(!custom_hook_path.exists());
+        assert!(
+            default_commands
+                .iter()
+                .all(|command| !command.contains(&default_hook_path_text)),
+            "{default_commands:?}"
+        );
+        assert!(
+            custom_commands
+                .iter()
+                .all(|command| !command.contains(&custom_hook_path_text)),
+            "{custom_commands:?}"
+        );
+        assert!(default_commands
+            .iter()
+            .any(|command| command == "echo keep default"));
+        assert!(custom_commands
+            .iter()
+            .any(|command| command == "echo keep custom"));
+        assert_eq!(
+            fs::read_to_string(custom_codex_dir.join("config.toml")).unwrap(),
+            custom_config_before
+        );
+        assert_eq!(
+            messages
+                .iter()
+                .filter(|message| message.starts_with("removed codex hook at "))
+                .count(),
+            2
+        );
+        assert_eq!(
+            messages
+                .iter()
+                .filter(|message| { message.starts_with("removed hako codex hook entries from ") })
+                .count(),
+            2
+        );
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn uninstall_codex_for_agent_profiles_skips_missing_custom_home() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let home = base.join("home");
+        let default_codex_dir = home.join(".codex");
+        let missing_custom_codex_dir = base.join("missing-codex-mk");
+        fs::create_dir_all(&default_codex_dir).unwrap();
+        fs::write(
+            default_codex_dir.join("config.toml"),
+            "model = \"gpt-5.4\"\n",
+        )
+        .unwrap();
+        let _home_env = TestEnvVar::set("HOME", &home);
+        install_codex().unwrap();
+        let catalog =
+            codex_profile_catalog_with_home("codex-mk", "codex-mk", &missing_custom_codex_dir);
+
+        let messages = uninstall_target_for_agent_profiles(
+            crate::api::schema::IntegrationTarget::Codex,
+            &catalog,
+        )
+        .unwrap();
+
+        assert!(!default_codex_dir.join(CODEX_HOOK_INSTALL_NAME).exists());
+        assert!(!missing_custom_codex_dir.exists());
+        assert!(messages.iter().any(|message| {
+            message.starts_with("removed codex hook at ")
+                && message.contains(&default_codex_dir.display().to_string())
+        }));
+        assert!(messages.iter().any(|message| {
+            message.starts_with(INSTALL_WARNING_PREFIX)
+                && message.contains(&missing_custom_codex_dir.display().to_string())
+        }));
 
         let _ = fs::remove_dir_all(base);
     }

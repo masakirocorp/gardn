@@ -432,7 +432,8 @@ fn render_settings_integrations(
                 "press enter to repair profile hooks".to_string()
             }
             crate::integration::IntegrationStatusKind::Current => {
-                "press enter to uninstall selected integration (affects all profiles)".to_string()
+                "press enter to uninstall selected integration (affects configured profiles)"
+                    .to_string()
             }
             crate::integration::IntegrationStatusKind::Outdated => {
                 "press enter to update selected integration".to_string()

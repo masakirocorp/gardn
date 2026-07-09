@@ -1406,7 +1406,10 @@ impl App {
     pub(crate) fn uninstall_integration(&mut self, target: crate::api::schema::IntegrationTarget) {
         let label = crate::integration::integration_target_label(target);
         self.state.integration_install_messages.clear();
-        match crate::integration::uninstall_target(target) {
+        match crate::integration::uninstall_target_for_agent_profiles(
+            target,
+            &self.state.agent_profiles,
+        ) {
             Ok(messages) => self.state.integration_install_messages.extend(messages),
             Err(err) => self
                 .state
