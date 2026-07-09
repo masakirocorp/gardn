@@ -3343,89 +3343,6 @@ impl App {
         }
     }
 
-    fn apply_client_view_state_for_local_helpers(state: &mut AppState, view: &ClientViewState) {
-        state.active = view.active_workspace;
-        state.selected = view
-            .selected_workspace
-            .min(state.workspaces.len().saturating_sub(1));
-        state.active_group = view.active_group.min(state.groups.len().saturating_sub(1));
-        state.group_filter_enabled = view.group_filter_enabled;
-        state.agent_panel_scope = view.agent_panel_scope;
-        state.workspace_scroll = view.workspace_scroll;
-        state.agent_panel_scroll = view.agent_panel_scroll;
-        state.tab_scroll = view.tab_scroll;
-        state.tab_scroll_follow_active = view.tab_scroll_follow_active;
-        state.hovered_tab = view.hovered_tab;
-        state.mobile_switcher_scroll = view.mobile_switcher_scroll;
-        state.sidebar_width = view.sidebar_width;
-        state.sidebar_width_source = view.sidebar_width_source;
-        state.sidebar_collapsed = view.sidebar_collapsed;
-        state.right_sidebar_collapsed = view.right_sidebar_collapsed;
-        state.right_sidebar_width = view.right_sidebar_width;
-        state.sidebar_section_split = view.sidebar_section_split;
-        state.activity_agents_expanded = view.activity_agents_expanded;
-        state.activity_commands_expanded = view.activity_commands_expanded;
-        state.activity_ports_expanded = view.activity_ports_expanded;
-        state.collapsed_agent_sections = view.collapsed_agent_sections.clone();
-        state.collapsed_command_groups = view.collapsed_command_groups.clone();
-        state.collapsed_command_status_groups = view.collapsed_command_status_groups.clone();
-        state.collapsed_workspace_groups = view.collapsed_workspace_groups.clone();
-        state.mode = view.mode;
-        state.settings = view.settings.clone();
-        state.command_palette = view.command_palette.clone();
-        state.navigator = view.navigator.clone();
-        state.agent_profile_picker = view.agent_profile_picker.clone();
-        state.git_repo_picker = view.git_repo_picker.clone();
-        state.context_menu = view.context_menu.clone();
-        state.selection = view.selection.clone();
-        state.selection_autoscroll = view.selection_autoscroll.clone();
-        state.copy_mode = view.copy_mode;
-        state.drag = view.drag.clone();
-        state.workspace_press = view.workspace_press.clone();
-        state.group_press = view.group_press.clone();
-        state.tab_press = view.tab_press.clone();
-        state.previous_pane_focus = view.previous_pane_focus.clone();
-        state.keybind_help = view.keybind_help.clone();
-        state.global_menu = view.global_menu;
-        state.group_menu = view.group_menu;
-        state.agent_menu = view.agent_menu;
-        state.creating_new_tab = view.creating_new_tab;
-        state.creating_new_group = view.creating_new_group;
-        state.group_icon_input = view.group_icon_input.clone();
-        state.group_default_directory_input = view.group_default_directory_input.clone();
-        state.group_modal_selected_field = view.group_modal_selected_field;
-        state.group_icon_picker_open = view.group_icon_picker_open;
-        state.rename_group_target = view.rename_group_target;
-        state.requested_new_tab_name = view.requested_new_tab_name.clone();
-        state.rename_pane_target = view.rename_pane_target;
-        state.confirm_delete_group = view.confirm_delete_group;
-        state.name_input = view.name_input.clone();
-        state.name_input_replace_on_type = view.name_input_replace_on_type;
-        state.release_notes = view.release_notes.clone();
-        state.product_announcement = view.product_announcement.clone();
-        state.view = view.computed.clone();
-
-        for workspace in &mut state.workspaces {
-            if let Some(tab_idx) = view
-                .active_tabs
-                .get(&workspace.id)
-                .copied()
-                .filter(|idx| *idx < workspace.tabs.len())
-            {
-                workspace.switch_tab(tab_idx);
-            }
-            for (tab_idx, tab) in workspace.tabs.iter_mut().enumerate() {
-                let tab_number = tab_idx + 1;
-                if let Some(pane_id) = view.focused_pane_for_tab(&workspace.id, tab_number) {
-                    if tab.panes.contains_key(&pane_id) {
-                        tab.layout.focus_pane(pane_id);
-                    }
-                }
-                tab.zoomed = view.tab_is_zoomed(&workspace.id, tab_number);
-            }
-        }
-    }
-
     fn client_view_workspace_in_active_group(
         &self,
         client_view: &ClientViewState,
@@ -4355,13 +4272,13 @@ impl App {
             return;
         }
         self.state.update_dismissed = true;
-        let mut local_state = self.local_helper_state_for_client_view(client_view);
-        local_state.handle_copy_mode_key(&self.terminal_runtimes, key);
-        client_view.mode = local_state.mode;
-        client_view.copy_mode = local_state.copy_mode;
-        client_view.selection = local_state.selection;
-        client_view.selection_autoscroll = local_state.selection_autoscroll;
-        if let Some(content) = local_state.request_clipboard_write.take() {
+        let mut copy_state = self.copy_mode_state_for_client_view(client_view);
+        copy_state.handle_copy_mode_key(&self.terminal_runtimes, key);
+        client_view.mode = copy_state.mode;
+        client_view.copy_mode = copy_state.copy_mode;
+        client_view.selection = copy_state.selection;
+        client_view.selection_autoscroll = copy_state.selection_autoscroll;
+        if let Some(content) = copy_state.request_clipboard_write.take() {
             if self
                 .event_tx
                 .try_send(crate::events::AppEvent::ClipboardWrite { content })
@@ -5912,10 +5829,33 @@ impl App {
         Some(last_idx + 1)
     }
 
-    fn local_helper_state_for_client_view(&self, client_view: &ClientViewState) -> AppState {
+    fn copy_mode_state_for_client_view(&self, client_view: &ClientViewState) -> AppState {
         let mut state = self.state.clone();
-        Self::apply_client_view_state_for_local_helpers(&mut state, client_view);
+        state.active = client_view.active_workspace;
+        state.mode = client_view.mode;
+        state.copy_mode = client_view.copy_mode;
+        state.selection = client_view.selection.clone();
+        state.selection_autoscroll = client_view.selection_autoscroll.clone();
         state.view = client_view.computed.clone();
+        for workspace in &mut state.workspaces {
+            if let Some(tab_idx) = client_view
+                .active_tabs
+                .get(&workspace.id)
+                .copied()
+                .filter(|idx| *idx < workspace.tabs.len())
+            {
+                workspace.switch_tab(tab_idx);
+            }
+            for (tab_idx, tab) in workspace.tabs.iter_mut().enumerate() {
+                let tab_number = tab_idx + 1;
+                if let Some(pane_id) = client_view.focused_pane_for_tab(&workspace.id, tab_number) {
+                    if tab.panes.contains_key(&pane_id) {
+                        tab.layout.focus_pane(pane_id);
+                    }
+                }
+                tab.zoomed = client_view.tab_is_zoomed(&workspace.id, tab_number);
+            }
+        }
         state
     }
 
@@ -8447,13 +8387,6 @@ mod tests {
         state
     }
 
-    fn client_view_app_state(app: &App, client_view: &ClientViewState) -> state::AppState {
-        let mut state = app.state.clone();
-        App::apply_client_view_state_for_local_helpers(&mut state, client_view);
-        state.view = client_view.computed.clone();
-        state
-    }
-
     fn rendered_client_view_text(
         app: &App,
         client_view: &ClientViewState,
@@ -8488,11 +8421,17 @@ mod tests {
         client_view: &ClientViewState,
         target: crate::ui::MobileSwitcherTarget,
     ) -> (u16, u16) {
-        let view_state = client_view_app_state(app, client_view);
-        let areas = crate::ui::mobile_switcher_areas(&view_state);
+        let areas = crate::ui::mobile_switcher_areas_for_view(client_view);
         for row in areas.viewport.y..areas.viewport.y + areas.viewport.height {
             for column in areas.viewport.x..areas.viewport.x + areas.viewport.width {
-                if crate::ui::mobile_switcher_target_at(&view_state, column, row).as_ref()
+                if crate::ui::mobile_switcher_target_at_for_view(
+                    &app.state,
+                    &app.terminal_runtimes,
+                    client_view,
+                    column,
+                    row,
+                )
+                .as_ref()
                     == Some(&target)
                 {
                     return (column, row);
@@ -12099,12 +12038,15 @@ mod tests {
             rendered.contains("spaces") && rendered.contains("close"),
             "test fixture should render the mobile switcher panel:\n{rendered}"
         );
-        let view_state = client_view_app_state(&app, &client);
         assert!(
-            crate::ui::mobile_switcher_max_scroll(&view_state) >= 2,
+            crate::ui::mobile_switcher_max_scroll_for_view(
+                &app.state,
+                &app.terminal_runtimes,
+                &client
+            ) >= 2,
             "test fixture should make the mobile switcher scrollable"
         );
-        let areas = crate::ui::mobile_switcher_areas(&view_state);
+        let areas = crate::ui::mobile_switcher_areas_for_view(&client);
 
         app.route_client_events_for_view(
             &mut client,
@@ -12117,8 +12059,7 @@ mod tests {
         );
         let scroll_after_wheel = client.mobile_switcher_scroll;
 
-        let view_state = client_view_app_state(&app, &client);
-        let close = crate::ui::mobile_switcher_areas(&view_state).close;
+        let close = crate::ui::mobile_switcher_areas_for_view(&client).close;
         app.route_client_events_for_view(
             &mut client,
             vec![raw_mouse(
