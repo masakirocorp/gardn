@@ -5,7 +5,7 @@ use ratatui::layout::{Position, Rect, Size};
 
 use crate::app::state::AppState;
 use crate::app::view_state::{
-    apply_terminal_offsets_to_runtimes, capture_terminal_offsets_from_app_state, ClientViewState,
+    apply_terminal_offsets_to_runtimes, capture_terminal_offsets_from_runtimes, ClientViewState,
 };
 use crate::app::Mode;
 use crate::protocol::render_ansi::{BlitEncoder, EncodedBlit};
@@ -319,6 +319,20 @@ fn capture_terminal_offsets(
     offsets
 }
 
+fn live_terminal_ids(app_state: &AppState) -> Vec<crate::terminal::TerminalId> {
+    let mut ids = Vec::new();
+    for workspace in &app_state.workspaces {
+        for tab in &workspace.tabs {
+            for pane in tab.panes.values() {
+                if let Some(terminal_id) = pane.terminal_id() {
+                    ids.push(terminal_id.clone());
+                }
+            }
+        }
+    }
+    ids
+}
+
 fn restore_terminal_offsets(
     terminal_runtimes: &TerminalRuntimeRegistry,
     offsets: &std::collections::HashMap<crate::terminal::TerminalId, usize>,
@@ -342,10 +356,11 @@ pub(crate) fn render_virtual_for_client_view(
     Option<CursorState>,
     RenderedKittyImages,
 ) {
+    let live_terminal_ids = live_terminal_ids(app_state);
     let shared_offsets = capture_terminal_offsets(app_state, terminal_runtimes);
 
     client_view.reconcile(app_state);
-    apply_terminal_offsets_to_runtimes(app_state, terminal_runtimes, client_view);
+    apply_terminal_offsets_to_runtimes(&live_terminal_ids, terminal_runtimes, client_view);
 
     if resize_panes {
         crate::ui::compute_view_for_client_with_cell_size(
@@ -383,7 +398,7 @@ pub(crate) fn render_virtual_for_client_view(
         .or_else(|| terminal.backend().rendered_cursor());
     let hyperlinks = visible_hyperlinks_for_view(app_state, client_view, terminal_runtimes);
 
-    capture_terminal_offsets_from_app_state(app_state, terminal_runtimes, client_view);
+    capture_terminal_offsets_from_runtimes(&live_terminal_ids, terminal_runtimes, client_view);
     restore_terminal_offsets(terminal_runtimes, &shared_offsets);
     (buffer, cursor, hyperlinks)
 }

@@ -470,54 +470,39 @@ impl ClientViewState {
     }
 }
 
-pub(crate) fn capture_terminal_offsets_from_app_state(
-    state: &AppState,
+pub(crate) fn capture_terminal_offsets_from_runtimes(
+    live_terminal_ids: &[TerminalId],
     runtimes: &TerminalRuntimeRegistry,
     view: &mut ClientViewState,
 ) {
-    let mut live_terminal_ids = HashSet::new();
-    for workspace in &state.workspaces {
-        for tab in &workspace.tabs {
-            for pane in tab.panes.values() {
-                let Some(terminal_id) = pane.terminal_id() else {
-                    continue;
-                };
-                live_terminal_ids.insert(terminal_id.clone());
-                let Some(metrics) = runtimes
-                    .get(terminal_id)
-                    .and_then(|runtime| runtime.scroll_metrics())
-                else {
-                    continue;
-                };
-                view.terminal_offsets_from_bottom
-                    .insert(terminal_id.clone(), metrics.offset_from_bottom);
-            }
-        }
+    let live_terminal_ids = live_terminal_ids.iter().collect::<HashSet<_>>();
+    for terminal_id in &live_terminal_ids {
+        let Some(metrics) = runtimes
+            .get(terminal_id)
+            .and_then(|runtime| runtime.scroll_metrics())
+        else {
+            continue;
+        };
+        view.terminal_offsets_from_bottom
+            .insert((*terminal_id).clone(), metrics.offset_from_bottom);
     }
     view.terminal_offsets_from_bottom
         .retain(|terminal_id, _| live_terminal_ids.contains(terminal_id));
 }
 
 pub(crate) fn apply_terminal_offsets_to_runtimes(
-    state: &AppState,
+    live_terminal_ids: &[TerminalId],
     runtimes: &TerminalRuntimeRegistry,
     view: &ClientViewState,
 ) {
-    for workspace in &state.workspaces {
-        for tab in &workspace.tabs {
-            for pane in tab.panes.values() {
-                let Some(terminal_id) = pane.terminal_id() else {
-                    continue;
-                };
-                let Some(offset) = view.terminal_offsets_from_bottom.get(terminal_id) else {
-                    continue;
-                };
-                let Some(runtime) = runtimes.get(terminal_id) else {
-                    continue;
-                };
-                runtime.set_scroll_offset_from_bottom(*offset);
-            }
-        }
+    for terminal_id in live_terminal_ids {
+        let Some(offset) = view.terminal_offsets_from_bottom.get(terminal_id) else {
+            continue;
+        };
+        let Some(runtime) = runtimes.get(terminal_id) else {
+            continue;
+        };
+        runtime.set_scroll_offset_from_bottom(*offset);
     }
 }
 
@@ -683,11 +668,12 @@ mod tests {
                 b"one\ntwo\nthree\nfour\nfive\nsix\n",
             ),
         );
+        let live_terminal_ids = vec![terminal_id.clone()];
 
         let mut first_client = ClientViewState::from_default_client_state(&state);
         let mut second_client = ClientViewState::from_default_client_state(&state);
-        capture_terminal_offsets_from_app_state(&state, &runtimes, &mut first_client);
-        capture_terminal_offsets_from_app_state(&state, &runtimes, &mut second_client);
+        capture_terminal_offsets_from_runtimes(&live_terminal_ids, &runtimes, &mut first_client);
+        capture_terminal_offsets_from_runtimes(&live_terminal_ids, &runtimes, &mut second_client);
         assert_eq!(
             second_client
                 .terminal_offsets_from_bottom
@@ -697,7 +683,7 @@ mod tests {
         );
 
         runtimes.get(&terminal_id).expect("runtime").scroll_up(2);
-        capture_terminal_offsets_from_app_state(&state, &runtimes, &mut first_client);
+        capture_terminal_offsets_from_runtimes(&live_terminal_ids, &runtimes, &mut first_client);
         let first_offset = first_client
             .terminal_offsets_from_bottom
             .get(&terminal_id)
@@ -705,7 +691,7 @@ mod tests {
             .expect("first client terminal offset");
         assert!(first_offset > 0);
 
-        apply_terminal_offsets_to_runtimes(&state, &runtimes, &second_client);
+        apply_terminal_offsets_to_runtimes(&live_terminal_ids, &runtimes, &second_client);
         assert_eq!(
             runtimes
                 .get(&terminal_id)
@@ -714,7 +700,7 @@ mod tests {
             Some(0)
         );
 
-        apply_terminal_offsets_to_runtimes(&state, &runtimes, &first_client);
+        apply_terminal_offsets_to_runtimes(&live_terminal_ids, &runtimes, &first_client);
         assert_eq!(
             runtimes
                 .get(&terminal_id)

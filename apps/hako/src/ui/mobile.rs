@@ -6,11 +6,13 @@ use ratatui::{
     Frame,
 };
 
-use super::sidebar::{agent_panel_entries, agent_panel_entries_from, AgentPanelEntry};
+use super::sidebar::{
+    agent_panel_entries, agent_panel_entries_for_view, agent_panel_entries_from, AgentPanelEntry,
+};
 use super::status::{agent_icon, state_dot, toast_kind_color};
 use super::widgets::fill_rect;
 use crate::app::state::{Palette, ToastKind, ToastNotification};
-use crate::app::AppState;
+use crate::app::{AppState, ClientViewState};
 use crate::detect::AgentState;
 use crate::layout::PaneId;
 use crate::terminal::TerminalRuntimeRegistry;
@@ -86,6 +88,30 @@ pub(crate) fn mobile_switcher_areas(app: &AppState) -> MobileSwitcherAreas {
     MobileSwitcherAreas { close, viewport }
 }
 
+pub(crate) fn mobile_switcher_areas_for_view(view: &ClientViewState) -> MobileSwitcherAreas {
+    let screen = view.screen_rect();
+    if screen.width == 0 || screen.height <= 2 {
+        return MobileSwitcherAreas::default();
+    }
+
+    let header_h = screen.height.min(2);
+    let close_w = 10u16.min(screen.width);
+    let close = Rect::new(
+        screen.x + screen.width.saturating_sub(close_w),
+        screen.y,
+        close_w,
+        header_h,
+    );
+    let viewport = Rect::new(
+        screen.x,
+        screen.y + header_h + 1,
+        screen.width,
+        screen.height.saturating_sub(header_h + 1),
+    );
+
+    MobileSwitcherAreas { close, viewport }
+}
+
 pub(crate) fn mobile_switcher_max_scroll_for_height(app: &AppState, viewport_height: u16) -> usize {
     mobile_switcher_content_height(app).saturating_sub(viewport_height as usize)
 }
@@ -97,6 +123,15 @@ pub(crate) fn mobile_switcher_workspace_doc_range(idx: usize) -> std::ops::Range
 
 pub(crate) fn mobile_switcher_max_scroll(app: &AppState) -> usize {
     mobile_switcher_max_scroll_for_height(app, mobile_switcher_areas(app).viewport.height)
+}
+
+pub(crate) fn mobile_switcher_max_scroll_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+) -> usize {
+    mobile_switcher_content_height_for_view(app, terminal_runtimes, view)
+        .saturating_sub(mobile_switcher_areas_for_view(view).viewport.height as usize)
 }
 
 pub(crate) fn mobile_switcher_target_at(
@@ -157,6 +192,73 @@ pub(crate) fn mobile_switcher_target_at(
     cursor = agents_end;
 
     cursor += 1; // menu title
+    let menu_idx = doc_row.checked_sub(cursor)?;
+    (menu_idx < app.global_menu_labels().len()).then_some(MobileSwitcherTarget::Menu(menu_idx))
+}
+
+pub(crate) fn mobile_switcher_target_at_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+    col: u16,
+    row: u16,
+) -> Option<MobileSwitcherTarget> {
+    let areas = mobile_switcher_areas_for_view(view);
+    let content = inset_for_left_scrollbar(areas.viewport);
+    if !rect_contains(content, col, row) {
+        return None;
+    }
+
+    let doc_row = view
+        .mobile_switcher_scroll
+        .saturating_add(row.saturating_sub(areas.viewport.y) as usize);
+    let mut cursor = 0usize;
+
+    cursor += 1;
+    if doc_row == cursor {
+        return Some(MobileSwitcherTarget::NewWorkspace);
+    }
+    cursor += 1;
+    let visible_workspaces = visible_workspace_indices_for_view(app, view);
+    let spaces_end = cursor + visible_workspaces.len() * 2;
+    if doc_row >= cursor && doc_row < spaces_end {
+        return visible_workspaces
+            .get((doc_row - cursor) / 2)
+            .copied()
+            .map(MobileSwitcherTarget::Workspace);
+    }
+    cursor = spaces_end;
+
+    if let Some(ws) = view
+        .active_workspace
+        .and_then(|idx| app.workspaces.get(idx))
+    {
+        cursor += 1;
+        if doc_row == cursor {
+            return Some(MobileSwitcherTarget::NewTab);
+        }
+        cursor += 1;
+        let tabs_end = cursor + ws.tabs.len();
+        if doc_row >= cursor && doc_row < tabs_end {
+            return Some(MobileSwitcherTarget::Tab(doc_row - cursor));
+        }
+        cursor = tabs_end;
+    }
+
+    cursor += 1;
+    let agents = agent_panel_entries_for_view(app, terminal_runtimes, view);
+    let agents_end = cursor + agents.len() * 2;
+    if doc_row >= cursor && doc_row < agents_end {
+        let idx = (doc_row - cursor) / 2;
+        return agents.get(idx).map(|entry| MobileSwitcherTarget::Agent {
+            ws_idx: entry.ws_idx,
+            tab_idx: entry.tab_idx,
+            pane_id: entry.pane_id,
+        });
+    }
+    cursor = agents_end;
+
+    cursor += 1;
     let menu_idx = doc_row.checked_sub(cursor)?;
     (menu_idx < app.global_menu_labels().len()).then_some(MobileSwitcherTarget::Menu(menu_idx))
 }
@@ -402,6 +504,38 @@ fn mobile_switcher_content_height(app: &AppState) -> usize {
     let agents_h = 1 + agent_panel_entries(app).len() * 2;
     let menu_h = 1 + app.global_menu_labels().len();
     spaces_h + tabs_h + agents_h + menu_h
+}
+
+fn mobile_switcher_content_height_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+) -> usize {
+    let spaces_h = 2 + visible_workspace_indices_for_view(app, view).len() * 2;
+    let tabs_h = view
+        .active_workspace
+        .and_then(|idx| app.workspaces.get(idx))
+        .map(|ws| 2 + ws.tabs.len())
+        .unwrap_or(0);
+    let agents_h = 1 + agent_panel_entries_for_view(app, terminal_runtimes, view).len() * 2;
+    let menu_h = 1 + app.global_menu_labels().len();
+    spaces_h + tabs_h + agents_h + menu_h
+}
+
+fn visible_workspace_indices_for_view(app: &AppState, view: &ClientViewState) -> Vec<usize> {
+    if !view.group_filter_enabled {
+        return (0..app.workspaces.len()).collect();
+    }
+
+    let Some(group) = app.groups.get(view.active_group) else {
+        return Vec::new();
+    };
+
+    app.workspaces
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, workspace)| (workspace.group_id == group.id).then_some(idx))
+        .collect()
 }
 
 fn render_mobile_switcher_content(

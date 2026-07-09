@@ -729,6 +729,32 @@ fn workspace_list_visible_count(app: &AppState, area: Rect, scroll: usize) -> us
     }
     visible
 }
+fn workspace_list_visible_count_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    area: Rect,
+    scroll: usize,
+) -> usize {
+    let body = workspace_list_body_rect(area, false);
+    if body.width == 0 || body.height == 0 {
+        return 0;
+    }
+
+    let mut used_rows = 0u16;
+    let mut visible = 0usize;
+    for entry in workspace_list_entries_for_view(app, view)
+        .into_iter()
+        .skip(scroll)
+    {
+        let needed = entry.row_height_for_workspaces(&app.workspaces);
+        if used_rows.saturating_add(needed) > body.height {
+            break;
+        }
+        used_rows = used_rows.saturating_add(needed);
+        visible += 1;
+    }
+    visible
+}
 
 pub(crate) fn workspace_list_scroll_metrics(
     app: &AppState,
@@ -748,8 +774,43 @@ pub(crate) fn workspace_list_scroll_metrics(
     }
 }
 
+pub(crate) fn workspace_list_scroll_metrics_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    area: Rect,
+) -> crate::pane::ScrollMetrics {
+    let viewport_rows =
+        workspace_list_visible_count_for_view(app, view, area, view.workspace_scroll);
+    let total_rows = workspace_list_entries_for_view(app, view).len();
+    let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
+    let offset_from_bottom = total_rows
+        .saturating_sub(view.workspace_scroll)
+        .saturating_sub(viewport_rows);
+
+    crate::pane::ScrollMetrics {
+        offset_from_bottom,
+        max_offset_from_bottom,
+        viewport_rows,
+    }
+}
+
 pub(crate) fn workspace_list_scrollbar_rect(app: &AppState, area: Rect) -> Option<Rect> {
     let metrics = workspace_list_scroll_metrics(app, area);
+    let body = workspace_list_body_rect(area, true);
+    (should_show_scrollbar(metrics) && body.width > 0 && body.height > 0).then_some(Rect::new(
+        area.x + area.width.saturating_sub(1),
+        body.y,
+        1,
+        body.height,
+    ))
+}
+
+pub(crate) fn workspace_list_scrollbar_rect_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    area: Rect,
+) -> Option<Rect> {
+    let metrics = workspace_list_scroll_metrics_for_view(app, view, area);
     let body = workspace_list_body_rect(area, true);
     (should_show_scrollbar(metrics) && body.width > 0 && body.height > 0).then_some(Rect::new(
         area.x + area.width.saturating_sub(1),
@@ -1085,10 +1146,13 @@ enum WorkspaceListEntry {
 
 impl WorkspaceListEntry {
     fn row_height(self, app: &AppState) -> u16 {
+        self.row_height_for_workspaces(&app.workspaces)
+    }
+
+    fn row_height_for_workspaces(self, workspaces: &[crate::workspace::Workspace]) -> u16 {
         match self {
             Self::GroupHeader { .. } | Self::EmptyGroup { .. } | Self::GroupGap => 1,
-            Self::Workspace { ws_idx, .. } => app
-                .workspaces
+            Self::Workspace { ws_idx, .. } => workspaces
                 .get(ws_idx)
                 .map(workspace_row_height)
                 .unwrap_or(0),
@@ -1186,6 +1250,70 @@ fn workspace_list_entries(app: &AppState) -> Vec<WorkspaceListEntry> {
             .filter_map(|(ws_idx, ws)| (ws.group_id == group.id).then_some(ws_idx))
             .collect::<Vec<_>>();
         if !app.workspace_group_collapsed(&group.id) {
+            if group_workspaces.is_empty() {
+                entries.push(WorkspaceListEntry::EmptyGroup { group_idx });
+            } else {
+                for ws_idx in group_workspaces {
+                    entries.push(WorkspaceListEntry::Workspace {
+                        ws_idx,
+                        group_idx: Some(group_idx),
+                    });
+                }
+            }
+        }
+    }
+    entries
+}
+
+fn visible_workspace_indices_for_view(app: &AppState, view: &ClientViewState) -> Vec<usize> {
+    if !view.group_filter_enabled {
+        return (0..app.workspaces.len()).collect();
+    }
+
+    let Some(group) = app.groups.get(view.active_group) else {
+        return Vec::new();
+    };
+
+    app.workspaces
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, workspace)| (workspace.group_id == group.id).then_some(idx))
+        .collect()
+}
+
+fn workspace_group_collapsed_for_view(view: &ClientViewState, group_id: &str) -> bool {
+    view.collapsed_workspace_groups
+        .iter()
+        .any(|id| id == group_id)
+}
+
+fn workspace_list_entries_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+) -> Vec<WorkspaceListEntry> {
+    if view.sidebar_collapsed || view.group_filter_enabled {
+        return visible_workspace_indices_for_view(app, view)
+            .into_iter()
+            .map(|ws_idx| WorkspaceListEntry::Workspace {
+                ws_idx,
+                group_idx: None,
+            })
+            .collect();
+    }
+
+    let mut entries = Vec::new();
+    for (group_idx, group) in app.groups.iter().enumerate() {
+        if group_idx > 0 {
+            entries.push(WorkspaceListEntry::GroupGap);
+        }
+        entries.push(WorkspaceListEntry::GroupHeader { group_idx });
+        let group_workspaces = app
+            .workspaces
+            .iter()
+            .enumerate()
+            .filter_map(|(ws_idx, ws)| (ws.group_id == group.id).then_some(ws_idx))
+            .collect::<Vec<_>>();
+        if !workspace_group_collapsed_for_view(view, &group.id) {
             if group_workspaces.is_empty() {
                 entries.push(WorkspaceListEntry::EmptyGroup { group_idx });
             } else {

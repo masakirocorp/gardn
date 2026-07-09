@@ -70,7 +70,7 @@ pub(crate) use self::{
         prepare_general_settings_state, update_settings_mouse_for_view,
         update_settings_state_for_view,
     },
-    sidebar::{AgentMenuAction, GroupMenuAction},
+    sidebar::{AgentMenuAction, GroupDropTarget, GroupMenuAction, WorkspaceDropTarget},
 };
 
 #[cfg(test)]

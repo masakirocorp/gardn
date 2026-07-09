@@ -5038,7 +5038,6 @@ impl App {
             client_view.selection_autoscroll = None;
         }
 
-        let mut local_state = self.local_helper_state_for_client_view(client_view);
         let in_sidebar =
             Self::rect_contains(client_view.computed.sidebar_rect, mouse.column, mouse.row);
         let in_right_sidebar = Self::rect_contains(
@@ -5049,33 +5048,27 @@ impl App {
 
         match mouse.kind {
             crossterm::event::MouseEventKind::ScrollUp if in_right_sidebar => {
-                local_state.scroll_agent_panel(-1);
-                client_view.agent_panel_scroll = local_state.agent_panel_scroll;
+                self.scroll_client_view_agent_panel(client_view, -1);
             }
             crossterm::event::MouseEventKind::ScrollDown if in_right_sidebar => {
-                local_state.scroll_agent_panel(1);
-                client_view.agent_panel_scroll = local_state.agent_panel_scroll;
+                self.scroll_client_view_agent_panel(client_view, 1);
             }
             crossterm::event::MouseEventKind::ScrollUp if in_sidebar => {
                 let agent_area = self.client_view_agent_panel_rect(client_view);
                 let over_agent_panel = Self::rect_contains(agent_area, mouse.column, mouse.row);
                 if over_agent_panel {
-                    local_state.scroll_agent_panel(-1);
-                    client_view.agent_panel_scroll = local_state.agent_panel_scroll;
+                    self.scroll_client_view_agent_panel(client_view, -1);
                 } else {
-                    local_state.scroll_workspace_list(-1);
-                    client_view.workspace_scroll = local_state.workspace_scroll;
+                    self.scroll_client_view_workspace_list(client_view, -1);
                 }
             }
             crossterm::event::MouseEventKind::ScrollDown if in_sidebar => {
                 let agent_area = self.client_view_agent_panel_rect(client_view);
                 let over_agent_panel = Self::rect_contains(agent_area, mouse.column, mouse.row);
                 if over_agent_panel {
-                    local_state.scroll_agent_panel(1);
-                    client_view.agent_panel_scroll = local_state.agent_panel_scroll;
+                    self.scroll_client_view_agent_panel(client_view, 1);
                 } else {
-                    local_state.scroll_workspace_list(1);
-                    client_view.workspace_scroll = local_state.workspace_scroll;
+                    self.scroll_client_view_workspace_list(client_view, 1);
                 }
             }
             crossterm::event::MouseEventKind::ScrollUp
@@ -5084,9 +5077,17 @@ impl App {
             | crossterm::event::MouseEventKind::ScrollRight => {
                 client_view.selection = None;
                 client_view.selection_autoscroll = None;
-                self.handle_client_view_terminal_wheel(client_view, &local_state, mouse);
-                crate::app::view_state::capture_terminal_offsets_from_app_state(
-                    &local_state,
+                self.handle_client_view_terminal_wheel(client_view, mouse);
+                let live_terminal_ids = self
+                    .state
+                    .workspaces
+                    .iter()
+                    .flat_map(|workspace| workspace.tabs.iter())
+                    .flat_map(|tab| tab.panes.values())
+                    .filter_map(|pane| pane.terminal_id().cloned())
+                    .collect::<Vec<_>>();
+                crate::app::view_state::capture_terminal_offsets_from_runtimes(
+                    &live_terminal_ids,
                     &self.terminal_runtimes,
                     client_view,
                 );
@@ -5109,10 +5110,11 @@ impl App {
             return false;
         }
 
-        let mut local_state = self.local_helper_state_for_client_view(client_view);
-        if let Some(target) =
-            local_state.workspace_list_scrollbar_target_at(mouse.column, mouse.row)
-        {
+        if let Some(target) = self.client_view_workspace_list_scrollbar_target_at(
+            client_view,
+            mouse.column,
+            mouse.row,
+        ) {
             match target {
                 ScrollbarClickTarget::Thumb { grab_row_offset } => {
                     client_view.drag = Some(state::DragState {
@@ -5120,14 +5122,18 @@ impl App {
                     });
                 }
                 ScrollbarClickTarget::Track { offset_from_bottom } => {
-                    local_state.set_workspace_list_offset_from_bottom(offset_from_bottom);
-                    client_view.workspace_scroll = local_state.workspace_scroll;
+                    self.set_client_view_workspace_list_offset_from_bottom(
+                        client_view,
+                        offset_from_bottom,
+                    );
                 }
             }
             return true;
         }
 
-        if let Some(target) = local_state.agent_panel_scrollbar_target_at(mouse.column, mouse.row) {
+        if let Some(target) =
+            self.client_view_agent_panel_scrollbar_target_at(client_view, mouse.column, mouse.row)
+        {
             match target {
                 ScrollbarClickTarget::Thumb { grab_row_offset } => {
                     client_view.drag = Some(state::DragState {
@@ -5135,15 +5141,17 @@ impl App {
                     });
                 }
                 ScrollbarClickTarget::Track { offset_from_bottom } => {
-                    local_state.set_agent_panel_offset_from_bottom(offset_from_bottom);
-                    client_view.agent_panel_scroll = local_state.agent_panel_scroll;
+                    self.set_client_view_agent_panel_offset_from_bottom(
+                        client_view,
+                        offset_from_bottom,
+                    );
                 }
             }
             return true;
         }
 
         if let Some((pane_id, target)) =
-            local_state.scrollbar_target_at(&self.terminal_runtimes, mouse.column, mouse.row)
+            self.client_view_scrollbar_target_at(client_view, mouse.column, mouse.row)
         {
             match target {
                 ScrollbarClickTarget::Thumb { grab_row_offset } => {
@@ -5155,11 +5163,14 @@ impl App {
                     });
                 }
                 ScrollbarClickTarget::Track { offset_from_bottom } => {
-                    local_state.set_pane_scroll_offset(
-                        &self.terminal_runtimes,
-                        pane_id,
-                        offset_from_bottom,
-                    );
+                    if let Some(runtime) = client_view
+                        .active_workspace
+                        .and_then(|ws_idx| self.state.workspaces.get(ws_idx))
+                        .and_then(|workspace| workspace.terminal_id(pane_id))
+                        .and_then(|terminal_id| self.terminal_runtimes.get(terminal_id))
+                    {
+                        runtime.set_scroll_offset_from_bottom(offset_from_bottom);
+                    }
                 }
             }
             return true;
@@ -5212,14 +5223,19 @@ impl App {
             return false;
         }
 
-        let local_state = self.local_helper_state_for_client_view(client_view);
-        let areas = crate::ui::mobile_switcher_areas(&local_state);
+        let areas = crate::ui::mobile_switcher_areas_for_view(client_view);
         if Self::rect_contains(areas.close, mouse.column, mouse.row) {
             client_view.mode = Mode::Terminal;
             return true;
         }
 
-        match crate::ui::mobile_switcher_target_at(&local_state, mouse.column, mouse.row) {
+        match crate::ui::mobile_switcher_target_at_for_view(
+            &self.state,
+            &self.terminal_runtimes,
+            client_view,
+            mouse.column,
+            mouse.row,
+        ) {
             Some(crate::ui::MobileSwitcherTarget::NewWorkspace) => {
                 self.execute_client_view_navigate_action(
                     client_view,
@@ -5274,8 +5290,11 @@ impl App {
     }
 
     fn scroll_client_view_mobile_switcher(&self, client_view: &mut ClientViewState, delta: i16) {
-        let local_state = self.local_helper_state_for_client_view(client_view);
-        let max_scroll = crate::ui::mobile_switcher_max_scroll(&local_state);
+        let max_scroll = crate::ui::mobile_switcher_max_scroll_for_view(
+            &self.state,
+            &self.terminal_runtimes,
+            client_view,
+        );
         let delta = delta.saturating_mul(2);
         if delta.is_negative() {
             client_view.mobile_switcher_scroll = client_view
@@ -5342,10 +5361,63 @@ impl App {
             })
     }
 
+    fn forward_client_view_pane_wheel(
+        &self,
+        ws_idx: usize,
+        info: &crate::layout::PaneInfo,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        let Some(runtime) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.terminal_id(info.id))
+            .and_then(|terminal_id| self.terminal_runtimes.get(terminal_id))
+        else {
+            return false;
+        };
+
+        match runtime.wheel_routing() {
+            Some(crate::pane::WheelRouting::HostScroll) | None => false,
+            Some(crate::pane::WheelRouting::MouseReport) => {
+                runtime.scroll_reset();
+                let column = mouse.column.saturating_sub(info.inner_rect.x);
+                let row = mouse.row.saturating_sub(info.inner_rect.y);
+                let Some(bytes) =
+                    runtime.encode_mouse_wheel(mouse.kind, column, row, mouse.modifiers)
+                else {
+                    tracing::warn!(
+                        pane = info.id.raw(),
+                        kind = ?mouse.kind,
+                        "failed to encode mouse wheel event"
+                    );
+                    return true;
+                };
+                if let Err(err) = runtime.try_send_bytes(bytes::Bytes::from(bytes)) {
+                    tracing::warn!(pane = info.id.raw(), err = %err, "failed to forward mouse wheel event");
+                }
+                true
+            }
+            Some(crate::pane::WheelRouting::AlternateScroll) => {
+                runtime.scroll_reset();
+                let Some(bytes) = runtime.encode_alternate_scroll(mouse.kind) else {
+                    return true;
+                };
+                if let Err(err) = runtime.try_send_bytes(bytes::Bytes::from(bytes)) {
+                    tracing::warn!(
+                        pane = info.id.raw(),
+                        err = %err,
+                        "failed to forward alternate scroll event"
+                    );
+                }
+                true
+            }
+        }
+    }
+
     fn handle_client_view_terminal_wheel(
         &self,
         client_view: &mut ClientViewState,
-        local_state: &AppState,
         mouse: crossterm::event::MouseEvent,
     ) {
         let lines_per_notch = self.state.mouse_scroll_lines;
@@ -5363,7 +5435,7 @@ impl App {
             if let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) {
                 client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, info.id);
             }
-            if local_state.forward_pane_wheel(&self.terminal_runtimes, &info, mouse) {
+            if self.forward_client_view_pane_wheel(ws_idx, &info, mouse) {
                 return;
             }
             self.scroll_client_view_pane(ws_idx, info.id, mouse, lines_per_notch);
@@ -5612,6 +5684,234 @@ impl App {
             && row < rect.y + rect.height
     }
 
+    fn client_view_workspace_drop_target_at_row(
+        &self,
+        client_view: &ClientViewState,
+        row: u16,
+    ) -> Option<input::WorkspaceDropTarget> {
+        let area = self.client_view_workspace_list_rect(client_view);
+        let footer = Self::client_view_sidebar_footer_rect(client_view);
+        if area == Rect::default() || row < area.y || row >= footer.y {
+            return None;
+        }
+
+        if !client_view.sidebar_collapsed && !client_view.group_filter_enabled {
+            if client_view
+                .computed
+                .workspace_group_header_areas
+                .iter()
+                .any(|header| row >= header.rect.y && row < header.rect.y + header.rect.height)
+            {
+                return None;
+            }
+
+            if let Some(group_idx) = client_view
+                .computed
+                .workspace_group_empty_areas
+                .iter()
+                .find_map(|empty| {
+                    (row >= empty.rect.y && row < empty.rect.y + empty.rect.height)
+                        .then_some(empty.group_idx)
+                })
+            {
+                return Some(input::WorkspaceDropTarget {
+                    insert_idx: self.client_view_group_insert_end(group_idx),
+                    group_idx: Some(group_idx),
+                    indicator_row: Some(row),
+                });
+            }
+        }
+
+        let cards = &client_view.computed.workspace_card_areas;
+        if cards.is_empty() {
+            return Some(input::WorkspaceDropTarget {
+                insert_idx: 0,
+                group_idx: None,
+                indicator_row: None,
+            });
+        }
+
+        let mut insert_indices = Vec::with_capacity(cards.len() + 1);
+        insert_indices.push(cards[0].ws_idx);
+        insert_indices.extend(cards.iter().skip(1).map(|card| card.ws_idx));
+        insert_indices.push(cards.last().map(|card| card.ws_idx + 1).unwrap_or(0));
+
+        let mut best: Option<(usize, u16)> = None;
+        for insert_idx in insert_indices {
+            let Some(slot_row) = crate::ui::workspace_drop_indicator_row(cards, area, insert_idx)
+            else {
+                continue;
+            };
+            let distance = row.abs_diff(slot_row);
+            match best {
+                Some((best_idx, best_distance))
+                    if distance > best_distance
+                        || (distance == best_distance && insert_idx > best_idx) => {}
+                _ => best = Some((insert_idx, distance)),
+            }
+        }
+
+        best.map(|(insert_idx, _)| input::WorkspaceDropTarget {
+            insert_idx,
+            group_idx: self.client_view_group_idx_for_insert_idx(insert_idx),
+            indicator_row: crate::ui::workspace_drop_indicator_row(cards, area, insert_idx),
+        })
+    }
+
+    fn client_view_group_drop_target_at_row(
+        &self,
+        client_view: &ClientViewState,
+        row: u16,
+        source_group_idx: usize,
+    ) -> Option<input::GroupDropTarget> {
+        if client_view.sidebar_collapsed
+            || client_view.group_filter_enabled
+            || self.state.groups.is_empty()
+        {
+            return None;
+        }
+
+        let area = self.client_view_workspace_list_rect(client_view);
+        let footer = Self::client_view_sidebar_footer_rect(client_view);
+        if area == Rect::default() || row < area.y || row >= footer.y {
+            return None;
+        }
+
+        client_view
+            .computed
+            .workspace_group_header_areas
+            .iter()
+            .find_map(|header| {
+                if row < header.rect.y || row >= header.rect.y + header.rect.height {
+                    return None;
+                }
+                if header.group_idx == source_group_idx {
+                    return None;
+                }
+
+                let moving_down = source_group_idx < header.group_idx;
+                let insert_idx = if moving_down {
+                    header.group_idx + 1
+                } else {
+                    header.group_idx
+                };
+                let indicator_row = if moving_down {
+                    header.rect.y + header.rect.height
+                } else {
+                    header.rect.y
+                };
+
+                Some(input::GroupDropTarget {
+                    insert_idx,
+                    indicator_row: Some(indicator_row),
+                })
+            })
+    }
+
+    fn client_view_group_insert_end(&self, group_idx: usize) -> usize {
+        let Some(group_id) = self
+            .state
+            .groups
+            .get(group_idx)
+            .map(|group| group.id.as_str())
+        else {
+            return self.state.workspaces.len();
+        };
+        self.state
+            .workspaces
+            .iter()
+            .rposition(|workspace| workspace.group_id == group_id)
+            .map(|idx| idx + 1)
+            .unwrap_or(self.state.workspaces.len())
+    }
+
+    fn client_view_group_idx_for_insert_idx(&self, insert_idx: usize) -> Option<usize> {
+        let group_id = self
+            .state
+            .workspaces
+            .get(insert_idx)
+            .or_else(|| {
+                insert_idx
+                    .checked_sub(1)
+                    .and_then(|idx| self.state.workspaces.get(idx))
+            })
+            .map(|workspace| workspace.group_id.as_str())?;
+        self.state
+            .groups
+            .iter()
+            .position(|group| group.id == group_id)
+    }
+
+    fn client_view_tab_drop_index_at(
+        &self,
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> Option<usize> {
+        if !Self::rect_contains(client_view.computed.tab_bar_rect, col, row) {
+            return None;
+        }
+
+        let visible_tabs: Vec<_> = client_view
+            .computed
+            .tab_hit_areas
+            .iter()
+            .enumerate()
+            .filter(|(_, rect)| rect.width > 0)
+            .collect();
+        let (first_idx, first_rect) = *visible_tabs.first()?;
+        let (last_idx, last_rect) = *visible_tabs.last()?;
+
+        if Self::rect_contains(client_view.computed.tab_scroll_left_hit_area, col, row) {
+            return Some(0);
+        }
+        if Self::rect_contains(client_view.computed.tab_scroll_right_hit_area, col, row) {
+            return client_view
+                .active_workspace
+                .and_then(|idx| self.state.workspaces.get(idx))
+                .map(|ws| ws.tabs.len());
+        }
+
+        let left_edge = if first_idx == 0 {
+            first_rect.x
+        } else {
+            client_view.computed.tab_scroll_left_hit_area.x
+                + client_view.computed.tab_scroll_left_hit_area.width
+        };
+        let right_edge = if client_view
+            .active_workspace
+            .and_then(|idx| self.state.workspaces.get(idx))
+            .is_some_and(|ws| last_idx + 1 >= ws.tabs.len())
+        {
+            last_rect.x + last_rect.width
+        } else {
+            client_view
+                .computed
+                .tab_scroll_right_hit_area
+                .x
+                .saturating_sub(1)
+        };
+
+        if col <= left_edge {
+            return Some(first_idx);
+        }
+        if col >= right_edge {
+            return Some(last_idx + 1);
+        }
+
+        for (idx, rect) in visible_tabs {
+            let midpoint = rect.x + rect.width / 2;
+            if col < midpoint {
+                return Some(idx);
+            }
+            if col < rect.x + rect.width {
+                return Some(idx + 1);
+            }
+        }
+
+        Some(last_idx + 1)
+    }
+
     fn local_helper_state_for_client_view(&self, client_view: &ClientViewState) -> AppState {
         let mut state = self.state.clone();
         Self::apply_client_view_state_for_local_helpers(&mut state, client_view);
@@ -5619,6 +5919,68 @@ impl App {
         state
     }
 
+    fn client_view_scrollbar_target_at(
+        &self,
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> Option<(crate::layout::PaneId, input::ScrollbarClickTarget)> {
+        let ws_idx = client_view.active_workspace?;
+        let info = client_view.computed.pane_infos.iter().find(|info| {
+            crate::ui::pane_scrollbar_rect(info).is_some_and(|track| {
+                col >= track.x
+                    && col < track.x + track.width
+                    && row >= track.y
+                    && row < track.y + track.height
+            })
+        })?;
+        let rt = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.terminal_id(info.id))
+            .and_then(|terminal_id| self.terminal_runtimes.get(terminal_id))?;
+        let metrics = rt.scroll_metrics()?;
+        if metrics.max_offset_from_bottom == 0 {
+            return None;
+        }
+        let track = crate::ui::pane_scrollbar_rect(info)?;
+        if let Some(grab_row_offset) = crate::ui::scrollbar_thumb_grab_offset(metrics, track, row) {
+            Some((
+                info.id,
+                input::ScrollbarClickTarget::Thumb { grab_row_offset },
+            ))
+        } else {
+            Some((
+                info.id,
+                input::ScrollbarClickTarget::Track {
+                    offset_from_bottom: crate::ui::scrollbar_offset_from_row(metrics, track, row),
+                },
+            ))
+        }
+    }
+
+    fn client_view_scrollbar_offset_for_pane_row(
+        &self,
+        client_view: &ClientViewState,
+        pane_id: crate::layout::PaneId,
+        row: u16,
+        grab_row_offset: u16,
+    ) -> Option<usize> {
+        let info = client_view
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| info.id == pane_id)?;
+        let track = crate::ui::pane_scrollbar_rect(info)?;
+        let metrics =
+            self.client_view_pane_scroll_metrics(client_view.active_workspace?, pane_id)?;
+        Some(crate::ui::scrollbar_offset_from_row(
+            metrics,
+            track,
+            row.saturating_sub(grab_row_offset),
+        ))
+    }
     fn client_view_pane_scroll_metrics(
         &self,
         ws_idx: usize,
@@ -5638,7 +6000,6 @@ impl App {
                 )
             })
     }
-
     fn update_client_view_selection_cursor(
         &self,
         client_view: &mut ClientViewState,
@@ -5762,8 +6123,8 @@ impl App {
                     return true;
                 }
 
-                let mut local_state = self.local_helper_state_for_client_view(client_view);
-                let workspace_drop_target = local_state.workspace_drop_target_at_row(mouse.row);
+                let workspace_drop_target =
+                    self.client_view_workspace_drop_target_at_row(client_view, mouse.row);
                 let group_drag_source_idx = client_view
                     .group_press
                     .as_ref()
@@ -5777,9 +6138,10 @@ impl App {
                         },
                     );
                 let group_drop_target = group_drag_source_idx.and_then(|source_idx| {
-                    local_state.group_drop_target_at_row(mouse.row, source_idx)
+                    self.client_view_group_drop_target_at_row(client_view, mouse.row, source_idx)
                 });
-                let tab_drop_index = local_state.tab_drop_index_at(mouse.column, mouse.row);
+                let tab_drop_index =
+                    self.client_view_tab_drop_index_at(client_view, mouse.column, mouse.row);
 
                 if client_view.drag.is_none() {
                     if let Some(press) = &client_view.workspace_press {
@@ -5826,66 +6188,108 @@ impl App {
                     }
                 }
 
-                match client_view.drag.as_mut().map(|drag| &mut drag.target) {
-                    Some(state::DragTarget::WorkspaceReorder {
-                        insert_idx,
-                        target_group_idx,
-                        indicator_row,
-                        ..
-                    }) => {
-                        *insert_idx = workspace_drop_target.map(|target| target.insert_idx);
-                        *target_group_idx =
-                            workspace_drop_target.and_then(|target| target.group_idx);
-                        *indicator_row =
-                            workspace_drop_target.and_then(|target| target.indicator_row);
-                        true
-                    }
-                    Some(state::DragTarget::GroupReorder {
-                        insert_idx,
-                        indicator_row,
-                        ..
-                    }) => {
-                        *insert_idx = group_drop_target.map(|target| target.insert_idx);
-                        *indicator_row = group_drop_target.and_then(|target| target.indicator_row);
-                        true
-                    }
-                    Some(state::DragTarget::TabReorder { insert_idx, .. }) => {
-                        *insert_idx = tab_drop_index;
-                        true
-                    }
-                    Some(state::DragTarget::WorkspaceListScrollbar { grab_row_offset }) => {
-                        if let Some(offset_from_bottom) = local_state
-                            .workspace_list_offset_for_drag_row(mouse.row, *grab_row_offset)
-                        {
-                            local_state.set_workspace_list_offset_from_bottom(offset_from_bottom);
-                            client_view.workspace_scroll = local_state.workspace_scroll;
-                        }
-                        true
-                    }
-                    Some(state::DragTarget::AgentPanelScrollbar { grab_row_offset }) => {
-                        if let Some(offset_from_bottom) =
-                            local_state.agent_panel_offset_for_drag_row(mouse.row, *grab_row_offset)
-                        {
-                            local_state.set_agent_panel_offset_from_bottom(offset_from_bottom);
-                            client_view.agent_panel_scroll = local_state.agent_panel_scroll;
-                        }
-                        true
-                    }
-                    Some(state::DragTarget::PaneScrollbar {
-                        pane_id,
-                        grab_row_offset,
-                    }) => {
-                        if let Some(offset_from_bottom) = local_state.scrollbar_offset_for_pane_row(
-                            &self.terminal_runtimes,
-                            *pane_id,
-                            mouse.row,
-                            *grab_row_offset,
-                        ) {
-                            local_state.set_pane_scroll_offset(
-                                &self.terminal_runtimes,
+                let workspace_scroll_drag_offset =
+                    match client_view.drag.as_ref().map(|drag| &drag.target) {
+                        Some(state::DragTarget::WorkspaceListScrollbar { grab_row_offset }) => self
+                            .client_view_workspace_list_offset_for_drag_row(
+                                client_view,
+                                mouse.row,
+                                *grab_row_offset,
+                            ),
+                        _ => None,
+                    };
+                let agent_panel_drag_offset =
+                    match client_view.drag.as_ref().map(|drag| &drag.target) {
+                        Some(state::DragTarget::AgentPanelScrollbar { grab_row_offset }) => self
+                            .client_view_agent_panel_offset_for_drag_row(
+                                client_view,
+                                mouse.row,
+                                *grab_row_offset,
+                            ),
+                        _ => None,
+                    };
+                let pane_scroll_drag_offset =
+                    match client_view.drag.as_ref().map(|drag| &drag.target) {
+                        Some(state::DragTarget::PaneScrollbar {
+                            pane_id,
+                            grab_row_offset,
+                        }) => self
+                            .client_view_scrollbar_offset_for_pane_row(
+                                client_view,
                                 *pane_id,
+                                mouse.row,
+                                *grab_row_offset,
+                            )
+                            .map(|offset| (*pane_id, offset)),
+                        _ => None,
+                    };
+
+                match client_view.drag.as_ref().map(|drag| drag.target.clone()) {
+                    Some(state::DragTarget::WorkspaceReorder { .. }) => {
+                        if let Some(state::DragTarget::WorkspaceReorder {
+                            insert_idx,
+                            target_group_idx,
+                            indicator_row,
+                            ..
+                        }) = client_view.drag.as_mut().map(|drag| &mut drag.target)
+                        {
+                            *insert_idx = workspace_drop_target.map(|target| target.insert_idx);
+                            *target_group_idx =
+                                workspace_drop_target.and_then(|target| target.group_idx);
+                            *indicator_row =
+                                workspace_drop_target.and_then(|target| target.indicator_row);
+                        }
+                        true
+                    }
+                    Some(state::DragTarget::GroupReorder { .. }) => {
+                        if let Some(state::DragTarget::GroupReorder {
+                            insert_idx,
+                            indicator_row,
+                            ..
+                        }) = client_view.drag.as_mut().map(|drag| &mut drag.target)
+                        {
+                            *insert_idx = group_drop_target.map(|target| target.insert_idx);
+                            *indicator_row =
+                                group_drop_target.and_then(|target| target.indicator_row);
+                        }
+                        true
+                    }
+                    Some(state::DragTarget::TabReorder { .. }) => {
+                        if let Some(state::DragTarget::TabReorder { insert_idx, .. }) =
+                            client_view.drag.as_mut().map(|drag| &mut drag.target)
+                        {
+                            *insert_idx = tab_drop_index;
+                        }
+                        true
+                    }
+                    Some(state::DragTarget::WorkspaceListScrollbar { .. }) => {
+                        if let Some(offset_from_bottom) = workspace_scroll_drag_offset {
+                            self.set_client_view_workspace_list_offset_from_bottom(
+                                client_view,
                                 offset_from_bottom,
                             );
+                        }
+                        true
+                    }
+                    Some(state::DragTarget::AgentPanelScrollbar { .. }) => {
+                        if let Some(offset_from_bottom) = agent_panel_drag_offset {
+                            self.set_client_view_agent_panel_offset_from_bottom(
+                                client_view,
+                                offset_from_bottom,
+                            );
+                        }
+                        true
+                    }
+                    Some(state::DragTarget::PaneScrollbar { .. }) => {
+                        if let Some((pane_id, offset_from_bottom)) = pane_scroll_drag_offset {
+                            if let Some(runtime) = client_view
+                                .active_workspace
+                                .and_then(|ws_idx| self.state.workspaces.get(ws_idx))
+                                .and_then(|workspace| workspace.terminal_id(pane_id))
+                                .and_then(|terminal_id| self.terminal_runtimes.get(terminal_id))
+                            {
+                                runtime.set_scroll_offset_from_bottom(offset_from_bottom);
+                            }
                         }
                         true
                     }
@@ -7084,6 +7488,174 @@ impl App {
         let relative_y = row.saturating_sub(sidebar.y).saturating_sub(1);
         let ratio = (relative_y as f32) / (content_height as f32);
         client_view.sidebar_section_split = ratio.clamp(0.1, 0.9);
+    }
+
+    fn client_view_agent_panel_has_leading_separator(client_view: &ClientViewState) -> bool {
+        client_view.computed.right_sidebar_rect == Rect::default()
+    }
+
+    fn client_view_workspace_list_scrollbar_target_at(
+        &self,
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> Option<input::ScrollbarClickTarget> {
+        let area = self.client_view_workspace_list_rect(client_view);
+        let metrics =
+            crate::ui::workspace_list_scroll_metrics_for_view(&self.state, client_view, area);
+        let track =
+            crate::ui::workspace_list_scrollbar_rect_for_view(&self.state, client_view, area)?;
+        if !Self::rect_contains(track, col, row) {
+            return None;
+        }
+        if let Some(grab_row_offset) = crate::ui::scrollbar_thumb_grab_offset(metrics, track, row) {
+            Some(input::ScrollbarClickTarget::Thumb { grab_row_offset })
+        } else {
+            Some(input::ScrollbarClickTarget::Track {
+                offset_from_bottom: crate::ui::scrollbar_offset_from_row(metrics, track, row),
+            })
+        }
+    }
+
+    fn client_view_workspace_list_offset_for_drag_row(
+        &self,
+        client_view: &ClientViewState,
+        row: u16,
+        grab_row_offset: u16,
+    ) -> Option<usize> {
+        let area = self.client_view_workspace_list_rect(client_view);
+        let metrics =
+            crate::ui::workspace_list_scroll_metrics_for_view(&self.state, client_view, area);
+        let track =
+            crate::ui::workspace_list_scrollbar_rect_for_view(&self.state, client_view, area)?;
+        Some(crate::ui::scrollbar_offset_from_row(
+            metrics,
+            track,
+            row.saturating_sub(grab_row_offset),
+        ))
+    }
+
+    fn set_client_view_workspace_list_offset_from_bottom(
+        &self,
+        client_view: &mut ClientViewState,
+        offset_from_bottom: usize,
+    ) {
+        let area = self.client_view_workspace_list_rect(client_view);
+        let metrics =
+            crate::ui::workspace_list_scroll_metrics_for_view(&self.state, client_view, area);
+        client_view.workspace_scroll = metrics
+            .max_offset_from_bottom
+            .saturating_sub(offset_from_bottom);
+    }
+
+    fn scroll_client_view_workspace_list(&self, client_view: &mut ClientViewState, delta: i16) {
+        if delta.is_negative() {
+            client_view.workspace_scroll = client_view
+                .workspace_scroll
+                .saturating_sub(delta.unsigned_abs() as usize);
+            return;
+        }
+        let area = self.client_view_workspace_list_rect(client_view);
+        let max_scroll =
+            crate::ui::workspace_list_scroll_metrics_for_view(&self.state, client_view, area)
+                .max_offset_from_bottom;
+        client_view.workspace_scroll = client_view
+            .workspace_scroll
+            .saturating_add(delta as usize)
+            .min(max_scroll);
+    }
+
+    fn client_view_agent_panel_scrollbar_target_at(
+        &self,
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> Option<input::ScrollbarClickTarget> {
+        let area = self.client_view_agent_panel_rect(client_view);
+        let leading_separator = Self::client_view_agent_panel_has_leading_separator(client_view);
+        let metrics = crate::ui::agent_panel_scroll_metrics_for_view(
+            &self.state,
+            &self.terminal_runtimes,
+            client_view,
+            area,
+            leading_separator,
+        );
+        let track = crate::ui::agent_panel_scrollbar_rect(&self.state, area, leading_separator)?;
+        if !Self::rect_contains(track, col, row) {
+            return None;
+        }
+        if let Some(grab_row_offset) = crate::ui::scrollbar_thumb_grab_offset(metrics, track, row) {
+            Some(input::ScrollbarClickTarget::Thumb { grab_row_offset })
+        } else {
+            Some(input::ScrollbarClickTarget::Track {
+                offset_from_bottom: crate::ui::scrollbar_offset_from_row(metrics, track, row),
+            })
+        }
+    }
+
+    fn client_view_agent_panel_offset_for_drag_row(
+        &self,
+        client_view: &ClientViewState,
+        row: u16,
+        grab_row_offset: u16,
+    ) -> Option<usize> {
+        let area = self.client_view_agent_panel_rect(client_view);
+        let leading_separator = Self::client_view_agent_panel_has_leading_separator(client_view);
+        let metrics = crate::ui::agent_panel_scroll_metrics_for_view(
+            &self.state,
+            &self.terminal_runtimes,
+            client_view,
+            area,
+            leading_separator,
+        );
+        let track = crate::ui::agent_panel_scrollbar_rect(&self.state, area, leading_separator)?;
+        Some(crate::ui::scrollbar_offset_from_row(
+            metrics,
+            track,
+            row.saturating_sub(grab_row_offset),
+        ))
+    }
+
+    fn set_client_view_agent_panel_offset_from_bottom(
+        &self,
+        client_view: &mut ClientViewState,
+        offset_from_bottom: usize,
+    ) {
+        let area = self.client_view_agent_panel_rect(client_view);
+        let leading_separator = Self::client_view_agent_panel_has_leading_separator(client_view);
+        let metrics = crate::ui::agent_panel_scroll_metrics_for_view(
+            &self.state,
+            &self.terminal_runtimes,
+            client_view,
+            area,
+            leading_separator,
+        );
+        client_view.agent_panel_scroll = metrics
+            .max_offset_from_bottom
+            .saturating_sub(offset_from_bottom);
+    }
+
+    fn scroll_client_view_agent_panel(&self, client_view: &mut ClientViewState, delta: i16) {
+        let area = self.client_view_agent_panel_rect(client_view);
+        let leading_separator = Self::client_view_agent_panel_has_leading_separator(client_view);
+        let max_scroll = crate::ui::agent_panel_scroll_metrics_for_view(
+            &self.state,
+            &self.terminal_runtimes,
+            client_view,
+            area,
+            leading_separator,
+        )
+        .max_offset_from_bottom;
+        if delta.is_negative() {
+            client_view.agent_panel_scroll = client_view
+                .agent_panel_scroll
+                .saturating_sub(delta.unsigned_abs() as usize);
+        } else {
+            client_view.agent_panel_scroll = client_view
+                .agent_panel_scroll
+                .saturating_add(delta as usize)
+                .min(max_scroll);
+        }
     }
 
     fn client_view_workspace_group_collapsed(

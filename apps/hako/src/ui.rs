@@ -107,14 +107,17 @@ pub(crate) use self::{
         right_aligned_workspace_list_rect, right_sidebar_content_rect, right_sidebar_toggle_rect,
         sidebar_section_divider_rect, workspace_drop_indicator_row, workspace_list_entry_count,
         workspace_list_position_for_workspace, workspace_list_rect, workspace_list_scroll_metrics,
-        workspace_list_scrollbar_rect, AgentPanelHeaderTarget,
+        workspace_list_scroll_metrics_for_view, workspace_list_scrollbar_rect,
+        workspace_list_scrollbar_rect_for_view, AgentPanelHeaderTarget,
     },
 };
 pub(crate) use self::{
     keybind_help::keybind_help_lines,
     mobile::{
-        mobile_switcher_areas, mobile_switcher_max_scroll, mobile_switcher_target_at,
-        mobile_switcher_workspace_doc_range, MobileSwitcherTarget,
+        mobile_switcher_areas, mobile_switcher_areas_for_view, mobile_switcher_max_scroll,
+        mobile_switcher_max_scroll_for_view, mobile_switcher_target_at,
+        mobile_switcher_target_at_for_view, mobile_switcher_workspace_doc_range,
+        MobileSwitcherTarget,
     },
     panes::pane_is_scrolled_back,
     tabs::compute_tab_bar_view,
