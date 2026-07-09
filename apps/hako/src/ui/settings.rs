@@ -466,8 +466,16 @@ fn render_settings_integrations(
     };
     frame.render_widget(
         Paragraph::new(format!(" {hint}")).style(Style::default().fg(p.overlay0)),
-        hint_area,
+        settings_integration_hint_row(hint_area),
     );
+}
+
+fn settings_integration_hint_row(area: Rect) -> Rect {
+    if area.height > 1 {
+        Rect::new(area.x, area.y + 1, area.width, 1)
+    } else {
+        area
+    }
 }
 
 fn render_settings_integration_feedback(
@@ -520,12 +528,10 @@ fn render_settings_integration_feedback(
             Style::default().fg(p.overlay1),
         ));
     }
-    let hint_row = if area.height > 1 {
-        Rect::new(area.x, area.y + 1, area.width, 1)
-    } else {
-        area
-    };
-    frame.render_widget(Paragraph::new(Line::from(spans)), hint_row);
+    frame.render_widget(
+        Paragraph::new(Line::from(spans)),
+        settings_integration_hint_row(area),
+    );
 }
 
 fn render_settings_sectioned_toggle_list(
@@ -1986,6 +1992,65 @@ mod tests {
             buffer[(guidance_x, hint_y)].style().fg,
             Some(app.palette.overlay0),
             "restart instruction should not use the old dim log style"
+        );
+    }
+
+    #[test]
+    fn unavailable_integration_hint_keeps_spacer_and_footer_controls() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Integrations;
+        app.settings.list.selected = 1;
+        app.integration_recommendations = vec![
+            crate::integration::IntegrationRecommendation {
+                target: crate::api::schema::IntegrationTarget::Codex,
+                label: "codex",
+                command: "codex",
+                available: true,
+                path: std::path::PathBuf::from("/tmp/hako-test-codex"),
+                state: crate::integration::IntegrationStatusKind::Current,
+            },
+            crate::integration::IntegrationRecommendation {
+                target: crate::api::schema::IntegrationTarget::Claude,
+                label: "claude",
+                command: "claude",
+                available: false,
+                path: std::path::PathBuf::from("/tmp/hako-test-claude"),
+                state: crate::integration::IntegrationStatusKind::NotInstalled,
+            },
+        ];
+
+        let area = Rect::new(0, 0, 120, 32);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        let unavailable_hint = "selected integration is unavailable";
+        assert_eq!(text.matches(unavailable_hint).count(), 1, "{text}");
+        assert!(text.contains("move ↑↓"), "{text}");
+        assert!(text.contains("action space/↵"), "{text}");
+        assert!(text.contains("section ←→/tab"), "{text}");
+
+        let (hint_y, _) = find_text_cell(&text, unavailable_hint).expect("unavailable hint");
+        assert!(
+            hint_y > 0,
+            "unavailable hint should have a blank spacer row above it:\n{text}"
+        );
+        let spacer_line = text
+            .lines()
+            .nth(hint_y as usize - 1)
+            .expect("blank row above unavailable hint");
+        let spacer_visible = spacer_line.trim().trim_matches('│').trim();
+        assert!(
+            spacer_visible.is_empty(),
+            "unavailable hint should be visually separated from the integration list by a blank row, got {spacer_line:?}"
+        );
+        let footer_y = find_text_cell(&text, "move ↑↓").expect("footer controls").0;
+        assert!(
+            hint_y < footer_y,
+            "unavailable hint should remain above footer controls:\n{text}"
         );
     }
 
