@@ -2103,12 +2103,7 @@ impl ContextMenuState {
                 "new", "tab", "agent", "---", "manage", "rename", "settings", "---", "danger",
                 "close",
             ],
-            ContextMenuKind::Tab { .. } => &[
-                "rename",
-                "close",
-                "close other tabs",
-                "close tabs to the right",
-            ],
+            ContextMenuKind::Tab { .. } => &["rename", "close", "close other tabs"],
             ContextMenuKind::NewTabButton { can_diff: true, .. } => {
                 &["new", "tab", "agent", "diff"]
             }
@@ -2237,12 +2232,7 @@ mod context_menu_tests {
 
     #[test]
     fn tab_context_menu_exposes_only_tab_operations_even_when_workspace_can_diff() {
-        let expected = &[
-            "rename",
-            "close",
-            "close other tabs",
-            "close tabs to the right",
-        ];
+        let expected = &["rename", "close", "close other tabs"];
         let with_diff = ContextMenuState {
             kind: ContextMenuKind::Tab {
                 ws_idx: 0,

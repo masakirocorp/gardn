@@ -1015,17 +1015,6 @@ fn close_other_tabs_from_context(state: &mut AppState, ws_idx: usize, tab_idx: u
     state.switch_tab(0);
 }
 
-fn close_tabs_to_right_from_context(state: &mut AppState, ws_idx: usize, tab_idx: usize) {
-    if !activate_tab_context_target(state, ws_idx, tab_idx) {
-        return;
-    }
-    let tab_count = state.workspaces[ws_idx].tabs.len();
-    for idx in ((tab_idx + 1)..tab_count).rev() {
-        let _ = state.close_tab_at(idx);
-    }
-    state.switch_tab(tab_idx);
-}
-
 pub(crate) fn apply_context_menu_action(
     state: &mut AppState,
     terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
@@ -1131,14 +1120,6 @@ pub(crate) fn apply_context_menu_action(
             Some("close other tabs"),
         ) => {
             close_other_tabs_from_context(state, ws_idx, tab_idx);
-        }
-        (
-            ContextMenuKind::Tab {
-                ws_idx, tab_idx, ..
-            },
-            Some("close tabs to the right"),
-        ) => {
-            close_tabs_to_right_from_context(state, ws_idx, tab_idx);
         }
         (ContextMenuKind::Pane { pane_id, .. }, Some("rename pane")) => {
             open_rename_pane(state, pane_id);
@@ -1968,50 +1949,6 @@ mod tests {
             .collect();
         assert_eq!(remaining, vec!["two"]);
         assert_eq!(state.workspaces[1].active_tab, 0);
-        assert_eq!(state.active, Some(1));
-        assert_eq!(state.selected, 1);
-        assert_eq!(state.workspaces[0].tabs.len(), 1);
-    }
-
-    #[test]
-    fn tab_context_menu_close_tabs_to_the_right_removes_only_later_tabs_in_target_workspace() {
-        let mut state = state_with_workspaces(&["home", "api"]);
-        state.workspaces[1].test_add_tab(Some("two"));
-        state.workspaces[1].test_add_tab(Some("three"));
-        state.workspaces[1].test_add_tab(Some("four"));
-        state.active = Some(0);
-        state.selected = 0;
-        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
-        let menu = ContextMenuState {
-            kind: ContextMenuKind::Tab {
-                ws_idx: 1,
-                tab_idx: 1,
-                can_diff: false,
-            },
-            x: 0,
-            y: 0,
-            list: MenuListState::new(0),
-        };
-        let close_tabs_to_the_right = menu
-            .items()
-            .iter()
-            .position(|item| *item == "close tabs to the right")
-            .expect("tab menu exposes close tabs to the right");
-
-        apply_context_menu_action(
-            &mut state,
-            &mut terminal_runtimes,
-            menu,
-            close_tabs_to_the_right,
-        );
-
-        let remaining: Vec<_> = state.workspaces[1]
-            .tabs
-            .iter()
-            .map(|tab| tab.display_name().to_string())
-            .collect();
-        assert_eq!(remaining, vec!["1", "two"]);
-        assert_eq!(state.workspaces[1].active_tab, 1);
         assert_eq!(state.active, Some(1));
         assert_eq!(state.selected, 1);
         assert_eq!(state.workspaces[0].tabs.len(), 1);
