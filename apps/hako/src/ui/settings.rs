@@ -520,7 +520,12 @@ fn render_settings_integration_feedback(
             Style::default().fg(p.overlay1),
         ));
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    let hint_row = if area.height > 1 {
+        Rect::new(area.x, area.y + 1, area.width, 1)
+    } else {
+        area
+    };
+    frame.render_widget(Paragraph::new(Line::from(spans)), hint_row);
 }
 
 fn render_settings_sectioned_toggle_list(
@@ -1946,6 +1951,24 @@ mod tests {
         );
         let (label_y, label_x) = find_text_cell(&text, " hint ").expect("hint label");
         assert_eq!(label_y, hint_y);
+        assert!(
+            hint_y > 0,
+            "restart hint should have a blank spacer row above it:\n{text}"
+        );
+        let spacer_line = text
+            .lines()
+            .nth(hint_y as usize - 1)
+            .expect("blank row above restart hint");
+        let spacer_visible = spacer_line.trim().trim_matches('│').trim();
+        assert!(
+            spacer_visible.is_empty(),
+            "restart hint should be visually separated from the integration list by a blank row, got {spacer_line:?}"
+        );
+        let footer_y = find_text_cell(&text, "move ↑↓").expect("footer controls").0;
+        assert!(
+            hint_y < footer_y,
+            "restart hint should remain above footer controls:\n{text}"
+        );
         assert_eq!(
             buffer[(label_x, label_y)].style().bg,
             Some(app.palette.green),

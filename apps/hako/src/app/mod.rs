@@ -5723,6 +5723,31 @@ mod tests {
         assert!(text.contains("move ↑↓"), "{text}");
         assert!(text.contains("action space/↵"), "{text}");
         assert!(text.contains("section ←→/tab"), "{text}");
+        let hint_y = text
+            .lines()
+            .position(|line| line.contains(restart_guidance))
+            .expect("restart hint row");
+        assert!(
+            hint_y > 0,
+            "restart hint should have a blank spacer row above it:\n{text}"
+        );
+        let spacer_line = text
+            .lines()
+            .nth(hint_y - 1)
+            .expect("blank row above restart hint");
+        let spacer_visible = spacer_line.trim().trim_matches('│').trim();
+        assert!(
+            spacer_visible.is_empty(),
+            "restart hint should be visually separated from the integration list by a blank row, got {spacer_line:?}"
+        );
+        let footer_y = text
+            .lines()
+            .position(|line| line.contains("move ↑↓"))
+            .expect("footer controls row");
+        assert!(
+            hint_y < footer_y,
+            "restart hint should remain above footer controls:\n{text}"
+        );
         let _ = std::fs::remove_dir_all(base);
     }
 
