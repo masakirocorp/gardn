@@ -3653,6 +3653,9 @@ impl App {
             return;
         }
 
+        if self.handle_client_view_mobile_mouse(client_view, mouse) {
+            return;
+        }
         if input::handle_command_palette_mouse_for_view(&self.state, client_view, mouse) {
             return;
         }
@@ -3861,6 +3864,127 @@ impl App {
         }
 
         false
+    }
+
+    fn handle_client_view_mobile_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if client_view.computed.layout != crate::app::state::ViewLayout::Mobile {
+            return false;
+        }
+
+        if client_view.mode == Mode::Navigate {
+            match mouse.kind {
+                MouseEventKind::ScrollUp => {
+                    self.scroll_client_view_mobile_switcher(client_view, -1);
+                    return true;
+                }
+                MouseEventKind::ScrollDown => {
+                    self.scroll_client_view_mobile_switcher(client_view, 1);
+                    return true;
+                }
+                MouseEventKind::Down(MouseButton::Left) => {}
+                _ => return true,
+            }
+        } else if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
+            return false;
+        }
+
+        if client_view.mode != Mode::Navigate {
+            if !matches!(client_view.mode, Mode::Terminal | Mode::Resize) {
+                return false;
+            }
+            if Self::rect_contains(
+                client_view.computed.mobile_menu_hit_area,
+                mouse.column,
+                mouse.row,
+            ) {
+                client_view.mobile_switcher_scroll = 0;
+                client_view.mode = Mode::Navigate;
+                return true;
+            }
+            return false;
+        }
+
+        let local_state = self.client_view_mouse_state(client_view);
+        let areas = crate::ui::mobile_switcher_areas(&local_state);
+        if Self::rect_contains(areas.close, mouse.column, mouse.row) {
+            client_view.mode = Mode::Terminal;
+            return true;
+        }
+
+        match crate::ui::mobile_switcher_target_at(&local_state, mouse.column, mouse.row) {
+            Some(crate::ui::MobileSwitcherTarget::NewWorkspace) => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::NewWorkspace,
+                    input::ActionContext::Navigate,
+                );
+            }
+            Some(crate::ui::MobileSwitcherTarget::Workspace(ws_idx)) => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::SwitchWorkspace(ws_idx),
+                    input::ActionContext::Navigate,
+                );
+            }
+            Some(crate::ui::MobileSwitcherTarget::NewTab) => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::NewTab,
+                    input::ActionContext::Navigate,
+                );
+            }
+            Some(crate::ui::MobileSwitcherTarget::Tab(tab_idx)) => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::SwitchTab(tab_idx),
+                    input::ActionContext::Navigate,
+                );
+            }
+            Some(crate::ui::MobileSwitcherTarget::Agent {
+                ws_idx,
+                tab_idx,
+                pane_id,
+            }) => {
+                self.switch_client_view_workspace(client_view, ws_idx);
+                if let Some(workspace) = self.state.workspaces.get(ws_idx) {
+                    client_view
+                        .active_tabs
+                        .insert(workspace.id.clone(), tab_idx);
+                }
+                client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, pane_id);
+                client_view.mode = Mode::Terminal;
+                client_view.reconcile(&self.state);
+            }
+            Some(crate::ui::MobileSwitcherTarget::Menu(action_idx)) => {
+                client_view.global_menu.highlighted = action_idx;
+                self.accept_client_view_global_menu_selection(client_view);
+            }
+            None => {}
+        }
+
+        true
+    }
+
+    fn scroll_client_view_mobile_switcher(&self, client_view: &mut ClientViewState, delta: i16) {
+        let local_state = self.client_view_mouse_state(client_view);
+        let max_scroll = crate::ui::mobile_switcher_max_scroll(&local_state);
+        let delta = delta.saturating_mul(2);
+        if delta.is_negative() {
+            client_view.mobile_switcher_scroll = client_view
+                .mobile_switcher_scroll
+                .saturating_sub(delta.unsigned_abs() as usize);
+        } else {
+            client_view.mobile_switcher_scroll = client_view
+                .mobile_switcher_scroll
+                .saturating_add(delta as usize)
+                .min(max_scroll);
+        }
     }
 
     fn handle_client_view_pane_split_mouse(
@@ -6396,6 +6520,62 @@ mod tests {
         state.mode = client_view.mode;
         state.view = client_view.computed.clone();
         state
+    }
+
+    fn client_view_app_state(app: &App, client_view: &ClientViewState) -> state::AppState {
+        let mut state = app.state.clone();
+        App::sync_app_state_view_fields(&mut state, client_view);
+        state.view = client_view.computed.clone();
+        state
+    }
+
+    fn rendered_client_view_text(
+        app: &App,
+        client_view: &ClientViewState,
+        width: u16,
+        height: u16,
+    ) -> String {
+        let backend = ratatui::backend::TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| {
+                crate::ui::render_with_runtime_registry_for_view(
+                    &app.state,
+                    client_view,
+                    &app.terminal_runtimes,
+                    frame,
+                )
+            })
+            .expect("render client view");
+        let buffer = terminal.backend().buffer();
+        let mut text = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                text.push_str(buffer[(x, y)].symbol());
+            }
+            text.push('\n');
+        }
+        text
+    }
+
+    fn mobile_switcher_point_for_target(
+        app: &App,
+        client_view: &ClientViewState,
+        target: crate::ui::MobileSwitcherTarget,
+    ) -> (u16, u16) {
+        let view_state = client_view_app_state(app, client_view);
+        let areas = crate::ui::mobile_switcher_areas(&view_state);
+        for row in areas.viewport.y..areas.viewport.y + areas.viewport.height {
+            for column in areas.viewport.x..areas.viewport.x + areas.viewport.width {
+                if crate::ui::mobile_switcher_target_at(&view_state, column, row).as_ref()
+                    == Some(&target)
+                {
+                    return (column, row);
+                }
+            }
+        }
+
+        panic!("mobile switcher target not visible: {target:?}");
     }
 
     fn rendered_text_point_at_or_after_row(
@@ -9668,6 +9848,241 @@ mod tests {
         assert_eq!(app.state.workspace_scroll, 0);
         assert_eq!(app.default_client_view.workspace_scroll, 0);
         assert_eq!(other_client.workspace_scroll, 0);
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_mobile_switcher_button_opens_navigate_client_locally() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.mobile_switcher_scroll = 11;
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+
+        let area = ratatui::layout::Rect::new(0, 0, 44, 20);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mobile_switcher_scroll = 7;
+        let other_client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, area);
+        assert_eq!(client.computed.layout, state::ViewLayout::Mobile);
+        assert!(
+            rendered_client_view_text(&app, &client, area.width, area.height).contains("switch"),
+            "test fixture should render the mobile switch button"
+        );
+        let switch = client.computed.mobile_menu_hit_area;
+        assert!(
+            switch.width > 0 && switch.height > 0,
+            "test fixture should expose a clickable mobile switch button"
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                switch.x + switch.width / 2,
+                switch.y + switch.height / 2,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Navigate);
+        assert_eq!(client.mobile_switcher_scroll, 0);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(app.state.mobile_switcher_scroll, 11);
+        assert_eq!(app.default_client_view.mobile_switcher_scroll, 11);
+        assert_eq!(other_client.mode, Mode::Terminal);
+        assert_eq!(other_client.mobile_switcher_scroll, 11);
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_mobile_switcher_scrolls_and_close_returns_terminal() {
+        let mut app = test_app();
+        app.state.workspaces = (0..12)
+            .map(|idx| Workspace::test_new(&format!("workspace-{idx}")))
+            .collect();
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let area = ratatui::layout::Rect::new(0, 0, 44, 20);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Navigate;
+        compute_client_view(&app, &mut client, area);
+        assert_eq!(client.computed.layout, state::ViewLayout::Mobile);
+        let rendered = rendered_client_view_text(&app, &client, area.width, area.height);
+        assert!(
+            rendered.contains("spaces") && rendered.contains("close"),
+            "test fixture should render the mobile switcher panel:\n{rendered}"
+        );
+        let view_state = client_view_app_state(&app, &client);
+        assert!(
+            crate::ui::mobile_switcher_max_scroll(&view_state) >= 2,
+            "test fixture should make the mobile switcher scrollable"
+        );
+        let areas = crate::ui::mobile_switcher_areas(&view_state);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::ScrollDown,
+                areas.viewport.x + 2,
+                areas.viewport.y,
+            )],
+            true,
+        );
+        let scroll_after_wheel = client.mobile_switcher_scroll;
+
+        let view_state = client_view_app_state(&app, &client);
+        let close = crate::ui::mobile_switcher_areas(&view_state).close;
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                close.x + close.width / 2,
+                close.y,
+            )],
+            true,
+        );
+
+        assert_eq!(scroll_after_wheel, 2);
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(app.state.mobile_switcher_scroll, 0);
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_mobile_switcher_workspace_row_selects_invoking_client_only(
+    ) {
+        let mut app = test_app();
+        app.state.workspaces = vec![
+            Workspace::test_new("server"),
+            Workspace::test_new("client"),
+            Workspace::test_new("other"),
+        ];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+
+        let area = ratatui::layout::Rect::new(0, 0, 44, 20);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Navigate;
+        let mut other_client = ClientViewState::from_default_client_state(&app.state);
+        other_client.active_workspace = Some(2);
+        other_client.selected_workspace = 2;
+        other_client.reconcile(&app.state);
+        compute_client_view(&app, &mut client, area);
+        assert_eq!(client.computed.layout, state::ViewLayout::Mobile);
+        assert!(
+            rendered_client_view_text(&app, &client, area.width, area.height).contains("client"),
+            "test fixture should render the client workspace row"
+        );
+        let (column, row) = mobile_switcher_point_for_target(
+            &app,
+            &client,
+            crate::ui::MobileSwitcherTarget::Workspace(1),
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                column,
+                row,
+            )],
+            true,
+        );
+
+        assert_eq!(client.active_workspace, Some(1));
+        assert_eq!(client.selected_workspace, 1);
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(app.default_client_view.active_workspace, Some(0));
+        assert_eq!(app.default_client_view.selected_workspace, 0);
+        assert_eq!(other_client.active_workspace, Some(2));
+        assert_eq!(other_client.selected_workspace, 2);
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_mobile_switcher_tab_row_selects_invoking_client_only() {
+        let mut app = test_app();
+        let server_workspace = Workspace::test_new("server");
+        let mut client_workspace = Workspace::test_new("client");
+        client_workspace.tabs[0].set_custom_name("main".into());
+        client_workspace.test_add_tab(Some("logs"));
+        client_workspace.test_add_tab(Some("ops"));
+        app.state.workspaces = vec![server_workspace, client_workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+
+        let client_workspace_id = app.state.workspaces[1].id.clone();
+        let area = ratatui::layout::Rect::new(0, 0, 44, 20);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+        client.active_tabs.insert(client_workspace_id.clone(), 0);
+        client.mode = Mode::Navigate;
+        client.reconcile(&app.state);
+        let mut other_client = ClientViewState::from_default_client_state(&app.state);
+        other_client.active_workspace = Some(1);
+        other_client.selected_workspace = 1;
+        other_client
+            .active_tabs
+            .insert(client_workspace_id.clone(), 2);
+        other_client.reconcile(&app.state);
+        compute_client_view(&app, &mut client, area);
+        assert_eq!(client.computed.layout, state::ViewLayout::Mobile);
+        let rendered = rendered_client_view_text(&app, &client, area.width, area.height);
+        assert!(
+            rendered.contains("tabs") && rendered.contains("logs"),
+            "test fixture should render visible tab rows:\n{rendered}"
+        );
+        let (column, row) = mobile_switcher_point_for_target(
+            &app,
+            &client,
+            crate::ui::MobileSwitcherTarget::Tab(1),
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                column,
+                row,
+            )],
+            true,
+        );
+
+        assert_eq!(
+            client.active_tab_for_workspace(&client_workspace_id),
+            Some(1)
+        );
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
+        assert_eq!(app.state.workspaces[1].active_tab_index(), 0);
+        assert_eq!(
+            app.default_client_view
+                .active_tab_for_workspace(&client_workspace_id),
+            Some(0)
+        );
+        assert_eq!(
+            other_client.active_tab_for_workspace(&client_workspace_id),
+            Some(2)
+        );
     }
 
     #[test]
