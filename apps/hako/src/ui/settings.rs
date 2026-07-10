@@ -18,7 +18,10 @@ use crate::{
         state::{Palette, SettingsSection},
         AppState,
     },
-    settings_rows::{rows_for_section, visual_row_count, SettingsListRow, SettingsMarkerTone},
+    settings_rows::{
+        rows_for_section, rows_for_section_for_view, visual_row_count, SettingsListRow,
+        SettingsMarkerTone,
+    },
 };
 
 #[cfg(test)]
@@ -100,6 +103,80 @@ pub(crate) fn settings_tab_chevron_at(
     })
     .and_then(|idx| sections.get(idx).copied())
 }
+#[cfg(test)]
+pub(crate) fn settings_tab_hit_areas_for_view(
+    client_view: &crate::app::ClientViewState,
+    row: Rect,
+) -> Vec<(SettingsSection, Rect)> {
+    let settings = &client_view.settings;
+    let sections = settings_sections_for(settings);
+    let (start, end) = settings_visible_tab_range_for(settings, row.width);
+    super::modal_tabs::tab_hit_areas(row, start, end, |idx| {
+        settings_tab_width_for(settings, sections[idx])
+    })
+    .into_iter()
+    .map(|(idx, rect)| (sections[idx], rect))
+    .collect()
+}
+
+#[cfg(test)]
+pub(crate) fn settings_tab_chevron_at_for_view(
+    client_view: &crate::app::ClientViewState,
+    row: Rect,
+    col: u16,
+) -> Option<SettingsSection> {
+    let settings = &client_view.settings;
+    let sections = settings_sections_for(settings);
+    let (start, end) = settings_visible_tab_range_for(settings, row.width);
+    super::modal_tabs::chevron_tab_at(sections.len(), row, col, start, end, |idx| {
+        settings_tab_width_for(settings, sections[idx])
+    })
+    .and_then(|idx| sections.get(idx).copied())
+}
+
+fn settings_sections_for(
+    settings: &crate::app::state::SettingsState,
+) -> &'static [SettingsSection] {
+    if settings.group_settings_target.is_some() {
+        GROUP_SETTINGS_SECTIONS
+    } else if settings.workspace_settings_target.is_some() {
+        WORKSPACE_SETTINGS_SECTIONS
+    } else {
+        SettingsSection::ALL
+    }
+}
+
+fn settings_tab_text_for(
+    settings: &crate::app::state::SettingsState,
+    section: SettingsSection,
+) -> &'static str {
+    if settings.group_settings_target.is_some() && section == SettingsSection::Theme {
+        "appearance"
+    } else {
+        section.label()
+    }
+}
+
+fn settings_tab_width_for(
+    settings: &crate::app::state::SettingsState,
+    section: SettingsSection,
+) -> u16 {
+    settings_tab_text_for(settings, section).width() as u16 + 2
+}
+
+fn settings_visible_tab_range_for(
+    settings: &crate::app::state::SettingsState,
+    row_width: u16,
+) -> (usize, usize) {
+    let sections = settings_sections_for(settings);
+    let selected = sections
+        .iter()
+        .position(|section| *section == settings.section)
+        .unwrap_or(0);
+    super::modal_tabs::visible_tab_range(sections.len(), selected, row_width, |idx| {
+        settings_tab_width_for(settings, sections[idx])
+    })
+}
 
 fn settings_palette(app: &AppState) -> crate::app::state::Palette {
     if let Some(group_idx) = app.settings.group_settings_target {
@@ -141,6 +218,49 @@ fn render_settings_tabs(
         };
         spans.push(Span::styled(" ", tab_style));
         spans.push(Span::styled(settings_tab_text(app, section), tab_style));
+        spans.push(Span::styled(" ", tab_style));
+    }
+
+    if end < sections.len() {
+        spans.push(Span::styled(" ›", Style::default().fg(p.overlay0)));
+    }
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), row);
+}
+fn render_settings_tabs_for_view(
+    client_view: &crate::app::ClientViewState,
+    frame: &mut Frame,
+    row: Rect,
+    p: &crate::app::state::Palette,
+) {
+    let settings = &client_view.settings;
+    let sections = settings_sections_for(settings);
+    let (start, end) = settings_visible_tab_range_for(settings, row.width);
+    let mut spans = Vec::new();
+
+    if start > 0 {
+        spans.push(Span::styled("‹ ", Style::default().fg(p.overlay0)));
+    }
+
+    for (visible_idx, section) in sections[start..end].iter().copied().enumerate() {
+        if visible_idx > 0 {
+            spans.push(Span::raw(" "));
+        }
+
+        let selected = section == settings.section;
+        let tab_style = if selected {
+            Style::default()
+                .fg(panel_contrast_fg(p))
+                .bg(p.accent)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(p.overlay1)
+        };
+        spans.push(Span::styled(" ", tab_style));
+        spans.push(Span::styled(
+            settings_tab_text_for(settings, section),
+            tab_style,
+        ));
         spans.push(Span::styled(" ", tab_style));
     }
 
@@ -303,6 +423,469 @@ pub(crate) fn settings_stack_areas(app: &AppState, inner: Rect) -> super::widget
     let footer_rows =
         modal_hint_line_count(inner.width, settings_footer_hints(app, group_settings), 2);
     modal_stack_areas(inner, 4, footer_rows, 0, 1)
+}
+
+pub(super) fn render_settings_overlay_for_view(
+    app: &AppState,
+    client_view: &crate::app::ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    render_settings_overlay_with(app, client_view, frame, area);
+}
+
+fn render_settings_overlay_with(
+    app: &AppState,
+    client_view: &crate::app::ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let settings = &client_view.settings;
+    let palette = if let Some(group_idx) = settings.group_settings_target {
+        app.palette_for_group(group_idx)
+    } else if let Some(workspace_idx) = settings.workspace_settings_target {
+        app.palette_for_workspace(workspace_idx)
+    } else {
+        app.palette.clone()
+    };
+    let title = if settings.group_settings_target.is_some() {
+        "group settings"
+    } else if settings.workspace_settings_target.is_some() {
+        "space settings"
+    } else {
+        "settings"
+    };
+    super::dim_background(frame, area);
+    let Some(frame_areas) = render_modal_frame(
+        frame,
+        area,
+        &palette,
+        ModalFrameSpec {
+            title,
+            width: 92,
+            height: 26,
+            header_rows: 4,
+            footer_hints: settings_footer_hints_for(settings),
+            footer_max_rows: 2,
+            reserve_footer_gap: 1,
+            show_close: true,
+        },
+    ) else {
+        return;
+    };
+    let inner = frame_areas.inner;
+    if inner.height < 4 || inner.width < 10 {
+        return;
+    }
+    let stack = modal_stack_areas(
+        inner,
+        4,
+        modal_hint_line_count(inner.width, settings_footer_hints_for(settings), 2),
+        0,
+        1,
+    );
+    let header_rows = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas::<4>(stack.header);
+    render_settings_tabs_for_view(client_view, frame, header_rows[2], &palette);
+    render_modal_divider(frame, header_rows[3], &palette);
+    render_settings_content_for_view(app, client_view, frame, stack.content, &palette);
+}
+
+fn settings_agents_editor_open_for(settings: &crate::app::state::SettingsState) -> bool {
+    settings.pending_agent_profile_id.is_some()
+        || settings.pending_agent_profile_name.is_some()
+        || settings.pending_agent_profile_command.is_some()
+}
+
+fn settings_footer_hints_for(
+    settings: &crate::app::state::SettingsState,
+) -> &'static [(&'static str, &'static str)] {
+    if settings.section == SettingsSection::Integrations {
+        SETTINGS_INTEGRATIONS_HINTS
+    } else if settings.section == SettingsSection::Agents {
+        if settings_agents_editor_open_for(settings) {
+            SETTINGS_AGENTS_EDITOR_HINTS
+        } else {
+            SETTINGS_AGENTS_HINTS
+        }
+    } else if settings.section == SettingsSection::GroupProfiles {
+        SETTINGS_GROUP_PROFILES_HINTS
+    } else if settings.group_settings_target.is_some() {
+        SETTINGS_GROUP_HINTS
+    } else {
+        SETTINGS_DEFAULT_HINTS
+    }
+}
+
+fn settings_section_title_for(
+    settings: &crate::app::state::SettingsState,
+    section: SettingsSection,
+) -> &'static str {
+    if section == SettingsSection::Agents && settings_agents_editor_open_for(settings) {
+        if settings.pending_agent_profile_id.is_some() {
+            "edit custom profile"
+        } else {
+            "new custom profile"
+        }
+    } else {
+        settings_section_title_for_non_editor(section)
+    }
+}
+
+fn settings_section_title_for_non_editor(section: SettingsSection) -> &'static str {
+    match section {
+        SettingsSection::Theme => "appearance",
+        SettingsSection::Layout => "layout",
+        SettingsSection::Sound => "notifications",
+        SettingsSection::Toast => "toasts",
+        SettingsSection::PaneLabels => "behavior",
+        SettingsSection::Experiments => "advanced",
+        SettingsSection::Agents => "agents",
+        SettingsSection::Integrations => "agent integrations",
+        SettingsSection::GroupGeneral => "general",
+        SettingsSection::GroupProfiles => "agents",
+        SettingsSection::WorkspaceGeneral => "general",
+    }
+}
+
+fn settings_section_description_for(
+    settings: &crate::app::state::SettingsState,
+    section: SettingsSection,
+) -> &'static str {
+    match section {
+        SettingsSection::Theme if settings.group_settings_target.is_some() => {
+            "choose an ANSI accent for this group, or inherit the global accent"
+        }
+        SettingsSection::Theme => "configure theme, sidebar layout, and pane appearance",
+        SettingsSection::Layout => "set sidebar width bounds",
+        SettingsSection::Sound => "choose sound and toast notification behavior",
+        SettingsSection::Toast => "choose where command and agent notifications are delivered",
+        SettingsSection::PaneLabels => {
+            "control workspace prompts and terminal interaction defaults"
+        }
+        SettingsSection::Experiments => "configure advanced or platform-specific behavior",
+        SettingsSection::Agents if settings_agents_editor_open_for(settings) => {
+            "name the profile and provide the command hako should launch"
+        }
+        SettingsSection::Agents => "create custom commands and manage agent profiles",
+        SettingsSection::Integrations => "install hooks so agents report state directly",
+        SettingsSection::GroupGeneral => "rename this group or delete it",
+        SettingsSection::GroupProfiles => {
+            "choose favorite and default agent profiles for this group"
+        }
+        SettingsSection::WorkspaceGeneral => "set this space's display name and default directory",
+    }
+}
+
+fn render_settings_section_intro_for_view(
+    client_view: &crate::app::ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+    p: &crate::app::state::Palette,
+) -> Rect {
+    let settings = &client_view.settings;
+    let [desc_area, _, list_area] = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Min(2),
+    ])
+    .areas::<3>(area);
+    let [title_area, description_area] =
+        Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(desc_area);
+    let back = (settings.section == SettingsSection::Agents
+        && settings_agents_editor_open_for(settings))
+    .then(|| {
+        let width = action_button_width(None, "← back");
+        Rect::new(
+            title_area.x + title_area.width.saturating_sub(width),
+            title_area.y,
+            width,
+            1,
+        )
+    });
+    let title_width = back
+        .map(|back| back.x.saturating_sub(title_area.x).saturating_sub(1))
+        .unwrap_or(title_area.width);
+    render_modal_description(
+        frame,
+        Rect::new(title_area.x, title_area.y, title_width, title_area.height),
+        settings_section_title_for(settings, settings.section),
+        Style::default().fg(p.accent),
+    );
+    if let Some(back) = back {
+        render_action_button(frame, back, None, "← back", secondary_action_style(p));
+    }
+    render_modal_description(
+        frame,
+        description_area,
+        settings_section_description_for(settings, settings.section),
+        Style::default().fg(p.overlay0),
+    );
+    list_area
+}
+
+fn render_settings_content_for_view(
+    app: &AppState,
+    client_view: &crate::app::ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+    p: &crate::app::state::Palette,
+) {
+    let settings = &client_view.settings;
+    let body_area = render_settings_section_intro_for_view(client_view, frame, area, p);
+    if settings.section != SettingsSection::Integrations {
+        render_settings_rows_for_view(
+            rows_for_section_for_view(app, client_view),
+            settings,
+            frame,
+            body_area,
+            p,
+        );
+        return;
+    }
+
+    let [list_area, hint_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas::<2>(body_area);
+    if app.integration_recommendations.is_empty() {
+        frame.render_widget(
+            Paragraph::new(settings_description_line(
+                "no integration targets available",
+                list_area.width as usize,
+                Style::default().fg(p.overlay1),
+                false,
+            )),
+            list_area,
+        );
+    } else {
+        render_settings_rows_for_view(
+            rows_for_section_for_view(app, client_view),
+            settings,
+            frame,
+            list_area,
+            p,
+        );
+    }
+
+    if !app.integration_install_messages.is_empty() {
+        render_settings_integration_feedback(
+            frame,
+            hint_area,
+            p,
+            &app.integration_install_messages,
+        );
+        return;
+    }
+
+    let found_any = app.integration_recommendations.iter().any(|item| {
+        item.available || item.state != crate::integration::IntegrationStatusKind::NotInstalled
+    });
+    let hint = integration_hint_for_selection(app, settings.list.selected, found_any);
+    frame.render_widget(
+        Paragraph::new(format!(" {hint}")).style(Style::default().fg(p.overlay0)),
+        settings_integration_hint_row(hint_area),
+    );
+}
+
+fn integration_hint_for_selection(app: &AppState, selected: usize, found_any: bool) -> String {
+    if let Some(item) = app.integration_recommendations.get(selected) {
+        let missing_profile_hooks = crate::integration::missing_profile_hook_count_for_target(
+            item.target,
+            &app.agent_profiles,
+        );
+        match item.state {
+            crate::integration::IntegrationStatusKind::Current if missing_profile_hooks > 0 => {
+                "press enter to repair profile hooks".to_string()
+            }
+            crate::integration::IntegrationStatusKind::Current => {
+                "press enter to uninstall selected integration (affects configured profiles)"
+                    .to_string()
+            }
+            crate::integration::IntegrationStatusKind::Outdated => {
+                "press enter to update selected integration".to_string()
+            }
+            crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
+                "press enter to install selected integration".to_string()
+            }
+            crate::integration::IntegrationStatusKind::NotInstalled => {
+                "selected integration is unavailable".to_string()
+            }
+        }
+    } else if app
+        .integration_recommendations
+        .iter()
+        .any(crate::integration::IntegrationRecommendation::needs_install)
+    {
+        "press enter to add available or outdated integrations".to_string()
+    } else if found_any {
+        "all detected integrations are installed".to_string()
+    } else {
+        "no supported agent CLIs found on PATH".to_string()
+    }
+}
+fn render_settings_rows_for_view(
+    model_rows: Option<Vec<SettingsListRow>>,
+    settings: &crate::app::state::SettingsState,
+    frame: &mut Frame,
+    area: Rect,
+    p: &crate::app::state::Palette,
+) {
+    let Some(model_rows) = model_rows else {
+        return;
+    };
+    let total_items = visual_row_count(&model_rows);
+    let viewport =
+        crate::ui::ModalListViewport::new(total_items, area.height as usize, settings.scroll);
+    let scroll = viewport.scroll();
+    let scroll_area = viewport.scroll_area(area);
+    let list_width = scroll_area.body.width as usize;
+    let mut selected_row = None;
+    let mut rows = Vec::with_capacity(total_items);
+    for row in &model_rows {
+        let selected_index = match row {
+            SettingsListRow::Toggle { index, .. }
+            | SettingsListRow::Value { index, .. }
+            | SettingsListRow::TextInput { index, .. }
+            | SettingsListRow::Choice { index, .. }
+            | SettingsListRow::Action { index, .. }
+            | SettingsListRow::Status { index, .. }
+            | SettingsListRow::Profile { index, .. } => Some(*index),
+            SettingsListRow::Header(_) | SettingsListRow::Caption(_) | SettingsListRow::Spacer => {
+                None
+            }
+        };
+        let selected = settings.selection_active && selected_index == Some(settings.list.selected);
+        if selected {
+            selected_row = Some(rows.len());
+        }
+        let style = if selected {
+            modal_option_style(p, true)
+        } else {
+            Style::default().fg(p.text)
+        };
+        match row {
+            SettingsListRow::Header(title) => rows.push(ListItem::new(Line::from(Span::styled(
+                format!(" {title}"),
+                modal_section_heading_style(p),
+            )))),
+            SettingsListRow::Caption(text) => rows.push(ListItem::new(Line::from(Span::styled(
+                format!(" {text}"),
+                Style::default().fg(p.subtext0),
+            )))),
+            SettingsListRow::Spacer => rows.push(ListItem::new(Line::from(""))),
+            SettingsListRow::Toggle {
+                title,
+                description,
+                enabled,
+                ..
+            } => {
+                rows.push(ListItem::new(settings_title_value_line(
+                    title,
+                    if *enabled { "on" } else { "off" },
+                    list_width,
+                    style,
+                    Style::default().fg(p.accent),
+                    selected,
+                )));
+                rows.push(ListItem::new(settings_setting_description_line(
+                    description,
+                    list_width,
+                    Style::default().fg(p.subtext0),
+                    selected,
+                )));
+            }
+            SettingsListRow::Value {
+                title,
+                description,
+                value,
+                ..
+            } => {
+                rows.push(ListItem::new(settings_title_value_line(
+                    title,
+                    value,
+                    list_width,
+                    style,
+                    Style::default().fg(p.accent),
+                    selected,
+                )));
+                rows.push(ListItem::new(settings_setting_description_line(
+                    description,
+                    list_width,
+                    Style::default().fg(p.subtext0),
+                    selected,
+                )));
+            }
+            SettingsListRow::TextInput { title, value, .. } => {
+                rows.push(ListItem::new(settings_description_line(
+                    title, list_width, style, false,
+                )));
+                rows.push(ListItem::new(settings_description_line(
+                    value,
+                    list_width,
+                    Style::default().fg(p.text).bg(p.surface0),
+                    false,
+                )));
+            }
+            SettingsListRow::Choice { label, checked, .. } => {
+                rows.push(ListItem::new(settings_choice_line(
+                    label,
+                    *checked,
+                    list_width,
+                    style,
+                    Style::default().fg(p.accent),
+                    selected,
+                )))
+            }
+            SettingsListRow::Action { icon, label, .. } => rows.push(ListItem::new(
+                settings_action_line(icon, label, list_width, style, selected),
+            )),
+            SettingsListRow::Status { label, status, .. } => {
+                rows.push(ListItem::new(settings_status_line(
+                    label,
+                    status,
+                    list_width,
+                    style,
+                    Style::default().fg(p.accent),
+                    selected,
+                )))
+            }
+            SettingsListRow::Profile {
+                name,
+                detail,
+                badge,
+                ..
+            } => rows.push(ListItem::new(settings_profile_name_line(
+                name,
+                detail,
+                badge.as_deref(),
+                list_width,
+                style,
+                Style::default().fg(p.accent),
+                Style::default().fg(p.accent),
+                selected,
+            ))),
+        }
+    }
+    let selected = selected_row
+        .and_then(|row| (row >= scroll && row < scroll + area.height as usize).then_some(row));
+    let mut state = ListState::default()
+        .with_selected(selected)
+        .with_offset(scroll);
+    frame.render_stateful_widget(List::new(rows), scroll_area.body, &mut state);
+    if let Some(track) = scroll_area.track {
+        render_scrollbar(
+            frame,
+            viewport.metrics(),
+            track,
+            p.surface_dim,
+            p.overlay0,
+            "▐",
+        );
+    }
 }
 
 pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -1637,6 +2220,60 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(!text.contains("↵ save"));
         assert!(!text.contains("↵ apply"));
+    }
+
+    #[test]
+    fn narrow_client_settings_tabs_render_at_their_hit_areas() {
+        let app = AppState::test_new();
+        let mut client_view = crate::app::ClientViewState::from_default_client_state(&app);
+        client_view.settings.section = SettingsSection::Agents;
+        let row = Rect::new(3, 4, 30, 1);
+        let backend = TestBackend::new(40, 10);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        terminal
+            .draw(|frame| render_settings_tabs_for_view(&client_view, frame, row, &app.palette))
+            .expect("render client settings tabs");
+
+        let hit_areas = settings_tab_hit_areas_for_view(&client_view, row);
+        assert_eq!(
+            hit_areas
+                .iter()
+                .map(|(section, _)| *section)
+                .collect::<Vec<_>>(),
+            vec![SettingsSection::PaneLabels, SettingsSection::Agents]
+        );
+        for (section, rect) in &hit_areas {
+            assert_eq!(
+                terminal.backend().buffer()[(rect.x + 1, row.y)].symbol(),
+                &settings_tab_text_for(&client_view.settings, *section)[..1],
+                "tab {section:?} is not rendered at its hit area"
+            );
+        }
+
+        assert_eq!(
+            settings_tab_chevron_at_for_view(&client_view, row, row.x),
+            Some(SettingsSection::Sound)
+        );
+        let right_chevron_x = hit_areas
+            .last()
+            .map(|(_, rect)| rect.x + rect.width)
+            .expect("visible settings tab");
+        assert_eq!(
+            settings_tab_chevron_at_for_view(&client_view, row, right_chevron_x),
+            Some(SettingsSection::Integrations)
+        );
+
+        let tab_text = (row.x..row.x + row.width)
+            .map(|x| terminal.backend().buffer()[(x, row.y)].symbol())
+            .collect::<String>();
+        assert!(tab_text.contains("behavior"));
+        assert!(tab_text.contains("agents"));
+        assert!(!tab_text.contains("appearance"));
+        assert!(!tab_text.contains("notifications"));
+        assert!(!tab_text.contains("toasts"));
+        assert!(!tab_text.contains("advanced"));
+        assert!(!tab_text.contains("integrations"));
     }
 
     #[test]

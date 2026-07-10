@@ -1,0 +1,33 @@
+id: rust-client-render-no-generic-overlay-calls
+language: rust
+severity: error
+message: Client-view render must not call generic overlay or sidebar helpers; use explicit *_for_view helpers.
+rule:
+  any:
+    - pattern: render_sidebar_collapsed($$$ARGS)
+    - pattern: render_release_notes_overlay($$$ARGS)
+    - pattern: render_product_announcement_overlay($$$ARGS)
+    - pattern: render_navigate_overlay($$$ARGS)
+    - pattern: render_prefix_overlay($$$ARGS)
+    - pattern: render_copy_mode_overlay($$$ARGS)
+    - pattern: render_resize_overlay($$$ARGS)
+    - pattern: render_confirm_close_overlay($$$ARGS)
+    - pattern: render_confirm_delete_group_overlay($$$ARGS)
+    - pattern: render_context_menu($$$ARGS)
+    - pattern: render_settings_overlay($$$ARGS)
+    - pattern: render_rename_overlay($$$ARGS)
+    - pattern: render_global_launcher_menu($$$ARGS)
+    - pattern: render_group_menu($$$ARGS)
+    - pattern: render_agent_menu($$$ARGS)
+    - pattern: render_keybind_help_overlay($$$ARGS)
+    - pattern: render_navigator_overlay($$$ARGS)
+    - pattern: render_command_palette_overlay($$$ARGS)
+    - pattern: render_agent_profile_picker_overlay($$$ARGS)
+    - pattern: render_git_repo_picker_overlay($$$ARGS)
+  inside:
+    kind: function_item
+    has:
+      field: name
+      kind: identifier
+      regex: '^render_with_runtime_registry_for_view$'
+    stopBy: end

@@ -1,0 +1,32 @@
+id: rust-client-render-helper-no-generic-state
+language: rust
+severity: error
+message: Client-view render helpers must not delegate to generic renderers that read AppState view state.
+rule:
+  any:
+    - all:
+        - kind: call_expression
+        - has:
+            field: function
+            kind: identifier
+            regex: '^render_empty$'
+        - inside:
+            kind: function_item
+            has:
+              field: name
+              kind: identifier
+              regex: '^render_panes_for_view$'
+            stopBy: end
+    - all:
+        - kind: call_expression
+        - has:
+            field: function
+            kind: identifier
+            regex: '^render_collapsed_agent_panel$'
+        - inside:
+            kind: function_item
+            has:
+              field: name
+              kind: identifier
+              regex: '^render_right_sidebar_for_view$'
+            stopBy: end

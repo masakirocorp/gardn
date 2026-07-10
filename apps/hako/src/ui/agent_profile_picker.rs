@@ -8,9 +8,10 @@ use ratatui::{
 
 use crate::app::{
     agent_profile_picker::{
-        agent_profile_picker_filtered_entries, agent_profile_picker_tab_label,
-        AgentProfilePickerEntry, AGENT_PROFILE_PICKER_TABS,
+        agent_profile_picker_filtered_entries, agent_profile_picker_filtered_entries_for_picker,
+        agent_profile_picker_tab_label, AgentProfilePickerEntry, AGENT_PROFILE_PICKER_TABS,
     },
+    view_state::ClientViewState,
     AppState,
 };
 
@@ -145,20 +146,47 @@ fn agent_profile_picker_content_rows(inner: Rect, hint_rows: u16) -> [Rect; 14] 
     .areas::<14>(inner)
 }
 
-fn agent_profile_picker_palette(app: &AppState) -> crate::app::state::Palette {
-    app.palette_for_workspace(app.agent_profile_picker.ws_idx)
+pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Frame) {
+    let entries = agent_profile_picker_filtered_entries(app);
+    render_agent_profile_picker_overlay_from(
+        app,
+        frame,
+        app.screen_rect(),
+        &app.agent_profile_picker,
+        entries,
+    );
 }
 
-pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Frame) {
-    super::dim_background(frame, frame.area());
+pub(super) fn render_agent_profile_picker_overlay_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    frame: &mut Frame,
+) {
+    let entries = agent_profile_picker_filtered_entries_for_picker(app, &view.agent_profile_picker);
+    render_agent_profile_picker_overlay_from(
+        app,
+        frame,
+        view.screen_rect(),
+        &view.agent_profile_picker,
+        entries,
+    );
+}
 
-    let palette = agent_profile_picker_palette(app);
-    let screen = app.screen_rect();
+fn render_agent_profile_picker_overlay_from(
+    app: &AppState,
+    frame: &mut Frame,
+    screen: Rect,
+    picker: &crate::app::state::AgentProfilePickerState,
+    entries: Vec<AgentProfilePickerEntry>,
+) {
+    super::dim_background(frame, screen);
+
     let area = if screen.width >= 4 && screen.height >= 4 {
         screen
     } else {
         frame.area()
     };
+    let palette = app.palette_for_workspace(picker.ws_idx);
     let Some(frame_areas) = render_modal_frame(
         frame,
         area,
@@ -183,9 +211,9 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
 
     let hint_rows = agent_profile_picker_hint_rows(inner.width);
     let rows = agent_profile_picker_content_rows(inner, hint_rows);
-    render_agent_profile_picker_filters(app, frame, rows[2], &palette);
+    render_agent_profile_picker_filters_for_picker(picker, frame, rows[2], &palette);
     render_modal_divider(frame, rows[3], &palette);
-    render_agent_profile_picker_group_line(app, frame, rows[4], &palette);
+    render_agent_profile_picker_group_line_for_picker(app, picker, frame, rows[4], &palette);
     render_modal_subtitle(
         frame,
         rows[5],
@@ -202,7 +230,7 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
     );
 
     let input = Rect::new(rows[8].x, rows[8].y, rows[8].width, 1);
-    render_modal_text_input(frame, input, &app.agent_profile_picker.query, &palette);
+    render_modal_text_input(frame, input, &picker.query, &palette);
 
     let (start_rect, _) = agent_profile_picker_button_rects(inner);
     render_modal_hint_lines(frame, rows[12], &palette, AGENT_PROFILE_PICKER_HINTS, 2);
@@ -215,7 +243,6 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
         primary_action_style(&palette),
     );
 
-    let entries = agent_profile_picker_filtered_entries(app);
     if entries.is_empty() {
         frame.render_widget(
             Paragraph::new(" no agent profiles").style(Style::default().fg(palette.overlay1)),
@@ -224,16 +251,10 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
         return;
     }
 
-    let selected = app
-        .agent_profile_picker
-        .selected
-        .min(entries.len().saturating_sub(1));
-    let picker_rows = agent_profile_picker_rows(app, &entries);
-    let Some(list) = agent_profile_picker_list_geometry(
-        area,
-        picker_rows.len(),
-        app.agent_profile_picker.scroll,
-    ) else {
+    let selected = picker.selected.min(entries.len().saturating_sub(1));
+    let picker_rows = agent_profile_picker_rows_for_picker(app, picker, &entries);
+    let Some(list) = agent_profile_picker_list_geometry(area, picker_rows.len(), picker.scroll)
+    else {
         return;
     };
     let visible_range = list.visible_range();
@@ -301,8 +322,8 @@ pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Fr
     }
 }
 
-fn render_agent_profile_picker_filters(
-    app: &AppState,
+fn render_agent_profile_picker_filters_for_picker(
+    picker: &crate::app::state::AgentProfilePickerState,
     frame: &mut Frame,
     row: Rect,
     p: &crate::app::state::Palette,
@@ -319,7 +340,7 @@ fn render_agent_profile_picker_filters(
         row.height,
     );
 
-    let (start, end) = agent_profile_picker_visible_tab_range(app, chip_row.width);
+    let (start, end) = agent_profile_picker_visible_tab_range_for_picker(picker, chip_row.width);
     let mut spans = Vec::new();
 
     if start > 0 {
@@ -334,7 +355,7 @@ fn render_agent_profile_picker_filters(
         if visible_idx > 0 {
             spans.push(Span::raw(" "));
         }
-        let selected = tab == app.agent_profile_picker.kind_filter;
+        let selected = tab == picker.kind_filter;
         let style = if selected {
             Style::default()
                 .fg(panel_contrast_fg(p))
@@ -355,19 +376,39 @@ fn render_agent_profile_picker_filters(
     frame.render_widget(Paragraph::new(Line::from(spans)), chip_row);
 }
 
-fn agent_profile_picker_group_idx(app: &AppState) -> Option<usize> {
+fn agent_profile_picker_visible_tab_range_for_picker(
+    picker: &crate::app::state::AgentProfilePickerState,
+    row_width: u16,
+) -> (usize, usize) {
+    let selected = AGENT_PROFILE_PICKER_TABS
+        .iter()
+        .position(|tab| *tab == picker.kind_filter)
+        .unwrap_or(0);
+    super::modal_tabs::visible_tab_range(
+        AGENT_PROFILE_PICKER_TABS.len(),
+        selected,
+        row_width,
+        |idx| agent_profile_picker_tab_width(AGENT_PROFILE_PICKER_TABS[idx]),
+    )
+}
+
+fn agent_profile_picker_group_idx_for_picker(
+    app: &AppState,
+    picker: &crate::app::state::AgentProfilePickerState,
+) -> Option<usize> {
     app.workspaces
-        .get(app.agent_profile_picker.ws_idx)
+        .get(picker.ws_idx)
         .and_then(|workspace| app.group_index_by_id(&workspace.group_id))
 }
 
-fn render_agent_profile_picker_group_line(
+fn render_agent_profile_picker_group_line_for_picker(
     app: &AppState,
+    picker: &crate::app::state::AgentProfilePickerState,
     frame: &mut Frame,
     area: Rect,
     palette: &crate::app::state::Palette,
 ) {
-    let (icon, name, color) = agent_profile_picker_group_idx(app)
+    let (icon, name, color) = agent_profile_picker_group_idx_for_picker(app, picker)
         .and_then(|group_idx| {
             app.groups.get(group_idx).map(|group| {
                 (
@@ -402,13 +443,14 @@ enum AgentProfilePickerRow<'a> {
     Entry(usize, &'a AgentProfilePickerEntry, Option<usize>, bool),
 }
 
-fn agent_profile_picker_rows<'a>(
+fn agent_profile_picker_rows_for_picker<'a>(
     app: &AppState,
+    picker: &crate::app::state::AgentProfilePickerState,
     entries: &'a [AgentProfilePickerEntry],
 ) -> Vec<AgentProfilePickerRow<'a>> {
     let mut rows = Vec::new();
     let mut last_section = None;
-    let default_profile_id = agent_profile_picker_group_idx(app)
+    let default_profile_id = agent_profile_picker_group_idx_for_picker(app, picker)
         .and_then(|group_idx| app.groups.get(group_idx))
         .and_then(|group| group.default_agent_profile_id.as_deref());
     let mut favorite_shortcut = 1;

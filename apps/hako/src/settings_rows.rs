@@ -1,7 +1,13 @@
 use std::borrow::Cow;
 
 use crate::{
-    app::state::{normalize_theme_name, theme_names_for_appearance, AppState, SettingsSection},
+    app::{
+        state::{
+            normalize_theme_name, theme_names_for_appearance, AppState, SettingsSection,
+            SettingsState,
+        },
+        ClientViewState,
+    },
     config::{NewTerminalCwdConfig, TerminalAccent, ThemeMode, ToastDelivery},
     terminal_theme::ThemeAppearance,
 };
@@ -108,19 +114,38 @@ pub(crate) fn rows_for_section(
     app: &AppState,
     section: SettingsSection,
 ) -> Option<Vec<SettingsListRow>> {
+    rows_for_section_with_settings(app, &app.settings, section)
+}
+
+fn rows_for_section_with_settings(
+    app: &AppState,
+    settings: &SettingsState,
+    section: SettingsSection,
+) -> Option<Vec<SettingsListRow>> {
     match section {
-        SettingsSection::Theme => Some(appearance_rows(app)),
-        SettingsSection::Layout => Some(layout_rows(app)),
-        SettingsSection::Sound => Some(notification_rows(app)),
-        SettingsSection::Toast => Some(toast_rows(app)),
-        SettingsSection::PaneLabels => Some(behavior_rows(app)),
-        SettingsSection::Experiments => Some(experiment_rows(app)),
-        SettingsSection::Agents => Some(agent_profile_rows(app)),
+        SettingsSection::Theme => Some(appearance_rows(app, settings)),
+        SettingsSection::Layout => Some(layout_rows(app, settings)),
+        SettingsSection::Sound => Some(notification_rows(app, settings)),
+        SettingsSection::Toast => Some(toast_rows(app, settings)),
+        SettingsSection::PaneLabels => Some(behavior_rows(app, settings)),
+        SettingsSection::Experiments => Some(experiment_rows(app, settings)),
+        SettingsSection::Agents => Some(agent_profile_rows(app, settings)),
         SettingsSection::Integrations => Some(integration_rows(app)),
-        SettingsSection::GroupGeneral => Some(group_general_rows(app)),
-        SettingsSection::GroupProfiles => Some(group_profile_rows(app)),
-        SettingsSection::WorkspaceGeneral => Some(workspace_general_rows(app)),
+        SettingsSection::GroupGeneral => Some(group_general_rows(app, settings)),
+        SettingsSection::GroupProfiles => Some(group_profile_rows(app, settings)),
+        SettingsSection::WorkspaceGeneral => Some(workspace_general_rows(app, settings)),
     }
+}
+
+/// Builds settings rows for the requesting client's selected section.
+///
+/// Shared domain values remain derived from `AppState`; client-local drafts,
+/// selection, and scrolling are consumed from the client's settings state.
+pub(crate) fn rows_for_section_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+) -> Option<Vec<SettingsListRow>> {
+    rows_for_section_with_settings(app, &view.settings, view.settings.section)
 }
 
 pub(crate) fn selected_visual_row(rows: &[SettingsListRow], selected: usize) -> Option<usize> {
@@ -195,20 +220,23 @@ pub(crate) fn option_count(rows: &[SettingsListRow]) -> usize {
         .count()
 }
 
-fn theme_settings_choices_group_accent(app: &AppState) -> Option<TerminalAccent> {
-    if let Some(pending) = app.settings.pending_group_accent_choice {
+fn theme_settings_choices_group_accent(
+    app: &AppState,
+    settings: &SettingsState,
+) -> Option<TerminalAccent> {
+    if let Some(pending) = settings.pending_group_accent_choice {
         return pending;
     }
 
-    app.settings
+    settings
         .group_settings_target
         .and_then(|group_idx| app.groups.get(group_idx))
         .and_then(|group| group.accent)
 }
 
-fn theme_rows(app: &AppState) -> Vec<SettingsListRow> {
-    if app.settings.group_settings_target.is_some() {
-        let active = theme_settings_choices_group_accent(app);
+fn theme_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    if settings.group_settings_target.is_some() {
+        let active = theme_settings_choices_group_accent(app, settings);
         let mut rows = Vec::new();
         rows.push(SettingsListRow::Header("accent"));
         rows.push(choice(0, "inherit", active.is_none()));
@@ -218,17 +246,12 @@ fn theme_rows(app: &AppState) -> Vec<SettingsListRow> {
         return rows;
     }
 
-    let mode = app
-        .settings
-        .pending_theme_mode
-        .unwrap_or(app.global_theme_mode);
-    let pending_light_theme = app
-        .settings
+    let mode = settings.pending_theme_mode.unwrap_or(app.global_theme_mode);
+    let pending_light_theme = settings
         .pending_light_theme_name
         .as_deref()
         .unwrap_or(&app.global_light_theme_name);
-    let pending_dark_theme = app
-        .settings
+    let pending_dark_theme = settings
         .pending_dark_theme_name
         .as_deref()
         .unwrap_or(&app.global_dark_theme_name);
@@ -245,8 +268,7 @@ fn theme_rows(app: &AppState) -> Vec<SettingsListRow> {
     if show_terminal_accent {
         rows.push(SettingsListRow::Spacer);
         rows.push(SettingsListRow::Header("light accent"));
-        let pending_light_accent = app
-            .settings
+        let pending_light_accent = settings
             .pending_terminal_light_accent
             .unwrap_or(app.global_terminal_light_accent);
         for (offset, accent) in TerminalAccent::ALL.iter().copied().enumerate() {
@@ -259,8 +281,7 @@ fn theme_rows(app: &AppState) -> Vec<SettingsListRow> {
 
         rows.push(SettingsListRow::Spacer);
         rows.push(SettingsListRow::Header("dark accent"));
-        let pending_dark_accent = app
-            .settings
+        let pending_dark_accent = settings
             .pending_terminal_dark_accent
             .unwrap_or(app.global_terminal_dark_accent);
         let dark_base = 2 + TerminalAccent::ALL.len();
@@ -352,24 +373,22 @@ fn theme_rows(app: &AppState) -> Vec<SettingsListRow> {
     rows
 }
 
-fn group_general_rows(app: &AppState) -> Vec<SettingsListRow> {
-    let group_name = app
-        .settings
+fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    let group_name = settings
         .pending_group_name
         .clone()
         .or_else(|| {
-            app.settings
+            settings
                 .group_settings_target
                 .and_then(|group_idx| app.groups.get(group_idx))
                 .map(|group| group.name.clone())
         })
         .unwrap_or_else(|| "group".to_string());
-    let default_directory = app
-        .settings
+    let default_directory = settings
         .pending_group_default_directory
         .clone()
         .or_else(|| {
-            app.settings
+            settings
                 .group_settings_target
                 .and_then(|group_idx| app.groups.get(group_idx))
                 .and_then(|group| {
@@ -404,19 +423,16 @@ fn group_general_rows(app: &AppState) -> Vec<SettingsListRow> {
     ]
 }
 
-fn workspace_general_rows(app: &AppState) -> Vec<SettingsListRow> {
-    let workspace = app
-        .settings
+fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    let workspace = settings
         .workspace_settings_target
         .and_then(|ws_idx| app.workspaces.get(ws_idx));
-    let name = app
-        .settings
+    let name = settings
         .pending_workspace_name
         .clone()
         .or_else(|| workspace.map(|workspace| workspace.display_name()))
         .unwrap_or_else(|| "space".to_string());
-    let default_cwd = app
-        .settings
+    let default_cwd = settings
         .pending_workspace_default_cwd
         .clone()
         .or_else(|| workspace.map(|workspace| workspace.default_cwd.display().to_string()))
@@ -437,10 +453,10 @@ fn workspace_general_rows(app: &AppState) -> Vec<SettingsListRow> {
     ]
 }
 
-fn agent_profile_editor_open(app: &AppState) -> bool {
-    app.settings.pending_agent_profile_id.is_some()
-        || app.settings.pending_agent_profile_name.is_some()
-        || app.settings.pending_agent_profile_command.is_some()
+fn agent_profile_editor_open(settings: &SettingsState) -> bool {
+    settings.pending_agent_profile_id.is_some()
+        || settings.pending_agent_profile_name.is_some()
+        || settings.pending_agent_profile_command.is_some()
 }
 
 fn agent_profile_detail(profile: &crate::agent_profiles::AgentProfile) -> String {
@@ -480,30 +496,27 @@ fn agent_profile_badge(
     }
 }
 
-fn agent_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
-    if !agent_profile_editor_open(app) {
+fn agent_profile_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    if !agent_profile_editor_open(settings) {
         return agent_profile_browse_rows(app);
     }
 
     let mut rows = Vec::new();
-    let name = app
-        .settings
+    let name = settings
         .pending_agent_profile_name
         .clone()
         .unwrap_or_default();
-    let command = app
-        .settings
+    let command = settings
         .pending_agent_profile_command
         .clone()
         .unwrap_or_default();
-    let mut kind = app
-        .settings
+    let mut kind = settings
         .pending_agent_profile_kind
         .unwrap_or_else(|| app.default_agent_profile_kind_choice());
     if !app.agent_profile_kind_available(kind) {
         kind = crate::agent_profiles::AgentKind::Custom;
     }
-    let editing = app.settings.pending_agent_profile_id.is_some();
+    let editing = settings.pending_agent_profile_id.is_some();
 
     rows.push(SettingsListRow::Header("1. name"));
     rows.push(SettingsListRow::Caption("label shown in menus".into()));
@@ -639,9 +652,8 @@ fn profile_visible_in_group_settings(
             || crate::integration::agent_profile_integration_warning(profile).is_some())
 }
 
-fn group_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
-    let group = app
-        .settings
+fn group_profile_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    let group = settings
         .group_settings_target
         .and_then(|idx| app.groups.get(idx));
     let favorites = group
@@ -695,15 +707,15 @@ fn group_profile_rows(app: &AppState) -> Vec<SettingsListRow> {
     rows
 }
 
-fn appearance_rows(app: &AppState) -> Vec<SettingsListRow> {
-    if app.settings.group_settings_target.is_some() {
-        return theme_rows(app);
+fn appearance_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    if settings.group_settings_target.is_some() {
+        return theme_rows(app, settings);
     }
 
-    let mut rows = theme_rows(app);
+    let mut rows = theme_rows(app, settings);
     let layout_base = option_count(&rows);
     rows.push(SettingsListRow::Spacer);
-    rows.extend(layout_rows_with_base(app, layout_base));
+    rows.extend(layout_rows_with_base(app, settings, layout_base));
     rows.push(SettingsListRow::Spacer);
     rows.extend(setting_group(
         "panes",
@@ -711,7 +723,7 @@ fn appearance_rows(app: &AppState) -> Vec<SettingsListRow> {
             layout_base + 4,
             "agent border labels",
             "show detected agent names in split pane borders",
-            app.settings
+            settings
                 .pending_agent_border_labels
                 .unwrap_or_else(|| app.agent_border_labels_enabled()),
         )],
@@ -719,25 +731,25 @@ fn appearance_rows(app: &AppState) -> Vec<SettingsListRow> {
     rows
 }
 
-fn layout_rows(app: &AppState) -> Vec<SettingsListRow> {
-    layout_rows_with_base(app, 0)
+fn layout_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    layout_rows_with_base(app, settings, 0)
 }
 
-fn layout_rows_with_base(app: &AppState, base: usize) -> Vec<SettingsListRow> {
-    let width = app
-        .settings
+fn layout_rows_with_base(
+    app: &AppState,
+    settings: &SettingsState,
+    base: usize,
+) -> Vec<SettingsListRow> {
+    let width = settings
         .pending_sidebar_width
         .unwrap_or(app.default_sidebar_width);
-    let min = app
-        .settings
+    let min = settings
         .pending_sidebar_min_width
         .unwrap_or(app.sidebar_min_width);
-    let max = app
-        .settings
+    let max = settings
         .pending_sidebar_max_width
         .unwrap_or(app.sidebar_max_width);
-    let arrangement = app
-        .settings
+    let arrangement = settings
         .pending_sidebar_arrangement
         .unwrap_or(app.sidebar_arrangement);
     setting_group(
@@ -771,21 +783,20 @@ fn layout_rows_with_base(app: &AppState, base: usize) -> Vec<SettingsListRow> {
     )
 }
 
-fn behavior_rows(app: &AppState) -> Vec<SettingsListRow> {
+fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
     let cwd_label = new_terminal_cwd_label(
-        &app.settings
+        &settings
             .pending_new_terminal_cwd
             .clone()
             .unwrap_or_else(|| app.new_terminal_cwd.clone()),
     );
     let scroll_label = format!(
         "{} lines per wheel notch",
-        app.settings
+        settings
             .pending_mouse_scroll_lines
             .unwrap_or(app.mouse_scroll_lines)
     );
-    let worktree_directory = app
-        .settings
+    let worktree_directory = settings
         .pending_worktree_directory
         .clone()
         .unwrap_or_else(|| app.worktree_directory.display().to_string());
@@ -797,7 +808,7 @@ fn behavior_rows(app: &AppState) -> Vec<SettingsListRow> {
                 0,
                 "confirm before closing workspaces",
                 "ask before closing a workspace",
-                app.settings
+                settings
                     .pending_confirm_close
                     .unwrap_or_else(|| app.confirm_close_enabled()),
             ),
@@ -805,7 +816,7 @@ fn behavior_rows(app: &AppState) -> Vec<SettingsListRow> {
                 1,
                 "name new tabs",
                 "ask for a tab name before creating a new tab",
-                app.settings
+                settings
                     .pending_prompt_new_tab_name
                     .unwrap_or_else(|| app.prompt_new_tab_name_enabled()),
             ),
@@ -838,25 +849,25 @@ fn behavior_rows(app: &AppState) -> Vec<SettingsListRow> {
     rows
 }
 
-fn experiment_rows(app: &AppState) -> Vec<SettingsListRow> {
+fn experiment_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
     setting_group(
         "input",
         [option(
             0,
             "switch to ascii input source in prefix (macOS)",
             "temporarily use an ASCII-capable layout for prefix commands",
-            app.switch_ascii_input_source_in_prefix_enabled(),
+            settings
+                .pending_switch_ascii_input_source_in_prefix
+                .unwrap_or_else(|| app.switch_ascii_input_source_in_prefix_enabled()),
         )],
     )
 }
 
-fn notification_rows(app: &AppState) -> Vec<SettingsListRow> {
-    let sound_enabled = app
-        .settings
+fn notification_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    let sound_enabled = settings
         .pending_sound_enabled
         .unwrap_or_else(|| app.sound_enabled());
-    let toast_delivery = app
-        .settings
+    let toast_delivery = settings
         .pending_toast_delivery
         .unwrap_or_else(|| app.toast_delivery());
     let mut rows = setting_group(
@@ -937,9 +948,8 @@ fn toast_delivery_label(delivery: ToastDelivery) -> &'static str {
     }
 }
 
-fn toast_rows(app: &AppState) -> Vec<SettingsListRow> {
-    let current = app
-        .settings
+fn toast_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    let current = settings
         .pending_toast_delivery
         .unwrap_or_else(|| app.toast_delivery());
     setting_group(
@@ -1287,9 +1297,33 @@ mod tests {
     }
 
     #[test]
+    fn client_rows_use_the_client_pending_sidebar_width() {
+        let mut app = AppState::test_new();
+        app.settings.pending_sidebar_width = Some(22);
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.settings.section = SettingsSection::Layout;
+        view.settings.pending_sidebar_width = Some(77);
+
+        let rows = rows_for_section_for_view(&app, &view).expect("layout rows");
+        let width = rows
+            .iter()
+            .find_map(|row| match row {
+                SettingsListRow::Value { title, value, .. }
+                    if title.as_ref() == "default sidebar width" =>
+                {
+                    Some(value.as_ref())
+                }
+                _ => None,
+            })
+            .expect("default sidebar width row");
+
+        assert_eq!(width, "77 cols");
+    }
+
+    #[test]
     fn appearance_rows_keep_blank_line_between_sidebar_and_panes() {
         let app = AppState::test_new();
-        let rows = appearance_rows(&app);
+        let rows = appearance_rows(&app, &app.settings);
         let arrangement = rows
             .iter()
             .position(|row| {

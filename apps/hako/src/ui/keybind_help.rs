@@ -13,7 +13,7 @@ use super::widgets::{
     modal_scroll_area, modal_scroll_hint_line_count, modal_stack_areas, render_modal_header_bar,
     render_modal_scroll_hints, render_modal_shell, render_modal_subtitle,
 };
-use crate::app::AppState;
+use crate::app::{view_state::ClientViewState, AppState};
 
 pub(super) type HelpEntry = (String, Cow<'static, str>);
 pub(super) type HelpGroup = (&'static str, Vec<HelpEntry>);
@@ -241,15 +241,22 @@ fn keybind_help_height(area: Rect) -> u16 {
 }
 
 pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
-    super::dim_background(frame, frame.area());
+    render_keybind_help_overlay_from(app, frame, frame.area(), app.keybind_help.scroll);
+}
 
-    let Some(inner) = render_modal_shell(
-        frame,
-        frame.area(),
-        76,
-        keybind_help_height(frame.area()),
-        &app.palette,
-    ) else {
+pub(super) fn render_keybind_help_overlay_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    frame: &mut Frame,
+) {
+    render_keybind_help_overlay_from(app, frame, view.screen_rect(), view.keybind_help.scroll);
+}
+
+fn render_keybind_help_overlay_from(app: &AppState, frame: &mut Frame, area: Rect, scroll: u16) {
+    super::dim_background(frame, area);
+
+    let Some(inner) = render_modal_shell(frame, area, 76, keybind_help_height(area), &app.palette)
+    else {
         return;
     };
     if inner.height < 6 || inner.width < 20 {
@@ -270,21 +277,13 @@ pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
 
     let body_area = stack.content;
     let viewport_rows = body_area.height.max(1) as usize;
-    let metrics = crate::ui::modal_scroll_metrics(
-        app.keybind_help_max_scroll() as usize + viewport_rows,
-        viewport_rows,
-        app.keybind_help.scroll as usize,
-    );
+    let lines = keybind_help_lines(app);
+    let metrics = crate::ui::modal_scroll_metrics(lines.len(), viewport_rows, scroll as usize);
     let scroll_area = modal_scroll_area(body_area, metrics);
 
-    let body = Paragraph::new(
-        keybind_help_lines(app)
-            .into_iter()
-            .map(|(_, line)| line)
-            .collect::<Vec<_>>(),
-    )
-    .wrap(Wrap { trim: false })
-    .scroll((app.keybind_help.scroll, 0));
+    let body = Paragraph::new(lines.into_iter().map(|(_, line)| line).collect::<Vec<_>>())
+        .wrap(Wrap { trim: false })
+        .scroll((scroll, 0));
     frame.render_widget(body, scroll_area.body);
     if let Some(track) = scroll_area.track {
         render_scrollbar(

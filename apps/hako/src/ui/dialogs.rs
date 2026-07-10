@@ -116,6 +116,222 @@ fn rename_palette(app: &AppState) -> crate::app::state::Palette {
     }
 }
 
+pub(super) fn render_rename_overlay_for_view(
+    app: &AppState,
+    client_view: &crate::app::ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    render_rename_overlay_with_view_state(app, client_view, frame, area);
+}
+
+fn render_rename_overlay_with_view_state(
+    app: &AppState,
+    client_view: &crate::app::ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    // The shared data model owns workspace/group metadata and palettes; all modal
+    // state below is selected from the requesting client's view.
+    let title = match client_view.mode {
+        Mode::RenameWorkspace => "rename workspace",
+        Mode::RenameGroup if client_view.creating_new_group => "new group",
+        Mode::RenameGroup => "rename group",
+        Mode::RenameTab if client_view.creating_new_tab => "new tab",
+        Mode::RenameTab => "rename tab",
+        Mode::RenamePane => "rename pane",
+        Mode::EditWorktreeDirectory => "worktree directory",
+        _ => return,
+    };
+    let palette = match client_view.mode {
+        Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane => client_view
+            .active_workspace
+            .map(|workspace| app.palette_for_workspace(workspace))
+            .unwrap_or_else(|| app.palette.clone()),
+        Mode::RenameGroup if !client_view.creating_new_group => client_view
+            .rename_group_target
+            .map(|group| app.palette_for_group(group))
+            .unwrap_or_else(|| app.palette_for_group(client_view.active_group)),
+        _ => app.palette.clone(),
+    };
+    let (popup_w, popup_h) =
+        if matches!(client_view.mode, Mode::RenameGroup) && client_view.creating_new_group {
+            (64, 20)
+        } else if matches!(client_view.mode, Mode::RenameGroup) {
+            (56, 17)
+        } else {
+            (56, 7)
+        };
+    super::dim_background(frame, area);
+    let Some(inner) = render_modal_shell(frame, area, popup_w, popup_h, &palette) else {
+        return;
+    };
+    if inner.height < 4 {
+        return;
+    }
+    let rows = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(0),
+    ])
+    .areas::<3>(inner);
+    render_modal_header_bar(frame, rows[0], title, &palette, true);
+    if matches!(client_view.mode, Mode::RenameGroup) {
+        render_modal_divider(frame, rows[1], &palette);
+    }
+    if matches!(client_view.mode, Mode::RenameGroup) {
+        let section_description = if client_view.creating_new_group {
+            "name + icon + default directory"
+        } else {
+            "name + icon"
+        };
+        let group_left = if client_view.creating_new_group { 1 } else { 2 };
+        let field = |y| {
+            Rect::new(
+                inner.x + group_left,
+                inner.y + y,
+                inner.width.saturating_sub(group_left),
+                1,
+            )
+        };
+        render_modal_description(
+            frame,
+            Rect::new(inner.x, inner.y + 3, inner.width, 1),
+            "general",
+            Style::default().fg(palette.accent),
+        );
+        render_modal_description(
+            frame,
+            Rect::new(inner.x, inner.y + 4, inner.width, 1),
+            section_description,
+            Style::default().fg(palette.overlay0),
+        );
+        let name_selected = client_view.group_modal_selected_field == 0;
+        frame.render_widget(
+            Paragraph::new("name").style(if name_selected {
+                Style::default()
+                    .fg(palette.accent)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(palette.overlay0)
+            }),
+            field(6),
+        );
+        let name_rect = field(7);
+        if name_selected {
+            render_modal_text_input(frame, name_rect, &client_view.name_input, &palette);
+        } else {
+            frame.render_widget(
+                Paragraph::new(format!(" {}", client_view.name_input))
+                    .style(Style::default().fg(palette.text).bg(palette.surface0)),
+                name_rect,
+            );
+        }
+        let picker_open = client_view.group_icon_picker_open;
+        frame.render_widget(
+            Paragraph::new("icon").style(if picker_open {
+                Style::default()
+                    .fg(palette.accent)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(palette.overlay0)
+            }),
+            field(9),
+        );
+        let icon_rect = Rect::new(field(10).x, field(10).y, 3, 1);
+        frame.render_widget(
+            Paragraph::new(format!(" {} ", client_view.group_icon_input))
+                .style(if picker_open {
+                    Style::default()
+                        .fg(panel_contrast_fg(&palette))
+                        .bg(palette.accent)
+                } else {
+                    Style::default().fg(palette.text).bg(palette.surface0)
+                })
+                .alignment(Alignment::Center),
+            icon_rect,
+        );
+        if client_view.creating_new_group {
+            let directory_y = if picker_open { 15 } else { 12 };
+            let directory_selected = client_view.group_modal_selected_field == 1;
+            frame.render_widget(
+                Paragraph::new("default directory for new spaces").style(if directory_selected {
+                    Style::default()
+                        .fg(palette.accent)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(palette.overlay0)
+                }),
+                field(directory_y),
+            );
+            let directory_rect = field(if picker_open { 16 } else { 13 });
+            if directory_selected {
+                render_modal_text_input(
+                    frame,
+                    directory_rect,
+                    &client_view.group_default_directory_input,
+                    &palette,
+                );
+            } else {
+                frame.render_widget(
+                    Paragraph::new(format!(" {}", client_view.group_default_directory_input))
+                        .style(Style::default().fg(palette.text).bg(palette.surface0)),
+                    directory_rect,
+                );
+            }
+        }
+        if picker_open {
+            let start = Rect::new(field(11).x, inner.y + 11, field(11).width.min(24), 3);
+            for (index, icon) in crate::app::state::GROUP_ICONS.iter().enumerate() {
+                let col = (index % 5) as u16;
+                let row = (index / 5) as u16;
+                if row >= start.height {
+                    continue;
+                }
+                let rect = Rect::new(start.x + col * 4, start.y + row, 3, 1);
+                if rect.x >= start.x + start.width {
+                    continue;
+                }
+                let selected = client_view.group_icon_input == *icon;
+                frame.render_widget(
+                    Paragraph::new(format!(" {icon} "))
+                        .style(if selected {
+                            Style::default()
+                                .fg(panel_contrast_fg(&palette))
+                                .bg(palette.accent)
+                        } else {
+                            Style::default().fg(palette.text).bg(palette.surface0)
+                        })
+                        .alignment(Alignment::Center),
+                    rect,
+                );
+            }
+        }
+    } else {
+        render_modal_text_input(
+            frame,
+            Rect::new(rows[2].x, rows[2].y, rows[2].width, 1),
+            &client_view.name_input,
+            &palette,
+        );
+    }
+    let (save_rect, clear_rect, _) = rename_button_rects(inner);
+    render_action_button(
+        frame,
+        save_rect,
+        Some("↵"),
+        "save",
+        primary_action_style(&palette),
+    );
+    render_action_button(
+        frame,
+        clear_rect,
+        Some("^c"),
+        "clear",
+        secondary_action_style(&palette),
+    );
+}
+
 pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     super::dim_background(frame, area);
 
@@ -317,15 +533,29 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
     );
 }
 
-pub(super) fn render_confirm_close_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
+pub(super) fn render_confirm_close_overlay_for_view(
+    app: &AppState,
+    client_view: &crate::app::ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    render_confirm_close_overlay_with(app, client_view.selected_workspace, frame, area);
+}
+
+fn render_confirm_close_overlay_with(
+    app: &AppState,
+    selected_workspace: usize,
+    frame: &mut Frame,
+    area: Rect,
+) {
     let ws_name = app
         .workspaces
-        .get(app.selected)
+        .get(selected_workspace)
         .map(|ws| ws.display_name())
         .unwrap_or_else(|| "?".to_string());
     let pane_count = app
         .workspaces
-        .get(app.selected)
+        .get(selected_workspace)
         .map(|ws| ws.tabs.iter().map(|tab| tab.layout.pane_count()).sum())
         .unwrap_or(0);
 
@@ -341,7 +571,7 @@ pub(super) fn render_confirm_close_overlay(app: &AppState, frame: &mut Frame, ar
         return;
     };
 
-    let palette = app.palette_for_workspace(app.selected);
+    let palette = app.palette_for_workspace(selected_workspace);
     let warn = Style::default()
         .fg(palette.red)
         .add_modifier(Modifier::BOLD);
@@ -392,8 +622,31 @@ pub(super) fn render_confirm_close_overlay(app: &AppState, frame: &mut Frame, ar
     }
 }
 
-pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
-    let group_idx = app.confirm_delete_group.unwrap_or(app.active_group);
+pub(super) fn render_confirm_close_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
+    render_confirm_close_overlay_with(app, app.selected, frame, area);
+}
+pub(super) fn render_confirm_delete_group_overlay_for_view(
+    app: &AppState,
+    client_view: &crate::app::ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    render_confirm_delete_group_overlay_with(
+        app,
+        client_view
+            .confirm_delete_group
+            .unwrap_or(client_view.active_group),
+        frame,
+        area,
+    );
+}
+
+fn render_confirm_delete_group_overlay_with(
+    app: &AppState,
+    group_idx: usize,
+    frame: &mut Frame,
+    area: Rect,
+) {
     let group = app.groups.get(group_idx);
     let group_name = group.map(|group| group.name.as_str()).unwrap_or("?");
     let space_count = app
@@ -413,7 +666,6 @@ pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Fr
     };
 
     super::dim_background(frame, area);
-
     let Some(popup) = confirm_close_popup_rect(area) else {
         return;
     };
@@ -423,7 +675,6 @@ pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Fr
         .fg(palette.red)
         .add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(palette.overlay0);
-
     let title_line = Line::from(vec![Span::styled(" delete group?", warn)]);
     let detail_line = Line::from(vec![
         Span::styled(
@@ -438,7 +689,6 @@ pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Fr
     let Some(inner) = render_panel_shell(frame, popup, palette.red, palette.panel_bg) else {
         return;
     };
-
     if inner.height >= 3 {
         let rows = Layout::vertical([
             Constraint::Length(1),
@@ -446,10 +696,8 @@ pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Fr
             Constraint::Length(1),
         ])
         .areas::<3>(inner);
-
         frame.render_widget(Paragraph::new(title_line), rows[0]);
         frame.render_widget(Paragraph::new(detail_line), rows[1]);
-
         let (confirm_rect, cancel_rect) = confirm_close_button_rects(inner);
         render_action_button(
             frame,
@@ -466,6 +714,15 @@ pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Fr
             secondary_action_style(&palette),
         );
     }
+}
+
+pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
+    render_confirm_delete_group_overlay_with(
+        app,
+        app.confirm_delete_group.unwrap_or(app.active_group),
+        frame,
+        area,
+    );
 }
 
 pub(crate) fn confirm_close_popup_rect(area: Rect) -> Option<Rect> {

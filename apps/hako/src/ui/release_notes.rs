@@ -24,7 +24,25 @@ const PRODUCT_ANNOUNCEMENT_HINTS: &[(&str, &str)] =
     &[("scroll", "wheel ↑↓"), ("close", "esc / enter")];
 
 pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
-    let Some(notes) = &app.release_notes else {
+    render_release_notes_overlay_with(app, app.release_notes.as_ref(), frame, area);
+}
+
+pub(super) fn render_release_notes_overlay_for_view(
+    app: &AppState,
+    client_view: &crate::app::ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    render_release_notes_overlay_with(app, client_view.release_notes.as_ref(), frame, area);
+}
+
+fn render_release_notes_overlay_with(
+    app: &AppState,
+    notes: Option<&ReleaseNotesState>,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let Some(notes) = notes else {
         return;
     };
 
@@ -65,8 +83,16 @@ pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, ar
     let display_lines =
         release_notes_display_lines(notes, &app.update_install_command, &app.palette);
     let viewport_rows = notes_body.height.max(1) as usize;
+    let rows_for_width =
+        |width: u16| release_notes_wrapped_line_count(&display_lines, width.max(1));
+    let full_width = notes_body.width.max(1);
+    let wrap_width = if rows_for_width(full_width) > viewport_rows && full_width > 1 {
+        full_width - 1
+    } else {
+        full_width
+    };
     let metrics = crate::ui::modal_scroll_metrics(
-        app.release_notes_max_scroll() as usize + viewport_rows,
+        rows_for_width(wrap_width),
         viewport_rows,
         notes.scroll as usize,
     );
@@ -96,7 +122,30 @@ pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, ar
 }
 
 pub(super) fn render_product_announcement_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
-    let Some(announcement) = &app.product_announcement else {
+    render_product_announcement_overlay_with(app, app.product_announcement.as_ref(), frame, area);
+}
+
+pub(super) fn render_product_announcement_overlay_for_view(
+    app: &AppState,
+    client_view: &crate::app::ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    render_product_announcement_overlay_with(
+        app,
+        client_view.product_announcement.as_ref(),
+        frame,
+        area,
+    );
+}
+
+fn render_product_announcement_overlay_with(
+    app: &AppState,
+    announcement: Option<&ProductAnnouncementState>,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let Some(announcement) = announcement else {
         return;
     };
 
@@ -161,12 +210,21 @@ pub(super) fn render_product_announcement_overlay(app: &AppState, frame: &mut Fr
     );
 
     let body_rect = stack.content;
+    let viewport_rows = body_rect.height.max(1) as usize;
+    let display_lines = product_announcement_display_lines(announcement, &app.palette);
+    let rows_for_width =
+        |width: u16| release_notes_wrapped_line_count(&display_lines, width.max(1));
+    let full_width = body_rect.width.max(1);
+    let wrap_width = if rows_for_width(full_width) > viewport_rows && full_width > 1 {
+        full_width - 1
+    } else {
+        full_width
+    };
+    let max_scroll = rows_for_width(wrap_width).saturating_sub(viewport_rows);
     let metrics = crate::pane::ScrollMetrics {
-        offset_from_bottom: app
-            .product_announcement_max_scroll()
-            .saturating_sub(announcement.scroll) as usize,
-        max_offset_from_bottom: app.product_announcement_max_scroll() as usize,
-        viewport_rows: body_rect.height.max(1) as usize,
+        offset_from_bottom: max_scroll.saturating_sub(announcement.scroll as usize),
+        max_offset_from_bottom: max_scroll,
+        viewport_rows,
     };
     let track = release_notes_scrollbar_rect(body_rect, metrics);
     let text_area = track
@@ -181,7 +239,7 @@ pub(super) fn render_product_announcement_overlay(app: &AppState, frame: &mut Fr
         .unwrap_or(body_rect);
 
     let body = Paragraph::new(
-        product_announcement_display_lines(announcement, &app.palette)
+        display_lines
             .into_iter()
             .map(|(_, line)| line)
             .collect::<Vec<_>>(),

@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use super::widgets::{panel_contrast_fg, render_panel_shell};
-use crate::app::{state::ContextMenuState, AppState};
+use crate::app::{state::ContextMenuState, AppState, ClientViewState};
 
 fn count_suffix(text: &str) -> Option<(&str, &str)> {
     let start = text.rfind(" (")?;
@@ -766,6 +766,354 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
     }
 }
 
+fn active_workspace_accent_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+) -> ratatui::style::Color {
+    if !view.group_filter_enabled {
+        if let Some(group_idx) = view
+            .active_workspace
+            .and_then(|idx| app.workspaces.get(idx))
+            .and_then(|workspace| app.group_index_by_id(&workspace.group_id))
+        {
+            return app.group_accent_color(group_idx);
+        }
+    }
+    app.group_accent_color(view.active_group)
+}
+
+pub(super) fn render_prefix_overlay_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let accent = active_workspace_accent_for_view(app, view);
+    let key = Style::default().fg(accent).add_modifier(Modifier::BOLD);
+    let dim = Style::default().fg(app.palette.overlay0);
+    let mode_style = Style::default()
+        .fg(panel_contrast_fg(&app.palette))
+        .bg(accent)
+        .add_modifier(Modifier::BOLD);
+    let line = Line::from(vec![
+        Span::styled(" PREFIX ", mode_style),
+        Span::raw(" "),
+        Span::styled("esc", key),
+        Span::styled(" cancel  ", dim),
+        Span::styled(
+            crate::config::format_key_combo((app.prefix_code, app.prefix_mods)),
+            key,
+        ),
+        Span::styled(" send", dim),
+    ]);
+    let y = area.y + area.height.saturating_sub(1);
+    render_bottom_bar(
+        frame,
+        Rect::new(area.x, y, area.width, 1),
+        line,
+        app.palette.panel_bg,
+    );
+}
+
+pub(super) fn render_copy_mode_overlay_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let accent = active_workspace_accent_for_view(app, view);
+    let key = Style::default().fg(accent).add_modifier(Modifier::BOLD);
+    let dim = Style::default().fg(app.palette.overlay0);
+    let mode_style = Style::default()
+        .fg(panel_contrast_fg(&app.palette))
+        .bg(accent)
+        .add_modifier(Modifier::BOLD);
+    let select = if view.copy_mode.is_some_and(|mode| mode.selection.is_some()) {
+        "selecting"
+    } else {
+        "select"
+    };
+    let line = Line::from(vec![
+        Span::styled(" COPY ", mode_style),
+        Span::raw(" "),
+        Span::styled("h/j/k/l", key),
+        Span::styled(" move  ", dim),
+        Span::styled("v/space", key),
+        Span::styled(format!(" {select}  "), dim),
+        Span::styled("y/enter", key),
+        Span::styled(" copy  q/esc exit", dim),
+    ]);
+    let y = area.y + area.height.saturating_sub(1);
+    render_bottom_bar(
+        frame,
+        Rect::new(area.x, y, area.width, 1),
+        line,
+        app.palette.panel_bg,
+    );
+}
+
+pub(super) fn render_navigate_overlay_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let accent = active_workspace_accent_for_view(app, view);
+    let key = Style::default().fg(accent).add_modifier(Modifier::BOLD);
+    let dim = Style::default().fg(app.palette.overlay0);
+    let mode_style = Style::default()
+        .fg(panel_contrast_fg(&app.palette))
+        .bg(accent)
+        .add_modifier(Modifier::BOLD);
+    let line = Line::from(vec![
+        Span::styled(" navigate ", mode_style),
+        Span::raw(" "),
+        Span::styled("esc", key),
+        Span::styled(" back  ", dim),
+        Span::styled(
+            format!(
+                "{} / {}",
+                keybind_label(&app.keybinds.navigate.workspace_up),
+                keybind_label(&app.keybinds.navigate.workspace_down)
+            ),
+            key,
+        ),
+        Span::styled(" space  ↵ open  ⇥ pane", dim),
+    ]);
+    let y = area.y + area.height.saturating_sub(1);
+    render_bottom_bar(
+        frame,
+        Rect::new(area.x, y, area.width, 1),
+        line,
+        app.palette.panel_bg,
+    );
+    if app.update_available.is_some() {
+        let status_area = Rect::new(
+            area.x + area.width.saturating_sub(13),
+            y,
+            13.min(area.width),
+            1,
+        );
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                " update ready",
+                Style::default()
+                    .fg(app.palette.accent)
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .alignment(Alignment::Right),
+            status_area,
+        );
+    }
+}
+
+pub(super) fn render_resize_overlay_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let key = Style::default()
+        .fg(active_workspace_accent_for_view(app, view))
+        .add_modifier(Modifier::BOLD);
+    let dim = Style::default().fg(app.palette.overlay0);
+    let line = Line::from(vec![
+        Span::styled(
+            " resize ",
+            Style::default()
+                .fg(panel_contrast_fg(&app.palette))
+                .bg(app.palette.mauve)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
+        Span::styled("h/l", key),
+        Span::styled(" width  ", dim),
+        Span::styled("j/k", key),
+        Span::styled(" height  esc/↵ done", dim),
+    ]);
+    let y = area.y + area.height.saturating_sub(1);
+    render_bottom_bar(
+        frame,
+        Rect::new(area.x, y, area.width, 1),
+        line,
+        app.palette.panel_bg,
+    );
+}
+
+fn client_context_menu_rect(view: &ClientViewState, menu: &ContextMenuState) -> Rect {
+    let screen = view.screen_rect();
+    let max_width = menu
+        .items()
+        .iter()
+        .map(|item| item.len() as u16)
+        .max()
+        .unwrap_or(0);
+    let width = (max_width + 4).max(14).min(screen.width.max(1));
+    let height = (menu.items().len() as u16 + 2).min(screen.height.max(1));
+    Rect::new(
+        menu.x.min(screen.x + screen.width.saturating_sub(width)),
+        menu.y.min(screen.y + screen.height.saturating_sub(height)),
+        width,
+        height,
+    )
+}
+
+pub(super) fn render_context_menu_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    frame: &mut Frame,
+) {
+    let Some(menu) = &view.context_menu else {
+        return;
+    };
+    let palette = context_menu_palette(app, menu);
+    let Some(inner) = render_panel_shell(
+        frame,
+        client_context_menu_rect(view, menu),
+        palette.accent,
+        palette.panel_bg,
+    ) else {
+        return;
+    };
+    let selected = Style::default()
+        .bg(palette.accent)
+        .fg(panel_contrast_fg(&palette))
+        .add_modifier(Modifier::BOLD);
+    let text = Style::default().fg(palette.text);
+    let dim = Style::default().fg(palette.overlay0);
+    for (idx, item) in menu.items().iter().enumerate() {
+        if ContextMenuState::item_is_separator(item) {
+            render_menu_separator(frame, inner, idx, dim);
+        } else {
+            let header = ContextMenuState::item_is_section_header(item);
+            render_menu_row(
+                frame,
+                inner,
+                idx,
+                Line::from(if header {
+                    format!(" {item}")
+                } else {
+                    format!("  {item}")
+                }),
+                !header && idx == menu.list.highlighted,
+                selected,
+                if header { dim } else { text },
+            );
+        }
+    }
+}
+
+fn render_client_list_menu(
+    app: &AppState,
+    frame: &mut Frame,
+    rect: Rect,
+    labels: &[String],
+    highlighted: usize,
+) {
+    let Some(inner) = render_panel_shell(frame, rect, app.palette.accent, app.palette.panel_bg)
+    else {
+        return;
+    };
+    let selected = Style::default()
+        .fg(panel_contrast_fg(&app.palette))
+        .bg(app.palette.accent)
+        .add_modifier(Modifier::BOLD);
+    let text = Style::default().fg(app.palette.text);
+    let dim = Style::default().fg(app.palette.overlay0);
+    for (idx, label) in labels.iter().enumerate() {
+        if label == "---" {
+            render_menu_separator(frame, inner, idx, dim);
+        } else {
+            render_menu_row(
+                frame,
+                inner,
+                idx,
+                Line::from(format!(" {label}")),
+                idx == highlighted,
+                selected,
+                text,
+            );
+        }
+    }
+}
+
+pub(super) fn render_global_launcher_menu_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    frame: &mut Frame,
+) {
+    let rect = crate::app::client_global_menu_rect(app, view);
+    let Some(inner) = render_panel_shell(frame, rect, app.palette.accent, app.palette.panel_bg)
+    else {
+        return;
+    };
+    let selected_style = Style::default()
+        .fg(panel_contrast_fg(&app.palette))
+        .bg(app.palette.accent)
+        .add_modifier(Modifier::BOLD);
+    let text_style = Style::default().fg(app.palette.text);
+    for (idx, label) in app.global_menu_labels().iter().enumerate() {
+        let selected = idx == view.global_menu.highlighted;
+        let item_style = if selected { selected_style } else { text_style };
+        let badge_style = if selected {
+            selected_style
+        } else {
+            Style::default()
+                .fg(app.palette.accent)
+                .add_modifier(Modifier::BOLD)
+        };
+        let line = if app.global_menu_item_has_badge(label) {
+            let text = format!(" {label}");
+            let gap = inner.width.saturating_sub(text.chars().count() as u16 + 1) as usize;
+            Line::from(vec![
+                Span::styled(text, item_style),
+                Span::styled(" ".repeat(gap), item_style),
+                Span::styled("●", badge_style),
+            ])
+        } else {
+            Line::from(Span::styled(format!(" {label}"), item_style))
+        };
+        render_menu_row(
+            frame,
+            inner,
+            idx,
+            line,
+            selected,
+            selected_style,
+            item_style,
+        );
+    }
+}
+
+pub(super) fn render_group_menu_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    frame: &mut Frame,
+) {
+    let labels = crate::app::client_group_menu_labels(app, view);
+    render_client_list_menu(
+        app,
+        frame,
+        crate::app::client_group_menu_rect(app, view),
+        &labels,
+        view.group_menu.highlighted,
+    );
+}
+
+pub(super) fn render_agent_menu_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    frame: &mut Frame,
+) {
+    let labels = crate::app::client_agent_menu_labels(view);
+    render_client_list_menu(
+        app,
+        frame,
+        crate::app::client_agent_menu_rect(app, view),
+        &labels,
+        view.agent_menu.highlighted,
+    );
+}
 #[cfg(test)]
 mod tests {
     use super::*;

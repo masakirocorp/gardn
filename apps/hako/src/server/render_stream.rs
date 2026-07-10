@@ -703,6 +703,124 @@ mod tests {
         assert!(!state.sidebar_collapsed);
     }
 
+    #[test]
+    fn client_rename_modal_uses_the_invoking_clients_text_input() {
+        let mut state = AppState::test_new();
+        state.workspaces = vec![
+            Workspace::test_new("rename-first-space"),
+            Workspace::test_new("rename-second-space"),
+        ];
+        state.active = Some(0);
+        state.selected = 0;
+        state.mode = crate::app::Mode::RenameWorkspace;
+        state.name_input = "shared-rename-default".to_string();
+
+        let mut first_client = ClientViewState::from_default_client_state(&state);
+        first_client.name_input = "first-client-rename".to_string();
+        let mut second_client = ClientViewState::from_default_client_state(&state);
+        second_client.active_workspace = Some(1);
+        second_client.selected_workspace = 1;
+        second_client.name_input = "second-client-rename".to_string();
+
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let (first_buffer, _, _) = render_virtual_for_client_view(
+            &mut state,
+            &mut first_client,
+            &terminal_runtimes,
+            Rect::new(0, 0, 120, 40),
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        let (second_buffer, _, _) = render_virtual_for_client_view(
+            &mut state,
+            &mut second_client,
+            &terminal_runtimes,
+            Rect::new(0, 0, 120, 40),
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        let first_text = buffer_text(&first_buffer);
+        let second_text = buffer_text(&second_buffer);
+
+        assert!(
+            first_text.contains("first-client-rename"),
+            "first client should see its rename text input:\n{first_text}"
+        );
+        assert!(
+            !first_text.contains("shared-rename-default")
+                && !first_text.contains("second-client-rename"),
+            "first client must not see another client's or the shared rename text input:\n{first_text}"
+        );
+        assert!(
+            second_text.contains("second-client-rename"),
+            "second client should see its rename text input:\n{second_text}"
+        );
+        assert!(
+            !second_text.contains("shared-rename-default")
+                && !second_text.contains("first-client-rename"),
+            "second client must not see another client's or the shared rename text input:\n{second_text}"
+        );
+    }
+
+    #[test]
+    fn client_navigator_uses_the_invoking_clients_search_query() {
+        let mut state = AppState::test_new();
+        state.workspaces = vec![
+            Workspace::test_new("navigator-first-space"),
+            Workspace::test_new("navigator-second-space"),
+        ];
+        state.active = Some(0);
+        state.selected = 0;
+        state.mode = crate::app::Mode::Navigator;
+        state.navigator.query = "shared-navigator-default".to_string();
+
+        let mut first_client = ClientViewState::from_default_client_state(&state);
+        first_client.navigator.query = "first-client-navigator".to_string();
+        let mut second_client = ClientViewState::from_default_client_state(&state);
+        second_client.active_workspace = Some(1);
+        second_client.selected_workspace = 1;
+        second_client.navigator.query = "second-client-navigator".to_string();
+
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let (first_buffer, _, _) = render_virtual_for_client_view(
+            &mut state,
+            &mut first_client,
+            &terminal_runtimes,
+            Rect::new(0, 0, 120, 40),
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        let (second_buffer, _, _) = render_virtual_for_client_view(
+            &mut state,
+            &mut second_client,
+            &terminal_runtimes,
+            Rect::new(0, 0, 120, 40),
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        let first_text = buffer_text(&first_buffer);
+        let second_text = buffer_text(&second_buffer);
+
+        assert!(
+            first_text.contains("first-client-navigator"),
+            "first client should see its navigator search query:\n{first_text}"
+        );
+        assert!(
+            !first_text.contains("shared-navigator-default")
+                && !first_text.contains("second-client-navigator"),
+            "first client must not see another client's or the shared navigator query:\n{first_text}"
+        );
+        assert!(
+            second_text.contains("second-client-navigator"),
+            "second client should see its navigator search query:\n{second_text}"
+        );
+        assert!(
+            !second_text.contains("shared-navigator-default")
+                && !second_text.contains("first-client-navigator"),
+            "second client must not see another client's or the shared navigator query:\n{second_text}"
+        );
+    }
+
     #[tokio::test]
     async fn eng57_client_render_draws_copy_mode_cursor() {
         let mut state = AppState::test_new();

@@ -1313,6 +1313,38 @@ pub(crate) fn collapsed_workspace_row_entries(app: &AppState) -> Vec<CollapsedWo
     }
     entries
 }
+fn collapsed_workspace_row_entries_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+) -> Vec<CollapsedWorkspaceRowEntry> {
+    if view.group_filter_enabled {
+        return visible_workspace_indices_for_view(app, view)
+            .into_iter()
+            .enumerate()
+            .map(|(idx, ws_idx)| CollapsedWorkspaceRowEntry::Workspace {
+                ws_idx,
+                ordinal: idx + 1,
+            })
+            .collect();
+    }
+
+    let mut entries = Vec::new();
+    for (group_idx, group) in app.groups.iter().enumerate() {
+        entries.push(CollapsedWorkspaceRowEntry::GroupHeader { group_idx });
+        if workspace_group_collapsed_for_view(view, &group.id) {
+            continue;
+        }
+
+        let mut ordinal = 1;
+        for (ws_idx, ws) in app.workspaces.iter().enumerate() {
+            if ws.group_id == group.id {
+                entries.push(CollapsedWorkspaceRowEntry::Workspace { ws_idx, ordinal });
+                ordinal += 1;
+            }
+        }
+    }
+    entries
+}
 
 pub(crate) fn collapsed_workspace_at_row(app: &AppState, area: Rect, row: u16) -> Option<usize> {
     let rows = collapsed_workspace_rows_rect_for_split(area, true, app.sidebar_section_split);
@@ -1662,6 +1694,78 @@ fn render_collapsed_agent_panel(
         }
     }
 }
+fn render_collapsed_agent_panel_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+    p: &Palette,
+) {
+    if area == Rect::default() {
+        return;
+    }
+
+    let toggle_rect = collapsed_agent_panel_toggle_rect(area);
+    if toggle_rect != Rect::default() {
+        let label = match view.agent_panel_scope {
+            AgentPanelScope::AllWorkspaces => "all",
+            AgentPanelScope::CurrentGroup => "f:g",
+            AgentPanelScope::CurrentWorkspace => "f:s",
+        };
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                label,
+                Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
+            ))
+            .alignment(Alignment::Center),
+            toggle_rect,
+        );
+    }
+
+    if area.height > 1 {
+        let buf = frame.buffer_mut();
+        let divider_y = area.y + 1;
+        for x in area.x..area.x + area.width {
+            buf[(x, divider_y)].set_symbol("─");
+            buf[(x, divider_y)].set_style(Style::default().fg(p.overlay0));
+        }
+    }
+
+    let rows = collapsed_agent_panel_body_rect(area);
+    if rows == Rect::default() {
+        return;
+    }
+
+    let mut row_y = rows.y;
+    let mut ordinal = 1usize;
+    for section in agent_panel_sections_for_view(app, terminal_runtimes, view) {
+        for entry in &section.entries {
+            if row_y >= rows.y + rows.height {
+                return;
+            }
+            let marker = collapsed_agent_section_marker(&section);
+            let marker_style = agent_panel_section_header_style(&section, p);
+            let num_style = if view.agent_panel_scope == AgentPanelScope::AllWorkspaces {
+                entry
+                    .group_context_idx
+                    .map(|group_idx| Style::default().fg(app.group_accent_color(group_idx)))
+                    .unwrap_or_else(|| Style::default().fg(p.overlay0))
+            } else {
+                Style::default().fg(p.overlay0)
+            };
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(marker, marker_style),
+                    Span::styled(format!("{ordinal}"), num_style),
+                ])),
+                Rect::new(rows.x, row_y, rows.width, 1),
+            );
+            ordinal = ordinal.saturating_add(1);
+            row_y = row_y.saturating_add(1);
+        }
+    }
+}
 
 pub(crate) fn collapsed_agent_panel_header_target_at_row(
     app: &AppState,
@@ -1893,6 +1997,163 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
     let empty_runtimes = TerminalRuntimeRegistry::new();
     render_collapsed_agent_panel(app, &empty_runtimes, frame, detail_area, p);
 
+    render_sidebar_toggle(app, frame, area, true, p);
+}
+pub(super) fn render_sidebar_collapsed_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let p = &app.palette;
+    let navigating = matches!(view.mode, Mode::Navigate);
+    fill_rect(frame, area, Style::default().bg(p.panel_bg));
+    let combined_right = sidebar_is_combined_right_for_view(app, view);
+    let separator_style = if navigating {
+        Style::default()
+            .fg(active_workspace_accent_color_for_view(app, view))
+            .bg(p.panel_bg)
+    } else {
+        Style::default().fg(p.overlay0).bg(p.panel_bg)
+    };
+    let separator_x = if combined_right {
+        area.x
+    } else {
+        area.x + area.width.saturating_sub(1)
+    };
+    for y in area.y..area.y + area.height {
+        frame.buffer_mut()[(separator_x, y)]
+            .set_symbol("│")
+            .set_style(separator_style);
+    }
+
+    let (workspace_area, divider_y, agent_area) = if combined_right {
+        right_aligned_collapsed_sidebar_sections(area, true, view.sidebar_section_split)
+    } else {
+        collapsed_sidebar_sections_for_split(area, true, view.sidebar_section_split)
+    };
+    let group_header = if combined_right {
+        right_aligned_collapsed_group_header_rect(area)
+    } else {
+        collapsed_group_header_rect(area)
+    };
+    if group_header != Rect::default() {
+        let label = if view.group_filter_enabled {
+            app.groups
+                .get(view.active_group)
+                .map(|group| group.icon.clone())
+                .unwrap_or_else(|| "·".to_string())
+        } else {
+            "⌘".to_string()
+        };
+        let color = if view.group_filter_enabled {
+            app.group_accent_color(view.active_group)
+        } else {
+            active_workspace_accent_color_for_view(app, view)
+        };
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                label,
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            ))
+            .alignment(Alignment::Center),
+            group_header,
+        );
+    }
+    if workspace_area.height > 1 {
+        let y = workspace_area.y + 1;
+        for x in workspace_area.x..workspace_area.x + workspace_area.width {
+            frame.buffer_mut()[(x, y)]
+                .set_symbol("─")
+                .set_style(Style::default().fg(p.overlay0));
+        }
+    }
+    let rows = Rect::new(
+        workspace_area.x,
+        workspace_area.y + COLLAPSED_SECTION_HEADER_ROWS,
+        workspace_area.width,
+        workspace_area
+            .height
+            .saturating_sub(COLLAPSED_SECTION_HEADER_ROWS),
+    );
+    if workspace_area != Rect::default() && rows != Rect::default() {
+        for (row_idx, entry) in collapsed_workspace_row_entries_for_view(app, view)
+            .into_iter()
+            .enumerate()
+        {
+            let y = rows.y + row_idx as u16;
+            if y >= rows.y + rows.height {
+                break;
+            }
+            match entry {
+                CollapsedWorkspaceRowEntry::GroupHeader { group_idx } => {
+                    let Some(group) = app.groups.get(group_idx) else {
+                        continue;
+                    };
+                    let chevron = if workspace_group_collapsed_for_view(view, &group.id) {
+                        "▸"
+                    } else {
+                        "▾"
+                    };
+                    let group_style = Style::default()
+                        .fg(app.group_accent_color(group_idx))
+                        .add_modifier(Modifier::BOLD);
+                    frame.render_widget(
+                        Paragraph::new(Line::from(vec![
+                            Span::styled(chevron, Style::default().fg(p.overlay1)),
+                            Span::raw(" "),
+                            Span::styled(group.icon.clone(), group_style),
+                        ])),
+                        Rect::new(rows.x, y, rows.width, 1),
+                    );
+                }
+                CollapsedWorkspaceRowEntry::Workspace { ws_idx, ordinal } => {
+                    let Some(workspace) = app.workspaces.get(ws_idx) else {
+                        continue;
+                    };
+                    let (state, seen) = workspace.aggregate_state(&app.terminals);
+                    let (icon, icon_style) = state_dot(state, seen, p);
+                    let selected = navigating && ws_idx == view.selected_workspace;
+                    let active = Some(ws_idx) == view.active_workspace;
+                    let bg = if selected { p.surface0 } else { p.surface_dim };
+                    let row_style = if selected || active {
+                        Style::default().bg(bg)
+                    } else {
+                        Style::default()
+                    };
+                    let num_style = if selected {
+                        Style::default().fg(p.overlay1).bg(bg)
+                    } else if active {
+                        Style::default().fg(p.text).bg(bg)
+                    } else {
+                        Style::default().fg(p.overlay0)
+                    };
+                    if selected || active {
+                        for x in rows.x..rows.x + rows.width {
+                            frame.buffer_mut()[(x, y)].set_style(row_style);
+                        }
+                    }
+                    frame.render_widget(
+                        Paragraph::new(Line::from(vec![
+                            Span::styled(format!("{ordinal}"), num_style),
+                            Span::styled(" ", row_style),
+                            Span::styled(icon, icon_style),
+                        ])),
+                        Rect::new(rows.x, y, rows.width, 1),
+                    );
+                }
+            }
+        }
+    }
+    if let Some(y) = divider_y {
+        for x in workspace_area.x..workspace_area.x + workspace_area.width {
+            frame.buffer_mut()[(x, y)]
+                .set_symbol("─")
+                .set_style(Style::default().fg(p.overlay0));
+        }
+    }
+    render_collapsed_agent_panel_for_view(app, terminal_runtimes, view, frame, agent_area, p);
     render_sidebar_toggle(app, frame, area, true, p);
 }
 
@@ -2183,9 +2444,10 @@ pub(super) fn render_right_sidebar_for_view(
         buf[(area.x, y)].set_style(sep_style);
     }
     if client_view.right_sidebar_collapsed {
-        render_collapsed_agent_panel(
+        render_collapsed_agent_panel_for_view(
             app,
             terminal_runtimes,
+            client_view,
             frame,
             right_sidebar_content_rect(area),
             p,

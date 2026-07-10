@@ -4,6 +4,7 @@ use crate::{
         view_state::ClientViewState, AppState,
     },
     layout::NavDirection,
+    workspace::DEFAULT_GROUP_ID,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -412,7 +413,9 @@ pub(crate) fn command_palette_commands_for_view(
     commands.retain(|command| {
         !matches!(
             command.action,
-            CommandPaletteAction::SwitchTab(_) | CommandPaletteAction::NewAgent
+            CommandPaletteAction::SwitchWorkspace(_)
+                | CommandPaletteAction::SwitchTab(_)
+                | CommandPaletteAction::NewAgent
         )
     });
     if let Some(ws) = view
@@ -438,6 +441,32 @@ pub(crate) fn command_palette_commands_for_view(
             CommandPaletteAction::NewAgent,
         ));
     }
+    let active_group_id = state
+        .groups
+        .get(view.active_group)
+        .map(|group| group.id.as_str())
+        .unwrap_or(DEFAULT_GROUP_ID);
+    commands.extend(
+        state
+            .workspaces
+            .iter()
+            .enumerate()
+            .filter(|(_, workspace)| {
+                !view.group_filter_enabled || workspace.group_id == active_group_id
+            })
+            .enumerate()
+            .map(|(shortcut_idx, (idx, workspace))| {
+                CommandPaletteCommand::new(
+                    format!("switch to space: {}", workspace.display_name()),
+                    "spaces",
+                    CommandPaletteAction::SwitchWorkspace(idx),
+                )
+                .with_key_label(indexed_keybind_label(
+                    &state.keybinds.switch_workspace,
+                    shortcut_idx,
+                ))
+            }),
+    );
     commands
 }
 
@@ -471,4 +500,35 @@ pub(crate) fn command_palette_filtered_commands_for_query(
 
     commands.sort_by_key(|(idx, command)| (command_palette_group_order(command.group), *idx));
     commands.into_iter().map(|(_, command)| command).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workspace::Workspace;
+
+    #[test]
+    fn client_palette_lists_workspaces_from_its_group_filter() {
+        let mut state = AppState::test_new();
+        let client_group = state.create_group("client".to_string());
+        let mut client_workspace = Workspace::test_new("client workspace");
+        client_workspace.group_id = state.groups[client_group].id.clone();
+        state.workspaces = vec![Workspace::test_new("default workspace"), client_workspace];
+        state.active_group = 0;
+        state.group_filter_enabled = true;
+
+        let mut view = ClientViewState::from_default_client_state(&state);
+        view.active_group = client_group;
+        view.group_filter_enabled = true;
+
+        let workspace_actions = command_palette_filtered_commands_for_view(&state, &view)
+            .into_iter()
+            .filter_map(|command| match command.action {
+                CommandPaletteAction::SwitchWorkspace(idx) => Some(idx),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(workspace_actions, vec![1]);
+    }
 }

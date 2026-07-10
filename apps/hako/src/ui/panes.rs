@@ -336,22 +336,22 @@ pub(super) fn render_panes_for_view(
     client_view: &ClientViewState,
     terminal_runtimes: &TerminalRuntimeRegistry,
     frame: &mut Frame,
-    area: Rect,
+    _area: Rect,
 ) {
     let Some(ws_idx) = client_view.active_workspace else {
-        render_empty(app, frame, area);
+        render_empty_for_view(app, client_view, frame);
         return;
     };
     let Some(ws) = app.workspaces.get(ws_idx) else {
-        render_empty(app, frame, area);
+        render_empty_for_view(app, client_view, frame);
         return;
     };
     let Some(tab_idx) = client_view.active_tab_index_for_workspace(app, ws_idx) else {
-        render_empty(app, frame, area);
+        render_empty_for_view(app, client_view, frame);
         return;
     };
     let Some(tab) = ws.tabs.get(tab_idx) else {
-        render_empty(app, frame, area);
+        render_empty_for_view(app, client_view, frame);
         return;
     };
 
@@ -692,10 +692,38 @@ fn color_to_rgb(color: Color) -> Option<Rgb> {
     }
 }
 
+fn render_empty_for_view(app: &AppState, client_view: &ClientViewState, frame: &mut Frame) {
+    render_empty_with_context(
+        app,
+        client_view.active_workspace,
+        client_view.group_filter_enabled,
+        client_view.active_group,
+        frame,
+        client_view.computed.terminal_area,
+    );
+}
+
 fn render_empty(app: &AppState, frame: &mut Frame, area: Rect) {
+    render_empty_with_context(
+        app,
+        app.active,
+        app.group_filter_enabled,
+        app.active_group,
+        frame,
+        area,
+    );
+}
+
+fn render_empty_with_context(
+    app: &AppState,
+    active_workspace: Option<usize>,
+    group_filter_enabled: bool,
+    active_group: usize,
+    frame: &mut Frame,
+    area: Rect,
+) {
     let p = &app.palette;
-    let active_workspace_has_no_tabs = app
-        .active
+    let active_workspace_has_no_tabs = active_workspace
         .and_then(|idx| app.workspaces.get(idx))
         .is_some_and(|ws| ws.tabs.is_empty());
     let (title, detail, context, action_label) = if active_workspace_has_no_tabs {
@@ -718,7 +746,7 @@ fn render_empty(app: &AppState, frame: &mut Frame, area: Rect) {
                 .label()
                 .unwrap_or_else(|| "unset".to_string()),
         )
-    } else if app.group_filter_enabled {
+    } else if group_filter_enabled {
         (
             "  no spaces in this group",
             "  switch groups or create one here.",
@@ -739,7 +767,15 @@ fn render_empty(app: &AppState, frame: &mut Frame, area: Rect) {
                 .unwrap_or_else(|| "unset".to_string()),
         )
     };
-    let accent = app.active_workspace_accent_color();
+    let accent = if !group_filter_enabled {
+        active_workspace
+            .and_then(|ws_idx| app.workspaces.get(ws_idx))
+            .and_then(|workspace| app.group_index_by_id(&workspace.group_id))
+            .map(|group_idx| app.group_accent_color(group_idx))
+            .unwrap_or_else(|| app.group_accent_color(active_group))
+    } else {
+        app.group_accent_color(active_group)
+    };
     let lines = vec![
         Line::from(""),
         Line::from(""),

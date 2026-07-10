@@ -63,6 +63,248 @@ use crate::events::AppEvent;
 pub use state::{AppState, Mode, ToastKind, ViewState};
 pub(crate) use view_state::ClientViewState;
 
+pub(crate) fn client_global_menu_rect(state: &AppState, view: &ClientViewState) -> Rect {
+    let screen = view.screen_rect();
+    let launcher = client_global_launcher_rect(view);
+    let labels = state.global_menu_labels();
+    let content_width = labels
+        .iter()
+        .map(|label| {
+            label.chars().count() as u16 + u16::from(state.global_menu_item_has_badge(label)) * 2
+        })
+        .max()
+        .unwrap_or(8)
+        .saturating_add(2);
+    let width = content_width.saturating_add(2).min(screen.width.max(1));
+    let height = (labels.len() as u16 + 2).min(screen.height.max(1));
+    Rect::new(
+        launcher
+            .x
+            .saturating_add(launcher.width.saturating_sub(width))
+            .min(screen.x + screen.width.saturating_sub(width)),
+        launcher.y.saturating_sub(height),
+        width,
+        height,
+    )
+}
+
+pub(crate) fn client_group_menu_labels(state: &AppState, view: &ClientViewState) -> Vec<String> {
+    let all_marker = if view.group_filter_enabled {
+        " "
+    } else {
+        "✓"
+    };
+    let mut labels = vec![
+        "filter".to_string(),
+        format!("{all_marker} all {}", state.workspaces.len()),
+    ];
+    labels.extend(state.groups.iter().enumerate().map(|(idx, group)| {
+        let marker = if view.group_filter_enabled && idx == view.active_group {
+            "✓"
+        } else {
+            " "
+        };
+        let count = state
+            .workspaces
+            .iter()
+            .filter(|workspace| workspace.group_id == group.id)
+            .count();
+        format!("{marker} {} {} {count}", group.icon, group.name)
+    }));
+    labels.extend([
+        "---".to_string(),
+        "new".to_string(),
+        "  space".to_string(),
+        "  group".to_string(),
+    ]);
+    labels
+}
+
+pub(crate) fn client_group_menu_rect(state: &AppState, view: &ClientViewState) -> Rect {
+    let screen = view.screen_rect();
+    let selector = client_group_selector_rect(state, view);
+    let labels = client_group_menu_labels(state, view);
+    let content_width = labels
+        .iter()
+        .map(|label| label.chars().count() as u16)
+        .max()
+        .unwrap_or(8)
+        .saturating_add(2);
+    let width = if view.sidebar_collapsed {
+        content_width.saturating_add(2).min(screen.width.max(1))
+    } else {
+        content_width
+            .saturating_add(2)
+            .min(view.computed.sidebar_rect.width.max(1))
+            .min(screen.width.max(1))
+    };
+    let height = (labels.len() as u16 + 2).min(screen.height.max(1));
+    Rect::new(
+        selector
+            .x
+            .min(screen.x + screen.width.saturating_sub(width)),
+        selector
+            .y
+            .saturating_add(1)
+            .min(screen.y + screen.height.saturating_sub(height)),
+        width,
+        height,
+    )
+}
+
+pub(crate) fn client_agent_menu_labels(view: &ClientViewState) -> Vec<String> {
+    let all_marker = if matches!(
+        view.agent_panel_scope,
+        state::AgentPanelScope::AllWorkspaces
+    ) {
+        "✓"
+    } else {
+        " "
+    };
+    let space_marker = if matches!(
+        view.agent_panel_scope,
+        state::AgentPanelScope::CurrentWorkspace
+    ) {
+        "✓"
+    } else {
+        " "
+    };
+    let group_marker = if matches!(view.agent_panel_scope, state::AgentPanelScope::CurrentGroup) {
+        "✓"
+    } else {
+        " "
+    };
+    vec![
+        "filter".to_string(),
+        format!("{all_marker} all"),
+        format!("{space_marker} space"),
+        format!("{group_marker} group"),
+    ]
+}
+
+pub(crate) fn client_agent_menu_rect(state: &AppState, view: &ClientViewState) -> Rect {
+    let screen = view.screen_rect();
+    let anchor = client_agent_menu_anchor_rect(state, view);
+    let labels = client_agent_menu_labels(view);
+    let content_width = labels
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, label)| {
+            state
+                .agent_menu_action_for_row(idx)
+                .is_some()
+                .then_some(label.chars().count() as u16)
+        })
+        .max()
+        .unwrap_or(8)
+        .saturating_add(2);
+    let width = content_width.saturating_add(2).min(screen.width.max(1));
+    let height = (labels.len() as u16 + 2).min(screen.height.max(1));
+    Rect::new(
+        anchor.x.min(screen.x + screen.width.saturating_sub(width)),
+        anchor
+            .y
+            .saturating_add(1)
+            .min(screen.y + screen.height.saturating_sub(height)),
+        width,
+        height,
+    )
+}
+
+fn client_global_launcher_rect(view: &ClientViewState) -> Rect {
+    if view.computed.layout == state::ViewLayout::Mobile {
+        return view.computed.mobile_menu_hit_area;
+    }
+    let sidebar = view.computed.sidebar_rect;
+    if view.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
+        return Rect::default();
+    }
+    let content = crate::ui::left_sidebar_workspace_rect(sidebar);
+    if content == Rect::default() {
+        return Rect::default();
+    }
+    Rect::new(
+        content.x,
+        content.y + content.height.saturating_sub(1),
+        1.min(content.width),
+        1,
+    )
+}
+
+fn client_group_selector_rect(state: &AppState, view: &ClientViewState) -> Rect {
+    if view.computed.layout == crate::app::state::ViewLayout::Mobile {
+        return Rect::default();
+    }
+    if view.sidebar_collapsed {
+        return crate::ui::collapsed_group_header_rect(view.computed.sidebar_rect);
+    }
+    let sidebar = view.computed.sidebar_rect;
+    let workspace_area = if view.computed.right_sidebar_rect != Rect::default() {
+        crate::ui::left_sidebar_workspace_rect(sidebar)
+    } else if state.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight {
+        crate::ui::right_aligned_workspace_list_rect(sidebar, view.sidebar_section_split)
+    } else {
+        crate::ui::workspace_list_rect(sidebar, view.sidebar_section_split)
+    };
+    if workspace_area == Rect::default() {
+        return Rect::default();
+    }
+    let label_width = if view.group_filter_enabled {
+        state
+            .groups
+            .get(view.active_group)
+            .map(|group| format!("{} {}", group.icon, group.name).chars().count() as u16)
+            .unwrap_or(3)
+    } else {
+        3
+    };
+    let width = label_width.saturating_add(2).min(workspace_area.width);
+    Rect::new(
+        workspace_area.x + workspace_area.width.saturating_sub(width),
+        workspace_area.y,
+        width,
+        1,
+    )
+}
+
+fn client_agent_menu_anchor_rect(state: &AppState, view: &ClientViewState) -> Rect {
+    if view.sidebar_collapsed && view.computed.right_sidebar_rect == Rect::default() {
+        let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+            view.computed.sidebar_rect,
+            true,
+            view.sidebar_section_split,
+        );
+        return crate::ui::collapsed_agent_panel_toggle_rect(detail_area);
+    }
+    crate::ui::agent_panel_toggle_rect(
+        client_agent_panel_rect(state, view),
+        view.agent_panel_scope,
+        view.computed.right_sidebar_rect == Rect::default(),
+    )
+}
+
+fn client_agent_panel_rect(state: &AppState, view: &ClientViewState) -> Rect {
+    let sidebar = view.computed.sidebar_rect;
+    if view.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
+        return Rect::default();
+    }
+    if view.computed.right_sidebar_rect != Rect::default() {
+        return if view.right_sidebar_collapsed {
+            Rect::default()
+        } else {
+            crate::ui::right_sidebar_content_rect(view.computed.right_sidebar_rect)
+        };
+    }
+    if state.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight {
+        let (_, detail_area) =
+            crate::ui::right_aligned_expanded_sidebar_sections(sidebar, view.sidebar_section_split);
+        return detail_area;
+    }
+    let (_, detail_area) =
+        crate::ui::expanded_sidebar_sections(sidebar, view.sidebar_section_split);
+    detail_area
+}
+
 pub(crate) fn load_plugin_manifest(
     path: &str,
     enabled: bool,
@@ -5008,19 +5250,6 @@ impl App {
                 client_view.selection = None;
                 client_view.selection_autoscroll = None;
                 self.handle_client_view_terminal_wheel(client_view, mouse);
-                let live_terminal_ids = self
-                    .state
-                    .workspaces
-                    .iter()
-                    .flat_map(|workspace| workspace.tabs.iter())
-                    .flat_map(|tab| tab.panes.values())
-                    .filter_map(|pane| pane.terminal_id().cloned())
-                    .collect::<Vec<_>>();
-                crate::app::view_state::capture_terminal_offsets_from_runtimes(
-                    &live_terminal_ids,
-                    &self.terminal_runtimes,
-                    client_view,
-                );
             }
             _ => {}
         }
@@ -5093,14 +5322,11 @@ impl App {
                     });
                 }
                 ScrollbarClickTarget::Track { offset_from_bottom } => {
-                    if let Some(runtime) = client_view
-                        .active_workspace
-                        .and_then(|ws_idx| self.state.workspaces.get(ws_idx))
-                        .and_then(|workspace| workspace.terminal_id(pane_id))
-                        .and_then(|terminal_id| self.terminal_runtimes.get(terminal_id))
-                    {
-                        runtime.set_scroll_offset_from_bottom(offset_from_bottom);
-                    }
+                    self.set_client_view_pane_offset_from_bottom(
+                        client_view,
+                        pane_id,
+                        offset_from_bottom,
+                    );
                 }
             }
             return true;
@@ -5293,24 +5519,34 @@ impl App {
 
     fn forward_client_view_pane_wheel(
         &self,
+        client_view: &mut ClientViewState,
         ws_idx: usize,
         info: &crate::layout::PaneInfo,
         mouse: crossterm::event::MouseEvent,
     ) -> bool {
-        let Some(runtime) = self
+        let Some(terminal_id) = self
             .state
             .workspaces
             .get(ws_idx)
             .and_then(|workspace| workspace.terminal_id(info.id))
-            .and_then(|terminal_id| self.terminal_runtimes.get(terminal_id))
+            .cloned()
         else {
             return false;
         };
-
+        let Some(runtime) = self.terminal_runtimes.get(&terminal_id) else {
+            return false;
+        };
         match runtime.wheel_routing() {
             Some(crate::pane::WheelRouting::HostScroll) | None => false,
             Some(crate::pane::WheelRouting::MouseReport) => {
-                runtime.scroll_reset();
+                if let Some(metrics) = runtime.scroll_metrics() {
+                    crate::app::view_state::set_terminal_offset_from_bottom(
+                        &terminal_id,
+                        metrics,
+                        0,
+                        client_view,
+                    );
+                }
                 let column = mouse.column.saturating_sub(info.inner_rect.x);
                 let row = mouse.row.saturating_sub(info.inner_rect.y);
                 let Some(bytes) =
@@ -5329,7 +5565,14 @@ impl App {
                 true
             }
             Some(crate::pane::WheelRouting::AlternateScroll) => {
-                runtime.scroll_reset();
+                if let Some(metrics) = runtime.scroll_metrics() {
+                    crate::app::view_state::set_terminal_offset_from_bottom(
+                        &terminal_id,
+                        metrics,
+                        0,
+                        client_view,
+                    );
+                }
                 let Some(bytes) = runtime.encode_alternate_scroll(mouse.kind) else {
                     return true;
                 };
@@ -5365,10 +5608,10 @@ impl App {
             if let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) {
                 client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, info.id);
             }
-            if self.forward_client_view_pane_wheel(ws_idx, &info, mouse) {
+            if self.forward_client_view_pane_wheel(client_view, ws_idx, &info, mouse) {
                 return;
             }
-            self.scroll_client_view_pane(ws_idx, info.id, mouse, lines_per_notch);
+            self.scroll_client_view_pane(client_view, ws_idx, info.id, mouse, lines_per_notch);
             return;
         }
 
@@ -5382,17 +5625,18 @@ impl App {
             if let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) {
                 client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, info.id);
             }
-            self.scroll_client_view_pane(ws_idx, info.id, mouse, lines_per_notch);
+            self.scroll_client_view_pane(client_view, ws_idx, info.id, mouse, lines_per_notch);
             return;
         }
 
         if let Some((_, pane_id)) = client_view.focused_pane_for_workspace(&self.state, ws_idx) {
-            self.scroll_client_view_pane(ws_idx, pane_id, mouse, lines_per_notch);
+            self.scroll_client_view_pane(client_view, ws_idx, pane_id, mouse, lines_per_notch);
         }
     }
 
     fn scroll_client_view_pane(
         &self,
+        client_view: &mut ClientViewState,
         ws_idx: usize,
         pane_id: crate::layout::PaneId,
         mouse: crossterm::event::MouseEvent,
@@ -5406,14 +5650,30 @@ impl App {
         else {
             return;
         };
-        let Some(runtime) = self.terminal_runtimes.get(terminal_id) else {
+        let Some(metrics) = self
+            .terminal_runtimes
+            .get(terminal_id)
+            .and_then(crate::terminal::TerminalRuntime::scroll_metrics)
+        else {
             return;
         };
-        match mouse.kind {
-            crossterm::event::MouseEventKind::ScrollUp => runtime.scroll_up(lines_per_notch),
-            crossterm::event::MouseEventKind::ScrollDown => runtime.scroll_down(lines_per_notch),
-            _ => {}
-        }
+        let current_offset =
+            crate::app::view_state::terminal_offset_from_bottom(terminal_id, metrics, client_view);
+        let offset_from_bottom = match mouse.kind {
+            crossterm::event::MouseEventKind::ScrollUp => current_offset
+                .saturating_add(lines_per_notch)
+                .min(metrics.max_offset_from_bottom),
+            crossterm::event::MouseEventKind::ScrollDown => {
+                current_offset.saturating_sub(lines_per_notch)
+            }
+            _ => return,
+        };
+        crate::app::view_state::set_terminal_offset_from_bottom(
+            terminal_id,
+            metrics,
+            offset_from_bottom,
+            client_view,
+        );
     }
 
     fn handle_client_view_confirm_mouse(
@@ -6205,14 +6465,11 @@ impl App {
                     }
                     Some(state::DragTarget::PaneScrollbar { .. }) => {
                         if let Some((pane_id, offset_from_bottom)) = pane_scroll_drag_offset {
-                            if let Some(runtime) = client_view
-                                .active_workspace
-                                .and_then(|ws_idx| self.state.workspaces.get(ws_idx))
-                                .and_then(|workspace| workspace.terminal_id(pane_id))
-                                .and_then(|terminal_id| self.terminal_runtimes.get(terminal_id))
-                            {
-                                runtime.set_scroll_offset_from_bottom(offset_from_bottom);
-                            }
+                            self.set_client_view_pane_offset_from_bottom(
+                                client_view,
+                                pane_id,
+                                offset_from_bottom,
+                            );
                         }
                         true
                     }
@@ -7022,16 +7279,7 @@ impl App {
     }
 
     fn client_view_global_launcher_rect(client_view: &ClientViewState) -> Rect {
-        if client_view.computed.layout == crate::app::state::ViewLayout::Mobile {
-            return client_view.computed.mobile_menu_hit_area;
-        }
-
-        let footer = Self::client_view_sidebar_footer_rect(client_view);
-        if footer == Rect::default() {
-            return Rect::default();
-        }
-
-        Rect::new(footer.x, footer.y, 1.min(footer.width), footer.height)
+        client_global_launcher_rect(client_view)
     }
 
     fn client_view_on_global_launcher(
@@ -7078,35 +7326,7 @@ impl App {
     }
 
     fn client_view_group_selector_rect(&self, client_view: &ClientViewState) -> Rect {
-        if client_view.computed.layout == crate::app::state::ViewLayout::Mobile {
-            return Rect::default();
-        }
-
-        if client_view.sidebar_collapsed {
-            return crate::ui::collapsed_group_header_rect(client_view.computed.sidebar_rect);
-        }
-
-        let ws_area = self.client_view_workspace_list_rect(client_view);
-        if ws_area == Rect::default() {
-            return Rect::default();
-        }
-
-        let label_width = if client_view.group_filter_enabled {
-            self.state
-                .groups
-                .get(client_view.active_group)
-                .map(|group| format!("{} {}", group.icon, group.name).chars().count() as u16)
-                .unwrap_or(3)
-        } else {
-            3
-        };
-        let width = label_width.saturating_add(2).min(ws_area.width);
-        Rect::new(
-            ws_area.x + ws_area.width.saturating_sub(width),
-            ws_area.y,
-            width,
-            1,
-        )
+        client_group_selector_rect(&self.state, client_view)
     }
 
     fn client_view_on_group_selector(
@@ -7122,29 +7342,7 @@ impl App {
     }
 
     fn client_view_global_menu_rect(&self, client_view: &ClientViewState) -> Rect {
-        let screen = client_view.screen_rect();
-        let launcher = Self::client_view_global_launcher_rect(client_view);
-        let labels = self.state.global_menu_labels();
-        let content_width = labels
-            .iter()
-            .map(|label| {
-                let badge_width = if self.state.global_menu_item_has_badge(label) {
-                    2
-                } else {
-                    0
-                };
-                label.chars().count() as u16 + badge_width
-            })
-            .max()
-            .unwrap_or(8)
-            .saturating_add(2);
-        let menu_w = content_width.saturating_add(2).min(screen.width.max(1));
-        let menu_h = (labels.len() as u16 + 2).min(screen.height.max(1));
-        let max_x = screen.x + screen.width.saturating_sub(menu_w);
-        let desired_x = launcher.x + launcher.width.saturating_sub(menu_w);
-        let x = desired_x.min(max_x);
-        let y = launcher.y.saturating_sub(menu_h);
-        Rect::new(x, y, menu_w, menu_h)
+        client_global_menu_rect(&self.state, client_view)
     }
 
     fn client_view_global_menu_item_at(
@@ -7166,61 +7364,11 @@ impl App {
     }
 
     fn client_view_group_menu_labels(&self, client_view: &ClientViewState) -> Vec<String> {
-        let all_marker = if client_view.group_filter_enabled {
-            " "
-        } else {
-            "✓"
-        };
-        let mut labels = vec![
-            "filter".to_string(),
-            format!("{all_marker} all {}", self.state.workspaces.len()),
-        ];
-        labels.extend(self.state.groups.iter().enumerate().map(|(idx, group)| {
-            let marker = if client_view.group_filter_enabled && idx == client_view.active_group {
-                "✓"
-            } else {
-                " "
-            };
-            let count = self
-                .state
-                .workspaces
-                .iter()
-                .filter(|ws| ws.group_id == group.id)
-                .count();
-            format!("{marker} {} {} {count}", group.icon, group.name)
-        }));
-        labels.push("---".to_string());
-        labels.push("new".to_string());
-        labels.push("  space".to_string());
-        labels.push("  group".to_string());
-        labels
+        client_group_menu_labels(&self.state, client_view)
     }
 
     fn client_view_group_menu_rect(&self, client_view: &ClientViewState) -> Rect {
-        let screen = client_view.screen_rect();
-        let selector = self.client_view_group_selector_rect(client_view);
-        let labels = self.client_view_group_menu_labels(client_view);
-        let content_width = labels
-            .iter()
-            .map(|label| label.chars().count() as u16)
-            .max()
-            .unwrap_or(8)
-            .saturating_add(2);
-        let menu_w = if client_view.sidebar_collapsed {
-            content_width.saturating_add(2).min(screen.width.max(1))
-        } else {
-            content_width
-                .saturating_add(2)
-                .min(client_view.computed.sidebar_rect.width.max(1))
-                .min(screen.width.max(1))
-        };
-        let menu_h = (labels.len() as u16 + 2).min(screen.height.max(1));
-        let x = selector
-            .x
-            .min(screen.x + screen.width.saturating_sub(menu_w));
-        let max_y = screen.y + screen.height.saturating_sub(menu_h);
-        let y = selector.y.saturating_add(1).min(max_y);
-        Rect::new(x, y, menu_w, menu_h)
+        client_group_menu_rect(&self.state, client_view)
     }
 
     fn client_view_group_menu_row_at(
@@ -7244,80 +7392,11 @@ impl App {
     }
 
     fn client_view_agent_menu_labels(client_view: &ClientViewState) -> Vec<String> {
-        let all_marker = if matches!(
-            client_view.agent_panel_scope,
-            state::AgentPanelScope::AllWorkspaces
-        ) {
-            "✓"
-        } else {
-            " "
-        };
-        let space_marker = if matches!(
-            client_view.agent_panel_scope,
-            state::AgentPanelScope::CurrentWorkspace
-        ) {
-            "✓"
-        } else {
-            " "
-        };
-        let group_marker = if matches!(
-            client_view.agent_panel_scope,
-            state::AgentPanelScope::CurrentGroup
-        ) {
-            "✓"
-        } else {
-            " "
-        };
-        vec![
-            "filter".to_string(),
-            format!("{all_marker} all"),
-            format!("{space_marker} space"),
-            format!("{group_marker} group"),
-        ]
-    }
-
-    fn client_view_agent_menu_anchor_rect(&self, client_view: &ClientViewState) -> Rect {
-        if client_view.sidebar_collapsed
-            && client_view.computed.right_sidebar_rect == Rect::default()
-        {
-            let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
-                client_view.computed.sidebar_rect,
-                true,
-                client_view.sidebar_section_split,
-            );
-            return crate::ui::collapsed_agent_panel_toggle_rect(detail_area);
-        }
-
-        crate::ui::agent_panel_toggle_rect(
-            self.client_view_agent_panel_rect(client_view),
-            client_view.agent_panel_scope,
-            Self::client_view_agent_panel_has_leading_separator(client_view),
-        )
+        client_agent_menu_labels(client_view)
     }
 
     fn client_view_agent_menu_rect(&self, client_view: &ClientViewState) -> Rect {
-        let screen = client_view.screen_rect();
-        let header = self.client_view_agent_menu_anchor_rect(client_view);
-        let labels = Self::client_view_agent_menu_labels(client_view);
-        let content_width = labels
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, label)| {
-                self.state
-                    .agent_menu_action_for_row(idx)
-                    .is_some()
-                    .then_some(label.chars().count() as u16)
-            })
-            .max()
-            .unwrap_or(8)
-            .saturating_add(2);
-        let menu_w = content_width.saturating_add(2).min(screen.width.max(1));
-        let menu_h = (labels.len() as u16 + 2).min(screen.height.max(1));
-        let desired_x = header.x;
-        let x = desired_x.min(screen.x + screen.width.saturating_sub(menu_w));
-        let max_y = screen.y + screen.height.saturating_sub(menu_h);
-        let y = header.y.saturating_add(1).min(max_y);
-        Rect::new(x, y, menu_w, menu_h)
+        client_agent_menu_rect(&self.state, client_view)
     }
 
     fn client_view_agent_menu_row_at(
@@ -7341,26 +7420,7 @@ impl App {
     }
 
     fn client_view_agent_panel_rect(&self, client_view: &ClientViewState) -> Rect {
-        let sidebar = client_view.computed.sidebar_rect;
-        if client_view.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
-            return Rect::default();
-        }
-        if client_view.computed.right_sidebar_rect != Rect::default() {
-            if client_view.right_sidebar_collapsed {
-                return Rect::default();
-            }
-            return crate::ui::right_sidebar_content_rect(client_view.computed.right_sidebar_rect);
-        }
-        if self.client_view_sidebar_is_combined_right(client_view) {
-            let (_, detail_area) = crate::ui::right_aligned_expanded_sidebar_sections(
-                sidebar,
-                client_view.sidebar_section_split,
-            );
-            return detail_area;
-        }
-        let (_, detail_area) =
-            crate::ui::expanded_sidebar_sections(sidebar, client_view.sidebar_section_split);
-        detail_area
+        client_agent_panel_rect(&self.state, client_view)
     }
 
     fn client_view_agent_header_target_at(
@@ -7663,6 +7723,33 @@ impl App {
             track,
             row.saturating_sub(grab_row_offset),
         ))
+    }
+
+    fn set_client_view_pane_offset_from_bottom(
+        &self,
+        client_view: &mut ClientViewState,
+        pane_id: crate::layout::PaneId,
+        offset_from_bottom: usize,
+    ) {
+        let Some((terminal_id, metrics)) = client_view
+            .active_workspace
+            .and_then(|ws_idx| self.state.workspaces.get(ws_idx))
+            .and_then(|workspace| workspace.terminal_id(pane_id))
+            .and_then(|terminal_id| {
+                self.terminal_runtimes
+                    .get(terminal_id)
+                    .and_then(crate::terminal::TerminalRuntime::scroll_metrics)
+                    .map(|metrics| (terminal_id, metrics))
+            })
+        else {
+            return;
+        };
+        crate::app::view_state::set_terminal_offset_from_bottom(
+            terminal_id,
+            metrics,
+            offset_from_bottom,
+            client_view,
+        );
     }
 
     fn set_client_view_workspace_list_offset_from_bottom(
@@ -11501,8 +11588,29 @@ mod tests {
                 b"one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n",
             ),
         );
+        let runtime = app
+            .terminal_runtimes
+            .get(&terminal_id)
+            .expect("terminal runtime should exist");
+        runtime.scroll_up(3);
+        let shared_runtime_offset = runtime
+            .scroll_metrics()
+            .expect("scroll metrics should exist")
+            .offset_from_bottom;
+        assert_eq!(shared_runtime_offset, 3);
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
+        let mut other_client = ClientViewState::from_default_client_state(&app.state);
+        crate::app::view_state::capture_terminal_offset_from_runtimes(
+            &terminal_id,
+            &app.terminal_runtimes,
+            &mut client,
+        );
+        crate::app::view_state::capture_terminal_offset_from_runtimes(
+            &terminal_id,
+            &app.terminal_runtimes,
+            &mut other_client,
+        );
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 100, 12));
         let workspace_list = app.client_view_workspace_list_rect(&client);
         assert!(
@@ -11551,9 +11659,121 @@ mod tests {
                 .terminal_offsets_from_bottom
                 .get(&terminal_id)
                 .map(|offset| offset.offset_from_bottom),
-            Some(app.state.mouse_scroll_lines)
+            Some(shared_runtime_offset + app.state.mouse_scroll_lines)
+        );
+        assert_eq!(
+            other_client
+                .terminal_offsets_from_bottom
+                .get(&terminal_id)
+                .map(|offset| offset.offset_from_bottom),
+            Some(shared_runtime_offset)
+        );
+        assert_eq!(
+            app.terminal_runtimes
+                .get(&terminal_id)
+                .and_then(TerminalRuntime::scroll_metrics)
+                .map(|metrics| metrics.offset_from_bottom),
+            Some(shared_runtime_offset)
         );
         assert_eq!(app.state.workspace_scroll, 0);
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_forwards_mouse_report_wheel_without_reset_shared_viewport(
+    ) {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("terminal")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .terminal_id(pane_id)
+            .cloned()
+            .expect("root pane should have terminal id");
+        let area = ratatui::layout::Rect::new(0, 0, 100, 12);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, area);
+        let pane = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == pane_id)
+            .expect("root pane should be rendered")
+            .clone();
+        let (runtime, mut receiver) = TerminalRuntime::test_with_channel_and_scrollback_bytes(
+            pane.inner_rect.width.max(1),
+            pane.inner_rect.height.max(1),
+            10_000,
+            b"\x1b[?1002h\x1b[?1006h01\n02\n03\n04\n05\n06\n07\n08\n09\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n",
+            8,
+        );
+        app.terminal_runtimes.insert(terminal_id.clone(), runtime);
+        let runtime = app
+            .terminal_runtimes
+            .get(&terminal_id)
+            .expect("terminal runtime should exist");
+        runtime.scroll_up(3);
+        let shared_runtime_offset = runtime
+            .scroll_metrics()
+            .expect("scroll metrics should exist")
+            .offset_from_bottom;
+        assert_eq!(shared_runtime_offset, 3);
+
+        crate::app::view_state::capture_terminal_offset_from_runtimes(
+            &terminal_id,
+            &app.terminal_runtimes,
+            &mut client,
+        );
+        let mut other_client = ClientViewState::from_default_client_state(&app.state);
+        crate::app::view_state::capture_terminal_offset_from_runtimes(
+            &terminal_id,
+            &app.terminal_runtimes,
+            &mut other_client,
+        );
+        let terminal_col = pane.inner_rect.x + 2;
+        let terminal_row = pane.inner_rect.y + 1;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::ScrollDown,
+                terminal_col,
+                terminal_row,
+            )],
+            true,
+        );
+
+        assert_eq!(
+            receiver
+                .try_recv()
+                .expect("mouse-report wheel event should be forwarded"),
+            bytes::Bytes::from_static(b"\x1b[<65;3;2M")
+        );
+        assert!(receiver.try_recv().is_err());
+        assert_eq!(
+            client
+                .terminal_offsets_from_bottom
+                .get(&terminal_id)
+                .map(|offset| offset.offset_from_bottom),
+            Some(0)
+        );
+        assert_eq!(
+            other_client
+                .terminal_offsets_from_bottom
+                .get(&terminal_id)
+                .map(|offset| offset.offset_from_bottom),
+            Some(shared_runtime_offset)
+        );
+        assert_eq!(
+            app.terminal_runtimes
+                .get(&terminal_id)
+                .and_then(TerminalRuntime::scroll_metrics)
+                .map(|metrics| metrics.offset_from_bottom),
+            Some(shared_runtime_offset)
+        );
     }
 
     #[tokio::test]
@@ -12135,6 +12355,131 @@ mod tests {
         assert_eq!(app.state.workspace_scroll, 0);
         assert_eq!(app.default_client_view.workspace_scroll, 0);
         assert_eq!(other_client.workspace_scroll, 0);
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_pane_scrollbar_click_preserves_client_terminal_viewports()
+    {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("terminal")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .terminal_id(pane_id)
+            .cloned()
+            .expect("root pane should have terminal id");
+        app.terminal_runtimes.insert(
+            terminal_id.clone(),
+            TerminalRuntime::test_with_scrollback_bytes(
+                80,
+                4,
+                10_000,
+                b"one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n",
+            ),
+        );
+        app.terminal_runtimes
+            .get(&terminal_id)
+            .expect("terminal runtime")
+            .set_scroll_offset_from_bottom(2);
+
+        let area = ratatui::layout::Rect::new(0, 0, 100, 12);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let mut other_client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, area);
+        crate::app::view_state::capture_terminal_offset_from_runtimes(
+            &terminal_id,
+            &app.terminal_runtimes,
+            &mut client,
+        );
+        crate::app::view_state::capture_terminal_offset_from_runtimes(
+            &terminal_id,
+            &app.terminal_runtimes,
+            &mut other_client,
+        );
+        let other_offset_before = other_client
+            .terminal_offsets_from_bottom
+            .get(&terminal_id)
+            .copied()
+            .expect("other client terminal viewport");
+        let client_offset_before = client
+            .terminal_offsets_from_bottom
+            .get(&terminal_id)
+            .copied()
+            .expect("client terminal viewport");
+        let runtime_offset_before = app
+            .terminal_runtimes
+            .get(&terminal_id)
+            .and_then(|runtime| runtime.scroll_metrics())
+            .map(|metrics| metrics.offset_from_bottom)
+            .expect("terminal runtime scroll metrics");
+        let pane = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == pane_id)
+            .expect("client pane should be visible");
+        let track = crate::ui::pane_scrollbar_rect(pane)
+            .expect("scrollable terminal should render a scrollbar");
+        let click_row = track.y;
+        let expected_offset = match app
+            .client_view_scrollbar_target_at(&client, track.x, click_row)
+            .expect("top of terminal scrollbar should be interactive")
+            .1
+        {
+            input::ScrollbarClickTarget::Track { offset_from_bottom } => offset_from_bottom,
+            input::ScrollbarClickTarget::Thumb { .. } => {
+                panic!("top of terminal scrollbar should be outside the bottom thumb")
+            }
+        };
+        assert_ne!(
+            expected_offset, client_offset_before.offset_from_bottom,
+            "scrollbar track click should select a different client viewport"
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                track.x,
+                click_row,
+            )],
+            true,
+        );
+
+        assert_eq!(
+            client
+                .terminal_offsets_from_bottom
+                .get(&terminal_id)
+                .map(|offset| offset.offset_from_bottom),
+            Some(expected_offset)
+        );
+        assert_eq!(
+            client
+                .terminal_offsets_from_bottom
+                .get(&terminal_id)
+                .map(|offset| offset.max_offset_from_bottom),
+            app.terminal_runtimes
+                .get(&terminal_id)
+                .and_then(|runtime| runtime.scroll_metrics())
+                .map(|metrics| metrics.max_offset_from_bottom)
+        );
+        assert_eq!(
+            app.terminal_runtimes
+                .get(&terminal_id)
+                .and_then(|runtime| runtime.scroll_metrics())
+                .map(|metrics| metrics.offset_from_bottom),
+            Some(runtime_offset_before),
+            "client scrollbar input must not move the shared terminal runtime viewport"
+        );
+        assert_eq!(
+            other_client.terminal_offsets_from_bottom.get(&terminal_id),
+            Some(&other_offset_before)
+        );
     }
 
     #[tokio::test]
@@ -13485,7 +13830,7 @@ mod tests {
     }
 
     #[test]
-    fn route_client_events_for_view_global_menu_keybinds_mouse_click_stays_client_local() {
+    fn route_client_events_for_view_global_menu_rendered_row_maps_to_keybinds() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("test")];
         app.state.ensure_test_terminals();
@@ -13504,19 +13849,15 @@ mod tests {
             &mut first_client,
             ratatui::layout::Rect::new(0, 0, 120, 30),
         );
-        let mut view_state = app.state.clone();
-        view_state.mode = first_client.mode;
-        view_state.view = first_client.computed.clone();
-        view_state.global_menu = first_client.global_menu;
-        let keybinds_row = crate::app::input::global_menu_actions(&view_state)
+        let keybinds_row = crate::app::input::global_menu_actions(&app.state)
             .iter()
             .position(|action| *action == crate::app::input::GlobalMenuAction::Keybinds)
             .expect("keybinds action should be present");
-        let menu = view_state.global_menu_rect();
+        let menu = client_global_menu_rect(&app.state, &first_client);
         let click_col = menu.x + 2;
         let click_row = menu.y + 1 + keybinds_row as u16;
         assert_eq!(
-            view_state.global_menu_item_at(click_col, click_row),
+            app.client_view_global_menu_item_at(&first_client, click_col, click_row),
             Some(crate::app::input::GlobalMenuAction::Keybinds)
         );
 

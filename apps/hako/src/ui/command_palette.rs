@@ -8,8 +8,10 @@ use ratatui::{
 
 use crate::app::{
     command_palette::{
-        command_palette_filtered_commands, CommandPaletteAction, CommandPaletteCommand,
+        command_palette_filtered_commands, command_palette_filtered_commands_for_view,
+        CommandPaletteAction, CommandPaletteCommand,
     },
+    view_state::ClientViewState,
     AppState,
 };
 
@@ -91,9 +93,40 @@ pub(crate) fn command_palette_button_rects(inner: Rect) -> (Rect, Rect) {
 }
 
 pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) {
-    super::dim_background(frame, frame.area());
+    let commands = command_palette_filtered_commands(app);
+    render_command_palette_overlay_from(
+        app,
+        frame,
+        app.screen_rect(),
+        &app.command_palette,
+        commands,
+    );
+}
 
-    let screen = app.screen_rect();
+pub(super) fn render_command_palette_overlay_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    frame: &mut Frame,
+) {
+    let commands = command_palette_filtered_commands_for_view(app, view);
+    render_command_palette_overlay_from(
+        app,
+        frame,
+        view.screen_rect(),
+        &view.command_palette,
+        commands,
+    );
+}
+
+fn render_command_palette_overlay_from(
+    app: &AppState,
+    frame: &mut Frame,
+    screen: Rect,
+    palette_state: &crate::app::state::CommandPaletteState,
+    commands: Vec<CommandPaletteCommand>,
+) {
+    super::dim_background(frame, screen);
+
     let area = if screen.width >= 4 && screen.height >= 4 {
         screen
     } else {
@@ -123,7 +156,7 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
     render_modal_subtitle(frame, rows[1], "type to filter commands", &app.palette);
 
     let input = Rect::new(rows[2].x, rows[2].y, rows[2].width, 1);
-    render_modal_text_input(frame, input, &app.command_palette.query, &app.palette);
+    render_modal_text_input(frame, input, &palette_state.query, &app.palette);
 
     render_modal_hint_lines(frame, rows[5], &app.palette, COMMAND_PALETTE_HINTS, 2);
 
@@ -136,7 +169,6 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
         primary_action_style(&app.palette),
     );
 
-    let commands = command_palette_filtered_commands(app);
     if commands.is_empty() {
         frame.render_widget(
             Paragraph::new(" no commands").style(Style::default().fg(app.palette.overlay1)),
@@ -145,13 +177,9 @@ pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) 
         return;
     }
 
-    let selected = app
-        .command_palette
-        .selected
-        .min(commands.len().saturating_sub(1));
+    let selected = palette_state.selected.min(commands.len().saturating_sub(1));
     let palette_rows = command_palette_rows(&commands);
-    let Some(list) =
-        command_palette_list_geometry(area, palette_rows.len(), app.command_palette.scroll)
+    let Some(list) = command_palette_list_geometry(area, palette_rows.len(), palette_state.scroll)
     else {
         return;
     };

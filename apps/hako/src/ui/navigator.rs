@@ -11,7 +11,10 @@ use super::{
     status::{agent_icon, state_label_color},
     widgets::{panel_contrast_fg, render_panel_shell},
 };
-use crate::app::state::{AppState, NavigatorRow, NavigatorStateFilter, NavigatorTarget};
+use crate::app::{
+    state::{AppState, NavigatorRow, NavigatorStateFilter, NavigatorTarget},
+    view_state::ClientViewState,
+};
 
 pub(super) fn render_navigator_overlay(app: &AppState, frame: &mut Frame) {
     let popup = app.navigator_popup_rect();
@@ -33,6 +36,198 @@ pub(super) fn render_navigator_overlay(app: &AppState, frame: &mut Frame) {
     }
     render_detail(app, frame, detail);
     render_footer(app, frame, footer);
+}
+
+pub(super) fn render_navigator_overlay_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    frame: &mut Frame,
+) {
+    let screen = view.screen_rect();
+    let popup = navigator_popup_rect(screen);
+    let Some(inner) = render_panel_shell(frame, popup, app.palette.accent, app.palette.panel_bg)
+    else {
+        return;
+    };
+    let search = Rect::new(inner.x, inner.y, inner.width, inner.height.min(1));
+    let body = if inner.height <= 4 {
+        Rect::default()
+    } else {
+        Rect::new(
+            inner.x,
+            inner.y + 2,
+            inner.width,
+            inner.height.saturating_sub(4),
+        )
+    };
+    let detail = Rect::new(
+        inner.x,
+        inner.y + inner.height.saturating_sub(2),
+        inner.width,
+        inner.height.min(1),
+    );
+    let footer = Rect::new(
+        inner.x,
+        inner.y + inner.height.saturating_sub(1),
+        inner.width,
+        inner.height.min(1),
+    );
+    render_search_for_navigator(app, &view.navigator, frame, search);
+    let rows = app.navigator_rows_for_view(view, terminal_runtimes);
+    if body.height > 0 {
+        render_separator(frame, Rect::new(inner.x, search.y + 1, inner.width, 1), app);
+        let start = view.navigator.scroll.min(rows.len());
+        let end = rows.len().min(start.saturating_add(body.height as usize));
+        for (visible_idx, row) in rows[start..end].iter().enumerate() {
+            let idx = start + visible_idx;
+            render_row(
+                app,
+                frame,
+                Rect::new(body.x, body.y + visible_idx as u16, body.width, 1),
+                row,
+                idx == view.navigator.selected,
+            );
+        }
+        render_navigator_scrollbar_for_view(app, &view.navigator, frame, body, rows.len());
+    }
+    render_navigator_detail_for_view(app, frame, detail, rows.get(view.navigator.selected));
+    render_footer(app, frame, footer);
+}
+
+fn navigator_popup_rect(area: Rect) -> Rect {
+    let margin_x = (area.width / 16).max(2);
+    let margin_y = (area.height / 10).max(1);
+    let width = area.width.saturating_sub(margin_x.saturating_mul(2));
+    let height = area.height.saturating_sub(margin_y.saturating_mul(2));
+    Rect::new(
+        area.x + margin_x,
+        area.y + margin_y,
+        width.max(4),
+        height.max(4),
+    )
+}
+
+fn render_search_for_navigator(
+    app: &AppState,
+    navigator: &crate::app::state::NavigatorState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let p = &app.palette;
+    let focus_style = if navigator.search_focused {
+        Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(p.overlay0)
+    };
+    let count = app
+        .workspaces
+        .iter()
+        .flat_map(|workspace| workspace.tabs.iter())
+        .map(|tab| tab.panes.len())
+        .sum::<usize>();
+    let mut spans = vec![Span::styled(" / ", focus_style)];
+    let query = navigator.query.trim();
+    match navigator.state_filter {
+        Some(NavigatorStateFilter::Blocked) => push_state_chip(
+            &mut spans,
+            crate::detect::AgentState::Blocked,
+            true,
+            app.spinner_tick,
+            "blocked",
+            app,
+        ),
+        Some(NavigatorStateFilter::Working) => push_state_chip(
+            &mut spans,
+            crate::detect::AgentState::Working,
+            true,
+            app.spinner_tick,
+            "working",
+            app,
+        ),
+        Some(NavigatorStateFilter::Idle) => push_state_chip(
+            &mut spans,
+            crate::detect::AgentState::Idle,
+            true,
+            app.spinner_tick,
+            "idle",
+            app,
+        ),
+        Some(NavigatorStateFilter::Done) => push_state_chip(
+            &mut spans,
+            crate::detect::AgentState::Idle,
+            false,
+            app.spinner_tick,
+            "done",
+            app,
+        ),
+        None if query.is_empty() => spans.push(Span::styled(
+            "search panes",
+            Style::default().fg(p.overlay0),
+        )),
+        None => spans.push(Span::styled(query.to_string(), Style::default().fg(p.text))),
+    }
+    spans.push(Span::styled(
+        format!(
+            "{count:>width$} panes",
+            width = area.width.saturating_sub(16) as usize
+        ),
+        Style::default().fg(p.overlay0),
+    ));
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn render_navigator_scrollbar_for_view(
+    app: &AppState,
+    navigator: &crate::app::state::NavigatorState,
+    frame: &mut Frame,
+    body: Rect,
+    rows: usize,
+) {
+    if body.width <= 1 || body.height == 0 || rows <= body.height as usize {
+        return;
+    }
+    let viewport = body.height as usize;
+    let metrics = crate::pane::ScrollMetrics {
+        viewport_rows: viewport,
+        offset_from_bottom: rows
+            .saturating_sub(viewport)
+            .saturating_sub(navigator.scroll),
+        max_offset_from_bottom: rows.saturating_sub(viewport),
+    };
+    if should_show_scrollbar(metrics) {
+        render_scrollbar(
+            frame,
+            metrics,
+            Rect::new(body.x + body.width - 1, body.y, 1, body.height),
+            app.palette.surface_dim,
+            app.palette.overlay0,
+            "▕",
+        );
+    }
+}
+
+fn render_navigator_detail_for_view(
+    app: &AppState,
+    frame: &mut Frame,
+    area: Rect,
+    row: Option<&NavigatorRow>,
+) {
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
+    render_separator(frame, area, app);
+    let Some(row) = row else {
+        return;
+    };
+    let detail = detail_for_row(app, row);
+    let detail = middle_elide(&detail, area.width.saturating_sub(2) as usize);
+    if !detail.is_empty() {
+        frame.render_widget(
+            Paragraph::new(format!(" {detail}")).style(Style::default().fg(app.palette.overlay0)),
+            area,
+        );
+    }
 }
 
 fn render_search(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -290,9 +485,13 @@ fn selected_detail(app: &AppState) -> String {
     let Some(row) = rows.get(app.navigator.selected) else {
         return String::new();
     };
+    detail_for_row(app, row)
+}
+
+fn detail_for_row(app: &AppState, row: &NavigatorRow) -> String {
     match row.target {
-        NavigatorTarget::Workspace { ws_idx } => workspace_detail(app, ws_idx),
-        NavigatorTarget::Tab { ws_idx, tab_idx } => tab_detail(app, ws_idx, tab_idx),
+        NavigatorTarget::Workspace { ws_idx } => workspace_detail(app, ws_idx, &row.meta),
+        NavigatorTarget::Tab { ws_idx, tab_idx } => tab_detail(app, ws_idx, tab_idx, &row.meta),
         NavigatorTarget::Pane {
             ws_idx,
             tab_idx,
@@ -301,7 +500,7 @@ fn selected_detail(app: &AppState) -> String {
     }
 }
 
-fn workspace_detail(app: &AppState, ws_idx: usize) -> String {
+fn workspace_detail(app: &AppState, ws_idx: usize, activity: &str) -> String {
     let Some(ws) = app.workspaces.get(ws_idx) else {
         return String::new();
     };
@@ -309,13 +508,13 @@ fn workspace_detail(app: &AppState, ws_idx: usize) -> String {
     let label = ws.display_name_from(&app.terminals, &terminal_runtimes);
     let pane_count = ws.tabs.iter().map(|tab| tab.panes.len()).sum::<usize>();
     let mut parts = vec![label, format!("{pane_count} panes")];
-    if !rowless_workspace_activity(app, ws_idx).is_empty() {
-        parts.push(rowless_workspace_activity(app, ws_idx));
+    if !activity.is_empty() {
+        parts.push(activity.to_string());
     }
     parts.join(" · ")
 }
 
-fn tab_detail(app: &AppState, ws_idx: usize, tab_idx: usize) -> String {
+fn tab_detail(app: &AppState, ws_idx: usize, tab_idx: usize, meta: &str) -> String {
     let Some(ws) = app.workspaces.get(ws_idx) else {
         return String::new();
     };
@@ -328,14 +527,8 @@ fn tab_detail(app: &AppState, ws_idx: usize, tab_idx: usize) -> String {
         format!("tab: {}", tab.display_name()),
         format!("{} panes", tab.panes.len()),
     ];
-    let rows = app.navigator_rows();
-    if let Some(meta) = rows
-        .into_iter()
-        .find(|row| matches!(row.target, NavigatorTarget::Tab { ws_idx: row_ws_idx, tab_idx: row_tab_idx } if row_ws_idx == ws_idx && row_tab_idx == tab_idx))
-        .map(|row| row.meta)
-        .filter(|meta| !meta.is_empty())
-    {
-        parts.push(meta);
+    if !meta.is_empty() {
+        parts.push(meta.to_string());
     }
     parts.join(" · ")
 }
@@ -395,14 +588,6 @@ fn pane_detail(
         }
     }
     parts.join(" · ")
-}
-
-fn rowless_workspace_activity(app: &AppState, ws_idx: usize) -> String {
-    app.navigator_rows()
-        .into_iter()
-        .find(|row| matches!(row.target, NavigatorTarget::Workspace { ws_idx: row_ws_idx } if row_ws_idx == ws_idx))
-        .map(|row| row.meta)
-        .unwrap_or_default()
 }
 
 fn row_state(
@@ -487,4 +672,51 @@ fn truncate_text(text: &str, max_width: usize) -> String {
     }
     let prefix: String = text.chars().take(max_width.saturating_sub(1)).collect();
     format!("{prefix}…")
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{backend::TestBackend, buffer::Buffer, layout::Rect, Terminal};
+
+    use super::*;
+    use crate::workspace::Workspace;
+
+    #[test]
+    fn client_navigator_detail_uses_the_client_selected_row() {
+        let mut app = AppState::test_new();
+        crate::ui::compute_view(&mut app, Rect::new(0, 0, 120, 30));
+        app.workspaces = vec![
+            Workspace::test_new("app-selected-workspace"),
+            Workspace::test_new("client-selected-workspace"),
+        ];
+        app.navigator.query = "app-selected".to_string();
+
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.navigator.query = "client-selected".to_string();
+
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_navigator_overlay_for_view(&app, &view, &terminal_runtimes, frame))
+            .expect("render client navigator");
+
+        let text = buffer_text(terminal.backend().buffer(), 120, 30);
+        assert!(
+            text.contains("client-selected-workspace · 1 panes"),
+            "client navigator detail: {text:?}"
+        );
+        assert!(!text.contains("app-selected-workspace · 1 panes"));
+    }
+
+    fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {
+        let mut text = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                text.push_str(buffer[(x, y)].symbol());
+            }
+            text.push('\n');
+        }
+        text
+    }
 }

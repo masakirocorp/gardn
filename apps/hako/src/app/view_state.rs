@@ -498,6 +498,51 @@ impl ClientViewState {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn capture_terminal_offset_from_runtimes(
+    terminal_id: &TerminalId,
+    runtimes: &TerminalRuntimeRegistry,
+    view: &mut ClientViewState,
+) {
+    let Some(metrics) = runtimes
+        .get(terminal_id)
+        .and_then(|runtime| runtime.scroll_metrics())
+    else {
+        return;
+    };
+    view.terminal_offsets_from_bottom.insert(
+        terminal_id.clone(),
+        TerminalViewportOffset::from_metrics(metrics),
+    );
+}
+
+pub(crate) fn set_terminal_offset_from_bottom(
+    terminal_id: &TerminalId,
+    metrics: crate::pane::ScrollMetrics,
+    offset_from_bottom: usize,
+    view: &mut ClientViewState,
+) {
+    view.terminal_offsets_from_bottom.insert(
+        terminal_id.clone(),
+        TerminalViewportOffset {
+            offset_from_bottom: offset_from_bottom.min(metrics.max_offset_from_bottom),
+            max_offset_from_bottom: metrics.max_offset_from_bottom,
+        },
+    );
+}
+
+pub(crate) fn terminal_offset_from_bottom(
+    terminal_id: &TerminalId,
+    metrics: crate::pane::ScrollMetrics,
+    view: &ClientViewState,
+) -> usize {
+    view.terminal_offsets_from_bottom
+        .get(terminal_id)
+        .copied()
+        .map(|offset| offset.for_metrics(metrics))
+        .unwrap_or(metrics.offset_from_bottom)
+}
+
 pub(crate) fn capture_terminal_offsets_from_runtimes(
     live_terminal_ids: &[TerminalId],
     runtimes: &TerminalRuntimeRegistry,

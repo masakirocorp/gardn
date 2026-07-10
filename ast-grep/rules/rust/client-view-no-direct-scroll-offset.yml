@@ -1,0 +1,17 @@
+id: rust-client-view-no-direct-scroll-offset
+language: rust
+severity: error
+message: Client-view helpers must persist terminal viewport intent in ClientViewState, not mutate shared runtimes.
+rule:
+  any:
+    - pattern: $RUNTIME.set_scroll_offset_from_bottom($$$ARGS)
+    - pattern: $RUNTIME.scroll_up($$$ARGS)
+    - pattern: $RUNTIME.scroll_down($$$ARGS)
+    - pattern: $RUNTIME.scroll_reset()
+  inside:
+    kind: function_item
+    has:
+      field: name
+      kind: identifier
+      regex: '^(forward|handle|set|scroll)_client_view_.*$'
+    stopBy: end

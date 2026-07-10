@@ -24,16 +24,28 @@ mod status;
 mod tabs;
 mod widgets;
 
-use self::agent_profile_picker::render_agent_profile_picker_overlay;
-use self::command_palette::render_command_palette_overlay;
-use self::dialogs::{
-    render_confirm_close_overlay, render_confirm_delete_group_overlay, render_rename_overlay,
+use self::agent_profile_picker::{
+    render_agent_profile_picker_overlay, render_agent_profile_picker_overlay_for_view,
 };
-use self::git_repo_picker::render_git_repo_picker_overlay;
-use self::keybind_help::render_keybind_help_overlay;
+use self::command_palette::{
+    render_command_palette_overlay, render_command_palette_overlay_for_view,
+};
+use self::dialogs::{
+    render_confirm_close_overlay, render_confirm_close_overlay_for_view,
+    render_confirm_delete_group_overlay, render_confirm_delete_group_overlay_for_view,
+    render_rename_overlay, render_rename_overlay_for_view,
+};
+use self::git_repo_picker::{
+    render_git_repo_picker_overlay, render_git_repo_picker_overlay_for_view,
+};
+use self::keybind_help::{render_keybind_help_overlay, render_keybind_help_overlay_for_view};
 use self::menus::{
-    render_agent_menu, render_context_menu, render_copy_mode_overlay, render_global_launcher_menu,
-    render_group_menu, render_navigate_overlay, render_prefix_overlay, render_resize_overlay,
+    render_agent_menu, render_agent_menu_for_view, render_context_menu,
+    render_context_menu_for_view, render_copy_mode_overlay, render_copy_mode_overlay_for_view,
+    render_global_launcher_menu, render_global_launcher_menu_for_view, render_group_menu,
+    render_group_menu_for_view, render_navigate_overlay, render_navigate_overlay_for_view,
+    render_prefix_overlay, render_prefix_overlay_for_view, render_resize_overlay,
+    render_resize_overlay_for_view,
 };
 use self::mobile::{
     compute_mobile_header_hit_areas, is_mobile_width, mobile_switcher_max_scroll_for_height,
@@ -41,7 +53,7 @@ use self::mobile::{
     render_mobile_header_for_view, render_mobile_panel, render_mobile_panel_for_view,
     render_mobile_toast_banner,
 };
-use self::navigator::render_navigator_overlay;
+use self::navigator::{render_navigator_overlay, render_navigator_overlay_for_view};
 pub(crate) use self::onboarding::onboarding_welcome_continue_rect;
 use self::onboarding::render_onboarding_overlay;
 use self::panes::{
@@ -53,17 +65,20 @@ pub(crate) use self::release_notes::{
     release_notes_display_lines, release_notes_wrapped_line_count, PRODUCT_ANNOUNCEMENT_MODAL_SIZE,
     RELEASE_NOTES_MODAL_SIZE,
 };
-use self::release_notes::{render_product_announcement_overlay, render_release_notes_overlay};
+use self::release_notes::{
+    render_product_announcement_overlay, render_product_announcement_overlay_for_view,
+    render_release_notes_overlay, render_release_notes_overlay_for_view,
+};
 pub(crate) use self::scrollbar::{
     pane_scrollbar_rect, release_notes_scrollbar_rect, scrollbar_offset_from_drag_row,
     scrollbar_offset_from_row, scrollbar_thumb_grab_offset, should_show_scrollbar,
 };
-use self::settings::render_settings_overlay;
+use self::settings::{render_settings_overlay, render_settings_overlay_for_view};
 #[cfg(test)]
 pub(crate) use self::sidebar::collapsed_workspace_rows_rect;
 use self::sidebar::{
     render_right_sidebar, render_right_sidebar_for_view, render_sidebar, render_sidebar_collapsed,
-    render_sidebar_for_view,
+    render_sidebar_collapsed_for_view, render_sidebar_for_view,
 };
 use self::status::{
     copy_feedback_rect, render_config_diagnostic, render_copy_feedback, render_toast_notification,
@@ -923,7 +938,7 @@ pub fn render_with_runtime_registry_for_view(
             client_view.computed.mobile_header_rect,
         );
     } else if client_view.sidebar_collapsed {
-        render_sidebar_collapsed(app, frame, sidebar_area);
+        render_sidebar_collapsed_for_view(app, terminal_runtimes, client_view, frame, sidebar_area);
     } else {
         render_sidebar_for_view(app, terminal_runtimes, client_view, frame, sidebar_area);
     }
@@ -945,32 +960,46 @@ pub fn render_with_runtime_registry_for_view(
 
     match client_view.mode {
         Mode::Onboarding => render_onboarding_overlay(app, frame, frame.area()),
-        Mode::ReleaseNotes => render_release_notes_overlay(app, frame, frame.area()),
-        Mode::ProductAnnouncement => render_product_announcement_overlay(app, frame, frame.area()),
+        Mode::ReleaseNotes => {
+            render_release_notes_overlay_for_view(app, client_view, frame, frame.area())
+        }
+        Mode::ProductAnnouncement => {
+            render_product_announcement_overlay_for_view(app, client_view, frame, frame.area())
+        }
         Mode::Navigate if client_view.computed.layout == ViewLayout::Mobile => {
             render_mobile_panel_for_view(app, terminal_runtimes, client_view, frame, frame.area())
         }
-        Mode::Navigate => render_navigate_overlay(app, frame, terminal_area),
-        Mode::Prefix => render_prefix_overlay(app, frame, terminal_area),
-        Mode::Copy => render_copy_mode_overlay(app, frame, terminal_area),
-        Mode::Resize => render_resize_overlay(app, frame, terminal_area),
-        Mode::ConfirmClose => render_confirm_close_overlay(app, frame, terminal_area),
-        Mode::ConfirmDeleteGroup => render_confirm_delete_group_overlay(app, frame, terminal_area),
-        Mode::ContextMenu => render_context_menu(app, frame),
-        Mode::Settings => render_settings_overlay(app, frame, frame.area()),
+        Mode::Navigate => render_navigate_overlay_for_view(app, client_view, frame, terminal_area),
+        Mode::Prefix => render_prefix_overlay_for_view(app, client_view, frame, terminal_area),
+        Mode::Copy => render_copy_mode_overlay_for_view(app, client_view, frame, terminal_area),
+        Mode::Resize => render_resize_overlay_for_view(app, client_view, frame, terminal_area),
+        Mode::ConfirmClose => {
+            render_confirm_close_overlay_for_view(app, client_view, frame, terminal_area)
+        }
+        Mode::ConfirmDeleteGroup => {
+            render_confirm_delete_group_overlay_for_view(app, client_view, frame, terminal_area)
+        }
+        Mode::ContextMenu => render_context_menu_for_view(app, client_view, frame),
+        Mode::Settings => render_settings_overlay_for_view(app, client_view, frame, frame.area()),
         Mode::RenameWorkspace
         | Mode::RenameGroup
         | Mode::RenameTab
         | Mode::RenamePane
-        | Mode::EditWorktreeDirectory => render_rename_overlay(app, frame, frame.area()),
-        Mode::GlobalMenu => render_global_launcher_menu(app, frame),
-        Mode::GroupMenu => render_group_menu(app, frame),
-        Mode::AgentMenu => render_agent_menu(app, frame),
-        Mode::KeybindHelp => render_keybind_help_overlay(app, frame),
-        Mode::Navigator => render_navigator_overlay(app, frame),
-        Mode::CommandPalette => render_command_palette_overlay(app, frame),
-        Mode::AgentProfilePicker => render_agent_profile_picker_overlay(app, frame),
-        Mode::GitRepoPicker => render_git_repo_picker_overlay(app, frame),
+        | Mode::EditWorktreeDirectory => {
+            render_rename_overlay_for_view(app, client_view, frame, frame.area())
+        }
+        Mode::GlobalMenu => render_global_launcher_menu_for_view(app, client_view, frame),
+        Mode::GroupMenu => render_group_menu_for_view(app, client_view, frame),
+        Mode::AgentMenu => render_agent_menu_for_view(app, client_view, frame),
+        Mode::KeybindHelp => render_keybind_help_overlay_for_view(app, client_view, frame),
+        Mode::Navigator => {
+            render_navigator_overlay_for_view(app, client_view, terminal_runtimes, frame)
+        }
+        Mode::CommandPalette => render_command_palette_overlay_for_view(app, client_view, frame),
+        Mode::AgentProfilePicker => {
+            render_agent_profile_picker_overlay_for_view(app, client_view, frame)
+        }
+        Mode::GitRepoPicker => render_git_repo_picker_overlay_for_view(app, client_view, frame),
         Mode::Terminal => {}
     }
 }
@@ -1909,6 +1938,18 @@ mod tests {
 
         let thumb = scrollbar_thumb(metrics, track).expect("thumb");
         assert_eq!(thumb.top + thumb.len, track.y + track.height);
+    }
+
+    #[test]
+    fn scrollbar_thumb_grab_ignores_track_before_thumb() {
+        let metrics = crate::pane::ScrollMetrics {
+            offset_from_bottom: 0,
+            max_offset_from_bottom: 20,
+            viewport_rows: 5,
+        };
+        let track = Rect::new(9, 4, 1, 5);
+
+        assert_eq!(scrollbar_thumb_grab_offset(metrics, track, track.y), None);
     }
 
     #[test]
