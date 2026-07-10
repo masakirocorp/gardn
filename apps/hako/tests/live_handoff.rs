@@ -98,6 +98,7 @@ fn spawn_named_session_server(
     config_home: &Path,
     runtime_dir: &Path,
     session_name: &str,
+    inherited_socket_overrides: Option<(&Path, &Path)>,
 ) -> SpawnedHako {
     fs::create_dir_all(config_home.join("hako-dev")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
@@ -116,12 +117,18 @@ fn spawn_named_session_server(
         })
         .unwrap();
     let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_hako"));
+    cmd.arg("--session");
+    cmd.arg(session_name);
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
-    cmd.env("HAKO_SESSION", session_name);
-    cmd.env_remove("HAKO_SOCKET_PATH");
-    cmd.env_remove("HAKO_CLIENT_SOCKET_PATH");
+    if let Some((api_socket, client_socket)) = inherited_socket_overrides {
+        cmd.env("HAKO_SOCKET_PATH", api_socket);
+        cmd.env("HAKO_CLIENT_SOCKET_PATH", client_socket);
+    } else {
+        cmd.env_remove("HAKO_SOCKET_PATH");
+        cmd.env_remove("HAKO_CLIENT_SOCKET_PATH");
+    }
     cmd.env("SHELL", "/bin/sh");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
@@ -506,7 +513,7 @@ fn live_server_holds_one_pty_master_fd_per_pane() {
 }
 
 #[test]
-fn live_handoff_preserves_named_session_socket_paths() {
+fn live_handoff_preserves_explicit_named_session_sockets_despite_inherited_overrides() {
     let _lock = test_lock();
     let base = unique_test_dir();
     let config_home = base.join("config");
@@ -514,8 +521,15 @@ fn live_handoff_preserves_named_session_socket_paths() {
     let session_dir = config_home.join("hako-dev/sessions/work");
     let api_socket = session_dir.join("hako.sock");
     let client_socket = session_dir.join("hako-client.sock");
+    let inherited_api_socket = runtime_dir.join("stale-api.sock");
+    let inherited_client_socket = runtime_dir.join("stale-client.sock");
 
-    let spawned = spawn_named_session_server(&config_home, &runtime_dir, "work");
+    let spawned = spawn_named_session_server(
+        &config_home,
+        &runtime_dir,
+        "work",
+        Some((&inherited_api_socket, &inherited_client_socket)),
+    );
     wait_for_socket(&api_socket, Duration::from_secs(10));
     register_runtime_dir(&runtime_dir);
 
@@ -1208,7 +1222,7 @@ fn live_handoff_preserves_http_servers_across_multiple_sessions() {
         .unwrap();
         let port = unused_local_port();
         let server = if let Some(session_name) = session_name {
-            spawn_named_session_server(&config_home, &runtime_dir, session_name)
+            spawn_named_session_server(&config_home, &runtime_dir, session_name, None)
         } else {
             spawn_default_session_server(&config_home, &runtime_dir)
         };

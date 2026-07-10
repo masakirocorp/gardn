@@ -74,6 +74,11 @@ pub(crate) fn spawn_handoff_import(
         &fallback_exe
     };
     let mut command = Command::new(exe);
+    if crate::session::explicit_session_requested() {
+        command
+            .env_remove(crate::api::SOCKET_PATH_ENV_VAR)
+            .env_remove(crate::server::socket_paths::CLIENT_SOCKET_PATH_ENV_VAR);
+    }
     command
         .arg("server")
         .arg("--handoff-import")

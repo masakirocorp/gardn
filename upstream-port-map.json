@@ -1715,6 +1715,12 @@
         "928945a"
       ],
       "reason": "Ported to Hako pane cursor rendering and Windows cursor-position preservation."
+    },
+    {
+      "upstream": "9c4534276614653e51cfcff1fb4f9040129e8a11",
+      "subject": "fix: preserve explicit session sockets during live handoff",
+      "status": "ported",
+      "reason": "Ported in ENG-83 by clearing inherited API/client socket overrides from the live-handoff import process and covering explicit named-session handoff behavior."
     }
   ]
 }
