@@ -2183,20 +2183,26 @@ pub(crate) fn workspace_drop_indicator_row(
         })
 }
 
+fn global_launcher_style(app: &AppState) -> Style {
+    Style::default()
+        .fg(if app.global_menu_attention_badge_visible() {
+            app.palette.accent
+        } else {
+            app.palette.overlay0
+        })
+        .add_modifier(Modifier::BOLD)
+}
+
 fn render_global_launcher(app: &AppState, frame: &mut Frame) {
     let area = app.global_launcher_rect();
     if area == Rect::default() {
         return;
     }
 
-    let style = if app.global_menu_attention_badge_visible() {
-        Style::default()
-            .fg(app.palette.accent)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(app.palette.overlay0)
-    };
-    frame.render_widget(Paragraph::new(Span::styled("?", style)), area);
+    frame.render_widget(
+        Paragraph::new(Span::styled("?", global_launcher_style(app))),
+        area,
+    );
 }
 
 fn render_global_launcher_for_view(
@@ -2204,22 +2210,18 @@ fn render_global_launcher_for_view(
     client_view: &ClientViewState,
     frame: &mut Frame,
 ) {
-    let area = client_view_global_launcher_rect(client_view);
+    let area = global_launcher_rect_for_view(client_view);
     if area == Rect::default() {
         return;
     }
 
-    let style = if app.global_menu_attention_badge_visible() {
-        Style::default()
-            .fg(app.palette.accent)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(app.palette.overlay0)
-    };
-    frame.render_widget(Paragraph::new(Span::styled("?", style)), area);
+    frame.render_widget(
+        Paragraph::new(Span::styled("?", global_launcher_style(app))),
+        area,
+    );
 }
 
-fn client_view_global_launcher_rect(client_view: &ClientViewState) -> Rect {
+pub(crate) fn global_launcher_rect_for_view(client_view: &ClientViewState) -> Rect {
     if client_view.computed.layout == crate::app::state::ViewLayout::Mobile {
         return client_view.computed.mobile_menu_hit_area;
     }
@@ -2229,7 +2231,15 @@ fn client_view_global_launcher_rect(client_view: &ClientViewState) -> Rect {
         return Rect::default();
     }
 
-    Rect::new(footer.x, footer.y, 1.min(footer.width), footer.height)
+    Rect::new(
+        footer
+            .x
+            .saturating_add(1)
+            .min(footer.x.saturating_add(footer.width.saturating_sub(1))),
+        footer.y,
+        1.min(footer.width),
+        footer.height,
+    )
 }
 
 fn client_view_sidebar_footer_rect(client_view: &ClientViewState) -> Rect {
@@ -2810,7 +2820,7 @@ fn render_workspace_list_from_for_view(
 
     let list_bottom = area.y + area.height.saturating_sub(1);
     if area.height > 0 {
-        let selector_rect = client_view_group_selector_rect(client_view);
+        let selector_rect = group_selector_rect_for_view(app, client_view);
         frame.render_widget(
             Paragraph::new(Span::styled(
                 "spaces",
@@ -3055,29 +3065,50 @@ fn render_workspace_list_from_for_view(
     }
 }
 
-fn client_view_group_selector_rect(client_view: &ClientViewState) -> Rect {
-    let footer = client_view_sidebar_footer_rect(client_view);
-    if footer == Rect::default() {
+pub(crate) fn group_selector_rect_for_view(app: &AppState, client_view: &ClientViewState) -> Rect {
+    if client_view.computed.layout == crate::app::state::ViewLayout::Mobile {
         return Rect::default();
     }
-
+    if client_view.sidebar_collapsed {
+        return crate::ui::collapsed_group_header_rect(client_view.computed.sidebar_rect);
+    }
+    let sidebar = client_view.computed.sidebar_rect;
+    let workspace_area = if client_view.computed.right_sidebar_rect != Rect::default() {
+        crate::ui::left_sidebar_workspace_rect(sidebar)
+    } else if app.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight {
+        crate::ui::right_aligned_workspace_list_rect(sidebar, client_view.sidebar_section_split)
+    } else {
+        crate::ui::workspace_list_rect(sidebar, client_view.sidebar_section_split)
+    };
+    if workspace_area == Rect::default() {
+        return Rect::default();
+    }
+    let label_width = if client_view.group_filter_enabled {
+        app.groups
+            .get(client_view.active_group)
+            .map(|group| format!("{} {}", group.icon, group.name).chars().count() as u16)
+            .unwrap_or(3)
+    } else {
+        3
+    };
+    let width = label_width.saturating_add(2).min(workspace_area.width);
     Rect::new(
-        footer.x + 1,
-        footer.y,
-        footer.width.saturating_sub(2),
-        footer.height,
+        workspace_area.x + workspace_area.width.saturating_sub(width),
+        workspace_area.y,
+        width,
+        1,
     )
 }
 
 fn group_selector_label_for_view(app: &AppState, client_view: &ClientViewState) -> String {
     if client_view.group_filter_enabled {
         let Some(group) = app.groups.get(client_view.active_group) else {
-            return "all spaces".to_string();
+            return "all".to_string();
         };
         return format!("{} {}", group.icon, group.name);
     }
 
-    "all spaces".to_string()
+    "all".to_string()
 }
 
 fn workspace_summary_spans(

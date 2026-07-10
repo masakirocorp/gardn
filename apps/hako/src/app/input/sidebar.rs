@@ -242,7 +242,15 @@ impl AppState {
             return Rect::default();
         }
 
-        Rect::new(footer.x, footer.y, 1.min(footer.width), footer.height)
+        Rect::new(
+            footer
+                .x
+                .saturating_add(1)
+                .min(footer.x.saturating_add(footer.width.saturating_sub(1))),
+            footer.y,
+            1.min(footer.width),
+            footer.height,
+        )
     }
 
     pub(crate) fn global_menu_labels(&self) -> Vec<&'static str> {
@@ -936,7 +944,7 @@ mod tests {
     use std::fs;
 
     use crossterm::event::{MouseButton, MouseEventKind};
-    use ratatui::{backend::TestBackend, buffer::Buffer, layout::Rect, Terminal};
+    use ratatui::{backend::TestBackend, buffer::Buffer, layout::Rect, style::Modifier, Terminal};
 
     use super::super::{app_for_mouse_test, capture_snapshot, mouse, unique_temp_path};
     use crate::{
@@ -1878,8 +1886,15 @@ mod tests {
             launcher.y,
             app.state.view.sidebar_rect.y + app.state.view.sidebar_rect.height.saturating_sub(1)
         );
-        assert_eq!(launcher.x, app.state.sidebar_footer_rect().x);
+        assert_eq!(launcher.x, app.state.sidebar_footer_rect().x + 1);
         assert_eq!(launcher_text, "?");
+        assert!(
+            buffer[(launcher.x, launcher.y)]
+                .style()
+                .add_modifier
+                .contains(Modifier::BOLD),
+            "footer help launcher should be bold"
+        );
         assert!(
             !text.contains("integrations"),
             "the footer should only expose the help affordance before the menu is open; rendered app:\n{text}"

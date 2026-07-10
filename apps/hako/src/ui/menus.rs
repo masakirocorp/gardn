@@ -117,10 +117,28 @@ fn group_menu_group_line(
     selected: bool,
     width: u16,
 ) -> Line<'static> {
+    group_menu_group_line_for_selection(
+        app,
+        app.group_filter_enabled,
+        app.active_group,
+        group_idx,
+        selected,
+        width,
+    )
+}
+
+fn group_menu_group_line_for_selection(
+    app: &AppState,
+    group_filter_enabled: bool,
+    active_group: usize,
+    group_idx: usize,
+    selected: bool,
+    width: u16,
+) -> Line<'static> {
     let Some(group) = app.groups.get(group_idx) else {
         return Line::raw("");
     };
-    let marker = if app.group_filter_enabled && group_idx == app.active_group {
+    let marker = if group_filter_enabled && group_idx == active_group {
         "✓"
     } else {
         " "
@@ -1091,13 +1109,48 @@ pub(super) fn render_group_menu_for_view(
     frame: &mut Frame,
 ) {
     let labels = crate::app::client_group_menu_labels(app, view);
-    render_client_list_menu(
-        app,
+    let Some(inner) = render_panel_shell(
         frame,
         crate::app::client_group_menu_rect(app, view),
-        &labels,
-        view.group_menu.highlighted,
-    );
+        app.palette.accent,
+        app.palette.panel_bg,
+    ) else {
+        return;
+    };
+    let selected_style = Style::default()
+        .fg(panel_contrast_fg(&app.palette))
+        .bg(app.palette.accent)
+        .add_modifier(Modifier::BOLD);
+    let text_style = Style::default().fg(app.palette.text);
+    let dim_style = Style::default().fg(app.palette.overlay0);
+    for (idx, label) in labels.iter().enumerate() {
+        if label == "---" {
+            render_menu_separator(frame, inner, idx, dim_style);
+            continue;
+        }
+        let selected = idx == view.group_menu.highlighted;
+        let line = if let Some(group_idx) = group_menu_group_index(app, idx) {
+            group_menu_group_line_for_selection(
+                app,
+                view.group_filter_enabled,
+                view.active_group,
+                group_idx,
+                selected,
+                inner.width,
+            )
+        } else {
+            Line::from(format!(" {label}"))
+        };
+        render_menu_row(
+            frame,
+            inner,
+            idx,
+            line,
+            selected,
+            selected_style,
+            text_style,
+        );
+    }
 }
 
 pub(super) fn render_agent_menu_for_view(
@@ -1144,6 +1197,28 @@ mod tests {
             Some(app.group_accent_color(group_idx))
         );
         assert_eq!(line.spans[5].content.as_ref(), "0");
+    }
+    #[test]
+    fn client_group_menu_group_line_uses_group_accent() {
+        let mut app = AppState::test_new();
+        let group_idx = app.create_group("work".to_string());
+        app.groups[group_idx].icon = "■".to_string();
+        app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Magenta));
+        let expected_accent = app.group_accent_color(group_idx);
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.computed.sidebar_rect = Rect::new(0, 0, 24, 20);
+        view.computed.terminal_area = Rect::new(24, 0, 56, 20);
+        view.group_menu = crate::app::state::MenuListState::new(0);
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_group_menu_for_view(&app, &view, frame))
+            .expect("render client group menu");
+
+        let buffer = terminal.backend().buffer();
+        let (x, y) = first_cell_with_text(buffer, 80, 20, "work").expect("work group row");
+        assert_eq!(buffer[(x, y)].style().fg, Some(expected_accent));
     }
 
     #[test]

@@ -783,18 +783,27 @@ fn render_settings_rows_for_view(
                 enabled,
                 ..
             } => {
+                let value_style = if selected {
+                    style.add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(p.accent)
+                };
                 rows.push(ListItem::new(settings_title_value_line(
                     title,
                     if *enabled { "on" } else { "off" },
                     list_width,
                     style,
-                    Style::default().fg(p.accent),
+                    value_style,
                     selected,
                 )));
                 rows.push(ListItem::new(settings_setting_description_line(
                     description,
                     list_width,
-                    Style::default().fg(p.subtext0),
+                    if selected {
+                        style
+                    } else {
+                        Style::default().fg(p.subtext0)
+                    },
                     selected,
                 )));
             }
@@ -804,18 +813,27 @@ fn render_settings_rows_for_view(
                 value,
                 ..
             } => {
+                let value_style = if selected {
+                    style.add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(p.accent)
+                };
                 rows.push(ListItem::new(settings_title_value_line(
                     title,
                     value,
                     list_width,
                     style,
-                    Style::default().fg(p.accent),
+                    value_style,
                     selected,
                 )));
                 rows.push(ListItem::new(settings_setting_description_line(
                     description,
                     list_width,
-                    Style::default().fg(p.subtext0),
+                    if selected {
+                        style
+                    } else {
+                        Style::default().fg(p.subtext0)
+                    },
                     selected,
                 )));
             }
@@ -831,25 +849,59 @@ fn render_settings_rows_for_view(
                 )));
             }
             SettingsListRow::Choice { label, checked, .. } => {
+                let check_style = if selected {
+                    style
+                } else if *checked {
+                    Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(p.overlay0)
+                };
                 rows.push(ListItem::new(settings_choice_line(
                     label,
                     *checked,
                     list_width,
                     style,
-                    Style::default().fg(p.accent),
+                    check_style,
                     selected,
                 )))
             }
-            SettingsListRow::Action { icon, label, .. } => rows.push(ListItem::new(
-                settings_action_line(icon, label, list_width, style, selected),
-            )),
-            SettingsListRow::Status { label, status, .. } => {
+            SettingsListRow::Action {
+                icon, label, tone, ..
+            } => {
+                let action_style = if selected && *tone == SettingsMarkerTone::Danger {
+                    settings_danger_selected_style(p)
+                } else if selected {
+                    style
+                } else if *tone == SettingsMarkerTone::Danger {
+                    settings_marker_style(p, *tone)
+                } else {
+                    Style::default().fg(p.text)
+                };
+                rows.push(ListItem::new(settings_action_line(
+                    icon,
+                    label,
+                    list_width,
+                    action_style,
+                    selected,
+                )));
+            }
+            SettingsListRow::Status {
+                label,
+                status,
+                tone,
+                ..
+            } => {
+                let status_style = if selected {
+                    style.add_modifier(Modifier::BOLD)
+                } else {
+                    settings_marker_style(p, *tone)
+                };
                 rows.push(ListItem::new(settings_status_line(
                     label,
                     status,
                     list_width,
                     style,
-                    Style::default().fg(p.accent),
+                    status_style,
                     selected,
                 )))
             }
@@ -857,17 +909,30 @@ fn render_settings_rows_for_view(
                 name,
                 detail,
                 badge,
+                tone,
                 ..
-            } => rows.push(ListItem::new(settings_profile_name_line(
-                name,
-                detail,
-                badge.as_deref(),
-                list_width,
-                style,
-                Style::default().fg(p.accent),
-                Style::default().fg(p.accent),
-                selected,
-            ))),
+            } => {
+                let detail_style = if selected {
+                    style
+                } else {
+                    Style::default().fg(p.subtext0)
+                };
+                let badge_style = if selected {
+                    style.add_modifier(Modifier::BOLD)
+                } else {
+                    settings_marker_style(p, *tone).add_modifier(Modifier::BOLD)
+                };
+                rows.push(ListItem::new(settings_profile_name_line(
+                    name,
+                    detail,
+                    badge.as_deref(),
+                    list_width,
+                    style,
+                    detail_style,
+                    badge_style,
+                    selected,
+                )));
+            }
         }
     }
     let selected = selected_row
@@ -2755,6 +2820,71 @@ mod tests {
                 .style()
                 .bg,
             Some(app.palette.accent)
+        );
+    }
+    #[test]
+    fn client_integrations_selected_status_highlight_covers_status_text() {
+        let mut app = AppState::test_new();
+        app.integration_recommendations = vec![crate::integration::IntegrationRecommendation {
+            target: crate::api::schema::IntegrationTarget::Omp,
+            label: "pi",
+            command: "pi",
+            available: true,
+            path: std::path::PathBuf::from("/tmp/hako-test-pi"),
+            state: crate::integration::IntegrationStatusKind::Current,
+        }];
+        let mut client_view = crate::app::ClientViewState::from_default_client_state(&app);
+        client_view.settings.section = SettingsSection::Integrations;
+        client_view.settings.list.selected = 0;
+        client_view.settings.selection_active = true;
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay_for_view(&app, &client_view, frame, area))
+            .expect("render client settings overlay");
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, area.width, area.height);
+        let (status_y, status_x) = find_text_cell(&text, "installed").expect("installed status");
+        assert_eq!(
+            buffer[(status_x, status_y)].style().bg,
+            Some(app.palette.accent),
+            "selected integration status should share the row highlight"
+        );
+    }
+    #[test]
+    fn client_group_settings_selected_choice_marker_uses_group_accent_background() {
+        let mut app = AppState::test_new();
+        let group_idx = app.create_group("work".to_string());
+        app.set_group_accent(group_idx, Some(TerminalAccent::Magenta));
+        let palette = app.palette_for_group(group_idx);
+        let mut client_view = crate::app::ClientViewState::from_default_client_state(&app);
+        client_view.settings.group_settings_target = Some(group_idx);
+        client_view.settings.section = SettingsSection::Theme;
+        client_view.settings.list.selected = 1 + TerminalAccent::ALL
+            .iter()
+            .position(|accent| *accent == TerminalAccent::Magenta)
+            .expect("magenta terminal accent");
+        client_view.settings.selection_active = true;
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay_for_view(&app, &client_view, frame, area))
+            .expect("render client group settings overlay");
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, area.width, area.height);
+        let selected_label = format!("✓ {}", TerminalAccent::Magenta.as_str());
+        let (choice_y, choice_x) =
+            find_text_cell(&text, &selected_label).expect("selected magenta choice");
+        assert_eq!(
+            buffer[(choice_x, choice_y)].style().bg,
+            Some(palette.accent),
+            "selected group choice marker should share the group accent highlight"
         );
     }
 

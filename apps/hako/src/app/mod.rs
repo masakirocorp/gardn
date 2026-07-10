@@ -65,7 +65,7 @@ pub(crate) use view_state::ClientViewState;
 
 pub(crate) fn client_global_menu_rect(state: &AppState, view: &ClientViewState) -> Rect {
     let screen = view.screen_rect();
-    let launcher = client_global_launcher_rect(view);
+    let launcher = crate::ui::global_launcher_rect_for_view(view);
     let labels = state.global_menu_labels();
     let content_width = labels
         .iter()
@@ -122,7 +122,7 @@ pub(crate) fn client_group_menu_labels(state: &AppState, view: &ClientViewState)
 
 pub(crate) fn client_group_menu_rect(state: &AppState, view: &ClientViewState) -> Rect {
     let screen = view.screen_rect();
-    let selector = client_group_selector_rect(state, view);
+    let selector = crate::ui::group_selector_rect_for_view(state, view);
     let labels = client_group_menu_labels(state, view);
     let content_width = labels
         .iter()
@@ -208,62 +208,6 @@ pub(crate) fn client_agent_menu_rect(state: &AppState, view: &ClientViewState) -
             .min(screen.y + screen.height.saturating_sub(height)),
         width,
         height,
-    )
-}
-
-fn client_global_launcher_rect(view: &ClientViewState) -> Rect {
-    if view.computed.layout == state::ViewLayout::Mobile {
-        return view.computed.mobile_menu_hit_area;
-    }
-    let sidebar = view.computed.sidebar_rect;
-    if view.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
-        return Rect::default();
-    }
-    let content = crate::ui::left_sidebar_workspace_rect(sidebar);
-    if content == Rect::default() {
-        return Rect::default();
-    }
-    Rect::new(
-        content.x,
-        content.y + content.height.saturating_sub(1),
-        1.min(content.width),
-        1,
-    )
-}
-
-fn client_group_selector_rect(state: &AppState, view: &ClientViewState) -> Rect {
-    if view.computed.layout == crate::app::state::ViewLayout::Mobile {
-        return Rect::default();
-    }
-    if view.sidebar_collapsed {
-        return crate::ui::collapsed_group_header_rect(view.computed.sidebar_rect);
-    }
-    let sidebar = view.computed.sidebar_rect;
-    let workspace_area = if view.computed.right_sidebar_rect != Rect::default() {
-        crate::ui::left_sidebar_workspace_rect(sidebar)
-    } else if state.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight {
-        crate::ui::right_aligned_workspace_list_rect(sidebar, view.sidebar_section_split)
-    } else {
-        crate::ui::workspace_list_rect(sidebar, view.sidebar_section_split)
-    };
-    if workspace_area == Rect::default() {
-        return Rect::default();
-    }
-    let label_width = if view.group_filter_enabled {
-        state
-            .groups
-            .get(view.active_group)
-            .map(|group| format!("{} {}", group.icon, group.name).chars().count() as u16)
-            .unwrap_or(3)
-    } else {
-        3
-    };
-    let width = label_width.saturating_add(2).min(workspace_area.width);
-    Rect::new(
-        workspace_area.x + workspace_area.width.saturating_sub(width),
-        workspace_area.y,
-        width,
-        1,
     )
 }
 
@@ -7278,16 +7222,12 @@ impl App {
         )
     }
 
-    fn client_view_global_launcher_rect(client_view: &ClientViewState) -> Rect {
-        client_global_launcher_rect(client_view)
-    }
-
     fn client_view_on_global_launcher(
         client_view: &ClientViewState,
         mouse: crossterm::event::MouseEvent,
     ) -> bool {
         Self::rect_contains(
-            Self::client_view_global_launcher_rect(client_view),
+            crate::ui::global_launcher_rect_for_view(client_view),
             mouse.column,
             mouse.row,
         )
@@ -7325,17 +7265,13 @@ impl App {
         crate::ui::workspace_list_rect(sidebar, client_view.sidebar_section_split)
     }
 
-    fn client_view_group_selector_rect(&self, client_view: &ClientViewState) -> Rect {
-        client_group_selector_rect(&self.state, client_view)
-    }
-
     fn client_view_on_group_selector(
         &self,
         client_view: &ClientViewState,
         mouse: crossterm::event::MouseEvent,
     ) -> bool {
         Self::rect_contains(
-            self.client_view_group_selector_rect(client_view),
+            crate::ui::group_selector_rect_for_view(&self.state, client_view),
             mouse.column,
             mouse.row,
         )
@@ -14041,11 +13977,7 @@ mod tests {
             &mut first_client,
             ratatui::layout::Rect::new(0, 0, 120, 30),
         );
-        let mut client_local_state = app.state.clone();
-        client_local_state.view = first_client.computed.clone();
-        client_local_state.sidebar_collapsed = first_client.sidebar_collapsed;
-        client_local_state.right_sidebar_collapsed = first_client.right_sidebar_collapsed;
-        let launcher = client_local_state.global_launcher_rect();
+        let launcher = crate::ui::global_launcher_rect_for_view(&first_client);
         assert!(
             launcher.width > 0 && launcher.height > 0,
             "client view should expose the footer help launcher"
@@ -14680,10 +14612,27 @@ mod tests {
         let mut client = ClientViewState::from_default_client_state(&app.state);
         let other_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, area);
-        let selector = app.client_view_group_selector_rect(&client);
+        let selector = crate::ui::group_selector_rect_for_view(&app.state, &client);
         assert!(
             selector.width > 0 && selector.height > 0,
             "expanded spaces sidebar should expose the all-groups selector"
+        );
+        let rendered = rendered_client_view_text(&app, &client, area.width, area.height);
+        let selector_row = rendered
+            .lines()
+            .nth(selector.y as usize)
+            .expect("selector row should be rendered");
+        let footer_row = rendered
+            .lines()
+            .nth(area.height.saturating_sub(1) as usize)
+            .expect("sidebar footer row should be rendered");
+        assert!(
+            selector_row.contains("all"),
+            "all-groups selector should be visible at its clickable top-right position: {selector_row:?}"
+        );
+        assert!(
+            !footer_row.contains("all"),
+            "all-groups selector should not be rendered in the sidebar footer: {footer_row:?}"
         );
 
         app.route_client_events_for_view(
@@ -14699,6 +14648,51 @@ mod tests {
         assert_eq!(client.mode, Mode::GroupMenu);
         assert_eq!(other_client.mode, Mode::Terminal);
         assert_eq!(app.state.mode, Mode::Terminal);
+    }
+    #[test]
+    fn client_group_selector_displays_selected_group_at_click_target() {
+        let mut app = test_app();
+        let work_group = app.state.create_group("work".to_string());
+        let work_group_id = app.state.groups[work_group].id.clone();
+        let mut home = Workspace::test_new("home");
+        home.group_id = app.state.groups[0].id.clone();
+        let mut api = Workspace::test_new("api");
+        api.group_id = work_group_id;
+        app.state.workspaces = vec![home, api];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(1);
+        app.state.selected = 1;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+
+        let area = ratatui::layout::Rect::new(0, 0, 120, 30);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.group_filter_enabled = true;
+        client.active_group = work_group;
+        compute_client_view(&app, &mut client, area);
+        let selector = crate::ui::group_selector_rect_for_view(&app.state, &client);
+        let rendered = rendered_client_view_text(&app, &client, area.width, area.height);
+        let selector_row = rendered
+            .lines()
+            .nth(selector.y as usize)
+            .expect("selector row should be rendered");
+        assert!(
+            selector_row.contains("work"),
+            "selected group should be visible at its clickable top-right position: {selector_row:?}"
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                selector.x + selector.width / 2,
+                selector.y,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::GroupMenu);
     }
 
     #[test]
