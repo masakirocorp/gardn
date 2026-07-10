@@ -24,6 +24,34 @@ impl ClientTabViewKey {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TerminalViewportOffset {
+    pub(crate) offset_from_bottom: usize,
+    pub(crate) max_offset_from_bottom: usize,
+}
+
+impl TerminalViewportOffset {
+    fn from_metrics(metrics: crate::pane::ScrollMetrics) -> Self {
+        Self {
+            offset_from_bottom: metrics.offset_from_bottom,
+            max_offset_from_bottom: metrics.max_offset_from_bottom,
+        }
+    }
+
+    fn for_metrics(self, metrics: crate::pane::ScrollMetrics) -> usize {
+        if self.offset_from_bottom == 0 {
+            return 0;
+        }
+        self.offset_from_bottom
+            .saturating_add(
+                metrics
+                    .max_offset_from_bottom
+                    .saturating_sub(self.max_offset_from_bottom),
+            )
+            .min(metrics.max_offset_from_bottom)
+    }
+}
+
 /// Per-normal-app-client view/navigation state.
 ///
 /// This type stores fields that describe what one attached app client is
@@ -61,7 +89,7 @@ pub(crate) struct ClientViewState {
     pub(crate) pending_active_tabs: HashMap<String, usize>,
     pub(crate) focused_panes: HashMap<ClientTabViewKey, PaneId>,
     pub(crate) zoomed_tabs: HashSet<ClientTabViewKey>,
-    pub(crate) terminal_offsets_from_bottom: HashMap<TerminalId, usize>,
+    pub(crate) terminal_offsets_from_bottom: HashMap<TerminalId, TerminalViewportOffset>,
     pub(crate) settings: SettingsState,
     pub(crate) command_palette: CommandPaletteState,
     pub(crate) navigator: NavigatorState,
@@ -483,8 +511,10 @@ pub(crate) fn capture_terminal_offsets_from_runtimes(
         else {
             continue;
         };
-        view.terminal_offsets_from_bottom
-            .insert((*terminal_id).clone(), metrics.offset_from_bottom);
+        view.terminal_offsets_from_bottom.insert(
+            (*terminal_id).clone(),
+            TerminalViewportOffset::from_metrics(metrics),
+        );
     }
     view.terminal_offsets_from_bottom
         .retain(|terminal_id, _| live_terminal_ids.contains(terminal_id));
@@ -502,7 +532,10 @@ pub(crate) fn apply_terminal_offsets_to_runtimes(
         let Some(runtime) = runtimes.get(terminal_id) else {
             continue;
         };
-        runtime.set_scroll_offset_from_bottom(*offset);
+        let Some(metrics) = runtime.scroll_metrics() else {
+            continue;
+        };
+        runtime.set_scroll_offset_from_bottom(offset.for_metrics(metrics));
     }
 }
 
@@ -678,7 +711,7 @@ mod tests {
             second_client
                 .terminal_offsets_from_bottom
                 .get(&terminal_id)
-                .copied(),
+                .map(|offset| offset.offset_from_bottom),
             Some(0)
         );
 
@@ -689,7 +722,7 @@ mod tests {
             .get(&terminal_id)
             .copied()
             .expect("first client terminal offset");
-        assert!(first_offset > 0);
+        assert!(first_offset.offset_from_bottom > 0);
 
         apply_terminal_offsets_to_runtimes(&live_terminal_ids, &runtimes, &second_client);
         assert_eq!(
@@ -706,7 +739,55 @@ mod tests {
                 .get(&terminal_id)
                 .and_then(|runtime| runtime.scroll_metrics())
                 .map(|metrics| metrics.offset_from_bottom),
-            Some(first_offset)
+            Some(first_offset.offset_from_bottom)
         );
+    }
+
+    #[tokio::test]
+    async fn scrolled_terminal_client_view_stays_anchored_when_output_grows() {
+        let mut state = AppState::test_new();
+        state.workspaces = vec![Workspace::test_new("terminal")];
+        state.active = Some(0);
+        let pane_id = state.workspaces[0].focused_pane_id().expect("focused pane");
+        let terminal_id = state.workspaces[0]
+            .pane_state(pane_id)
+            .and_then(|pane| pane.terminal_id_cloned())
+            .expect("terminal id");
+        let live_terminal_ids = vec![terminal_id.clone()];
+        let mut runtimes = TerminalRuntimeRegistry::new();
+        runtimes.insert(
+            terminal_id.clone(),
+            crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
+                80,
+                3,
+                10_000,
+                b"000000\r\n000001\r\n000002\r\n000003\r\n000004",
+            ),
+        );
+        let runtime = runtimes.get(&terminal_id).expect("initial runtime");
+        runtime.scroll_up(1);
+        let visible_before = runtime.visible_text();
+        let mut client = ClientViewState::from_default_client_state(&state);
+        capture_terminal_offsets_from_runtimes(&live_terminal_ids, &runtimes, &mut client);
+
+        runtimes.insert(
+            terminal_id.clone(),
+            crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
+                80,
+                3,
+                10_000,
+                b"000000\r\n000001\r\n000002\r\n000003\r\n000004\r\n000005",
+            ),
+        );
+        apply_terminal_offsets_to_runtimes(&live_terminal_ids, &runtimes, &client);
+        let runtime = runtimes.get(&terminal_id).expect("streamed runtime");
+
+        assert_eq!(
+            runtime
+                .scroll_metrics()
+                .map(|metrics| metrics.offset_from_bottom),
+            Some(2)
+        );
+        assert_eq!(runtime.visible_text(), visible_before);
     }
 }

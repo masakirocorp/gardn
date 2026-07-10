@@ -61,18 +61,15 @@ impl AppState {
                 )
             })
             .unwrap_or_else(|| (info.inner_rect.height.saturating_sub(1), 0));
-        let entry_offset_from_bottom = self
-            .pane_scroll_metrics(terminal_runtimes, pane_id)
-            .map_or(0, |metrics| metrics.offset_from_bottom);
+        let entry_metrics = self.pane_scroll_metrics(terminal_runtimes, pane_id);
 
         self.clear_selection();
-        self.copy_mode = Some(CopyModeState {
+        self.copy_mode = Some(CopyModeState::new(
             pane_id,
-            cursor_row: cursor.0.min(info.inner_rect.height.saturating_sub(1)),
-            cursor_col: cursor.1.min(info.inner_rect.width.saturating_sub(1)),
-            entry_offset_from_bottom,
-            selection: None,
-        });
+            cursor.0.min(info.inner_rect.height.saturating_sub(1)),
+            cursor.1.min(info.inner_rect.width.saturating_sub(1)),
+            entry_metrics,
+        ));
         self.mode = Mode::Copy;
     }
 
@@ -162,9 +159,14 @@ impl AppState {
     }
 
     fn exit_copy_mode(&mut self, terminal_runtimes: &TerminalRuntimeRegistry, copy: bool) {
-        let restore_scroll = self
-            .copy_mode
-            .map(|copy_mode| (copy_mode.pane_id, copy_mode.entry_offset_from_bottom));
+        let restore_scroll = self.copy_mode.map(|copy_mode| {
+            (
+                copy_mode.pane_id,
+                copy_mode.restored_offset_from_bottom(
+                    self.pane_scroll_metrics(terminal_runtimes, copy_mode.pane_id),
+                ),
+            )
+        });
         if copy {
             self.copy_selection(terminal_runtimes);
         } else {
@@ -1013,6 +1015,51 @@ mod tests {
         assert_eq!(app.state.mode, Mode::Terminal);
         assert!(app.state.copy_mode.is_none());
         assert_eq!(copy_mode_offset_from_bottom(&app, pane_id), entry_offset);
+    }
+
+    #[tokio::test]
+    async fn copy_mode_q_keeps_entry_viewport_anchored_when_output_grows() {
+        let bytes = numbered_lines_bytes(64);
+        let (mut app, pane_id) = app_with_copy_scrollback(&bytes);
+        let entry_offset = 3;
+        app.state
+            .set_pane_scroll_offset(&app.terminal_runtimes, pane_id, entry_offset);
+        let visible_before = app
+            .state
+            .runtime_for_pane_in_workspace(&app.terminal_runtimes, 0, pane_id)
+            .expect("copy mode runtime before output")
+            .visible_text();
+
+        app.state.enter_copy_mode(&app.terminal_runtimes);
+        app.state
+            .runtime_for_pane_in_workspace(&app.terminal_runtimes, 0, pane_id)
+            .expect("copy mode runtime during output")
+            .test_process_pty_bytes(pane_id, b"\r\n000064");
+        let streamed_metrics = copy_mode_scroll_metrics(&app, pane_id);
+        assert_eq!(streamed_metrics.offset_from_bottom, entry_offset + 1);
+        assert_eq!(
+            app.state
+                .runtime_for_pane_in_workspace(&app.terminal_runtimes, 0, pane_id)
+                .expect("copy mode runtime after output")
+                .visible_text(),
+            visible_before
+        );
+
+        app.handle_copy_mode_key(TerminalKey::new(KeyCode::Char('q'), KeyModifiers::empty()));
+
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(app.state.copy_mode.is_none());
+        assert_eq!(
+            copy_mode_offset_from_bottom(&app, pane_id),
+            entry_offset + 1
+        );
+        assert_eq!(
+            app.state
+                .runtime_for_pane_in_workspace(&app.terminal_runtimes, 0, pane_id)
+                .expect("copy mode runtime after exit")
+                .visible_text(),
+            visible_before
+        );
     }
 
     #[tokio::test]

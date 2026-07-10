@@ -3696,20 +3696,18 @@ impl App {
                 )
             })
             .unwrap_or_else(|| (info.inner_rect.height.saturating_sub(1), 0));
-        let entry_offset_from_bottom = self
+        let entry_metrics = self
             .state
-            .pane_scroll_metrics(&self.terminal_runtimes, info.id)
-            .map_or(0, |metrics| metrics.offset_from_bottom);
+            .pane_scroll_metrics(&self.terminal_runtimes, info.id);
 
         client_view.selection = None;
         client_view.selection_autoscroll = None;
-        client_view.copy_mode = Some(state::CopyModeState {
-            pane_id: info.id,
-            cursor_row: cursor.0.min(info.inner_rect.height.saturating_sub(1)),
-            cursor_col: cursor.1.min(info.inner_rect.width.saturating_sub(1)),
-            entry_offset_from_bottom,
-            selection: None,
-        });
+        client_view.copy_mode = Some(state::CopyModeState::new(
+            info.id,
+            cursor.0.min(info.inner_rect.height.saturating_sub(1)),
+            cursor.1.min(info.inner_rect.width.saturating_sub(1)),
+            entry_metrics,
+        ));
         client_view.mode = Mode::Copy;
     }
 
@@ -11552,7 +11550,7 @@ mod tests {
             client
                 .terminal_offsets_from_bottom
                 .get(&terminal_id)
-                .copied(),
+                .map(|offset| offset.offset_from_bottom),
             Some(app.state.mouse_scroll_lines)
         );
         assert_eq!(app.state.workspace_scroll, 0);
@@ -12646,7 +12644,7 @@ mod tests {
             client
                 .terminal_offsets_from_bottom
                 .get(&terminal_id)
-                .copied(),
+                .map(|offset| offset.offset_from_bottom),
             Some(app.state.mouse_scroll_lines)
         );
     }

@@ -446,7 +446,7 @@ fn collect_visible_placements_for_view(
             let scrollback_offset = view
                 .terminal_offsets_from_bottom
                 .get(terminal_id)
-                .copied()
+                .map(|offset| offset.offset_from_bottom)
                 .or_else(|| runtime.scroll_metrics().map(|m| m.offset_from_bottom))
                 .map(|offset| offset as u32)
                 .unwrap_or(0);

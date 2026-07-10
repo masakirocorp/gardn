@@ -714,13 +714,7 @@ mod tests {
         state.active = Some(0);
         state.selected = 0;
         state.mode = crate::app::Mode::Terminal;
-        state.copy_mode = Some(crate::app::state::CopyModeState {
-            pane_id,
-            cursor_row: 1,
-            cursor_col: 2,
-            entry_offset_from_bottom: 0,
-            selection: None,
-        });
+        state.copy_mode = Some(crate::app::state::CopyModeState::new(pane_id, 1, 2, None));
 
         let mut client = ClientViewState::from_default_client_state(&state);
         client.mode = crate::app::Mode::Copy;

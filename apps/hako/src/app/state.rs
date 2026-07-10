@@ -1546,7 +1546,49 @@ pub(crate) struct CopyModeState {
     pub cursor_row: u16,
     pub cursor_col: u16,
     pub entry_offset_from_bottom: usize,
+    pub entry_max_offset_from_bottom: usize,
     pub selection: Option<CopyModeSelection>,
+}
+
+impl CopyModeState {
+    pub(crate) fn new(
+        pane_id: PaneId,
+        cursor_row: u16,
+        cursor_col: u16,
+        entry_metrics: Option<crate::pane::ScrollMetrics>,
+    ) -> Self {
+        let (entry_offset_from_bottom, entry_max_offset_from_bottom) = entry_metrics
+            .map(|metrics| (metrics.offset_from_bottom, metrics.max_offset_from_bottom))
+            .unwrap_or((0, 0));
+
+        Self {
+            pane_id,
+            cursor_row,
+            cursor_col,
+            entry_offset_from_bottom,
+            entry_max_offset_from_bottom,
+            selection: None,
+        }
+    }
+
+    pub(crate) fn restored_offset_from_bottom(
+        &self,
+        current_metrics: Option<crate::pane::ScrollMetrics>,
+    ) -> usize {
+        if self.entry_offset_from_bottom == 0 {
+            return 0;
+        }
+
+        let Some(metrics) = current_metrics else {
+            return self.entry_offset_from_bottom;
+        };
+        let scrollback_growth = metrics
+            .max_offset_from_bottom
+            .saturating_sub(self.entry_max_offset_from_bottom);
+        self.entry_offset_from_bottom
+            .saturating_add(scrollback_growth)
+            .min(metrics.max_offset_from_bottom)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

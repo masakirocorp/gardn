@@ -505,4 +505,7 @@ impl TerminalRuntime {
         );
         (Self(runtime), rx)
     }
+    pub(crate) fn test_process_pty_bytes(&self, pane_id: crate::layout::PaneId, bytes: &[u8]) {
+        self.0.test_process_pty_bytes(pane_id, bytes);
+    }
 }

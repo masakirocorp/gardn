@@ -2214,6 +2214,12 @@ impl PaneRuntime {
             rx,
         )
     }
+    pub(crate) fn test_process_pty_bytes(&self, pane_id: PaneId, bytes: &[u8]) {
+        let (tx, _rx) = mpsc::channel(4);
+        let shell_pid = self.child_pid.load(Ordering::Acquire);
+        self.terminal
+            .process_pty_bytes(pane_id, shell_pid, bytes, &tx);
+    }
 }
 
 #[cfg(test)]
