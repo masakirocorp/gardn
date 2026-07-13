@@ -62,8 +62,9 @@ pub(crate) use self::{
         ModalAction,
     },
     navigate::{
-        action_for_key, terminal_direct_navigation_action, ActionContext, BindingDispatch,
-        NavigateAction,
+        command_for_key, indexed_navigation_action, non_indexed_action_for_key,
+        terminal_direct_indexed_navigation_action, terminal_direct_non_indexed_navigation_action,
+        ActionContext, BindingDispatch, NavigateAction,
     },
     settings::{
         open_settings_at, prepare_general_settings_state, prepare_group_settings_state,
@@ -75,6 +76,7 @@ pub(crate) use self::{
 
 #[cfg(test)]
 pub(crate) use self::command_palette::open_command_palette_for_view;
+pub(crate) use self::terminal::TerminalKeyTarget;
 use self::{
     modal::{modal_action_from_key, ONBOARDING_WELCOME_ACTIONS, RELEASE_NOTES_ACTIONS},
     settings::SettingsAction,
@@ -87,59 +89,54 @@ use super::App;
 // ---------------------------------------------------------------------------
 
 impl App {
-    pub(super) async fn handle_key(&mut self, key: TerminalKey) {
+    pub(super) async fn handle_key(&mut self, key: TerminalKey) -> Option<TerminalKeyTarget> {
         let key_event = key.as_key_event();
         if modal_paste_target_active(&self.state) && is_modal_paste_shortcut(&key_event) {
             if let Some(text) = crate::platform::read_clipboard_text() {
                 self.paste_into_active_text_input(&text);
             }
-            return;
+            return None;
+        }
+
+        if self.state.mode == Mode::Terminal {
+            return self.handle_terminal_key(key).await;
         }
 
         match self.state.mode {
-            Mode::Terminal => self.handle_terminal_key(key).await,
             Mode::Prefix => self.handle_prefix_key(key),
             Mode::Navigate => self.handle_navigate_key(key),
             Mode::Copy => self.handle_copy_mode_key(key),
-            _ => match self.state.mode {
-                Mode::Onboarding => self.handle_onboarding_key(key_event),
-                Mode::ReleaseNotes => self.handle_release_notes_key(key_event),
-                Mode::ProductAnnouncement => self.handle_product_announcement_key(key_event),
-                Mode::Prefix | Mode::Navigate | Mode::Copy => unreachable!(),
-                Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
-                    handle_rename_key(&mut self.state, key_event)
-                }
-                Mode::EditWorktreeDirectory => {
-                    handle_worktree_directory_key(&mut self.state, key_event)
-                }
-                Mode::Resize => handle_resize_key(&mut self.state, key),
-                Mode::ConfirmClose => handle_confirm_close_key(&mut self.state, key_event),
-                Mode::ConfirmDeleteGroup => {
-                    handle_confirm_delete_group_key(&mut self.state, key_event)
-                }
-                Mode::ContextMenu => {
-                    handle_context_menu_key(
-                        &mut self.state,
-                        &mut self.terminal_runtimes,
-                        key_event,
-                    );
-                }
-                Mode::Settings => self.handle_settings_key(key_event),
-                Mode::GlobalMenu => handle_global_menu_key(&mut self.state, key_event),
-                Mode::GroupMenu => handle_group_menu_key(&mut self.state, key_event),
-                Mode::AgentMenu => handle_agent_menu_key(&mut self.state, key_event),
-                Mode::KeybindHelp => handle_keybind_help_key(&mut self.state, key_event),
-                Mode::Navigator => handle_navigator_key(&mut self.state, key_event),
-                Mode::CommandPalette if key_event.code == KeyCode::Enter => {
-                    self.execute_selected_command_palette_command_interactive()
-                        .await
-                }
-                Mode::CommandPalette => self.handle_command_palette_key(key_event),
-                Mode::AgentProfilePicker => self.handle_agent_profile_picker_key(key_event),
-                Mode::GitRepoPicker => self.handle_git_repo_picker_key(key_event),
-                Mode::Terminal => unreachable!(),
-            },
+            Mode::Onboarding => self.handle_onboarding_key(key_event),
+            Mode::ReleaseNotes => self.handle_release_notes_key(key_event),
+            Mode::ProductAnnouncement => self.handle_product_announcement_key(key_event),
+            Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
+                handle_rename_key(&mut self.state, key_event)
+            }
+            Mode::EditWorktreeDirectory => {
+                handle_worktree_directory_key(&mut self.state, key_event)
+            }
+            Mode::Resize => handle_resize_key(&mut self.state, key),
+            Mode::ConfirmClose => handle_confirm_close_key(&mut self.state, key_event),
+            Mode::ConfirmDeleteGroup => handle_confirm_delete_group_key(&mut self.state, key_event),
+            Mode::ContextMenu => {
+                handle_context_menu_key(&mut self.state, &mut self.terminal_runtimes, key_event);
+            }
+            Mode::Settings => self.handle_settings_key(key_event),
+            Mode::GlobalMenu => handle_global_menu_key(&mut self.state, key_event),
+            Mode::GroupMenu => handle_group_menu_key(&mut self.state, key_event),
+            Mode::AgentMenu => handle_agent_menu_key(&mut self.state, key_event),
+            Mode::KeybindHelp => handle_keybind_help_key(&mut self.state, key_event),
+            Mode::Navigator => handle_navigator_key(&mut self.state, key_event),
+            Mode::CommandPalette if key_event.code == KeyCode::Enter => {
+                self.execute_selected_command_palette_command_interactive()
+                    .await
+            }
+            Mode::CommandPalette => self.handle_command_palette_key(key_event),
+            Mode::AgentProfilePicker => self.handle_agent_profile_picker_key(key_event),
+            Mode::GitRepoPicker => self.handle_git_repo_picker_key(key_event),
+            Mode::Terminal => unreachable!(),
         }
+        None
     }
 
     pub(super) async fn handle_paste(&mut self, text: String) {

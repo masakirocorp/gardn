@@ -73,7 +73,11 @@ fn parse_legacy_key_sequence(data: &str) -> Option<TerminalKey> {
             let rest = data.strip_prefix('\x1b')?;
             if rest.chars().count() == 1 {
                 let ch = rest.chars().next()?;
-                Some(TerminalKey::new(KeyCode::Char(ch), KeyModifiers::ALT))
+                let mut modifiers = KeyModifiers::ALT;
+                if ch.is_ascii_uppercase() {
+                    modifiers |= KeyModifiers::SHIFT;
+                }
+                Some(TerminalKey::new(KeyCode::Char(ch), modifiers))
             } else {
                 None
             }
@@ -206,6 +210,7 @@ fn parse_xterm_modified_special_sequence(data: &str) -> Option<TerminalKey> {
         "3" => KeyCode::Delete,
         "5" => KeyCode::PageUp,
         "6" => KeyCode::PageDown,
+        "13" => KeyCode::F(3),
         "15" => KeyCode::F(5),
         "17" => KeyCode::F(6),
         "18" => KeyCode::F(7),
@@ -558,6 +563,22 @@ mod tests {
     }
 
     #[test]
+    fn parse_kitty_f3_repeat_and_release_sequences() {
+        for (sequence, kind) in [
+            ("\x1b[13;1:2~", crossterm::event::KeyEventKind::Repeat),
+            ("\x1b[13;1:3~", crossterm::event::KeyEventKind::Release),
+        ] {
+            assert_terminal_key_eq(
+                parse_terminal_key_sequence(sequence).expect("kitty f3 event should parse"),
+                KeyCode::F(3),
+                KeyModifiers::empty(),
+                kind,
+                None,
+            );
+        }
+    }
+
+    #[test]
     fn parse_kitty_sequence_preserves_shifted_symbol_pair() {
         let key = parse_terminal_key_sequence("\x1b[49:33;2:1u").unwrap();
         assert_eq!(key.code, KeyCode::Char('1'));
@@ -891,5 +912,27 @@ mod tests {
     fn linux_terminal_variants_fixture_parses() {
         let corpus = include_str!("../../tests/fixtures/linux_terminal_variants.tsv");
         assert_fixture_corpus_parses(corpus);
+    }
+    #[test]
+    fn legacy_alt_character_semantics_preserve_implicit_ascii_shift_only() {
+        for (sequence, code, modifiers) in [
+            ("\x1bA", 'A', KeyModifiers::ALT | KeyModifiers::SHIFT),
+            ("\x1bZ", 'Z', KeyModifiers::ALT | KeyModifiers::SHIFT),
+            ("\x1ba", 'a', KeyModifiers::ALT),
+            ("\x1bé", 'é', KeyModifiers::ALT),
+        ] {
+            let key = parse_terminal_key_sequence(sequence).unwrap();
+            assert_terminal_key_eq(
+                key,
+                KeyCode::Char(code),
+                modifiers,
+                crossterm::event::KeyEventKind::Press,
+                None,
+            );
+            assert_eq!(
+                encode_terminal_key(key, KeyboardProtocol::Legacy),
+                sequence.as_bytes()
+            );
+        }
     }
 }

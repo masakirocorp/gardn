@@ -180,14 +180,15 @@ impl ClientConnection {
 }
 
 pub(crate) fn events_include_interaction(events: &[crate::raw_input::RawInputEvent]) -> bool {
-    events.iter().any(|event| {
-        matches!(
-            event,
-            crate::raw_input::RawInputEvent::Key(_)
-                | crate::raw_input::RawInputEvent::Mouse(_)
-                | crate::raw_input::RawInputEvent::Paste(_)
-                | crate::raw_input::RawInputEvent::OuterFocusGained
-        )
+    events.iter().any(|event| match event {
+        crate::raw_input::RawInputEvent::Key(key) => matches!(
+            key.kind,
+            crossterm::event::KeyEventKind::Press | crossterm::event::KeyEventKind::Repeat
+        ),
+        crate::raw_input::RawInputEvent::Mouse(_)
+        | crate::raw_input::RawInputEvent::Paste(_)
+        | crate::raw_input::RawInputEvent::OuterFocusGained => true,
+        _ => false,
     })
 }
 
@@ -254,6 +255,28 @@ pub(crate) fn render_targets(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn key_release_is_not_user_interaction_but_press_and_repeat_are() {
+        use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
+
+        let key_event = |kind| {
+            crate::raw_input::RawInputEvent::Key(
+                crate::input::TerminalKey::new(KeyCode::Char('a'), KeyModifiers::empty())
+                    .with_kind(kind),
+            )
+        };
+
+        assert!(!events_include_interaction(&[key_event(
+            KeyEventKind::Release
+        )]));
+        assert!(events_include_interaction(&[key_event(
+            KeyEventKind::Press
+        )]));
+        assert!(events_include_interaction(&[key_event(
+            KeyEventKind::Repeat
+        )]));
+    }
 
     #[test]
     fn client_host_theme_updates_include_palette_and_cursor_replies() {

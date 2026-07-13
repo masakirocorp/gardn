@@ -881,6 +881,13 @@ impl HeadlessServer {
         let mut removed_terminal_attach = false;
         if let Some(removed) = removed {
             crate::server::clipboard_image::remove_files(removed.staged_clipboard_files);
+            if let Some(view) = removed.view_state.as_ref() {
+                let view_id = view.id();
+                self.app
+                    .state
+                    .client_overlay_owners
+                    .retain(|_, owner| *owner != view_id);
+            }
             if let ClientConnectionMode::TerminalAttach { terminal_id } = removed.mode {
                 removed_terminal_attach = true;
                 self.terminal_attach_owners.remove(&terminal_id);
@@ -1823,7 +1830,7 @@ impl HeadlessServer {
                     } else {
                         self.app
                             .default_client_view
-                            .clone_reconciled(&self.app.state)
+                            .clone_for_new_client(&self.app.state)
                     };
                     if !self.app.state.workspaces.is_empty() {
                         view_state.mode = crate::app::Mode::Terminal;
@@ -3780,6 +3787,72 @@ next_tab = ""
         assert_eq!(
             reason,
             Some("terminal attach failed: terminal term_missing not found".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn direct_semantic_terminal_attach_does_not_forward_key_releases() {
+        let mut server = test_headless_server();
+        let workspace = crate::workspace::Workspace::test_new("attached");
+        let pane_id = workspace.tabs[0].root_pane;
+        let terminal_id = workspace
+            .pane_state(pane_id)
+            .expect("root pane")
+            .attached_terminal_id
+            .clone();
+        let terminal_id_string = terminal_id.to_string();
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.ensure_test_terminals();
+        let (runtime, mut input_rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        server.app.terminal_runtimes.insert(terminal_id, runtime);
+        let (writer, _control_rx, _render_rx) = test_client_writer();
+
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 7,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: None,
+            direct_attach_requested: true,
+            writer,
+        }));
+        assert!(
+            server.handle_server_event(ServerEvent::ClientAttachTerminal {
+                client_id: 7,
+                terminal_id: terminal_id_string,
+                takeover: false,
+            })
+        );
+
+        let events = [
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyCode::Backspace,
+            crossterm::event::KeyCode::Char('a'),
+        ]
+        .into_iter()
+        .flat_map(|code| {
+            [
+                crate::input::TerminalKey::new(code, crossterm::event::KeyModifiers::empty())
+                    .with_kind(crossterm::event::KeyEventKind::Press),
+                crate::input::TerminalKey::new(code, crossterm::event::KeyModifiers::empty())
+                    .with_kind(crossterm::event::KeyEventKind::Release),
+            ]
+        })
+        .map(crate::raw_input::RawInputEvent::Key)
+        .collect();
+        assert!(server.handle_server_event(ServerEvent::ClientInputEvents {
+            client_id: 7,
+            events,
+        }));
+
+        let chunks: Vec<Vec<u8>> = std::iter::from_fn(|| input_rx.try_recv().ok())
+            .map(|bytes| bytes.to_vec())
+            .collect();
+        assert_eq!(
+            chunks,
+            vec![b"\r".to_vec(), b"\x7f".to_vec(), b"a".to_vec()]
         );
     }
 

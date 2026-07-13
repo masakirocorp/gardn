@@ -1721,6 +1721,42 @@
       "subject": "fix: preserve explicit session sockets during live handoff",
       "status": "ported",
       "reason": "Ported in ENG-83 by clearing inherited API/client socket overrides from the live-handoff import process and covering explicit named-session handoff behavior."
+    },
+    {
+      "upstream": "088922dfabca152047c8f39f660893b3b19dbe2d",
+      "subject": "fix: let user keybinds displace defaults",
+      "status": "ported",
+      "reason": "Ported to Hako with user/default binding provenance, user-first compilation, preserved user conflict diagnostics, and effective local-profile serialization."
+    },
+    {
+      "upstream": "520d0b8b9c1b9d621274411d5fc26e35df9d60d2",
+      "subject": "fix: prevent release key fallback from doubling input",
+      "status": "ported",
+      "reason": "Ported to Hako's semantic client input boundary and negotiated pane encoder, including stable press-pane ownership and legacy/Kitty release behavior."
+    },
+    {
+      "upstream": "e98c49658caf054f2cfdc0f52831f29d59ed6fba",
+      "subject": "fix: preserve shifted punctuation for alt legacy input (#1076)",
+      "status": "ported",
+      "reason": "Ported to Hako's TerminalKey encoder so Alt+Shift punctuation preserves the semantic shifted character without assuming a keyboard layout."
+    },
+    {
+      "upstream": "39ba6b7a0242768b7d3684e8163d13a0609fcaa3",
+      "subject": "fix: preserve alt-shift letters (#1102)",
+      "status": "ported",
+      "reason": "Ported to Hako's legacy encoder with explicit Alt stripping that retains Shift for the inner key encoding."
+    },
+    {
+      "upstream": "d190c1f55e05419b299fc68f60ea0aabc1ff7379",
+      "subject": "fix: send shifted punctuation as text in kitty mode",
+      "status": "ported",
+      "reason": "Ported to Hako's Kitty encoder with semantic shifted-codepoint handling, report-all policy, and Ghostty fallback validation."
+    },
+    {
+      "upstream": "b708f85e7d17d8109bef70ea3f595cea0ae40c46",
+      "subject": "fix: match shifted indexed number keybinds",
+      "status": "ported",
+      "reason": "Ported to Hako's keybinding matcher and client routing with exact Shift+1 through Shift+0 aliases that preserve literal and custom-command precedence."
     }
   ]
 }

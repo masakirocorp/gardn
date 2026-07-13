@@ -2413,6 +2413,8 @@ pub struct AppState {
     pub(crate) next_agent_activity_seq: u64,
     /// Terminal ids whose size is currently owned by a direct attach client.
     pub direct_attach_resize_locks: std::collections::HashSet<crate::terminal::TerminalId>,
+    /// Pure render metadata mapping client-local overlay panes to their owning view.
+    pub(crate) client_overlay_owners: std::collections::HashMap<PaneId, u64>,
     pub(crate) pane_id_aliases: std::collections::HashMap<u32, PaneId>,
     pub(crate) public_pane_id_aliases: std::collections::HashMap<String, PaneId>,
     pub workspaces: Vec<Workspace>,
@@ -3130,6 +3132,7 @@ impl AppState {
             git_repo_summaries: std::collections::HashMap::new(),
             next_agent_activity_seq: 0,
             direct_attach_resize_locks: std::collections::HashSet::new(),
+            client_overlay_owners: std::collections::HashMap::new(),
             pane_id_aliases: std::collections::HashMap::new(),
             public_pane_id_aliases: std::collections::HashMap::new(),
             workspaces: Vec::new(),

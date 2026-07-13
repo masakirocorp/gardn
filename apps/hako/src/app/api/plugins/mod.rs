@@ -192,9 +192,11 @@ impl App {
         )
     }
 
-    pub(crate) fn invoke_plugin_action_from_keybind(
+    pub(crate) fn invoke_plugin_action_from_keybind_at(
         &mut self,
         action_id: String,
+        target: Option<(usize, crate::layout::PaneId)>,
+        client_selection: Option<Option<&crate::selection::Selection>>,
     ) -> Result<(), String> {
         let (plugin, action) = self
             .find_plugin_action(None, &action_id)
@@ -207,7 +209,14 @@ impl App {
             &action.qualified_id(),
         )
         .map_err(|(_, message)| message)?;
-        let mut context = self.current_plugin_context("keybinding");
+        let mut context = match (target, client_selection) {
+            (Some((ws_idx, pane_id)), Some(selection)) => self
+                .plugin_context_for_pane_with_selection(ws_idx, pane_id, selection, "keybinding"),
+            (Some((ws_idx, pane_id)), None) => {
+                self.plugin_context_for_pane(ws_idx, pane_id, "keybinding")
+            }
+            (None, _) => self.current_plugin_context("keybinding"),
+        };
         context.invocation_source = Some("keybinding".to_string());
         self.start_plugin_command(
             &plugin,
@@ -2015,6 +2024,105 @@ command = ["sh", "-c", "printf '%s\n%s\n%s' \"$HAKO_PLUGIN_ROOT\" \"$HAKO_PLUGIN
         let context = app.current_plugin_context("selection-test");
 
         assert_eq!(context.selected_text.as_deref(), Some("hello"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn client_plugin_keybind_context_uses_invoking_client_selection() {
+        let mut app = test_app();
+        let shared_workspace = crate::workspace::Workspace::test_new("shared-selection");
+        let shared_pane = shared_workspace.tabs[0].root_pane;
+        let shared_terminal = shared_workspace.terminal_id(shared_pane).cloned().unwrap();
+        let client_workspace = crate::workspace::Workspace::test_new("client-selection");
+        let client_pane = client_workspace.tabs[0].root_pane;
+        let client_terminal = client_workspace.terminal_id(client_pane).cloned().unwrap();
+        app.state.workspaces = vec![shared_workspace, client_workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = crate::app::Mode::Terminal;
+        app.terminal_runtimes.insert(
+            shared_terminal,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"shared text\n"),
+        );
+        app.terminal_runtimes.insert(
+            client_terminal,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"client text\n"),
+        );
+        app.state.selection = Some(crate::selection::Selection::range(
+            shared_pane,
+            0,
+            0,
+            5,
+            None,
+        ));
+
+        let root = unique_temp_path("client-plugin-keybind-context");
+        let capture = root.join("context.json");
+        write_manifest_content(
+            &root,
+            &format!(
+                r#"
+id = "example.client-selection"
+name = "Client Selection"
+version = "0.1.0"
+min_hako_version = "0.2.0"
+platforms = ["linux", "macos"]
+
+[[actions]]
+id = "capture"
+title = "Capture context"
+command = ["sh", "-c", "printf '%s' \"$HAKO_PLUGIN_CONTEXT_JSON\" > {}"]
+"#,
+                capture.display()
+            ),
+        );
+        link_manifest(&mut app, &root);
+        let binding = crate::config::CustomCommandKeybind {
+            bindings: crate::config::ActionKeybinds::direct("g"),
+            label: "capture client selection".into(),
+            command: "example.client-selection.capture".into(),
+            action: crate::config::CustomCommandAction::PluginAction,
+            description: None,
+        };
+        let mut client = crate::app::ClientViewState::from_default_client_state(&app.state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+        client.selection = Some(crate::selection::Selection::range(
+            client_pane,
+            0,
+            0,
+            5,
+            None,
+        ));
+        client.reconcile(&app.state);
+
+        app.launch_custom_command_for_view(
+            &mut client,
+            binding,
+            crate::app::input::ActionContext::Direct,
+        );
+
+        for _ in 0..100 {
+            if capture.exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let context: crate::api::schema::PluginInvocationContext =
+            serde_json::from_str(&std::fs::read_to_string(&capture).expect("plugin context"))
+                .expect("valid plugin context");
+        assert_eq!(context.selected_text.as_deref(), Some("client"));
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(
+            app.state
+                .selection
+                .as_ref()
+                .map(|selection| selection.pane_id),
+            Some(shared_pane)
+        );
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]

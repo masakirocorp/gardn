@@ -256,13 +256,20 @@ pub(crate) fn load_plugin_manifest(
     api::plugins::load_plugin_manifest(path, enabled)
 }
 
-/// Full application: AppState + runtime concerns (event channels, async I/O).
+#[derive(Debug, Clone)]
+pub(crate) enum OverlayPaneOwner {
+    Shared {
+        previous_focus: crate::layout::PaneId,
+        previous_zoomed: bool,
+    },
+    Client,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct OverlayPaneState {
     ws_idx: usize,
     tab_idx: usize,
-    previous_focus: crate::layout::PaneId,
-    previous_zoomed: bool,
+    owner: OverlayPaneOwner,
     temp_files: Vec<std::path::PathBuf>,
 }
 
@@ -318,8 +325,9 @@ pub struct App {
     pub(crate) session_save_deadline: Option<Instant>,
     pub(crate) persist_pane_history: bool,
     pub(crate) last_render_at: Option<Instant>,
-    pub(crate) suppressed_repeat_keys:
-        HashSet<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
+    pub(crate) suppressed_repeat_keys: HashSet<crossterm::event::KeyCode>,
+    pub(crate) forwarded_terminal_keys:
+        HashMap<crossterm::event::KeyCode, input::TerminalKeyTarget>,
     pub render_notify: Arc<Notify>,
     pub render_dirty: Arc<AtomicBool>,
     pub(crate) full_redraw_pending: bool,
@@ -375,10 +383,13 @@ async fn sleep_until_or_pending(deadline: Option<Instant>) {
     }
 }
 
-fn repeat_key_identity(
-    key: &crate::input::TerminalKey,
-) -> (crossterm::event::KeyCode, crossterm::event::KeyModifiers) {
-    (key.code, key.modifiers)
+fn physical_key_identity(key: &crate::input::TerminalKey) -> crossterm::event::KeyCode {
+    match key.code {
+        crossterm::event::KeyCode::Char(ch) if ch.is_ascii_alphabetic() => {
+            crossterm::event::KeyCode::Char(ch.to_ascii_lowercase())
+        }
+        code => code,
+    }
 }
 
 fn command_palette_accepts_repeat_key(key: &crate::input::TerminalKey) -> bool {
@@ -751,6 +762,7 @@ impl App {
             git_repo_summaries: std::collections::HashMap::new(),
             next_agent_activity_seq: 0,
             direct_attach_resize_locks: std::collections::HashSet::new(),
+            client_overlay_owners: std::collections::HashMap::new(),
             pane_id_aliases: std::collections::HashMap::new(),
             public_pane_id_aliases: std::collections::HashMap::new(),
             workspaces,
@@ -1061,6 +1073,7 @@ impl App {
             persist_pane_history: config.experimental.pane_history,
             last_render_at: None,
             suppressed_repeat_keys: HashSet::new(),
+            forwarded_terminal_keys: HashMap::new(),
             api_rx,
             event_hub,
             last_focus,
@@ -1651,11 +1664,12 @@ impl App {
             |section: &str| invalid_sections.iter().any(|invalid| invalid == section);
 
         if !invalid_section("keys") {
-            match config.live_keybinds() {
-                Ok(live) => {
+            match config.live_keybinds_with_diagnostics() {
+                Ok((live, keybind_diagnostics)) => {
                     self.state.prefix_code = live.prefix.0;
                     self.state.prefix_mods = live.prefix.1;
                     self.state.keybinds = live.keybinds;
+                    diagnostics.extend(keybind_diagnostics);
                 }
                 Err(keybind_diagnostics) => {
                     diagnostics.extend(
@@ -1864,28 +1878,55 @@ impl App {
             let previous_mode = self.state.mode;
             match event {
                 crate::raw_input::RawInputEvent::Key(key) => {
-                    let key_id = repeat_key_identity(&key);
+                    let suppress_direct_command_repeat = self.state.mode == Mode::Terminal
+                        && input::command_for_key(&self.state, key, input::BindingDispatch::Direct)
+                            .is_some();
+                    let physical_id = physical_key_identity(&key);
                     match key.kind {
                         crossterm::event::KeyEventKind::Press => {
-                            if self.state.mode == Mode::Terminal {
-                                self.suppressed_repeat_keys.remove(&key_id);
-                                self.handle_terminal_key_headless(key);
+                            let pressed_mode = self.state.mode;
+                            self.forwarded_terminal_keys.remove(&physical_id);
+                            self.suppressed_repeat_keys.remove(&physical_id);
+                            if pressed_mode == Mode::Terminal {
+                                if let Some(target) = self.handle_terminal_key_headless(key) {
+                                    self.forwarded_terminal_keys.insert(physical_id, target);
+                                }
                             } else {
-                                self.suppressed_repeat_keys.insert(key_id);
                                 self.handle_non_terminal_key_headless(key);
+                            }
+                            let suppress_repeat = if pressed_mode == Mode::Terminal {
+                                self.state.mode != pressed_mode || suppress_direct_command_repeat
+                            } else {
+                                self.state.mode != pressed_mode
+                                    || !mode_accepts_repeat_key(pressed_mode, &key)
+                            };
+                            if suppress_repeat {
+                                self.suppressed_repeat_keys.insert(physical_id);
                             }
                         }
                         crossterm::event::KeyEventKind::Repeat => {
-                            if self.state.mode == Mode::Terminal
-                                && !self.suppressed_repeat_keys.contains(&key_id)
+                            if let Some(target) =
+                                self.forwarded_terminal_keys.get(&physical_id).cloned()
                             {
-                                self.handle_terminal_key_headless(key);
-                            } else if mode_accepts_repeat_key(self.state.mode, &key) {
+                                self.forward_terminal_key_to_target_headless(target, key);
+                            } else if self.state.mode == Mode::Terminal
+                                && !self.suppressed_repeat_keys.contains(&physical_id)
+                            {
+                                if let Some(target) = self.handle_terminal_key_headless(key) {
+                                    self.forwarded_terminal_keys.insert(physical_id, target);
+                                }
+                            } else if !self.suppressed_repeat_keys.contains(&physical_id)
+                                && mode_accepts_repeat_key(self.state.mode, &key)
+                            {
                                 self.handle_non_terminal_key_headless(key);
                             }
                         }
                         crossterm::event::KeyEventKind::Release => {
-                            self.suppressed_repeat_keys.remove(&key_id);
+                            self.suppressed_repeat_keys.remove(&physical_id);
+                            if let Some(target) = self.forwarded_terminal_keys.remove(&physical_id)
+                            {
+                                self.forward_terminal_key_to_target_headless(target, key);
+                            }
                         }
                     }
                 }
@@ -2002,28 +2043,58 @@ impl App {
         client_view: &mut ClientViewState,
         key: crate::input::TerminalKey,
     ) {
-        let key_id = repeat_key_identity(&key);
+        let suppress_direct_command_repeat = client_view.mode == Mode::Terminal
+            && input::command_for_key(&self.state, key, input::BindingDispatch::Direct).is_some();
+        let physical_id = physical_key_identity(&key);
         match key.kind {
             crossterm::event::KeyEventKind::Press => {
-                if client_view.mode == Mode::Terminal {
-                    self.suppressed_repeat_keys.remove(&key_id);
-                    self.handle_terminal_key_for_view(client_view, key);
+                let pressed_mode = client_view.mode;
+                client_view.forwarded_terminal_keys.remove(&physical_id);
+                client_view.suppressed_repeat_keys.remove(&physical_id);
+                if pressed_mode == Mode::Terminal {
+                    if let Some(target) = self.handle_terminal_key_for_view(client_view, key) {
+                        client_view
+                            .forwarded_terminal_keys
+                            .insert(physical_id, target);
+                    }
                 } else {
-                    self.suppressed_repeat_keys.insert(key_id);
                     self.handle_non_terminal_key_for_view(client_view, key);
+                }
+                let suppress_repeat = if pressed_mode == Mode::Terminal {
+                    client_view.mode != pressed_mode || suppress_direct_command_repeat
+                } else {
+                    client_view.mode != pressed_mode || !mode_accepts_repeat_key(pressed_mode, &key)
+                };
+                if suppress_repeat {
+                    client_view.suppressed_repeat_keys.insert(physical_id);
                 }
             }
             crossterm::event::KeyEventKind::Repeat => {
-                if client_view.mode == Mode::Terminal
-                    && !self.suppressed_repeat_keys.contains(&key_id)
+                if let Some(target) = client_view
+                    .forwarded_terminal_keys
+                    .get(&physical_id)
+                    .cloned()
                 {
-                    self.handle_terminal_key_for_view(client_view, key);
-                } else if mode_accepts_repeat_key(client_view.mode, &key) {
+                    self.send_terminal_key_to_stable_target(target, key);
+                } else if client_view.mode == Mode::Terminal
+                    && !client_view.suppressed_repeat_keys.contains(&physical_id)
+                {
+                    if let Some(target) = self.handle_terminal_key_for_view(client_view, key) {
+                        client_view
+                            .forwarded_terminal_keys
+                            .insert(physical_id, target);
+                    }
+                } else if !client_view.suppressed_repeat_keys.contains(&physical_id)
+                    && mode_accepts_repeat_key(client_view.mode, &key)
+                {
                     self.handle_non_terminal_key_for_view(client_view, key);
                 }
             }
             crossterm::event::KeyEventKind::Release => {
-                self.suppressed_repeat_keys.remove(&key_id);
+                client_view.suppressed_repeat_keys.remove(&physical_id);
+                if let Some(target) = client_view.forwarded_terminal_keys.remove(&physical_id) {
+                    self.send_terminal_key_to_stable_target(target, key);
+                }
             }
         }
     }
@@ -2032,24 +2103,41 @@ impl App {
         &mut self,
         client_view: &mut ClientViewState,
         key: crate::input::TerminalKey,
-    ) {
+    ) -> Option<input::TerminalKeyTarget> {
         self.state.update_dismissed = true;
         if self.state.is_prefix_key(key) {
             client_view.mode = Mode::Prefix;
-            return;
+            return None;
         }
 
         debug!(mode = ?client_view.mode, key = ?key, "client view terminal key routing");
-        if let Some(action) = input::terminal_direct_navigation_action(&self.state, key) {
+        if let Some(action) = input::terminal_direct_non_indexed_navigation_action(&self.state, key)
+        {
             self.execute_client_view_navigate_action(
                 client_view,
                 action,
                 input::ActionContext::Direct,
             );
-            return;
+            return None;
         }
 
-        self.send_terminal_key_for_view(client_view, key);
+        if let Some(binding) =
+            input::command_for_key(&self.state, key, input::BindingDispatch::Direct)
+        {
+            self.launch_custom_command_for_view(client_view, binding, input::ActionContext::Direct);
+            return None;
+        }
+
+        if let Some(action) = input::terminal_direct_indexed_navigation_action(&self.state, key) {
+            self.execute_client_view_navigate_action(
+                client_view,
+                action,
+                input::ActionContext::Direct,
+            );
+            return None;
+        }
+
+        self.send_terminal_key_for_view(client_view, key)
     }
 
     fn handle_non_terminal_key_for_view(
@@ -2074,7 +2162,10 @@ impl App {
         self.state.update_dismissed = true;
 
         if self.state.is_prefix_key(raw_key) {
-            if !self.send_terminal_key_for_view(client_view, raw_key) {
+            if self
+                .send_terminal_key_for_view(client_view, raw_key)
+                .is_none()
+            {
                 Self::leave_client_view_command_mode(client_view);
             }
             return;
@@ -2086,7 +2177,27 @@ impl App {
         }
 
         if let Some(action) =
-            input::action_for_key(&self.state, raw_key, input::BindingDispatch::Prefix)
+            input::non_indexed_action_for_key(&self.state, raw_key, input::BindingDispatch::Prefix)
+        {
+            self.execute_client_view_navigate_action(
+                client_view,
+                action,
+                input::ActionContext::Prefix,
+            );
+            self.selection_autoscroll_deadline = None;
+            return;
+        }
+
+        if let Some(binding) =
+            input::command_for_key(&self.state, raw_key, input::BindingDispatch::Prefix)
+        {
+            self.launch_custom_command_for_view(client_view, binding, input::ActionContext::Prefix);
+            Self::leave_client_view_command_mode(client_view);
+            return;
+        }
+
+        if let Some(action) =
+            input::indexed_navigation_action(&self.state, raw_key, input::BindingDispatch::Prefix)
         {
             self.execute_client_view_navigate_action(
                 client_view,
@@ -2184,9 +2295,30 @@ impl App {
             }
             Mode::Copy => self.handle_client_view_copy_mode_key(client_view, raw_key),
             Mode::Navigate => {
-                if let Some(action) =
-                    input::action_for_key(&self.state, raw_key, input::BindingDispatch::Prefix)
+                if let Some(action) = input::non_indexed_action_for_key(
+                    &self.state,
+                    raw_key,
+                    input::BindingDispatch::Prefix,
+                ) {
+                    self.execute_client_view_navigate_action(
+                        client_view,
+                        action,
+                        input::ActionContext::Navigate,
+                    );
+                } else if let Some(binding) =
+                    input::command_for_key(&self.state, raw_key, input::BindingDispatch::Prefix)
                 {
+                    self.launch_custom_command_for_view(
+                        client_view,
+                        binding,
+                        input::ActionContext::Navigate,
+                    );
+                    Self::leave_client_view_command_mode(client_view);
+                } else if let Some(action) = input::indexed_navigation_action(
+                    &self.state,
+                    raw_key,
+                    input::BindingDispatch::Prefix,
+                ) {
                     self.execute_client_view_navigate_action(
                         client_view,
                         action,
@@ -3512,13 +3644,11 @@ impl App {
                 let Some(binding) = self.state.keybinds.custom_commands.get(idx).cloned() else {
                     return;
                 };
-                let previous_active = self.state.active;
-                let previous_selected = self.state.selected;
-                self.state.active = client_view.active_workspace;
-                self.state.selected = client_view.selected_workspace;
-                self.launch_custom_command(binding, input::ActionContext::Navigate);
-                self.state.active = previous_active;
-                self.state.selected = previous_selected;
+                self.launch_custom_command_for_view(
+                    client_view,
+                    binding,
+                    input::ActionContext::Navigate,
+                );
                 Self::leave_client_view_command_mode(client_view);
             }
             crate::app::command_palette::CommandPaletteAction::NewAgent => {
@@ -4935,41 +5065,50 @@ impl App {
         &self,
         client_view: &ClientViewState,
         key: crate::input::TerminalKey,
+    ) -> Option<input::TerminalKeyTarget> {
+        let ws_idx = client_view.active_workspace?;
+        let (_, pane_id) = client_view.focused_pane_for_workspace(&self.state, ws_idx)?;
+        let workspace_id = self.state.workspaces.get(ws_idx)?.id.clone();
+        self.send_terminal_key_to_target(ws_idx, pane_id, key)
+            .then_some(input::TerminalKeyTarget {
+                workspace_id,
+                pane_id,
+            })
+    }
+
+    fn send_terminal_key_to_stable_target(
+        &self,
+        target: input::TerminalKeyTarget,
+        key: crate::input::TerminalKey,
     ) -> bool {
-        let Some(ws_idx) = client_view.active_workspace else {
-            debug!("client view terminal key dropped: no active workspace");
+        let Some(ws_idx) = self
+            .state
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.id == target.workspace_id)
+        else {
             return false;
         };
-        let Some((_, pane_id)) = client_view.focused_pane_for_workspace(&self.state, ws_idx) else {
-            debug!(ws_idx, "client view terminal key dropped: no focused pane");
-            return false;
-        };
+        self.send_terminal_key_to_target(ws_idx, target.pane_id, key)
+    }
+
+    fn send_terminal_key_to_target(
+        &self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+        key: crate::input::TerminalKey,
+    ) -> bool {
         let Some(runtime) =
             self.state
                 .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
         else {
-            debug!(
-                ws_idx,
-                pane_id = pane_id.raw(),
-                "client view terminal key dropped: no runtime"
-            );
             return false;
         };
-
         let bytes = runtime.encode_terminal_key(key);
         if bytes.is_empty() {
-            debug!(
-                ws_idx,
-                pane_id = pane_id.raw(),
-                "client view terminal key dropped: empty encoding"
-            );
             return false;
         }
-        if let Err(err) = runtime.try_send_bytes(bytes::Bytes::from(bytes)) {
-            debug!(ws_idx, pane_id = pane_id.raw(), err = %err, "client view terminal key dropped: send failed");
-            return false;
-        }
-        true
+        runtime.try_send_bytes(bytes::Bytes::from(bytes)).is_ok()
     }
 
     fn paste_for_view(&self, client_view: &mut ClientViewState, text: &str) -> bool {
@@ -9602,29 +9741,28 @@ mod tests {
     }
 
     #[test]
-    fn reload_config_keeps_current_keybinds_on_invalid_binding_but_applies_other_sections() {
+    fn reload_config_disables_invalid_binding_but_applies_valid_binding_and_other_sections() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("reload-config-invalid-keybind");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
-            "[keys]\nnew_workspace = \"wat\"\n[ui.toast]\ndelivery = \"terminal\"\n",
+            "[keys]\nnew_workspace = \"wat\"\nhelp = \"prefix+g\"\n[ui.toast]\ndelivery = \"terminal\"\n",
         )
         .unwrap();
         let _config_path_env =
             crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
-        let original_prefix = (app.state.prefix_code, app.state.prefix_mods);
-        let original_keybinds = app.state.keybinds.new_workspace.clone();
         let report = app.reload_config();
 
         assert_eq!(report.status, crate::config::ConfigReloadStatus::Partial);
-        assert_eq!(
-            (app.state.prefix_code, app.state.prefix_mods),
-            original_prefix
-        );
-        assert_eq!(app.state.keybinds.new_workspace, original_keybinds);
+        assert!(app.state.keybinds.new_workspace.bindings.is_empty());
+        assert!(app
+            .state
+            .keybinds
+            .help
+            .matches_prefix(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::empty())));
         assert_eq!(
             app.state.toast_config.delivery,
             crate::config::ToastDelivery::Terminal
@@ -9633,9 +9771,7 @@ mod tests {
             .state
             .config_diagnostic
             .as_deref()
-            .is_some_and(|message| {
-                message.contains("keys.new_workspace") && message.contains("kept current keybinds")
-            }));
+            .is_some_and(|message| message.contains("keys.new_workspace")));
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
@@ -11396,6 +11532,63 @@ mod tests {
         assert!(rx.try_recv().is_err());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn client_view_literal_custom_binding_precedes_shifted_indexed_binding_and_owns_mode() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let output_path =
+            std::env::temp_dir().join(format!("hako-client-literal-custom-{}", std::process::id()));
+        let config: crate::config::Config = toml::from_str(&format!(
+            r#"
+[keys]
+switch_workspace = "prefix+shift+1..9"
+
+[[keys.command]]
+key = "prefix+!"
+command = "printf literal > '{}'"
+"#,
+            output_path.display()
+        ))
+        .unwrap();
+        app.state.keybinds = config.keybinds();
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.selected_workspace = 1;
+        client.mode = Mode::Terminal;
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_key(
+                    app.state.prefix_code,
+                    app.state.prefix_mods,
+                    crossterm::event::KeyEventKind::Press,
+                ),
+                raw_key(
+                    crossterm::event::KeyCode::Char('!'),
+                    crossterm::event::KeyModifiers::empty(),
+                    crossterm::event::KeyEventKind::Press,
+                ),
+            ],
+            true,
+        );
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while !output_path.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(std::fs::read_to_string(&output_path).unwrap(), "literal");
+        assert_eq!(client.selected_workspace, 1);
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.mode, Mode::Terminal);
+        let _ = std::fs::remove_file(output_path);
+    }
+
     #[test]
     fn route_client_input_advances_onboarding_modal() {
         let mut app = test_app();
@@ -13096,6 +13289,91 @@ mod tests {
         assert_eq!(app.state.mode, Mode::Terminal);
     }
 
+    #[test]
+    fn explicit_client_repeat_suppression_is_local_and_survives_mode_change() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.keybinds.command_palette = crate::config::ActionKeybinds::direct("down");
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
+        let mut second_client = ClientViewState::from_default_client_state(&app.state);
+        input::open_command_palette_for_view(&mut second_client);
+
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![
+                raw_key(KeyCode::Down, KeyModifiers::empty(), KeyEventKind::Press),
+                raw_key(KeyCode::Down, KeyModifiers::empty(), KeyEventKind::Repeat),
+            ],
+            false,
+        );
+        app.route_client_events_for_view(
+            &mut second_client,
+            vec![raw_key(
+                KeyCode::Down,
+                KeyModifiers::empty(),
+                KeyEventKind::Repeat,
+            )],
+            false,
+        );
+
+        assert_eq!(first_client.mode, Mode::CommandPalette);
+        assert_eq!(first_client.command_palette.selected, 0);
+        assert_eq!(second_client.command_palette.selected, 1);
+    }
+
+    #[tokio::test]
+    async fn held_direct_custom_pane_command_executes_once_in_default_and_explicit_routes() {
+        fn configure(app: &mut App) {
+            app.state.workspaces = vec![Workspace::test_new("test")];
+            app.state.ensure_test_terminals();
+            app.state.active = Some(0);
+            app.state.selected = 0;
+            app.state.mode = Mode::Terminal;
+            app.state.keybinds.custom_commands = vec![crate::config::CustomCommandKeybind {
+                bindings: crate::config::ActionKeybinds::direct("g"),
+                label: "pane".into(),
+                command: "printf pane".into(),
+                action: crate::config::CustomCommandAction::Pane,
+                description: None,
+            }];
+        }
+        let held_g = || {
+            vec![
+                raw_key(
+                    KeyCode::Char('g'),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                ),
+                raw_key(
+                    KeyCode::Char('g'),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Repeat,
+                ),
+            ]
+        };
+
+        let mut default_app = test_app();
+        configure(&mut default_app);
+        default_app.route_client_events(held_g(), false);
+        assert_eq!(
+            default_app.state.workspaces[0].tabs[0].layout.pane_count(),
+            2
+        );
+
+        let mut explicit_app = test_app();
+        configure(&mut explicit_app);
+        let mut client = ClientViewState::from_default_client_state(&explicit_app.state);
+        explicit_app.route_client_events_for_view(&mut client, held_g(), false);
+        assert_eq!(
+            explicit_app.state.workspaces[0].tabs[0].layout.pane_count(),
+            2
+        );
+    }
+
     #[tokio::test]
     async fn route_client_events_for_view_prefix_new_tab_queues_invoking_client_tab() {
         let mut app = test_app();
@@ -13663,6 +13941,209 @@ mod tests {
         assert_eq!(app.state.active, Some(0));
         assert_eq!(app.state.selected, 0);
         assert_eq!(client.active_workspace, Some(1));
+    }
+
+    #[tokio::test]
+    async fn direct_client_shell_command_uses_client_target_without_shared_state_changes() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        let shared_focus = app.state.workspaces[0].tabs[0].layout.focused();
+        let client_focus = app.state.workspaces[1].tabs[0].layout.focused();
+        let output_path = std::env::temp_dir().join(format!(
+            "hako-client-custom-shell-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let command = format!(
+            "printf '%s\\n%s\\n%s\\n%s\\n' \"$HAKO_ACTIVE_WORKSPACE_ID\" \"$HAKO_ACTIVE_TAB_ID\" \"$HAKO_ACTIVE_PANE_ID\" \"$PWD\" > '{}'",
+            output_path.display()
+        );
+        let binding = crate::config::CustomCommandKeybind {
+            bindings: crate::config::ActionKeybinds::direct("g"),
+            label: "client shell".into(),
+            command,
+            action: crate::config::CustomCommandAction::Shell,
+            description: None,
+        };
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+        client.reconcile(&app.state);
+
+        app.launch_custom_command_for_view(&mut client, binding, input::ActionContext::Direct);
+
+        for _ in 0..100 {
+            if output_path.exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let content = std::fs::read_to_string(&output_path).expect("shell command output");
+        let lines = content.lines().collect::<Vec<_>>();
+        assert_eq!(lines[0], app.state.workspaces[1].id);
+        assert_eq!(lines[1], format!("{}:t1", app.state.workspaces[1].id));
+        assert_eq!(lines[2], format!("{}:p1", app.state.workspaces[1].id));
+        assert!(!lines[3].is_empty());
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
+        assert_eq!(
+            app.state.workspaces[0].tabs[0].layout.focused(),
+            shared_focus
+        );
+        assert_eq!(
+            app.state.workspaces[1].tabs[0].layout.focused(),
+            client_focus
+        );
+        let _ = std::fs::remove_file(output_path);
+    }
+
+    #[tokio::test]
+    async fn client_custom_pane_command_targets_client_workspace_without_shared_focus_changes() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        let shared_focus = app.state.workspaces[0].tabs[0].layout.focused();
+        let client_original_focus = app.state.workspaces[1].tabs[0].layout.focused();
+        let shared_client_tab_focus = app.state.workspaces[1].tabs[0].layout.focused();
+        let shared_client_tab_zoomed = app.state.workspaces[1].tabs[0].zoomed;
+
+        app.state.keybinds.custom_commands = vec![crate::config::CustomCommandKeybind {
+            bindings: crate::config::ActionKeybinds::direct("g"),
+            label: "client pane".into(),
+            command: "printf client".into(),
+            action: crate::config::CustomCommandAction::Pane,
+            description: None,
+        }];
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.active_workspace = Some(1);
+        client.selected_workspace = 1;
+        client.reconcile(&app.state);
+
+        app.execute_client_view_command_palette_action(
+            &mut client,
+            crate::app::command_palette::CommandPaletteAction::CustomCommand(0),
+        );
+
+        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 1);
+        assert_eq!(app.state.workspaces[1].tabs[0].layout.pane_count(), 2);
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
+        assert_eq!(
+            app.state.workspaces[0].tabs[0].layout.focused(),
+            shared_focus
+        );
+        assert_eq!(
+            app.state.workspaces[1].tabs[0].layout.focused(),
+            client_original_focus
+        );
+        let (_, client_focus) = client
+            .focused_pane_for_workspace(&app.state, 1)
+            .expect("client focus");
+        assert_ne!(client_focus, client_original_focus);
+        assert!(client.tab_is_zoomed(&app.state.workspaces[1].id, 1));
+
+        app.handle_internal_event(crate::events::AppEvent::PaneDied {
+            pane_id: client_focus,
+            child_pid: 0,
+            exit_success: true,
+        });
+        client.reconcile(&app.state);
+
+        assert_eq!(
+            client.focused_pane_for_workspace(&app.state, 1),
+            Some((0, client_original_focus))
+        );
+        assert!(!client.tab_is_zoomed(&app.state.workspaces[1].id, 1));
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
+        assert_eq!(
+            app.state.workspaces[0].tabs[0].layout.focused(),
+            shared_focus
+        );
+        assert_eq!(
+            app.state.workspaces[1].tabs[0].layout.focused(),
+            shared_client_tab_focus
+        );
+        assert_eq!(
+            app.state.workspaces[1].tabs[0].zoomed,
+            shared_client_tab_zoomed
+        );
+        assert!(!app.state.client_overlay_owners.contains_key(&client_focus));
+        assert!(!app.overlay_panes.contains_key(&client_focus));
+    }
+
+    #[tokio::test]
+    async fn nested_client_overlays_restore_through_an_earlier_overlay_exit() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.mode = Mode::Terminal;
+        app.state.keybinds.custom_commands = vec![crate::config::CustomCommandKeybind {
+            bindings: crate::config::ActionKeybinds::direct("g"),
+            label: "client pane".into(),
+            command: "printf client".into(),
+            action: crate::config::CustomCommandAction::Pane,
+            description: None,
+        }];
+        let original = app.state.workspaces[0].tabs[0].layout.focused();
+        let workspace_id = app.state.workspaces[0].id.clone();
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.reconcile(&app.state);
+        client.set_tab_zoomed(&workspace_id, 1, true);
+
+        app.execute_client_view_command_palette_action(
+            &mut client,
+            crate::app::command_palette::CommandPaletteAction::CustomCommand(0),
+        );
+        let (_, first) = client
+            .focused_pane_for_workspace(&app.state, 0)
+            .expect("first overlay");
+        app.execute_client_view_command_palette_action(
+            &mut client,
+            crate::app::command_palette::CommandPaletteAction::CustomCommand(0),
+        );
+        let (_, second) = client
+            .focused_pane_for_workspace(&app.state, 0)
+            .expect("second overlay");
+        assert_ne!(first, second);
+
+        app.handle_internal_event(crate::events::AppEvent::PaneDied {
+            pane_id: first,
+            child_pid: 0,
+            exit_success: true,
+        });
+        client.reconcile(&app.state);
+        assert_eq!(
+            client.focused_pane_for_workspace(&app.state, 0),
+            Some((0, second))
+        );
+        assert!(client.tab_is_zoomed(&workspace_id, 1));
+        assert!(!app.state.client_overlay_owners.contains_key(&first));
+        assert!(!app.overlay_panes.contains_key(&first));
+
+        app.handle_internal_event(crate::events::AppEvent::PaneDied {
+            pane_id: second,
+            child_pid: 0,
+            exit_success: true,
+        });
+        client.reconcile(&app.state);
+        assert_eq!(
+            client.focused_pane_for_workspace(&app.state, 0),
+            Some((0, original))
+        );
+        assert!(client.tab_is_zoomed(&workspace_id, 1));
+        assert!(app.state.client_overlay_owners.is_empty());
+        assert!(app.overlay_panes.is_empty());
     }
 
     #[test]

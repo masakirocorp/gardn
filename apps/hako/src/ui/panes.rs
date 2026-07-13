@@ -244,6 +244,28 @@ pub(super) fn compute_pane_infos(
     pane_infos
 }
 
+fn layout_for_client_view(
+    app: &AppState,
+    client_view: &ClientViewState,
+    tab: &crate::workspace::Tab,
+) -> crate::layout::TileLayout {
+    let mut layout = tab.layout.clone();
+    let hidden = layout
+        .pane_ids()
+        .into_iter()
+        .filter(|pane_id| {
+            app.client_overlay_owners
+                .get(pane_id)
+                .is_some_and(|owner| *owner != client_view.id())
+        })
+        .collect::<Vec<_>>();
+    for pane_id in hidden {
+        layout.focus_pane(pane_id);
+        let _ = layout.close_focused();
+    }
+    layout
+}
+
 pub(super) fn compute_pane_infos_for_view(
     app: &AppState,
     client_view: &ClientViewState,
@@ -264,10 +286,12 @@ pub(super) fn compute_pane_infos_for_view(
     let Some(tab) = ws.tabs.get(tab_idx) else {
         return Vec::new();
     };
+    let layout = layout_for_client_view(app, client_view, tab);
     let focused_id = client_view
         .focused_pane_for_tab(&ws.id, tab_idx + 1)
-        .unwrap_or_else(|| tab.layout.focused());
-    let multi_pane = tab.layout.pane_count() > 1;
+        .filter(|pane_id| layout.pane_ids().contains(pane_id))
+        .unwrap_or_else(|| layout.focused());
+    let multi_pane = layout.pane_count() > 1;
     let terminal_active = client_view.mode == Mode::Terminal;
 
     if client_view.tab_is_zoomed(&ws.id, tab_idx + 1) {
@@ -294,7 +318,7 @@ pub(super) fn compute_pane_infos_for_view(
         }];
     }
 
-    let mut pane_infos = tab.layout.panes(area);
+    let mut pane_infos = layout.panes(area);
     for info in &mut pane_infos {
         info.is_focused = info.id == focused_id;
         let pane_inner = if multi_pane {
@@ -811,6 +835,51 @@ mod tests {
     use crate::terminal::TerminalRuntime;
     use crate::workspace::Workspace;
     use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+
+    #[test]
+    fn client_overlay_projection_is_owner_only_and_collapses_hidden_geometry() {
+        let mut app = AppState::test_new();
+        let mut workspace = Workspace::test_new("test");
+        let root = workspace.tabs[0].root_pane;
+        let overlay = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.tabs[0].layout.focus_pane(root);
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+
+        let mut owner = ClientViewState::from_default_client_state(&app);
+        let mut other = ClientViewState::from_default_client_state(&app);
+        owner.reconcile(&app);
+        other.reconcile(&app);
+        app.client_overlay_owners.insert(overlay, owner.id());
+        assert!(owner.focus_pane_in_workspace(&app, 0, 0, overlay));
+        owner.set_tab_zoomed(&app.workspaces[0].id, 1, true);
+
+        let area = Rect::new(3, 2, 80, 24);
+        let runtimes = TerminalRuntimeRegistry::new();
+        let owner_infos = compute_pane_infos_for_view(
+            &app,
+            &owner,
+            &runtimes,
+            area,
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        let other_infos = compute_pane_infos_for_view(
+            &app,
+            &other,
+            &runtimes,
+            area,
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+
+        assert_eq!(owner_infos.len(), 1);
+        assert_eq!(owner_infos[0].id, overlay);
+        assert_eq!(other_infos.len(), 1);
+        assert_eq!(other_infos[0].id, root);
+        assert_eq!(other_infos[0].rect, area);
+        assert!(!other.focus_pane_in_workspace(&app, 0, 0, overlay));
+    }
 
     #[test]
     fn pane_border_title_trims_and_truncates() {

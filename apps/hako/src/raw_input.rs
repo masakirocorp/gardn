@@ -1323,6 +1323,27 @@ mod tests {
     }
 
     #[test]
+    fn chunked_kitty_f3_release_preserves_complete_byte_range_once() {
+        let sequence = b"\x1b[13;1:3~";
+        let mut framer = RawInputByteFramer::default();
+
+        assert!(framer.push(&sequence[..7]).is_empty());
+        let chunks = framer.push(&sequence[7..]);
+        assert_eq!(chunks, vec![sequence.to_vec()]);
+
+        let events = parse_raw_input_bytes_with_ranges(&chunks[0]);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].start, 0);
+        assert_eq!(events[0].len, sequence.len());
+        let RawInputEvent::Key(key) = &events[0].event else {
+            panic!("expected key");
+        };
+        assert_eq!(key.code, KeyCode::F(3));
+        assert_eq!(key.modifiers, KeyModifiers::empty());
+        assert_eq!(key.kind, KeyEventKind::Release);
+    }
+
+    #[test]
     fn chunked_bracketed_paste_waits_for_terminator() {
         let (tx, mut rx) = mpsc::channel(8);
         let mut buffer = Vec::new();

@@ -808,41 +808,6 @@ impl Workspace {
         Ok(new_pane)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn split_focused_command(
-        &mut self,
-        direction: Direction,
-        rows: u16,
-        cols: u16,
-        cwd: Option<PathBuf>,
-        command: &str,
-        extra_env: Vec<(String, String)>,
-        scrollback_limit_bytes: usize,
-        host_terminal_theme: crate::terminal_theme::TerminalTheme,
-    ) -> std::io::Result<crate::workspace::tab::NewPane> {
-        let pane_number = self.next_public_pane_number;
-        let tab_number = self
-            .active_tab()
-            .map(|tab| tab.number)
-            .expect("workspace must always have at least one tab");
-        let launch_env = self.launch_env_for_new_pane(tab_number, pane_number, extra_env);
-        let new_pane = self
-            .active_tab_mut()
-            .expect("workspace must always have at least one tab")
-            .split_focused_command(
-                direction,
-                rows,
-                cols,
-                cwd,
-                command,
-                &launch_env,
-                scrollback_limit_bytes,
-                host_terminal_theme,
-            )?;
-        self.register_new_pane(new_pane.pane_id);
-        Ok(new_pane)
-    }
-
     pub fn split_pane(
         &mut self,
         pane_id: PaneId,

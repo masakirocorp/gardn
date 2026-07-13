@@ -14,7 +14,7 @@ mod worktrees;
 
 use super::ClientViewState;
 use super::{
-    api_helpers::pane_agent_status, App, Mode, OverlayPaneState, ToastKind,
+    api_helpers::pane_agent_status, App, Mode, OverlayPaneOwner, OverlayPaneState, ToastKind,
     API_NOTIFICATION_RATE_LIMIT,
 };
 use crate::events::AppEvent;
@@ -118,6 +118,7 @@ impl App {
             if self.runtime_exit_action(*pane_id) == RuntimeExitAction::RespawnShell
                 && self.respawn_shell_for_launch_pane(*pane_id)
             {
+                self.state.client_overlay_owners.remove(pane_id);
                 self.overlay_panes.remove(pane_id);
                 self.render_dirty.store(true, Ordering::Release);
                 self.render_notify.notify_one();
@@ -126,6 +127,7 @@ impl App {
         }
 
         let overlay_state = if let AppEvent::PaneDied { pane_id, .. } = &ev {
+            self.state.client_overlay_owners.remove(pane_id);
             self.overlay_panes.remove(pane_id)
         } else {
             None
@@ -381,6 +383,13 @@ impl App {
             let _ = std::fs::remove_file(temp_file);
         }
 
+        let OverlayPaneOwner::Shared {
+            previous_focus,
+            previous_zoomed,
+        } = overlay.owner
+        else {
+            return;
+        };
         let Some(ws) = self.state.workspaces.get_mut(overlay.ws_idx) else {
             return;
         };
@@ -390,10 +399,10 @@ impl App {
 
         ws.active_tab = overlay.tab_idx;
         let tab = &mut ws.tabs[overlay.tab_idx];
-        if tab.panes.contains_key(&overlay.previous_focus) {
-            tab.layout.focus_pane(overlay.previous_focus);
+        if tab.panes.contains_key(&previous_focus) {
+            tab.layout.focus_pane(previous_focus);
         }
-        tab.zoomed = overlay.previous_zoomed;
+        tab.zoomed = previous_zoomed;
 
         if self.state.active == Some(overlay.ws_idx) {
             self.state.mode = Mode::Terminal;

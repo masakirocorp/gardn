@@ -198,6 +198,7 @@ impl App {
             self.public_tab_id(ws_idx, tab_idx),
             Some(tab.display_name()),
             focused_pane,
+            self.state.selection.as_ref(),
             correlation_id,
         ))
     }
@@ -267,6 +268,7 @@ impl App {
             tab_id,
             tab_label,
             focused_pane,
+            self.state.selection.as_ref(),
             correlation_id,
         )
     }
@@ -275,6 +277,21 @@ impl App {
         &self,
         ws_idx: usize,
         pane_id: crate::layout::PaneId,
+        correlation_id: &str,
+    ) -> PluginInvocationContext {
+        self.plugin_context_for_pane_with_selection(
+            ws_idx,
+            pane_id,
+            self.state.selection.as_ref(),
+            correlation_id,
+        )
+    }
+
+    pub(super) fn plugin_context_for_pane_with_selection(
+        &self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+        selection: Option<&crate::selection::Selection>,
         correlation_id: &str,
     ) -> PluginInvocationContext {
         let ws = &self.state.workspaces[ws_idx];
@@ -291,6 +308,7 @@ impl App {
             tab_id,
             tab_label,
             focused_pane,
+            selection,
             correlation_id,
         )
     }
@@ -302,6 +320,7 @@ impl App {
         tab_id: Option<String>,
         tab_label: Option<String>,
         focused_pane: Option<crate::api::schema::PaneInfo>,
+        selection: Option<&crate::selection::Selection>,
         correlation_id: &str,
     ) -> PluginInvocationContext {
         let workspace_cwd = focused_pane
@@ -311,7 +330,7 @@ impl App {
         let selected_text = focused_pane
             .as_ref()
             .and_then(|pane| self.parse_pane_id(&pane.pane_id))
-            .and_then(|(_, pane_id)| self.selected_text_for_pane(pane_id));
+            .and_then(|(_, pane_id)| self.selected_text_for_pane(pane_id, selection));
         PluginInvocationContext {
             workspace_id: Some(workspace.workspace_id),
             workspace_label: Some(workspace.label),
@@ -331,8 +350,12 @@ impl App {
         }
     }
 
-    fn selected_text_for_pane(&self, pane_id: crate::layout::PaneId) -> Option<String> {
-        let selection = self.state.selection.as_ref()?;
+    fn selected_text_for_pane(
+        &self,
+        pane_id: crate::layout::PaneId,
+        selection: Option<&crate::selection::Selection>,
+    ) -> Option<String> {
+        let selection = selection?;
         if selection.pane_id != pane_id || !selection.is_visible() {
             return None;
         }

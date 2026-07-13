@@ -13,18 +13,40 @@ struct PreparedPaneInput {
     bytes: Bytes,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TerminalKeyTarget {
+    pub(crate) workspace_id: String,
+    pub(crate) pane_id: crate::layout::PaneId,
+}
+
 fn is_modifier_only_key(code: &KeyCode) -> bool {
     matches!(code, KeyCode::Modifier(_))
 }
 
 impl App {
-    pub(crate) fn handle_terminal_key_headless(&mut self, key: TerminalKey) {
-        let Some(input) = self.prepare_terminal_key_forward(key) else {
-            return;
+    pub(crate) fn handle_terminal_key_headless(
+        &mut self,
+        key: TerminalKey,
+    ) -> Option<TerminalKeyTarget> {
+        let input = self.prepare_terminal_key_forward(key)?;
+        let target = self.target_for_input(&input)?;
+        let runtime = self.lookup_runtime_sender(input.ws_idx, input.pane_id)?;
+        runtime.try_send_bytes(input.bytes).ok()?;
+        Some(target)
+    }
+
+    pub(crate) fn forward_terminal_key_to_target_headless(
+        &mut self,
+        target: TerminalKeyTarget,
+        key: TerminalKey,
+    ) -> bool {
+        let Some(input) = self.prepare_terminal_key_for_target(&target, key) else {
+            return false;
         };
-        if let Some(runtime) = self.lookup_runtime_sender(input.ws_idx, input.pane_id) {
-            let _ = runtime.try_send_bytes(input.bytes);
-        }
+        let Some(runtime) = self.lookup_runtime_sender(input.ws_idx, input.pane_id) else {
+            return false;
+        };
+        runtime.try_send_bytes(input.bytes).is_ok()
     }
 
     fn prepare_terminal_key_forward(&mut self, key: TerminalKey) -> Option<PreparedPaneInput> {
@@ -36,7 +58,8 @@ impl App {
 
         let ws_idx = self.state.active?;
 
-        if let Some(action) = super::terminal_direct_navigation_action(&self.state, key) {
+        if let Some(action) = super::terminal_direct_non_indexed_navigation_action(&self.state, key)
+        {
             debug!(
                 code = ?key_event.code,
                 modifiers = ?key_event.modifiers,
@@ -69,6 +92,22 @@ impl App {
                 "intercepted terminal direct custom command before forwarding to pane"
             );
             self.launch_custom_command(binding, super::navigate::ActionContext::Direct);
+            return None;
+        }
+        if let Some(action) = super::terminal_direct_indexed_navigation_action(&self.state, key) {
+            debug!(
+                code = ?key_event.code,
+                modifiers = ?key_event.modifiers,
+                kind = ?key_event.kind,
+                action = ?action,
+                "intercepted terminal direct indexed keybinding before forwarding to pane"
+            );
+            super::navigate::execute_navigate_action_in_context(
+                &mut self.state,
+                &mut self.terminal_runtimes,
+                action,
+                super::navigate::ActionContext::Direct,
+            );
             return None;
         }
 
@@ -181,14 +220,62 @@ impl App {
             bytes: Bytes::from(bytes),
         })
     }
+    fn target_for_input(&self, input: &PreparedPaneInput) -> Option<TerminalKeyTarget> {
+        Some(TerminalKeyTarget {
+            workspace_id: self.state.workspaces.get(input.ws_idx)?.id.clone(),
+            pane_id: input.pane_id,
+        })
+    }
 
-    pub(super) async fn handle_terminal_key(&mut self, key: TerminalKey) {
-        let Some(input) = self.prepare_terminal_key_forward(key) else {
-            return;
-        };
-        if let Some(runtime) = self.lookup_runtime_sender(input.ws_idx, input.pane_id) {
-            let _ = runtime.send_bytes(input.bytes).await;
+    fn prepare_terminal_key_for_target(
+        &self,
+        target: &TerminalKeyTarget,
+        key: TerminalKey,
+    ) -> Option<PreparedPaneInput> {
+        let ws_idx = self
+            .state
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.id == target.workspace_id)?;
+        let rt = self.state.runtime_for_pane_in_workspace(
+            &self.terminal_runtimes,
+            ws_idx,
+            target.pane_id,
+        )?;
+        let bytes = rt.encode_terminal_key(key);
+        if bytes.is_empty() {
+            return None;
         }
+        Some(PreparedPaneInput {
+            ws_idx,
+            pane_id: target.pane_id,
+            bytes: Bytes::from(bytes),
+        })
+    }
+
+    pub(super) async fn handle_terminal_key(
+        &mut self,
+        key: TerminalKey,
+    ) -> Option<TerminalKeyTarget> {
+        let input = self.prepare_terminal_key_forward(key)?;
+        let target = self.target_for_input(&input)?;
+        let runtime = self.lookup_runtime_sender(input.ws_idx, input.pane_id)?;
+        runtime.send_bytes(input.bytes).await.ok()?;
+        Some(target)
+    }
+
+    pub(crate) async fn forward_terminal_key_to_target(
+        &mut self,
+        target: TerminalKeyTarget,
+        key: TerminalKey,
+    ) -> bool {
+        let Some(input) = self.prepare_terminal_key_for_target(&target, key) else {
+            return false;
+        };
+        let Some(runtime) = self.lookup_runtime_sender(input.ws_idx, input.pane_id) else {
+            return false;
+        };
+        runtime.send_bytes(input.bytes).await.is_ok()
     }
 }
 

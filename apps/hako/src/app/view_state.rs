@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+static NEXT_CLIENT_VIEW_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 use crate::app::state::{
     AgentProfilePickerState, AppState, CommandPaletteState, ContextMenuState, DragState,
     GitRepoPickerState, GroupPressState, KeybindHelpState, MenuListState, Mode, NavigatorState,
@@ -22,6 +24,13 @@ impl ClientTabViewKey {
             tab_number,
         }
     }
+}
+
+#[derive(Clone)]
+struct ClientOverlayReturnState {
+    tab: ClientTabViewKey,
+    focused_pane: PaneId,
+    zoomed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +69,7 @@ impl TerminalViewportOffset {
 /// implicitly reading whichever client last touched the server.
 #[derive(Clone)]
 pub(crate) struct ClientViewState {
+    id: u64,
     pub(crate) active_workspace: Option<usize>,
     pub(crate) selected_workspace: usize,
     pub(crate) active_group: usize,
@@ -89,7 +99,11 @@ pub(crate) struct ClientViewState {
     pub(crate) pending_active_tabs: HashMap<String, usize>,
     pub(crate) focused_panes: HashMap<ClientTabViewKey, PaneId>,
     pub(crate) zoomed_tabs: HashSet<ClientTabViewKey>,
+    overlay_return_states: HashMap<PaneId, ClientOverlayReturnState>,
     pub(crate) terminal_offsets_from_bottom: HashMap<TerminalId, TerminalViewportOffset>,
+    pub(crate) suppressed_repeat_keys: HashSet<crossterm::event::KeyCode>,
+    pub(crate) forwarded_terminal_keys:
+        HashMap<crossterm::event::KeyCode, crate::app::input::TerminalKeyTarget>,
     pub(crate) settings: SettingsState,
     pub(crate) command_palette: CommandPaletteState,
     pub(crate) navigator: NavigatorState,
@@ -129,6 +143,7 @@ pub(crate) struct ClientViewState {
 impl ClientViewState {
     pub(crate) fn from_default_client_state(state: &AppState) -> Self {
         let mut view = Self {
+            id: NEXT_CLIENT_VIEW_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             active_workspace: state.active,
             selected_workspace: state.selected,
             active_group: state.active_group,
@@ -158,6 +173,7 @@ impl ClientViewState {
             pending_active_tabs: HashMap::new(),
             focused_panes: HashMap::new(),
             zoomed_tabs: HashSet::new(),
+            overlay_return_states: HashMap::new(),
             terminal_offsets_from_bottom: HashMap::new(),
             settings: state.settings.clone(),
             command_palette: state.command_palette.clone(),
@@ -193,6 +209,8 @@ impl ClientViewState {
             release_notes: state.release_notes.clone(),
             product_announcement: state.product_announcement.clone(),
             computed: state.view.clone(),
+            suppressed_repeat_keys: HashSet::new(),
+            forwarded_terminal_keys: HashMap::new(),
         };
         view.reconcile(state);
         view
@@ -200,6 +218,14 @@ impl ClientViewState {
 
     pub(crate) fn clone_reconciled(&self, state: &AppState) -> Self {
         let mut view = self.clone();
+        view.reconcile(state);
+        view
+    }
+
+    pub(crate) fn clone_for_new_client(&self, state: &AppState) -> Self {
+        let mut view = self.clone();
+        view.id = NEXT_CLIENT_VIEW_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        view.overlay_return_states.clear();
         view.reconcile(state);
         view
     }
@@ -218,6 +244,7 @@ impl ClientViewState {
             self.active_tabs.clear();
             self.focused_panes.clear();
             self.zoomed_tabs.clear();
+            self.overlay_return_states.clear();
             self.terminal_offsets_from_bottom.clear();
             return;
         }
@@ -276,10 +303,93 @@ impl ClientViewState {
             .retain(|workspace_id, _| valid_workspace_ids.contains(workspace_id.as_str()));
         self.pending_active_tabs
             .retain(|workspace_id, _| valid_workspace_ids.contains(workspace_id.as_str()));
-        self.focused_panes
-            .retain(|key, _| valid_workspace_ids.contains(key.workspace_id.as_str()));
+        self.focused_panes.retain(|key, pane_id| {
+            valid_workspace_ids.contains(key.workspace_id.as_str())
+                && state
+                    .client_overlay_owners
+                    .get(pane_id)
+                    .is_none_or(|owner| *owner == self.id)
+        });
         self.zoomed_tabs
             .retain(|key| valid_workspace_ids.contains(key.workspace_id.as_str()));
+
+        loop {
+            let missing_overlay = self
+                .overlay_return_states
+                .keys()
+                .copied()
+                .find(|overlay_pane| {
+                    !state.workspaces.iter().any(|workspace| {
+                        workspace
+                            .tabs
+                            .iter()
+                            .any(|tab| tab.panes.contains_key(overlay_pane))
+                    })
+                });
+            let Some(overlay_pane) = missing_overlay else {
+                break;
+            };
+            let Some(return_state) = self.overlay_return_states.remove(&overlay_pane) else {
+                continue;
+            };
+
+            let mut promoted = false;
+            for child_return in self.overlay_return_states.values_mut() {
+                if child_return.focused_pane == overlay_pane {
+                    child_return.focused_pane = return_state.focused_pane;
+                    child_return.zoomed = return_state.zoomed;
+                    promoted = true;
+                }
+            }
+            if promoted {
+                continue;
+            }
+
+            let Some((ws_idx, workspace)) = state
+                .workspaces
+                .iter()
+                .enumerate()
+                .find(|(_, workspace)| workspace.id == return_state.tab.workspace_id)
+            else {
+                continue;
+            };
+            let Some(tab_idx) = return_state.tab.tab_number.checked_sub(1) else {
+                continue;
+            };
+            let Some(tab) = workspace.tabs.get(tab_idx) else {
+                continue;
+            };
+            if !tab.panes.contains_key(&return_state.focused_pane) {
+                continue;
+            }
+
+            self.active_workspace = Some(ws_idx);
+            self.selected_workspace = ws_idx;
+            self.active_tabs.insert(workspace.id.clone(), tab_idx);
+            self.focused_panes
+                .insert(return_state.tab.clone(), return_state.focused_pane);
+            if return_state.zoomed {
+                self.zoomed_tabs.insert(return_state.tab.clone());
+            } else {
+                self.zoomed_tabs.remove(&return_state.tab);
+            }
+        }
+        self.overlay_return_states.retain(|_, return_state| {
+            let Some(workspace) = state
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.id == return_state.tab.workspace_id)
+            else {
+                return false;
+            };
+            let Some(tab_idx) = return_state.tab.tab_number.checked_sub(1) else {
+                return false;
+            };
+            workspace
+                .tabs
+                .get(tab_idx)
+                .is_some_and(|tab| tab.panes.contains_key(&return_state.focused_pane))
+        });
 
         for workspace in &state.workspaces {
             if workspace.tabs.is_empty() {
@@ -410,6 +520,13 @@ impl ClientViewState {
         if !tab.panes.contains_key(&pane_id) {
             return false;
         }
+        if state
+            .client_overlay_owners
+            .get(&pane_id)
+            .is_some_and(|owner| *owner != self.id)
+        {
+            return false;
+        }
 
         let previous = self.current_pane_focus_target(state);
         let target = PaneFocusTarget {
@@ -446,6 +563,49 @@ impl ClientViewState {
             self.agent_panel_scroll = 0;
         }
         self.previous_pane_focus = previous;
+        true
+    }
+
+    pub(crate) fn id(&self) -> u64 {
+        self.id
+    }
+
+    pub(crate) fn focus_client_overlay(
+        &mut self,
+        state: &AppState,
+        ws_idx: usize,
+        tab_idx: usize,
+        overlay_pane: PaneId,
+    ) -> bool {
+        let Some(workspace) = state.workspaces.get(ws_idx) else {
+            return false;
+        };
+        let Some(tab) = workspace.tabs.get(tab_idx) else {
+            return false;
+        };
+        if !tab.panes.contains_key(&overlay_pane) {
+            return false;
+        }
+
+        let tab_key = ClientTabViewKey::new(&workspace.id, tab_idx + 1);
+        let focused_pane = self
+            .focused_panes
+            .get(&tab_key)
+            .copied()
+            .unwrap_or_else(|| tab.layout.focused());
+        if !tab.panes.contains_key(&focused_pane) {
+            return false;
+        }
+        self.overlay_return_states.insert(
+            overlay_pane,
+            ClientOverlayReturnState {
+                tab: tab_key.clone(),
+                focused_pane,
+                zoomed: self.zoomed_tabs.contains(&tab_key),
+            },
+        );
+        self.focus_pane_in_workspace(state, ws_idx, tab_idx, overlay_pane);
+        self.zoomed_tabs.insert(tab_key);
         true
     }
 

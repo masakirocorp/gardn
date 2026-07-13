@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use crossterm::terminal;
 
 use super::{
-    auto_updates_enabled, mode_accepts_repeat_key, repeat_key_identity, App, Mode,
+    auto_updates_enabled, mode_accepts_repeat_key, physical_key_identity, App, Mode,
     ANIMATION_INTERVAL, AUTO_UPDATE_CHECK_INTERVAL, COMMAND_SCAN_INTERVAL,
     GIT_REMOTE_STATUS_REFRESH_INTERVAL, MIN_RENDER_INTERVAL, PORT_SCAN_INTERVAL, PORT_STALE_TTL,
     RESIZE_POLL_INTERVAL, SELECTION_AUTOSCROLL_INTERVAL,
@@ -98,24 +98,49 @@ impl App {
         let previous_mode = self.state.mode;
         let changed = match event {
             crate::raw_input::RawInputEvent::Key(key) => {
-                let key_id = repeat_key_identity(&key);
+                let suppress_direct_command_repeat = self.state.mode == Mode::Terminal
+                    && crate::app::input::command_for_key(
+                        &self.state,
+                        key,
+                        crate::app::input::BindingDispatch::Direct,
+                    )
+                    .is_some();
+                let physical_id = physical_key_identity(&key);
                 match key.kind {
                     crossterm::event::KeyEventKind::Press => {
-                        if self.state.mode == Mode::Terminal {
-                            self.suppressed_repeat_keys.remove(&key_id);
-                        } else {
-                            self.suppressed_repeat_keys.insert(key_id);
+                        let pressed_mode = self.state.mode;
+                        self.forwarded_terminal_keys.remove(&physical_id);
+                        self.suppressed_repeat_keys.remove(&physical_id);
+                        if let Some(target) = self.handle_key(key).await {
+                            self.forwarded_terminal_keys.insert(physical_id, target);
                         }
-                        self.handle_key(key).await;
+                        let suppress_repeat = if pressed_mode == Mode::Terminal {
+                            self.state.mode != pressed_mode || suppress_direct_command_repeat
+                        } else {
+                            self.state.mode != pressed_mode
+                                || !mode_accepts_repeat_key(pressed_mode, &key)
+                        };
+                        if suppress_repeat {
+                            self.suppressed_repeat_keys.insert(physical_id);
+                        }
                         true
                     }
                     crossterm::event::KeyEventKind::Repeat => {
-                        let accepts_repeat = match self.state.mode {
-                            Mode::Terminal => !self.suppressed_repeat_keys.contains(&key_id),
-                            mode => mode_accepts_repeat_key(mode, &key),
-                        };
-
-                        if accepts_repeat {
+                        if let Some(target) =
+                            self.forwarded_terminal_keys.get(&physical_id).cloned()
+                        {
+                            self.forward_terminal_key_to_target(target, key).await;
+                            true
+                        } else if self.state.mode == Mode::Terminal
+                            && !self.suppressed_repeat_keys.contains(&physical_id)
+                        {
+                            if let Some(target) = self.handle_key(key).await {
+                                self.forwarded_terminal_keys.insert(physical_id, target);
+                            }
+                            true
+                        } else if !self.suppressed_repeat_keys.contains(&physical_id)
+                            && mode_accepts_repeat_key(self.state.mode, &key)
+                        {
                             self.handle_key(key).await;
                             true
                         } else {
@@ -123,7 +148,10 @@ impl App {
                         }
                     }
                     crossterm::event::KeyEventKind::Release => {
-                        self.suppressed_repeat_keys.remove(&key_id);
+                        self.suppressed_repeat_keys.remove(&physical_id);
+                        if let Some(target) = self.forwarded_terminal_keys.remove(&physical_id) {
+                            self.forward_terminal_key_to_target(target, key).await;
+                        }
                         false
                     }
                 }
@@ -1102,5 +1130,280 @@ mod tests {
         // At scrollback bottom, can't scroll further down — should stop
         assert!(app.state.selection_autoscroll.is_none());
         assert!(app.selection_autoscroll_deadline.is_none());
+    }
+}
+
+#[cfg(test)]
+mod release_forwarding_tests {
+    use super::super::{App, ClientViewState, Mode};
+    use crate::{
+        input::TerminalKey, raw_input::RawInputEvent, terminal::TerminalRuntime,
+        workspace::Workspace,
+    };
+    use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers, ModifierKeyCode};
+
+    fn app_with_two_input_channels(
+        report_events: bool,
+    ) -> (
+        App,
+        crate::layout::PaneId,
+        crate::layout::PaneId,
+        tokio::sync::mpsc::Receiver<bytes::Bytes>,
+        tokio::sync::mpsc::Receiver<bytes::Bytes>,
+    ) {
+        let mut app = App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+        let mut workspace = Workspace::test_new("test");
+        let pane_a = workspace.focused_pane_id().expect("focused pane");
+        let pane_b = workspace.tabs[0]
+            .layout
+            .split_focused(ratatui::layout::Direction::Horizontal);
+        let make_runtime = || {
+            if report_events {
+                TerminalRuntime::test_with_channel_and_scrollback_bytes(80, 24, 0, b"\x1b[>10u", 8)
+            } else {
+                TerminalRuntime::test_with_channel(80, 24)
+            }
+        };
+        let (runtime_a, rx_a) = make_runtime();
+        let (runtime_b, rx_b) = make_runtime();
+        workspace.insert_test_runtime(pane_a, runtime_a);
+        workspace.insert_test_runtime(pane_b, runtime_b);
+        workspace.tabs[0].layout.focus_pane(pane_a);
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        (app, pane_a, pane_b, rx_a, rx_b)
+    }
+
+    fn app_with_input_channel(
+        report_events: bool,
+    ) -> (App, tokio::sync::mpsc::Receiver<bytes::Bytes>) {
+        let (app, _, _, rx, _) = app_with_two_input_channels(report_events);
+        (app, rx)
+    }
+
+    fn key(kind: KeyEventKind) -> TerminalKey {
+        TerminalKey::new(KeyCode::Char('a'), KeyModifiers::empty()).with_kind(kind)
+    }
+
+    fn assert_kitty_stream_stays_on_first_pane(
+        mut rx_a: tokio::sync::mpsc::Receiver<bytes::Bytes>,
+        mut rx_b: tokio::sync::mpsc::Receiver<bytes::Bytes>,
+    ) {
+        assert_eq!(
+            rx_a.try_recv().expect("Kitty press"),
+            bytes::Bytes::from_static(b"\x1b[97;1:1u")
+        );
+        assert_eq!(
+            rx_a.try_recv().expect("Kitty repeat"),
+            bytes::Bytes::from_static(b"\x1b[97;1:2u")
+        );
+        assert_eq!(
+            rx_a.try_recv().expect("Kitty release"),
+            bytes::Bytes::from_static(b"\x1b[97;1:3u")
+        );
+        assert!(rx_a.try_recv().is_err());
+        assert!(
+            rx_b.try_recv().is_err(),
+            "newly focused pane received key bytes"
+        );
+    }
+
+    #[tokio::test]
+    async fn monolithic_dispatch_keeps_key_stream_on_press_pane() {
+        let (mut app, pane_a, pane_b, rx_a, rx_b) = app_with_two_input_channels(true);
+        app.handle_raw_input_event(RawInputEvent::Key(key(KeyEventKind::Press)))
+            .await;
+        app.state.workspaces[0].tabs[0].layout.focus_pane(pane_b);
+        app.handle_raw_input_event(RawInputEvent::Key(key(KeyEventKind::Repeat)))
+            .await;
+        app.handle_raw_input_event(RawInputEvent::Key(key(KeyEventKind::Release)))
+            .await;
+        assert_ne!(pane_a, pane_b);
+        assert_kitty_stream_stays_on_first_pane(rx_a, rx_b);
+    }
+
+    #[tokio::test]
+    async fn monolithic_dispatch_resolves_press_workspace_after_reorder() {
+        let (mut app, _, _, mut rx_a, mut rx_other_pane) = app_with_two_input_channels(true);
+        app.handle_raw_input_event(RawInputEvent::Key(key(KeyEventKind::Press)))
+            .await;
+
+        let mut replacement = Workspace::test_new("replacement");
+        let replacement_pane = replacement.focused_pane_id().expect("replacement pane");
+        let (replacement_runtime, mut replacement_rx) =
+            TerminalRuntime::test_with_channel_and_scrollback_bytes(80, 24, 0, b"\x1b[>10u", 8);
+        replacement.insert_test_runtime(replacement_pane, replacement_runtime);
+        app.state.workspaces.insert(0, replacement);
+
+        app.handle_raw_input_event(RawInputEvent::Key(key(KeyEventKind::Repeat)))
+            .await;
+        app.handle_raw_input_event(RawInputEvent::Key(key(KeyEventKind::Release)))
+            .await;
+
+        assert_eq!(
+            rx_a.try_recv().expect("Kitty press"),
+            bytes::Bytes::from_static(b"\x1b[97;1:1u")
+        );
+        assert_eq!(
+            rx_a.try_recv().expect("Kitty repeat after reorder"),
+            bytes::Bytes::from_static(b"\x1b[97;1:2u")
+        );
+        assert_eq!(
+            rx_a.try_recv().expect("Kitty release after reorder"),
+            bytes::Bytes::from_static(b"\x1b[97;1:3u")
+        );
+        assert!(rx_a.try_recv().is_err());
+        assert!(replacement_rx.try_recv().is_err());
+        assert!(rx_other_pane.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn default_client_dispatch_keeps_key_stream_on_press_pane() {
+        let (mut app, pane_a, pane_b, rx_a, rx_b) = app_with_two_input_channels(true);
+        app.route_client_events(vec![RawInputEvent::Key(key(KeyEventKind::Press))], false);
+        app.state.workspaces[0].tabs[0].layout.focus_pane(pane_b);
+        app.route_client_events(
+            vec![
+                RawInputEvent::Key(key(KeyEventKind::Repeat)),
+                RawInputEvent::Key(key(KeyEventKind::Release)),
+            ],
+            false,
+        );
+        assert_ne!(pane_a, pane_b);
+        assert_kitty_stream_stays_on_first_pane(rx_a, rx_b);
+    }
+
+    #[tokio::test]
+    async fn explicit_client_dispatch_keeps_key_stream_on_press_pane() {
+        let (mut app, pane_a, pane_b, rx_a, rx_b) = app_with_two_input_channels(true);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![RawInputEvent::Key(key(KeyEventKind::Press))],
+            false,
+        );
+        client.focus_pane_in_workspace(&app.state, 0, 0, pane_b);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                RawInputEvent::Key(key(KeyEventKind::Repeat)),
+                RawInputEvent::Key(key(KeyEventKind::Release)),
+            ],
+            false,
+        );
+        assert_ne!(pane_a, pane_b);
+        assert_kitty_stream_stays_on_first_pane(rx_a, rx_b);
+    }
+
+    #[tokio::test]
+    async fn modifier_drift_release_uses_press_target_and_release_modifiers() {
+        let (mut app, pane_a, pane_b, mut rx_a, mut rx_b) = app_with_two_input_channels(true);
+        app.route_client_events(
+            vec![RawInputEvent::Key(
+                TerminalKey::new(KeyCode::Char('A'), KeyModifiers::CONTROL)
+                    .with_kind(KeyEventKind::Press),
+            )],
+            false,
+        );
+        app.state.workspaces[0].tabs[0].layout.focus_pane(pane_b);
+        app.route_client_events(
+            vec![RawInputEvent::Key(
+                TerminalKey::new(
+                    KeyCode::Modifier(ModifierKeyCode::LeftControl),
+                    KeyModifiers::empty(),
+                )
+                .with_kind(KeyEventKind::Release),
+            )],
+            false,
+        );
+        app.route_client_events(
+            vec![RawInputEvent::Key(
+                TerminalKey::new(KeyCode::Char('a'), KeyModifiers::empty())
+                    .with_kind(KeyEventKind::Release),
+            )],
+            false,
+        );
+        assert_ne!(pane_a, pane_b);
+        assert_eq!(
+            rx_a.try_recv().expect("modified Kitty press"),
+            bytes::Bytes::from_static(b"\x1b[65;5:1u")
+        );
+        assert_eq!(
+            rx_a.try_recv().expect("unmodified Kitty release"),
+            bytes::Bytes::from_static(b"\x1b[97;1:3u")
+        );
+        assert!(rx_a.try_recv().is_err());
+        assert!(rx_b.try_recv().is_err());
+        assert!(app.forwarded_terminal_keys.is_empty());
+    }
+
+    #[tokio::test]
+    async fn monolithic_legacy_dispatch_forwards_only_press_bytes() {
+        let (mut app, mut rx) = app_with_input_channel(false);
+        app.handle_raw_input_event(RawInputEvent::Key(key(KeyEventKind::Press)))
+            .await;
+        app.handle_raw_input_event(RawInputEvent::Key(key(KeyEventKind::Release)))
+            .await;
+        assert_eq!(
+            rx.try_recv().expect("legacy press"),
+            bytes::Bytes::from_static(b"a")
+        );
+        assert!(
+            rx.try_recv().is_err(),
+            "legacy release must encode no bytes"
+        );
+        assert!(app.forwarded_terminal_keys.is_empty());
+    }
+
+    #[tokio::test]
+    async fn default_client_reporting_kitty_dispatch_forwards_press_and_release() {
+        let (mut app, mut rx) = app_with_input_channel(true);
+        app.route_client_events(
+            vec![
+                RawInputEvent::Key(key(KeyEventKind::Press)),
+                RawInputEvent::Key(key(KeyEventKind::Release)),
+            ],
+            false,
+        );
+        assert_eq!(
+            rx.try_recv().expect("Kitty press"),
+            bytes::Bytes::from_static(b"\x1b[97;1:1u")
+        );
+        assert_eq!(
+            rx.try_recv().expect("Kitty release"),
+            bytes::Bytes::from_static(b"\x1b[97;1:3u")
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn explicit_client_does_not_forward_release_for_intercepted_prefix_press() {
+        let (mut app, mut rx) = app_with_input_channel(true);
+        app.state.prefix_code = KeyCode::Char('b');
+        app.state.prefix_mods = KeyModifiers::CONTROL;
+        let mut client_view = ClientViewState::from_default_client_state(&app.state);
+        let prefix =
+            |kind| TerminalKey::new(KeyCode::Char('b'), KeyModifiers::CONTROL).with_kind(kind);
+        app.route_client_events_for_view(
+            &mut client_view,
+            vec![
+                RawInputEvent::Key(prefix(KeyEventKind::Press)),
+                RawInputEvent::Key(prefix(KeyEventKind::Release)),
+            ],
+            false,
+        );
+        assert_eq!(client_view.mode, Mode::Prefix);
+        assert!(
+            rx.try_recv().is_err(),
+            "intercepted press must not acquire a pane release"
+        );
     }
 }
