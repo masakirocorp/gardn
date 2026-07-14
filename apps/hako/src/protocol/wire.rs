@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 /// Bump once per Hako release cycle when source becomes incompatible with the
 /// latest Hako release protocol; multiple unreleased incompatible changes share
 /// the same bump.
-pub const PROTOCOL_VERSION: u32 = 11;
+pub const PROTOCOL_VERSION: u32 = 12;
 
 /// Maximum allowed frame payload size (2 MB). Frames larger than this are
 /// rejected to prevent denial-of-service via oversized length prefixes.
@@ -106,6 +106,32 @@ pub enum ClientKeyCode {
 }
 
 impl ClientKeyCode {
+    #[cfg(any(windows, test))]
+    pub(crate) fn from_crossterm(code: crossterm::event::KeyCode) -> Option<Self> {
+        use crossterm::event::KeyCode;
+
+        Some(match code {
+            KeyCode::Backspace => Self::Backspace,
+            KeyCode::Enter => Self::Enter,
+            KeyCode::Left => Self::Left,
+            KeyCode::Right => Self::Right,
+            KeyCode::Up => Self::Up,
+            KeyCode::Down => Self::Down,
+            KeyCode::Home => Self::Home,
+            KeyCode::End => Self::End,
+            KeyCode::PageUp => Self::PageUp,
+            KeyCode::PageDown => Self::PageDown,
+            KeyCode::Tab => Self::Tab,
+            KeyCode::BackTab => Self::BackTab,
+            KeyCode::Delete => Self::Delete,
+            KeyCode::Insert => Self::Insert,
+            KeyCode::F(n) => Self::F(n),
+            KeyCode::Char(ch) => Self::Char(ch),
+            KeyCode::Null => Self::Null,
+            KeyCode::Esc => Self::Esc,
+            _ => return None,
+        })
+    }
     fn to_crossterm(self) -> crossterm::event::KeyCode {
         match self {
             Self::Backspace => crossterm::event::KeyCode::Backspace,
@@ -139,6 +165,15 @@ pub enum ClientKeyKind {
 }
 
 impl ClientKeyKind {
+    #[cfg(any(windows, test))]
+    pub(crate) fn from_crossterm(kind: crossterm::event::KeyEventKind) -> Self {
+        match kind {
+            crossterm::event::KeyEventKind::Press => Self::Press,
+            crossterm::event::KeyEventKind::Repeat => Self::Repeat,
+            crossterm::event::KeyEventKind::Release => Self::Release,
+        }
+    }
+
     fn to_crossterm(self) -> crossterm::event::KeyEventKind {
         match self {
             Self::Press => crossterm::event::KeyEventKind::Press,
@@ -157,6 +192,15 @@ pub enum ClientMouseButton {
 }
 
 impl ClientMouseButton {
+    #[cfg(any(windows, test))]
+    pub(crate) fn from_crossterm(button: crossterm::event::MouseButton) -> Self {
+        match button {
+            crossterm::event::MouseButton::Left => Self::Left,
+            crossterm::event::MouseButton::Right => Self::Right,
+            crossterm::event::MouseButton::Middle => Self::Middle,
+        }
+    }
+
     fn to_crossterm(self) -> crossterm::event::MouseButton {
         match self {
             Self::Left => crossterm::event::MouseButton::Left,
@@ -180,6 +224,22 @@ pub enum ClientMouseKind {
 }
 
 impl ClientMouseKind {
+    #[cfg(any(windows, test))]
+    pub(crate) fn from_crossterm(kind: crossterm::event::MouseEventKind) -> Option<Self> {
+        use crossterm::event::MouseEventKind;
+
+        Some(match kind {
+            MouseEventKind::Down(button) => Self::Down(ClientMouseButton::from_crossterm(button)),
+            MouseEventKind::Up(button) => Self::Up(ClientMouseButton::from_crossterm(button)),
+            MouseEventKind::Drag(button) => Self::Drag(ClientMouseButton::from_crossterm(button)),
+            MouseEventKind::Moved => Self::Moved,
+            MouseEventKind::ScrollUp => Self::ScrollUp,
+            MouseEventKind::ScrollDown => Self::ScrollDown,
+            MouseEventKind::ScrollLeft => Self::ScrollLeft,
+            MouseEventKind::ScrollRight => Self::ScrollRight,
+        })
+    }
+
     fn to_crossterm(self) -> crossterm::event::MouseEventKind {
         match self {
             Self::Down(button) => crossterm::event::MouseEventKind::Down(button.to_crossterm()),
@@ -214,6 +274,26 @@ pub enum ClientInputEvent {
 }
 
 impl ClientInputEvent {
+    #[cfg(windows)]
+    pub(crate) fn from_crossterm(event: crossterm::event::Event) -> Option<Self> {
+        match event {
+            crossterm::event::Event::Key(key) => Some(Self::Key {
+                code: ClientKeyCode::from_crossterm(key.code)?,
+                modifiers: key.modifiers.bits(),
+                kind: ClientKeyKind::from_crossterm(key.kind),
+            }),
+            crossterm::event::Event::Mouse(mouse) => Some(Self::Mouse {
+                kind: ClientMouseKind::from_crossterm(mouse.kind)?,
+                column: mouse.column,
+                row: mouse.row,
+                modifiers: mouse.modifiers.bits(),
+            }),
+            crossterm::event::Event::Paste(text) => Some(Self::Paste(text)),
+            crossterm::event::Event::FocusGained => Some(Self::FocusGained),
+            crossterm::event::Event::FocusLost => Some(Self::FocusLost),
+            crossterm::event::Event::Resize(_, _) => None,
+        }
+    }
     pub fn to_raw_input_event(&self) -> crate::raw_input::RawInputEvent {
         match self {
             Self::Key {
@@ -562,6 +642,10 @@ pub enum ServerMessage {
         /// True when Hako mouse UI is enabled or the focused pane app requests mouse reporting.
         enabled: bool,
     },
+
+    /// Apply the prefix-mode ASCII input-source change on the foreground client.
+    /// `active = true` switches to an ASCII-capable source; `false` restores it.
+    PrefixInputSource { active: bool },
 }
 
 // ---------------------------------------------------------------------------
@@ -635,15 +719,30 @@ fn u32_to_color(val: u32) -> ratatui::style::Color {
     }
 }
 
+const UNDERLINE_STYLE_SHIFT: u16 = 12;
+const UNDERLINE_STYLE_MASK: u16 = 0xF000;
+
 /// Converts a ratatui `Modifier` bitmask to a u16 for wire transport.
-fn modifier_to_u16(modifier: ratatui::style::Modifier) -> u16 {
+pub(crate) fn modifier_to_u16(modifier: ratatui::style::Modifier) -> u16 {
     modifier.bits()
+}
+
+pub(crate) fn underline_style_from_modifier(modifier: u16) -> u8 {
+    ((modifier & UNDERLINE_STYLE_MASK) >> UNDERLINE_STYLE_SHIFT) as u8
+}
+
+pub(crate) fn modifier_with_underline_style(
+    modifier: ratatui::style::Modifier,
+    underline_style: u8,
+) -> ratatui::style::Modifier {
+    let bits = modifier.bits() | ((u16::from(underline_style) & 0x0F) << UNDERLINE_STYLE_SHIFT);
+    ratatui::style::Modifier::from_bits_retain(bits)
 }
 
 /// Converts a u16 back to a ratatui `Modifier`.
 #[cfg(test)]
 fn u16_to_modifier(val: u16) -> ratatui::style::Modifier {
-    ratatui::style::Modifier::from_bits_truncate(val)
+    ratatui::style::Modifier::from_bits_truncate(val & !UNDERLINE_STYLE_MASK)
 }
 
 // ---------------------------------------------------------------------------
@@ -858,7 +957,7 @@ mod tests {
         };
         assert_bincode_bytes(
             &msg,
-            &[0x00, 0x0b, 0x50, 0x18, 0x08, 0x10, 0x00, 0x00, 0x00],
+            &[0x00, 0x0c, 0x50, 0x18, 0x08, 0x10, 0x00, 0x00, 0x00],
         );
     }
 
@@ -1066,7 +1165,7 @@ mod tests {
             encoding: RenderEncoding::SemanticFrame,
             error: None,
         };
-        assert_bincode_bytes(&msg, &[0x00, 0x0b, 0x00, 0x00]);
+        assert_bincode_bytes(&msg, &[0x00, 0x0c, 0x00, 0x00]);
     }
 
     #[test]
@@ -1079,7 +1178,7 @@ mod tests {
         assert_bincode_bytes(
             &msg,
             &[
-                0x00, 0x0b, 0x00, 0x01, 0x14, b'i', b'n', b'c', b'o', b'm', b'p', b'a', b't', b'i',
+                0x00, 0x0c, 0x00, 0x01, 0x14, b'i', b'n', b'c', b'o', b'm', b'p', b'a', b't', b'i',
                 b'b', b'l', b'e', b' ', b'v', b'e', b'r', b's', b'i', b'o', b'n',
             ],
         );
@@ -1278,6 +1377,21 @@ mod tests {
         assert_bincode_bytes(&msg, &[0x09, 0x01]);
     }
 
+    #[test]
+    fn server_prefix_input_source_roundtrip() {
+        let msg = ServerMessage::PrefixInputSource { active: true };
+        assert_bincode_bytes(&msg, &[0x0a, 0x01]);
+
+        let encoded = bincode::serde::encode_to_vec(
+            &ServerMessage::PrefixInputSource { active: false },
+            bincode::config::standard(),
+        )
+        .unwrap();
+        let (decoded, _): (ServerMessage, _) =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
+        assert_eq!(decoded, ServerMessage::PrefixInputSource { active: false });
+    }
+
     // ---- Framing ----
 
     #[test]
@@ -1296,7 +1410,7 @@ mod tests {
         write_message(&mut buf, &msg).unwrap();
         assert_eq!(
             buf.as_slice(),
-            &[0x09, 0x00, 0x00, 0x00, 0x00, 0x0b, 0x50, 0x18, 0x08, 0x10, 0x00, 0x00, 0x00]
+            &[0x09, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x50, 0x18, 0x08, 0x10, 0x00, 0x00, 0x00]
         );
         let decoded: ClientMessage = read_message(&mut buf.as_slice(), MAX_FRAME_SIZE).unwrap();
         assert_eq!(msg, decoded);
@@ -1317,7 +1431,7 @@ mod tests {
         let expected = [
             0x09, 0x00, 0x00, 0x00, // payload length
             0x00, // ClientMessage::Hello
-            0x0b, // PROTOCOL_VERSION
+            0x0c, // PROTOCOL_VERSION
             0x50, // cols
             0x18, // rows
             0x08, // cell_width_px
@@ -1346,7 +1460,7 @@ mod tests {
         let expected = [
             0x04, 0x00, 0x00, 0x00, // payload length
             0x00, // ServerMessage::Welcome
-            0x0b, // PROTOCOL_VERSION
+            0x0c, // PROTOCOL_VERSION
             0x00, // RenderEncoding::SemanticFrame
             0x00, // error: None
         ];

@@ -4,8 +4,8 @@ use crossterm::event::KeyModifiers;
 use serde::{de, Deserialize, Deserializer, Serialize};
 
 use super::{
-    ActionKeybinds, BindingConfig, CommandKeybindConfig, IndexedKeybind, Keybinds, SoundConfig,
-    ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD, DEFAULT_MOUSE_SCROLL_LINES,
+    ActionKeybinds, BindingConfig, CommandKeybindConfig, IndexedKeybind, Keybinds, SidebarConfig,
+    SoundConfig, ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD, DEFAULT_MOUSE_SCROLL_LINES,
     DEFAULT_SCROLLBACK_LIMIT_BYTES,
 };
 
@@ -22,6 +22,17 @@ pub enum ToastDelivery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum HostCursorModeConfig {
+    #[default]
+    Auto,
+    Native,
+    Drawn,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default, schemars::JsonSchema,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum ToastHakoPosition {
     TopLeft,
@@ -60,6 +71,16 @@ pub enum SidebarArrangementConfig {
     Separate,
     CombinedLeft,
     CombinedRight,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SidebarCollapsedModeConfig {
+    /// Show a narrow compact rail when the sidebar is collapsed.
+    #[default]
+    Compact,
+    /// Hide the collapsed sidebar completely (zero-width).
+    Hidden,
 }
 
 impl SidebarArrangementConfig {
@@ -247,7 +268,25 @@ impl Default for GitConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(default)]
+pub struct UpdateConfig {
+    /// Check GitHub for a newer Hako release in the background. Default: true.
+    pub version_check: bool,
+    /// Check for remote agent-detection manifest updates in the background. Default: true.
+    pub manifest_check: bool,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            version_check: true,
+            manifest_check: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ConfigReloadStatus {
     Applied,
@@ -286,6 +325,7 @@ pub struct Config {
     pub advanced: AdvancedConfig,
     pub worktrees: WorktreesConfig,
     pub git: GitConfig,
+    pub update: UpdateConfig,
     pub experimental: ExperimentalConfig,
     pub remote: RemoteConfig,
     pub agent_profiles: crate::agent_profiles::AgentProfilesConfig,
@@ -364,6 +404,8 @@ pub struct KeysConfig {
     pub open_agent_menu: BindingConfig,
     /// Focus an agent by index 1-9. Unset by default.
     pub focus_agent: BindingConfig,
+    /// Local-client shortcut that sends a clipboard image to a remote Hako session. Default: "ctrl+v".
+    pub remote_image_paste: String,
     /// Create a new tab in the active workspace. Default: "prefix+c"
     pub new_tab: BindingConfig,
     /// Rename the active tab. Default: "prefix+shift+t".
@@ -490,6 +532,8 @@ pub(crate) struct KeysConfigOverlay {
     #[serde(skip_serializing_if = "Option::is_none")]
     focus_agent: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    remote_image_paste: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     new_tab: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     rename_tab: Option<BindingConfig>,
@@ -592,6 +636,7 @@ impl<'de> Deserialize<'de> for KeysConfig {
         apply_field!(next_agent);
         apply_field!(open_agent_menu);
         apply_field!(focus_agent);
+        apply_field!(remote_image_paste);
         apply_field!(new_tab);
         apply_field!(rename_tab);
         apply_field!(previous_tab);
@@ -653,6 +698,7 @@ impl KeysConfig {
         }
 
         profile.prefix = Some(self.prefix.clone());
+        profile.remote_image_paste = Some(self.remote_image_paste.clone());
         copy_effective_action_field!(help, keybinds.help);
         copy_effective_action_field!(settings, keybinds.settings);
         copy_effective_action_field!(new_workspace, keybinds.new_workspace);
@@ -814,6 +860,8 @@ pub struct IndexedKeysConfig {
 pub struct UiConfig {
     pub sidebar_width: u16,
     /// Minimum sidebar width (columns) when expanded. Default: 18.
+    /// Host cursor policy. Auto draws on Windows and WSL.
+    pub host_cursor: HostCursorModeConfig,
     pub sidebar_min_width: u16,
     /// Maximum sidebar width (columns) when expanded. Default: 36.
     pub sidebar_max_width: u16,
@@ -821,8 +869,12 @@ pub struct UiConfig {
     pub mobile_width_threshold: u16,
     /// Sidebar arrangement on desktop: auto, separate, combined_left, or combined_right.
     pub sidebar_arrangement: SidebarArrangementConfig,
+    /// Configurable rows and metadata tokens for spaces and agents.
+    pub sidebar: SidebarConfig,
     /// Capture mouse input for Hako's mouse UI. Default: true.
     pub mouse_capture: bool,
+    /// Copy text selected with the mouse. Default: true.
+    pub copy_on_select: bool,
     /// Modifier that lets right-click gestures pass through to pane apps. Empty disables it.
     pub right_click_passthrough_modifier: RightClickPassthroughModifierConfig,
     /// Force a full host-terminal redraw when the outer terminal regains focus. Default: true.
@@ -835,6 +887,14 @@ pub struct UiConfig {
     pub prompt_new_tab_name: bool,
     /// Show agent labels in split pane borders when no manual pane label is set. Default: false.
     pub show_agent_labels_on_pane_borders: bool,
+    /// Draw borders around split panes. Default: true.
+    pub pane_borders: bool,
+    /// Keep split panes visually separated instead of sharing divider borders. Default: true.
+    pub pane_gaps: bool,
+    /// Hide the tab row when the active workspace has exactly one tab. Default: false.
+    pub hide_tab_bar_when_single_tab: bool,
+    /// How to render the collapsed sidebar. Default: "compact".
+    pub sidebar_collapsed_mode: SidebarCollapsedModeConfig,
     /// Agent sidebar scope. Saved values are "current", "group", or "all". Default: "current".
     pub agent_panel_scope: AgentPanelScopeConfig,
     /// Accent color for highlights, borders, and navigation UI.
@@ -923,7 +983,7 @@ pub struct ExperimentalConfig {
     /// list means apply to any focused pane. Unknown agent names are ignored;
     /// if the list contains no valid names, the reveal does not apply.
     /// Accepted names: pi, claude, codex, gemini, cursor, cline, opencode,
-    /// copilot, devin, kimi, kiro, droid, amp, grok, hermes, kilo, qodercli, qoder.
+    /// copilot, devin, kimi, kiro, droid, amp, grok, hermes, kilo, qodercli, qoder, maki.
     /// Default: empty.
     pub cjk_ime_agents: Vec<String>,
     /// Cursor shape rendered for the IME anchor when
@@ -986,6 +1046,7 @@ impl Default for KeysConfig {
             next_agent: BindingConfig::empty(),
             open_agent_menu: BindingConfig::empty(),
             focus_agent: BindingConfig::empty(),
+            remote_image_paste: "ctrl+v".into(),
             new_tab: BindingConfig::one("prefix+c"),
             rename_tab: BindingConfig::one("prefix+shift+t"),
             previous_tab: BindingConfig::one("prefix+p"),
@@ -1033,13 +1094,20 @@ impl Default for UiConfig {
             sidebar_max_width: 36,
             mobile_width_threshold: DEFAULT_MOBILE_WIDTH_THRESHOLD,
             sidebar_arrangement: SidebarArrangementConfig::Auto,
+            sidebar: SidebarConfig::default(),
             mouse_capture: true,
+            copy_on_select: true,
+            host_cursor: HostCursorModeConfig::Auto,
             right_click_passthrough_modifier: RightClickPassthroughModifierConfig::default(),
             redraw_on_focus_gained: true,
             mouse_scroll_lines: None,
             confirm_close: true,
             prompt_new_tab_name: true,
             show_agent_labels_on_pane_borders: false,
+            pane_borders: true,
+            pane_gaps: true,
+            hide_tab_bar_when_single_tab: false,
+            sidebar_collapsed_mode: SidebarCollapsedModeConfig::default(),
             agent_panel_scope: AgentPanelScopeConfig::Current,
             accent: "cyan".into(),
             toast: ToastConfig::default(),
@@ -1184,6 +1252,24 @@ new_cwd = "~/Projects"
     }
 
     #[test]
+    fn background_update_checks_default_on_and_parse_off() {
+        let default_config = Config::default();
+        assert!(default_config.update.version_check);
+        assert!(default_config.update.manifest_check);
+
+        let config: Config = toml::from_str(
+            r#"
+[update]
+version_check = false
+manifest_check = false
+"#,
+        )
+        .unwrap();
+        assert!(!config.update.version_check);
+        assert!(!config.update.manifest_check);
+    }
+
+    #[test]
     fn resume_agents_on_restore_defaults_on_and_parses() {
         let default_config = Config::default();
         assert!(default_config.session.resume_agents_on_restore);
@@ -1207,16 +1293,30 @@ agent_panel_scope = "group"
     }
 
     #[test]
-    fn pane_border_agent_labels_default_off_and_parse() {
+    fn pane_appearance_defaults_and_parse() {
         let default_config = Config::default();
         assert!(!default_config.ui.show_agent_labels_on_pane_borders);
+        assert!(default_config.ui.pane_borders);
+        assert!(default_config.ui.pane_gaps);
+        assert!(!default_config.ui.hide_tab_bar_when_single_tab);
 
         let toml = r#"
 [ui]
 show_agent_labels_on_pane_borders = true
+pane_borders = false
+pane_gaps = true
+hide_tab_bar_when_single_tab = true
+sidebar_collapsed_mode = "hidden"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.ui.show_agent_labels_on_pane_borders);
+        assert!(!config.ui.pane_borders);
+        assert!(config.ui.pane_gaps);
+        assert!(config.ui.hide_tab_bar_when_single_tab);
+        assert_eq!(
+            config.ui.sidebar_collapsed_mode,
+            SidebarCollapsedModeConfig::Hidden
+        );
     }
 
     #[test]
@@ -1472,6 +1572,19 @@ redraw_on_focus_gained = false
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(!config.ui.redraw_on_focus_gained);
+    }
+
+    #[test]
+    fn copy_on_select_defaults_on_and_parses() {
+        let default_config = Config::default();
+        assert!(default_config.ui.copy_on_select);
+
+        let toml = r#"
+[ui]
+copy_on_select = false
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(!config.ui.copy_on_select);
     }
 
     #[test]

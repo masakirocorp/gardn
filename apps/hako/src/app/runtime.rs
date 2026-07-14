@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use crossterm::terminal;
 
 use super::{
-    auto_updates_enabled, mode_accepts_repeat_key, physical_key_identity, App, Mode,
+    background_update_check_enabled, mode_accepts_repeat_key, physical_key_identity, App, Mode,
     ANIMATION_INTERVAL, AUTO_UPDATE_CHECK_INTERVAL, COMMAND_SCAN_INTERVAL,
     GIT_REMOTE_STATUS_REFRESH_INTERVAL, MIN_RENDER_INTERVAL, PORT_SCAN_INTERVAL, PORT_STALE_TTL,
     RESIZE_POLL_INTERVAL, SELECTION_AUTOSCROLL_INTERVAL,
@@ -43,7 +43,26 @@ pub(crate) struct WorkspaceGitRefreshOutput {
     pub(crate) repo_summaries: Vec<(std::path::PathBuf, crate::workspace::GitWorkSummary)>,
 }
 
+fn retain_custom_command_after_wait(
+    pid: u32,
+    result: std::io::Result<Option<std::process::ExitStatus>>,
+) -> bool {
+    match result {
+        Ok(None) => true,
+        Ok(Some(_)) => false,
+        Err(err) if err.kind() == std::io::ErrorKind::Interrupted => true,
+        Err(err) => {
+            tracing::warn!(pid, err = %err, "failed to reap detached custom command");
+            false
+        }
+    }
+}
+
 impl App {
+    pub(crate) fn reap_finished_custom_commands(&mut self) {
+        self.detached_custom_command_children
+            .retain_mut(|child| retain_custom_command_after_wait(child.id(), child.try_wait()));
+    }
     pub(crate) fn shutdown_detached_terminal_runtimes(&mut self) {
         for terminal_id in self.state.terminal_runtime_shutdowns.drain(..) {
             if let Some(runtime) = self.terminal_runtimes.remove(&terminal_id) {
@@ -64,9 +83,17 @@ impl App {
         msg: crate::api::ApiRequestMessage,
     ) -> bool {
         let previous_mode = self.state.mode;
-        let changed = crate::api::request_changes_ui(&msg.request);
-        let response = self.handle_api_request(msg.request);
-        let _ = msg.respond_to.send(response);
+        let crate::api::ApiRequestMessage {
+            request,
+            respond_to,
+        } = msg;
+        let changed = crate::api::request_changes_ui(&request);
+        if self.handle_deferred_worktree_api_request(request.clone(), respond_to.clone()) {
+            self.sync_prefix_input_source(previous_mode);
+            return changed;
+        }
+        let response = self.handle_api_request(request);
+        let _ = respond_to.send(response);
         self.sync_prefix_input_source(previous_mode);
         changed
     }
@@ -357,7 +384,7 @@ impl App {
             .session_save_deadline
             .is_some_and(|deadline| now >= deadline)
         {
-            self.save_session_now();
+            self.start_background_session_save();
         }
 
         if let Some(deadline) = self
@@ -540,7 +567,7 @@ impl App {
     }
 
     pub(crate) fn run_auto_update_check(&mut self) {
-        if !auto_updates_enabled(self.no_session) {
+        if !background_update_check_enabled(self.no_session, self.update_version_check_enabled) {
             self.next_auto_update_check = None;
             return;
         }
@@ -560,7 +587,7 @@ impl App {
     }
 
     pub(crate) fn run_agent_manifest_update_check(&mut self) {
-        if !auto_updates_enabled(self.no_session) {
+        if !background_update_check_enabled(self.no_session, self.update_manifest_check_enabled) {
             self.next_agent_manifest_update_check = None;
             return;
         }
@@ -806,6 +833,13 @@ mod tests {
             is_focused: true,
         });
         (app, pane_id)
+    }
+
+    #[test]
+    fn interrupted_custom_command_wait_keeps_child_for_retry() {
+        let interrupted = std::io::Error::new(std::io::ErrorKind::Interrupted, "test interrupt");
+
+        assert!(retain_custom_command_after_wait(42, Err(interrupted)));
     }
 
     #[test]

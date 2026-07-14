@@ -120,7 +120,7 @@ fn notification_show_response_shown(response: &str) -> bool {
 /// Events that the headless server event loop can process.
 enum LoopEvent {
     Timer,
-    Internal(AppEvent),
+    Internal(Box<AppEvent>),
     Api(Box<api::ApiRequestMessage>),
     ServerEvent(ServerEvent),
     RenderRequested,
@@ -272,6 +272,7 @@ impl HeadlessServer {
         let mut needs_render = true;
 
         loop {
+            self.app.reap_finished_custom_commands();
             // If shutdown has been initiated, complete it and exit.
             if self.shutting_down {
                 self.complete_shutdown()?;
@@ -375,7 +376,7 @@ impl HeadlessServer {
                         None => LoopEvent::Timer,
                     },
                     maybe_ev = self.app.event_rx.recv() => match maybe_ev {
-                        Some(ev) => LoopEvent::Internal(ev),
+                        Some(ev) => LoopEvent::Internal(Box::new(ev)),
                         None => LoopEvent::Timer,
                     },
                     maybe_server_ev = self.server_event_rx.recv() => match maybe_server_ev {
@@ -390,7 +391,7 @@ impl HeadlessServer {
             match event {
                 LoopEvent::Timer => {}
                 LoopEvent::Internal(ev) => {
-                    if self.handle_internal_event_with_forwarding(ev) {
+                    if self.handle_internal_event_with_forwarding(*ev) {
                         needs_render = true;
                     }
                 }
@@ -1283,6 +1284,14 @@ impl HeadlessServer {
                 if self.send_to_foreground_client(ServerMessage::Clipboard { data }) {
                     self.app.show_clipboard_feedback();
                 }
+                true
+            }
+            AppEvent::PrefixInputSource { active } => {
+                // Input-source switching is host-local; only the foreground
+                // client can safely apply it.
+                self.send_to_foreground_client(ServerMessage::PrefixInputSource {
+                    active: *active,
+                });
                 true
             }
             AppEvent::StateChanged { pane_id, agent, .. } => {
@@ -2262,6 +2271,15 @@ impl HeadlessServer {
         };
 
         self.sync_foreground_client_state();
+        if matches!(
+            &msg.request.method,
+            api::schema::Method::WorktreeCreate(_) | api::schema::Method::WorktreeRemove(_)
+        ) {
+            let deferred_changed = self
+                .app
+                .handle_deferred_worktree_api_request(msg.request, msg.respond_to);
+            return changed | deferred_changed;
+        }
         let response = if matches!(
             &msg.request.method,
             api::schema::Method::ServerReloadConfig(_)
@@ -2863,7 +2881,7 @@ impl HeadlessServer {
             .session_save_deadline
             .is_some_and(|deadline| now >= deadline)
         {
-            self.app.save_session_now();
+            self.app.start_background_session_save();
         }
 
         if let Some(deadline) = self
@@ -3089,6 +3107,7 @@ pub fn run_server() -> io::Result<()> {
         // as ServerMessage::Notify instead of emitted by the server process.
         app.state.local_sound_playback = false;
         app.local_terminal_notifications = false;
+        app.local_input_source_switch = false;
 
         // Create the headless server.
         let mut server = match HeadlessServer::new(
@@ -3158,6 +3177,7 @@ fn run_handoff_import_server(socket_path: &Path, token: &str) -> io::Result<()> 
         )?;
         app.state.local_sound_playback = false;
         app.local_terminal_notifications = false;
+        app.local_input_source_switch = false;
         crate::server::handoff::report_restored(&mut received.stream)?;
         if std::env::var("HAKO_TEST_HANDOFF_IMPORT_FAIL").as_deref() == Ok("after_restored") {
             return Err(io::Error::other(
@@ -3253,6 +3273,7 @@ mod tests {
         app.state.local_sound_playback = false;
         app.state.toast_config.delay_seconds = 0;
         app.local_terminal_notifications = false;
+        app.local_input_source_switch = false;
 
         let dir = std::env::temp_dir().join(format!(
             "hh-{}-{}-{}",
@@ -3475,10 +3496,7 @@ mod tests {
         let (control_tx, control_rx) = std::sync::mpsc::channel();
         let (render_tx, render_rx) = std::sync::mpsc::sync_channel(1);
         (
-            ClientWriter {
-                control: control_tx,
-                render: render_tx,
-            },
+            ClientWriter::test_channel(control_tx, render_tx),
             control_rx,
             render_rx,
         )
@@ -4048,6 +4066,7 @@ next_tab = ""
                 display_agent: None,
                 custom_status: Some("short lived".into()),
                 state_labels: HashMap::new(),
+                tokens: HashMap::new(),
                 clear_title: false,
                 clear_display_agent: false,
                 clear_custom_status: false,
@@ -5230,7 +5249,7 @@ next_tab = ""
             .as_ref()
             .unwrap()
             .render
-            .send(queued)
+            .try_send(queued)
             .expect("pre-fill render queue");
 
         assert!(server.handle_server_event(ServerEvent::ClientInput {
@@ -5342,7 +5361,7 @@ next_tab = ""
             .expect("serialize dummy message");
         client_tx
             .render
-            .send(queued)
+            .try_send(queued)
             .expect("pre-fill render queue");
 
         server.clients.insert(
@@ -5386,7 +5405,7 @@ next_tab = ""
             .expect("serialize dummy message");
         client_tx
             .render
-            .send(queued)
+            .try_send(queued)
             .expect("pre-fill render queue");
 
         server.clients.insert(

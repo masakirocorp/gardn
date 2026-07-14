@@ -257,9 +257,13 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
     ];
 
     if let Some(ws) = state.active.and_then(|idx| state.workspaces.get(idx)) {
-        commands.extend(ws.tabs.iter().enumerate().map(|(idx, tab)| {
+        commands.extend(ws.tabs.iter().enumerate().map(|(idx, _tab)| {
             CommandPaletteCommand::new(
-                format!("switch to tab: {}", tab.display_name()),
+                format!(
+                    "switch to tab: {}",
+                    ws.tab_display_name(idx)
+                        .unwrap_or_else(|| (idx + 1).to_string())
+                ),
                 "tabs",
                 CommandPaletteAction::SwitchTab(idx),
             )
@@ -422,9 +426,13 @@ pub(crate) fn command_palette_commands_for_view(
         .active_workspace
         .and_then(|idx| state.workspaces.get(idx))
     {
-        commands.extend(ws.tabs.iter().enumerate().map(|(idx, tab)| {
+        commands.extend(ws.tabs.iter().enumerate().map(|(idx, _tab)| {
             CommandPaletteCommand::new(
-                format!("switch to tab: {}", tab.display_name()),
+                format!(
+                    "switch to tab: {}",
+                    ws.tab_display_name(idx)
+                        .unwrap_or_else(|| (idx + 1).to_string())
+                ),
                 "tabs",
                 CommandPaletteAction::SwitchTab(idx),
             )

@@ -86,45 +86,54 @@ fn state_dir_from_env(
     std::env::temp_dir().join(format!("{}-state", app_dir_name()))
 }
 
+fn read_optional_config(path: &Path) -> std::io::Result<Option<String>> {
+    match std::fs::read_to_string(path) {
+        Ok(content) => Ok(Some(content)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
 impl Config {
     pub fn load() -> LoadedConfig {
         let path = config_path();
-        if path.exists() {
-            match std::fs::read_to_string(&path) {
-                Ok(content) => match toml::from_str::<Config>(&content) {
-                    Ok(config) => {
-                        let mut diagnostics =
-                            unknown_top_level_section_diagnostics_from_str(&content);
-                        diagnostics.extend(config.collect_diagnostics());
-                        return LoadedConfig {
-                            config,
-                            diagnostics,
-                            invalid_sections: Vec::new(),
-                        };
-                    }
-                    Err(err) => {
-                        warn!(err = %err, "config parse error, using defaults");
-                        return LoadedConfig {
-                            config: Self::default(),
-                            diagnostics: vec![format!("config parse error: {err}; using defaults")],
-                            invalid_sections: Vec::new(),
-                        };
-                    }
-                },
-                Err(err) => {
-                    warn!(err = %err, "config read error, using defaults");
-                    return LoadedConfig {
-                        config: Self::default(),
-                        diagnostics: vec![format!("config read error: {err}; using defaults")],
-                        invalid_sections: Vec::new(),
-                    };
+        let content = match read_optional_config(&path) {
+            Ok(Some(content)) => content,
+            Ok(None) => {
+                return LoadedConfig {
+                    config: Self::default(),
+                    diagnostics: Vec::new(),
+                    invalid_sections: Vec::new(),
+                };
+            }
+            Err(err) => {
+                warn!(err = %err, "config read error, using defaults");
+                return LoadedConfig {
+                    config: Self::default(),
+                    diagnostics: vec![format!("config read error: {err}; using defaults")],
+                    invalid_sections: Vec::new(),
+                };
+            }
+        };
+
+        match toml::from_str::<Config>(&content) {
+            Ok(config) => {
+                let mut diagnostics = unknown_top_level_section_diagnostics_from_str(&content);
+                diagnostics.extend(config.collect_diagnostics());
+                LoadedConfig {
+                    config,
+                    diagnostics,
+                    invalid_sections: Vec::new(),
                 }
             }
-        }
-        LoadedConfig {
-            config: Self::default(),
-            diagnostics: Vec::new(),
-            invalid_sections: Vec::new(),
+            Err(err) => {
+                warn!(err = %err, "config parse error, using defaults");
+                LoadedConfig {
+                    config: Self::default(),
+                    diagnostics: vec![format!("config parse error: {err}; using defaults")],
+                    invalid_sections: Vec::new(),
+                }
+            }
         }
     }
 }
@@ -148,36 +157,26 @@ pub fn config_path() -> PathBuf {
 }
 
 pub fn config_diagnostic_summary(diagnostics: &[String]) -> Option<String> {
-    const MAX_VISIBLE_DIAGNOSTICS: usize = 4;
-
-    if diagnostics.is_empty() {
-        return None;
-    }
-
-    let mut lines: Vec<String> = diagnostics
-        .iter()
-        .take(MAX_VISIBLE_DIAGNOSTICS)
-        .map(|diagnostic| diagnostic.split_whitespace().collect::<Vec<_>>().join(" "))
-        .collect();
-    let hidden = diagnostics.len().saturating_sub(MAX_VISIBLE_DIAGNOSTICS);
-    if hidden > 0 {
-        lines.push(format!("and {hidden} more config warnings"));
-    }
-    Some(lines.join("\n"))
+    (!diagnostics.is_empty()).then(|| diagnostics.join("\n"))
 }
 
 pub fn load_live_config() -> Result<LoadedConfig, Vec<String>> {
     let path = config_path();
-    if !path.exists() {
-        return Ok(LoadedConfig {
-            config: Config::default(),
-            diagnostics: Vec::new(),
-            invalid_sections: Vec::new(),
-        });
-    }
-
-    let content = std::fs::read_to_string(&path)
-        .map_err(|err| vec![format!("config read error: {err}; keeping current config")])?;
+    let content = match read_optional_config(&path) {
+        Ok(Some(content)) => content,
+        Ok(None) => {
+            return Ok(LoadedConfig {
+                config: Config::default(),
+                diagnostics: Vec::new(),
+                invalid_sections: Vec::new(),
+            });
+        }
+        Err(err) => {
+            return Err(vec![format!(
+                "config read error: {err}; keeping current config"
+            )]);
+        }
+    };
     load_live_config_from_str(&content)
 }
 
@@ -262,6 +261,14 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut diagnostics,
         &mut invalid_sections,
         |section| config.git = section,
+    );
+    load_live_section(
+        &table,
+        "update",
+        "update config",
+        &mut diagnostics,
+        &mut invalid_sections,
+        |section| config.update = section,
     );
     load_live_section(
         &table,
@@ -606,19 +613,12 @@ mod tests {
     }
 
     #[test]
-    fn config_diagnostic_summary_keeps_multiple_warnings_visible() {
-        let diagnostics = vec![
-            "one".to_string(),
-            "two".to_string(),
-            "three".to_string(),
-            "four".to_string(),
-            "five".to_string(),
-        ];
-
+    fn diagnostic_summary_joins_messages() {
         assert_eq!(
-            config_diagnostic_summary(&diagnostics).as_deref(),
-            Some("one\ntwo\nthree\nfour\nand 1 more config warnings")
+            config_diagnostic_summary(&["first".into(), "second".into()]),
+            Some("first\nsecond".into())
         );
+        assert_eq!(config_diagnostic_summary(&[]), None);
     }
 
     #[test]

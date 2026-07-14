@@ -2,7 +2,7 @@
 // managed by hako; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=pi
-// HAKO_INTEGRATION_VERSION=4
+// HAKO_INTEGRATION_VERSION=5
 // @ts-nocheck
 
 import { createConnection } from "node:net";
@@ -16,28 +16,37 @@ function enabled() {
   return HAKO_ENV === "1" && !!socketPath && !!paneId;
 }
 
-function sendRequest(request: unknown): Promise<void> {
+function sendRequestAttempt(request: unknown, timeoutMs: number): Promise<boolean> {
   if (!enabled()) {
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
 
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      socket.destroy();
-      resolve();
-    };
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  let done = false;
+  let timeout;
+  const socket = createConnection(socketPath!);
+  const finish = (delivered: boolean) => {
+    if (done) return;
+    done = true;
+    clearTimeout(timeout);
+    socket.destroy();
+    resolve(delivered);
+  };
 
-    const socket = createConnection(socketPath!);
-    socket.on("error", finish);
-    socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
-    socket.on("data", finish);
-    socket.on("end", finish);
-    const timeout = setTimeout(finish, 500);
-    timeout.unref?.();
-  });
+  socket.on("error", () => finish(false));
+  socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
+  socket.on("data", () => finish(true));
+  socket.on("end", () => finish(false));
+  timeout = setTimeout(() => finish(false), timeoutMs);
+  timeout.unref?.();
+  return promise;
+}
+
+async function sendRequest(request: unknown): Promise<void> {
+  if (await sendRequestAttempt(request, 500)) {
+    return;
+  }
+  await sendRequestAttempt(request, 1500);
 }
 
 type AgentState = "working" | "blocked" | "idle";
@@ -201,6 +210,23 @@ function retryableErrorMessage(event: any): string | undefined {
   }
   return errorMessage || "retryable provider error";
 }
+function reportSession(sessionStartSource = "startup"): Promise<void> {
+  if (!currentAgentSessionPath && !currentAgentSessionId) {
+    return Promise.resolve();
+  }
+  return sendRequest({
+    id: `${source}:session:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+    method: "pane.report_agent_session",
+    params: withSessionRef({
+      pane_id: paneId,
+      source,
+      agent: "pi",
+      seq: nextReportSeq(),
+      session_start_source: sessionStartSource,
+    }),
+  });
+}
+
 
 function releaseAgent(): Promise<void> {
   return sendRequest({
@@ -231,6 +257,7 @@ export default function (pi) {
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   const blockingToolCalls = new Set<string>();
+  let rootSession = false;
   const permissionGateToolCalls = new Set<string>();
 
   function clearTimer(timer: ReturnType<typeof setTimeout> | undefined) {
@@ -285,10 +312,50 @@ export default function (pi) {
     idleTimer.unref?.();
   }
 
-  pi.on("session_start", (_event, ctx) => {
+  function sessionIsActive(ctx: unknown): boolean {
+    if (!ctx || typeof ctx !== "object" || !("isIdle" in ctx)) {
+      return false;
+    }
+    const candidate = ctx.isIdle;
+    if (typeof candidate !== "function") {
+      return false;
+    }
+    try {
+      return candidate.call(ctx) === false;
+    } catch {
+      return false;
+    }
+  }
+
+  function activateRootSession(ctx: unknown, sessionStartSource = "startup"): boolean {
+    if (!ctx || typeof ctx !== "object" || !("hasUI" in ctx) || ctx.hasUI !== true) {
+      return false;
+    }
+    rootSession = true;
     updateSessionRef(ctx);
+    void reportSession(sessionStartSource);
+    return true;
+  }
+
+  pi.on("session_start", (_event, ctx) => {
+    if (!ctx || typeof ctx !== "object" || !("hasUI" in ctx) || ctx.hasUI !== true) {
+      rootSession = false;
+      return;
+    }
+    if (!activateRootSession(ctx)) {
+      return;
+    }
+    if (sessionIsActive(ctx)) {
+      activeAgents.add(instanceId);
+    } else {
+      activeAgents.delete(instanceId);
+    }
     publishState(true);
   });
+  function rootSessionActive(ctx?: unknown): boolean {
+    return rootSession || activateRootSession(ctx);
+  }
+
 
   function holdForRetry(message: string) {
     clearPendingTimers();
@@ -322,6 +389,9 @@ export default function (pi) {
   }
 
   pi.events.on("hako:blocked", (data) => {
+    if (!rootSession) {
+      return;
+    }
     if (!data?.active) {
       leaveBlocked();
       return;
@@ -331,6 +401,9 @@ export default function (pi) {
   });
 
   pi.events.on("masakiro:permission_gate", (data) => {
+    if (!rootSession) {
+      return;
+    }
     const toolCallId = typeof data?.toolCallId === "string" ? data.toolCallId : undefined;
     if (!toolCallId) {
       return;
@@ -368,8 +441,8 @@ export default function (pi) {
     return true;
   }
 
-  pi.on("tool_execution_start", (event) => {
-    if (!isBlockingTool(event) || typeof event?.toolCallId !== "string") {
+  pi.on("tool_execution_start", (event, ctx) => {
+    if (!rootSessionActive(ctx) || !isBlockingTool(event) || typeof event?.toolCallId !== "string") {
       return;
     }
     if (blockingToolCalls.has(event.toolCallId)) {
@@ -385,18 +458,27 @@ export default function (pi) {
     publishState();
   });
 
-  pi.on("tool_execution_end", (event) => {
+  pi.on("tool_execution_end", (event, ctx) => {
+    if (!rootSessionActive(ctx)) {
+      return;
+    }
     clearBlockingTool(event?.toolCallId);
   });
 
-  function markWorking() {
+  function markWorking(_event?: unknown, ctx?: unknown) {
+    if (!rootSessionActive(ctx)) {
+      return;
+    }
     clearPendingTimers();
     clearFailureState();
     activeAgents.add(instanceId);
     publishState();
   }
 
-  function markIdle(event?: any) {
+  function markIdle(event?: unknown, ctx?: unknown) {
+    if (!rootSessionActive(ctx)) {
+      return;
+    }
     if (!activeAgents.delete(instanceId)) {
       // Pi can emit duplicate/late end events while auto-retry is already
       // holding the pane in Working. Do not let an unqualified duplicate end
@@ -421,10 +503,13 @@ export default function (pi) {
   pi.on("session_compact", markIdle);
   pi.on("auto_compaction_end", markIdle);
 
-  pi.on("session_shutdown", async () => {
+  pi.on("session_shutdown", async (event) => {
+    if (!rootSession) {
+      return;
+    }
     clearPendingTimers();
     activeAgents.delete(instanceId);
-    if (activeAgents.size === 0) {
+    if (activeAgents.size === 0 && event?.reason === "quit") {
       await releaseAgent();
     }
   });

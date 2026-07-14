@@ -1,3 +1,6 @@
+mod tokens;
+
+use self::tokens::{agent_rows, separator, space_rows, ResolvedToken, SpaceTokenContext};
 use ratatui::{
     layout::{Alignment, Rect},
     style::{Modifier, Style},
@@ -36,12 +39,17 @@ pub(crate) struct AgentPanelEntry {
     pub pane_id: crate::layout::PaneId,
     pub group_context_idx: Option<usize>,
     pub primary_label: String,
+    pub pane_label: Option<String>,
     pub primary_tab_label: Option<String>,
     pub agent_label: Option<String>,
+    pub terminal_title: Option<String>,
+    pub terminal_title_stripped: Option<String>,
     pub state: AgentState,
+    pub agent: Option<crate::detect::Agent>,
     pub seen: bool,
     pub custom_status: Option<String>,
     pub state_labels: std::collections::HashMap<String, String>,
+    pub tokens: std::collections::HashMap<String, String>,
     pub last_meaningful_agent_activity_seq: u64,
     pub last_meaningful_agent_activity_unix_secs: Option<u64>,
 }
@@ -222,6 +230,32 @@ fn agent_panel_entries_with_runtimes(
     agent_panel_entries_with_context(app, terminal_runtimes, scope, app.active, app.active_group)
 }
 
+fn make_agent_panel_entry(
+    ws_idx: usize,
+    detail: crate::workspace::PaneDetail,
+    group_context_idx: Option<usize>,
+) -> AgentPanelEntry {
+    AgentPanelEntry {
+        ws_idx,
+        tab_idx: detail.tab_idx,
+        pane_id: detail.pane_id,
+        group_context_idx,
+        primary_label: detail.pane_label.clone(),
+        pane_label: Some(detail.pane_label),
+        primary_tab_label: Some(detail.tab_label),
+        agent_label: Some(detail.agent_label),
+        terminal_title: detail.terminal_title,
+        terminal_title_stripped: detail.terminal_title_stripped,
+        agent: detail.agent,
+        state: detail.state,
+        seen: detail.seen,
+        custom_status: detail.custom_status,
+        state_labels: detail.state_labels,
+        tokens: detail.tokens,
+        last_meaningful_agent_activity_seq: detail.last_meaningful_agent_activity_seq,
+        last_meaningful_agent_activity_unix_secs: detail.last_meaningful_agent_activity_unix_secs,
+    }
+}
 fn agent_panel_entries_with_context(
     app: &AppState,
     terminal_runtimes: Option<&TerminalRuntimeRegistry>,
@@ -248,22 +282,7 @@ fn agent_panel_entries_with_context(
             };
             ws.pane_details_from(&app.terminals, terminal_runtimes)
                 .into_iter()
-                .map(|detail| AgentPanelEntry {
-                    ws_idx,
-                    tab_idx: detail.tab_idx,
-                    pane_id: detail.pane_id,
-                    group_context_idx: None,
-                    primary_label: detail.pane_label,
-                    primary_tab_label: Some(detail.tab_label),
-                    agent_label: Some(detail.agent_label),
-                    state: detail.state,
-                    seen: detail.seen,
-                    custom_status: detail.custom_status,
-                    state_labels: detail.state_labels,
-                    last_meaningful_agent_activity_seq: detail.last_meaningful_agent_activity_seq,
-                    last_meaningful_agent_activity_unix_secs: detail
-                        .last_meaningful_agent_activity_unix_secs,
-                })
+                .map(|detail| make_agent_panel_entry(ws_idx, detail, None))
                 .collect()
         }
         AgentPanelScope::CurrentGroup => {
@@ -279,23 +298,7 @@ fn agent_panel_entries_with_context(
                 .flat_map(|(ws_idx, ws)| {
                     ws.pane_details_from(&app.terminals, terminal_runtimes)
                         .into_iter()
-                        .map(move |detail| AgentPanelEntry {
-                            ws_idx,
-                            tab_idx: detail.tab_idx,
-                            pane_id: detail.pane_id,
-                            group_context_idx: None,
-                            primary_label: detail.pane_label,
-                            primary_tab_label: Some(detail.tab_label),
-                            agent_label: Some(detail.agent_label),
-                            state: detail.state,
-                            seen: detail.seen,
-                            custom_status: detail.custom_status,
-                            state_labels: detail.state_labels,
-                            last_meaningful_agent_activity_seq: detail
-                                .last_meaningful_agent_activity_seq,
-                            last_meaningful_agent_activity_unix_secs: detail
-                                .last_meaningful_agent_activity_unix_secs,
-                        })
+                        .map(move |detail| make_agent_panel_entry(ws_idx, detail, None))
                 })
                 .collect()
         }
@@ -304,27 +307,12 @@ fn agent_panel_entries_with_context(
             .iter()
             .enumerate()
             .flat_map(|(ws_idx, ws)| {
+                let group_context_idx = agent_panel_has_multiple_groups(app)
+                    .then(|| agent_panel_group_idx(app, ws_idx))
+                    .flatten();
                 ws.pane_details_from(&app.terminals, terminal_runtimes)
                     .into_iter()
-                    .map(move |detail| AgentPanelEntry {
-                        ws_idx,
-                        tab_idx: detail.tab_idx,
-                        pane_id: detail.pane_id,
-                        group_context_idx: agent_panel_has_multiple_groups(app)
-                            .then(|| agent_panel_group_idx(app, ws_idx))
-                            .flatten(),
-                        primary_label: detail.pane_label,
-                        primary_tab_label: Some(detail.tab_label),
-                        agent_label: Some(detail.agent_label),
-                        state: detail.state,
-                        seen: detail.seen,
-                        custom_status: detail.custom_status,
-                        state_labels: detail.state_labels,
-                        last_meaningful_agent_activity_seq: detail
-                            .last_meaningful_agent_activity_seq,
-                        last_meaningful_agent_activity_unix_secs: detail
-                            .last_meaningful_agent_activity_unix_secs,
-                    })
+                    .map(move |detail| make_agent_panel_entry(ws_idx, detail, group_context_idx))
             })
             .collect(),
     }
@@ -466,50 +454,6 @@ fn centered_count_line(text: &str, width: u16, base: Style, count: Style) -> Lin
     Line::from(spans)
 }
 
-fn format_agent_panel_primary_label(entry: &AgentPanelEntry, max_width: usize) -> String {
-    let Some(tab_label) = entry.primary_tab_label.as_deref() else {
-        return truncate_text(&entry.primary_label, max_width);
-    };
-
-    let separator = " · ";
-    let separator_width = separator.chars().count();
-    if max_width <= separator_width + 2 {
-        return truncate_text(
-            &format!("{}{}{}", entry.primary_label, separator, tab_label),
-            max_width,
-        );
-    }
-
-    let available = max_width.saturating_sub(separator_width);
-    let min_tab = 4.min(available.saturating_sub(1)).max(1);
-    let preferred_workspace = ((available * 2) / 3).max(1);
-    let mut workspace_budget = preferred_workspace
-        .min(available.saturating_sub(min_tab))
-        .max(1);
-    let mut tab_budget = available.saturating_sub(workspace_budget);
-
-    let workspace_len = entry.primary_label.chars().count();
-    let tab_len = tab_label.chars().count();
-
-    if workspace_len < workspace_budget {
-        let spare = workspace_budget - workspace_len;
-        workspace_budget = workspace_len;
-        tab_budget = (tab_budget + spare).min(available.saturating_sub(workspace_budget));
-    }
-    if tab_len < tab_budget {
-        let spare = tab_budget - tab_len;
-        tab_budget = tab_len;
-        workspace_budget = (workspace_budget + spare).min(available.saturating_sub(tab_budget));
-    }
-
-    format!(
-        "{}{}{}",
-        truncate_text(&entry.primary_label, workspace_budget),
-        separator,
-        truncate_text(tab_label, tab_budget)
-    )
-}
-
 fn current_unix_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -538,17 +482,6 @@ fn format_agent_activity_age(
     }
 
     Some(format!("{}d", hours / 24))
-}
-
-fn agent_panel_primary_label_line(
-    entry: &AgentPanelEntry,
-    max_width: usize,
-    base_style: Style,
-) -> Line<'static> {
-    Line::from(Span::styled(
-        format_agent_panel_primary_label(entry, max_width),
-        base_style,
-    ))
 }
 
 fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
@@ -591,10 +524,11 @@ fn agent_panel_entry_has_secondary_detail(
     show_agent_label: bool,
     detail: &AgentPanelEntry,
 ) -> bool {
-    detail
-        .group_context_idx
-        .and_then(|group_idx| app.groups.get(group_idx))
-        .is_some()
+    resolved_agent_rows(app, detail).len() > 1
+        || detail
+            .group_context_idx
+            .and_then(|group_idx| app.groups.get(group_idx))
+            .is_some()
         || (show_agent_label && detail.agent_label.is_some())
         || show_status
         || detail.custom_status.is_some()
@@ -607,15 +541,68 @@ fn agent_panel_entry_row_height(
     show_agent_label: bool,
     detail: &AgentPanelEntry,
 ) -> u16 {
-    if agent_panel_entry_has_secondary_detail(app, show_status, show_agent_label, detail) {
-        2
-    } else {
-        1
-    }
+    let token_rows = resolved_agent_rows(app, detail).len().max(1) as u16;
+    let legacy_rows =
+        if agent_panel_entry_has_secondary_detail(app, show_status, show_agent_label, detail) {
+            2
+        } else {
+            1
+        };
+    token_rows.max(legacy_rows)
 }
 
 fn agent_panel_entry_status_label(entry: &AgentPanelEntry) -> &'static str {
     state_label(entry.state, entry.seen)
+}
+
+fn resolved_agent_rows(app: &AppState, detail: &AgentPanelEntry) -> Vec<Vec<ResolvedToken>> {
+    let state_text = detail
+        .state_labels
+        .get(agent_panel_status_key(detail.state, detail.seen))
+        .map(String::as_str)
+        .unwrap_or_else(|| agent_panel_entry_status_label(detail));
+    agent_rows(&app.sidebar_config.agents, detail, state_text)
+}
+
+fn agent_token_line(
+    tokens: &[ResolvedToken],
+    detail: &AgentPanelEntry,
+    app: &AppState,
+    name_style: Style,
+    agent_style: Style,
+) -> Line<'static> {
+    let mut spans = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(
+                separator(&tokens[index - 1], token),
+                agent_style,
+            ));
+        }
+        let (text, style) = match token {
+            ResolvedToken::StateIcon => {
+                let (icon, style) =
+                    agent_icon(detail.state, detail.seen, app.spinner_tick, &app.palette);
+                (icon.to_string(), style)
+            }
+            ResolvedToken::StateText(value) => (
+                value.clone(),
+                Style::default().fg(state_label_color(detail.state, detail.seen, &app.palette)),
+            ),
+            ResolvedToken::Workspace(value) | ResolvedToken::Pane(value) => {
+                (value.clone(), name_style)
+            }
+            ResolvedToken::Tab(value) | ResolvedToken::Agent(value) => (value.clone(), agent_style),
+            ResolvedToken::TerminalTitle(value)
+            | ResolvedToken::Custom(value)
+            | ResolvedToken::Branch(value) => (value.clone(), agent_style),
+            ResolvedToken::GitStatus { ahead, behind } => {
+                (format!("↑{ahead} ↓{behind}"), agent_style)
+            }
+        };
+        spans.push(Span::styled(text, style));
+    }
+    Line::from(spans)
 }
 
 fn agent_panel_section_header_style(section: &AgentPanelSection, p: &Palette) -> Style {
@@ -640,12 +627,6 @@ fn agent_panel_section_icon(
         _ => ("?", Style::default().fg(p.overlay0)),
     }
 }
-fn right_entry_primary_prefix() -> Vec<Span<'static>> {
-    vec![Span::styled(
-        " ".repeat(RIGHT_ENTRY_PRIMARY_COL as usize),
-        Style::default(),
-    )]
-}
 
 fn right_entry_detail_prefix(_p: &Palette) -> Vec<Span<'static>> {
     vec![Span::styled(
@@ -654,6 +635,39 @@ fn right_entry_detail_prefix(_p: &Palette) -> Vec<Span<'static>> {
     )]
 }
 
+fn workspace_metadata_tokens(
+    app: &AppState,
+    ws: &crate::workspace::Workspace,
+) -> std::collections::HashMap<String, String> {
+    let mut tokens = std::collections::HashMap::new();
+    for tab in &ws.tabs {
+        for pane in tab.panes.values() {
+            if let Some(terminal) = app.terminals.get(&pane.attached_terminal_id) {
+                tokens.extend(terminal.effective_presentation().tokens);
+            }
+        }
+    }
+    tokens
+}
+
+fn resolved_space_rows(
+    app: &AppState,
+    ws: &crate::workspace::Workspace,
+    workspace: &str,
+) -> Vec<Vec<ResolvedToken>> {
+    let (state, seen) = ws.aggregate_state(&app.terminals);
+    space_rows(
+        &app.sidebar_config.spaces,
+        SpaceTokenContext {
+            workspace,
+            branch: ws.cached_git_branch.as_deref(),
+            state_text: state_label(state, seen),
+            ahead_behind: ws.cached_git_ahead_behind,
+            tokens: &workspace_metadata_tokens(app, ws),
+            suppress_git_details: false,
+        },
+    )
+}
 fn workspace_has_metadata(ws: &crate::workspace::Workspace) -> bool {
     ws.cached_git_work_summary.is_some_and(|summary| {
         summary.conflicted + summary.added + summary.modified + summary.deleted > 0
@@ -661,12 +675,107 @@ fn workspace_has_metadata(ws: &crate::workspace::Workspace) -> bool {
     })
 }
 
-fn workspace_row_height(ws: &crate::workspace::Workspace) -> u16 {
-    if workspace_has_metadata(ws) {
+fn workspace_token_line(
+    tokens: &[ResolvedToken],
+    state: AgentState,
+    seen: bool,
+    p: &Palette,
+    name_style: Style,
+) -> Line<'static> {
+    let mut spans = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(
+                separator(&tokens[index - 1], token),
+                Style::default().fg(p.overlay0),
+            ));
+        }
+        let (text, style) = match token {
+            ResolvedToken::StateIcon => {
+                let (icon, style) = state_dot(state, seen, p);
+                (icon.to_string(), style)
+            }
+            ResolvedToken::StateText(value) => (
+                value.clone(),
+                Style::default().fg(state_label_color(state, seen, p)),
+            ),
+            ResolvedToken::Workspace(value) => (value.clone(), name_style),
+            ResolvedToken::Branch(value) | ResolvedToken::Custom(value) => {
+                (value.clone(), Style::default().fg(p.overlay0))
+            }
+            ResolvedToken::GitStatus { ahead, behind } => (
+                format!("↑{ahead} ↓{behind}"),
+                Style::default().fg(p.overlay0),
+            ),
+            ResolvedToken::Tab(value)
+            | ResolvedToken::Pane(value)
+            | ResolvedToken::Agent(value)
+            | ResolvedToken::TerminalTitle(value) => {
+                (value.clone(), Style::default().fg(p.overlay0))
+            }
+        };
+        spans.push(Span::styled(text, style));
+    }
+    Line::from(spans)
+}
+
+fn render_workspace_token_rows(
+    app: &AppState,
+    frame: &mut Frame,
+    ws: &crate::workspace::Workspace,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    area: Rect,
+    row_y: u16,
+    row_height: u16,
+    name_style: Style,
+) {
+    let workspace = ws.display_name_from(&app.terminals, terminal_runtimes);
+    let (state, seen) = ws.aggregate_state(&app.terminals);
+    let rows = resolved_space_rows(app, ws, &workspace);
+    for (index, row) in rows.iter().take(row_height as usize).enumerate() {
+        let prefix_width = if matches!(row.first(), Some(ResolvedToken::StateIcon)) {
+            SIDEBAR_WORKSPACE_STATE_COL
+        } else {
+            SIDEBAR_WORKSPACE_NAME_COL
+        };
+        let mut spans = vec![Span::styled(
+            " ".repeat(prefix_width as usize),
+            Style::default(),
+        )];
+        spans.extend(workspace_token_line(row, state, seen, &app.palette, name_style).spans);
+        frame.render_widget(
+            Paragraph::new(Line::from(spans)),
+            Rect::new(area.x, row_y.saturating_add(index as u16), area.width, 1),
+        );
+    }
+    if rows.len() == 1
+        && row_height > 1
+        && app.sidebar_config.spaces == crate::config::SpacesSidebarConfig::default()
+    {
+        let max_summary_len =
+            (area.width as usize).saturating_sub(SIDEBAR_WORKSPACE_NAME_COL as usize);
+        let mut spans = vec![Span::styled(
+            " ".repeat(SIDEBAR_WORKSPACE_NAME_COL as usize),
+            Style::default(),
+        )];
+        spans.extend(workspace_summary_spans(ws, &app.palette, max_summary_len));
+        frame.render_widget(
+            Paragraph::new(Line::from(spans)),
+            Rect::new(area.x, row_y + 1, area.width, 1),
+        );
+    }
+}
+
+fn workspace_row_height(app: &AppState, ws: &crate::workspace::Workspace) -> u16 {
+    let configured = resolved_space_rows(app, ws, &ws.display_name()).len();
+    let legacy = if app.sidebar_config.spaces == crate::config::SpacesSidebarConfig::default()
+        && workspace_has_metadata(ws)
+    {
         2
     } else {
         1
-    }
+    };
+    configured.max(legacy) as u16
 }
 
 pub(crate) fn workspace_list_rect(area: Rect, split_ratio: f32) -> Rect {
@@ -746,7 +855,7 @@ fn workspace_list_visible_count_for_view(
         .into_iter()
         .skip(scroll)
     {
-        let needed = entry.row_height_for_workspaces(&app.workspaces);
+        let needed = entry.row_height_for_workspaces(app);
         if used_rows.saturating_add(needed) > body.height {
             break;
         }
@@ -1112,7 +1221,7 @@ fn compute_workspace_list_areas_in_list(
                 let Some(ws) = app.workspaces.get(ws_idx) else {
                     continue;
                 };
-                let row_height = workspace_row_height(ws);
+                let row_height = workspace_row_height(app, ws);
                 cards.push(crate::app::state::WorkspaceCardArea {
                     ws_idx,
                     rect: Rect::new(body.x, row_y, body.width, row_height),
@@ -1179,7 +1288,7 @@ fn compute_workspace_list_areas_in_list_for_view(
 
     let entries = workspace_list_entries_for_view(app, view);
     for entry in entries.iter().copied().skip(view.workspace_scroll) {
-        let row_height = entry.row_height_for_workspaces(&app.workspaces);
+        let row_height = entry.row_height_for_workspaces(app);
         if row_y.saturating_add(row_height) > body_bottom {
             break;
         }
@@ -1202,7 +1311,7 @@ fn compute_workspace_list_areas_in_list_for_view(
                 let Some(ws) = app.workspaces.get(ws_idx) else {
                     continue;
                 };
-                let row_height = workspace_row_height(ws);
+                let row_height = workspace_row_height(app, ws);
                 cards.push(crate::app::state::WorkspaceCardArea {
                     ws_idx,
                     rect: Rect::new(body.x, row_y, body.width, row_height),
@@ -1263,15 +1372,16 @@ enum WorkspaceListEntry {
 
 impl WorkspaceListEntry {
     fn row_height(self, app: &AppState) -> u16 {
-        self.row_height_for_workspaces(&app.workspaces)
+        self.row_height_for_workspaces(app)
     }
 
-    fn row_height_for_workspaces(self, workspaces: &[crate::workspace::Workspace]) -> u16 {
+    fn row_height_for_workspaces(self, app: &AppState) -> u16 {
         match self {
             Self::GroupHeader { .. } | Self::EmptyGroup { .. } | Self::GroupGap => 1,
-            Self::Workspace { ws_idx, .. } => workspaces
+            Self::Workspace { ws_idx, .. } => app
+                .workspaces
                 .get(ws_idx)
-                .map(workspace_row_height)
+                .map(|ws| workspace_row_height(app, ws))
                 .unwrap_or(0),
         }
     }
@@ -2696,7 +2806,6 @@ fn render_workspace_list_from(
         let is_active = Some(i) == app.active;
         let is_dragged = dragged_ws_idx == Some(i);
         let highlighted = selected || is_active || is_dragged;
-        let (agg_state, agg_seen) = ws.aggregate_state(&app.terminals);
 
         if highlighted {
             let bg = if selected {
@@ -2735,44 +2844,16 @@ fn render_workspace_list_from(
             Style::default().fg(p.subtext0)
         };
 
-        let (icon, icon_style) = state_dot(agg_state, agg_seen, p);
-        let line1 = vec![
-            Span::styled(
-                " ".repeat(SIDEBAR_WORKSPACE_STATE_COL as usize),
-                Style::default(),
-            ),
-            Span::styled(icon, icon_style),
-            Span::styled(
-                " ".repeat(
-                    SIDEBAR_WORKSPACE_NAME_COL.saturating_sub(SIDEBAR_WORKSPACE_STATE_COL + 1)
-                        as usize,
-                ),
-                Style::default(),
-            ),
-            Span::styled(
-                ws.display_name_from(&app.terminals, terminal_runtimes),
-                name_style,
-            ),
-        ];
-
-        frame.render_widget(
-            Paragraph::new(Line::from(line1)),
-            Rect::new(card.rect.x, row_y, card.rect.width, 1),
+        render_workspace_token_rows(
+            app,
+            frame,
+            ws,
+            terminal_runtimes,
+            card.rect,
+            row_y,
+            row_height,
+            name_style,
         );
-
-        if row_height > 1 && row_y + 1 < list_bottom {
-            let max_summary_len =
-                (card.rect.width as usize).saturating_sub(SIDEBAR_WORKSPACE_NAME_COL as usize);
-            let mut spans = vec![Span::styled(
-                " ".repeat(SIDEBAR_WORKSPACE_NAME_COL as usize),
-                Style::default(),
-            )];
-            spans.extend(workspace_summary_spans(ws, p, max_summary_len));
-            frame.render_widget(
-                Paragraph::new(Line::from(spans)),
-                Rect::new(card.rect.x, row_y + 1, card.rect.width, 1),
-            );
-        }
     }
 
     if let Some(y) = insertion_row.filter(|y| *y < list_bottom) {
@@ -2967,7 +3048,6 @@ fn render_workspace_list_from_for_view(
         let is_active = Some(i) == client_view.active_workspace;
         let is_dragged = dragged_ws_idx == Some(i);
         let highlighted = selected || is_active || is_dragged;
-        let (agg_state, agg_seen) = ws.aggregate_state(&app.terminals);
 
         if highlighted {
             let bg = if selected {
@@ -3007,44 +3087,16 @@ fn render_workspace_list_from_for_view(
             Style::default().fg(p.subtext0)
         };
 
-        let (icon, icon_style) = state_dot(agg_state, agg_seen, p);
-        let line1 = vec![
-            Span::styled(
-                " ".repeat(SIDEBAR_WORKSPACE_STATE_COL as usize),
-                Style::default(),
-            ),
-            Span::styled(icon, icon_style),
-            Span::styled(
-                " ".repeat(
-                    SIDEBAR_WORKSPACE_NAME_COL.saturating_sub(SIDEBAR_WORKSPACE_STATE_COL + 1)
-                        as usize,
-                ),
-                Style::default(),
-            ),
-            Span::styled(
-                ws.display_name_from(&app.terminals, terminal_runtimes),
-                name_style,
-            ),
-        ];
-
-        frame.render_widget(
-            Paragraph::new(Line::from(line1)),
-            Rect::new(card.rect.x, row_y, card.rect.width, 1),
+        render_workspace_token_rows(
+            app,
+            frame,
+            ws,
+            terminal_runtimes,
+            card.rect,
+            row_y,
+            row_height,
+            name_style,
         );
-
-        if row_height > 1 && row_y + 1 < list_bottom {
-            let max_summary_len =
-                (card.rect.width as usize).saturating_sub(SIDEBAR_WORKSPACE_NAME_COL as usize);
-            let mut spans = vec![Span::styled(
-                " ".repeat(SIDEBAR_WORKSPACE_NAME_COL as usize),
-                Style::default(),
-            )];
-            spans.extend(workspace_summary_spans(ws, p, max_summary_len));
-            frame.render_widget(
-                Paragraph::new(Line::from(spans)),
-                Rect::new(card.rect.x, row_y + 1, card.rect.width, 1),
-            );
-        }
     }
 
     if let Some(y) = insertion_row.filter(|y| *y < list_bottom) {
@@ -3183,13 +3235,6 @@ fn render_agent_entry(
 ) {
     let p = &app.palette;
     let is_active = app.is_active_pane(detail.ws_idx, detail.tab_idx, detail.pane_id);
-    let label_color = state_label_color(detail.state, detail.seen, p);
-    let label = detail
-        .state_labels
-        .get(agent_panel_status_key(detail.state, detail.seen))
-        .map(String::as_str)
-        .unwrap_or_else(|| agent_panel_entry_status_label(detail));
-
     let row_style = if is_active {
         Style::default().bg(p.surface_dim)
     } else {
@@ -3200,79 +3245,93 @@ fn render_agent_entry(
     } else {
         Style::default().fg(p.subtext0)
     };
-    let status_style = if is_active {
-        Style::default().fg(label_color)
-    } else {
-        Style::default().fg(label_color).add_modifier(Modifier::DIM)
-    };
     let agent_style = Style::default().fg(p.overlay0).add_modifier(Modifier::DIM);
+    let mut rows = resolved_agent_rows(app, detail);
+    if rows.is_empty() {
+        rows.push(Vec::new());
+    }
 
-    let mut primary_line = agent_panel_primary_label_line(
-        detail,
-        area.width.saturating_sub(RIGHT_ENTRY_PRIMARY_COL) as usize,
-        name_style,
-    );
-    let mut name_spans = right_entry_primary_prefix();
-    name_spans.append(&mut primary_line.spans);
-    frame.render_widget(
-        Paragraph::new(Line::from(name_spans)).style(row_style),
-        Rect::new(area.x, row_y, area.width, 1),
-    );
-
-    let mut status_spans = right_entry_detail_prefix(p);
-    let mut has_secondary_detail = false;
+    let mut extra = Vec::new();
     if let Some(group_idx) = detail.group_context_idx {
         if let Some(group) = app.groups.get(group_idx) {
-            status_spans.push(Span::styled(
+            extra.push(Span::styled(
                 group.name.clone(),
                 Style::default()
                     .fg(app.group_accent_color(group_idx))
                     .add_modifier(Modifier::DIM),
             ));
-            has_secondary_detail = true;
         }
     }
     if show_agent_label {
         if let Some(agent_label) = &detail.agent_label {
-            if has_secondary_detail {
-                status_spans.push(Span::styled(" · ", agent_style));
+            if !extra.is_empty() {
+                extra.push(Span::styled(" · ", agent_style));
             }
-            status_spans.push(Span::styled(agent_label.clone(), agent_style));
-            has_secondary_detail = true;
+            extra.push(Span::styled(agent_label.clone(), agent_style));
         }
     }
     if show_status {
-        if has_secondary_detail {
-            status_spans.push(Span::styled(" · ", agent_style));
+        if !extra.is_empty() {
+            extra.push(Span::styled(" · ", agent_style));
         }
-        status_spans.push(Span::styled(label, status_style));
-        has_secondary_detail = true;
+        let label = detail
+            .state_labels
+            .get(agent_panel_status_key(detail.state, detail.seen))
+            .cloned()
+            .unwrap_or_else(|| agent_panel_entry_status_label(detail).to_string());
+        extra.push(Span::styled(
+            label,
+            Style::default().fg(state_label_color(detail.state, detail.seen, p)),
+        ));
     }
     if let Some(custom_status) = &detail.custom_status {
-        if has_secondary_detail {
-            status_spans.push(Span::styled(" · ", agent_style));
+        if !extra.is_empty() {
+            extra.push(Span::styled(" · ", agent_style));
         }
-
-        status_spans.push(Span::styled(custom_status.clone(), agent_style));
-        has_secondary_detail = true;
+        extra.push(Span::styled(custom_status.clone(), agent_style));
     }
     if let Some(age_label) = format_agent_activity_age(
         detail.last_meaningful_agent_activity_unix_secs,
         current_unix_secs(),
     ) {
-        if has_secondary_detail {
-            status_spans.push(Span::styled(" · ", agent_style));
+        if !extra.is_empty() {
+            extra.push(Span::styled(" · ", agent_style));
         }
-        status_spans.push(Span::styled(age_label, agent_style));
-        has_secondary_detail = true;
+        extra.push(Span::styled(age_label, agent_style));
     }
-    if !has_secondary_detail {
-        return;
+    if !extra.is_empty() {
+        if app.sidebar_config.agents == crate::config::AgentsSidebarConfig::default() {
+            rows.push(Vec::new());
+        }
+        rows.last_mut()
+            .unwrap()
+            .push(ResolvedToken::Custom(String::new()));
     }
-    frame.render_widget(
-        Paragraph::new(Line::from(status_spans)).style(row_style),
-        Rect::new(area.x, row_y + 1, area.width, 1),
-    );
+
+    for (index, row) in rows.iter().enumerate() {
+        let line = if row
+            .iter()
+            .any(|token| matches!(token, ResolvedToken::Custom(value) if value.is_empty()))
+        {
+            let mut line = agent_token_line(
+                &row[..row.len().saturating_sub(1)],
+                detail,
+                app,
+                name_style,
+                agent_style,
+            );
+            line.spans.extend(extra.clone());
+            line
+        } else {
+            agent_token_line(row, detail, app, name_style, agent_style)
+        };
+        let mut prefixed = right_entry_detail_prefix(p);
+        prefixed.extend(line.spans);
+        frame.render_widget(
+            Paragraph::new(Line::from(prefixed)).style(row_style),
+            Rect::new(area.x, row_y.saturating_add(index as u16), area.width, 1),
+        );
+    }
 }
 
 pub(crate) fn agent_panel_entry_at_row(
@@ -5150,14 +5209,19 @@ mod tests {
                 pane_id: crate::layout::PaneId::from_raw(1),
                 group_context_idx: None,
                 primary_label: "blocked".into(),
+                pane_label: None,
                 primary_tab_label: None,
                 agent_label: Some("opencode".into()),
+                terminal_title: None,
+                terminal_title_stripped: None,
                 state: AgentState::Blocked,
                 seen: false,
+                agent: None,
                 custom_status: None,
                 state_labels: std::collections::HashMap::new(),
                 last_meaningful_agent_activity_seq: 0,
                 last_meaningful_agent_activity_unix_secs: None,
+                tokens: std::collections::HashMap::new(),
             }],
         };
         let p = crate::app::state::Palette::catppuccin();
@@ -5223,29 +5287,6 @@ mod tests {
         let entries = agent_panel_entries(&app);
         assert_eq!(entries[0].primary_label, "bridge");
         assert_eq!(entries[0].agent_label.as_deref(), Some("planner"));
-    }
-
-    #[test]
-    fn all_workspaces_primary_label_truncates_workspace_and_tab() {
-        let entry = AgentPanelEntry {
-            ws_idx: 0,
-            tab_idx: 0,
-            pane_id: crate::layout::PaneId::from_raw(1),
-            group_context_idx: None,
-            primary_label: "agent-browser".into(),
-            primary_tab_label: Some("test-escalation".into()),
-            agent_label: Some("claude".into()),
-            state: AgentState::Idle,
-            seen: true,
-            custom_status: None,
-            state_labels: std::collections::HashMap::new(),
-            last_meaningful_agent_activity_seq: 0,
-            last_meaningful_agent_activity_unix_secs: None,
-        };
-
-        let label = format_agent_panel_primary_label(&entry, 18);
-
-        assert_eq!(label, "agent-bro… · test…");
     }
 
     #[test]

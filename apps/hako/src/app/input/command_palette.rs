@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-use ratatui::layout::{Direction, Rect};
+use ratatui::layout::Rect;
 
 use crate::app::{
     command_palette::{
@@ -571,7 +571,12 @@ fn open_new_agent_from_palette(app: &mut App) {
 
 pub(crate) fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
     match action {
-        CommandPaletteAction::NewWorkspace => app.state.request_new_workspace = true,
+        CommandPaletteAction::NewWorkspace => {
+            app.execute_tui_navigate_action(
+                super::navigate::NavigateAction::NewWorkspace,
+                super::navigate::ActionContext::Navigate,
+            );
+        }
         CommandPaletteAction::RenameWorkspace => {
             let selected = app.state.selected;
             if app.state.workspace_in_active_group(selected) {
@@ -584,17 +589,23 @@ pub(crate) fn execute_command_palette_action(app: &mut App, action: CommandPalet
             }
         }
         CommandPaletteAction::CloseWorkspace => {
-            if app.state.workspace_in_active_group(app.state.selected) {
-                if app.state.confirm_close {
-                    super::modal::open_confirm_close(&mut app.state);
-                    return;
-                }
-                app.state.close_selected_workspace_from_ui();
-            }
+            app.execute_tui_navigate_action(
+                super::navigate::NavigateAction::CloseWorkspace,
+                super::navigate::ActionContext::Navigate,
+            );
         }
-        CommandPaletteAction::PreviousWorkspace => app.state.previous_workspace(),
-        CommandPaletteAction::NextWorkspace => app.state.next_workspace(),
-        CommandPaletteAction::SwitchWorkspace(idx) => app.state.switch_workspace(idx),
+        CommandPaletteAction::PreviousWorkspace => app.execute_tui_navigate_action(
+            super::navigate::NavigateAction::PreviousWorkspace,
+            super::navigate::ActionContext::Navigate,
+        ),
+        CommandPaletteAction::NextWorkspace => app.execute_tui_navigate_action(
+            super::navigate::NavigateAction::NextWorkspace,
+            super::navigate::ActionContext::Navigate,
+        ),
+        CommandPaletteAction::SwitchWorkspace(idx) => app.execute_tui_navigate_action(
+            super::navigate::NavigateAction::SwitchWorkspace(idx),
+            super::navigate::ActionContext::Navigate,
+        ),
         CommandPaletteAction::NewTab => {
             super::modal::open_new_tab_dialog(&mut app.state);
             return;
@@ -603,28 +614,38 @@ pub(crate) fn execute_command_palette_action(app: &mut App, action: CommandPalet
             open_new_agent_from_palette(app);
             return;
         }
-        CommandPaletteAction::SwitchTab(idx) => app.state.switch_tab(idx),
+        CommandPaletteAction::SwitchTab(idx) => app.execute_tui_navigate_action(
+            super::navigate::NavigateAction::SwitchTab(idx),
+            super::navigate::ActionContext::Navigate,
+        ),
         CommandPaletteAction::RenameTab => {
             super::modal::open_rename_active_tab(&mut app.state, false);
             return;
         }
-        CommandPaletteAction::PreviousTab => app.state.previous_tab(),
-        CommandPaletteAction::NextTab => app.state.next_tab(),
-        CommandPaletteAction::CloseTab => {
-            app.state.close_tab();
-            if app.state.mode == Mode::ConfirmClose {
-                return;
-            }
-        }
-        CommandPaletteAction::SplitVertical => app
-            .state
-            .split_pane(&mut app.terminal_runtimes, Direction::Horizontal),
-        CommandPaletteAction::SplitHorizontal => app
-            .state
-            .split_pane(&mut app.terminal_runtimes, Direction::Vertical),
-        CommandPaletteAction::ClosePane => {
-            app.state.close_pane();
-        }
+        CommandPaletteAction::PreviousTab => app.execute_tui_navigate_action(
+            super::navigate::NavigateAction::PreviousTab,
+            super::navigate::ActionContext::Navigate,
+        ),
+        CommandPaletteAction::NextTab => app.execute_tui_navigate_action(
+            super::navigate::NavigateAction::NextTab,
+            super::navigate::ActionContext::Navigate,
+        ),
+        CommandPaletteAction::CloseTab => app.execute_tui_navigate_action(
+            super::navigate::NavigateAction::CloseTab,
+            super::navigate::ActionContext::Navigate,
+        ),
+        CommandPaletteAction::SplitVertical => app.execute_tui_navigate_action(
+            super::navigate::NavigateAction::SplitVertical,
+            super::navigate::ActionContext::Navigate,
+        ),
+        CommandPaletteAction::SplitHorizontal => app.execute_tui_navigate_action(
+            super::navigate::NavigateAction::SplitHorizontal,
+            super::navigate::ActionContext::Navigate,
+        ),
+        CommandPaletteAction::ClosePane => app.execute_tui_navigate_action(
+            super::navigate::NavigateAction::ClosePane,
+            super::navigate::ActionContext::Navigate,
+        ),
         CommandPaletteAction::RenamePane => {
             if let Some(pane_id) = app
                 .state
@@ -636,7 +657,10 @@ pub(crate) fn execute_command_palette_action(app: &mut App, action: CommandPalet
                 return;
             }
         }
-        CommandPaletteAction::Fullscreen => app.state.toggle_zoom(),
+        CommandPaletteAction::Fullscreen => app.execute_tui_navigate_action(
+            super::navigate::NavigateAction::Zoom,
+            super::navigate::ActionContext::Navigate,
+        ),
         CommandPaletteAction::EditScrollback => {
             app.launch_focused_scrollback_editor();
             return;
@@ -645,9 +669,25 @@ pub(crate) fn execute_command_palette_action(app: &mut App, action: CommandPalet
             app.state.mode = Mode::Resize;
             return;
         }
-        CommandPaletteAction::FocusPane(direction) => app.state.navigate_pane(direction),
-        CommandPaletteAction::CyclePaneNext => app.state.cycle_pane(false),
-        CommandPaletteAction::CyclePanePrevious => app.state.cycle_pane(true),
+        CommandPaletteAction::FocusPane(direction) => {
+            let action = match direction {
+                crate::layout::NavDirection::Left => super::navigate::NavigateAction::FocusPaneLeft,
+                crate::layout::NavDirection::Down => super::navigate::NavigateAction::FocusPaneDown,
+                crate::layout::NavDirection::Up => super::navigate::NavigateAction::FocusPaneUp,
+                crate::layout::NavDirection::Right => {
+                    super::navigate::NavigateAction::FocusPaneRight
+                }
+            };
+            app.execute_tui_navigate_action(action, super::navigate::ActionContext::Navigate);
+        }
+        CommandPaletteAction::CyclePaneNext => app.execute_tui_navigate_action(
+            super::navigate::NavigateAction::CyclePaneNext,
+            super::navigate::ActionContext::Navigate,
+        ),
+        CommandPaletteAction::CyclePanePrevious => app.execute_tui_navigate_action(
+            super::navigate::NavigateAction::CyclePanePrevious,
+            super::navigate::ActionContext::Navigate,
+        ),
         CommandPaletteAction::OpenGroupMenu => {
             super::modal::open_group_menu(&mut app.state);
             return;

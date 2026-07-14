@@ -1,8 +1,9 @@
 use regex::Regex;
 
 use crate::api::schema::{
-    ErrorBody, ErrorResponse, Method, PaneAgentStatusChangedEvent, PaneOutputMatchedEvent, Request,
-    Subscription, SubscriptionEventData, SubscriptionEventEnvelope, SubscriptionEventKind,
+    ErrorBody, ErrorResponse, Method, PaneAgentStatusChangedEvent, PaneOutputMatchedEvent,
+    PaneScrollChangedEvent, PaneScrollInfo, Request, Subscription, SubscriptionEventData,
+    SubscriptionEventEnvelope, SubscriptionEventKind,
 };
 use crate::api::server::{dispatch_to_app_with_timeout, APP_RESPONSE_TIMEOUT};
 use crate::api::{ApiRequestSender, EventHub};
@@ -54,12 +55,19 @@ pub(super) struct ActiveAgentStatusChangedSubscription {
     request_prefix: String,
 }
 
+pub(super) struct ActiveScrollChangedSubscription {
+    pane_id: String,
+    last_scroll: Option<PaneScrollInfo>,
+    request_prefix: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PanePresentationSnapshot {
     title: Option<String>,
     display_agent: Option<String>,
     custom_status: Option<String>,
     state_labels: std::collections::HashMap<String, String>,
+    tokens: std::collections::HashMap<String, String>,
 }
 
 impl PanePresentationSnapshot {
@@ -69,6 +77,7 @@ impl PanePresentationSnapshot {
             display_agent: pane.display_agent.clone(),
             custom_status: pane.custom_status.clone(),
             state_labels: pane.state_labels.clone(),
+            tokens: pane.tokens.clone(),
         }
     }
 }
@@ -82,6 +91,7 @@ pub(super) enum ActiveSubscription {
     Event(ActiveEventSubscription),
     OutputMatched(ActiveOutputMatchedSubscription),
     AgentStatusChanged(ActiveAgentStatusChangedSubscription),
+    ScrollChanged(ActiveScrollChangedSubscription),
 }
 
 impl ActiveSubscription {
@@ -93,6 +103,10 @@ impl ActiveSubscription {
         _event_hub: &EventHub,
     ) -> Result<Self, ErrorResponse> {
         match subscription {
+            Subscription::LayoutUpdated {} => Ok(Self::Event(ActiveEventSubscription {
+                event_kind: crate::api::schema::EventKind::LayoutUpdated,
+                last_sequence: 0,
+            })),
             Subscription::WorkspaceCreated {} => Ok(Self::Event(ActiveEventSubscription {
                 event_kind: crate::api::schema::EventKind::WorkspaceCreated,
                 last_sequence: 0,
@@ -228,6 +242,14 @@ impl ActiveSubscription {
                     },
                 ))
             }
+            Subscription::PaneScrollChanged { pane_id } => {
+                let probe = pane_get(format!("{request_id}:sub:{index}:probe"), &pane_id, api_tx)?;
+                Ok(Self::ScrollChanged(ActiveScrollChangedSubscription {
+                    pane_id: probe.pane_id,
+                    last_scroll: probe.scroll,
+                    request_prefix: format!("{request_id}:sub:{index}"),
+                }))
+            }
         }
     }
 
@@ -242,6 +264,9 @@ impl ActiveSubscription {
                 serde_json::to_value(subscription.poll(api_tx)?).ok()
             }
             Self::AgentStatusChanged(subscription) => {
+                serde_json::to_value(subscription.poll(api_tx)?).ok()
+            }
+            Self::ScrollChanged(subscription) => {
                 serde_json::to_value(subscription.poll(api_tx)?).ok()
             }
         }
@@ -337,6 +362,40 @@ impl ActiveAgentStatusChangedSubscription {
                 display_agent: pane.display_agent,
                 custom_status: pane.custom_status,
                 state_labels: pane.state_labels,
+                tokens: pane.tokens,
+            }),
+        })
+    }
+}
+
+impl ActiveScrollChangedSubscription {
+    fn poll(&mut self, api_tx: &ApiRequestSender) -> Option<SubscriptionEventEnvelope> {
+        let pane = pane_get(
+            format!("{}:pane", self.request_prefix),
+            &self.pane_id,
+            api_tx,
+        )
+        .ok()?;
+        self.event_from_snapshot(pane)
+    }
+
+    fn event_from_snapshot(
+        &mut self,
+        pane: crate::api::schema::PaneInfo,
+    ) -> Option<SubscriptionEventEnvelope> {
+        let scroll = pane.scroll;
+        if self.last_scroll == scroll {
+            return None;
+        }
+        self.last_scroll = scroll;
+        let scroll = scroll?;
+
+        Some(SubscriptionEventEnvelope {
+            event: SubscriptionEventKind::ScrollChanged,
+            data: SubscriptionEventData::ScrollChanged(PaneScrollChangedEvent {
+                pane_id: pane.pane_id,
+                workspace_id: pane.workspace_id,
+                scroll,
             }),
         })
     }

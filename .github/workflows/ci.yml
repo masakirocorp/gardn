@@ -105,7 +105,7 @@ jobs:
         shell: pwsh
         run: |
           cargo build --locked --bin hako
-          ./scripts/smoke_windows_ci.ps1
+          .\scripts\smoke_windows_conpty_path.ps1 -ExePath (Join-Path $PWD "target\debug\hako.exe") -Session "ci-windows-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
 
       - name: Run Rust tests
         if: runner.os != 'Windows'

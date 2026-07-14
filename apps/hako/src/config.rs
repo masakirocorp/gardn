@@ -3,6 +3,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 mod io;
 mod keybinds;
 mod model;
+mod sidebar;
 mod sound;
 mod theme;
 
@@ -19,9 +20,13 @@ pub use self::{
     },
     model::{
         validated_sidebar_bounds, AgentPanelScopeConfig, Config, ConfigReloadReport,
-        ConfigReloadStatus, NewTerminalCwdConfig, ShellModeConfig, SidebarArrangementConfig,
-        ToastClipboardPosition, ToastConfig, ToastDelivery, ToastHakoPosition,
-        MAX_TOAST_DELAY_SECONDS,
+        ConfigReloadStatus, HostCursorModeConfig, NewTerminalCwdConfig, ShellModeConfig,
+        SidebarArrangementConfig, SidebarCollapsedModeConfig, ToastClipboardPosition, ToastConfig,
+        ToastDelivery, ToastHakoPosition, MAX_TOAST_DELAY_SECONDS,
+    },
+    sidebar::{
+        AgentSidebarToken, AgentsSidebarConfig, SidebarConfig, SpaceSidebarToken,
+        SpacesSidebarConfig,
     },
     sound::SoundConfig,
     theme::{parse_color, CustomThemeColors, TerminalAccent, ThemeConfig, ThemeMode},
@@ -101,8 +106,31 @@ impl Config {
         prefix_diag
             .into_iter()
             .chain(keybind_diags)
+            .chain(self.remote_image_paste_key().err())
             .chain(self.ui.sound.diagnostics())
+            .chain(self.invalid_sidebar_bounds_diagnostic())
             .collect()
+    }
+
+    pub(crate) fn invalid_sidebar_bounds_diagnostic(&self) -> Option<String> {
+        validated_sidebar_bounds(self.ui.sidebar_min_width, self.ui.sidebar_max_width)
+            .is_none()
+            .then(|| {
+                format!(
+                    "ui.sidebar_min_width ({}) is greater than sidebar_max_width ({})",
+                    self.ui.sidebar_min_width, self.ui.sidebar_max_width
+                )
+            })
+    }
+
+    pub(crate) fn remote_image_paste_key(&self) -> Result<Option<(KeyCode, KeyModifiers)>, String> {
+        let raw = self.keys.remote_image_paste.trim();
+        if raw.is_empty() {
+            return Ok(None);
+        }
+        parse_key_combo(raw).map(Some).ok_or_else(|| {
+            format!("invalid keybinding: keys.remote_image_paste = {raw:?}; disabling binding")
+        })
     }
 
     #[cfg(test)]
@@ -137,6 +165,29 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_image_paste_key_defaults_to_ctrl_v() {
+        let config = Config::default();
+        assert_eq!(
+            config.remote_image_paste_key().unwrap(),
+            Some((KeyCode::Char('v'), KeyModifiers::CONTROL))
+        );
+    }
+
+    #[test]
+    fn remote_image_paste_key_can_be_disabled() {
+        let config: Config = toml::from_str("[keys]\nremote_image_paste = ''\n").unwrap();
+        assert_eq!(config.remote_image_paste_key().unwrap(), None);
+    }
+
+    #[test]
+    fn remote_image_paste_key_invalid_value_reports_diagnostic() {
+        let config: Config =
+            toml::from_str("[keys]\nremote_image_paste = 'not+a+combo'\n").unwrap();
+        let diagnostic = config.remote_image_paste_key().unwrap_err();
+        assert!(diagnostic.contains("keys.remote_image_paste"));
+    }
 
     #[test]
     fn local_keybindings_profile_includes_defaults_and_excludes_commands() {
@@ -362,5 +413,16 @@ command = "echo one"
         assert!(switch_tab_labels.contains(&"ctrl+2".to_string()));
         assert!(switch_tab_labels.contains(&"ctrl+9".to_string()));
         assert_eq!(switch_tab_labels.len(), 8);
+    }
+    #[test]
+    fn ui_host_cursor_defaults_to_auto_and_parses_overrides() {
+        let default_config = Config::default();
+        assert_eq!(default_config.ui.host_cursor, HostCursorModeConfig::Auto);
+
+        let native: Config = toml::from_str("[ui]\nhost_cursor = 'native'\n").unwrap();
+        assert_eq!(native.ui.host_cursor, HostCursorModeConfig::Native);
+
+        let drawn: Config = toml::from_str("[ui]\nhost_cursor = 'drawn'\n").unwrap();
+        assert_eq!(drawn.ui.host_cursor, HostCursorModeConfig::Drawn);
     }
 }

@@ -729,6 +729,112 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
     }
 }
 
+impl crate::app::App {
+    pub(crate) fn handle_rename_key_via_runtime(&mut self, key: KeyEvent) {
+        let Some(action) = modal_action_from_key(&key, RENAME_ACTIONS) else {
+            handle_rename_key(&mut self.state, key);
+            return;
+        };
+        if action != ModalAction::Save {
+            apply_rename_action(&mut self.state, action);
+            return;
+        }
+
+        let new_name = self.state.name_input.trim().to_string();
+        match self.state.mode {
+            Mode::RenameWorkspace if !new_name.is_empty() => {
+                if let Some(workspace_id) = self
+                    .state
+                    .workspaces
+                    .get(self.state.selected)
+                    .map(|workspace| workspace.id.clone())
+                {
+                    self.dispatch_runtime_mutation(
+                        "tui.workspace.rename",
+                        crate::api::schema::Method::WorkspaceRename(
+                            crate::api::schema::WorkspaceRenameParams {
+                                workspace_id,
+                                label: new_name,
+                            },
+                        ),
+                    );
+                }
+            }
+            Mode::RenameTab if self.state.creating_new_tab => {
+                if let Some(workspace_id) = self
+                    .state
+                    .active
+                    .and_then(|idx| self.state.workspaces.get(idx))
+                    .map(|workspace| workspace.id.clone())
+                {
+                    self.dispatch_runtime_mutation(
+                        "tui.tab.create_named",
+                        crate::api::schema::Method::TabCreate(
+                            crate::api::schema::TabCreateParams {
+                                workspace_id: Some(workspace_id),
+                                cwd: None,
+                                focus: true,
+                                label: (!new_name.is_empty()).then_some(new_name),
+                                env: Default::default(),
+                            },
+                        ),
+                    );
+                }
+            }
+            Mode::RenameTab => {
+                if let Some(ws_idx) = self.state.active {
+                    let tab_idx = self.state.workspaces[ws_idx].active_tab_index();
+                    if let Some(tab_id) = self.public_tab_id(ws_idx, tab_idx) {
+                        if !new_name.is_empty() {
+                            self.dispatch_runtime_mutation(
+                                "tui.tab.rename",
+                                crate::api::schema::Method::TabRename(
+                                    crate::api::schema::TabRenameParams {
+                                        tab_id,
+                                        label: new_name,
+                                    },
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+            Mode::RenamePane => {
+                if let (Some(ws_idx), Some(pane_id)) =
+                    (self.state.active, self.state.rename_pane_target)
+                {
+                    if let Some(pane_id) = self.public_pane_id(ws_idx, pane_id) {
+                        self.runtime_pane_rename(
+                            "tui.pane.rename",
+                            crate::api::schema::PaneRenameParams {
+                                pane_id,
+                                label: Some(new_name),
+                            },
+                        );
+                    }
+                }
+            }
+            Mode::RenameGroup => {
+                apply_rename_action(&mut self.state, action);
+                return;
+            }
+            _ => {}
+        }
+
+        self.state.creating_new_tab = false;
+        self.state.creating_new_group = false;
+        self.state.group_icon_picker_open = false;
+        self.state.group_default_directory_input.clear();
+        self.state.group_modal_selected_field = 0;
+        self.state.rename_group_target = None;
+        self.state.rename_pane_target = None;
+        self.state.requested_new_tab_name = None;
+        self.state.name_input.clear();
+        self.state.name_input_replace_on_type = false;
+        leave_modal(&mut self.state);
+    }
+}
+
 pub(super) fn apply_worktree_directory_action(
     state: &mut AppState,
     action: ModalAction,

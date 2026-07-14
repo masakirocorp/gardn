@@ -17,7 +17,8 @@ use crate::api::subscriptions::ActiveSubscription;
 use crate::api::wait::wait_for_output;
 use crate::api::{request_changes_ui, socket_path, ApiRequestMessage, ApiRequestSender, EventHub};
 use crate::ipc::{
-    bind_local_listener, remove_socket_file_if_owned, socket_file_identity, LocalStream,
+    bind_local_listener, poll_local_stream_read, remove_socket_file_if_owned,
+    set_local_stream_polling, socket_file_identity, LocalStream, LocalStreamRead,
     SocketFileIdentity,
 };
 
@@ -281,6 +282,7 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::NotificationShow(_) => "notification.show",
         Method::ClientWindowTitleSet(_) => "client.window_title.set",
         Method::ClientWindowTitleClear(_) => "client.window_title.clear",
+        Method::SessionSnapshot(_) => "session.snapshot",
         Method::WorkspaceCreate(_) => "workspace.create",
         Method::WorkspaceList(_) => "workspace.list",
         Method::WorkspaceGet(_) => "workspace.get",
@@ -311,6 +313,7 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::AgentRename(_) => "agent.rename",
         Method::AgentFocus(_) => "agent.focus",
         Method::AgentStart(_) => "agent.start",
+        Method::PaneFocus(_) => "pane.focus",
         Method::PaneSplit(_) => "pane.split",
         Method::PaneSwap(_) => "pane.swap",
         Method::PaneMove(_) => "pane.move",
@@ -373,49 +376,59 @@ fn api_response_outcome(response: &str) -> &'static str {
 }
 
 fn read_initial_request_line(stream: &mut LocalStream) -> std::io::Result<Option<String>> {
-    stream.set_nonblocking(true)?;
-    let deadline = Instant::now() + INITIAL_REQUEST_TIMEOUT;
+    read_initial_request_line_with_timeout(stream, INITIAL_REQUEST_TIMEOUT)
+}
+
+fn read_initial_request_line_with_timeout(
+    stream: &mut LocalStream,
+    timeout: Duration,
+) -> std::io::Result<Option<String>> {
+    read_initial_request_line_with_limits(stream, timeout, MAX_INITIAL_REQUEST_BYTES)
+}
+
+fn read_initial_request_line_with_limits(
+    stream: &mut LocalStream,
+    timeout: Duration,
+    max_bytes: usize,
+) -> std::io::Result<Option<String>> {
+    set_local_stream_polling(stream, true)?;
+    let deadline = Instant::now() + timeout;
     let mut bytes = Vec::new();
     let mut byte = [0u8; 1];
-
-    loop {
-        match stream.read(&mut byte) {
-            Ok(0) => {
-                stream.set_nonblocking(false)?;
-                return Ok(None);
-            }
-            Ok(_) => {
+    let result = loop {
+        let read = match poll_local_stream_read(stream, &mut byte) {
+            Ok(read) => read,
+            Err(err) => break Err(err),
+        };
+        match read {
+            LocalStreamRead::Closed => break Ok(None),
+            LocalStreamRead::Data => {
                 bytes.push(byte[0]);
                 if byte[0] == b'\n' {
-                    stream.set_nonblocking(false)?;
-                    return String::from_utf8(bytes)
+                    break String::from_utf8(bytes)
                         .map(Some)
                         .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err));
                 }
-                if bytes.len() > MAX_INITIAL_REQUEST_BYTES {
-                    stream.set_nonblocking(false)?;
-                    return Err(io::Error::new(
+                if bytes.len() > max_bytes {
+                    break Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         "api request line is too large",
                     ));
                 }
             }
-            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+            LocalStreamRead::Pending => {
                 if Instant::now() >= deadline {
-                    stream.set_nonblocking(false)?;
-                    return Err(io::Error::new(
+                    break Err(io::Error::new(
                         io::ErrorKind::TimedOut,
                         "timed out reading api request",
                     ));
                 }
                 std::thread::sleep(CONNECTION_POLL_INTERVAL);
             }
-            Err(err) => {
-                stream.set_nonblocking(false)?;
-                return Err(err);
-            }
         }
-    }
+    };
+    set_local_stream_polling(stream, false)?;
+    result
 }
 
 fn stream_subscriptions(
@@ -663,6 +676,30 @@ mod tests {
         let client = crate::ipc::connect_local_stream(&path).unwrap();
         let server = listener.accept().unwrap();
         (client, server, path)
+    }
+
+    #[test]
+    fn initial_request_reader_waits_for_newline_after_partial_data() {
+        let (mut client, mut server, path) = local_stream_pair("api-initial-partial");
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let reader_thread = std::thread::spawn(move || {
+            done_tx.send(read_initial_request_line_with_timeout(
+                &mut server,
+                Duration::from_secs(1),
+            ))
+        });
+        client
+            .write_all(br#"{"id":"partial","method":"ping","params":{}}"#)
+            .unwrap();
+        client.flush().unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(done_rx.try_recv().is_err());
+        client.write_all(b"\n").unwrap();
+        client.flush().unwrap();
+        let line = done_rx.recv().unwrap().unwrap().unwrap();
+        reader_thread.join().unwrap().unwrap();
+        assert!(line.ends_with('\n'));
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

@@ -1,6 +1,14 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::{App, SESSION_SAVE_DEBOUNCE};
+
+enum SessionSaveJob {
+    Clear,
+    Save {
+        snapshot: Box<crate::persist::SessionSnapshot>,
+        history: Option<crate::persist::SessionHistorySnapshot>,
+    },
+}
 
 impl App {
     pub(super) fn schedule_session_save(&mut self) {
@@ -16,14 +24,20 @@ impl App {
         }
     }
 
-    pub(crate) fn save_session_now(&mut self) {
-        if self.no_session {
-            self.session_save_deadline = None;
-            return;
+    fn reap_finished_session_save(&mut self) {
+        if self
+            .session_save_thread
+            .as_ref()
+            .is_some_and(std::thread::JoinHandle::is_finished)
+        {
+            if let Some(thread) = self.session_save_thread.take() {
+                let _ = thread.join();
+            }
         }
+    }
 
+    fn capture_session_save_job(&self) -> SessionSaveJob {
         let default_view = self.default_client_view.clone_reconciled(&self.state);
-
         let has_only_default_group = self.state.groups.len() == 1
             && default_view.active_group == 0
             && self.state.groups[0].id == crate::workspace::DEFAULT_GROUP_ID
@@ -32,9 +46,9 @@ impl App {
             && has_only_default_group
             && self.state.has_default_sidebar_state(&default_view)
         {
-            crate::persist::clear();
+            SessionSaveJob::Clear
         } else {
-            let mut snap = crate::persist::capture(
+            let mut snapshot = crate::persist::capture(
                 &self.state.groups,
                 default_view.active_group,
                 default_view.group_filter_enabled,
@@ -50,7 +64,7 @@ impl App {
                 self.state.right_sidebar_width,
                 default_view.right_sidebar_collapsed,
             );
-            snap.default_view.ui = crate::persist::SessionUiSnapshot {
+            snapshot.default_view.ui = crate::persist::SessionUiSnapshot {
                 workspace_scroll: default_view.workspace_scroll,
                 agent_panel_scroll: default_view.agent_panel_scroll,
                 tab_scroll: default_view.tab_scroll,
@@ -65,14 +79,64 @@ impl App {
                     .clone(),
                 collapsed_workspace_groups: default_view.collapsed_workspace_groups.clone(),
             };
-            snap.ui = snap.default_view.ui.clone();
+            snapshot.ui = snapshot.default_view.ui.clone();
             let history = self.persist_pane_history.then(|| {
                 crate::persist::capture_history(&self.state.workspaces, &self.terminal_runtimes)
             });
-            crate::persist::save(&snap, history.as_ref());
+            SessionSaveJob::Save {
+                snapshot: Box::new(snapshot),
+                history,
+            }
+        }
+    }
+
+    pub(crate) fn start_background_session_save(&mut self) {
+        if self.no_session {
+            self.session_save_deadline = None;
+            return;
         }
 
+        self.reap_finished_session_save();
+        if self.session_save_thread.is_some() {
+            self.session_save_deadline = Some(Instant::now() + Duration::from_millis(250));
+            return;
+        }
+
+        let job = self.capture_session_save_job();
         self.session_save_deadline = None;
+        match std::thread::Builder::new()
+            .name("hako-session-save".into())
+            .spawn(move || run_session_save_job(job))
+        {
+            Ok(thread) => self.session_save_thread = Some(thread),
+            Err(err) => {
+                tracing::warn!(err = %err, "failed to spawn session save thread; saving inline");
+                run_session_save_job(self.capture_session_save_job());
+            }
+        }
+    }
+
+    pub(crate) fn save_session_now(&mut self) {
+        if let Some(thread) = self.session_save_thread.take() {
+            let _ = thread.join();
+        }
+
+        if self.no_session {
+            self.session_save_deadline = None;
+            return;
+        }
+
+        run_session_save_job(self.capture_session_save_job());
+        self.session_save_deadline = None;
+    }
+}
+
+fn run_session_save_job(job: SessionSaveJob) {
+    match job {
+        SessionSaveJob::Clear => crate::persist::clear(),
+        SessionSaveJob::Save { snapshot, history } => {
+            crate::persist::save(&snapshot, history.as_ref());
+        }
     }
 }
 

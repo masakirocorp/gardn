@@ -91,3 +91,43 @@ pub(super) fn normalize_custom_status(status: Option<String>) -> Option<String> 
     }
     (!normalized.trim().is_empty()).then(|| normalized.trim().to_string())
 }
+pub(super) const MAX_METADATA_TOKEN_KEYS_PER_RESOURCE: usize = 32;
+const MAX_METADATA_TOKEN_KEYS_PER_REQUEST: usize = 16;
+const MAX_METADATA_TOKEN_KEY_LEN: usize = 32;
+const MAX_METADATA_TOKEN_VALUE_LEN: usize = 80;
+
+pub(super) fn normalize_metadata_tokens(
+    tokens: std::collections::HashMap<String, Option<String>>,
+) -> Result<std::collections::HashMap<String, Option<String>>, String> {
+    if tokens.is_empty() {
+        return Err("missing token to set or clear".into());
+    }
+    if tokens.len() > MAX_METADATA_TOKEN_KEYS_PER_REQUEST {
+        return Err(format!(
+            "a metadata report may update at most {MAX_METADATA_TOKEN_KEYS_PER_REQUEST} tokens"
+        ));
+    }
+    tokens
+        .into_iter()
+        .map(|(key, value)| {
+            if key.is_empty()
+                || key.len() > MAX_METADATA_TOKEN_KEY_LEN
+                || !key
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+            {
+                return Err(format!("invalid metadata token key: {key}"));
+            }
+            let value = value.and_then(|value| {
+                let normalized = value
+                    .trim()
+                    .chars()
+                    .filter(|ch| !ch.is_control())
+                    .take(MAX_METADATA_TOKEN_VALUE_LEN)
+                    .collect::<String>();
+                (!normalized.trim().is_empty()).then(|| normalized.trim().to_string())
+            });
+            Ok((key, value))
+        })
+        .collect()
+}

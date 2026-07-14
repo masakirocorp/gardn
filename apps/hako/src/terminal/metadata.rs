@@ -14,6 +14,7 @@ pub struct AgentMetadata {
     pub display_agent: Option<String>,
     pub custom_status: Option<String>,
     pub state_labels: HashMap<String, String>,
+    pub tokens: crate::metadata_tokens::MetadataTokens,
     pub reported_at: Instant,
     title_reported_at: Option<Instant>,
     display_agent_reported_at: Option<Instant>,
@@ -32,6 +33,7 @@ pub struct AgentMetadataReport {
     pub display_agent: Option<String>,
     pub custom_status: Option<String>,
     pub state_labels: HashMap<String, String>,
+    pub tokens: HashMap<String, Option<String>>,
     pub clear_title: bool,
     pub clear_display_agent: bool,
     pub clear_custom_status: bool,
@@ -46,6 +48,7 @@ pub struct EffectivePresentation {
     pub display_agent: Option<String>,
     pub custom_status: Option<String>,
     pub state_labels: HashMap<String, String>,
+    pub tokens: HashMap<String, String>,
 }
 
 impl EffectivePresentation {
@@ -55,6 +58,7 @@ impl EffectivePresentation {
             display_agent: None,
             custom_status: None,
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
         }
     }
 }
@@ -78,6 +82,17 @@ impl TerminalState {
         true
     }
 
+    pub(crate) fn metadata_token_count_after_patch(
+        &self,
+        source: &str,
+        patch: &HashMap<String, Option<String>>,
+    ) -> usize {
+        self.agent_metadata.get(source).map_or_else(
+            || patch.values().filter(|value| value.is_some()).count(),
+            |metadata| metadata.tokens.key_count_after_patch(patch),
+        )
+    }
+
     pub fn set_agent_metadata(
         &mut self,
         report: AgentMetadataReport,
@@ -94,6 +109,9 @@ impl TerminalState {
         {
             self.agent_metadata.remove(&report.source);
         }
+        if let Some(metadata) = self.agent_metadata.get_mut(&report.source) {
+            metadata.tokens.expire_at(now);
+        }
         let previous_agent_label = self.effective_agent_label().map(str::to_string);
         let previous_known_agent = self.effective_known_agent();
         let previous_state = self.state;
@@ -101,6 +119,7 @@ impl TerminalState {
         let has_set_fields = report.title.is_some()
             || report.display_agent.is_some()
             || report.custom_status.is_some()
+            || !report.tokens.is_empty()
             || !report.state_labels.is_empty();
 
         let report_source = report.source.clone();
@@ -110,6 +129,7 @@ impl TerminalState {
             || report.clear_display_agent
             || report.clear_custom_status
             || report.clear_state_labels
+            || !report.tokens.is_empty()
         {
             let metadata = self
                 .agent_metadata
@@ -122,6 +142,7 @@ impl TerminalState {
                     display_agent: None,
                     custom_status: None,
                     state_labels: HashMap::new(),
+                    tokens: crate::metadata_tokens::MetadataTokens::default(),
                     reported_at: now,
                     title_reported_at: None,
                     display_agent_reported_at: None,
@@ -168,6 +189,7 @@ impl TerminalState {
                 metadata.state_labels.insert(state.clone(), label);
                 metadata.state_label_reported_at.insert(state, now);
             }
+            let _tokens_changed = metadata.tokens.patch(report.tokens, report.ttl, now);
             if has_set_fields || report.ttl.is_some() {
                 metadata.reported_at = now;
                 metadata.ttl = report.ttl;
@@ -192,6 +214,7 @@ impl TerminalState {
                     display_agent: report.display_agent,
                     custom_status: report.custom_status,
                     state_labels: report.state_labels,
+                    tokens: crate::metadata_tokens::MetadataTokens::default(),
                     reported_at: now,
                     title_reported_at,
                     display_agent_reported_at,
@@ -289,6 +312,7 @@ impl TerminalState {
                     display_agent: metadata.display_agent.clone(),
                     custom_status: metadata.custom_status.clone(),
                     state_labels: metadata.state_labels.clone(),
+                    tokens: metadata.tokens.values(),
                     ttl_remaining_ms,
                 }
             })
@@ -326,6 +350,19 @@ impl TerminalState {
                     display_agent: snapshot.display_agent,
                     custom_status: snapshot.custom_status,
                     state_labels: snapshot.state_labels,
+                    tokens: {
+                        let mut tokens = crate::metadata_tokens::MetadataTokens::default();
+                        tokens.patch(
+                            snapshot
+                                .tokens
+                                .into_iter()
+                                .map(|(key, value)| (key, Some(value)))
+                                .collect(),
+                            ttl,
+                            now,
+                        );
+                        tokens
+                    },
                     reported_at: now,
                     title_reported_at,
                     display_agent_reported_at,
@@ -340,52 +377,60 @@ impl TerminalState {
 
     pub fn expire_agent_metadata_at(
         &mut self,
-        scheduled_deadline: Instant,
+        _scheduled_deadline: Instant,
         now: Instant,
     ) -> Option<TerminalStateMutation> {
-        let (expired_sources, stale_sources): (Vec<_>, Vec<_>) = self
+        let mut expired_sources: Vec<_> = self
             .agent_metadata
             .iter()
-            .filter_map(|(source, metadata)| {
-                let deadline = self.agent_metadata_expiry(metadata)?;
-                (deadline <= now).then_some((source.clone(), deadline))
+            .filter(|(_, metadata)| {
+                self.agent_metadata_expiry(metadata)
+                    .is_some_and(|deadline| deadline <= now)
             })
-            .partition(|(_, deadline)| *deadline >= scheduled_deadline);
-        let expired_sources: Vec<_> = expired_sources
-            .into_iter()
-            .map(|(source, _)| source)
+            .map(|(source, metadata)| (source.clone(), metadata.expiry_event_pending))
             .collect();
-        let stale_sources: Vec<_> = stale_sources
-            .into_iter()
-            .map(|(source, _)| source)
-            .collect();
-        for source in stale_sources {
-            self.agent_metadata.remove(&source);
+        for (source, _) in expired_sources.iter().filter(|(_, pending)| !pending) {
+            let record_expired = self.agent_metadata.get(source).is_some_and(|metadata| {
+                self.agent_metadata_record_expiry(metadata)
+                    .is_some_and(|deadline| deadline <= now)
+            });
+            if record_expired {
+                self.agent_metadata.remove(source);
+            } else if let Some(metadata) = self.agent_metadata.get_mut(source) {
+                metadata.tokens.expire_at(now);
+            }
         }
+        expired_sources.retain(|(_, pending)| *pending);
         if expired_sources.is_empty() {
             return None;
         }
-
         let previous_agent_label = self.effective_agent_label().map(str::to_string);
         let previous_known_agent = self.effective_known_agent();
         let previous_state = self.state;
         let previous_presentation =
             self.effective_presentation_for_state_at_ignoring_ttl(previous_state, now);
-        for source in expired_sources {
-            if let Some(metadata) = self.agent_metadata.get_mut(&source) {
+        for (source, _) in expired_sources {
+            let record_expired = self.agent_metadata.get(&source).is_some_and(|metadata| {
+                self.agent_metadata_record_expiry(metadata)
+                    .is_some_and(|deadline| deadline <= now)
+            });
+            if record_expired {
+                self.agent_metadata.remove(&source);
+            } else if let Some(metadata) = self.agent_metadata.get_mut(&source) {
+                metadata.tokens.expire_at(now);
                 metadata.expiry_event_pending = false;
             }
-            self.agent_metadata.remove(&source);
         }
 
-        Some(TerminalStateMutation {
-            effective_state_change: self.recompute_effective_state(
-                previous_agent_label,
-                previous_known_agent,
-                previous_state,
-                previous_presentation,
-                now,
-            ),
+        self.recompute_effective_state(
+            previous_agent_label,
+            previous_known_agent,
+            previous_state,
+            previous_presentation,
+            now,
+        )
+        .map(|effective_state_change| TerminalStateMutation {
+            effective_state_change: Some(effective_state_change),
             session_ref_changed: false,
         })
     }
@@ -416,6 +461,7 @@ impl TerminalState {
         presentation.title = self.newest_metadata_title(now, enforce_ttl);
         presentation.display_agent = self.newest_metadata_display_agent(now, enforce_ttl);
         presentation.state_labels = self.effective_metadata_state_labels(now, enforce_ttl);
+        presentation.tokens = self.effective_metadata_tokens(now, enforce_ttl);
         presentation.custom_status =
             self.effective_custom_status_for_state_at_with_ttl(state, now, enforce_ttl);
         presentation
@@ -498,6 +544,22 @@ impl TerminalState {
             .collect()
     }
 
+    fn effective_metadata_tokens(
+        &self,
+        now: Instant,
+        enforce_ttl: bool,
+    ) -> HashMap<String, String> {
+        let mut metadata: Vec<_> = self.valid_agent_metadata(now, enforce_ttl).collect();
+        metadata.sort_by_key(|metadata| metadata.reported_at);
+        metadata
+            .into_iter()
+            .flat_map(|metadata| metadata.tokens.values())
+            .fold(HashMap::new(), |mut tokens, (key, value)| {
+                tokens.insert(key, value);
+                tokens
+            })
+    }
+
     pub(super) fn agent_metadata_is_valid(
         &self,
         metadata: &AgentMetadata,
@@ -508,6 +570,7 @@ impl TerminalState {
             && metadata.display_agent.is_none()
             && metadata.custom_status.is_none()
             && metadata.state_labels.is_empty()
+            && metadata.tokens.values().is_empty()
         {
             return false;
         }
@@ -516,12 +579,12 @@ impl TerminalState {
         }
         self.agent_metadata_matches_guards(metadata)
     }
-
     fn agent_metadata_is_visible_ignoring_ttl(&self, metadata: &AgentMetadata) -> bool {
         (metadata.title.is_some()
             || metadata.display_agent.is_some()
             || metadata.custom_status.is_some()
-            || !metadata.state_labels.is_empty())
+            || !metadata.state_labels.is_empty()
+            || !metadata.tokens.values().is_empty())
             && self.agent_metadata_matches_guards(metadata)
     }
 
@@ -543,11 +606,21 @@ impl TerminalState {
     }
 
     fn agent_metadata_is_expired(&self, metadata: &AgentMetadata, now: Instant) -> bool {
-        self.agent_metadata_expiry(metadata)
+        self.agent_metadata_record_expiry(metadata)
             .is_some_and(|deadline| now >= deadline)
     }
 
     fn agent_metadata_expiry(&self, metadata: &AgentMetadata) -> Option<Instant> {
+        [
+            self.agent_metadata_record_expiry(metadata),
+            metadata.tokens.next_expiry(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+    }
+
+    fn agent_metadata_record_expiry(&self, metadata: &AgentMetadata) -> Option<Instant> {
         metadata.ttl.map(|ttl| {
             metadata
                 .reported_at
@@ -603,6 +676,7 @@ mod tests {
             display_agent: None,
             custom_status: custom_status.map(str::to_string),
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status,
@@ -721,6 +795,7 @@ mod tests {
             display_agent: Some("Claude: auth".into()),
             custom_status: Some("middleware".into()),
             state_labels: HashMap::from([("working".into(), "deep in the mines".into())]),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -755,6 +830,7 @@ mod tests {
             display_agent: None,
             custom_status: None,
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -822,6 +898,7 @@ mod tests {
             display_agent: None,
             custom_status: None,
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -837,6 +914,7 @@ mod tests {
             display_agent: None,
             custom_status: Some("activity".into()),
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -868,6 +946,7 @@ mod tests {
             display_agent: Some("First display".into()),
             custom_status: Some("old".into()),
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -883,6 +962,7 @@ mod tests {
             display_agent: None,
             custom_status: Some("new".into()),
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -898,6 +978,7 @@ mod tests {
             display_agent: None,
             custom_status: None,
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: true,
             clear_custom_status: false,
@@ -931,6 +1012,7 @@ mod tests {
             display_agent: None,
             custom_status: Some("activity".into()),
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: true,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -963,6 +1045,7 @@ mod tests {
             display_agent: None,
             custom_status: Some("old".into()),
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -980,6 +1063,7 @@ mod tests {
             display_agent: None,
             custom_status: Some("fresh".into()),
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: true,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -1017,6 +1101,7 @@ mod tests {
             display_agent: None,
             custom_status: Some("old".into()),
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -1034,6 +1119,7 @@ mod tests {
             display_agent: None,
             custom_status: None,
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: true,
@@ -1074,6 +1160,7 @@ mod tests {
             display_agent: None,
             custom_status: Some("activity".into()),
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -1116,6 +1203,7 @@ mod tests {
             display_agent: None,
             custom_status: Some("stale".into()),
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -1166,6 +1254,7 @@ mod tests {
             display_agent: None,
             custom_status: None,
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -1182,6 +1271,7 @@ mod tests {
             display_agent: Some("Second".into()),
             custom_status: None,
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -1227,6 +1317,7 @@ mod tests {
             display_agent: None,
             custom_status: Some("instant".into()),
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -1269,6 +1360,7 @@ mod tests {
             display_agent: None,
             custom_status: Some("instant".into()),
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -1315,6 +1407,7 @@ mod tests {
             display_agent: None,
             custom_status: None,
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -1332,6 +1425,7 @@ mod tests {
             display_agent: Some("Fresh display".into()),
             custom_status: None,
             state_labels: HashMap::new(),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: true,
@@ -1350,5 +1444,51 @@ mod tests {
         let presentation = terminal.effective_presentation();
         assert_eq!(presentation.title, None);
         assert_eq!(presentation.display_agent.as_deref(), Some("Fresh display"));
+    }
+
+    #[test]
+    fn token_ttl_expires_only_tokens_from_that_patch() {
+        let mut terminal = test_terminal();
+        terminal.set_agent_metadata(AgentMetadataReport {
+            source: "user:status".into(),
+            agent_label: None,
+            applies_to_source: None,
+            title: None,
+            display_agent: None,
+            custom_status: None,
+            state_labels: HashMap::new(),
+            tokens: HashMap::from([("temporary".into(), Some("one".into()))]),
+            clear_title: false,
+            clear_display_agent: false,
+            clear_custom_status: false,
+            clear_state_labels: false,
+            ttl: Some(Duration::from_secs(1)),
+            seq: None,
+        });
+        terminal.set_agent_metadata(AgentMetadataReport {
+            source: "user:status".into(),
+            agent_label: None,
+            applies_to_source: None,
+            title: None,
+            display_agent: None,
+            custom_status: None,
+            state_labels: HashMap::new(),
+            tokens: HashMap::from([("persistent".into(), Some("two".into()))]),
+            clear_title: false,
+            clear_display_agent: false,
+            clear_custom_status: false,
+            clear_state_labels: false,
+            ttl: None,
+            seq: None,
+        });
+
+        let deadline = terminal.next_agent_metadata_expiry().unwrap();
+        terminal.expire_agent_metadata_at(deadline, deadline);
+
+        assert_eq!(
+            terminal.effective_presentation().tokens,
+            HashMap::from([("persistent".into(), "two".into())])
+        );
+        assert_eq!(terminal.next_agent_metadata_expiry(), None);
     }
 }

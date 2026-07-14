@@ -3,7 +3,7 @@
 # managed by hako; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HAKO_INTEGRATION_ID=claude
-# HAKO_INTEGRATION_VERSION=2
+# HAKO_INTEGRATION_VERSION=3
 
 set -eu
 
@@ -81,6 +81,15 @@ if action == "idle" and notification_type and notification_type != "idle_prompt"
 
 session_id = first_text("session_id", "sessionId")
 agent_session_id = session_id if session_id else None
+transcript_path = first_text("transcript_path", "transcriptPath")
+agent_session_path = transcript_path if transcript_path else None
+session_start_source = (
+    first_text("source", "session_start_source")
+    if hook_event_name == "SessionStart"
+    else None
+)
+if session_start_source not in ("startup", "resume", "clear", "compact"):
+    session_start_source = None
 launch_env = {
     key: value
     for key in ("CLAUDE_CONFIG_DIR",)
@@ -104,6 +113,10 @@ if action == "session":
             "launch_env": launch_env,
         },
     }
+    if agent_session_path:
+        request["params"]["agent_session_path"] = agent_session_path
+    if session_start_source:
+        request["params"]["session_start_source"] = session_start_source
 elif action == "release":
     request = {
         "id": request_id,
@@ -117,6 +130,8 @@ elif action == "release":
     }
     if agent_session_id:
         request["params"]["agent_session_id"] = agent_session_id
+    if agent_session_path:
+        request["params"]["agent_session_path"] = agent_session_path
 else:
     request = {
         "id": request_id,
@@ -132,7 +147,8 @@ else:
     }
     if agent_session_id:
         request["params"]["agent_session_id"] = agent_session_id
-
+    if agent_session_path:
+        request["params"]["agent_session_path"] = agent_session_path
 try:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.settimeout(0.5)

@@ -13,15 +13,15 @@ pub(crate) const HAKO_PANE_ID_ENV_VAR: &str = "HAKO_PANE_ID";
 const LEGACY_PI_OMP_EXTENSION_INSTALL_NAME: &str = "hako-agent-state.ts";
 const PI_EXTENSION_INSTALL_NAME: &str = "hako-pi-agent-state.ts";
 const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/hako-agent-state.ts");
-const PI_INTEGRATION_VERSION: u32 = 4;
+const PI_INTEGRATION_VERSION: u32 = 5;
 const OMP_EXTENSION_INSTALL_NAME: &str = "hako-omp-agent-state.ts";
 const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/hako-agent-state.ts");
-const OMP_INTEGRATION_VERSION: u32 = 4;
+const OMP_INTEGRATION_VERSION: u32 = 5;
 const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
 const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
 const CLAUDE_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const CLAUDE_HOOK_ASSET: &str = include_str!("assets/claude/hako-agent-state.sh");
-const CLAUDE_INTEGRATION_VERSION: u32 = 2;
+const CLAUDE_INTEGRATION_VERSION: u32 = 3;
 const CLAUDE_CONFIG_DIR_ENV_VAR: &str = "CLAUDE_CONFIG_DIR";
 const CLAUDE_HOOK_EVENTS: [(&str, &str, Option<&str>); 13] = [
     ("SessionStart", "session", Some("*")),
@@ -82,7 +82,7 @@ const COPILOT_INTEGRATION_VERSION: u32 = 1;
 const COPILOT_HOME_ENV_VAR: &str = "COPILOT_HOME";
 const DEVIN_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const DEVIN_HOOK_ASSET: &str = include_str!("assets/devin/hako-agent-state.sh");
-const DEVIN_INTEGRATION_VERSION: u32 = 1;
+const DEVIN_INTEGRATION_VERSION: u32 = 2;
 const DEVIN_CONFIG_DIR_ENV_VAR: &str = "DEVIN_CONFIG_DIR";
 const DEVIN_HOOK_EVENTS: [(&str, &str); 6] = [
     ("SessionStart", "session"),
@@ -3841,7 +3841,7 @@ mod tests {
 
         assert_eq!(path, ext_dir.join(PI_EXTENSION_INSTALL_NAME));
         assert_eq!(content, PI_EXTENSION_ASSET);
-        assert!(content.contains("HAKO_INTEGRATION_VERSION=4"));
+        assert!(content.contains("HAKO_INTEGRATION_VERSION=5"));
         assert!(content.contains("Math.max(reportSeq + 1, Date.now() * 1000)"));
 
         let _ = fs::remove_dir_all(base);
@@ -3900,7 +3900,7 @@ mod tests {
         assert!(installed.removed_legacy_pi_extensions.is_empty());
         assert_eq!(content, OMP_EXTENSION_ASSET);
         assert!(content.contains("HAKO_INTEGRATION_ID=omp"));
-        assert!(content.contains("HAKO_INTEGRATION_VERSION=4"));
+        assert!(content.contains("HAKO_INTEGRATION_VERSION=5"));
         assert!(content.contains("agent: \"omp\""));
         assert!(!content.contains("agent: \"pi\""));
 
@@ -4546,6 +4546,35 @@ mod tests {
         assert_eq!(codex.installed_version, Some(1));
         assert_eq!(codex.expected_version, CODEX_INTEGRATION_VERSION);
         assert_eq!(codex.state, IntegrationStatusKind::Outdated);
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn devin_v1_integration_status_is_outdated_after_python39_hook_update() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let devin_dir = base.join("devin");
+        fs::create_dir_all(&devin_dir).unwrap();
+        let hook_path = devin_dir.join(DEVIN_HOOK_INSTALL_NAME);
+        fs::write(
+            &hook_path,
+            "#!/bin/sh\n# HAKO_INTEGRATION_ID=devin\n# HAKO_INTEGRATION_VERSION=1\n",
+        )
+        .unwrap();
+        let _devin_config_dir_env = TestEnvVar::set(DEVIN_CONFIG_DIR_ENV_VAR, &devin_dir);
+
+        let statuses = installed_integration_statuses();
+        let devin = statuses
+            .iter()
+            .find(|status| status.target == crate::api::schema::IntegrationTarget::Devin)
+            .unwrap();
+
+        assert_eq!(devin.path, hook_path);
+        assert_eq!(devin.installed_version, Some(1));
+        assert_eq!(devin.expected_version, DEVIN_INTEGRATION_VERSION);
+        assert_eq!(devin.state, IntegrationStatusKind::Outdated);
 
         let _ = fs::remove_dir_all(base);
     }
@@ -5669,6 +5698,19 @@ model: auto
         assert!(OMP_EXTENSION_ASSET.contains("event?.toolName === \"ask\""));
         assert!(OMP_EXTENSION_ASSET.contains("tool_execution_start"));
         assert!(OMP_EXTENSION_ASSET.contains("tool_execution_end"));
+        assert!(PI_EXTENSION_ASSET.contains("function sendRequestAttempt"));
+        assert!(PI_EXTENSION_ASSET.contains("await sendRequestAttempt(request, 1500)"));
+        assert!(PI_EXTENSION_ASSET.contains("event?.reason === \"quit\""));
+        assert!(PI_EXTENSION_ASSET.contains("let rootSession = false"));
+        assert!(OMP_EXTENSION_ASSET.contains("let requestQueue = Promise.resolve()"));
+        assert!(OMP_EXTENSION_ASSET
+            .contains("function reportSession(sessionStartSource = \"startup\")"));
+        assert!(OMP_EXTENSION_ASSET.contains("let rootSession = false"));
+        assert!(OMP_EXTENSION_ASSET.contains("pi.on(\"session_switch\""));
+        assert!(OMP_EXTENSION_ASSET.contains("tool_approval_requested"));
+        assert!(OMP_EXTENSION_ASSET.contains("event?.reason === \"quit\""));
+        assert!(CLAUDE_HOOK_ASSET.contains("agent_session_path"));
+        assert!(CLAUDE_HOOK_ASSET.contains("session_start_source"));
         let stale_session_ref_freeze = "if (currentAgentSessionPath || currentAgentSessionId)";
         assert!(
             !PI_EXTENSION_ASSET.contains(stale_session_ref_freeze),

@@ -86,6 +86,7 @@ pub const GhosttyResult_GHOSTTY_OUT_OF_MEMORY: GhosttyResult = -1;
 pub const GhosttyResult_GHOSTTY_INVALID_VALUE: GhosttyResult = -2;
 #[doc = " Operation failed because the provided buffer was too small"]
 pub const GhosttyResult_GHOSTTY_OUT_OF_SPACE: GhosttyResult = -3;
+pub const GhosttyResult_GHOSTTY_NO_VALUE: GhosttyResult = -4;
 #[doc = " Result codes for libghostty-vt operations."]
 pub type GhosttyResult = ::std::os::raw::c_int;
 #[doc = " A borrowed byte string (pointer + length).\n\n The memory is not owned by this struct. The pointer is only valid\n for the lifetime documented by the API that produces or consumes it."]
@@ -2577,6 +2578,15 @@ pub const GhosttyKittyGraphicsImageData_GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR:
     GhosttyKittyGraphicsImageData = 7;
 pub const GhosttyKittyGraphicsImageData_GHOSTTY_KITTY_IMAGE_DATA_DATA_LEN:
     GhosttyKittyGraphicsImageData = 8;
+pub const GhosttyKittyGraphicsImageData_GHOSTTY_KITTY_IMAGE_DATA_TRANSMIT_TIME_NS:
+    GhosttyKittyGraphicsImageData = 9;
+
+pub const GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_FILE: GhosttyTerminalData =
+    27;
+pub const GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_TEMP_FILE:
+    GhosttyTerminalData = 28;
+pub const GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_SHARED_MEM:
+    GhosttyTerminalData = 29;
 
 pub type GhosttyKittyImageFormat = ::std::os::raw::c_uint;
 pub const GhosttyKittyImageFormat_GHOSTTY_KITTY_IMAGE_FORMAT_RGB: GhosttyKittyImageFormat = 0;

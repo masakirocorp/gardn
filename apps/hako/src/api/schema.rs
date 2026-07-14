@@ -6,14 +6,14 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Request {
     pub id: String,
     #[serde(flatten)]
     pub method: Method,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "method", content = "params")]
 // Request enums are short-lived wire values; keeping variants direct preserves
 // the simple serde shape and avoids boxing churn across every caller.
@@ -47,6 +47,8 @@ pub enum Method {
     ClientWindowTitleSet(ClientWindowTitleSetParams),
     #[serde(rename = "client.window_title.clear")]
     ClientWindowTitleClear(EmptyParams),
+    #[serde(rename = "session.snapshot")]
+    SessionSnapshot(EmptyParams),
     #[serde(rename = "workspace.create")]
     WorkspaceCreate(WorkspaceCreateParams),
     #[serde(rename = "workspace.list")]
@@ -99,6 +101,8 @@ pub enum Method {
     AgentStart(AgentStartParams),
     #[serde(rename = "pane.split")]
     PaneSplit(PaneSplitParams),
+    #[serde(rename = "pane.focus")]
+    PaneFocus(PaneTarget),
     #[serde(rename = "pane.swap")]
     PaneSwap(PaneSwapParams),
     #[serde(rename = "pane.move")]
@@ -183,13 +187,13 @@ pub enum Method {
     PluginPaneClose(PluginPaneCloseParams),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct EmptyParams {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct PingParams {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct NotificationShowParams {
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -200,7 +204,9 @@ pub struct NotificationShowParams {
     pub sound: NotificationShowSound,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationShowSound {
     #[default]
@@ -223,7 +229,7 @@ impl NotificationShowSound {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationShowReason {
     Shown,
@@ -233,7 +239,7 @@ pub enum NotificationShowReason {
     Busy,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ClientWindowTitleReason {
     Set,
@@ -241,32 +247,32 @@ pub enum ClientWindowTitleReason {
     NoForegroundClient,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorkspaceTarget {
     pub workspace_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct GroupTarget {
     pub group_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneTarget {
     pub pane_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TabTarget {
     pub tab_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ClientWindowTitleSetParams {
     pub title: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorkspaceCreateParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
@@ -278,30 +284,30 @@ pub struct WorkspaceCreateParams {
     pub env: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct GroupCreateParams {
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct GroupRenameParams {
     pub group_id: String,
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorkspaceMoveToGroupParams {
     pub workspace_id: String,
     pub group_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorkspaceRenameParams {
     pub workspace_id: String,
     pub label: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct WorktreeListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
@@ -309,7 +315,7 @@ pub struct WorktreeListParams {
     pub cwd: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct WorktreeCreateParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
@@ -327,7 +333,7 @@ pub struct WorktreeCreateParams {
     pub focus: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct WorktreeOpenParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
@@ -343,14 +349,14 @@ pub struct WorktreeOpenParams {
     pub focus: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorktreeRemoveParams {
     pub workspace_id: String,
     #[serde(default)]
     pub force: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TabCreateParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
@@ -364,24 +370,24 @@ pub struct TabCreateParams {
     pub env: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct TabListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TabRenameParams {
     pub tab_id: String,
     pub label: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentTarget {
     pub target: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentReadParams {
     pub target: String,
     pub source: ReadSource,
@@ -393,20 +399,20 @@ pub struct AgentReadParams {
     pub strip_ansi: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentSendParams {
     pub target: String,
     pub text: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentRenameParams {
     pub target: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentStartParams {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -424,7 +430,7 @@ pub struct AgentStartParams {
     pub argv: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneSplitParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
@@ -441,14 +447,14 @@ pub struct PaneSplitParams {
     pub env: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SplitDirection {
     Right,
     Down,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PaneDirection {
     Left,
@@ -457,7 +463,7 @@ pub enum PaneDirection {
     Down,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct PaneSwapParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_id: Option<String>,
@@ -469,7 +475,7 @@ pub struct PaneSwapParams {
     pub target_pane_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneMoveParams {
     pub pane_id: String,
     pub destination: PaneMoveDestination,
@@ -477,7 +483,7 @@ pub struct PaneMoveParams {
     pub focus: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PaneMoveDestination {
     Tab {
@@ -505,7 +511,7 @@ pub enum PaneMoveDestination {
 impl Eq for PaneMoveParams {}
 impl Eq for PaneMoveDestination {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct PaneZoomParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_id: Option<String>,
@@ -513,7 +519,9 @@ pub struct PaneZoomParams {
     pub mode: PaneZoomMode,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum PaneZoomMode {
     #[default]
@@ -522,19 +530,19 @@ pub enum PaneZoomMode {
     Off,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct PaneLayoutParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct PaneProcessInfoParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct LayoutExportParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tab_id: Option<String>,
@@ -542,7 +550,7 @@ pub struct LayoutExportParams {
     pub pane_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct LayoutApplyParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
@@ -555,7 +563,7 @@ pub struct LayoutApplyParams {
     pub root: LayoutNode,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct LayoutDescription {
     pub workspace_id: String,
     pub tab_id: String,
@@ -564,7 +572,7 @@ pub struct LayoutDescription {
     pub root: LayoutNode,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LayoutNode {
     Pane {
@@ -579,7 +587,7 @@ pub enum LayoutNode {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct LayoutPane {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_id: Option<String>,
@@ -593,27 +601,27 @@ pub struct LayoutPane {
     pub env: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneNeighborParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_id: Option<String>,
     pub direction: PaneDirection,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct PaneEdgesParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneFocusDirectionParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_id: Option<String>,
     pub direction: PaneDirection,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneResizeParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_id: Option<String>,
@@ -622,38 +630,38 @@ pub struct PaneResizeParams {
     pub amount: Option<f32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct PaneListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct PaneCurrentParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caller_pane_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneRenameParams {
     pub pane_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneSendTextParams {
     pub pane_id: String,
     pub text: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneSendKeysParams {
     pub pane_id: String,
     pub keys: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneSendInputParams {
     pub pane_id: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -662,7 +670,7 @@ pub struct PaneSendInputParams {
     pub keys: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ServerLiveHandoffParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub import_exe: Option<String>,
@@ -672,7 +680,7 @@ pub struct ServerLiveHandoffParams {
     pub expected_version: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneReadParams {
     pub pane_id: String,
     pub source: ReadSource,
@@ -684,7 +692,7 @@ pub struct PaneReadParams {
     pub strip_ansi: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneReportAgentParams {
     pub pane_id: String,
     pub source: String,
@@ -704,7 +712,7 @@ pub struct PaneReportAgentParams {
     pub launch_env: std::collections::BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneReportAgentSessionParams {
     pub pane_id: String,
     pub source: String,
@@ -715,11 +723,13 @@ pub struct PaneReportAgentSessionParams {
     pub agent_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_session_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_start_source: Option<String>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub launch_env: std::collections::BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneReportMetadataParams {
     pub pane_id: String,
     pub source: String,
@@ -735,6 +745,8 @@ pub struct PaneReportMetadataParams {
     pub custom_status: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub state_labels: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub tokens: HashMap<String, Option<String>>,
     #[serde(default)]
     pub clear_title: bool,
     #[serde(default)]
@@ -749,7 +761,7 @@ pub struct PaneReportMetadataParams {
     pub ttl_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneClearAgentAuthorityParams {
     pub pane_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -758,7 +770,7 @@ pub struct PaneClearAgentAuthorityParams {
     pub seq: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneReleaseAgentParams {
     pub pane_id: String,
     pub source: String,
@@ -771,7 +783,7 @@ pub struct PaneReleaseAgentParams {
     pub seq: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ReadSource {
     Visible,
@@ -780,7 +792,9 @@ pub enum ReadSource {
     Detection,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ReadFormat {
     #[default]
@@ -788,12 +802,12 @@ pub enum ReadFormat {
     Ansi,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct EventsSubscribeParams {
     pub subscriptions: Vec<Subscription>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type")]
 pub enum Subscription {
     #[serde(rename = "workspace.created")]
@@ -848,16 +862,20 @@ pub enum Subscription {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent_status: Option<AgentStatus>,
     },
+    #[serde(rename = "pane.scroll_changed")]
+    PaneScrollChanged { pane_id: String },
+    #[serde(rename = "layout.updated")]
+    LayoutUpdated {},
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct EventsWaitParams {
     pub match_event: EventMatch,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneWaitForOutputParams {
     pub pane_id: String,
     pub source: ReadSource,
@@ -870,17 +888,17 @@ pub struct PaneWaitForOutputParams {
     pub strip_ansi: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct IntegrationInstallParams {
     pub target: IntegrationTarget,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct IntegrationUninstallParams {
     pub target: IntegrationTarget,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum IntegrationTarget {
     Pi,
@@ -897,7 +915,7 @@ pub enum IntegrationTarget {
     Cursor,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginLinkParams {
     pub path: String,
     #[serde(default = "default_true")]
@@ -906,23 +924,23 @@ pub struct PluginLinkParams {
     pub source: Option<PluginSourceInfo>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct PluginListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugin_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginUnlinkParams {
     pub plugin_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginSetEnabledParams {
     pub plugin_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct InstalledPluginInfo {
     pub plugin_id: String,
     pub name: String,
@@ -951,7 +969,7 @@ pub struct InstalledPluginInfo {
     pub warnings: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginSourceInfo {
     #[serde(default)]
     pub kind: PluginSourceKind,
@@ -986,7 +1004,9 @@ impl Default for PluginSourceInfo {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum PluginSourceKind {
     #[default]
@@ -1007,14 +1027,14 @@ pub(crate) fn plugin_managed_path_component(value: &str) -> String {
         .collect()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginManifestBuild {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platforms: Option<Vec<PluginPlatform>>,
     pub command: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginManifestAction {
     pub id: String,
     pub title: String,
@@ -1027,7 +1047,7 @@ pub struct PluginManifestAction {
     pub command: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginManifestEventHook {
     pub on: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1035,7 +1055,7 @@ pub struct PluginManifestEventHook {
     pub command: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginManifestPane {
     pub id: String,
     pub title: String,
@@ -1048,7 +1068,7 @@ pub struct PluginManifestPane {
     pub command: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginManifestLinkHandler {
     pub id: String,
     pub title: String,
@@ -1058,13 +1078,13 @@ pub struct PluginManifestLinkHandler {
     pub platforms: Option<Vec<PluginPlatform>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct PluginActionListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugin_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct PluginLogListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugin_id: Option<String>,
@@ -1072,7 +1092,7 @@ pub struct PluginLogListParams {
     pub limit: Option<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginActionInvokeParams {
     pub action_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1081,7 +1101,7 @@ pub struct PluginActionInvokeParams {
     pub context: Option<PluginInvocationContext>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginCommandLogInfo {
     pub log_id: String,
     pub plugin_id: String,
@@ -1104,7 +1124,7 @@ pub struct PluginCommandLogInfo {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PluginCommandStatus {
     Running,
@@ -1112,7 +1132,7 @@ pub enum PluginCommandStatus {
     Failed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PluginPlatform {
     Linux,
@@ -1120,7 +1140,7 @@ pub enum PluginPlatform {
     Windows,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PluginActionContext {
     Global,
@@ -1130,7 +1150,7 @@ pub enum PluginActionContext {
     Selection,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginInvocationContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
@@ -1164,7 +1184,7 @@ pub struct PluginInvocationContext {
     pub link_handler_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginActionInfo {
     pub plugin_id: String,
     pub action_id: String,
@@ -1184,7 +1204,7 @@ impl PluginActionInfo {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginPaneOpenParams {
     pub plugin_id: String,
     pub entrypoint: String,
@@ -1204,7 +1224,9 @@ pub struct PluginPaneOpenParams {
     pub env: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum PluginPanePlacement {
     #[default]
@@ -1214,31 +1236,31 @@ pub enum PluginPanePlacement {
     Zoomed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginPaneFocusParams {
     pub pane_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginPaneCloseParams {
     pub pane_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginPaneInfo {
     pub plugin_id: String,
     pub entrypoint: String,
     pub pane: PaneInfo,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OutputMatch {
     Substring { value: String },
     Regex { value: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum EventMatch {
     WorkspaceCreated {
@@ -1310,7 +1332,7 @@ pub enum EventMatch {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EventKind {
     WorkspaceCreated,
@@ -1333,6 +1355,7 @@ pub enum EventKind {
     PaneExited,
     PaneAgentDetected,
     PaneAgentStatusChanged,
+    LayoutUpdated,
 }
 
 impl EventKind {
@@ -1357,6 +1380,7 @@ impl EventKind {
             EventKind::PaneOutputChanged => "pane.output_changed",
             EventKind::PaneExited => "pane.exited",
             EventKind::PaneAgentDetected => "pane.agent_detected",
+            EventKind::LayoutUpdated => "layout.updated",
             EventKind::PaneAgentStatusChanged => "pane.agent_status_changed",
         }
     }
@@ -1392,30 +1416,30 @@ pub fn plugin_hook_event_names() -> Vec<&'static str> {
         .collect()
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SuccessResponse {
     pub id: String,
     pub result: ResponseResult,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ErrorResponse {
     pub id: String,
     pub error: ErrorBody,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ErrorBody {
     pub code: String,
     pub message: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ServerCapabilities {
     pub live_handoff: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResponseResult {
     Pong {
@@ -1423,6 +1447,9 @@ pub enum ResponseResult {
         protocol: u32,
         #[serde(default)]
         capabilities: Option<ServerCapabilities>,
+    },
+    SessionSnapshot {
+        snapshot: Box<SessionSnapshot>,
     },
     WorkspaceInfo {
         workspace: WorkspaceInfo,
@@ -1610,7 +1637,7 @@ pub enum ResponseResult {
     Ok {},
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentManifestInfo {
     pub agent: String,
     pub source: String,
@@ -1630,7 +1657,7 @@ pub struct AgentManifestInfo {
     pub warning: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorkspaceInfo {
     pub workspace_id: String,
     pub group_id: String,
@@ -1645,7 +1672,7 @@ pub struct WorkspaceInfo {
     pub worktree: Option<WorkspaceWorktreeInfo>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorkspaceWorktreeInfo {
     pub repo_key: String,
     pub repo_name: String,
@@ -1654,7 +1681,7 @@ pub struct WorkspaceWorktreeInfo {
     pub is_linked_worktree: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorktreeSourceInfo {
     pub repo_key: String,
     pub repo_name: String,
@@ -1664,7 +1691,7 @@ pub struct WorktreeSourceInfo {
     pub source_workspace_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorktreeInfo {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1678,7 +1705,7 @@ pub struct WorktreeInfo {
     pub label: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct GroupInfo {
     pub group_id: String,
     pub number: usize,
@@ -1688,7 +1715,7 @@ pub struct GroupInfo {
     pub workspace_count: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TabInfo {
     pub tab_id: String,
     pub workspace_id: String,
@@ -1699,7 +1726,7 @@ pub struct TabInfo {
     pub agent_status: AgentStatus,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentInfo {
     pub terminal_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1716,6 +1743,8 @@ pub struct AgentInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_status: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub tokens: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub state_labels: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_session: Option<AgentSessionInfo>,
@@ -1730,7 +1759,7 @@ pub struct AgentInfo {
     pub revision: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneInfo {
     pub pane_id: String,
     pub terminal_id: String,
@@ -1754,12 +1783,23 @@ pub struct PaneInfo {
     pub custom_status: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub state_labels: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub tokens: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_session: Option<AgentSessionInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scroll: Option<PaneScrollInfo>,
     pub revision: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneScrollInfo {
+    pub offset_from_bottom: u64,
+    pub max_offset_from_bottom: u64,
+    pub viewport_rows: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentSessionInfo {
     pub source: String,
     pub agent: String,
@@ -1767,7 +1807,7 @@ pub struct AgentSessionInfo {
     pub value: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneProcessInfo {
     pub pane_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1780,7 +1820,7 @@ pub struct PaneProcessInfo {
     pub foreground_processes: Vec<PaneProcessInfoProcess>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneProcessInfoProcess {
     pub pid: u32,
     pub name: String,
@@ -1794,7 +1834,7 @@ pub struct PaneProcessInfoProcess {
     pub cwd: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneSwapResult {
     pub changed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1806,7 +1846,7 @@ pub struct PaneSwapResult {
     pub layout: PaneLayoutSnapshot,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PaneSwapReason {
     NoNeighbor,
@@ -1815,7 +1855,7 @@ pub enum PaneSwapReason {
     CrossTab,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneMoveResult {
     pub changed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1838,14 +1878,14 @@ pub struct PaneMoveResult {
     pub focused_pane_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PaneMoveReason {
     SameTab,
     ZoomedTab,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneLayoutSnapshot {
     pub workspace_id: String,
     pub tab_id: String,
@@ -1856,7 +1896,7 @@ pub struct PaneLayoutSnapshot {
     pub splits: Vec<PaneLayoutSplit>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneLayoutRect {
     pub x: u16,
     pub y: u16,
@@ -1884,14 +1924,14 @@ impl From<ratatui::prelude::Direction> for SplitDirection {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneLayoutPane {
     pub pane_id: String,
     pub focused: bool,
     pub rect: PaneLayoutRect,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneLayoutSplit {
     pub id: String,
     pub direction: SplitDirection,
@@ -1903,7 +1943,7 @@ impl Eq for PaneMoveResult {}
 impl Eq for PaneLayoutSnapshot {}
 impl Eq for PaneLayoutSplit {}
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneZoomResult {
     pub changed: bool,
     pub zoom_changed: bool,
@@ -1916,7 +1956,7 @@ pub struct PaneZoomResult {
     pub layout: PaneLayoutSnapshot,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PaneZoomReason {
     SinglePane,
@@ -1924,7 +1964,7 @@ pub enum PaneZoomReason {
     AlreadyUnzoomed,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneNeighborResult {
     pub pane_id: String,
     pub direction: PaneDirection,
@@ -1933,7 +1973,7 @@ pub struct PaneNeighborResult {
     pub layout: PaneLayoutSnapshot,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneEdgesResult {
     pub pane_id: String,
     pub left: bool,
@@ -1943,7 +1983,7 @@ pub struct PaneEdgesResult {
     pub layout: PaneLayoutSnapshot,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneFocusDirectionResult {
     pub changed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1954,13 +1994,13 @@ pub struct PaneFocusDirectionResult {
     pub layout: PaneLayoutSnapshot,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PaneFocusDirectionReason {
     NoNeighbor,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneResizeResult {
     pub changed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1970,13 +2010,13 @@ pub struct PaneResizeResult {
     pub layout: PaneLayoutSnapshot,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PaneResizeReason {
     Unchanged,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneReadResult {
     pub pane_id: String,
     pub workspace_id: String,
@@ -1988,51 +2028,54 @@ pub struct PaneReadResult {
     pub truncated: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct IntegrationInstallResult {
     pub messages: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct IntegrationUninstallResult {
     pub messages: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct EventEnvelope {
     pub event: EventKind,
     pub data: EventData,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub enum SubscriptionEventKind {
     #[serde(rename = "pane.output_matched")]
     PaneOutputMatched,
     #[serde(rename = "pane.agent_status_changed")]
     PaneAgentStatusChanged,
+    #[serde(rename = "pane.scroll_changed")]
+    ScrollChanged,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SubscriptionEventEnvelope {
     pub event: SubscriptionEventKind,
     pub data: SubscriptionEventData,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
 pub enum SubscriptionEventData {
     PaneOutputMatched(PaneOutputMatchedEvent),
     PaneAgentStatusChanged(PaneAgentStatusChangedEvent),
+    ScrollChanged(PaneScrollChangedEvent),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneOutputMatchedEvent {
     pub pane_id: String,
     pub matched_line: String,
     pub read: PaneReadResult,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneAgentStatusChangedEvent {
     pub pane_id: String,
     pub workspace_id: String,
@@ -2047,9 +2090,18 @@ pub struct PaneAgentStatusChangedEvent {
     pub display_agent: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub state_labels: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub tokens: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneScrollChangedEvent {
+    pub pane_id: String,
+    pub workspace_id: String,
+    pub scroll: PaneScrollInfo,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EventData {
     WorkspaceCreated {
@@ -2154,10 +2206,15 @@ pub enum EventData {
         custom_status: Option<String>,
         #[serde(default, skip_serializing_if = "HashMap::is_empty")]
         state_labels: HashMap<String, String>,
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+        tokens: HashMap<String, String>,
+    },
+    LayoutUpdated {
+        layout: PaneLayoutSnapshot,
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PaneAgentState {
     Idle,
@@ -2166,7 +2223,7 @@ pub enum PaneAgentState {
     Unknown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentStatus {
     Idle,
@@ -2180,6 +2237,38 @@ fn default_true() -> bool {
     true
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct SessionSnapshot {
+    pub version: String,
+    pub protocol: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_pane_id: Option<String>,
+    pub workspaces: Vec<WorkspaceInfo>,
+    pub tabs: Vec<TabInfo>,
+    pub panes: Vec<PaneInfo>,
+    pub layouts: Vec<PaneLayoutSnapshot>,
+    pub agents: Vec<AgentInfo>,
+}
+
+/// Return the socket API schema used by CLI and tooling consumers.
+pub fn generated_schema() -> serde_json::Value {
+    serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "protocol": crate::protocol::PROTOCOL_VERSION,
+        "schema_version": 1,
+        "schemas": {
+            "error_response": schemars::schema_for!(ErrorResponse),
+            "event": schemars::schema_for!(EventEnvelope),
+            "request": schemars::schema_for!(Request),
+            "response": schemars::schema_for!(SuccessResponse),
+            "subscription_event": schemars::schema_for!(SubscriptionEventEnvelope),
+        },
+    })
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2264,6 +2353,7 @@ mod tests {
                 seq: Some(42),
                 agent_session_id: Some("claude-session".into()),
                 agent_session_path: None,
+                session_start_source: None,
                 launch_env: std::collections::BTreeMap::new(),
             }),
         };
@@ -2286,6 +2376,7 @@ mod tests {
                 display_agent: Some("Claude auth".into()),
                 custom_status: Some("refactor auth".into()),
                 state_labels: HashMap::from([("working".into(), "deep in the mines".into())]),
+                tokens: HashMap::new(),
                 clear_title: false,
                 clear_display_agent: false,
                 clear_custom_status: false,
@@ -2590,6 +2681,63 @@ mod tests {
     }
 
     #[test]
+    fn scroll_changed_subscription_event_round_trips() {
+        let event = SubscriptionEventEnvelope {
+            event: SubscriptionEventKind::ScrollChanged,
+            data: SubscriptionEventData::ScrollChanged(PaneScrollChangedEvent {
+                pane_id: "p_1_1".into(),
+                workspace_id: "w_1".into(),
+                scroll: PaneScrollInfo {
+                    offset_from_bottom: 12,
+                    max_offset_from_bottom: 240,
+                    viewport_rows: 30,
+                },
+            }),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"event\":\"pane.scroll_changed\""));
+        assert_eq!(
+            serde_json::from_str::<SubscriptionEventEnvelope>(&json).unwrap(),
+            event
+        );
+    }
+
+    #[test]
+    fn session_snapshot_request_and_response_round_trip() {
+        let request = Request {
+            id: "req_snapshot".into(),
+            method: Method::SessionSnapshot(EmptyParams::default()),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("\"method\":\"session.snapshot\""));
+        assert_eq!(serde_json::from_str::<Request>(&json).unwrap(), request);
+
+        let response = SuccessResponse {
+            id: "req_snapshot".into(),
+            result: ResponseResult::SessionSnapshot {
+                snapshot: Box::new(SessionSnapshot {
+                    version: crate::build_info::version(),
+                    protocol: crate::protocol::PROTOCOL_VERSION,
+                    focused_workspace_id: None,
+                    focused_tab_id: None,
+                    focused_pane_id: None,
+                    workspaces: Vec::new(),
+                    tabs: Vec::new(),
+                    panes: Vec::new(),
+                    layouts: Vec::new(),
+                    agents: Vec::new(),
+                }),
+            },
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("\"type\":\"session_snapshot\""));
+        assert_eq!(
+            serde_json::from_str::<SuccessResponse>(&json).unwrap(),
+            response
+        );
+    }
+
+    #[test]
     fn success_response_round_trips() {
         let response = SuccessResponse {
             id: "req_1".into(),
@@ -2666,7 +2814,9 @@ mod tests {
                     agent_status: AgentStatus::Unknown,
                     custom_status: None,
                     state_labels: HashMap::new(),
+                    tokens: HashMap::new(),
                     agent_session: None,
+                    scroll: None,
                     revision: 0,
                 },
                 worktree: WorktreeInfo {
@@ -2717,7 +2867,9 @@ mod tests {
                     agent_status: AgentStatus::Unknown,
                     custom_status: None,
                     state_labels: HashMap::new(),
+                    tokens: HashMap::new(),
                     agent_session: None,
+                    scroll: None,
                     revision: 0,
                 },
             },

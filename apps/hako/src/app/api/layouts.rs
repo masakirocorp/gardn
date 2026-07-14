@@ -215,6 +215,7 @@ impl App {
                 });
             }
         }
+        self.emit_layout_updated_event(ws_idx, new_tab_idx);
 
         let Some(layout) = self.layout_description(ws_idx, new_tab_idx) else {
             return encode_error(id, "layout_apply_failed", "new layout unavailable");
@@ -685,7 +686,10 @@ mod tests {
             panic!("expected layout apply response");
         };
         assert_eq!(app.state.workspaces[0].tabs.len(), 1);
-        assert_eq!(app.state.workspaces[0].tabs[0].display_name(), "dev");
+        assert_eq!(
+            app.state.workspaces[0].tab_display_name(0).as_deref(),
+            Some("dev")
+        );
         let LayoutNode::Split {
             direction,
             ratio,

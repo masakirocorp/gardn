@@ -18,7 +18,8 @@ use crate::layout::{find_in_direction, NavDirection, Node, PaneId, TileLayout};
 
 use super::super::api_helpers::{
     detect_state_from_api, encode_api_keys, encode_api_text, normalize_custom_status,
-    normalize_reported_agent_label,
+    normalize_metadata_tokens, normalize_reported_agent_label,
+    MAX_METADATA_TOKEN_KEYS_PER_RESOURCE,
 };
 use super::responses::{encode_error, encode_success};
 
@@ -27,6 +28,59 @@ const METADATA_TTL_MIN_MS: u64 = 1;
 const METADATA_TTL_MAX_MS: u64 = 86_400_000;
 
 impl App {
+    pub(super) fn handle_pane_focus(&mut self, id: String, target: PaneTarget) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&target.pane_id) else {
+            return pane_not_found(id, &target.pane_id);
+        };
+        let Some(tab_idx) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|ws| ws.find_tab_index_for_pane(pane_id))
+        else {
+            return pane_not_found(id, &target.pane_id);
+        };
+        self.state.focus_pane_in_workspace(ws_idx, pane_id);
+        self.state.mark_active_tab_seen();
+        self.state.switch_workspace_tab(ws_idx, tab_idx);
+        self.state.mode = Mode::Terminal;
+        self.schedule_session_save();
+        let Some(pane) = self.pane_info(ws_idx, pane_id) else {
+            return pane_not_found(id, &target.pane_id);
+        };
+        encode_success(id, ResponseResult::PaneInfo { pane })
+    }
+
+    pub(super) fn handle_pane_focus_for_view(
+        &mut self,
+        view: &mut ClientViewState,
+        id: String,
+        target: PaneTarget,
+    ) -> String {
+        view.reconcile(&self.state);
+        let Some((ws_idx, pane_id)) =
+            self.resolve_optional_pane_for_view(view, Some(&target.pane_id))
+        else {
+            return pane_not_found(id, &target.pane_id);
+        };
+        let Some(tab_idx) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|ws| ws.find_tab_index_for_pane(pane_id))
+        else {
+            return pane_not_found(id, &target.pane_id);
+        };
+        view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, pane_id);
+        view.active_workspace = Some(ws_idx);
+        view.selected_workspace = ws_idx;
+        view.mode = Mode::Terminal;
+        let Some(pane) = self.pane_info(ws_idx, pane_id) else {
+            return pane_not_found(id, &target.pane_id);
+        };
+        encode_success(id, ResponseResult::PaneInfo { pane })
+    }
+
     pub(super) fn handle_pane_split(&mut self, id: String, params: PaneSplitParams) -> String {
         let target = match params.target_pane_id.as_deref() {
             Some(target_pane_id) => self.parse_pane_id(target_pane_id),
@@ -129,6 +183,7 @@ impl App {
             event: EventKind::PaneCreated,
             data: EventData::PaneCreated { pane: pane.clone() },
         });
+        self.emit_layout_updated_event(ws_idx, target_tab_idx);
 
         encode_success(id, ResponseResult::PaneInfo { pane })
     }
@@ -704,6 +759,9 @@ impl App {
             return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
         };
 
+        if target.is_some() {
+            self.emit_layout_updated_snapshot(layout.clone());
+        }
         encode_success(
             id,
             ResponseResult::PaneFocusDirection {
@@ -820,6 +878,9 @@ impl App {
             return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
         };
         let focused_pane_id = layout.focused_pane_id.clone();
+        if changed {
+            self.emit_layout_updated_snapshot(layout.clone());
+        }
 
         encode_success(
             id,
@@ -1059,6 +1120,9 @@ impl App {
             return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
         };
         let focused_pane_id = layout.focused_pane_id.clone();
+        if changed {
+            self.emit_layout_updated_snapshot(layout.clone());
+        }
 
         encode_success(
             id,
@@ -1105,6 +1169,9 @@ impl App {
         };
         let focused_pane_id = layout.focused_pane_id.clone();
 
+        if outcome.changed || outcome.focus_changed {
+            self.emit_layout_updated_snapshot(layout.clone());
+        }
         encode_success(
             id,
             ResponseResult::PaneZoom {
@@ -1342,6 +1409,8 @@ impl App {
         let Some(agent_label) = normalize_reported_agent_label(&params.agent) else {
             return invalid_agent(id);
         };
+        let session_start_source =
+            crate::agent_resume::normalize_session_start_source(params.session_start_source);
         self.handle_internal_event(crate::events::AppEvent::HookSessionReported {
             pane_id,
             session_ref: crate::agent_resume::session_ref_from_report(
@@ -1358,6 +1427,7 @@ impl App {
             source: params.source,
             agent_label,
             seq: params.seq,
+            session_start_source,
         });
 
         encode_success(id, ResponseResult::Ok {})
@@ -1368,7 +1438,7 @@ impl App {
         id: String,
         params: PaneReportMetadataParams,
     ) -> String {
-        let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
         let agent_label = match params.agent.as_deref() {
@@ -1386,6 +1456,7 @@ impl App {
         let raw_display_agent_set = params.display_agent.is_some();
         let raw_custom_status_set = params.custom_status.is_some();
         let raw_state_labels_set = !params.state_labels.is_empty();
+        let raw_tokens_set = !params.tokens.is_empty();
         let ttl = match normalize_metadata_ttl(params.ttl_ms) {
             Ok(ttl) => ttl,
             Err(message) => return encode_error(id, "invalid_metadata_ttl", message),
@@ -1410,6 +1481,31 @@ impl App {
                 );
             }
         };
+        let tokens = if raw_tokens_set {
+            match normalize_metadata_tokens(params.tokens) {
+                Ok(tokens) => tokens,
+                Err(message) => return encode_error(id, "invalid_metadata_tokens", message),
+            }
+        } else {
+            std::collections::HashMap::new()
+        };
+        let Some(terminal_id) = self.state.terminal_id_for_pane(ws_idx, pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some(terminal) = self.state.terminals.get(&terminal_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        if terminal.metadata_token_count_after_patch(&source, &tokens)
+            > MAX_METADATA_TOKEN_KEYS_PER_RESOURCE
+        {
+            return encode_error(
+                id,
+                "invalid_metadata_tokens",
+                format!(
+                    "pane metadata may contain at most {MAX_METADATA_TOKEN_KEYS_PER_RESOURCE} tokens"
+                ),
+            );
+        }
         if raw_title_set && params.clear_title
             || raw_display_agent_set && params.clear_display_agent
             || raw_custom_status_set && params.clear_custom_status
@@ -1428,6 +1524,7 @@ impl App {
             && !params.clear_title
             && !params.clear_display_agent
             && !params.clear_custom_status
+            && tokens.is_empty()
             && !params.clear_state_labels
         {
             return encode_error(
@@ -1445,6 +1542,7 @@ impl App {
             display_agent,
             custom_status,
             state_labels,
+            tokens,
             clear_title: params.clear_title,
             clear_display_agent: params.clear_display_agent,
             clear_custom_status: params.clear_custom_status,
@@ -1905,7 +2003,7 @@ impl App {
             previous_workspace_id: previous_workspace_id.clone(),
             previous_tab_id: previous_tab_id.clone(),
             pane: Box::new(pane.clone()),
-            source_layout: source_layout.map(Box::new),
+            source_layout: source_layout.clone().map(Box::new),
             target_layout: Box::new(target_layout),
             created_workspace: created_workspace_info.clone(),
             created_tab: created_tab_info.clone(),
@@ -1959,11 +2057,19 @@ impl App {
                 closed_tab_id: source_removed_tab_id,
             },
         });
+        if let Some(source_layout) = source_layout {
+            self.emit_layout_updated_snapshot(source_layout);
+        }
+        self.emit_layout_updated_snapshot((*move_result.target_layout).clone());
 
         encode_success(id, ResponseResult::PaneMove { move_result })
     }
 
-    fn pane_layout_snapshot(&self, ws_idx: usize, tab_idx: usize) -> Option<PaneLayoutSnapshot> {
+    pub(super) fn pane_layout_snapshot(
+        &self,
+        ws_idx: usize,
+        tab_idx: usize,
+    ) -> Option<PaneLayoutSnapshot> {
         let ws = self.state.workspaces.get(ws_idx)?;
         let tab = ws.tabs.get(tab_idx)?;
         let mut area = self.state.view.terminal_area;
@@ -2004,6 +2110,40 @@ impl App {
             panes,
             splits,
         })
+    }
+
+    pub(crate) fn emit_layout_updated_event(&mut self, ws_idx: usize, tab_idx: usize) {
+        if let Some(layout) = self.pane_layout_snapshot(ws_idx, tab_idx) {
+            self.emit_layout_updated_snapshot(layout);
+        }
+    }
+
+    pub(super) fn emit_layout_updated_snapshot(&mut self, layout: PaneLayoutSnapshot) {
+        self.emit_event(EventEnvelope {
+            event: EventKind::LayoutUpdated,
+            data: EventData::LayoutUpdated { layout },
+        });
+    }
+
+    pub(crate) fn layout_update_target_after_pane_removal(
+        &self,
+        ws_idx: usize,
+        pane_id: PaneId,
+    ) -> Option<(usize, usize)> {
+        let tab_idx = self
+            .state
+            .workspaces
+            .get(ws_idx)?
+            .find_tab_index_for_pane(pane_id)?;
+        let pane_count = self
+            .state
+            .workspaces
+            .get(ws_idx)?
+            .tabs
+            .get(tab_idx)?
+            .layout
+            .pane_count();
+        (pane_count > 1).then_some((ws_idx, tab_idx))
     }
 
     fn pane_layout_snapshot_for_view(
@@ -2173,6 +2313,7 @@ impl App {
             return Err(pane_not_found(id, &target.pane_id));
         }
         let workspace_id = self.public_workspace_id(ws_idx);
+        let layout_update_target = self.layout_update_target_after_pane_removal(ws_idx, pane_id);
         let closing_workspace = self.state.close_pane_would_close_workspace(ws_idx, pane_id);
         let workspace_snapshot = closing_workspace.then(|| self.workspace_info(ws_idx));
 
@@ -2221,6 +2362,9 @@ impl App {
                     workspace_id,
                 },
             });
+            if let Some((ws_idx, tab_idx)) = layout_update_target {
+                self.emit_layout_updated_event(ws_idx, tab_idx);
+            }
         }
 
         Ok(())
@@ -2507,6 +2651,7 @@ fn invalid_agent(id: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     use crate::{
         api::schema::{SplitDirection, SuccessResponse},
@@ -2531,6 +2676,66 @@ mod tests {
         let pane_id = app.state.workspaces[0].tabs[0].root_pane;
         let public_pane_id = app.public_pane_id(0, pane_id).unwrap();
         (app, public_pane_id)
+    }
+
+    #[test]
+    fn pane_metadata_rejects_tokens_above_resource_limit() {
+        let (mut app, pane_id) = app_with_test_workspace();
+
+        for batch in 0..2 {
+            let tokens = (0..16)
+                .map(|index| (format!("token_{batch}_{index}"), Some("value".to_string())))
+                .collect();
+            let response = app.handle_pane_report_metadata(
+                format!("batch-{batch}"),
+                PaneReportMetadataParams {
+                    pane_id: pane_id.clone(),
+                    source: "user:test".into(),
+                    agent: None,
+                    applies_to_source: None,
+                    title: None,
+                    display_agent: None,
+                    custom_status: None,
+                    state_labels: HashMap::new(),
+                    tokens,
+                    clear_title: false,
+                    clear_display_agent: false,
+                    clear_custom_status: false,
+                    clear_state_labels: false,
+                    seq: None,
+                    ttl_ms: None,
+                },
+            );
+            let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+            assert_eq!(response["result"]["type"], "ok");
+        }
+
+        let response = app.handle_pane_report_metadata(
+            "overflow".into(),
+            PaneReportMetadataParams {
+                pane_id,
+                source: "user:test".into(),
+                agent: None,
+                applies_to_source: None,
+                title: None,
+                display_agent: None,
+                custom_status: None,
+                state_labels: HashMap::new(),
+                tokens: HashMap::from([("overflow".into(), Some("value".into()))]),
+                clear_title: false,
+                clear_display_agent: false,
+                clear_custom_status: false,
+                clear_state_labels: false,
+                seq: None,
+                ttl_ms: None,
+            },
+        );
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["error"]["code"], "invalid_metadata_tokens");
+        assert!(response["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("at most 32 tokens"));
     }
 
     #[test]
@@ -2624,5 +2829,36 @@ mod tests {
         assert_ne!(move_result.pane.pane_id, previous_pane_id);
         assert_eq!(app.state.workspaces.len(), 1);
         assert_eq!(app.parse_pane_id(&previous_pane_id), Some((0, source)));
+    }
+    #[test]
+    fn api_pane_focus_marks_repeated_done_focus_seen() {
+        let mut app = test_app();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.outer_terminal_focus = Some(false);
+
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        app.state.terminals.get_mut(&terminal_id).unwrap().state = crate::detect::AgentState::Idle;
+        app.state.workspaces[0].tabs[0]
+            .panes
+            .get_mut(&pane_id)
+            .unwrap()
+            .seen = false;
+        app.state.workspaces[0].tabs[0].layout.focus_pane(pane_id);
+        let public_pane_id = app.public_pane_id(0, pane_id).unwrap();
+
+        let response = app.handle_pane_focus(
+            "req".into(),
+            PaneTarget {
+                pane_id: public_pane_id,
+            },
+        );
+
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert!(matches!(success.result, ResponseResult::PaneInfo { .. }));
+        assert!(app.state.workspaces[0].tabs[0].panes[&pane_id].seen);
     }
 }

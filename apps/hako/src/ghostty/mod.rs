@@ -11,7 +11,7 @@
 pub mod bindings;
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -20,7 +20,7 @@ use std::mem;
 use std::os::raw::c_char;
 use std::ptr;
 use std::slice;
-use std::sync::{Once, OnceLock};
+use std::sync::{Mutex, Once, OnceLock};
 
 pub use bindings as ffi;
 
@@ -147,13 +147,11 @@ pub const MODE_MOUSE_ALTERNATE_SCROLL: u16 = 1007;
 pub const MODE_BRACKETED_PASTE: u16 = 2004;
 pub const MODE_SYNCHRONIZED_OUTPUT: u16 = 2026;
 
+const TERMINAL_DATA_COLOR_FOREGROUND: ffi::GhosttyTerminalData = 18;
+const TERMINAL_DATA_COLOR_CURSOR: ffi::GhosttyTerminalData = 20;
 const KITTY_IMAGE_STORAGE_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
 const APC_MAX_BYTES: usize = 16 * 1024 * 1024;
 const APC_MAX_BYTES_KITTY: usize = 16 * 1024 * 1024;
-// Kitty image fingerprints are used as a display cache key, not a
-// cryptographic identity. Sampling keeps redraws cheap for multi-megabyte
-// images while still distinguishing normal screenshots/photos/diagrams.
-const KITTY_FINGERPRINT_SAMPLE_BYTES: usize = 4096;
 pub(crate) const KITTY_UNICODE_PLACEHOLDER: u32 = 0x10EEEE;
 // The vendored C headers expose these placement fields, but the checked-in
 // generated bindings predate the names. Keep the explicit values aligned with
@@ -197,6 +195,14 @@ pub struct KittyImageDescriptor {
     pub format: KittyImageFormat,
     pub data_len: usize,
     pub data_fingerprint: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct KittyImageFingerprintEntry {
+    transmit_time_ns: u64,
+    data_ptr: usize,
+    data_len: usize,
+    fingerprint: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -333,6 +339,7 @@ pub struct CellStyle {
     pub invisible: bool,
     pub strikethrough: bool,
     pub overline: bool,
+    pub underline: u8,
     pub underlined: bool,
 }
 
@@ -350,8 +357,16 @@ impl From<ffi::GhosttyStyle> for CellStyle {
             invisible: value.invisible,
             strikethrough: value.strikethrough,
             overline: value.overline,
+            underline: normalize_underline_style(value.underline),
             underlined: value.underline != 0,
         }
+    }
+}
+
+fn normalize_underline_style(value: std::os::raw::c_int) -> u8 {
+    match value {
+        0..=5 => value as u8,
+        _ => 1,
     }
 }
 
@@ -382,6 +397,19 @@ pub enum CellWide {
     Wide,
     SpacerTail,
     SpacerHead,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ScreenTextCell {
+    pub wide: CellWide,
+    pub graphemes: Vec<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ScreenTextRow {
+    pub cells: Vec<ScreenTextCell>,
+    pub soft_wrapped: bool,
+    pub wrap_continuation: bool,
 }
 
 impl CellWide {
@@ -532,6 +560,7 @@ pub fn encode_focus(event: FocusEvent) -> Result<Vec<u8>, Error> {
 pub struct Terminal {
     raw: ffi::GhosttyTerminal_ptr,
     write_pty_callback: Option<Box<WritePtyCallbackState>>,
+    kitty_fingerprints: Mutex<HashMap<u32, KittyImageFingerprintEntry>>,
 }
 
 impl Terminal {
@@ -549,6 +578,7 @@ impl Terminal {
         Ok(Self {
             raw,
             write_pty_callback: None,
+            kitty_fingerprints: Mutex::new(HashMap::new()),
         })
     }
 
@@ -576,7 +606,7 @@ impl Terminal {
     pub fn enable_kitty_graphics(&mut self) -> Result<(), Error> {
         install_png_decoder_once();
         let storage_limit = KITTY_IMAGE_STORAGE_LIMIT_BYTES;
-        let disable_medium = false;
+        let enable_medium = true;
         unsafe {
             ffi::ghostty_terminal_set(
                 self.raw,
@@ -587,19 +617,19 @@ impl Terminal {
             ffi::ghostty_terminal_set(
                 self.raw,
                 ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_FILE,
-                (&disable_medium as *const bool).cast(),
+                (&enable_medium as *const bool).cast(),
             )
             .into_result()?;
             ffi::ghostty_terminal_set(
                 self.raw,
                 ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_TEMP_FILE,
-                (&disable_medium as *const bool).cast(),
+                (&enable_medium as *const bool).cast(),
             )
             .into_result()?;
             ffi::ghostty_terminal_set(
                 self.raw,
                 ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_SHARED_MEM,
-                (&disable_medium as *const bool).cast(),
+                (&enable_medium as *const bool).cast(),
             )
             .into_result()?;
             ffi::ghostty_terminal_set(
@@ -668,16 +698,15 @@ impl Terminal {
     }
 
     pub fn mouse_tracking_enabled(&self) -> Result<bool, Error> {
-        let mut out = false;
-        unsafe {
-            ffi::ghostty_terminal_get(
-                self.raw,
-                ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_MOUSE_TRACKING,
-                (&mut out as *mut bool).cast(),
-            )
-            .into_result()?;
-        }
-        Ok(out)
+        self.get_bool(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_MOUSE_TRACKING)
+    }
+
+    pub fn effective_foreground_color(&self) -> Result<Option<RgbColor>, Error> {
+        self.get_optional_rgb_color(TERMINAL_DATA_COLOR_FOREGROUND)
+    }
+
+    pub fn effective_cursor_color(&self) -> Result<Option<RgbColor>, Error> {
+        self.get_optional_rgb_color(TERMINAL_DATA_COLOR_CURSOR)
     }
 
     pub fn active_screen(&self) -> Result<ActiveScreen, Error> {
@@ -720,6 +749,42 @@ impl Terminal {
             offset: out.offset as usize,
             len: out.len as usize,
         })
+    }
+    pub(crate) fn screen_text_rows(&self) -> Result<Vec<ScreenTextRow>, Error> {
+        self.screen_text_rows_range(0, usize::MAX)
+    }
+
+    pub(crate) fn screen_text_rows_range(
+        &self,
+        start_row: usize,
+        end_row_exclusive: usize,
+    ) -> Result<Vec<ScreenTextRow>, Error> {
+        let total_rows = self.total_rows()?;
+        let start_row = start_row.min(total_rows);
+        let end_row_exclusive = end_row_exclusive.min(total_rows).max(start_row);
+        let cols = self.cols()?;
+        let mut rows = Vec::with_capacity(end_row_exclusive.saturating_sub(start_row));
+        for y in start_row..end_row_exclusive {
+            let Some(y) = u32::try_from(y).ok() else {
+                break;
+            };
+            let mut grid_ref = self.grid_ref(ghostty_screen_point(0, y))?;
+            let (soft_wrapped, wrap_continuation) = grid_ref_wrap_state(&grid_ref)?;
+            let mut cells = Vec::with_capacity(usize::from(cols));
+            for x in 0..cols {
+                grid_ref.x = x;
+                cells.push(ScreenTextCell {
+                    wide: grid_ref_wide(&grid_ref)?,
+                    graphemes: grid_ref_graphemes(&grid_ref)?,
+                });
+            }
+            rows.push(ScreenTextRow {
+                cells,
+                soft_wrapped,
+                wrap_continuation,
+            });
+        }
+        Ok(rows)
     }
 
     pub fn screen_graphemes(&self, x: u16, y: u32) -> Result<Vec<u32>, Error> {
@@ -1008,6 +1073,34 @@ impl Terminal {
         Ok(out)
     }
 
+    fn get_bool(&self, data: ffi::GhosttyTerminalData) -> Result<bool, Error> {
+        let mut out = false;
+        unsafe {
+            ffi::ghostty_terminal_get(self.raw, data, (&mut out as *mut bool).cast())
+                .into_result()?;
+        }
+        Ok(out)
+    }
+
+    fn get_optional_rgb_color(
+        &self,
+        data: ffi::GhosttyTerminalData,
+    ) -> Result<Option<RgbColor>, Error> {
+        let mut out = ffi::GhosttyColorRgb::default();
+        let result = unsafe {
+            ffi::ghostty_terminal_get(
+                self.raw,
+                data,
+                (&mut out as *mut ffi::GhosttyColorRgb).cast(),
+            )
+        };
+        match result {
+            ffi::GhosttyResult_GHOSTTY_SUCCESS => Ok(Some(out.into())),
+            ffi::GhosttyResult_GHOSTTY_NO_VALUE => Ok(None),
+            other => Err(Error(other)),
+        }
+    }
+
     pub fn kitty_image_placements(&self) -> Result<Vec<KittyImagePlacement>, Error> {
         self.kitty_image_placements_with_data_filter(|_| true)
     }
@@ -1055,6 +1148,7 @@ impl Terminal {
         }
         placements.extend(self.kitty_virtual_image_placements(graphics, &mut needs_data)?);
         placements.sort_by_key(|placement| placement.z);
+        self.prune_kitty_fingerprints(&placements);
         Ok(placements)
     }
 
@@ -1114,8 +1208,14 @@ impl Terminal {
             ffi::GhosttyKittyGraphicsPlacementData_GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_PLACEMENT_ID,
         )?;
         let (data_ptr, data_len) = kitty_image_data_ptr_len(image)?;
-        let data_fingerprint =
-            kitty_image_fingerprint(data_ptr, data_len, image_width, image_height, format);
+        let data_fingerprint = self.kitty_image_fingerprint_cached(
+            image,
+            image_id,
+            (data_ptr, data_len),
+            image_width,
+            image_height,
+            format,
+        );
         let descriptor = KittyImageDescriptor {
             image_id,
             placement_id,
@@ -1263,8 +1363,14 @@ impl Terminal {
             };
             let placement_id = run.synthetic_placement_id();
             let (data_ptr, data_len) = kitty_image_data_ptr_len(image)?;
-            let data_fingerprint =
-                kitty_image_fingerprint(data_ptr, data_len, image_width, image_height, format);
+            let data_fingerprint = self.kitty_image_fingerprint_cached(
+                image,
+                image_id,
+                (data_ptr, data_len),
+                image_width,
+                image_height,
+                format,
+            );
             let descriptor = KittyImageDescriptor {
                 image_id,
                 placement_id,
@@ -1298,6 +1404,58 @@ impl Terminal {
         Ok(placements)
     }
 
+    fn kitty_image_fingerprint_cached(
+        &self,
+        image: ffi::GhosttyKittyGraphicsImage,
+        image_id: u32,
+        data: (*const u8, usize),
+        image_width: u32,
+        image_height: u32,
+        format: KittyImageFormat,
+    ) -> u64 {
+        let (data_ptr, data_len) = data;
+        let Ok(transmit_time_ns) = kitty_image_u64(
+            image,
+            ffi::GhosttyKittyGraphicsImageData_GHOSTTY_KITTY_IMAGE_DATA_TRANSMIT_TIME_NS,
+        ) else {
+            return kitty_image_fingerprint(data_ptr, data_len, image_width, image_height, format);
+        };
+        if let Ok(cache) = self.kitty_fingerprints.lock() {
+            if let Some(entry) = cache.get(&image_id) {
+                if entry.transmit_time_ns == transmit_time_ns
+                    && entry.data_ptr == data_ptr as usize
+                    && entry.data_len == data_len
+                {
+                    return entry.fingerprint;
+                }
+            }
+        }
+        let fingerprint =
+            kitty_image_fingerprint(data_ptr, data_len, image_width, image_height, format);
+        if let Ok(mut cache) = self.kitty_fingerprints.lock() {
+            cache.insert(
+                image_id,
+                KittyImageFingerprintEntry {
+                    transmit_time_ns,
+                    data_ptr: data_ptr as usize,
+                    data_len,
+                    fingerprint,
+                },
+            );
+        }
+        fingerprint
+    }
+
+    fn prune_kitty_fingerprints(&self, placements: &[KittyImagePlacement]) {
+        if let Ok(mut cache) = self.kitty_fingerprints.lock() {
+            let live: HashSet<u32> = placements
+                .iter()
+                .map(|placement| placement.image_id)
+                .collect();
+            cache.retain(|image_id, _| live.contains(image_id));
+        }
+    }
+
     fn raw(&self) -> ffi::GhosttyTerminal_ptr {
         self.raw
     }
@@ -1311,6 +1469,51 @@ impl Drop for KittyPlacementIteratorGuard {
     fn drop(&mut self) {
         unsafe { ffi::ghostty_kitty_graphics_placement_iterator_free(self.raw) }
     }
+}
+fn grid_ref_wide(grid_ref: &ffi::GhosttyGridRef) -> Result<CellWide, Error> {
+    let cell = grid_ref_cell(grid_ref)?;
+    let mut wide = ffi::GhosttyCellWide_GHOSTTY_CELL_WIDE_NARROW;
+    unsafe {
+        ffi::ghostty_cell_get(
+            cell,
+            ffi::GhosttyCellData_GHOSTTY_CELL_DATA_WIDE,
+            (&mut wide as *mut ffi::GhosttyCellWide).cast(),
+        )
+        .into_result()?;
+    }
+    Ok(CellWide::from_raw(wide))
+}
+
+fn grid_ref_cell(grid_ref: &ffi::GhosttyGridRef) -> Result<ffi::GhosttyCell, Error> {
+    let mut cell = 0;
+    unsafe {
+        ffi::ghostty_grid_ref_cell(grid_ref, &mut cell).into_result()?;
+    }
+    Ok(cell)
+}
+
+fn grid_ref_wrap_state(grid_ref: &ffi::GhosttyGridRef) -> Result<(bool, bool), Error> {
+    let mut row = 0;
+    unsafe {
+        ffi::ghostty_grid_ref_row(grid_ref, &mut row).into_result()?;
+    }
+    let mut soft_wrapped = false;
+    let mut wrap_continuation = false;
+    unsafe {
+        ffi::ghostty_row_get(
+            row,
+            ffi::GhosttyRowData_GHOSTTY_ROW_DATA_WRAP,
+            (&mut soft_wrapped as *mut bool).cast(),
+        )
+        .into_result()?;
+        ffi::ghostty_row_get(
+            row,
+            ffi::GhosttyRowData_GHOSTTY_ROW_DATA_WRAP_CONTINUATION,
+            (&mut wrap_continuation as *mut bool).cast(),
+        )
+        .into_result()?;
+    }
+    Ok((soft_wrapped, wrap_continuation))
 }
 
 // SAFETY: these opaque handles are only used behind external synchronization in pane runtime.
@@ -1716,6 +1919,18 @@ fn kitty_image_data_ptr_len(
     Ok((ptr_out, len))
 }
 
+fn kitty_image_u64(
+    image: ffi::GhosttyKittyGraphicsImage,
+    data: ffi::GhosttyKittyGraphicsImageData,
+) -> Result<u64, Error> {
+    let mut out = 0u64;
+    unsafe {
+        ffi::ghostty_kitty_graphics_image_get(image, data, (&mut out as *mut u64).cast())
+            .into_result()?;
+    }
+    Ok(out)
+}
+
 fn kitty_image_data_from_ptr(ptr_out: *const u8, len: usize) -> Vec<u8> {
     if ptr_out.is_null() || len == 0 {
         return Vec::new();
@@ -1740,21 +1955,8 @@ fn kitty_image_fingerprint(
     }
 
     let data = unsafe { slice::from_raw_parts(ptr_out, len) };
-    hash_kitty_image_data_sample(&mut hasher, data);
+    data.hash(&mut hasher);
     hasher.finish()
-}
-
-fn hash_kitty_image_data_sample(hasher: &mut impl Hasher, data: &[u8]) {
-    let sample = KITTY_FINGERPRINT_SAMPLE_BYTES;
-    if data.len() <= sample * 3 {
-        data.hash(hasher);
-        return;
-    }
-
-    data[..sample].hash(hasher);
-    let middle_start = (data.len() / 2).saturating_sub(sample / 2);
-    data[middle_start..middle_start + sample].hash(hasher);
-    data[data.len() - sample..].hash(hasher);
 }
 
 fn grid_ref_hyperlink_uri(grid_ref: &ffi::GhosttyGridRef) -> Result<Option<String>, Error> {
@@ -2175,6 +2377,41 @@ impl<'a> RowIter<'a> {
         unsafe { ffi::ghostty_render_state_row_iterator_next(self.iterator.raw) }
     }
 
+    #[cfg(windows)]
+    pub fn wrap_state(&self) -> Result<(bool, bool), Error> {
+        let mut row = 0;
+        // SAFETY: row output matches requested row data type.
+        unsafe {
+            ffi::ghostty_render_state_row_get(
+                self.iterator.raw,
+                ffi::GhosttyRenderStateRowData_GHOSTTY_RENDER_STATE_ROW_DATA_RAW,
+                (&mut row as *mut ffi::GhosttyRow).cast(),
+            )
+            .into_result()?;
+        }
+        let mut soft_wrapped = false;
+        // SAFETY: wrap output matches requested row data type.
+        unsafe {
+            ffi::ghostty_row_get(
+                row,
+                ffi::GhosttyRowData_GHOSTTY_ROW_DATA_WRAP,
+                (&mut soft_wrapped as *mut bool).cast(),
+            )
+            .into_result()?;
+        }
+        let mut wrap_continuation = false;
+        // SAFETY: wrap continuation output matches requested row data type.
+        unsafe {
+            ffi::ghostty_row_get(
+                row,
+                ffi::GhosttyRowData_GHOSTTY_ROW_DATA_WRAP_CONTINUATION,
+                (&mut wrap_continuation as *mut bool).cast(),
+            )
+            .into_result()?;
+        }
+        Ok((soft_wrapped, wrap_continuation))
+    }
+
     pub fn dirty(&self) -> Result<bool, Error> {
         let mut dirty = false;
         // SAFETY: dirty output matches requested row data type.
@@ -2507,29 +2744,34 @@ mod tests {
     }
 
     #[test]
-    fn kitty_image_fingerprint_samples_large_payloads() {
-        let mut data = vec![1u8; KITTY_FINGERPRINT_SAMPLE_BYTES * 4];
+    fn kitty_image_fingerprint_covers_full_payload() {
+        let mut data = vec![1u8; 4096 * 4];
         let original =
             kitty_image_fingerprint(data.as_ptr(), data.len(), 100, 50, KittyImageFormat::Png);
-
-        data[KITTY_FINGERPRINT_SAMPLE_BYTES / 2] = 2;
-        let changed_prefix =
+        data[4096 + 123] = 2;
+        let changed_outside_sampled_windows =
             kitty_image_fingerprint(data.as_ptr(), data.len(), 100, 50, KittyImageFormat::Png);
-        assert_ne!(original, changed_prefix);
+        assert_ne!(original, changed_outside_sampled_windows);
+    }
 
-        data[KITTY_FINGERPRINT_SAMPLE_BYTES / 2] = 1;
-        let middle = data.len() / 2;
-        data[middle] = 3;
-        let changed_middle =
-            kitty_image_fingerprint(data.as_ptr(), data.len(), 100, 50, KittyImageFormat::Png);
-        assert_ne!(original, changed_middle);
-
-        data[middle] = 1;
-        let last = data.len() - 1;
-        data[last] = 4;
-        let changed_suffix =
-            kitty_image_fingerprint(data.as_ptr(), data.len(), 100, 50, KittyImageFormat::Png);
-        assert_ne!(original, changed_suffix);
+    #[test]
+    fn kitty_image_fingerprint_refreshes_on_retransmission() {
+        let mut terminal = Terminal::new(10, 5, 0).unwrap();
+        terminal.write(b"\x1b_Ga=T,f=32,t=d,i=7,p=3,s=1,v=1,c=10,r=5,q=2;/wAA/w==\x1b\\");
+        let first = terminal
+            .kitty_image_placements_with_data_filter(|_| true)
+            .unwrap();
+        assert_eq!(first.len(), 1);
+        terminal.write(b"\x1b_Ga=t,f=32,t=d,i=7,s=1,v=1,q=2;AAAAAA==\x1b\\");
+        let second = terminal
+            .kitty_image_placements_with_data_filter(|_| true)
+            .unwrap();
+        assert_eq!(second.len(), 1);
+        assert_ne!(first[0].data_fingerprint, second[0].data_fingerprint);
+        let third = terminal
+            .kitty_image_placements_with_data_filter(|_| true)
+            .unwrap();
+        assert_eq!(second[0].data_fingerprint, third[0].data_fingerprint);
     }
 
     #[test]
@@ -2548,6 +2790,49 @@ mod tests {
                 | ffi::GhosttyOptimizeMode_GHOSTTY_OPTIMIZE_RELEASE_SMALL
                 | ffi::GhosttyOptimizeMode_GHOSTTY_OPTIMIZE_RELEASE_FAST
         ));
+    }
+
+    #[test]
+    fn kitty_graphics_local_media_are_enabled() {
+        let mut terminal = Terminal::new(10, 5, 0).unwrap();
+        terminal.enable_kitty_graphics().unwrap();
+        assert!(terminal
+            .get_bool(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_FILE)
+            .unwrap());
+        assert!(terminal
+            .get_bool(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_TEMP_FILE)
+            .unwrap());
+        assert!(terminal
+            .get_bool(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_SHARED_MEM)
+            .unwrap());
+    }
+
+    #[test]
+    fn kitty_graphics_file_medium_rgba_placement_is_queryable() {
+        use base64::Engine;
+        let dir =
+            std::env::temp_dir().join(format!("hako-kitty-file-medium-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pixel.rgba");
+        std::fs::write(&path, [255, 0, 0, 255]).unwrap();
+        let mut terminal = Terminal::new(10, 5, 0).unwrap();
+        terminal.enable_kitty_graphics().unwrap();
+        terminal.resize(10, 5, 8, 16).unwrap();
+        let encoded_path =
+            base64::engine::general_purpose::STANDARD.encode(path.as_os_str().as_encoded_bytes());
+        let command =
+            format!("\x1b_Ga=T,f=32,t=f,i=9,p=4,s=1,v=1,c=10,r=5,q=2;{encoded_path}\x1b\\");
+        terminal.write(command.as_bytes());
+        terminal.write(b"\x1b_Ga=p,U=1,i=9,c=10,r=5\x1b\\");
+        let placements = terminal.kitty_image_placements().unwrap();
+        assert_eq!(placements.len(), 1);
+        assert_eq!(placements[0].image_id, 9);
+        assert_eq!(placements[0].placement_id, 4);
+        assert_eq!(placements[0].data, [255, 0, 0, 255]);
+        assert_eq!(placements[0].format, KittyImageFormat::Rgba);
+        assert_eq!(placements[0].render.grid_cols, 10);
+        assert_eq!(placements[0].render.grid_rows, 5);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

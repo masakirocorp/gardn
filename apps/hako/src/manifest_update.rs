@@ -647,7 +647,7 @@ path = "codex.toml"
             .unwrap();
             fs::write(
                 web_dir.join("codex.toml"),
-                remote_manifest("2026.06.10.4", "auto-update-ready"),
+                remote_manifest("9999.1", "auto-update-ready"),
             )
             .unwrap();
             let _catalog_url_env = crate::config::TestEnvVar::set(

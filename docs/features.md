@@ -27,6 +27,7 @@ A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 
 - **Workspace creation and focus** — create, focus, rename, close, list, and inspect workspaces from the TUI, CLI, or socket API.
 - **Workspace sidebar** — expanded workspace rows show the workspace name, activity state, and git/cwd summary.
+- **Configurable sidebar metadata** — `[ui.sidebar.agents]` and `[ui.sidebar.spaces]` rows accept built-in tokens and `$custom` metadata reported through the socket API; defaults preserve compact workspace and agent labels across expanded, collapsed, and mobile views.
 - **Workspace navigator** — search and filter workspaces, tabs, and panes by text or state.
 - **Workspace groups** — group workspaces, filter the sidebar by group, collapse groups, and assign per-group ANSI accent colors that tint group labels, tabs, menus, and related group UI.
 - **Group lifecycle** — create, rename, delete, focus, and switch groups from the TUI, CLI, or socket API; reorder groups by dragging headers in the all-groups sidebar.
@@ -62,6 +63,7 @@ A pane is a terminal runtime inside a tab layout.
 - **Terminal identity** — panes advertise Hako's terminal layer instead of leaking the outer terminal identity.
 - **Snapshot restore** — saved sessions restore groups, active selections, sidebar layout, tabs, pane layouts, focus, zoom, cwd, labels, and agent session references.
 - **Selection copy** — drag-selected pane text copies on mouse-up and keeps the highlight until the next click or keypress.
+- **Automatic selection copy** — `ui.copy_on_select` defaults to `true`; set it to `false` to disable Hako's mouse drag and double-click selection copying while leaving explicit copy actions available.
 - **Keyboard protocol encoding** — pane input honors negotiated terminal keyboard protocols, including Kitty CSI u and legacy modified-key sequences.
 
 ## Agent awareness
@@ -99,6 +101,7 @@ Supported built-in detection includes:
 - Grok CLI
 - Hermes agent
 - Kilo Code CLI
+- Maki
 
 
 - **Manifest rules** — bundled per-agent TOML manifests define screen, OSC title, and OSC progress matching rules for every built-in agent family, including OMP. Screen rules can provide strong visible evidence; OSC-only rules are fallback evidence and do not override hook authority as visible UI.
@@ -109,6 +112,7 @@ Supported built-in detection includes:
 - **Activity sidebar** — shows agents grouped by state across the current workspace, current group, or all workspaces; entries sort newest activity first and show compact relative activity age.
 - **Agent focus** — focus agents from the activity panel, command surfaces, CLI, or socket API.
 - **Agent labels** — manual, detected, and integration-reported labels are surfaced in lists and pane borders.
+- **Agent metadata tokens** — pane metadata token patches are exposed consistently through pane/agent API snapshots and rendered without leaking one client's sidebar view into another.
 - **State notifications** — background state changes can trigger Hako toasts, terminal toasts, system toasts, and sounds.
 - **Integration authority** — installed hooks either report native session identity for restore or report state directly. Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, and Qoder-style integrations can report state directly; Kimi, Droid, and Cursor use session identity plus screen detection for state.
 - **Missing integration warning** — if screen detection sees an integration-capable agent such as Codex but no accepted Hako hook, session, or metadata report arrives for that pane, Hako shows a pane-targeted toast with the matching `hako integration install <agent>` command.
@@ -165,6 +169,10 @@ Mouse capture is enabled by default.
 - Configure `ui.right_click_passthrough_modifier` to send modified right-click hold/drag gestures to mouse-reporting pane apps while normal right-click keeps Hako menus.
 - Select pane text for copy workflows.
 - **Mobile layout** — narrow terminals use a compact header and scrollable switcher for spaces, tabs, agents, and global menu actions.
+
+### Copy mode
+
+Copy mode is client-local: one attached client's cursor, selection, search, and scroll position do not affect another client. It supports directional `/` and `?` search with `n`/`N` repeats, tmux-style word motions, and full- or half-page navigation with the configured prefix.
 
 ### Navigator
 
@@ -295,6 +303,7 @@ Hako exposes the same runtime model through the CLI and local Unix socket API.
 - **`hako config reset-keys`** — remove custom keybindings while preserving the rest of the config.
 - **`hako update`** — self-update supported binary installs; `--handoff` can preserve live panes while moving running sessions to the updated server.
 - **`hako server`** — run the headless server, stop it, reload config, or trigger a live handoff.
+- **`hako api`** — print or write the generated public API schema and request a live session snapshot.
 - **Launch flags** — `--no-session`, `--default-config`, and `--remote-keybindings <local|server>` control startup and remote behavior.
 - **JSON output** — status, session, and worktree commands expose machine-readable output where supported.
 - **Read modes** — pane and agent reads support visible, recent, recent-unwrapped, ANSI, raw, and bounded line output.
@@ -317,6 +326,9 @@ API-visible domains include:
 - output reads
 - output waits
 - event subscriptions
+- session snapshots
+- terminal observe and control streams
+- pane scroll state
 - workspace groups
 - integration authority reports
 - protocol and capability ping
@@ -350,6 +362,7 @@ Configuration file: `~/.config/hako/config.toml`.
 Hako treats `config.toml` as a stable hand-editable configuration surface. Settings modal changes rewrite their owned keys or sections, preserve unrelated sections, and reload the file into the running app after successful writes.
 
 Runtime reload is section-scoped for live sections: valid sections apply, invalid sections keep the previous live settings and emit diagnostics through the app/server reload path.
+- **Offline validation** — `hako config check` validates `config.toml`, prints diagnostics, and exits without starting or attaching to a session.
 
 
 Configurable areas include:
@@ -361,6 +374,7 @@ Configurable areas include:
 - keybindings
 - indexed shortcuts
 - custom command keybindings
+  Shell actions and temporary pane actions run through the platform command interpreter: `/bin/sh` on Unix and `cmd.exe` on Windows.
 - multiple bindings per action
 - prefix-mode and direct key chords
 - sidebar size and mouse behavior

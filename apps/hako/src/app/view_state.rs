@@ -183,7 +183,7 @@ impl ClientViewState {
             context_menu: state.context_menu.clone(),
             selection: state.selection.clone(),
             selection_autoscroll: state.selection_autoscroll.clone(),
-            copy_mode: state.copy_mode,
+            copy_mode: state.copy_mode.clone(),
             drag: state.drag.clone(),
             workspace_press: state.workspace_press.clone(),
             group_press: state.group_press.clone(),

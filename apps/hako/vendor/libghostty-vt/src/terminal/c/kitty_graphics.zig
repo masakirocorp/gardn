@@ -178,6 +178,7 @@ pub const ImageData = enum(c_int) {
     compression = 6,
     data_ptr = 7,
     data_len = 8,
+    transmit_time_ns = 9,
 
     pub fn OutType(comptime self: ImageData) type {
         return switch (self) {
@@ -187,6 +188,7 @@ pub const ImageData = enum(c_int) {
             .compression => ImageCompression,
             .data_ptr => [*]const u8,
             .data_len => usize,
+            .transmit_time_ns => u64,
         };
     }
 };
@@ -258,9 +260,20 @@ fn imageGetTyped(
         .compression => out.* = image.compression,
         .data_ptr => out.* = image.data.ptr,
         .data_len => out.* = image.data.len,
+        .transmit_time_ns => out.* = instantNanos(image.transmit_time),
     }
 
     return .success;
+}
+
+/// Flattens an Instant's platform timestamp to nanoseconds for the C API.
+/// The epoch is unspecified; only equality and ordering are meaningful.
+fn instantNanos(instant: std.time.Instant) u64 {
+    if (@TypeOf(instant.timestamp) == u64) return instant.timestamp;
+    const ts = instant.timestamp;
+    const sec: u64 = @intCast(@max(ts.sec, 0));
+    const nsec: u64 = @intCast(@max(ts.nsec, 0));
+    return sec *| std.time.ns_per_s +| nsec;
 }
 
 pub fn placement_iterator_new(

@@ -12,6 +12,8 @@ use crate::api::schema::{
     ReadSource, Request, ServerLiveHandoffParams, SplitDirection, Subscription,
 };
 
+#[path = "cli/api.rs"]
+mod api_cli;
 mod pane;
 mod plugin;
 mod tab;
@@ -47,6 +49,7 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
             };
             exit_code
         }
+        "api" => api_cli::run_api_command(&args[2..])?,
         "status" => run_status_command(&args[2..])?,
         "group" => run_group_command(&args[2..])?,
         "config" => run_config_command(&args[2..])?,
@@ -126,6 +129,7 @@ fn run_config_command(args: &[String]) -> std::io::Result<i32> {
     };
 
     match subcommand {
+        "check" => config_check(&args[1..]),
         "reset-keys" => config_reset_keys(&args[1..]),
         "help" | "--help" | "-h" => {
             print_config_help();
@@ -136,6 +140,32 @@ fn run_config_command(args: &[String]) -> std::io::Result<i32> {
             Ok(2)
         }
     }
+}
+
+fn config_check(args: &[String]) -> std::io::Result<i32> {
+    match args {
+        [] => {}
+        [flag] if matches!(flag.as_str(), "help" | "--help" | "-h") => {
+            eprintln!("usage: hako config check");
+            return Ok(0);
+        }
+        _ => {
+            eprintln!("usage: hako config check");
+            return Ok(2);
+        }
+    }
+
+    let diagnostics = crate::config::Config::load().diagnostics;
+    if diagnostics.is_empty() {
+        println!("config: ok");
+    } else {
+        println!("config: issues found");
+        for diagnostic in &diagnostics {
+            println!("{diagnostic}");
+        }
+    }
+
+    Ok(i32::from(!diagnostics.is_empty()))
 }
 
 fn config_reset_keys(args: &[String]) -> std::io::Result<i32> {
@@ -876,7 +906,13 @@ fn server_stop(args: &[String]) -> std::io::Result<i32> {
         return Ok(2);
     }
 
-    send_ok_request(Method::ServerStop(EmptyParams::default()))
+    match crate::session::stop_active_server() {
+        Ok(()) => Ok(0),
+        Err(err) => {
+            eprintln!("{err}");
+            Ok(1)
+        }
+    }
 }
 
 fn server_reload_config(args: &[String]) -> std::io::Result<i32> {
@@ -2201,6 +2237,7 @@ fn print_status_help() {
 fn print_config_help() {
     eprintln!("hako config commands:");
     eprintln!("  hako config reset-keys  back up config.toml and remove custom keybindings");
+    eprintln!("  hako config check  validate config.toml and print diagnostics");
 }
 
 fn print_group_help() {

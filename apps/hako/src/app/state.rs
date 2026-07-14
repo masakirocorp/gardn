@@ -1491,6 +1491,29 @@ pub enum Mode {
     GitRepoPicker,
 }
 
+impl Mode {
+    /// Whether this mode is part of the prefix command/navigation realm.
+    /// Text-entry modes deliberately remain outside this allowlist so adding a
+    /// new text field cannot silently force the host input source to ASCII.
+    pub(crate) fn wants_ascii_input(self) -> bool {
+        matches!(
+            self,
+            Mode::Navigate
+                | Mode::Prefix
+                | Mode::Copy
+                | Mode::Resize
+                | Mode::ConfirmClose
+                | Mode::ConfirmDeleteGroup
+                | Mode::ContextMenu
+                | Mode::GlobalMenu
+                | Mode::GroupMenu
+                | Mode::AgentMenu
+                | Mode::KeybindHelp
+                | Mode::Navigator
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum NavigatorTarget {
     Workspace {
@@ -1541,6 +1564,28 @@ pub(crate) struct NavigatorState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CopyModeSearchDirection {
+    Forward,
+    Backward,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CopyModeSearchPrompt {
+    pub direction: CopyModeSearchDirection,
+    pub query: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct CopyModeSearchState {
+    pub prompt: Option<CopyModeSearchPrompt>,
+    pub query: String,
+    pub direction: Option<CopyModeSearchDirection>,
+    pub matches: Vec<crate::pane::TerminalTextMatch>,
+    pub current: Option<usize>,
+    pub geometry: Option<(u16, u16)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CopyModeState {
     pub pane_id: PaneId,
     pub cursor_row: u16,
@@ -1548,6 +1593,7 @@ pub(crate) struct CopyModeState {
     pub entry_offset_from_bottom: usize,
     pub entry_max_offset_from_bottom: usize,
     pub selection: Option<CopyModeSelection>,
+    pub search: CopyModeSearchState,
 }
 
 impl CopyModeState {
@@ -1568,6 +1614,7 @@ impl CopyModeState {
             entry_offset_from_bottom,
             entry_max_offset_from_bottom,
             selection: None,
+            search: CopyModeSearchState::default(),
         }
     }
 
@@ -2508,6 +2555,8 @@ pub struct AppState {
     pub right_sidebar_width: u16,
     pub right_sidebar_collapsed: bool,
     pub sidebar_arrangement: crate::config::SidebarArrangementConfig,
+    /// Sidebar row/token layout loaded from `[ui.sidebar]`.
+    pub sidebar_config: crate::config::SidebarConfig,
     /// Ratio of sidebar height allocated to the workspaces section when activity
     /// is stacked into the same sidebar.
     pub sidebar_section_split: f32,
@@ -2522,12 +2571,18 @@ pub struct AppState {
     /// Capture mouse input for Hako's own mouse UI. When false, Hako only
     /// captures mouse while the focused pane app requests mouse reporting.
     pub mouse_capture: bool,
+    /// Copy text selected with the mouse on selection completion. Default: true.
+    pub copy_on_select: bool,
     pub right_click_passthrough_modifiers: Option<KeyModifiers>,
     pub right_click_passthrough: Option<RightClickPassthroughGesture>,
     pub redraw_on_focus_gained: bool,
     pub mouse_scroll_lines: usize,
     pub confirm_close: bool,
     pub prompt_new_tab_name: bool,
+    pub pane_borders: bool,
+    pub pane_gaps: bool,
+    pub hide_tab_bar_when_single_tab: bool,
+    pub sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig,
     pub git_diff_command: String,
     pub show_agent_labels_on_pane_borders: bool,
     pub pane_history_persistence: bool,
@@ -3244,6 +3299,7 @@ impl AppState {
             right_sidebar_width: 28,
             right_sidebar_collapsed: false,
             sidebar_arrangement: crate::config::SidebarArrangementConfig::Auto,
+            sidebar_config: crate::config::SidebarConfig::default(),
             sidebar_section_split: 0.5,
             activity_agents_expanded: true,
             activity_commands_expanded: false,
@@ -3254,12 +3310,17 @@ impl AppState {
             collapsed_workspace_groups: Vec::new(),
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
             mouse_capture: true,
+            copy_on_select: true,
             right_click_passthrough_modifiers: None,
             right_click_passthrough: None,
             redraw_on_focus_gained: true,
             mouse_scroll_lines: crate::config::DEFAULT_MOUSE_SCROLL_LINES,
             confirm_close: true,
             prompt_new_tab_name: true,
+            pane_borders: true,
+            pane_gaps: true,
+            hide_tab_bar_when_single_tab: false,
+            sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig::default(),
             copy_feedback: None,
             git_diff_command: "lazygit".to_string(),
             show_agent_labels_on_pane_borders: false,

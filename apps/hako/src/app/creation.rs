@@ -76,6 +76,23 @@ impl App {
         })
     }
 
+    pub(super) fn cwd_for_pane_in_workspace(
+        &self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> Option<PathBuf> {
+        let ws = self.state.workspaces.get(ws_idx)?;
+        let tab_idx = ws.find_tab_index_for_pane(pane_id)?;
+        ws.tabs
+            .get(tab_idx)?
+            .cwd_for_pane(pane_id, &self.state.terminals, &self.terminal_runtimes)
+    }
+
+    pub(super) fn focused_pane_cwd_in_workspace(&self, ws_idx: usize) -> Option<PathBuf> {
+        let pane_id = self.state.workspaces.get(ws_idx)?.focused_pane_id()?;
+        self.cwd_for_pane_in_workspace(ws_idx, pane_id)
+    }
+
     pub(super) fn resolve_new_terminal_cwd(&self, follow_cwd: Option<PathBuf>) -> PathBuf {
         resolve_new_terminal_cwd(&self.state.new_terminal_cwd, follow_cwd)
     }
@@ -120,7 +137,10 @@ impl App {
         let source = self.workspace_creation_source();
         let group_id = self.workspace_creation_group_id(source);
         let initial_cwd = self.group_default_directory(&group_id).unwrap_or_else(|| {
-            let follow_cwd = source.and_then(|ws_idx| self.seed_cwd_from_workspace(ws_idx));
+            let follow_cwd = source.and_then(|ws_idx| {
+                self.focused_pane_cwd_in_workspace(ws_idx)
+                    .or_else(|| self.seed_cwd_from_workspace(ws_idx))
+            });
             self.resolve_new_terminal_cwd(follow_cwd)
         });
         if let Err(e) = self.create_workspace_with_options_in_group(initial_cwd, true, group_id) {
@@ -128,13 +148,12 @@ impl App {
             self.state.mode = Mode::Navigate;
         }
     }
-
     pub(crate) fn create_tab(&mut self) {
         let custom_name = self.state.requested_new_tab_name.take();
-        let follow_cwd = self
-            .state
-            .active
-            .and_then(|ws_idx| self.seed_cwd_from_workspace(ws_idx));
+        let follow_cwd = self.state.active.and_then(|ws_idx| {
+            self.focused_pane_cwd_in_workspace(ws_idx)
+                .or_else(|| self.seed_cwd_from_workspace(ws_idx))
+        });
         let initial_cwd = self.resolve_new_terminal_cwd(follow_cwd);
         match self.create_tab_with_options(initial_cwd, true) {
             Ok(tab_idx) => {
@@ -165,7 +184,9 @@ impl App {
         let previous_active = self.state.active;
         let previous_mode = self.state.mode;
         self.state.active = Some(ws_idx);
-        let follow_cwd = self.seed_cwd_from_workspace(ws_idx);
+        let follow_cwd = self
+            .focused_pane_cwd_in_workspace(ws_idx)
+            .or_else(|| self.seed_cwd_from_workspace(ws_idx));
         let initial_cwd = self.resolve_new_terminal_cwd(follow_cwd);
         let tab_idx = self.create_tab_with_options(initial_cwd, false)?;
         if let Some(name) = custom_name {
@@ -469,7 +490,7 @@ impl App {
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
             workspace_id: self.public_workspace_id(ws_idx),
             number: tab_idx + 1,
-            label: tab.display_name(),
+            label: ws.tab_display_name(tab_idx)?,
             focused: self.state.active == Some(ws_idx) && ws.active_tab == tab_idx,
             pane_count: tab.panes.len(),
             agent_status: pane_agent_status(agg_state, seen),
@@ -542,7 +563,9 @@ impl App {
             agent_status: pane_agent_status(terminal.state, pane.seen),
             custom_status: presentation.custom_status,
             state_labels: presentation.state_labels,
+            tokens: presentation.tokens,
             agent_session: terminal_agent_session_info(terminal),
+            scroll: self.pane_scroll_info(ws_idx, pane_id),
             revision: terminal.revision,
         })
     }
@@ -582,8 +605,27 @@ impl App {
             agent_status: pane_agent_status(terminal.state, pane.seen),
             custom_status: presentation.custom_status,
             state_labels: presentation.state_labels,
+            tokens: presentation.tokens,
             agent_session: terminal_agent_session_info(terminal),
+            scroll: self.pane_scroll_info(ws_idx, pane_id),
             revision: terminal.revision,
+        })
+    }
+
+    fn pane_scroll_info(
+        &self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> Option<crate::api::schema::PaneScrollInfo> {
+        let metrics = self.state.pane_scroll_metrics_in_workspace(
+            &self.terminal_runtimes,
+            ws_idx,
+            pane_id,
+        )?;
+        Some(crate::api::schema::PaneScrollInfo {
+            offset_from_bottom: metrics.offset_from_bottom as u64,
+            max_offset_from_bottom: metrics.max_offset_from_bottom as u64,
+            viewport_rows: metrics.viewport_rows as u64,
         })
     }
 

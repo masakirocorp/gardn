@@ -19,6 +19,12 @@ mod aggregate;
 mod git;
 mod tab;
 
+enum PaneSplitCommand<'a> {
+    Argv(&'a [String]),
+    Custom(&'a str),
+}
+
+pub(crate) use self::aggregate::PaneDetail;
 #[cfg(test)]
 use self::git::git_ahead_behind;
 pub(crate) use self::git::git_repo_root;
@@ -456,7 +462,16 @@ impl Workspace {
     }
 
     pub fn active_tab_display_name(&self) -> Option<String> {
-        self.active_tab().map(Tab::display_name)
+        self.tab_display_name(self.active_tab)
+    }
+
+    pub fn tab_display_name(&self, tab_idx: usize) -> Option<String> {
+        let tab = self.tabs.get(tab_idx)?;
+        Some(
+            tab.custom_name
+                .clone()
+                .unwrap_or_else(|| (tab_idx + 1).to_string()),
+        )
     }
 
     pub fn switch_tab(&mut self, idx: usize) {
@@ -869,6 +884,36 @@ impl Workspace {
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub fn split_pane_custom_command(
+        &mut self,
+        pane_id: PaneId,
+        direction: Direction,
+        rows: u16,
+        cols: u16,
+        cwd: Option<PathBuf>,
+        command: &str,
+        extra_env: Vec<(String, String)>,
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        focus_new_pane: bool,
+    ) -> Option<std::io::Result<(usize, crate::workspace::tab::NewPane)>> {
+        self.split_pane_with_runtime(
+            pane_id,
+            direction,
+            None,
+            rows,
+            cols,
+            cwd,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            crate::pane::PaneShellConfig::new("", crate::config::ShellModeConfig::NonLogin),
+            extra_env,
+            focus_new_pane,
+            Some(PaneSplitCommand::Custom(command)),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn split_pane_argv_command(
         &mut self,
         pane_id: PaneId,
@@ -894,7 +939,7 @@ impl Workspace {
             crate::pane::PaneShellConfig::new("", crate::config::ShellModeConfig::NonLogin),
             extra_env,
             focus_new_pane,
-            Some(argv),
+            Some(PaneSplitCommand::Argv(argv)),
         )
     }
 
@@ -925,7 +970,7 @@ impl Workspace {
             crate::pane::PaneShellConfig::new("", crate::config::ShellModeConfig::NonLogin),
             extra_env,
             focus_new_pane,
-            Some(argv),
+            Some(PaneSplitCommand::Argv(argv)),
         )
     }
 
@@ -943,7 +988,7 @@ impl Workspace {
         shell_config: crate::pane::PaneShellConfig<'_>,
         extra_env: Vec<(String, String)>,
         focus_new_pane: bool,
-        argv: Option<&[String]>,
+        command: Option<PaneSplitCommand<'_>>,
     ) -> Option<std::io::Result<(usize, crate::workspace::tab::NewPane)>> {
         let tab_idx = self.find_tab_index_for_pane(pane_id)?;
         let pane_number = self.next_public_pane_number;
@@ -952,8 +997,8 @@ impl Workspace {
         let tab = &mut self.tabs[tab_idx];
         let previous_focus = tab.layout.focused();
         tab.layout.focus_pane(pane_id);
-        let new_pane = match if let Some(argv) = argv {
-            match ratio {
+        let new_pane_result = match command {
+            Some(PaneSplitCommand::Argv(argv)) => match ratio {
                 Some(ratio) => tab.split_focused_argv_command_with_ratio(
                     direction,
                     ratio,
@@ -975,9 +1020,21 @@ impl Workspace {
                     scrollback_limit_bytes,
                     host_terminal_theme,
                 ),
+            },
+            Some(PaneSplitCommand::Custom(command)) => {
+                debug_assert!(ratio.is_none(), "custom command splits do not use ratios");
+                tab.split_focused_custom_command(
+                    direction,
+                    rows,
+                    cols,
+                    cwd,
+                    command,
+                    &launch_env,
+                    scrollback_limit_bytes,
+                    host_terminal_theme,
+                )
             }
-        } else {
-            match ratio {
+            None => match ratio {
                 Some(ratio) => tab.split_focused_with_ratio(
                     direction,
                     ratio,
@@ -999,8 +1056,9 @@ impl Workspace {
                     shell_config,
                     &launch_env,
                 ),
-            }
-        } {
+            },
+        };
+        let new_pane = match new_pane_result {
             Ok(new_pane) => new_pane,
             Err(err) => {
                 tab.layout.focus_pane(previous_focus);
@@ -1210,7 +1268,6 @@ impl Workspace {
             .unwrap_or_else(|| "workspace".into())
     }
 
-    #[cfg(test)]
     pub fn branch(&self) -> Option<String> {
         self.cached_git_branch.clone()
     }

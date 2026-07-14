@@ -29,6 +29,10 @@ enum SplitCommand<'a> {
         argv: &'a [String],
         launch_env: &'a PaneLaunchEnv,
     },
+    Custom {
+        command: &'a str,
+        launch_env: &'a PaneLaunchEnv,
+    },
 }
 
 enum NewTabCommand<'a> {
@@ -423,6 +427,34 @@ impl Tab {
         )
     }
 
+    pub fn split_focused_custom_command(
+        &mut self,
+        direction: Direction,
+        rows: u16,
+        cols: u16,
+        cwd: Option<PathBuf>,
+        command: &str,
+        launch_env: &PaneLaunchEnv,
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+    ) -> std::io::Result<NewPane> {
+        self.split_focused_with_runtime(
+            direction,
+            None,
+            rows,
+            cols,
+            cwd,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            crate::pane::PaneShellConfig::new("", crate::config::ShellModeConfig::NonLogin),
+            launch_env,
+            Some(SplitCommand::Custom {
+                command,
+                launch_env,
+            }),
+        )
+    }
+
     pub fn split_focused_argv_command(
         &mut self,
         direction: Direction,
@@ -506,6 +538,22 @@ impl Tab {
                 cols,
                 actual_cwd.clone(),
                 argv,
+                launch_env,
+                scrollback_limit_bytes,
+                host_terminal_theme,
+                self.events.clone(),
+                self.render_notify.clone(),
+                self.render_dirty.clone(),
+            ),
+            Some(SplitCommand::Custom {
+                command,
+                launch_env,
+            }) => TerminalRuntime::spawn_custom_command(
+                new_id,
+                rows,
+                cols,
+                actual_cwd.clone(),
+                command,
                 launch_env,
                 scrollback_limit_bytes,
                 host_terminal_theme,

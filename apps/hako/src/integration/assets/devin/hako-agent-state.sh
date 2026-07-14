@@ -3,7 +3,7 @@
 # managed by hako; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HAKO_INTEGRATION_ID=devin
-# HAKO_INTEGRATION_VERSION=1
+# HAKO_INTEGRATION_VERSION=2
 
 set -eu
 
@@ -23,6 +23,8 @@ esac
 command -v python3 >/dev/null 2>&1 || exit 0
 
 HAKO_HOOK_INPUT_FILE="$hook_input_file" python3 - <<'PY'
+from __future__ import annotations
+
 import json
 import os
 import random

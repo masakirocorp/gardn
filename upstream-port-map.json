@@ -1757,6 +1757,1518 @@
       "subject": "fix: match shifted indexed number keybinds",
       "status": "ported",
       "reason": "Ported to Hako's keybinding matcher and client routing with exact Shift+1 through Shift+0 aliases that preserve literal and custom-command precedence."
+    },
+    {
+      "upstream": "a720367889cf8f54108deb1489cbcd06e0d3dfa7",
+      "subject": "fix: extend remote client handshake timeout for high-latency links",
+      "status": "ported",
+      "reason": "Integrated under ENG-81; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "c78349f422139577f8d7bf5e07f84dcec5a48456",
+      "subject": "fix: wait for server stop socket cleanup",
+      "status": "ported",
+      "reason": "Integrated under ENG-81; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "d9230f517a88be0eb88c9af39f7a4212644c9a3d",
+      "subject": "fix: clarify remote ssh auth failures (#1084)",
+      "status": "ported",
+      "reason": "Integrated under ENG-81; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "c3df61b564a8de3337b8be075a5d16f64d32850e",
+      "subject": "fix: make remote helper installs shell-portable",
+      "status": "ported",
+      "reason": "Integrated under ENG-81; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "4ffd99c2ec62fd3cbc9f9e0673d92c6a2a4f12b1",
+      "subject": "fix: keep auto tab labels compact",
+      "status": "ported",
+      "reason": "Integrated under ENG-88; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "4421c0febbb03a1a4264729a70fb7c440a3b9ca8",
+      "subject": "fix: add configurable pane gaps",
+      "status": "ported",
+      "reason": "Integrated under ENG-88; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "2ff5dd2f40324ed63f8b424bce1954f2fdca6f84",
+      "subject": "fix: render cjk pane border labels",
+      "status": "ported",
+      "reason": "Integrated under ENG-88; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "db1ef28d64279b290b882eea9a7a655dd78d08c9",
+      "subject": "feat: agents-first mobile switcher with global header summary",
+      "status": "ported",
+      "reason": "Integrated under ENG-88; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "14d8e93391ed688c1adbd19d964666bb5451ca29",
+      "subject": "feat: render worktrees as a tree in the mobile switcher",
+      "status": "ported",
+      "reason": "Integrated under ENG-88; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "b44ca3b39ea4e9d90cc85dfc4a749ceddc09d19e",
+      "subject": "fix: measure ui labels by display width",
+      "status": "ported",
+      "reason": "Integrated under ENG-88; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "32e3d7b7fd215efd021d8869207b018edd0c2c83",
+      "subject": "fix: compact indexed keybind help ranges",
+      "status": "ported",
+      "reason": "Integrated under ENG-88; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "bc764c83cb023a52ca4b12c96ffd6a7547953982",
+      "subject": "fix: keep active auto-named tab readable",
+      "status": "ported",
+      "reason": "Integrated under ENG-88; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "2a1a8d64de678fa0e9e2e2f097e8520095b11c5a",
+      "subject": "feat: hide single-tab tab row",
+      "status": "ported",
+      "reason": "Integrated under ENG-88; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "1e1d06328cc9aefa354b7ce463f9f2d254395662",
+      "subject": "fix: preserve navigator search commands (#1140)",
+      "status": "ported",
+      "reason": "Integrated under ENG-88; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "010afe53055c338ee22d8598938aef32ee237d6f",
+      "subject": "fix: refresh tab bar after plugin-driven tab rename (#1179)",
+      "status": "ported",
+      "reason": "Integrated under ENG-88; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "052f20214b1be904924df8d50d01e31198098922",
+      "subject": "fix: preserve windows terminal multiline paste",
+      "status": "ported",
+      "reason": "Integrated under ENG-82; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "c792f2fd53794a02b12c369903fd463c4896b7ef",
+      "subject": "fix: preserve alacritty input on windows",
+      "status": "ported",
+      "reason": "Integrated under ENG-82; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "7811d84f15f1b2e41d68901d368791b15e0bf6c7",
+      "subject": "fix: ignore modifier-only windows input",
+      "status": "ported",
+      "reason": "Integrated under ENG-82; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "f3da280ccc7beac0c1491578cd32e04495ae08bf",
+      "subject": "fix: preserve windows win32 bracketed paste",
+      "status": "ported",
+      "reason": "Integrated under ENG-82; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "dcfc45b45d198434db5057c991e72c089b42c705",
+      "subject": "fix: preserve claude session rotations",
+      "status": "ported",
+      "reason": "Integrated under ENG-84; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "5ffaf4f32b299bd904c9dbfc02e77252cbfb0220",
+      "subject": "fix: isolate omp hook state to ui sessions",
+      "status": "ported",
+      "reason": "Integrated under ENG-84; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "3c7327c267a352023797c8a13fd0b7f4a7a40591",
+      "subject": "fix: avoid pi release on internal session reloads (#800)",
+      "status": "ported",
+      "reason": "Integrated under ENG-84; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "d5521e3d250498df4af552fff83fce3d5ef33810",
+      "subject": "fix: preserve pi and omp working status across reloads (#984)",
+      "status": "ported",
+      "reason": "Integrated under ENG-84; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "c5c307597f623099a86d847d4d6abe3c81791292",
+      "subject": "fix: recover omp resume and blocked states",
+      "status": "ported",
+      "reason": "Integrated under ENG-84; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "b1d1a07b1cd3963958ef48028c1c283cb5517d47",
+      "subject": "fix: retry pi state socket reports",
+      "status": "ported",
+      "reason": "Integrated under ENG-84; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "17e2b2b878ca9b8cad60fd26baef549479c13081",
+      "subject": "fix: honor prefix in copy mode",
+      "status": "ported",
+      "reason": "Integrated under ENG-86; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "5e2dc40691e30f90c5fe3b1e60d5074ceb358556",
+      "subject": "fix: add copy mode ctrl page navigation",
+      "status": "ported",
+      "reason": "Integrated under ENG-86; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "c8850a2e3e284033142db0f8117fa5998c68bd59",
+      "subject": "feat: add copy mode search and tmux word motions",
+      "status": "ported",
+      "reason": "Integrated under ENG-86; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "1a4e94e57e181379e2ed42d63a49fbc56ed1dba4",
+      "subject": "refactor: route tui mutations through runtime authority",
+      "status": "ported",
+      "reason": "Integrated under ENG-87; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "97f78226bf1f34dcdef164291a9c50fddf448c6e",
+      "subject": "fix: route tui modal mutations through api authority",
+      "status": "ported",
+      "reason": "Integrated under ENG-87; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "8b74fb8a12716269c76f0b503ee7db5bbec2c921",
+      "subject": "feat: emit placement mutation events",
+      "status": "ported",
+      "reason": "Integrated under ENG-87; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "9a91a2ac41a5b2fbc2811922750a782b45115219",
+      "subject": "refactor: route tui mutations through runtime dispatch",
+      "status": "ported",
+      "reason": "Integrated under ENG-87; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "0bab01573a781abda0ddf08046e7e4ce4568d696",
+      "subject": "refactor: route headless workspace tab mutations through runtime dispatch",
+      "status": "ported",
+      "reason": "Integrated under ENG-87; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "edd08e895fc65e07e500a1fe80e88202deae6b8d",
+      "subject": "refactor: route pane layout tui actions through runtime wrappers",
+      "status": "ported",
+      "reason": "Integrated under ENG-87; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "15cab964f3494b77159caaea289e17e1596e0720",
+      "subject": "feat: emit layout update events for runtime layout changes",
+      "status": "ported",
+      "reason": "Integrated under ENG-87; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "f54d8e8c0aee5d3ec9724234d1bcd418bff8ff2f",
+      "subject": "feat: add hidden collapsed sidebar mode",
+      "status": "ported",
+      "reason": "Integrated under ENG-88; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "c580840307f0bb03ee3ccb8fe659282f3a1031e1",
+      "subject": "fix: detect npm-wrapped pi on windows",
+      "status": "ported",
+      "reason": "Integrated under ENG-89; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "a66f4c64e9d1591f042a94d6f3bef3b4298a4d1c",
+      "subject": "fix: force system conpty on windows",
+      "status": "ported",
+      "reason": "Integrated under ENG-89; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "64a12de1cdc0cf3730da82103d4d84ddd919d407",
+      "subject": "fix: include vendored portable-pty in nix package",
+      "status": "ported",
+      "reason": "Integrated under ENG-89; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "8b1d77acf6059e6688fb6a875c3176c95602b6c4",
+      "subject": "fix: keep powershell panes alive after agent ctrl-c",
+      "status": "ported",
+      "reason": "Integrated under ENG-89; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "a9111cbab2a7550c7e84ec94c8b388de9a44daa3",
+      "subject": "fix: open scrollback editor on windows without sh",
+      "status": "ported",
+      "reason": "Integrated under ENG-89; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "2c422e60f1724ac5639c80abb73dc1f10a91b5c6",
+      "subject": "feat: inject powershell prompt shell integration for cwd reporting on windows",
+      "status": "ported",
+      "reason": "Integrated under ENG-89; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "5abdae1ac7d5475e63e39681f7014acc35d36a89",
+      "subject": "fix: restore windows recent pane reads",
+      "status": "ported",
+      "reason": "Integrated under ENG-89; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "220b99a9fabf10fad83a570f641ad39737d85875",
+      "subject": "fix: support custom command keybindings on windows",
+      "status": "ported",
+      "reason": "Integrated under ENG-89; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "c17c419c10aee0d7bf2d7da8575746c98febe657",
+      "subject": "fix: write pane copies to native windows clipboard (#1082)",
+      "status": "ported",
+      "reason": "Integrated under ENG-89; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "b017d212905b4de04770100ad993cb5c0b7855ca",
+      "subject": "fix: stop windows server over named pipes",
+      "status": "ported",
+      "reason": "Integrated under ENG-89; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "e4a7095c9339fcf14d286936b7eeb16ad4106cc9",
+      "subject": "fix: guard windows process tree cycles",
+      "status": "ported",
+      "reason": "Integrated under ENG-89; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "36b2e2f5463139a284483732131ce44977881239",
+      "subject": "fix: use drawn cursor by default in wsl",
+      "status": "ported",
+      "reason": "Integrated under ENG-89; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "d1471e64834d0c7daf072f11c01c30db35324850",
+      "subject": "fix: draw host cursor on windows",
+      "status": "ported",
+      "reason": "Integrated under ENG-89; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "9150ed6268874d1f2a314b1ddbf531b66df1e105",
+      "subject": "feat: add session snapshot api",
+      "status": "ported",
+      "reason": "Integrated under ENG-90; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "25aeaa46f6c807be686b710c5c3aa656969f07e5",
+      "subject": "feat: generate socket protocol schema",
+      "status": "ported",
+      "reason": "Integrated under ENG-90; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "6703413fc7ef864f102aa2de5840bf874b589101",
+      "subject": "feat: expose api schema from cli",
+      "status": "ported",
+      "reason": "Integrated under ENG-90; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "bffc4a82c81293f9836b375d6d5ef9f4b1674a95",
+      "subject": "feat: add terminal session observe stream",
+      "status": "ported",
+      "reason": "Integrated under ENG-90; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "0fa6440d41c31f23ba2126e4b23bc5627705e317",
+      "subject": "feat: add terminal session control stream",
+      "status": "ported",
+      "reason": "Integrated under ENG-90; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "1db9695eecece3ddd2bcf43ac33c961daffd6004",
+      "subject": "fix: include api schema in nix source",
+      "status": "ported",
+      "reason": "Integrated under ENG-90; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "5d9212a55acf4db05b8c5cdf3fee3c56ac404cf7",
+      "subject": "feat: expose session snapshot through cli",
+      "status": "ported",
+      "reason": "Integrated under ENG-90; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "56edcbcba83b8ff7f6f69ee4231f163e97df3346",
+      "subject": "feat: expose pane scroll state",
+      "status": "ported",
+      "reason": "Integrated under ENG-90; focused behavior tests and final repository checks cover this invariant."
+    },
+    {
+      "upstream": "aca35ea76f3df15ec68fd07959d939f5e7a78a6c",
+      "subject": "fix: scope image paste shortcut to remote",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "9f4f1630893f74697a2097ef11bf5bf512a37850",
+      "subject": "feat: add background update check toggles",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "46a2b259a71828e7fcdeab1f67ef675304e2ca14",
+      "subject": "fix: defer api worktree operations",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "ef0b4bc6e201c137b22da4604590d28ebae7c2bd",
+      "subject": "fix: support agent env hints",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "73b137a4ae75cb1465e8d4ddfc293ff7366d8133",
+      "subject": "fix: preserve focus after temporary pane commands",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "a5182282a490cfb60b22776257edc5ac0fce6adc",
+      "subject": "fix: support devin hook on python 3.9",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "89ca3ba933eaf493234912972be8236c9c2493e5",
+      "subject": "fix: check out existing branches for worktree create",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "afc56d56689a573ce747a3522fcb061e4ae53773",
+      "subject": "fix: enable kitty file media",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "27ff4ddf96b99db796374a4c68a62270ac1cb74f",
+      "subject": "fix: block idle client writer",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "b76fb4950c30e9bb7836bcd54792066d077a1911",
+      "subject": "fix: detect copilot ask_user accept prompt",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "58b9fecc21a71d253b71cf104b1df0da8e81aeba",
+      "subject": "fix: detect antigravity background-task wait without /tasks hint",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "292a98a91e35662fd65993956278787ee0ca9840",
+      "subject": "fix: answer osc 12 cursor color queries",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "a937f7e85bbf8780c6030c57f48dab2168bca932",
+      "subject": "fix: encode ctrl slash as ctrl underscore",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "e9bcea9c0da2ebd996b4b570c504582740f3466e",
+      "subject": "fix: reuse remote ssh connection",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "b7015f17a49501e99642009ebadabcbefc0fbad0",
+      "subject": "fix: render ansi undercurl styles",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "13cb5d9ae6aa314744ce5362b5d156182f06b503",
+      "subject": "feat: add shell completions",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "c71c6c108245b91f6478d95a3abf9a9a9e2e57a9",
+      "subject": "fix: resolve split current from caller pane",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "3459798b606d019d4ac404d407af956d7539ef54",
+      "subject": "fix: extend local server startup wait",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "48d58648aefcc59964a99be9c23778fe69346663",
+      "subject": "fix: follow cached cwd for new tabs",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "cf3769feb9837c6040820c3e6096c5cc2907adc0",
+      "subject": "feat: follow focused pane cwd for new workspaces",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "aa0768b734d95a1f54df1719290d977df796068d",
+      "subject": "fix: stop sgr mouse sequences leaking into panes",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "ef67a97047c92e4af6b9d69c7292962426109bc1",
+      "subject": "perf(linux): cache foreground process group scans",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "6ea68f9af2569ea87b7d243c5bbe4f3bc4c8fa44",
+      "subject": "fix: forward page keys to primary-screen pagers",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "6f148588dde3b330618981c344c12f400d74da7d",
+      "subject": "fix: scope empty image paste bridge to remote",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "d0e333451bd794a419e96f28db925772950ea156",
+      "subject": "feat: add mastracode integration (#788)",
+      "status": "skipped",
+      "reason": "Upstream agent integration is product-specific; Hako does not ship MastraCode identity/configuration."
+    },
+    {
+      "upstream": "b91b084dbeeee356dbf97ba231f9252f73019d23",
+      "subject": "docs: add mastracode integration docs and website agent grid card",
+      "status": "skipped",
+      "reason": "Upstream MastraCode docs and website identity are not applicable to Hako-owned docs/site."
+    },
+    {
+      "upstream": "4eceb75d8a899b35c28383501f4beca06c9f8a3d",
+      "subject": "fix: kitty graphics streams freeze on partial updates and leak host images (#948)",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "e713949ca51facf1e40c584b271f812f527bc522",
+      "subject": "test: wait for client frame before crash assertion",
+      "status": "superseded",
+      "reason": "Hako crash/readiness tests already wait for an observable client frame through the current render stream."
+    },
+    {
+      "upstream": "2bc1724c2dae72184a5d2ec070e30c70dc519f9b",
+      "subject": "fix: switch prefix ASCII input source on the foreground client (#1016)",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "96fc43c960cfb4d9c524e005058fb113deba6b8a",
+      "subject": "refactor(nix): replace apple-sdk wrappers with xcbuild (#995)",
+      "status": "superseded",
+      "reason": "Hako maintains its macOS Nix SDK/toolchain inputs separately; the upstream xcbuild wrapper refactor does not apply."
+    },
+    {
+      "upstream": "b04c6496a8c08059b8cc83ab29a51023f16c76cd",
+      "subject": "fix: detect grok build working and blocked states from current ui chrome (#1055)",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "fbc3f0845a1ad94a739f999b4b1edc1bba4e291a",
+      "subject": "fix: focus parent after worktree removal (#1075)",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "ed31632ebf6e63ca87e6d9a57b7eee79df5ae142",
+      "subject": "fix: bridge remote image file drops (#1085)",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "7a85249617d555d5ecd8fc9dcd6566c28f393918",
+      "subject": "fix: support esc   interrupt for github copilot (#1120)",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "b425260f9d86bb7e0bbea1d1e557ee75ba22443e",
+      "subject": "perf: move session autosaves off main loop",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "0a684b4130e7e82074831a7af8db5f1af8fed84d",
+      "subject": "fix: clear done status on repeated pane focus",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "b03f033d0930ff64f94a09edea16b89af189e632",
+      "subject": "fix: detect active amp turns",
+      "status": "ported",
+      "reason": "Integrated under ENG-91; focused behavior tests cover this invariant."
+    },
+    {
+      "upstream": "820246a4d75d33672f216efe2f3e4b8187ab4b3a",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "f8bb1918241d76df0d249c3e8255c4f55b45b4b4",
+      "subject": "docs: update website",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "53429206b736aa0fcfb1c5bfc1c0b11dcca3a059",
+      "subject": "chore: approve contributor igasmi",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "f7a7da03fc27cc6fe4e6a44dabddcd303f939bb9",
+      "subject": "fix: stabilize public pane and tab ids",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "d7217ce5190f0e31f6acbc608a995f519b22c539",
+      "subject": "chore: ignore backlog",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "78b13acfba23d571ea7585599fd477ee78f0875a",
+      "subject": "perf: reduce pty actor idle poll frequency",
+      "status": "superseded",
+      "reason": "Current Hako has equivalent behavior or Hako-specific architecture; the upstream patch does not apply directly."
+    },
+    {
+      "upstream": "469cf9cede389036f5799e2f41483413f1d7e60b",
+      "subject": "docs: show windows install on homepage",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "d35c642ef36ee5ac2afe7c1b18ad5a717bc807d8",
+      "subject": "feat: add pane move api and cli",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "fbd20ad6e488fb3b9efc1612fdffee6e672976c1",
+      "subject": "feat: add plugin v1 system",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "3583a106bb98dcd5e4edb6e0d726a5d6cd57d6ca",
+      "subject": "fix: normalize plugin path tests on macos",
+      "status": "superseded",
+      "reason": "Current Hako has equivalent behavior or Hako-specific architecture; the upstream patch does not apply directly."
+    },
+    {
+      "upstream": "17544c36ee397233e2f7b3319d86e3b517e3b5d0",
+      "subject": "fix: make macos ci socket tests deterministic",
+      "status": "superseded",
+      "reason": "Current Hako has equivalent behavior or Hako-specific architecture; the upstream patch does not apply directly."
+    },
+    {
+      "upstream": "226e87306deaba017d36583f51ae34e42b303aad",
+      "subject": "fix: preserve tab identity across restored sessions",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "eb8c8c585229b07b33a3746ab061adc4c728420c",
+      "subject": "fix: warn on unknown config sections",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "e1446fa6b83be801f64772fdfcfa2f697de7b61f",
+      "subject": "chore: approve contributor minatoaquaMK2",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "ea3a4db72f676ca180a8e0ca61c730c0cf9ed920",
+      "subject": "ci: skip duplicate approval replies on edits",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "de0f43a061162a223c5946a4b50aa9f9ac7ab8d7",
+      "subject": "test: add state invariants for refactor safety",
+      "status": "superseded",
+      "reason": "Current Hako has equivalent behavior or Hako-specific architecture; the upstream patch does not apply directly."
+    },
+    {
+      "upstream": "7f702a7ad026f1503d33c442a50fb6aca84b0dc8",
+      "subject": "test: harden pane identity regression coverage",
+      "status": "superseded",
+      "reason": "Current Hako has equivalent behavior or Hako-specific architecture; the upstream patch does not apply directly."
+    },
+    {
+      "upstream": "c1ca8038451f5350d1fb3cd3c38e363fac3ae66c",
+      "subject": "fix: drop plugin pane records when layout apply replaces a tab",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "54b58bb3452bd493a2881623a01371705ff806f1",
+      "subject": "feat: mark zoomed tabs in tab bar",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "d3be4f8b431587b14975d0e595e4131e3c119bdb",
+      "subject": "fix: add best-effort windows plugin support",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "001a6b2fc4218d232967f285f945b313ce9ca19a",
+      "subject": "docs: explain plugin authoring model",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "3015ce0f9d120df7583f838d1a47cb469fe5a727",
+      "subject": "fix: stabilize plugin config directories",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "c91348e68b9e438159ffecc3e26bc6f971e0fa2a",
+      "subject": "fix: require plugin min herdr version",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "3e8f906c6fcc4e9e7be6b3d0c4ee84b804027b5a",
+      "subject": "ci: make preview releases manual",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "efe7c557690157a4e133cd60dd7e2ec1bf6124f7",
+      "subject": "fix: accept alternate f1-f4 key sequences",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "08bb0768ae224c8db04bbe016b050353ce13eee7",
+      "subject": "fix: handle kitty keypad input",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "07261e09be60ac0c145685fd11f94351cc0e5ba6",
+      "subject": "feat: add devin cli detection and restore support (#622)",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "0099c10881fd05ddecd3b535700d41eb3f42b633",
+      "subject": "fix: use ctrl-click for captured pane links on macos",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "9805e23a1225f74bb955b703c9457fdcff1bc952",
+      "subject": "docs: note plugin link handlers use ctrl-click on macos too",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "16b69b6faa3f6de4ff8ae404442be95887370918",
+      "subject": "fix: support key-combo syntax for API send keys (#613)",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "99bf8dadeb03afcee6f1d0ff3af9b6f174a422f9",
+      "subject": "chore: approve merged contributor dmmulroy",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "befe629312d9ddf0fea91d1c70f1e4c69afeaf76",
+      "subject": "docs: finalize 0.7.0 release docs",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "2ace7f24a9a9fa43ab765becf29c40181af61a08",
+      "subject": "docs: sync #613 key-combo docs for 0.7.0 and credit @dmmulroy",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "0bf9bb58eb9c9495f660aed1bd9336121b953fdc",
+      "subject": "release: v0.7.0",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "61ede89b2e724f0cdc7081b9c448c3f64fed85c0",
+      "subject": "docs: update website manifest for v0.7.0",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "41d1c14e0784cf63dc4cddda21c7e5fd99813b24",
+      "subject": "docs: add plugin trust and security guidance",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "517ca8163f7c313bdeef565bdcb9b055ce05526c",
+      "subject": "ci: fix preview release baseline after stable",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "4cf9f8e958119243b1f648f4d7b9baa335bb8ffd",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "2fe57a57a2b335c6d300a96b442d428b9b2cadf8",
+      "subject": "fix: stabilize flaky plugin capture tests and auto-trigger website deploy",
+      "status": "superseded",
+      "reason": "Current Hako has equivalent behavior or Hako-specific architecture; the upstream patch does not apply directly."
+    },
+    {
+      "upstream": "6f9ca0ea6648778419ba18c882eefba4615f3f43",
+      "subject": "fix: hold lone escape while awaiting host color reply",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "cc802c8f9c154ca23e6a1db095b8857c1d5f1fe9",
+      "subject": "fix: satisfy windows clippy",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "ebff34063a55446c7390e12ec84acd2dad04ce43",
+      "subject": "fix: restore omp sessions after same-pane restart",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "d998753efe506a04c80306795efc72bff60bb0ec",
+      "subject": "fix: handle cjk branch truncation",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "54490254f70469cd154ee630bc4bec84da178f0c",
+      "subject": "feat: sort agent panel by priority",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "36b4001f4526b60f1c9b67a4a34596e5ad2bcca1",
+      "subject": "feat: sync theme with host appearance",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "b7a504b35e54e68ca7aceb01d21f066124f7a536",
+      "subject": "chore: add windows target lint to local check",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "d74ba8ca9e49d9d94a4e59a0ee0bdbd1128af76e",
+      "subject": "fix: emit plugin lifecycle events from ui worktree flows",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "26c5f97a908c1ebe4228302d1b9e8c5423b2ab75",
+      "subject": "fix: reanchor lifecycle hook generations",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "92a10fc044d42b216317696a4e8e6f70d7cc7a7d",
+      "subject": "fix: protect root agent restore sessions",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "734bf3c09d292012b45b93a4813ccdd0cf26d08a",
+      "subject": "fix: release pi and omp agents on shutdown",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "2eeea9a0cd8665bbe0e6c80f08603425498757e5",
+      "subject": "feat: add plugin marketplace",
+      "status": "skipped",
+      "reason": "Plugin marketplace is not part of Hako's current product scope."
+    },
+    {
+      "upstream": "003bef7592d6df68f7cf0806d5796ed64478d68c",
+      "subject": "chore: approve contributor cullendotdev",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "bf752268660fc2c3cdcdc13920c014af250a5062",
+      "subject": "feat: add plugin marketplace blacklist",
+      "status": "skipped",
+      "reason": "Plugin marketplace is not part of Hako's current product scope."
+    },
+    {
+      "upstream": "3366121ac343afea5af7fe4c36a0bc7077d0198d",
+      "subject": "test: skip named pipe timeout on windows",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "4846cb1324a6a9e46bc89250cf8a289b91866a9c",
+      "subject": "fix: skip wide spacer cells in pane reads",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "569c33b094ca1161bf2431fd9aa2c48b87dd688e",
+      "subject": "fix: use active pane color for border intersections (#742)",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "24c7377de01c4f49e4c9a95761058252bfb53227",
+      "subject": "ci: install bun in preview preflight",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "995a429cb85e7b33e662df61e92d798a600fc317",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "705403fe31d8fd935bfebf92cdbdb511350ddbbf",
+      "subject": "feat: add author card to bottom of blog posts",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "d7ae163f8888cd9bf13e5a34e4d37f9518f76c01",
+      "subject": "fix: make windows installer checksum independent of get-filehash",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "5981ba426e8ed8f6785195a03cc0d8a190173e61",
+      "subject": "ci: use homebrew zig on macos",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "74fa90cecc6f6dfd93dc64893659771001ad2d82",
+      "subject": "fix: scope opencode hook to main agent and adopt new sessions",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "74076a83b157eecf845a1c9d45d8879540237e0a",
+      "subject": "docs: add sponsorship information",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "bae1f14d3b8989f4ee1eb2053b1146d636c471dd",
+      "subject": "docs: finalize release docs",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "23b96e48c3941e35defca6b573cf40c382d277c0",
+      "subject": "release: v0.7.1",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "dbc45f6306bda3eee681d73a14b48ffbb39f3fcc",
+      "subject": "ci: use homebrew zig in release workflow",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "642c6ab9eac3531c04992d2b10a7a09be6d2e06b",
+      "subject": "docs: update website manifest for v0.7.1",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "7a1578d9493b2a36cc765bdb96db99cca8bae643",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "12cce7deeb2d27f7b11daece75881fcfd88ea607",
+      "subject": "refactor: split integration module",
+      "status": "superseded",
+      "reason": "Current Hako has equivalent behavior or Hako-specific architecture; the upstream patch does not apply directly."
+    },
+    {
+      "upstream": "4b650a12c74a6121bcbc0933d9d31c19b2aeac28",
+      "subject": "chore: tighten issue reporting guardrails",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "5fffc59cd8aaea1604abb90e749e58fd97acfac0",
+      "subject": "fix: remove focused pane title border marker",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "f36d8043594489508046ff0852989ec08f52188a",
+      "subject": "docs: refactor readme and sharpen site positioning",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "09bac7f274a2944ca5a5ed83d11845ca6b0ce960",
+      "subject": "docs: add skills cli install guidance",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "86857c903cde90c30db3feb52da66f5c31845a9a",
+      "subject": "ci: accept non-empty issue update channels",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "3cd2e7b6b71e25300bc8831ff6721a773103f308",
+      "subject": "fix: discover package-managed remote herdr installs",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "be901fead223ef39538b4110e63c98feea51597f",
+      "subject": "fix: opencode — report subagent permission prompts as blocked + handle session.status object form (#838)",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "2548acea155de392aac7ce4f638754e2972da69a",
+      "subject": "chore: approve merged contributor soar",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "26db26e416318e17a6e7f3f196ec72109fb37998",
+      "subject": "fix: keep remote sessions alive across disconnects",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "659c3f51ece42b7b761084bca0152fe4db56ebf6",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "6a5b431e39c3a77652dc22e692925027cb69b965",
+      "subject": "docs: clarify agent instruction scope",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "885dbcd19e5dc1ba3ac2fe96ce714cf6906a458c",
+      "subject": "docs: add trendshift badge",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "f4d216b63d010987775dc6eaf92afa72f86f2816",
+      "subject": "fix: preserve windows backspace input",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "74a771d12623726983ed2186380f6a216e797a06",
+      "subject": "fix: replace stale agent session from foreground reports",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "32146f19d87448d8e3bb4019be6b8d9ff1cb72ee",
+      "subject": "fix: allow windows arm64 installer fallback",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "848554517ae6473caf61f738d60def90f77e1dc9",
+      "subject": "fix: keep copy feedback above retained pane updates",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "974a48172d5ad8744d6b54de4538391e80346ab6",
+      "subject": "fix: leave context menu after closing tab",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "e1bbc252e2b40da6e0c6d7b0f8d7babb17cc8814",
+      "subject": "feat: paginate plugins page with show more button",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "045f506ec8a333cde84718304a7d21bcdb93a1fc",
+      "subject": "fix: keep windows wait connections open",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "96c485653b5186b71fa88aace1128e50657197a5",
+      "subject": "chore: approve contributor arunoruto",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "c7400a47f5cfa95e8c1a3b49a5b87835513eca68",
+      "subject": "chore: approve merged contributor DevSrSouza",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "797981c7e907bc6e3050373ba150fb7a8bc651fb",
+      "subject": "fix: allow foreground agent session takeover",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "c97e0986277e95144f79da3fce5b3fd443f3922f",
+      "subject": "refactor: route worktree tui actions through runtime wrappers",
+      "status": "superseded",
+      "reason": "Current Hako has equivalent behavior or Hako-specific architecture; the upstream patch does not apply directly."
+    },
+    {
+      "upstream": "b78a8a5c565e66e7e5ba9a06d9cb7f3a771fc4b0",
+      "subject": "chore: approve contributor ppggff",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "89fe8975db69e3c92623d531b50ad791878e28fe",
+      "subject": "refactor: route tui runtime mutations through typed adapters",
+      "status": "superseded",
+      "reason": "Current Hako has equivalent behavior or Hako-specific architecture; the upstream patch does not apply directly."
+    },
+    {
+      "upstream": "ce6c0dc842c3614789624e5cdc6689b580e62806",
+      "subject": "refactor: route cli workspace tab worktree through runtime adapters",
+      "status": "superseded",
+      "reason": "Current Hako has equivalent behavior or Hako-specific architecture; the upstream patch does not apply directly."
+    },
+    {
+      "upstream": "1c606d4ff3df7ea7d641e6ad13bc30caf8082eaa",
+      "subject": "refactor: route cli pane placement through runtime adapters",
+      "status": "superseded",
+      "reason": "Current Hako has equivalent behavior or Hako-specific architecture; the upstream patch does not apply directly."
+    },
+    {
+      "upstream": "04682e57e60ae4276761e95271a7ef1845127180",
+      "subject": "refactor: route headless deferred creates through runtime helpers",
+      "status": "superseded",
+      "reason": "Current Hako has equivalent behavior or Hako-specific architecture; the upstream patch does not apply directly."
+    },
+    {
+      "upstream": "a4935886afffddf168bec4bbacacf9def6d1776b",
+      "subject": "chore: approve contributor TonyxSun",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "697290942820f8a0227440a1ca384173f8ccc5e8",
+      "subject": "test: wait for windows smoke pane output",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "c51068448f393f5a5d024bc41b704297113cf625",
+      "subject": "test: keep windows smoke cleanup non-fatal",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "cbd9b07fac8a84ef2b55e85929983ff594edb0a4",
+      "subject": "ci: accept common environment aliases in issue gate",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "82487675908e986ec3d4996151d952f086140c7f",
+      "subject": "feat: add public stats page at herdr.dev/stats",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "d36a6ded3bbc623a3fcad3c6e45b7b22ae9b6267",
+      "subject": "feat(website): add japanese and simplified chinese docs with i18n, translation issue flow",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "4dae557eefd992cbc03d435c6265842611811a67",
+      "subject": "ci: use homebrew zig for preview macos builds",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "90debb9cef1261bccb36c8fea8be86cb95f03b0e",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "cdfb75da4433bca1a5c54600628b72b5ac2e6a63",
+      "subject": "chore: approve merged contributor akbash-bot",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "dd67f8591ecedd38f301c839e451cc40bb234075",
+      "subject": "docs: expose stats page in website nav",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "faee06764ea78df1fc043ed7dc36fcab8837bf40",
+      "subject": "test: synchronize multi-client resize assertion",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "eb0399512833bb09e780f122921d074110c35bbd",
+      "subject": "docs: add community video section",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "efceb30f0b447196615e3b2821d12ef82adcb3e2",
+      "subject": "docs: update sponsors",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "4f22e9a73ba4d9029468e078235c5f5ce629d179",
+      "subject": "fix: preserve wrapped pane links (#1099)",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "5b4450c969a4118298dbe8cf495391eb1e8d47db",
+      "subject": "docs: remove star history embed",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "670a2bb0647e5acffc22b5465fc43b3e4b76fc40",
+      "subject": "chore: approve contributor liby",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "fb5a46a03cfa1b047e6012975178b16e9f478776",
+      "subject": "docs: finalize release docs",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "199c27609c08a253a884eeba8331449b0b1a71a4",
+      "subject": "release: v0.7.2",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "d0b75de0252ff70a8f43c221b506bf4a0ab3c54d",
+      "subject": "docs: update website manifest for v0.7.2",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "2b99ced89adbd68ac163d16d33e0837fe8f6c3ed",
+      "subject": "fix: keep cursor hide inside sync output",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "1d49fa7639e7fc15b6ce270a7c0cee9c97ba7986",
+      "subject": "ci: clear zig cache before windows checks",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "f5354780e4efcc938861b04992e954df915a07c8",
+      "subject": "ci: ignore microsoft apt repos in artifact builds",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "53d85be782be89e4332b3930a989b572c539ee80",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "35e9838a44470c418ae51204bab54115d15d87bd",
+      "subject": "docs: change sponsorships tiers and add lead sponsor",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "d6285aaa59e0f7908c2ece81314aff2b98847e31",
+      "subject": "fix: avoid render-time plain url scans",
+      "status": "superseded",
+      "reason": "Current Hako has equivalent behavior or Hako-specific architecture; the upstream patch does not apply directly."
+    },
+    {
+      "upstream": "4e3970ca312303bb20ea61641021b939d3ebe3eb",
+      "subject": "fix: restore workspace picker keyboard navigation",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "370c90b2da0ee9de0fccfe6677207c6e8c0b77b1",
+      "subject": "docs: stage 0.7.3 release notes",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "299dd4163a96381ec2d8e5bde13d7ba6d6432373",
+      "subject": "release: v0.7.3",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "80616e895cc401d839688013f4c60684e12a4c42",
+      "subject": "docs: update website manifest for v0.7.3",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "7a2c2300642cf8d56dfd62a5ae42e9a57a6db2c5",
+      "subject": "docs: enforce localized release doc parity",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "e8174caeb7dd2fc68898644d7cb996c7140f428c",
+      "subject": "docs: lean readme, add terminal trove gold sponsor",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "77f0339c3cd387c4ca3f4f240ff8b88065d66a22",
+      "subject": "docs: link plugin marketplace from readme",
+      "status": "skipped",
+      "reason": "Plugin marketplace is not part of Hako's current product scope."
+    },
+    {
+      "upstream": "552aa8ca223908a2ee3b1058587d4b5a84828e71",
+      "subject": "fix: align collapsed sidebar agent rows (#1182)",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "b352e7cde06b4c875ea8bc00ef22ddcbbe11339c",
+      "subject": "chore: approve merged contributor kovalov",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "adbaae68daee7577b2dc93bd12507bfb67a2ca84",
+      "subject": "fix: reanchor pi status after session replacement (#1189)",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "b137c7b5ea551aec2a186fea51a0959461c032d9",
+      "subject": "ci: pin rust toolchain to 1.96.1",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "0de503ccd9a8fedeeb6cbcc1446ab2bc644fdbb6",
+      "subject": "docs: document windows config path",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "4f7fcc48d1f760ab6057d0964f009c05b753456a",
+      "subject": "fix: follow foreground cwd for new terminals",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "66be0b655fe922867f1eed100a41d67038b6ffd6",
+      "subject": "fix: stop windows installer from rewriting config",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "3e8f9df14e6dd08a8d80d920b923870a80649f0b",
+      "subject": "fix: improve config diagnostic delivery",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "c76e96878b866bf01639c8a1d8beb9c93a8ab95f",
+      "subject": "docs: refresh herdr agent skill",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "15c046a1bd08d0bb485ccbe20d5ff0c3d7bc8554",
+      "subject": "chore: approve contributor tontinton",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "3b8aeee166d1594e1f8e41631a51748104d76834",
+      "subject": "feat: add maki agent support (#1302)",
+      "status": "ported",
+      "reason": "Integrated under ENG-91 follow-up with focused behavior coverage."
+    },
+    {
+      "upstream": "46174563489273199a17c982356c6e4674ef00d4",
+      "subject": "feat: add copy-on-select setting",
+      "status": "ported",
+      "reason": "Integrated under ENG-91 follow-up with focused behavior coverage."
+    },
+    {
+      "upstream": "e418e4a4f95c27654b21fc4fb3349629e58d3656",
+      "subject": "chore: remove unmerged approved contributors",
+      "status": "skipped",
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Hako runtime behavior."
+    },
+    {
+      "upstream": "749e85e0fb5443488c5a96752afa7dd6cb040143",
+      "subject": "fix: detach windows server from host terminal",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "a6905364b69ff997c40d22c25e489d2e49b9c272",
+      "subject": "fix: clarify config fallback diagnostics",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "4ca6cac445a6aa45eb3b8462f66cd595d0c01364",
+      "subject": "fix: match homepage mock pane chrome and sidebar to tui rendering",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "d64cf40ca3b7c9551da0b63abeb24cb89874db27",
+      "subject": "fix: keep windows api connections open",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "0cd0b1aef0088256bdfe19a6951636185f8684f4",
+      "subject": "fix: number collapsed agent rows by list position",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "3661d99c2e4a4247392fc1a1eed5f37453393f8e",
+      "subject": "docs: add troubleshooting guide",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "2c444eee351e9269b270e215cfbf4696e7c6179b",
+      "subject": "refactor: centralize agent identity lookup",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "7f3364a468f7dcfd8c9c84e5737fe5699f0e3a93",
+      "subject": "docs: add versioned config reference",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "5cfe5e5e730246948b0c9428ad876b6938590aad",
+      "subject": "feat: add configurable sidebar metadata tokens",
+      "status": "ported",
+      "reason": "Integrated under ENG-91 follow-up with focused behavior coverage."
+    },
+    {
+      "upstream": "4800ff54f0a85019d589211f42aafe476a7fd45d",
+      "subject": "fix: detect reordered codex title spinners",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "64de9279e39cbdce07b97b4ded1ea439ff7192e8",
+      "subject": "fix: allow slow server shutdowns",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "2cee801ea8c6581bdcdd9ea344c9aa9e53a6d835",
+      "subject": "docs: streamline configuration guide",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "a47bc3e068457e54011963f4540c4be34972daa2",
+      "subject": "fix: keep Claude working during /btw",
+      "status": "ported",
+      "reason": "Integrated under ENG-91 follow-up with focused behavior coverage."
+    },
+    {
+      "upstream": "6e85ff07f188186edcec8ac0e8263f899c7f1f26",
+      "subject": "docs: explain modified-arrow shell bindings",
+      "status": "skipped",
+      "reason": "Hako-owned docs, site, and release surfaces are maintained separately."
+    },
+    {
+      "upstream": "75ed6abc6258f09af5d4fc995a5004c1abf14fc2",
+      "subject": "fix: reap detached custom command children (#1384)",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "3a8490f6515dfea13292ae28e34f1174d2f68af1",
+      "subject": "fix: show renamed single tabs in agents sidebar",
+      "status": "ported",
+      "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
     }
   ]
 }

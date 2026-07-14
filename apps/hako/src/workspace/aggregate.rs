@@ -12,6 +12,8 @@ pub struct PaneDetail {
     pub tab_idx: usize,
     pub tab_label: String,
     pub pane_label: String,
+    pub terminal_title: Option<String>,
+    pub terminal_title_stripped: Option<String>,
     pub label: String,
     pub agent_label: String,
     #[allow(dead_code)]
@@ -20,6 +22,7 @@ pub struct PaneDetail {
     pub seen: bool,
     pub custom_status: Option<String>,
     pub state_labels: HashMap<String, String>,
+    pub tokens: HashMap<String, String>,
     pub last_meaningful_agent_activity_seq: u64,
     pub last_meaningful_agent_activity_unix_secs: Option<u64>,
 }
@@ -43,10 +46,12 @@ impl Tab {
         })
     }
 
-    pub fn pane_details_from(
+    fn pane_details_from(
         &self,
         terminals: &HashMap<TerminalId, TerminalState>,
         terminal_runtimes: &TerminalRuntimeRegistry,
+        tab_idx: usize,
+        tab_label: &str,
     ) -> Vec<PaneDetail> {
         self.layout
             .pane_ids()
@@ -116,11 +121,20 @@ impl Tab {
                     .cwd_for_pane(*id, terminals, terminal_runtimes)
                     .map(|cwd| derive_label_from_cwd(&cwd))
                     .unwrap_or_else(|| self.display_name());
+                let terminal_title = terminal
+                    .and_then(|terminal| terminal_runtimes.get(&terminal.id))
+                    .map(|runtime| runtime.agent_osc_title())
+                    .filter(|title| !title.trim().is_empty());
+                let terminal_title_stripped = terminal_title
+                    .as_deref()
+                    .and_then(crate::terminal::stripped_terminal_title);
                 Some(PaneDetail {
                     pane_id: *id,
-                    tab_idx: self.number.saturating_sub(1),
-                    tab_label: self.display_name(),
+                    tab_idx,
+                    tab_label: tab_label.to_string(),
                     pane_label,
+                    terminal_title,
+                    terminal_title_stripped,
                     label: agent_label.clone(),
                     agent_label,
                     agent,
@@ -130,7 +144,12 @@ impl Tab {
                         .as_ref()
                         .and_then(|presentation| presentation.custom_status.clone()),
                     state_labels: presentation
-                        .map(|presentation| presentation.state_labels)
+                        .as_ref()
+                        .map(|presentation| presentation.state_labels.clone())
+                        .unwrap_or_default(),
+                    tokens: presentation
+                        .as_ref()
+                        .map(|presentation| presentation.tokens.clone())
                         .unwrap_or_default(),
                     last_meaningful_agent_activity_seq: terminal
                         .map(TerminalState::last_meaningful_agent_activity_seq)
@@ -199,7 +218,13 @@ impl Workspace {
         let multi_tab = self.tabs.len() > 1;
         self.tabs
             .iter()
-            .flat_map(|tab| tab.pane_details_from(terminals, terminal_runtimes))
+            .enumerate()
+            .flat_map(|(tab_idx, tab)| {
+                let tab_label = self
+                    .tab_display_name(tab_idx)
+                    .unwrap_or_else(|| (tab_idx + 1).to_string());
+                tab.pane_details_from(terminals, terminal_runtimes, tab_idx, &tab_label)
+            })
             .map(|mut detail| {
                 if multi_tab {
                     detail.label = format!("{}·{}", detail.tab_label, detail.agent_label);
@@ -212,6 +237,7 @@ impl Workspace {
             .collect()
     }
 
+    #[cfg(test)]
     pub fn pane_details(&self, terminals: &HashMap<TerminalId, TerminalState>) -> Vec<PaneDetail> {
         let empty_runtimes = TerminalRuntimeRegistry::new();
         self.pane_details_from(terminals, &empty_runtimes)

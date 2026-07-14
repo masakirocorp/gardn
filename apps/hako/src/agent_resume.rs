@@ -12,7 +12,7 @@ pub struct AgentSessionRef {
     pub value: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentSessionRefKind {
     Id,
@@ -80,6 +80,14 @@ pub fn session_ref_from_report(
     }
 
     agent_session_id.and_then(AgentSessionRef::id)
+}
+pub fn normalize_session_start_source(value: Option<String>) -> Option<String> {
+    match value.as_deref().map(str::trim) {
+        Some(source @ ("startup" | "resume" | "clear" | "compact" | "new" | "fork")) => {
+            Some(source.to_string())
+        }
+        _ => None,
+    }
 }
 
 pub fn launch_env_from_report(
@@ -341,6 +349,17 @@ fn valid_launch_env_value(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn normalize_session_start_source_accepts_known_lifecycle_values() {
+        for source in ["startup", "resume", "clear", "compact", "new", "fork"] {
+            assert_eq!(
+                normalize_session_start_source(Some(format!(" {source} "))),
+                Some(source.to_string())
+            );
+        }
+        assert_eq!(normalize_session_start_source(Some("other".into())), None);
+        assert_eq!(normalize_session_start_source(None), None);
+    }
 
     #[test]
     fn planner_allows_supported_agents() {

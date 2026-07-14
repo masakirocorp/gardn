@@ -35,6 +35,23 @@ pub enum Signal {
     Kill,
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub fn detach_server_daemon_command(command: &mut std::process::Command) {
+    use std::os::unix::process::CommandExt;
+
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+pub fn detach_server_daemon_command(_command: &mut std::process::Command) {}
+
 fn active_tcp_listeners_from_lsof() -> Vec<TcpListenerInfo> {
     let output = match std::process::Command::new("lsof")
         .args(["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn"])
@@ -223,6 +240,27 @@ mod fallback;
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub use fallback::*;
 
+#[cfg(not(target_os = "linux"))]
+pub fn process_agent_hint(_pid: u32) -> Option<crate::detect::Agent> {
+    None
+}
+
+/// Whether the platform should draw Hako's cursor into frame cells by default.
+pub(crate) fn should_draw_host_cursor_by_default() -> bool {
+    should_draw_host_cursor_by_default_platform()
+}
+
+pub(crate) fn scrollback_editor_argv(path: &std::path::Path) -> std::io::Result<Vec<String>> {
+    scrollback_editor_argv_platform(path)
+}
+
+pub(crate) fn detached_custom_command_process(command: &str) -> std::process::Command {
+    detached_custom_command_process_platform(command)
+}
+
+pub(crate) fn pane_custom_command_pty_builder(command: &str) -> portable_pty::CommandBuilder {
+    pane_custom_command_pty_builder_platform(command)
+}
 #[cfg(not(target_os = "macos"))]
 #[derive(Debug)]
 pub(crate) struct InputSourceRestore;
@@ -231,6 +269,9 @@ pub(crate) struct InputSourceRestore;
 pub(crate) fn switch_to_ascii_input_source() -> Option<InputSourceRestore> {
     None
 }
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn pump_input_source_runloop() {}
 
 /// Switches the host keyboard input source while prefix mode is active.
 ///
@@ -256,6 +297,9 @@ pub(crate) struct RealPrefixInputSource {
 impl PrefixInputSource for RealPrefixInputSource {
     fn switch_to_ascii(&mut self) {
         if self.restore.is_none() {
+            // Drain input-source change notifications before Carbon's current
+            // source query; this is a no-op outside macOS.
+            pump_input_source_runloop();
             self.restore = switch_to_ascii_input_source();
         }
     }
@@ -330,5 +374,23 @@ mod tests {
             read_limited_reader(input, 16).expect("limited read"),
             LimitedRead::Complete(b"image".to_vec())
         );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn custom_commands_preserve_unix_shell_modes() {
+        let detached = detached_custom_command_process("echo hello");
+        assert_eq!(detached.get_program(), std::ffi::OsStr::new("/bin/sh"));
+        assert_eq!(
+            detached.get_args().collect::<Vec<_>>(),
+            [
+                std::ffi::OsStr::new("-lc"),
+                std::ffi::OsStr::new("echo hello")
+            ]
+        );
+
+        let pane = pane_custom_command_pty_builder("echo hello");
+        let expected: Vec<std::ffi::OsString> =
+            vec!["/bin/sh".into(), "-c".into(), "echo hello".into()];
+        assert_eq!(pane.get_argv(), &expected);
     }
 }

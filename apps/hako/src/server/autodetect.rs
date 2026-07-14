@@ -2,7 +2,7 @@
 //!
 //! When the user runs `hako` with no subcommand:
 //! 1. Check if a server is already listening on the client socket
-//! 2. If no server → spawn one as a background daemon → wait for socket readiness (up to 5s)
+//! 2. If no server → spawn one as a background daemon → wait for socket readiness (up to 15s)
 //! 3. Attach as a thin client to the server
 //!
 //! The `--no-session` flag bypasses server/client entirely and runs monolithically
@@ -21,7 +21,7 @@ use super::socket_paths::client_socket_path;
 
 /// Maximum time to wait for the server's client socket to become ready
 /// after spawning the server process.
-const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(5);
+const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Poll interval when waiting for the server socket to appear.
 const SOCKET_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -145,13 +145,7 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
 fn build_server_daemon_command(exe: PathBuf) -> Command {
     let mut command = Command::new(&exe);
     command.arg("server");
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // Create a new process group so the server survives the parent's exit
-        // and doesn't receive SIGHUP when the client's terminal closes.
-        command.process_group(0);
-    }
+    crate::platform::detach_server_daemon_command(&mut command);
     // Redirect stdio to the platform null device.
     command
         .stdin(std::process::Stdio::null())
@@ -190,9 +184,10 @@ pub fn wait_for_server_socket(socket_path: &Path, timeout: Duration) -> io::Resu
     Err(io::Error::new(
         io::ErrorKind::TimedOut,
         format!(
-            "server did not become ready within {}s (socket: {})",
+            "server did not become ready within {}s (socket: {}). The background server may still be starting; try `hako` again, or check {}",
             timeout.as_secs(),
-            socket_path.display()
+            socket_path.display(),
+            crate::session::data_dir().join("hako-server.log").display()
         ),
     ))
 }
@@ -364,10 +359,15 @@ mod tests {
         let path = dir.join("s.sock");
 
         // No listener — should time out.
-        let result = wait_for_server_socket(&path, Duration::from_millis(50));
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::TimedOut);
+        let err = wait_for_server_socket(&path, Duration::from_millis(50)).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        assert!(err.to_string().contains("hako-server.log"));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn default_server_startup_wait_allows_slow_local_launches() {
+        assert_eq!(SERVER_READY_TIMEOUT, Duration::from_secs(15));
     }
 
     #[test]

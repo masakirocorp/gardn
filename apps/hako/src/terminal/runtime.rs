@@ -202,6 +202,36 @@ impl TerminalRuntime {
         .map(Self)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn_custom_command(
+        pane_id: PaneId,
+        rows: u16,
+        cols: u16,
+        cwd: std::path::PathBuf,
+        command: &str,
+        launch_env: &crate::pane::PaneLaunchEnv,
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<AtomicBool>,
+    ) -> std::io::Result<Self> {
+        crate::pane::PaneRuntime::spawn_custom_command(
+            pane_id,
+            rows,
+            cols,
+            cwd,
+            command,
+            launch_env,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            events,
+            render_notify,
+            render_dirty,
+        )
+        .map(Self)
+    }
+
     pub fn spawn_argv_command(
         pane_id: PaneId,
         rows: u16,
@@ -283,6 +313,34 @@ impl TerminalRuntime {
 
     pub fn scroll_metrics(&self) -> Option<crate::pane::ScrollMetrics> {
         self.0.scroll_metrics()
+    }
+
+    pub fn search_text_matches(
+        &self,
+        query: &str,
+        case_sensitive: bool,
+    ) -> Vec<crate::pane::TerminalTextMatch> {
+        self.0.search_text_matches(query, case_sensitive)
+    }
+
+    pub fn text_match_is_current(&self, text_match: crate::pane::TerminalTextMatch) -> bool {
+        self.0.text_match_is_current(text_match)
+    }
+
+    pub fn word_motion_target(
+        &self,
+        row: u32,
+        col: u16,
+        motion: crate::pane::TerminalWordMotion,
+    ) -> Option<crate::pane::TerminalTextPoint> {
+        self.0.word_motion_target(row, col, motion)
+    }
+
+    pub fn text_matches_are_current(
+        &self,
+        text_matches: &[crate::pane::TerminalTextMatch],
+    ) -> Vec<bool> {
+        self.0.text_matches_are_current(text_matches)
     }
 
     pub fn input_state(&self) -> Option<crate::pane::InputState> {

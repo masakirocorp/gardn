@@ -9,6 +9,7 @@ use ratatui::{
 use super::{
     scrollbar::{render_scrollbar, should_show_scrollbar},
     status::{agent_icon, state_label_color},
+    text::middle_elide,
     widgets::{panel_contrast_fg, render_panel_shell},
 };
 use crate::app::{
@@ -613,28 +614,6 @@ fn display_state(state: crate::detect::AgentState, seen: bool) -> &'static str {
         (crate::detect::AgentState::Idle, true) => "idle",
         (crate::detect::AgentState::Unknown, _) => "unknown",
     }
-}
-
-fn middle_elide(text: &str, max_width: usize) -> String {
-    let len = text.chars().count();
-    if len <= max_width {
-        return text.to_string();
-    }
-    if max_width <= 1 {
-        return "…".to_string();
-    }
-    let left = max_width.saturating_sub(1) / 2;
-    let right = max_width.saturating_sub(1).saturating_sub(left);
-    let prefix: String = text.chars().take(left).collect();
-    let suffix: String = text
-        .chars()
-        .rev()
-        .take(right)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    format!("{prefix}…{suffix}")
 }
 
 fn render_footer(app: &AppState, frame: &mut Frame, area: Rect) {

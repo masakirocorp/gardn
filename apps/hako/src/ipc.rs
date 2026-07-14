@@ -1,11 +1,60 @@
+use interprocess::local_socket::traits::Stream as _;
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
 
 pub(crate) type LocalListener = interprocess::local_socket::Listener;
 pub(crate) type LocalStream = interprocess::local_socket::Stream;
+
+pub(crate) enum LocalStreamRead {
+    Data,
+    Pending,
+    Closed,
+}
+
+pub(crate) fn set_local_stream_polling(stream: &mut LocalStream, enabled: bool) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        stream.set_nonblocking(enabled)
+    }
+    #[cfg(windows)]
+    {
+        let _ = (stream, enabled);
+        Ok(())
+    }
+}
+
+pub(crate) fn poll_local_stream_read(
+    stream: &mut LocalStream,
+    buf: &mut [u8],
+) -> io::Result<LocalStreamRead> {
+    #[cfg(unix)]
+    {
+        match stream.read(buf) {
+            Ok(0) => Ok(LocalStreamRead::Closed),
+            Ok(_) => Ok(LocalStreamRead::Data),
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => Ok(LocalStreamRead::Pending),
+            Err(err) => Err(err),
+        }
+    }
+    #[cfg(windows)]
+    {
+        match windows_named_pipe_available(stream)? {
+            None => Ok(LocalStreamRead::Closed),
+            Some(0) => Ok(LocalStreamRead::Pending),
+            Some(_) => match stream.read(buf) {
+                Ok(0) => Ok(LocalStreamRead::Closed),
+                Ok(_) => Ok(LocalStreamRead::Data),
+                Err(err) if matches!(err.raw_os_error(), Some(6 | 109 | 232 | 233)) => {
+                    Ok(LocalStreamRead::Closed)
+                }
+                Err(err) => Err(err),
+            },
+        }
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SocketFileIdentity {
@@ -145,6 +194,32 @@ fn windows_socket_marker() -> String {
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
     format!("{}:{now}", std::process::id())
+}
+
+#[cfg(windows)]
+fn windows_named_pipe_available(stream: &mut LocalStream) -> io::Result<Option<u32>> {
+    use std::os::windows::io::{AsHandle, AsRawHandle};
+
+    let LocalStream::NamedPipe(pipe) = stream;
+    let mut available = 0;
+    let ok = unsafe {
+        windows_sys::Win32::System::Pipes::PeekNamedPipe(
+            pipe.as_handle().as_raw_handle(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            &mut available,
+            std::ptr::null_mut(),
+        )
+    };
+    if ok != 0 {
+        return Ok(Some(available));
+    }
+    let err = io::Error::last_os_error();
+    if matches!(err.raw_os_error(), Some(6 | 109 | 232 | 233)) {
+        return Ok(None);
+    }
+    Err(err)
 }
 
 #[cfg(unix)]

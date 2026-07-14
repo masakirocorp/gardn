@@ -62,6 +62,8 @@ pub struct AgentMetadataSnapshot {
     pub custom_status: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub state_labels: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub tokens: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ttl_remaining_ms: Option<u64>,
 }
@@ -137,6 +139,7 @@ pub struct TerminalState {
     pub launch_argv: Option<Vec<String>>,
     pub launch_env: Vec<(String, String)>,
     pub respawn_shell_on_exit: bool,
+    recent_agent_process_exit_at: Option<Instant>,
     pub pending_agent_resume_plan: Option<crate::agent_resume::AgentResumePlan>,
     last_meaningful_agent_activity_seq: u64,
     last_meaningful_agent_activity_unix_secs: Option<u64>,
@@ -166,6 +169,7 @@ impl TerminalState {
             revision: 0,
             launch_argv: None,
             launch_env: Vec::new(),
+            recent_agent_process_exit_at: None,
             respawn_shell_on_exit: false,
             pending_agent_resume_plan: None,
             last_meaningful_agent_activity_seq: 0,
@@ -267,6 +271,11 @@ impl TerminalState {
         self.last_meaningful_agent_activity_unix_secs = Some(unix_secs);
     }
 
+    pub fn agent_process_exited_within(&self, now: Instant, max_age: Duration) -> bool {
+        self.recent_agent_process_exit_at
+            .is_some_and(|exited_at| now.saturating_duration_since(exited_at) <= max_age)
+    }
+
     pub fn with_launch_argv(mut self, argv: Vec<String>) -> Self {
         self.launch_argv = Some(argv);
         self
@@ -353,6 +362,11 @@ impl TerminalState {
         let previous_presentation = self.effective_presentation_for_state_at(previous_state, now);
         let previous_detected_agent = self.detected_agent;
         let previous_session = self.current_session_identity_for_persistence();
+        if process_exited && agent.is_some() {
+            self.recent_agent_process_exit_at = Some(now);
+        } else if agent.is_some() {
+            self.recent_agent_process_exit_at = None;
+        }
 
         self.detected_agent = agent;
         self.fallback_state = fallback_state;
@@ -464,12 +478,24 @@ impl TerminalState {
         )
     }
 
+    #[cfg(test)]
     pub fn set_agent_session_ref(
         &mut self,
         source: String,
         agent_label: String,
         session_ref: Option<crate::agent_resume::AgentSessionRef>,
         seq: Option<u64>,
+    ) -> Option<TerminalStateMutation> {
+        self.set_agent_session_ref_for_session_start(source, agent_label, session_ref, seq, None)
+    }
+
+    pub fn set_agent_session_ref_for_session_start(
+        &mut self,
+        source: String,
+        agent_label: String,
+        session_ref: Option<crate::agent_resume::AgentSessionRef>,
+        seq: Option<u64>,
+        session_start_source: Option<String>,
     ) -> Option<TerminalStateMutation> {
         let reset_sequence =
             self.should_reset_hook_sequence_for_new_session(&source, session_ref.as_ref());
@@ -481,7 +507,12 @@ impl TerminalState {
             return None;
         }
         if self
-            .conflicting_current_session_ref(&source, &agent_label, &session_ref)
+            .conflicting_current_session_ref(
+                &source,
+                &agent_label,
+                &session_ref,
+                session_start_source.as_deref(),
+            )
             .is_some()
         {
             return None;
@@ -647,7 +678,7 @@ impl TerminalState {
                     return current_ref.cloned();
                 }
                 return Some(
-                    self.conflicting_current_session_ref(source, agent_label, &session_ref)
+                    self.conflicting_current_session_ref(source, agent_label, &session_ref, None)
                         .unwrap_or(session_ref),
                 );
             }
@@ -659,7 +690,7 @@ impl TerminalState {
         }
 
         session_ref.map(|session_ref| {
-            self.conflicting_current_session_ref(source, agent_label, &session_ref)
+            self.conflicting_current_session_ref(source, agent_label, &session_ref, None)
                 .unwrap_or(session_ref)
         })
     }
@@ -735,11 +766,31 @@ impl TerminalState {
             .is_file()
     }
 
+    fn session_start_source_allows_session_replacement(
+        source: &str,
+        agent_label: &str,
+        session_start_source: Option<&str>,
+    ) -> bool {
+        matches!(
+            (source, agent_label, session_start_source),
+            (
+                "hako:claude",
+                "claude",
+                Some("clear" | "resume" | "compact")
+            ) | (
+                "hako:omp",
+                "omp",
+                Some("startup" | "new" | "resume" | "fork")
+            )
+        )
+    }
+
     fn conflicting_current_session_ref(
         &self,
         source: &str,
         agent_label: &str,
         session_ref: &crate::agent_resume::AgentSessionRef,
+        session_start_source: Option<&str>,
     ) -> Option<crate::agent_resume::AgentSessionRef> {
         if session_ref.kind != crate::agent_resume::AgentSessionRefKind::Id {
             return None;
@@ -761,8 +812,13 @@ impl TerminalState {
             })?;
 
         (current_ref.kind == crate::agent_resume::AgentSessionRefKind::Id
-            && current_ref.value != session_ref.value)
-            .then(|| current_ref.clone())
+            && current_ref.value != session_ref.value
+            && !Self::session_start_source_allows_session_replacement(
+                source,
+                agent_label,
+                session_start_source,
+            ))
+        .then(|| current_ref.clone())
     }
 
     pub fn set_persisted_agent_session(
@@ -1142,6 +1198,7 @@ impl TerminalState {
     pub fn clear_agent_runtime_identity_after_respawn(&mut self) {
         self.detected_agent = None;
         self.fallback_state = AgentState::Unknown;
+        self.recent_agent_process_exit_at = None;
         self.fallback_visible_blocker = false;
         self.fallback_visible_idle = false;
         self.fallback_visible_working = false;
@@ -1361,6 +1418,24 @@ mod tests {
         );
 
         assert_eq!(state, AgentState::Idle);
+    }
+
+    #[test]
+    fn agent_process_exit_tracks_recent_respawn_window() {
+        let now = Instant::now();
+        let mut terminal = test_terminal();
+        terminal.set_detected_state_with_screen_signals_at(
+            Some(Agent::Codex),
+            AgentState::Idle,
+            false,
+            true,
+            false,
+            true,
+            now,
+        );
+        assert!(terminal.agent_process_exited_within(now, Duration::from_secs(2)));
+        assert!(!terminal
+            .agent_process_exited_within(now + Duration::from_secs(3), Duration::from_secs(2)));
     }
 
     #[test]
@@ -2524,6 +2599,49 @@ mod tests {
                 crate::agent_resume::AgentSessionRefKind::Id,
                 "new-parent-session".to_string(),
             ))
+        );
+    }
+    #[test]
+    fn claude_session_start_source_controls_rotation_persistence() {
+        let mut terminal = test_terminal();
+        terminal
+            .set_agent_session_ref(
+                "hako:claude".into(),
+                "claude".into(),
+                crate::agent_resume::AgentSessionRef::id("claude-old"),
+                Some(20),
+            )
+            .expect("initial Claude session should be persisted");
+
+        assert!(
+            terminal
+                .set_agent_session_ref_for_session_start(
+                    "hako:claude".into(),
+                    "claude".into(),
+                    crate::agent_resume::AgentSessionRef::id("claude-startup"),
+                    Some(21),
+                    Some("startup".into()),
+                )
+                .is_none(),
+            "startup reports must not replace an existing Claude session"
+        );
+
+        let rotation = terminal
+            .set_agent_session_ref_for_session_start(
+                "hako:claude".into(),
+                "claude".into(),
+                crate::agent_resume::AgentSessionRef::id("claude-resumed"),
+                Some(22),
+                Some("resume".into()),
+            )
+            .expect("Claude resume should replace the previous session");
+        assert!(rotation.session_ref_changed);
+        assert_eq!(
+            terminal
+                .persisted_agent_session
+                .as_ref()
+                .map(|session| session.session_ref.value.as_str()),
+            Some("claude-resumed")
         );
     }
 

@@ -528,7 +528,7 @@ fn encode_legacy_inner(key: TerminalKey) -> Vec<u8> {
                     '\\' | '4' => vec![28],
                     ']' | '5' => vec![29],
                     '^' | '6' => vec![30],
-                    '_' | '7' | '-' => vec![31],
+                    '_' | '/' | '7' | '-' => vec![31],
                     _ => vec![ch as u8],
                 }
             } else {
@@ -609,6 +609,25 @@ mod tests {
     fn legacy_ctrl_c() {
         let key = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert_eq!(encode_key(key, KeyboardProtocol::Legacy), vec![3]);
+    }
+
+    #[test]
+    fn legacy_ctrl_slash_aliases_ctrl_underscore() {
+        let slash = KeyEvent::new(KeyCode::Char('/'), KeyModifiers::CONTROL);
+        let underscore = KeyEvent::new(KeyCode::Char('_'), KeyModifiers::CONTROL);
+
+        assert_eq!(encode_key(slash, KeyboardProtocol::Legacy), vec![31]);
+        assert_eq!(encode_key(underscore, KeyboardProtocol::Legacy), vec![31]);
+    }
+
+    #[test]
+    fn kitty_ctrl_slash_and_ctrl_underscore_remain_distinct() {
+        let slash = KeyEvent::new(KeyCode::Char('/'), KeyModifiers::CONTROL);
+        let underscore = KeyEvent::new(KeyCode::Char('_'), KeyModifiers::CONTROL);
+        let protocol = KeyboardProtocol::Kitty { flags: 1 };
+
+        assert_eq!(encode_key(slash, protocol), b"\x1b[47;5u");
+        assert_eq!(encode_key(underscore, protocol), b"\x1b[95;5u");
     }
 
     #[test]

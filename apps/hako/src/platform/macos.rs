@@ -16,6 +16,36 @@ const PROC_PGRP_ONLY: u32 = 2;
 const SERVER_NOFILE_LIMIT_TARGET: libc::rlim_t = 8192;
 const CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 
+pub(crate) fn should_draw_host_cursor_by_default_platform() -> bool {
+    false
+}
+
+pub(crate) fn scrollback_editor_argv_platform(
+    path: &std::path::Path,
+) -> std::io::Result<Vec<String>> {
+    let quoted_path = shell_quote(&path.display().to_string());
+    let command = format!(
+        r#"scrollback_file={quoted_path}; eval "${{EDITOR:-vi}} \"\$scrollback_file\""; status=$?; rm -f "$scrollback_file"; exit $status"#
+    );
+    Ok(vec!["/bin/sh".to_string(), "-c".to_string(), command])
+}
+
+fn shell_quote(value: &str) -> String {
+    if !value.is_empty()
+        && value.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(
+                    ch,
+                    '@' | '%' | '_' | '+' | '=' | ':' | ',' | '.' | '/' | '-'
+                )
+        })
+    {
+        return value.to_string();
+    }
+
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 #[repr(C)]
 struct TisInputSource {
     _private: [u8; 0],
@@ -73,6 +103,16 @@ extern "C" {
         buffer_size: CfIndex,
         encoding: u32,
     ) -> Boolean;
+
+    #[link_name = "kCFRunLoopDefaultMode"]
+    static CF_RUN_LOOP_DEFAULT_MODE: CfStringRef;
+
+    #[link_name = "CFRunLoopRunInMode"]
+    fn cf_run_loop_run_in_mode(
+        mode: CfStringRef,
+        seconds: f64,
+        return_after_source_handled: Boolean,
+    ) -> libc::c_int;
 }
 
 #[derive(Debug)]
@@ -96,6 +136,20 @@ impl Drop for InputSourceRestore {
                 );
             }
         }
+    }
+}
+
+/// Pump the main run loop once so Carbon refreshes its per-process current
+/// input-source cache before TISCopyCurrentKeyboardInputSource reads it.
+pub(crate) fn pump_input_source_runloop() {
+    debug_assert!(
+        // SAFETY: pthread_main_np is safe to call.
+        unsafe { libc::pthread_main_np() } != 0,
+        "pump_input_source_runloop must run on the main thread"
+    );
+    // SAFETY: the framework-owned mode is valid and a zero-second run does not block.
+    unsafe {
+        let _ = cf_run_loop_run_in_mode(CF_RUN_LOOP_DEFAULT_MODE, 0.0, 0);
     }
 }
 
@@ -194,6 +248,23 @@ unsafe fn cf_string_to_string(value: CfStringRef) -> Option<String> {
         .to_str()
         .ok()
         .map(str::to_owned)
+}
+
+fn custom_command_argv(command: &str, flag: &str) -> Vec<std::ffi::OsString> {
+    vec!["/bin/sh".into(), flag.into(), command.into()]
+}
+
+pub(crate) fn detached_custom_command_process_platform(command: &str) -> std::process::Command {
+    let argv = custom_command_argv(command, "-lc");
+    let mut process = std::process::Command::new(&argv[0]);
+    process.args(&argv[1..]);
+    process
+}
+
+pub(crate) fn pane_custom_command_pty_builder_platform(
+    command: &str,
+) -> portable_pty::CommandBuilder {
+    portable_pty::CommandBuilder::from_argv(custom_command_argv(command, "-c"))
 }
 
 pub fn raise_server_nofile_limit() {

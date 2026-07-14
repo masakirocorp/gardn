@@ -20,6 +20,8 @@ use std::os::fd::AsRawFd;
 use tokio::sync::mpsc;
 
 use super::ClientLoopEvent;
+#[cfg(any(windows, test))]
+mod windows_vti;
 
 // ---------------------------------------------------------------------------
 // Stdin reader thread
@@ -34,21 +36,199 @@ pub fn stdin_reader_loop(
     event_tx: mpsc::Sender<ClientLoopEvent>,
     should_quit: &Arc<AtomicBool>,
     host_color_query_sent: bool,
+    host_mouse_capture_active: Arc<AtomicBool>,
 ) {
     #[cfg(windows)]
     {
+        let _ = (host_color_query_sent, host_mouse_capture_active);
         return windows_stdin_reader_loop(event_tx, should_quit, host_color_query_sent);
     }
 
     #[cfg(unix)]
-    unix_stdin_reader_loop(event_tx, should_quit, host_color_query_sent);
+    unix_stdin_reader_loop(
+        event_tx,
+        should_quit,
+        host_color_query_sent,
+        host_mouse_capture_active,
+    );
 }
-
 #[cfg(windows)]
 fn windows_stdin_reader_loop(
     event_tx: mpsc::Sender<ClientLoopEvent>,
     should_quit: &Arc<AtomicBool>,
+    _host_color_query_sent: bool,
+) {
+    if !super::windows_vti_input_backend_enabled() {
+        windows_crossterm_reader_loop(event_tx, should_quit);
+        return;
+    }
+
+    match windows_vti::console_input_handle() {
+        Ok(handle) if windows_vti::virtual_terminal_input_enabled(handle) => {
+            windows_vti::raw_console_reader_loop(handle, event_tx, should_quit);
+        }
+        _ => windows_crossterm_reader_loop(event_tx, should_quit),
+    }
+}
+
+#[cfg(windows)]
+fn windows_crossterm_reader_loop(
+    event_tx: mpsc::Sender<ClientLoopEvent>,
+    should_quit: &Arc<AtomicBool>,
+) {
+    use std::time::Duration;
+
+    let mut framer = crate::raw_input::RawInputFramer::default();
+    let mut raw_sequence_pending = false;
+
+    while !should_quit.load(Ordering::Acquire) {
+        match crossterm::event::poll(Duration::from_millis(10)) {
+            Ok(true) => {}
+            Ok(false) => {
+                if raw_sequence_pending {
+                    if !send_windows_raw_events(framer.flush_timeout(), &event_tx) {
+                        return;
+                    }
+                    raw_sequence_pending = false;
+                }
+                continue;
+            }
+            Err(_) => break,
+        }
+
+        let event = match crossterm::event::read() {
+            Ok(event) => event,
+            Err(_) => break,
+        };
+
+        if let Some(bytes) = windows_key_raw_bytes(&event, raw_sequence_pending) {
+            let events = framer.push(&bytes);
+            raw_sequence_pending = events.is_empty();
+            if !send_windows_raw_events(events, &event_tx) {
+                return;
+            }
+            continue;
+        }
+
+        if raw_sequence_pending {
+            if !send_windows_raw_events(framer.flush_timeout(), &event_tx) {
+                return;
+            }
+            raw_sequence_pending = false;
+        }
+
+        let Some(event) = crate::protocol::ClientInputEvent::from_crossterm(event) else {
+            continue;
+        };
+        if event_tx
+            .blocking_send(ClientLoopEvent::StdinEvents(vec![event]))
+            .is_err()
+        {
+            return;
+        }
+    }
+
+    if raw_sequence_pending {
+        let _ = send_windows_raw_events(framer.flush_timeout(), &event_tx);
+    }
+}
+
+#[cfg(windows)]
+fn windows_key_raw_bytes(
+    event: &crossterm::event::Event,
+    raw_sequence_pending: bool,
+) -> Option<Vec<u8>> {
+    use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
+
+    let Event::Key(key) = event else {
+        return None;
+    };
+    if key.kind == KeyEventKind::Release {
+        return None;
+    }
+
+    match key.code {
+        KeyCode::Esc if key.modifiers.is_empty() => Some(vec![0x1b]),
+        KeyCode::Char('[') if !raw_sequence_pending && key.modifiers == KeyModifiers::CONTROL => {
+            Some(vec![0x1b])
+        }
+        KeyCode::Char(ch)
+            if !raw_sequence_pending
+                && matches!(ch, 'i' | 'I')
+                && key.modifiers.contains(KeyModifiers::CONTROL)
+                && !key.modifiers.contains(KeyModifiers::ALT) =>
+        {
+            let mut buf = [0; 4];
+            Some(ch.encode_utf8(&mut buf).as_bytes().to_vec())
+        }
+        KeyCode::Char(ch) if raw_sequence_pending || ch.is_control() => {
+            let mut bytes = Vec::new();
+            if key.modifiers.contains(KeyModifiers::ALT) {
+                bytes.push(0x1b);
+            }
+            let mut buf = [0; 4];
+            bytes.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+            Some(bytes)
+        }
+        _ => None,
+    }
+}
+
+#[cfg(windows)]
+fn send_windows_raw_events(
+    events: Vec<crate::raw_input::RawInputEvent>,
+    event_tx: &mpsc::Sender<ClientLoopEvent>,
+) -> bool {
+    let events = events
+        .into_iter()
+        .filter_map(windows_client_input_event_from_raw)
+        .collect::<Vec<_>>();
+    events.is_empty()
+        || event_tx
+            .blocking_send(ClientLoopEvent::StdinEvents(events))
+            .is_ok()
+}
+
+#[cfg(any(windows, test))]
+fn windows_client_input_event_from_raw(
+    event: crate::raw_input::RawInputEvent,
+) -> Option<crate::protocol::ClientInputEvent> {
+    match event {
+        crate::raw_input::RawInputEvent::Key(key) => Some(crate::protocol::ClientInputEvent::Key {
+            code: crate::protocol::ClientKeyCode::from_crossterm(key.code)?,
+            modifiers: key.modifiers.bits(),
+            kind: crate::protocol::ClientKeyKind::from_crossterm(key.kind),
+        }),
+        crate::raw_input::RawInputEvent::Mouse(mouse) => {
+            Some(crate::protocol::ClientInputEvent::Mouse {
+                kind: crate::protocol::ClientMouseKind::from_crossterm(mouse.kind)?,
+                column: mouse.column,
+                row: mouse.row,
+                modifiers: mouse.modifiers.bits(),
+            })
+        }
+        crate::raw_input::RawInputEvent::Paste(text) => {
+            Some(crate::protocol::ClientInputEvent::Paste(text))
+        }
+        crate::raw_input::RawInputEvent::OuterFocusGained => {
+            Some(crate::protocol::ClientInputEvent::FocusGained)
+        }
+        crate::raw_input::RawInputEvent::OuterFocusLost => {
+            Some(crate::protocol::ClientInputEvent::FocusLost)
+        }
+        crate::raw_input::RawInputEvent::HostDefaultColor { .. }
+        | crate::raw_input::RawInputEvent::HostPaletteColor { .. }
+        | crate::raw_input::RawInputEvent::HostCursorColor { .. }
+        | crate::raw_input::RawInputEvent::Unsupported => None,
+    }
+}
+
+#[cfg(unix)]
+fn unix_stdin_reader_loop(
+    event_tx: mpsc::Sender<ClientLoopEvent>,
+    should_quit: &Arc<AtomicBool>,
     host_color_query_sent: bool,
+    host_mouse_capture_active: Arc<AtomicBool>,
 ) {
     let stdin = io::stdin();
     let mut reader = stdin.lock();
@@ -70,12 +250,37 @@ fn windows_stdin_reader_loop(
                         return;
                     }
                 }
-                for data in framer.flush_timeout() {
-                    if event_tx
-                        .blocking_send(ClientLoopEvent::StdinInput(data))
-                        .is_err()
+
+                let timeout_ms = idle_flush_timeout_ms(
+                    &framer,
+                    host_mouse_capture_active.load(Ordering::Acquire),
+                );
+                if stdin_read_ready(&reader, timeout_ms) == Some(false) {
+                    let had_pending = framer.has_pending_input();
+                    let chunks = framer.flush_timeout();
+                    let held_escape = had_pending && chunks.is_empty();
+                    for data in chunks {
+                        if event_tx
+                            .blocking_send(ClientLoopEvent::StdinInput(data))
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    if held_escape
+                        && stdin_read_ready(
+                            &reader,
+                            crate::raw_input::RAW_INPUT_IDLE_FLUSH_TIMEOUT_MS,
+                        ) == Some(false)
                     {
-                        return;
+                        for data in framer.flush_timeout() {
+                            if event_tx
+                                .blocking_send(ClientLoopEvent::StdinInput(data))
+                                .is_err()
+                            {
+                                return;
+                            }
+                        }
                     }
                 }
             }
@@ -90,50 +295,14 @@ fn windows_stdin_reader_loop(
 }
 
 #[cfg(unix)]
-fn unix_stdin_reader_loop(
-    event_tx: mpsc::Sender<ClientLoopEvent>,
-    should_quit: &Arc<AtomicBool>,
-    host_color_query_sent: bool,
-) {
-    let stdin = io::stdin();
-    let mut reader = stdin.lock();
-    let mut scratch = [0u8; 4096];
-    let mut framer = crate::raw_input::RawInputByteFramer::default();
-    if host_color_query_sent {
-        framer.host_color_query_sent();
-    }
-
-    while !should_quit.load(Ordering::Acquire) {
-        match reader.read(&mut scratch) {
-            Ok(0) => break,
-            Ok(n) => {
-                for data in framer.push(&scratch[..n]) {
-                    if event_tx
-                        .blocking_send(ClientLoopEvent::StdinInput(data))
-                        .is_err()
-                    {
-                        return;
-                    }
-                }
-
-                if stdin_read_ready(&reader, 10) == Some(false) {
-                    for data in framer.flush_timeout() {
-                        if event_tx
-                            .blocking_send(ClientLoopEvent::StdinInput(data))
-                            .is_err()
-                        {
-                            return;
-                        }
-                    }
-                }
-            }
-            Err(err) => {
-                if err.kind() == io::ErrorKind::Interrupted {
-                    continue;
-                }
-                break;
-            }
-        }
+fn idle_flush_timeout_ms(
+    framer: &crate::raw_input::RawInputByteFramer,
+    host_mouse_capture_active: bool,
+) -> i32 {
+    if host_mouse_capture_active && framer.has_pending_lone_escape() {
+        crate::raw_input::MOUSE_ACTIVE_LONE_ESCAPE_FLUSH_TIMEOUT_MS
+    } else {
+        crate::raw_input::RAW_INPUT_IDLE_FLUSH_TIMEOUT_MS
     }
 }
 
@@ -187,6 +356,32 @@ mod tests {
     // Here we test the event type construction.
 
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn raw_input_idle_flush_timeout_keeps_escape_responsive() {
+        let timeout_ms = std::hint::black_box(crate::raw_input::RAW_INPUT_IDLE_FLUSH_TIMEOUT_MS);
+        assert!(timeout_ms <= 20);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mouse_active_lone_escape_gets_longer_reassembly_window() {
+        let mut framer = crate::raw_input::RawInputByteFramer::default();
+        assert!(framer.push(b"\x1b").is_empty());
+
+        assert_eq!(
+            idle_flush_timeout_ms(&framer, false),
+            crate::raw_input::RAW_INPUT_IDLE_FLUSH_TIMEOUT_MS
+        );
+        assert_eq!(
+            idle_flush_timeout_ms(&framer, true),
+            crate::raw_input::MOUSE_ACTIVE_LONE_ESCAPE_FLUSH_TIMEOUT_MS
+        );
+        let mouse_timeout_ms =
+            std::hint::black_box(crate::raw_input::MOUSE_ACTIVE_LONE_ESCAPE_FLUSH_TIMEOUT_MS);
+        assert!(mouse_timeout_ms > 100);
+    }
 
     #[test]
     fn stdin_input_event_carries_raw_bytes() {

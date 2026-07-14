@@ -549,7 +549,7 @@ fn client_handshake(
 
 fn connect_raw_client(client_socket: &Path, cols: u16, rows: u16) -> UnixStream {
     let mut stream = connect_unix_socket(client_socket, Duration::from_secs(5));
-    client_handshake(&mut stream, 11, cols, rows).expect("handshake should succeed");
+    client_handshake(&mut stream, 12, cols, rows).expect("handshake should succeed");
     stream
 }
 

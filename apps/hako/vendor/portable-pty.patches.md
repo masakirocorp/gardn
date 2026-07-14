@@ -1,0 +1,31 @@
+# portable-pty local patches
+
+This file tracks intentional local changes applied on top of the vendored
+`portable-pty` source. Remove a patch only when upstream contains equivalent
+behavior or exposes an option that preserves Hako's invariant.
+
+## 0001 force system ConPTY
+
+status: active
+
+patch: `apps/hako/vendor/patches/portable-pty/0001-force-system-conpty.patch`
+
+vendored base: `portable-pty 0.9.0`
+
+local file:
+
+- `apps/hako/vendor/portable-pty/src/win/psuedocon.rs`
+
+reason: `portable-pty` 0.9.0 first loads `kernel32.dll`, then probes a bare
+`conpty.dll` from the DLL search path. Hako does not ship the paired
+`OpenConsole.exe`/`conpty.dll`; loading another application's DLL from `PATH`
+violates the system-ConPTY invariant.
+
+remove when: upstream no longer loads bare `conpty.dll`, upstream exposes a
+way to force system ConPTY, or Hako replaces its Windows PTY backend.
+
+verification:
+
+```sh
+python3 -m unittest scripts.test_vendor_portable_pty
+```

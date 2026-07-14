@@ -160,8 +160,9 @@ pub fn notification_context(
     let mut context = format!("{} · {}", workspace_label, ws_idx + 1);
     if ws.tabs.len() > 1 {
         if let Some(tab_idx) = ws.find_tab_index_for_pane(pane_id) {
-            let tab = &ws.tabs[tab_idx];
-            context.push_str(&format!(" · {}", tab.display_name()));
+            if let Some(label) = ws.tab_display_name(tab_idx) {
+                context.push_str(&format!(" · {label}"));
+            }
         }
     }
     context
@@ -415,7 +416,9 @@ impl AppState {
     fn navigator_tab_row(&self, ws_idx: usize, tab_idx: usize) -> NavigatorRow {
         let ws = &self.workspaces[ws_idx];
         let tab = &ws.tabs[tab_idx];
-        let label = tab.display_name();
+        let label = ws
+            .tab_display_name(tab_idx)
+            .unwrap_or_else(|| (tab_idx + 1).to_string());
         let (status, seen) = tab_aggregate_state(tab, &self.terminals);
         let activity = tab_activity_summary(tab, &self.terminals);
         let pane_count = tab.panes.len();
@@ -1851,7 +1854,7 @@ impl AppState {
         let Some(visible_idx) = visible.iter().position(|ws_idx| *ws_idx == idx) else {
             return;
         };
-        let row_range = crate::ui::mobile_switcher_workspace_doc_range(visible_idx);
+        let row_range = crate::ui::mobile_switcher_workspace_doc_range(self, visible_idx);
         let visible_start = self.mobile_switcher_scroll;
         let visible_end = visible_start.saturating_add(viewport.height as usize);
         if row_range.start < visible_start {
@@ -2230,6 +2233,7 @@ impl AppState {
         self.return_to_active_workspace_mode();
     }
 
+    #[cfg(test)]
     pub(crate) fn remove_selected_workspace(&mut self) {
         self.close_selected_workspace();
     }
@@ -3205,16 +3209,18 @@ impl AppState {
                 source,
                 agent_label,
                 seq,
+                session_start_source,
                 session_ref,
                 launch_env,
             } => {
                 let updates: Vec<_> = self
                     .update_terminal_state(pane_id, |terminal| {
-                        let mut mutation = terminal.set_agent_session_ref(
+                        let mut mutation = terminal.set_agent_session_ref_for_session_start(
                             source,
                             agent_label,
                             session_ref,
                             seq,
+                            session_start_source,
                         )?;
                         if terminal.launch_env != launch_env {
                             terminal.launch_env = launch_env;
@@ -3236,6 +3242,7 @@ impl AppState {
                 display_agent,
                 custom_status,
                 state_labels,
+                tokens,
                 clear_title,
                 clear_display_agent,
                 clear_custom_status,
@@ -3253,6 +3260,7 @@ impl AppState {
                             display_agent,
                             custom_status,
                             state_labels,
+                            tokens,
                             clear_title,
                             clear_display_agent,
                             clear_custom_status,
@@ -3292,6 +3300,9 @@ impl AppState {
             // Intercepted in App::handle_internal_event before reaching this
             // dispatch; never touches AppState.
             AppEvent::ClipboardWrite { .. } => Vec::new(),
+            AppEvent::PrefixInputSource { .. } => Vec::new(),
+            AppEvent::WorktreeAddFinished(_) => Vec::new(),
+            AppEvent::WorktreeRemoveFinished(_) => Vec::new(),
             AppEvent::GitStatusRefreshed {
                 results,
                 cache_updates,
@@ -5445,6 +5456,7 @@ mod tests {
             source: "hako:codex".into(),
             agent_label: "codex".into(),
             seq: Some(1),
+            session_start_source: None,
             session_ref: Some(crate::agent_resume::AgentSessionRef::id("codex-session").unwrap()),
             launch_env: Vec::new(),
         });
@@ -5828,6 +5840,7 @@ mod tests {
             source: "hako:pi".into(),
             agent_label: "pi".into(),
             seq: Some(21),
+            session_start_source: None,
             session_ref: crate::agent_resume::AgentSessionRef::path("/tmp/two.jsonl"),
             launch_env: vec![("PI_CONFIG_DIR".into(), ".pi-profile".into())],
         });
@@ -5849,6 +5862,7 @@ mod tests {
             pane_id,
             source: "hako:pi".into(),
             agent_label: "pi".into(),
+            session_start_source: None,
             seq: Some(22),
             session_ref: crate::agent_resume::AgentSessionRef::path("/tmp/three.jsonl"),
             launch_env: Vec::new(),

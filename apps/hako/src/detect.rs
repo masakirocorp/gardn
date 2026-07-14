@@ -63,10 +63,11 @@ pub enum Agent {
     Hermes,
     Kilo,
     Qodercli,
+    Maki,
 }
 
 impl Agent {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::Pi,
         Self::OhMyPi,
         Self::Claude,
@@ -86,6 +87,7 @@ impl Agent {
         Self::Hermes,
         Self::Kilo,
         Self::Qodercli,
+        Self::Maki,
     ];
 }
 
@@ -110,6 +112,7 @@ pub fn agent_label(agent: Agent) -> &'static str {
         Agent::Hermes => "hermes",
         Agent::Kilo => "kilo",
         Agent::Qodercli => "qodercli",
+        Agent::Maki => "maki",
     }
 }
 
@@ -135,6 +138,7 @@ pub fn parse_agent_label(agent: &str) -> Option<Agent> {
         "hermes" | "hermes-agent" => Some(Agent::Hermes),
         "kilo" | "kilo-code" | "kilo code" => Some(Agent::Kilo),
         "qodercli" | "qoderclicn" | "qoder" | "qodercn" => Some(Agent::Qodercli),
+        "maki" => Some(Agent::Maki),
         _ => None,
     }
 }
@@ -164,6 +168,7 @@ pub fn identify_agent(process_name: &str) -> Option<Agent> {
         "hermes" | "hermes-agent" => Some(Agent::Hermes),
         "kilo" | "kilo-code" | "kilo code" => Some(Agent::Kilo),
         "qodercli" | "qoderclicn" | "qoder" | "qodercn" => Some(Agent::Qodercli),
+        "maki" => Some(Agent::Maki),
         _ => None,
     }
 }
@@ -444,7 +449,39 @@ fn agent_name_from_path_token(token: &str) -> Option<String> {
     }
 
     agent_name_from_basename(path_basename(trimmed))
+        .or_else(|| agent_name_from_known_package_path(trimmed))
         .or_else(|| resolved_agent_name_from_path_token(trimmed))
+}
+
+fn agent_name_from_known_package_path(path: &str) -> Option<String> {
+    let components: Vec<String> = path
+        .split(['/', '\\'])
+        .filter(|component| !component.is_empty())
+        .map(normalized_agent_lookup_name)
+        .collect();
+
+    components.windows(5).find_map(|window| {
+        (window
+            == [
+                "node_modules",
+                "@earendil-works",
+                "pi-coding-agent",
+                "dist",
+                "cli",
+            ])
+        .then(|| agent_label(Agent::Pi).to_string())
+    })
+}
+
+fn normalized_agent_lookup_name(component: &str) -> String {
+    let component = component.trim_matches(|ch| matches!(ch, '"' | '\''));
+    let component = component.to_ascii_lowercase();
+    component
+        .strip_suffix(".js")
+        .or_else(|| component.strip_suffix(".mjs"))
+        .or_else(|| component.strip_suffix(".cjs"))
+        .unwrap_or(&component)
+        .to_string()
 }
 
 fn resolved_agent_name_from_path_token(token: &str) -> Option<String> {
@@ -464,10 +501,8 @@ fn agent_name_from_basename(basename: &str) -> Option<String> {
 }
 
 fn path_basename(path: &str) -> &str {
-    std::path::Path::new(path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(path)
+    let basename = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    basename.strip_suffix(".exe").unwrap_or(basename)
 }
 
 fn process_priority(process: &crate::platform::ForegroundProcess, normalized_name: &str) -> u8 {
@@ -482,8 +517,10 @@ fn process_priority(process: &crate::platform::ForegroundProcess, normalized_nam
 }
 
 fn is_generic_runtime_or_shell(name: &str) -> bool {
+    let basename = path_basename(name);
+    let basename = basename.strip_suffix(".exe").unwrap_or(basename);
     matches!(
-        path_basename(name),
+        basename,
         "sh" | "bash" | "zsh" | "fish" | "tmux" | "node" | "bun" | "python" | "python3"
     )
 }
@@ -530,6 +567,59 @@ mod tests {
         assert_eq!(detection.state, AgentState::Working);
         assert!(detection.visible_working);
     }
+
+    #[test]
+    fn maki_status_bar_and_blocked_panels_are_detected() {
+        let working = detect_agent(Some(Agent::Maki), "output\n ⠋ [BUILD]");
+        assert_eq!(working.state, AgentState::Working);
+        assert!(working.visible_working);
+
+        let idle = detect_agent(Some(Agent::Maki), "output\n [PLAN]");
+        assert_eq!(idle.state, AgentState::Idle);
+        assert!(idle.visible_idle);
+
+        let blocked = detect_agent(
+            Some(Agent::Maki),
+            "Permission Required\n\nY Allow   N Deny\n [BASH]",
+        );
+        assert_eq!(blocked.state, AgentState::Blocked);
+        assert!(blocked.visible_blocker);
+
+        let plan = detect_agent(
+            Some(Agent::Maki),
+            "Plan complete\nEnter confirm\nSpace toggle parallel\n [PLAN]",
+        );
+        assert_eq!(plan.state, AgentState::Blocked);
+        assert!(plan.visible_blocker);
+
+        let narrow_prompt = detect_agent(Some(Agent::Maki), "history\n❯ ");
+        assert_eq!(narrow_prompt.state, AgentState::Idle);
+        assert!(narrow_prompt.visible_idle);
+    }
+
+    #[test]
+    fn codex_reordered_title_spinner_is_detected() {
+        let explain = manifest::explain_with_input(
+            Agent::Codex,
+            manifest::DetectionInput {
+                screen: "",
+                osc_title: "⠋ ",
+                osc_progress: "",
+            },
+        );
+        assert_eq!(explain.state, AgentState::Working);
+        assert_eq!(
+            explain.matched_rule.as_ref().map(|rule| rule.id.as_str()),
+            Some("osc_title_working")
+        );
+    }
+
+    #[test]
+    fn claude_btw_overlay_stays_working() {
+        let detection = detect_agent(Some(Agent::Claude), "/btw what changed?\n\nEsc to close");
+        assert_eq!(detection.state, AgentState::Working);
+        assert!(detection.visible_working);
+    }
     // ---- Agent identification ----
 
     #[test]
@@ -559,6 +649,7 @@ mod tests {
         assert_eq!(identify_agent("hermes-agent"), Some(Agent::Hermes));
         assert_eq!(identify_agent("kilo"), Some(Agent::Kilo));
         assert_eq!(identify_agent("kilo-code"), Some(Agent::Kilo));
+        assert_eq!(identify_agent("maki"), Some(Agent::Maki));
     }
 
     #[test]
@@ -581,6 +672,7 @@ mod tests {
         assert_eq!(parse_agent_label("grok-build"), Some(Agent::Grok));
         assert_eq!(parse_agent_label("hermes-agent"), Some(Agent::Hermes));
         assert_eq!(parse_agent_label("kilo-code"), Some(Agent::Kilo));
+        assert_eq!(parse_agent_label("maki"), Some(Agent::Maki));
     }
 
     #[test]
@@ -594,6 +686,7 @@ mod tests {
         assert_eq!(agent_label(Agent::Grok), "grok");
         assert_eq!(agent_label(Agent::Hermes), "hermes");
         assert_eq!(agent_label(Agent::Kilo), "kilo");
+        assert_eq!(agent_label(Agent::Maki), "maki");
     }
 
     #[test]
@@ -727,6 +820,43 @@ mod tests {
             identify_agent_in_job(&job),
             Some((Agent::Pi, "pi".to_string()))
         );
+    }
+
+    #[test]
+    fn identify_agent_in_job_detects_node_wrapped_pi_package_cli() {
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 123,
+            processes: vec![foreground_process(
+                123,
+                "node.exe",
+                &[
+                    "node.exe",
+                    r"C:\Users\hako\AppData\Roaming\npm\node_modules\@earendil-works\pi-coding-agent\dist\cli.js",
+                ],
+            )],
+        };
+
+        assert_eq!(
+            identify_agent_in_job(&job),
+            Some((Agent::Pi, "pi".to_string()))
+        );
+    }
+
+    #[test]
+    fn identify_agent_in_job_ignores_non_cli_pi_package_script() {
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 123,
+            processes: vec![foreground_process(
+                123,
+                "node.exe",
+                &[
+                    "node.exe",
+                    r"C:\Users\hako\AppData\Roaming\npm\node_modules\@earendil-works\pi-coding-agent\scripts\build.js",
+                ],
+            )],
+        };
+
+        assert_eq!(identify_agent_in_job(&job), None);
     }
 
     #[test]

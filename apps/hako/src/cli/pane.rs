@@ -1082,7 +1082,7 @@ fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_report_agent_session(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane report-agent-session <pane_id> --source ID --agent LABEL [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
+        eprintln!("usage: hako pane report-agent-session <pane_id> --source ID --agent LABEL [--seq N] [--agent-session-id ID] [--agent-session-path PATH] [--session-start-source SOURCE]");
         return Ok(2);
     };
 
@@ -1092,6 +1092,7 @@ fn pane_report_agent_session(args: &[String]) -> std::io::Result<i32> {
     let mut seq = None;
     let mut agent_session_id = None;
     let mut agent_session_path = None;
+    let mut session_start_source = None;
 
     let mut index = 1;
     while index < args.len() {
@@ -1136,6 +1137,14 @@ fn pane_report_agent_session(args: &[String]) -> std::io::Result<i32> {
                 agent_session_path = Some(value.clone());
                 index += 2;
             }
+            "--session-start-source" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --session-start-source");
+                    return Ok(2);
+                };
+                session_start_source = Some(value.clone());
+                index += 2;
+            }
             other => {
                 eprintln!("unknown option: {other}");
                 return Ok(2);
@@ -1163,6 +1172,7 @@ fn pane_report_agent_session(args: &[String]) -> std::io::Result<i32> {
             seq,
             agent_session_id,
             agent_session_path,
+            session_start_source,
             launch_env: Default::default(),
         },
     ))
@@ -1410,6 +1420,7 @@ fn pane_report_metadata(args: &[String]) -> std::io::Result<i32> {
         display_agent,
         custom_status,
         state_labels,
+        tokens: std::collections::HashMap::new(),
         clear_title,
         clear_display_agent,
         clear_custom_status,

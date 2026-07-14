@@ -110,7 +110,7 @@ impl App {
             Mode::ReleaseNotes => self.handle_release_notes_key(key_event),
             Mode::ProductAnnouncement => self.handle_product_announcement_key(key_event),
             Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
-                handle_rename_key(&mut self.state, key_event)
+                self.handle_rename_key_via_runtime(key_event)
             }
             Mode::EditWorktreeDirectory => {
                 handle_worktree_directory_key(&mut self.state, key_event)
@@ -170,6 +170,20 @@ impl App {
                     return false;
                 }
                 insert_navigator_search_text(&mut self.state, text);
+                true
+            }
+            Mode::Copy => {
+                let Some(prompt) = self
+                    .state
+                    .copy_mode
+                    .as_mut()
+                    .and_then(|copy_mode| copy_mode.search.prompt.as_mut())
+                else {
+                    return false;
+                };
+                prompt
+                    .query
+                    .extend(text.chars().filter(|ch| !ch.is_control()));
                 true
             }
             _ => false,
@@ -703,6 +717,10 @@ impl App {
     }
 
     fn handle_pane_double_click(&mut self, mouse: MouseEvent) -> bool {
+        if !self.state.copy_on_select {
+            self.last_pane_click = None;
+            return false;
+        }
         // A pane press stops being a double-click candidate once it becomes
         // a drag or completes as a real text selection.
         match mouse.kind {

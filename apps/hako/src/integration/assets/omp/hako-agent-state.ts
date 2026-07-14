@@ -2,7 +2,7 @@
 // managed by hako; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=omp
-// HAKO_INTEGRATION_VERSION=4
+// HAKO_INTEGRATION_VERSION=5
 // @ts-nocheck
 
 import { createConnection } from "node:net";
@@ -16,28 +16,40 @@ function enabled() {
   return HAKO_ENV === "1" && !!socketPath && !!paneId;
 }
 
-function sendRequest(request: unknown): Promise<void> {
+let requestQueue = Promise.resolve();
+
+function sendRequestNow(request: unknown): Promise<void> {
   if (!enabled()) {
     return Promise.resolve();
   }
 
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      socket.destroy();
-      resolve();
-    };
+  const { promise, resolve } = Promise.withResolvers<void>();
+  let done = false;
+  let timeout;
+  const socket = createConnection(socketPath!);
+  const finish = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(timeout);
+    socket.destroy();
+    resolve();
+  };
 
-    const socket = createConnection(socketPath!);
-    socket.on("error", finish);
-    socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
-    socket.on("data", finish);
-    socket.on("end", finish);
-    const timeout = setTimeout(finish, 500);
-    timeout.unref?.();
-  });
+  socket.on("error", finish);
+  socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
+  socket.on("data", finish);
+  socket.on("end", finish);
+  timeout = setTimeout(finish, 500);
+  timeout.unref?.();
+  return promise;
+}
+
+function sendRequest(request: unknown): Promise<void> {
+  requestQueue = requestQueue.then(
+    () => sendRequestNow(request),
+    () => sendRequestNow(request),
+  );
+  return requestQueue;
 }
 
 type AgentState = "working" | "blocked" | "idle";
@@ -202,6 +214,23 @@ function retryableErrorMessage(event: any): string | undefined {
   return errorMessage || "retryable provider error";
 }
 
+function reportSession(sessionStartSource = "startup"): Promise<void> {
+  if (!currentAgentSessionPath && !currentAgentSessionId) {
+    return Promise.resolve();
+  }
+  return sendRequest({
+    id: `${source}:session:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+    method: "pane.report_agent_session",
+    params: withSessionRef({
+      pane_id: paneId,
+      source,
+      agent: "omp",
+      seq: nextReportSeq(),
+      session_start_source: sessionStartSource,
+    }),
+  });
+}
+
 function releaseAgent(): Promise<void> {
   return sendRequest({
     id: `${source}:release:${Date.now()}:${Math.random().toString(36).slice(2)}`,
@@ -221,6 +250,7 @@ export default function (pi) {
   }
 
   const instanceId = Symbol("hako-omp-agent");
+  let rootSession = false;
   let retryHoldActive = false;
   let failureBlocked = false;
   let failureMessage: string | undefined;
@@ -285,8 +315,66 @@ export default function (pi) {
     idleTimer.unref?.();
   }
 
-  pi.on("session_start", (_event, ctx) => {
+  function sessionIsActive(ctx: unknown): boolean {
+    if (!ctx || typeof ctx !== "object" || !("isIdle" in ctx)) {
+      return false;
+    }
+    const candidate = ctx.isIdle;
+    if (typeof candidate !== "function") {
+      return false;
+    }
+    try {
+      return candidate.call(ctx) === false;
+    } catch {
+      return false;
+    }
+  }
+
+  function activateRootSession(ctx: unknown, sessionStartSource = "startup"): boolean {
+    if (!ctx || typeof ctx !== "object" || !("hasUI" in ctx) || ctx.hasUI !== true) {
+      return false;
+    }
+    rootSession = true;
     updateSessionRef(ctx);
+    void reportSession(sessionStartSource);
+    return true;
+  }
+
+  function resetSessionState() {
+    clearPendingTimers();
+    clearFailureState();
+    activeAgents.delete(instanceId);
+    blockedCount = 0;
+    blockedMessage = undefined;
+    blockingToolCalls.clear();
+    permissionGateToolCalls.clear();
+  }
+
+  function rootSessionActive(ctx?: unknown): boolean {
+    return rootSession || activateRootSession(ctx);
+  }
+
+  pi.on("session_start", (_event, ctx) => {
+    if (!ctx || typeof ctx !== "object" || !("hasUI" in ctx) || ctx.hasUI !== true) {
+      rootSession = false;
+      return;
+    }
+    if (!activateRootSession(ctx)) {
+      return;
+    }
+    if (sessionIsActive(ctx)) {
+      activeAgents.add(instanceId);
+    } else {
+      activeAgents.delete(instanceId);
+    }
+    publishState(true);
+  });
+
+  pi.on("session_switch", (event, ctx) => {
+    if (!activateRootSession(ctx, event?.reason || "resume")) {
+      return;
+    }
+    resetSessionState();
     publishState(true);
   });
 
@@ -322,6 +410,9 @@ export default function (pi) {
   }
 
   pi.events.on("hako:blocked", (data) => {
+    if (!rootSession) {
+      return;
+    }
     if (!data?.active) {
       leaveBlocked();
       return;
@@ -331,6 +422,9 @@ export default function (pi) {
   });
 
   pi.events.on("masakiro:permission_gate", (data) => {
+    if (!rootSession) {
+      return;
+    }
     const toolCallId = typeof data?.toolCallId === "string" ? data.toolCallId : undefined;
     if (!toolCallId) {
       return;
@@ -358,6 +452,18 @@ export default function (pi) {
   function isBlockingTool(event: any): boolean {
     return event?.toolName === "ask";
   }
+  function askBlockedMessage(args: unknown): string {
+    if (!args || typeof args !== "object" || !("questions" in args) || !Array.isArray(args.questions)) {
+      return "waiting for user input";
+    }
+    const firstQuestion = args.questions.find(
+      (question: unknown) =>
+        question && typeof question === "object" && "question" in question
+        && typeof question.question === "string",
+    );
+    return firstQuestion?.question || "waiting for user input";
+  }
+
 
   function clearBlockingTool(toolCallId: unknown): boolean {
     if (typeof toolCallId !== "string" || !blockingToolCalls.delete(toolCallId)) {
@@ -368,8 +474,25 @@ export default function (pi) {
     return true;
   }
 
-  pi.on("tool_execution_start", (event) => {
-    if (!isBlockingTool(event) || typeof event?.toolCallId !== "string") {
+  pi.on("tool_approval_requested", (event, ctx) => {
+    if (!rootSessionActive(ctx)) {
+      return;
+    }
+    const label = typeof event?.reason === "string" && event.reason.length > 0
+      ? event.reason
+      : `${event?.toolName || "Tool"} approval`;
+    enterBlocked(label);
+  });
+
+  pi.on("tool_approval_resolved", (_event, ctx) => {
+    if (!rootSessionActive(ctx)) {
+      return;
+    }
+    leaveBlocked();
+  });
+
+  pi.on("tool_execution_start", (event, ctx) => {
+    if (!rootSessionActive(ctx) || !isBlockingTool(event) || typeof event?.toolCallId !== "string") {
       return;
     }
     if (blockingToolCalls.has(event.toolCallId)) {
@@ -379,26 +502,33 @@ export default function (pi) {
     clearPendingTimers();
     blockingToolCalls.add(event.toolCallId);
     blockedCount += 1;
-    blockedMessage = typeof event.intent === "string" && event.intent.length > 0
-      ? event.intent
-      : "waiting for user";
+    blockedMessage = askBlockedMessage(event.args);
     publishState();
   });
 
-  pi.on("tool_execution_end", (event) => {
+  pi.on("tool_execution_end", (event, ctx) => {
+    if (!rootSessionActive(ctx)) {
+      return;
+    }
     clearBlockingTool(event?.toolCallId);
   });
 
-  function markWorking() {
+  function markWorking(_event?: unknown, ctx?: unknown) {
+    if (!rootSessionActive(ctx)) {
+      return;
+    }
     clearPendingTimers();
     clearFailureState();
     activeAgents.add(instanceId);
     publishState();
   }
 
-  function markIdle(event?: any) {
+  function markIdle(event?: unknown, ctx?: unknown) {
+    if (!rootSessionActive(ctx)) {
+      return;
+    }
     if (!activeAgents.delete(instanceId)) {
-      // Pi can emit duplicate/late end events while auto-retry is already
+      // OMP can emit duplicate/late end events while auto-retry is already
       // holding the pane in Working. Do not let an unqualified duplicate end
       // cancel the retry hold and publish a false Idle.
       return;
@@ -421,11 +551,15 @@ export default function (pi) {
   pi.on("session_compact", markIdle);
   pi.on("auto_compaction_end", markIdle);
 
-  pi.on("session_shutdown", async () => {
+  pi.on("session_shutdown", async (event) => {
+    if (!rootSession) {
+      return;
+    }
     clearPendingTimers();
     activeAgents.delete(instanceId);
-    if (activeAgents.size === 0) {
+    if (activeAgents.size === 0 && event?.reason === "quit") {
       await releaseAgent();
     }
   });
+
 }

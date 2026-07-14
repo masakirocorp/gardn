@@ -1,3 +1,6 @@
 [workspace]
 members = ["apps/hako"]
 resolver = "2"
+
+[patch.crates-io]
+portable-pty = { path = "apps/hako/vendor/portable-pty" }

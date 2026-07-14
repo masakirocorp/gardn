@@ -38,7 +38,10 @@ use self::agent_detection::{
 use self::terminal::{GhosttyPaneTerminal, PaneTerminal};
 pub use self::{
     state::PaneState,
-    terminal::{InputState, ScrollMetrics, TerminalCursorState},
+    terminal::{
+        InputState, ScrollMetrics, TerminalCursorState, TerminalTextMatch, TerminalTextPoint,
+        TerminalWordMotion,
+    },
 };
 
 const RELEASE_REACQUIRE_SUPPRESSION: std::time::Duration = std::time::Duration::from_secs(1);
@@ -122,6 +125,7 @@ struct PendingAgentRelease {
 struct SpawnInitialState<'a> {
     detected_agent: Option<Agent>,
     history_ansi: Option<&'a str>,
+    windows_powershell_prompt_cwd_reporting: bool,
 }
 
 fn active_pending_release(
@@ -191,6 +195,7 @@ struct AgentDetectionPresence {
     consecutive_misses: u8,
 }
 
+#[cfg(test)]
 fn should_clear_agent_for_foreground_shell(
     previous_agent: Option<Agent>,
     new_agent: Option<Agent>,
@@ -198,7 +203,6 @@ fn should_clear_agent_for_foreground_shell(
 ) -> bool {
     previous_agent.is_some() && new_agent.is_none() && foreground_is_pane_shell
 }
-
 fn usable_process_cwd(pid: u32) -> Option<std::path::PathBuf> {
     crate::platform::process_cwd(pid).filter(|cwd| cwd.is_absolute() && cwd.is_dir())
 }
@@ -222,6 +226,39 @@ fn foreground_member_cwd_different_from_shell(
     None
 }
 
+fn identify_foreground_job_with_hint(
+    job: &crate::platform::ForegroundJob,
+) -> Option<(Agent, String)> {
+    if let Some(agent) = crate::platform::process_agent_hint(job.process_group_id) {
+        return Some((agent, crate::detect::agent_label(agent).to_string()));
+    }
+
+    if let Some(leader) = job
+        .processes
+        .iter()
+        .find(|process| process.pid == job.process_group_id)
+    {
+        let leader_job = crate::platform::ForegroundJob {
+            process_group_id: job.process_group_id,
+            processes: vec![leader.clone()],
+        };
+        if let Some(identified) = crate::detect::identify_agent_in_job(&leader_job) {
+            return Some(identified);
+        }
+    }
+
+    if let Some(agent) = job
+        .processes
+        .iter()
+        .filter(|process| process.pid != job.process_group_id)
+        .find_map(|process| crate::platform::process_agent_hint(process.pid))
+    {
+        return Some((agent, crate::detect::agent_label(agent).to_string()));
+    }
+
+    crate::detect::identify_agent_in_job(job)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ForegroundShellAgentAction {
     ObserveProbe,
@@ -235,19 +272,21 @@ fn foreground_shell_agent_action(
     foreground_is_pane_shell: bool,
     process_exit_reported: bool,
 ) -> ForegroundShellAgentAction {
-    if !should_clear_agent_for_foreground_shell(previous_agent, new_agent, foreground_is_pane_shell)
-    {
+    if previous_agent.is_none() || new_agent.is_some() {
         return ForegroundShellAgentAction::ObserveProbe;
     }
 
-    // Do not clear identity immediately. First publish an idle process-exit
-    // transition for the previous agent so notifications and wait-agent callers
-    // observe completion before the pane becomes unknown.
     if process_exit_reported {
-        ForegroundShellAgentAction::ClearAgent
-    } else {
-        ForegroundShellAgentAction::ReportProcessExit
+        return ForegroundShellAgentAction::ClearAgent;
     }
+
+    if foreground_is_pane_shell {
+        // Do not clear identity immediately. First publish an idle process-exit
+        // transition for the previous agent so notifications observe completion.
+        return ForegroundShellAgentAction::ReportProcessExit;
+    }
+
+    ForegroundShellAgentAction::ObserveProbe
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -863,6 +902,34 @@ fn resolve_shell_for_login_mode(shell: &str) -> io::Result<String> {
         })
 }
 
+/// PowerShell prompt wrapper used on native Windows panes to report the
+/// current filesystem location via OSC 9;9.
+pub(crate) const WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND: &str = r"if ($null -eq $global:__HakoOriginalPrompt) { $global:__HakoOriginalPrompt = $function:prompt; function global:prompt { $out = @(& $global:__HakoOriginalPrompt) -join ' '; $loc = $ExecutionContext.SessionState.Path.CurrentLocation; if ($loc.Provider.Name -eq 'FileSystem') { $esc = [string][char]27; $out += $esc + ']9;9;' + $loc.ProviderPath + $esc + '\' }; $out } }";
+
+pub(crate) fn uses_windows_powershell_pane_shell(shell_config: PaneShellConfig<'_>) -> bool {
+    uses_windows_powershell_pane_shell_for_target(shell_config, cfg!(windows))
+}
+
+fn uses_windows_powershell_pane_shell_for_target(
+    shell_config: PaneShellConfig<'_>,
+    target_is_windows: bool,
+) -> bool {
+    target_is_windows
+        && !matches!(shell_config.mode, crate::config::ShellModeConfig::Login)
+        && is_powershell_shell(&pane_shell_for_target(
+            shell_config.default_shell,
+            target_is_windows,
+        ))
+}
+
+fn is_powershell_shell(shell: &str) -> bool {
+    let name = shell.rsplit(['/', '\\']).next().unwrap_or(shell);
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe"
+    )
+}
+
 fn pane_shell_command_builder_for_target(
     shell_config: PaneShellConfig<'_>,
     target_is_macos: bool,
@@ -874,7 +941,15 @@ fn pane_shell_command_builder_for_target(
         cmd.env("SHELL", resolve_shell_for_login_mode(&shell)?);
         Ok(cmd)
     } else {
-        Ok(CommandBuilder::new(&shell))
+        let mut cmd = CommandBuilder::new(&shell);
+        if uses_windows_powershell_pane_shell_for_target(shell_config, target_is_windows) {
+            cmd.args([
+                "-NoExit",
+                "-Command",
+                WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND,
+            ]);
+        }
+        Ok(cmd)
     }
 }
 
@@ -1097,6 +1172,9 @@ impl PaneRuntime {
             SpawnInitialState {
                 detected_agent: None,
                 history_ansi: initial_history_ansi,
+                windows_powershell_prompt_cwd_reporting: uses_windows_powershell_pane_shell(
+                    shell_config,
+                ),
             },
         )
     }
@@ -1165,6 +1243,39 @@ impl PaneRuntime {
             render_dirty,
             cmd,
             "failed to spawn command pane",
+            SpawnInitialState::default(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn_custom_command(
+        pane_id: PaneId,
+        rows: u16,
+        cols: u16,
+        cwd: std::path::PathBuf,
+        command: &str,
+        launch_env: &PaneLaunchEnv,
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<AtomicBool>,
+    ) -> std::io::Result<Self> {
+        let mut cmd = crate::platform::pane_custom_command_pty_builder(command);
+        cmd.cwd(cwd);
+        apply_pane_terminal_env(&mut cmd);
+        apply_pane_launch_env(&mut cmd, launch_env, pane_id);
+        Self::spawn_command_builder(
+            pane_id,
+            rows,
+            cols,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            events,
+            render_notify,
+            render_dirty,
+            cmd,
+            "failed to spawn custom command pane",
             SpawnInitialState::default(),
         )
     }
@@ -1376,6 +1487,9 @@ impl PaneRuntime {
         let detection_content_seq = Arc::new(AtomicU64::new(0));
         let pane_terminal = GhosttyPaneTerminal::new(terminal, response_tx.clone())?;
         pane_terminal.apply_host_terminal_theme(host_terminal_theme);
+        pane_terminal.set_windows_powershell_prompt_cwd_reporting(
+            initial_state.windows_powershell_prompt_cwd_reporting,
+        );
         if let Some(ansi) = initial_state.history_ansi {
             pane_terminal.seed_history_ansi(ansi);
         }
@@ -1596,7 +1710,7 @@ impl PaneRuntime {
                                 last_foreground_pgid = Some(job.process_group_id);
                                 foreground_is_pane_shell =
                                     job.processes.iter().any(|p| p.pid == pid);
-                                let identified = detect::identify_agent_in_job(&job);
+                                let identified = identify_foreground_job_with_hint(&job);
                                 process_name = identified
                                     .as_ref()
                                     .map(|(_, process_name)| process_name.clone());
@@ -1901,6 +2015,31 @@ impl PaneRuntime {
 
     pub fn scroll_metrics(&self) -> Option<ScrollMetrics> {
         self.terminal.scroll_metrics()
+    }
+
+    pub(crate) fn search_text_matches(
+        &self,
+        query: &str,
+        case_sensitive: bool,
+    ) -> Vec<TerminalTextMatch> {
+        self.terminal.search_text_matches(query, case_sensitive)
+    }
+
+    pub(crate) fn text_match_is_current(&self, text_match: TerminalTextMatch) -> bool {
+        self.terminal.text_match_is_current(text_match)
+    }
+
+    pub(crate) fn text_matches_are_current(&self, text_matches: &[TerminalTextMatch]) -> Vec<bool> {
+        self.terminal.text_matches_are_current(text_matches)
+    }
+
+    pub(crate) fn word_motion_target(
+        &self,
+        row: u32,
+        col: u16,
+        motion: TerminalWordMotion,
+    ) -> Option<TerminalTextPoint> {
+        self.terminal.word_motion_target(row, col, motion)
     }
 
     pub fn input_state(&self) -> Option<InputState> {
@@ -2444,6 +2583,55 @@ mod tests {
     #[test]
     fn login_shell_resolution_preserves_shell_paths() {
         assert_eq!(resolve_shell_for_login_mode("/bin/sh").unwrap(), "/bin/sh");
+    }
+
+    #[test]
+    fn windows_powershell_builder_injects_prompt_cwd_integration() {
+        let cmd = pane_shell_command_builder_for_target(
+            PaneShellConfig::new(
+                "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+                crate::config::ShellModeConfig::NonLogin,
+            ),
+            false,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            cmd.get_argv(),
+            &[
+                std::ffi::OsString::from("C:\\Program Files\\PowerShell\\7\\pwsh.exe"),
+                std::ffi::OsString::from("-NoExit"),
+                std::ffi::OsString::from("-Command"),
+                std::ffi::OsString::from(WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND),
+            ]
+        );
+        assert!(WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND.contains("]9;9;"));
+        assert!(!WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND.contains('"'));
+        assert!(
+            WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND
+                .find("@(& $global:__HakoOriginalPrompt)")
+                .unwrap()
+                < WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND
+                    .find("$loc =")
+                    .unwrap()
+        );
+    }
+
+    #[test]
+    fn powershell_prompt_integration_requires_windows_non_login_shell() {
+        let config = PaneShellConfig::new("pwsh.exe", crate::config::ShellModeConfig::NonLogin);
+        assert!(uses_windows_powershell_pane_shell_for_target(config, true));
+        assert!(!uses_windows_powershell_pane_shell_for_target(
+            config, false
+        ));
+        assert!(!uses_windows_powershell_pane_shell_for_target(
+            PaneShellConfig::new("pwsh.exe", crate::config::ShellModeConfig::Login),
+            true,
+        ));
+        assert!(!uses_windows_powershell_pane_shell_for_target(
+            PaneShellConfig::new("cmd.exe", crate::config::ShellModeConfig::NonLogin),
+            true,
+        ));
     }
 
     #[test]

@@ -115,11 +115,7 @@ impl App {
         };
         let cwd = cwd
             .map(PathBuf::from)
-            .or_else(|| {
-                self.state
-                    .focused_runtime_in_workspace(&self.terminal_runtimes, ws_idx)
-                    .and_then(|rt| rt.cwd())
-            })
+            .or_else(|| self.focused_pane_cwd_in_workspace(ws_idx))
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("/"));
         let (rows, cols) = self.state.estimate_pane_size();
@@ -540,7 +536,7 @@ impl App {
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
             workspace_id: self.public_workspace_id(ws_idx),
             number: tab_idx + 1,
-            label: tab.display_name(),
+            label: ws.tab_display_name(tab_idx)?,
             focused: view.active_workspace == Some(ws_idx)
                 && view.active_tab_index_for_workspace(&self.state, ws_idx) == Some(tab_idx),
             pane_count: tab.panes.len(),

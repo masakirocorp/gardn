@@ -40,6 +40,7 @@ mod ipc;
 mod kitty_graphics;
 mod layout;
 mod logging;
+mod metadata_tokens;
 mod pane;
 mod persist;
 mod platform;
@@ -56,6 +57,7 @@ mod session;
 mod settings_rows;
 mod sound;
 mod terminal;
+mod terminal_modes;
 mod terminal_notify;
 mod terminal_theme;
 mod ui;
@@ -117,6 +119,13 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # "current" for Hako's process directory, or a fixed path such as "~/Projects".
 # new_cwd = "follow"
 
+[update]
+# Check GitHub for new Hako versions in the background.
+# version_check = true
+
+# Check for remote agent-detection manifest updates in the background.
+# manifest_check = true
+
 [agent_profiles]
 # Optional global order across system and custom agent profiles.
 # System ids match integration targets, e.g. system:codex, system:omp.
@@ -171,6 +180,7 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # open_agent_menu = ""    # optional, unset by default
 # command_palette = "prefix+space"
 # focus_agent = ""        # optional indexed binding, e.g. "prefix+alt+1..9"
+# remote_image_paste = "ctrl+v" # only active in hako --remote; empty disables raw-key image paste
 # new_tab = "prefix+c"
 # rename_tab = "prefix+shift+t"
 # previous_tab = "prefix+p"
@@ -206,6 +216,7 @@ const DEFAULT_CONFIG: &str = r##"# hako configuration
 # Custom commands use the same binding syntax.
 # type = "shell" runs detached in the background.
 # type = "pane" opens a temporary pane and closes it when the command exits.
+# On Windows, command strings run through cmd.exe /d /c.
 # [[keys.command]]
 # key = "prefix+g"
 # type = "pane"
@@ -244,6 +255,15 @@ diff_command = "lazygit"
 # Pane apps like lazygit and btop can still receive mouse when they request it.
 # mouse_capture = true
 
+# Copy text selected by mouse drag or double-click.
+# Set false to disable mouse text selection and copying.
+# copy_on_select = true
+
+# Host cursor policy: "auto", "native", or "drawn".
+# "auto" draws Hako's own cursor on native Windows builds and WSL to avoid ConPTY cursor flicker.
+# "native" always uses the outer terminal cursor; "drawn" always draws Hako's cursor as cell content.
+# host_cursor = "auto"
+
 # Optional modifier that forwards right-click hold/drag gestures to pane apps instead of opening Hako's pane menu.
 # Empty/off disables this. Shift is intentionally unsupported because terminals commonly reserve Shift+mouse.
 # Supported values include "ctrl", "alt", "cmd", "super", "meta", "hyper", and + combinations such as "cmd+alt".
@@ -266,6 +286,18 @@ diff_command = "lazygit"
 
 # show detected/reported agent labels in split pane borders when no manual pane name is set.
 # show_agent_labels_on_pane_borders = false
+
+# draw borders around split panes.
+# pane_borders = true
+
+# keep split panes visually separated instead of sharing divider borders.
+# pane_gaps = true
+
+# hide the tab row when a workspace has exactly one tab.
+# hide_tab_bar_when_single_tab = false
+
+# collapsed sidebar mode: "compact" (narrow rail) or "hidden" (zero-width).
+# sidebar_collapsed_mode = "compact"
 
 # agent panel scope: "current" (space), "group", or "all".
 # changing it from the agents menu saves this setting.
@@ -340,7 +372,7 @@ diff_command = "lazygit"
 # matches one of these names. Empty means apply to any focused pane.
 # If the list contains no valid names, the reveal does not apply.
 # Accepted: pi, claude, codex, gemini, cursor, cline, opencode, copilot,
-# kimi, kiro, droid, amp, grok, hermes, kilo, qodercli, qoder.
+# kimi, kiro, droid, amp, grok, hermes, kilo, qodercli, qoder, maki.
 # cjk_ime_agents = []
 # Cursor shape rendered when reveal_hidden_cursor_for_cjk_ime is true.
 # Values: block, steady_block (default), underline, steady_underline, bar, steady_bar.
@@ -470,6 +502,7 @@ fn main() -> io::Result<()> {
         println!("       hako update [--handoff]");
         println!("       hako server stop");
         println!("       hako server reload-config");
+        println!("       hako api <subcommand> ...");
         println!("       hako config <subcommand> ...");
         println!("       hako workspace <subcommand> ...");
         println!("       hako worktree <subcommand> ...");
@@ -528,6 +561,10 @@ fn main() -> io::Result<()> {
             (
                 "hako integration <subcommand>",
                 "manage built-in agent integrations",
+            ),
+            (
+                "hako api <subcommand>",
+                "inspect socket API metadata and live runtime state",
             ),
         ] {
             println!("  {command:<32} {description}");
@@ -607,7 +644,13 @@ fn main() -> io::Result<()> {
     }
 
     if let Some(remote_launch) = remote_launch {
-        return remote::run_remote(remote_launch);
+        let remote_target = remote_launch.target.clone();
+        if let Err(err) = remote::run_remote(remote_launch) {
+            eprintln!("error: {err}");
+            remote::print_remote_error_hint(&err, &remote_target);
+            std::process::exit(1);
+        }
+        return Ok(());
     }
 
     let loaded_config = config::Config::load();
@@ -646,11 +689,7 @@ fn main() -> io::Result<()> {
         Err(err) => return Err(err),
     };
 
-    let modify_other_keys_mode = crate::input::host_modify_other_keys_mode(
-        std::env::var("TMUX").is_ok(),
-        std::env::var("TERM_PROGRAM").ok().as_deref(),
-        std::env::var_os("WEZTERM_PANE").is_some(),
-    );
+    let modify_other_keys_mode = crate::input::host_modify_other_keys_mode();
 
     let original_hook = std::panic::take_hook();
     let panic_resets_modify_other_keys = modify_other_keys_mode.is_some();
@@ -669,6 +708,7 @@ fn main() -> io::Result<()> {
             DisableBracketedPaste,
             DisableMouseCapture
         );
+        let _ = crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout());
         ratatui::restore();
         original_hook(info);
     }));
@@ -688,6 +728,7 @@ fn main() -> io::Result<()> {
 
     let result = rt.block_on(async {
         let mut terminal = ratatui::init();
+        crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
         if config.ui.mouse_capture {
             execute!(io::stdout(), EnableMouseCapture)?;
         } else {
@@ -735,6 +776,7 @@ fn main() -> io::Result<()> {
             DisableBracketedPaste,
             DisableMouseCapture
         )?;
+        crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
         ratatui::restore();
 
         // Drop app (and all workspaces/panes) before runtime shuts down

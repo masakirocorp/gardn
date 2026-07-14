@@ -77,9 +77,10 @@ impl App {
         params: WorkspaceCreateParams,
     ) -> String {
         let cwd = params.cwd.map(PathBuf::from).unwrap_or_else(|| {
-            let follow_cwd = self
-                .workspace_creation_source()
-                .and_then(|ws_idx| self.seed_cwd_from_workspace(ws_idx));
+            let follow_cwd = self.workspace_creation_source().and_then(|ws_idx| {
+                self.focused_pane_cwd_in_workspace(ws_idx)
+                    .or_else(|| self.seed_cwd_from_workspace(ws_idx))
+            });
             self.resolve_new_terminal_cwd(follow_cwd)
         });
         let extra_env = match super::env::normalize_launch_env(params.env) {

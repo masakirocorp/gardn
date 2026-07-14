@@ -16,6 +16,7 @@ mod creation;
 mod ids;
 mod input;
 mod runtime;
+mod runtime_mutations;
 mod session;
 pub mod state;
 mod terminal_targets;
@@ -317,14 +318,23 @@ pub struct App {
     pub(crate) next_animation_tick: Option<Instant>,
     pub(crate) next_auto_update_check: Option<Instant>,
     pub(crate) next_agent_manifest_update_check: Option<Instant>,
+    pub(crate) update_version_check_enabled: bool,
+    pub(crate) update_manifest_check_enabled: bool,
+    pub(crate) loaded_host_cursor: crate::config::HostCursorModeConfig,
     pub(crate) agent_metadata_deadline: Option<Instant>,
     pub(crate) last_api_notification_at: Option<Instant>,
     pub(crate) pending_agent_resume_deadline: Option<Instant>,
     pub(crate) selection_autoscroll_deadline: Option<Instant>,
     pub(crate) selection_highlight_clear_deadline: Option<Instant>,
     pub(crate) session_save_deadline: Option<Instant>,
+    pub(crate) session_save_thread: Option<std::thread::JoinHandle<()>>,
+    pub(crate) next_api_worktree_operation_id: u64,
+    pub(crate) pending_api_worktree_creates: HashMap<std::path::PathBuf, u64>,
+    pub(crate) pending_api_worktree_removes: HashMap<String, u64>,
+    pub(crate) pending_api_worktree_remove_paths: HashMap<std::path::PathBuf, u64>,
     pub(crate) persist_pane_history: bool,
     pub(crate) last_render_at: Option<Instant>,
+    pub(crate) detached_custom_command_children: Vec<std::process::Child>,
     pub(crate) suppressed_repeat_keys: HashSet<crossterm::event::KeyCode>,
     pub(crate) forwarded_terminal_keys:
         HashMap<crossterm::event::KeyCode, input::TerminalKeyTarget>,
@@ -333,6 +343,9 @@ pub struct App {
     pub(crate) full_redraw_pending: bool,
     pub(crate) overlay_panes: HashMap<crate::layout::PaneId, OverlayPaneState>,
     pub(crate) local_terminal_notifications: bool,
+    /// Whether this process applies `AppEvent::PrefixInputSource` to the host input source.
+    /// Headless mode disables this; the foreground client owns the host-local switch.
+    pub(crate) local_input_source_switch: bool,
     pub(crate) config_reloaded_from_disk: bool,
     prefix_input_source: Box<dyn crate::platform::PrefixInputSource>,
     #[cfg(test)]
@@ -341,7 +354,7 @@ pub struct App {
 
 pub(crate) enum LoopEvent {
     Timer,
-    Internal(AppEvent),
+    Internal(Box<AppEvent>),
     Api(Box<crate::api::ApiRequestMessage>),
     RawInput(crate::raw_input::RawInputEvent),
     InputClosed,
@@ -421,6 +434,9 @@ fn auto_updates_enabled(no_session: bool) -> bool {
     !no_session && !cfg!(debug_assertions)
 }
 
+fn background_update_check_enabled(no_session: bool, check_enabled: bool) -> bool {
+    auto_updates_enabled(no_session) && check_enabled
+}
 fn load_plugin_registry(no_session: bool) -> crate::app::state::InstalledPluginRegistry {
     if no_session {
         return std::collections::HashMap::new();
@@ -885,6 +901,7 @@ impl App {
             right_sidebar_width,
             right_sidebar_collapsed,
             sidebar_arrangement: config.ui.sidebar_arrangement,
+            sidebar_config: config.ui.sidebar.clone(),
             sidebar_section_split,
             activity_agents_expanded: true,
             activity_commands_expanded: false,
@@ -895,6 +912,7 @@ impl App {
             collapsed_workspace_groups: Vec::new(),
             agent_panel_scope,
             mouse_capture: config.ui.mouse_capture,
+            copy_on_select: config.ui.copy_on_select,
             right_click_passthrough_modifiers: config.ui.right_click_passthrough_modifiers(),
             right_click_passthrough: None,
             redraw_on_focus_gained: config.ui.redraw_on_focus_gained,
@@ -903,6 +921,10 @@ impl App {
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             git_diff_command: config.git.diff_command.clone(),
             show_agent_labels_on_pane_borders: config.ui.show_agent_labels_on_pane_borders,
+            pane_borders: config.ui.pane_borders,
+            pane_gaps: config.ui.pane_gaps,
+            hide_tab_bar_when_single_tab: config.ui.hide_tab_bar_when_single_tab,
+            sidebar_collapsed_mode: config.ui.sidebar_collapsed_mode,
             pane_history_persistence: config.experimental.pane_history,
             resume_agents_on_restore: config.session.resume_agents_on_restore,
             reveal_hidden_cursor_for_cjk_ime: config.experimental.reveal_hidden_cursor_for_cjk_ime,
@@ -1023,9 +1045,15 @@ impl App {
         // Background auto-update is disabled in monolithic no-session mode
         // and in debug/test builds so local development never mutates the
         // running binary out from under spawned test processes.
-        if auto_updates_enabled(no_session) {
+        let version_check_enabled =
+            background_update_check_enabled(no_session, config.update.version_check);
+        let manifest_check_enabled =
+            background_update_check_enabled(no_session, config.update.manifest_check);
+        if version_check_enabled {
             let update_tx = event_tx.clone();
             std::thread::spawn(move || crate::update::auto_update(update_tx));
+        }
+        if manifest_check_enabled {
             let manifest_update_tx = event_tx.clone();
             std::thread::spawn(move || {
                 crate::detect::manifest_update::auto_update(manifest_update_tx)
@@ -1060,18 +1088,27 @@ impl App {
             next_port_scan: Instant::now() + PORT_SCAN_INTERVAL,
             next_command_scan: Instant::now(),
             next_animation_tick: None,
-            next_auto_update_check: auto_updates_enabled(no_session)
+            next_auto_update_check: version_check_enabled
                 .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL),
-            next_agent_manifest_update_check: auto_updates_enabled(no_session)
+            next_agent_manifest_update_check: manifest_check_enabled
                 .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL),
+            update_version_check_enabled: config.update.version_check,
+            update_manifest_check_enabled: config.update.manifest_check,
+            loaded_host_cursor: config.ui.host_cursor,
             agent_metadata_deadline: None,
             last_api_notification_at: None,
             pending_agent_resume_deadline: None,
             session_save_deadline: None,
+            session_save_thread: None,
+            next_api_worktree_operation_id: 1,
+            pending_api_worktree_creates: HashMap::new(),
+            pending_api_worktree_removes: HashMap::new(),
+            pending_api_worktree_remove_paths: HashMap::new(),
             selection_autoscroll_deadline: None,
             selection_highlight_clear_deadline: None,
             persist_pane_history: config.experimental.pane_history,
             last_render_at: None,
+            detached_custom_command_children: Vec::new(),
             suppressed_repeat_keys: HashSet::new(),
             forwarded_terminal_keys: HashMap::new(),
             api_rx,
@@ -1085,6 +1122,7 @@ impl App {
             full_redraw_pending: false,
             overlay_panes: HashMap::new(),
             local_terminal_notifications: true,
+            local_input_source_switch: true,
             config_reloaded_from_disk: false,
             prefix_input_source: Box::new(crate::platform::RealPrefixInputSource::default()),
             #[cfg(test)]
@@ -1119,13 +1157,15 @@ impl App {
 
         let groups = groups_from_snapshot(snapshot);
         app.no_session = false;
-        if auto_updates_enabled(app.no_session) {
-            let now = Instant::now();
+        let now = Instant::now();
+        if background_update_check_enabled(app.no_session, app.update_version_check_enabled) {
             app.next_auto_update_check = app
                 .state
                 .update_available
                 .is_none()
                 .then_some(now + AUTO_UPDATE_CHECK_INTERVAL);
+        }
+        if background_update_check_enabled(app.no_session, app.update_manifest_check_enabled) {
             app.next_agent_manifest_update_check = Some(now + AUTO_UPDATE_CHECK_INTERVAL);
         }
         app.state.detach_exits = false;
@@ -1217,15 +1257,19 @@ impl App {
     }
 
     pub(crate) fn sync_prefix_input_source(&mut self, previous_mode: Mode) {
-        match (
-            previous_mode == Mode::Prefix,
-            self.state.mode == Mode::Prefix,
+        let active = match (
+            previous_mode.wants_ascii_input(),
+            self.state.mode.wants_ascii_input(),
         ) {
-            (false, true) if self.state.switch_ascii_input_source_in_prefix => {
-                self.prefix_input_source.switch_to_ascii();
-            }
-            (true, false) => self.prefix_input_source.restore(),
-            _ => {}
+            (false, true) if self.state.switch_ascii_input_source_in_prefix => true,
+            (true, false) => false,
+            _ => return,
+        };
+        if let Err(err) = self
+            .event_tx
+            .try_send(crate::events::AppEvent::PrefixInputSource { active })
+        {
+            tracing::warn!(active, %err, "failed to queue prefix input-source change");
         }
     }
 
@@ -1307,6 +1351,7 @@ impl App {
         let mut host_mouse_capture_active = self.state.mouse_capture;
 
         while !self.state.should_quit {
+            self.reap_finished_custom_commands();
             if self.render_dirty.load(Ordering::Acquire) {
                 needs_render = true;
             }
@@ -1428,7 +1473,7 @@ impl App {
                         None => LoopEvent::Timer,
                     },
                     maybe_ev = self.event_rx.recv() => match maybe_ev {
-                        Some(ev) => LoopEvent::Internal(ev),
+                        Some(ev) => LoopEvent::Internal(Box::new(ev)),
                         None => LoopEvent::Timer,
                     },
                     maybe_input = recv_raw_input_or_pending(input_rx) => match maybe_input {
@@ -1443,7 +1488,7 @@ impl App {
             match event {
                 LoopEvent::Timer => {}
                 LoopEvent::Internal(ev) => {
-                    self.handle_internal_event_with_prefix_sync(ev);
+                    self.handle_internal_event_with_prefix_sync(*ev);
                     needs_render = true;
                 }
                 LoopEvent::Api(msg) => {
@@ -1483,6 +1528,7 @@ impl App {
         if desired == *active {
             return Ok(());
         }
+        crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
         if desired {
             execute!(io::stdout(), EnableMouseCapture)?;
         } else {
@@ -1714,20 +1760,40 @@ impl App {
                     .sidebar_width
                     .clamp(self.state.sidebar_min_width, self.state.sidebar_max_width);
                 self.state.mouse_capture = config.ui.mouse_capture;
+                self.state.copy_on_select = config.ui.copy_on_select;
+                if !self.state.copy_on_select {
+                    if self.state.mode == Mode::Copy {
+                        self.state.stop_selection_autoscroll_state();
+                    } else {
+                        self.state.clear_selection();
+                    }
+                    self.last_pane_click = None;
+                    self.selection_autoscroll_deadline = None;
+                    self.selection_highlight_clear_deadline = None;
+                }
                 self.state.right_click_passthrough_modifiers =
                     config.ui.right_click_passthrough_modifiers();
                 if self.state.redraw_on_focus_gained != config.ui.redraw_on_focus_gained {
                     self.state.request_client_config_reload = true;
                 }
                 self.state.redraw_on_focus_gained = config.ui.redraw_on_focus_gained;
+                if self.loaded_host_cursor != config.ui.host_cursor {
+                    self.state.request_client_config_reload = true;
+                }
+                self.loaded_host_cursor = config.ui.host_cursor;
                 self.state.mouse_scroll_lines = config.ui.mouse_scroll_lines();
                 self.state.confirm_close = config.ui.confirm_close;
                 self.state.prompt_new_tab_name = config.ui.prompt_new_tab_name;
                 self.state.show_agent_labels_on_pane_borders =
                     config.ui.show_agent_labels_on_pane_borders;
+                self.state.pane_borders = config.ui.pane_borders;
+                self.state.pane_gaps = config.ui.pane_gaps;
+                self.state.hide_tab_bar_when_single_tab = config.ui.hide_tab_bar_when_single_tab;
+                self.state.sidebar_collapsed_mode = config.ui.sidebar_collapsed_mode;
                 self.state.agent_panel_scope =
                     agent_panel_scope_from_config(config.ui.agent_panel_scope);
                 self.state.sidebar_arrangement = config.ui.sidebar_arrangement;
+                self.state.sidebar_config = config.ui.sidebar.clone();
                 self.state.agent_panel_scroll = 0;
                 self.state.accent = crate::config::parse_color(&config.ui.accent);
                 if !self.state.local_sound_playback && self.state.sound != config.ui.sound {
@@ -1764,6 +1830,37 @@ impl App {
 
         if !invalid_section("advanced") {
             self.state.pane_scrollback_limit_bytes = config.advanced.scrollback_limit_bytes;
+        }
+
+        if !invalid_section("update") {
+            let now = Instant::now();
+            let previous_version_check_enabled = self.update_version_check_enabled;
+            let previous_manifest_check_enabled = self.update_manifest_check_enabled;
+            self.update_version_check_enabled = config.update.version_check;
+            self.update_manifest_check_enabled = config.update.manifest_check;
+
+            if !self.update_version_check_enabled {
+                self.next_auto_update_check = None;
+            } else if !previous_version_check_enabled
+                && background_update_check_enabled(
+                    self.no_session,
+                    self.update_version_check_enabled,
+                )
+                && self.state.update_available.is_none()
+            {
+                self.next_auto_update_check = Some(now);
+            }
+
+            if !self.update_manifest_check_enabled {
+                self.next_agent_manifest_update_check = None;
+            } else if !previous_manifest_check_enabled
+                && background_update_check_enabled(
+                    self.no_session,
+                    self.update_manifest_check_enabled,
+                )
+            {
+                self.next_agent_manifest_update_check = Some(now);
+            }
         }
 
         if !invalid_section("agent_profiles") {
@@ -2035,6 +2132,15 @@ impl App {
                 }
             }
             self.sync_prefix_input_source_for_mode_transition(previous_mode, client_view.mode);
+            if let Some(content) = self.state.request_clipboard_write.take() {
+                if self
+                    .event_tx
+                    .try_send(crate::events::AppEvent::ClipboardWrite { content })
+                    .is_err()
+                {
+                    tracing::warn!("failed to queue clipboard write event");
+                }
+            }
         }
     }
 
@@ -4018,12 +4124,14 @@ impl App {
 
         client_view.selection = None;
         client_view.selection_autoscroll = None;
-        client_view.copy_mode = Some(state::CopyModeState::new(
+        let mut copy_mode = state::CopyModeState::new(
             info.id,
             cursor.0.min(info.inner_rect.height.saturating_sub(1)),
             cursor.1.min(info.inner_rect.width.saturating_sub(1)),
             entry_metrics,
-        ));
+        );
+        copy_mode.search.geometry = Some((info.inner_rect.width, info.inner_rect.height));
+        client_view.copy_mode = Some(copy_mode);
         client_view.mode = Mode::Copy;
     }
 
@@ -4584,6 +4692,10 @@ impl App {
             return;
         }
         self.state.update_dismissed = true;
+        if self.state.is_prefix_key(key) {
+            client_view.mode = Mode::Prefix;
+            return;
+        }
         let saved_active = self.state.active;
         let saved_mode = self.state.mode;
         self.state.active = client_view.active_workspace;
@@ -6605,7 +6717,7 @@ impl App {
                     client_view.tab_press = None;
                     client_view.drag = None;
                     client_view.selection_autoscroll = None;
-                    if was_click {
+                    if !self.state.copy_on_select || was_click {
                         client_view.selection = None;
                     } else if !was_already_copied {
                         self.copy_client_view_selection(client_view);
@@ -6957,12 +7069,14 @@ impl App {
 
         let row = mouse.row - info.inner_rect.y;
         let col = mouse.column - info.inner_rect.x;
-        client_view.selection = Some(crate::selection::Selection::anchor(
-            info.id,
-            row,
-            col,
-            self.client_view_pane_scroll_metrics(ws_idx, info.id),
-        ));
+        if self.state.copy_on_select {
+            client_view.selection = Some(crate::selection::Selection::anchor(
+                info.id,
+                row,
+                col,
+                self.client_view_pane_scroll_metrics(ws_idx, info.id),
+            ));
+        }
         true
     }
 
@@ -8521,12 +8635,19 @@ impl App {
         previous_mode: Mode,
         next_mode: Mode,
     ) {
-        match (previous_mode == Mode::Prefix, next_mode == Mode::Prefix) {
-            (false, true) if self.state.switch_ascii_input_source_in_prefix => {
-                self.prefix_input_source.switch_to_ascii();
-            }
-            (true, false) => self.prefix_input_source.restore(),
-            _ => {}
+        let active = match (
+            previous_mode.wants_ascii_input(),
+            next_mode.wants_ascii_input(),
+        ) {
+            (false, true) if self.state.switch_ascii_input_source_in_prefix => true,
+            (true, false) => false,
+            _ => return,
+        };
+        if let Err(err) = self
+            .event_tx
+            .try_send(crate::events::AppEvent::PrefixInputSource { active })
+        {
+            tracing::warn!(active, %err, "failed to queue prefix input-source change");
         }
     }
 
@@ -8901,6 +9022,64 @@ mod tests {
             api_rx,
             crate::api::EventHub::default(),
         )
+    }
+
+    fn drained_prefix_active(app: &mut App) -> Vec<bool> {
+        let mut out = Vec::new();
+        while let Ok(event) = app.event_rx.try_recv() {
+            if let crate::events::AppEvent::PrefixInputSource { active } = event {
+                out.push(active);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn sync_prefix_input_source_emits_switch_then_restore() {
+        let mut app = test_app();
+        app.state.switch_ascii_input_source_in_prefix = true;
+
+        app.state.mode = state::Mode::Prefix;
+        app.sync_prefix_input_source(state::Mode::Terminal);
+        assert_eq!(drained_prefix_active(&mut app), vec![true]);
+
+        app.state.mode = state::Mode::Terminal;
+        app.sync_prefix_input_source(state::Mode::Prefix);
+        assert_eq!(drained_prefix_active(&mut app), vec![false]);
+    }
+
+    #[test]
+    fn sync_prefix_input_source_keeps_ascii_realm_across_submodes() {
+        let mut app = test_app();
+        app.state.switch_ascii_input_source_in_prefix = true;
+
+        app.state.mode = state::Mode::Prefix;
+        app.sync_prefix_input_source(state::Mode::Terminal);
+        assert_eq!(drained_prefix_active(&mut app), vec![true]);
+
+        app.state.mode = state::Mode::Navigator;
+        app.sync_prefix_input_source(state::Mode::Prefix);
+        app.state.mode = state::Mode::Resize;
+        app.sync_prefix_input_source(state::Mode::Navigator);
+        assert!(drained_prefix_active(&mut app).is_empty());
+
+        app.state.mode = state::Mode::Terminal;
+        app.sync_prefix_input_source(state::Mode::Resize);
+        assert_eq!(drained_prefix_active(&mut app), vec![false]);
+    }
+
+    #[test]
+    fn sync_prefix_input_source_restore_emits_when_switch_flag_is_disabled() {
+        let mut app = test_app();
+        app.state.switch_ascii_input_source_in_prefix = false;
+
+        app.state.mode = state::Mode::Prefix;
+        app.sync_prefix_input_source(state::Mode::Terminal);
+        assert!(drained_prefix_active(&mut app).is_empty());
+
+        app.state.mode = state::Mode::Terminal;
+        app.sync_prefix_input_source(state::Mode::Prefix);
+        assert_eq!(drained_prefix_active(&mut app), vec![false]);
     }
 
     fn config_env_lock() -> &'static Mutex<()> {
@@ -9339,6 +9518,7 @@ mod tests {
                     )])
                 })
                 .unwrap_or_default(),
+            tokens: std::collections::HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,
@@ -9546,13 +9726,15 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
-            "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"non_login\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+g\"\nprefix = \"ctrl+a\"\n[ui]\nagent_panel_scope = \"current\"\nredraw_on_focus_gained = false\nright_click_passthrough_modifier = \"ctrl\"\n[ui.toast]\ndelivery = \"hako\"\n",
+            "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"non_login\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+g\"\nprefix = \"ctrl+a\"\n[update]\nversion_check = false\nmanifest_check = false\n[ui]\nagent_panel_scope = \"current\"\nredraw_on_focus_gained = false\nright_click_passthrough_modifier = \"ctrl\"\n[ui.toast]\ndelivery = \"hako\"\n",
         )
         .unwrap();
         let _config_path_env =
             crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
+        app.next_auto_update_check = Some(Instant::now());
+        app.next_agent_manifest_update_check = Some(Instant::now());
         let report = app.reload_config();
 
         assert_eq!(report.status, crate::config::ConfigReloadStatus::Applied);
@@ -9586,6 +9768,10 @@ mod tests {
             app.state.new_terminal_cwd,
             crate::config::NewTerminalCwdConfig::Home
         );
+        assert!(!app.update_version_check_enabled);
+        assert!(!app.update_manifest_check_enabled);
+        assert!(app.next_auto_update_check.is_none());
+        assert!(app.next_agent_manifest_update_check.is_none());
         assert!(app.state.config_diagnostic.is_none());
         let toast = app.state.toast.as_ref().unwrap();
         assert_eq!(toast.kind, crate::app::state::ToastKind::UpdateInstalled);
@@ -11176,6 +11362,42 @@ mod tests {
         app.handle_scheduled_tasks(Instant::now(), false);
 
         assert!(app.session_save_deadline.is_none());
+    }
+
+    #[test]
+    fn due_session_save_starts_background_writer() {
+        let mut app = test_app();
+        app.no_session = false;
+        app.state.workspaces = vec![Workspace::test_new("autosave")];
+        app.state.ensure_test_terminals();
+        app.session_save_deadline = Some(Instant::now() - Duration::from_secs(1));
+
+        app.handle_scheduled_tasks(Instant::now(), false);
+
+        assert!(app.session_save_thread.is_some());
+        assert!(app.session_save_deadline.is_none());
+        app.no_session = true;
+        app.save_session_now();
+        assert!(app.session_save_thread.is_none());
+    }
+
+    #[test]
+    fn busy_session_save_reschedules_without_spawning_second_writer() {
+        let mut app = test_app();
+        app.no_session = false;
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session_save_thread = Some(std::thread::spawn(move || {
+            let _ = release_rx.recv();
+        }));
+
+        app.start_background_session_save();
+
+        assert!(app.session_save_thread.is_some());
+        assert!(app.session_save_deadline.is_some());
+
+        release_tx.send(()).unwrap();
+        app.no_session = true;
+        app.save_session_now();
     }
 
     #[test]
@@ -13140,6 +13362,7 @@ command = "printf literal > '{}'"
         );
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
+        let second_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 100, 12));
         let pane = client
             .computed
@@ -13177,10 +13400,25 @@ command = "printf literal > '{}'"
             .selection
             .as_ref()
             .is_some_and(|selection| selection.is_visible() && selection.is_done()));
-        assert_eq!(
-            app.state.request_clipboard_write.as_deref(),
-            Some(&b"bcde"[..])
+        match app.event_rx.try_recv().expect("clipboard write event") {
+            crate::events::AppEvent::ClipboardWrite { content } => {
+                assert_eq!(content, b"bcde");
+            }
+            event => panic!("unexpected event: {event:?}"),
+        }
+        assert!(app.state.request_clipboard_write.is_none());
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+                end_col,
+                row,
+            )],
+            true,
         );
+        assert!(second_client.selection.is_none());
+        assert!(app.event_rx.try_recv().is_err());
+        assert!(app.state.request_clipboard_write.is_none());
     }
 
     #[test]
@@ -13978,13 +14216,19 @@ command = "printf literal > '{}'"
 
         app.launch_custom_command_for_view(&mut client, binding, input::ActionContext::Direct);
 
-        for _ in 0..100 {
-            if output_path.exists() {
-                break;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let content = loop {
+            if let Ok(content) = std::fs::read_to_string(&output_path) {
+                if content.lines().count() >= 4 {
+                    break content;
+                }
             }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "shell command output was not complete"
+            );
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        let content = std::fs::read_to_string(&output_path).expect("shell command output");
+        };
         let lines = content.lines().collect::<Vec<_>>();
         assert_eq!(lines[0], app.state.workspaces[1].id);
         assert_eq!(lines[1], format!("{}:t1", app.state.workspaces[1].id));

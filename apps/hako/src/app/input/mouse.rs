@@ -709,12 +709,14 @@ impl AppState {
                         mouse.row - info.inner_rect.y,
                         mouse.column - info.inner_rect.x,
                     );
-                    self.selection = Some(Selection::anchor(
-                        info.id,
-                        row,
-                        col,
-                        self.pane_scroll_metrics(terminal_runtimes, info.id),
-                    ));
+                    if self.copy_on_select {
+                        self.selection = Some(Selection::anchor(
+                            info.id,
+                            row,
+                            col,
+                            self.pane_scroll_metrics(terminal_runtimes, info.id),
+                        ));
+                    }
                 } else if let Some(info) = self.view.pane_infos.iter().find(|p| {
                     mouse.column >= p.rect.x
                         && mouse.column < p.rect.x + p.rect.width
@@ -951,7 +953,7 @@ impl AppState {
                     self.tab_press = None;
                     self.drag = None;
                     self.selection_autoscroll = None;
-                    if was_click {
+                    if !self.copy_on_select || was_click {
                         self.selection = None;
                     } else if !was_already_copied {
                         self.copy_selection(terminal_runtimes);

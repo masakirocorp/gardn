@@ -61,6 +61,10 @@ struct ClientState {
     attach_escape: Option<AttachEscapeState>,
     /// Whether outer focus gain should force a full host-terminal redraw.
     redraw_on_focus_gained: bool,
+    /// Whether this client draws the cursor into frame cells instead of using the host cursor.
+    draw_host_cursor: bool,
+    /// Local-client shortcut that sends a clipboard image to a remote session.
+    remote_image_paste_key: Option<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
 }
 
 #[derive(Debug, Default)]
@@ -106,6 +110,97 @@ impl AttachEscapeState {
         } else {
             AttachInputAction::Forward(output)
         }
+    }
+}
+
+#[cfg(any(windows, test))]
+/// Re-encode semantic console events as the raw bytes expected by the direct
+/// attach escape filter. Full-app clients keep semantic `InputEvents`; direct
+/// attach must continue to recognize Ctrl+B, q and literal forwarded bytes.
+fn semantic_events_to_attach_bytes(events: &[crate::protocol::ClientInputEvent]) -> Vec<u8> {
+    events
+        .iter()
+        .filter_map(semantic_event_to_attach_bytes)
+        .flatten()
+        .collect()
+}
+
+#[cfg(any(windows, test))]
+fn semantic_event_to_attach_bytes(event: &crate::protocol::ClientInputEvent) -> Option<Vec<u8>> {
+    use crate::protocol::{ClientInputEvent, ClientKeyCode, ClientKeyKind};
+    use crossterm::event::KeyModifiers;
+
+    match event {
+        ClientInputEvent::Key {
+            code,
+            modifiers,
+            kind,
+        } if !matches!(kind, ClientKeyKind::Release) => {
+            let mut bytes = Vec::new();
+            let modifiers = KeyModifiers::from_bits_truncate(*modifiers);
+            if modifiers.contains(KeyModifiers::ALT) {
+                bytes.push(0x1b);
+            }
+            match code {
+                ClientKeyCode::Char(ch) => {
+                    if modifiers.contains(KeyModifiers::CONTROL) {
+                        let control = match ch.to_ascii_lowercase() {
+                            'a'..='z' => Some((ch.to_ascii_lowercase() as u8) - b'a' + 1),
+                            '[' => Some(0x1b),
+                            '\\' => Some(0x1c),
+                            ']' => Some(0x1d),
+                            '^' => Some(0x1e),
+                            '_' => Some(0x1f),
+                            ' ' => Some(0),
+                            _ => None,
+                        };
+                        if let Some(control) = control {
+                            bytes.push(control);
+                            return Some(bytes);
+                        }
+                    }
+                    let mut utf8 = [0; 4];
+                    bytes.extend_from_slice(ch.encode_utf8(&mut utf8).as_bytes());
+                }
+                ClientKeyCode::Backspace => bytes.push(0x7f),
+                ClientKeyCode::Enter => bytes.push(b'\r'),
+                ClientKeyCode::Left => bytes.extend_from_slice(b"\x1b[D"),
+                ClientKeyCode::Right => bytes.extend_from_slice(b"\x1b[C"),
+                ClientKeyCode::Up => bytes.extend_from_slice(b"\x1b[A"),
+                ClientKeyCode::Down => bytes.extend_from_slice(b"\x1b[B"),
+                ClientKeyCode::Home => bytes.extend_from_slice(b"\x1b[H"),
+                ClientKeyCode::End => bytes.extend_from_slice(b"\x1b[F"),
+                ClientKeyCode::PageUp => bytes.extend_from_slice(b"\x1b[5~"),
+                ClientKeyCode::PageDown => bytes.extend_from_slice(b"\x1b[6~"),
+                ClientKeyCode::Tab => bytes.push(b'\t'),
+                ClientKeyCode::BackTab => bytes.extend_from_slice(b"\x1b[Z"),
+                ClientKeyCode::Delete => bytes.extend_from_slice(b"\x1b[3~"),
+                ClientKeyCode::Insert => bytes.extend_from_slice(b"\x1b[2~"),
+                ClientKeyCode::F(n) => {
+                    let sequence = match n {
+                        1 => b"\x1bOP".as_slice(),
+                        2 => b"\x1bOQ".as_slice(),
+                        3 => b"\x1bOR".as_slice(),
+                        4 => b"\x1bOS".as_slice(),
+                        5 => b"\x1b[15~".as_slice(),
+                        6 => b"\x1b[17~".as_slice(),
+                        7 => b"\x1b[18~".as_slice(),
+                        8 => b"\x1b[19~".as_slice(),
+                        9 => b"\x1b[20~".as_slice(),
+                        10 => b"\x1b[21~".as_slice(),
+                        11 => b"\x1b[23~".as_slice(),
+                        12 => b"\x1b[24~".as_slice(),
+                        _ => return None,
+                    };
+                    bytes.extend_from_slice(sequence);
+                }
+                ClientKeyCode::Null => bytes.push(0),
+                ClientKeyCode::Esc => bytes.push(0x1b),
+            }
+            Some(bytes)
+        }
+        ClientInputEvent::Paste(text) => Some(text.as_bytes().to_vec()),
+        _ => None,
     }
 }
 
@@ -195,7 +290,16 @@ impl std::error::Error for ClientError {
 
 impl From<protocol::FramingError> for ClientError {
     fn from(err: protocol::FramingError) -> Self {
-        ClientError::Protocol(err)
+        match err {
+            protocol::FramingError::UnexpectedEof => ClientError::ConnectionLost(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "server closed connection",
+            )),
+            protocol::FramingError::Io(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
+                ClientError::ConnectionLost(err)
+            }
+            err => ClientError::Protocol(err),
+        }
     }
 }
 
@@ -223,6 +327,15 @@ fn setup_terminal_with_capabilities(
     mouse_capture: bool,
 ) -> io::Result<TerminalGuard> {
     ratatui::init();
+    crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
+
+    #[cfg(windows)]
+    let windows_virtual_terminal_input =
+        if enable_client_protocols && windows_vti_input_backend_enabled() {
+            enable_windows_virtual_terminal_input()
+        } else {
+            WindowsVirtualTerminalInputSetup::default()
+        };
 
     if enable_client_protocols {
         if mouse_capture {
@@ -240,14 +353,22 @@ fn setup_terminal_with_capabilities(
         execute!(io::stdout(), DisableMouseCapture)?;
     }
 
+    #[cfg(windows)]
+    if enable_client_protocols
+        && windows_vti_input_backend_enabled()
+        && windows_virtual_terminal_input.active
+        && windows_win32_input_mode_enabled()
+    {
+        if let Err(err) = enable_windows_win32_input_mode(&mut io::stdout()) {
+            if let Some(mode) = windows_virtual_terminal_input.restore_mode {
+                restore_windows_input_mode_value(mode);
+            }
+            return Err(err);
+        }
+    }
+
     let modify_other_keys_mode = enable_client_protocols
-        .then(|| {
-            crate::input::host_modify_other_keys_mode(
-                std::env::var("TMUX").is_ok(),
-                std::env::var("TERM_PROGRAM").ok().as_deref(),
-                std::env::var_os("WEZTERM_PANE").is_some(),
-            )
-        })
+        .then(crate::input::host_modify_other_keys_mode)
         .flatten();
     if let Some(mode) = modify_other_keys_mode {
         io::stdout().write_all(mode.set_sequence())?;
@@ -256,21 +377,25 @@ fn setup_terminal_with_capabilities(
 
     Ok(TerminalGuard {
         reset_modify_other_keys: modify_other_keys_mode.is_some(),
+        #[cfg(windows)]
+        restore_windows_input_mode: windows_virtual_terminal_input.restore_mode,
     })
 }
 
 /// Guard that restores the terminal when dropped.
 struct TerminalGuard {
     reset_modify_other_keys: bool,
+    #[cfg(windows)]
+    restore_windows_input_mode: Option<u32>,
 }
 
 fn write_terminal_restore_postlude(writer: &mut impl io::Write) -> io::Result<()> {
-    // Restore a visible cursor and reset DECSCUSR back to the terminal default.
     writer.write_all(b"\x1b[?25h\x1b[0 q")?;
     writer.flush()
 }
 
 fn set_mouse_capture(enabled: bool) -> io::Result<()> {
+    crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
     if enabled {
         execute!(io::stdout(), EnableMouseCapture)
     } else {
@@ -278,10 +403,12 @@ fn set_mouse_capture(enabled: bool) -> io::Result<()> {
     }
 }
 
-fn restore_terminal_state(reset_modify_other_keys: bool) {
+fn restore_terminal_state(
+    reset_modify_other_keys: bool,
+    #[cfg(windows)] restore_windows_input_mode: Option<u32>,
+) {
     let _ = clear_received_kitty_graphics(&mut io::stdout());
 
-    // Reset modifyOtherKeys if we enabled it.
     if reset_modify_other_keys {
         let _ = io::stdout().write_all(b"\x1b[>4;0m");
         let _ = io::stdout().flush();
@@ -294,14 +421,117 @@ fn restore_terminal_state(reset_modify_other_keys: bool) {
         DisableBracketedPaste,
         DisableMouseCapture
     );
+    let _ = crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout());
+    #[cfg(windows)]
+    if let Some(mode) = restore_windows_input_mode {
+        restore_windows_input_mode_value(mode);
+    }
     ratatui::restore();
     let _ = write_terminal_restore_postlude(&mut io::stdout());
+
+    #[cfg(windows)]
+    if windows_vti_input_backend_enabled() && windows_win32_input_mode_enabled() {
+        let _ = disable_windows_win32_input_mode(&mut io::stdout());
+    }
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        restore_terminal_state(self.reset_modify_other_keys);
+        restore_terminal_state(
+            self.reset_modify_other_keys,
+            #[cfg(windows)]
+            self.restore_windows_input_mode,
+        );
     }
+}
+#[cfg(windows)]
+#[derive(Default)]
+struct WindowsVirtualTerminalInputSetup {
+    active: bool,
+    restore_mode: Option<u32>,
+}
+
+#[cfg(windows)]
+fn enable_windows_virtual_terminal_input() -> WindowsVirtualTerminalInputSetup {
+    use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Console::{
+        GetConsoleMode, GetStdHandle, SetConsoleMode, ENABLE_VIRTUAL_TERMINAL_INPUT,
+        STD_INPUT_HANDLE,
+    };
+
+    let handle: HANDLE = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
+    if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+        tracing::warn!("failed to get Windows console input handle for VT input");
+        return WindowsVirtualTerminalInputSetup::default();
+    }
+
+    let mut mode = 0;
+    if unsafe { GetConsoleMode(handle, &mut mode) } == 0 {
+        tracing::warn!("failed to read Windows console input mode for VT input");
+        return WindowsVirtualTerminalInputSetup::default();
+    }
+
+    let desired = mode | ENABLE_VIRTUAL_TERMINAL_INPUT;
+    if desired == mode {
+        return WindowsVirtualTerminalInputSetup {
+            active: true,
+            restore_mode: None,
+        };
+    }
+    let desired = windows_virtual_terminal_input_mode(mode);
+    if unsafe { SetConsoleMode(handle, desired) } == 0 {
+        tracing::warn!("failed to enable Windows virtual terminal input");
+        return WindowsVirtualTerminalInputSetup::default();
+    }
+    let mut applied = 0;
+    if unsafe { GetConsoleMode(handle, &mut applied) } == 0
+        || applied & ENABLE_VIRTUAL_TERMINAL_INPUT == 0
+    {
+        tracing::warn!("Windows virtual terminal input bit did not stick");
+        let _ = unsafe { SetConsoleMode(handle, mode) };
+        return WindowsVirtualTerminalInputSetup::default();
+    }
+
+    WindowsVirtualTerminalInputSetup {
+        active: true,
+        restore_mode: Some(mode),
+    }
+}
+
+#[cfg(windows)]
+fn windows_virtual_terminal_input_mode(mode: u32) -> u32 {
+    mode | 0x0200
+}
+
+#[cfg(windows)]
+fn restore_windows_input_mode_value(mode: u32) {
+    use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Console::{GetStdHandle, SetConsoleMode, STD_INPUT_HANDLE};
+
+    let handle: HANDLE = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
+    if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+        return;
+    }
+    let _ = unsafe { SetConsoleMode(handle, mode) };
+}
+
+#[cfg(windows)]
+fn windows_win32_input_mode_enabled() -> bool {
+    std::env::var("HAKO_WINDOWS_INPUT_PROBE")
+        .map(|probe| probe.eq_ignore_ascii_case("win32"))
+        .unwrap_or(true)
+}
+
+#[cfg(windows)]
+fn enable_windows_win32_input_mode(writer: &mut impl io::Write) -> io::Result<()> {
+    writer.write_all(b"\x1b[?9001h")?;
+    writer.flush()
+}
+
+#[cfg(windows)]
+fn disable_windows_win32_input_mode(writer: &mut impl io::Write) -> io::Result<()> {
+    writer.write_all(b"\x1b[?9001l")?;
+    writer.flush()
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +542,17 @@ fn requested_render_encoding() -> RenderEncoding {
     match std::env::var("HAKO_RENDER_ENCODING").ok().as_deref() {
         Some("terminal-ansi" | "terminal_ansi" | "ansi") => RenderEncoding::TerminalAnsi,
         _ => RenderEncoding::SemanticFrame,
+    }
+}
+
+const LOCAL_HANDSHAKE_READ_TIMEOUT: Duration = Duration::from_secs(5);
+const REMOTE_HANDSHAKE_READ_TIMEOUT: Duration = Duration::from_secs(60);
+
+fn handshake_read_timeout(is_remote: bool) -> Duration {
+    if is_remote {
+        REMOTE_HANDSHAKE_READ_TIMEOUT
+    } else {
+        LOCAL_HANDSHAKE_READ_TIMEOUT
     }
 }
 
@@ -326,6 +567,16 @@ fn requested_keybindings() -> ClientKeybindings {
             .map(|keys_toml| ClientKeybindings::Local { keys_toml })
             .unwrap_or(ClientKeybindings::Server),
         _ => ClientKeybindings::Server,
+    }
+}
+
+fn should_draw_host_cursor(mode: crate::config::HostCursorModeConfig) -> bool {
+    match mode {
+        crate::config::HostCursorModeConfig::Auto => {
+            crate::platform::should_draw_host_cursor_by_default()
+        }
+        crate::config::HostCursorModeConfig::Native => false,
+        crate::config::HostCursorModeConfig::Drawn => true,
     }
 }
 
@@ -366,7 +617,9 @@ fn do_handshake(
 
     // Read Welcome.
     stream
-        .set_recv_timeout(Some(Duration::from_secs(5)))
+        .set_recv_timeout(Some(handshake_read_timeout(
+            std::env::var(crate::remote::REMOTE_KEYBINDINGS_ENV_VAR).is_ok(),
+        )))
         .map_err(ClientError::ConnectionFailed)?;
     let welcome: ServerMessage = protocol::read_message(stream, MAX_FRAME_SIZE)?;
     stream
@@ -399,6 +652,9 @@ fn do_handshake(
 enum ClientLoopEvent {
     /// Raw input bytes from stdin.
     StdinInput(Vec<u8>),
+    #[cfg(windows)]
+    /// Semantic input events from a Windows console reader.
+    StdinEvents(Vec<crate::protocol::ClientInputEvent>),
     /// Terminal resize detected.
     Resize(u16, u16, u32, u32),
     /// Server message received.
@@ -441,7 +697,10 @@ fn run_client_with_mode(
     init_logging();
 
     let loaded_config = crate::config::Config::load();
+    let host_cursor = loaded_config.config.ui.host_cursor;
+    crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
     let redraw_on_focus_gained = loaded_config.config.ui.redraw_on_focus_gained;
+    let remote_image_paste_key = client_remote_image_paste_key(&loaded_config.config);
     let sound_config = loaded_config.config.ui.sound;
     let direct_attach_requested = attach_request.is_some();
     let kitty_graphics_enabled =
@@ -508,10 +767,16 @@ fn run_client_with_mode(
     })?;
 
     // Install a panic hook to restore the terminal on panic (same as monolithic).
-    let in_tmux = std::env::var("TMUX").is_ok();
+    let panic_reset_modify_other_keys = _guard.reset_modify_other_keys;
+    #[cfg(windows)]
+    let panic_restore_windows_input_mode = _guard.restore_windows_input_mode;
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        restore_terminal_state(in_tmux);
+        restore_terminal_state(
+            panic_reset_modify_other_keys,
+            #[cfg(windows)]
+            panic_restore_windows_input_mode,
+        );
         original_hook(info);
     }));
 
@@ -532,13 +797,14 @@ fn run_client_with_mode(
     let result = rt.block_on(async {
         run_client_loop(
             stream,
-            cols,
-            rows,
+            (cols, rows),
             should_quit,
             sound_config,
+            host_cursor,
             redraw_on_focus_gained,
             kitty_graphics_enabled,
             false,
+            remote_image_paste_key,
             negotiated_encoding,
             attach_escape,
         )
@@ -579,37 +845,47 @@ fn run_client_with_mode(
 /// - main loop: coordinates input, output, and server communication
 async fn run_client_loop(
     stream: LocalStream,
-    cols: u16,
-    rows: u16,
+    size: (u16, u16),
     should_quit: Arc<AtomicBool>,
     sound_config: crate::config::SoundConfig,
+    host_cursor: crate::config::HostCursorModeConfig,
     redraw_on_focus_gained: bool,
     kitty_graphics_enabled: bool,
     mouse_capture_active: bool,
+    remote_image_paste_key: Option<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
     negotiated_encoding: RenderEncoding,
     attach_escape: Option<AttachEscapeState>,
 ) -> Result<(), ClientError> {
     let mut state = ClientState {
         blit_encoder: render_ansi::BlitEncoder::new(),
         mouse_capture_active,
-        reported_size: (cols, rows),
+        reported_size: size,
         sound_config,
         kitty_graphics_enabled,
+        draw_host_cursor: attach_escape.is_none() && should_draw_host_cursor(host_cursor),
         attach_escape,
         redraw_on_focus_gained,
+        remote_image_paste_key,
     };
     debug!(?negotiated_encoding, "client render encoding active");
 
     // Channel for events from the stdin, resize, and server reader threads.
     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<ClientLoopEvent>(256);
+    let host_mouse_capture_active = Arc::new(AtomicBool::new(state.mouse_capture_active));
 
     // Spawn the stdin reader thread.
     let will_query_host_terminal_theme =
         state.attach_escape.is_none() && should_query_host_terminal_theme();
     let stdin_quit = should_quit.clone();
     let stdin_tx = event_tx.clone();
+    let stdin_mouse_capture_active = host_mouse_capture_active.clone();
     std::thread::spawn(move || {
-        input::stdin_reader_loop(stdin_tx, &stdin_quit, will_query_host_terminal_theme);
+        input::stdin_reader_loop(
+            stdin_tx,
+            &stdin_quit,
+            will_query_host_terminal_theme,
+            stdin_mouse_capture_active,
+        );
     });
 
     if will_query_host_terminal_theme {
@@ -620,7 +896,13 @@ async fn run_client_loop(
     let resize_quit = should_quit.clone();
     let resize_tx = event_tx.clone();
     std::thread::spawn(move || {
-        resize_poll_loop(resize_tx, cols, rows, kitty_graphics_enabled, &resize_quit);
+        resize_poll_loop(
+            resize_tx,
+            size.0,
+            size.1,
+            kitty_graphics_enabled,
+            &resize_quit,
+        );
     });
 
     // Spawn the server reader thread (blocking reads from the socket).
@@ -648,6 +930,9 @@ async fn run_client_loop(
     write_stream
         .set_nonblocking(false)
         .map_err(ClientError::ConnectionFailed)?;
+
+    use crate::platform::PrefixInputSource;
+    let mut prefix_input_source = crate::platform::RealPrefixInputSource::default();
 
     // Main event loop.
     while !should_quit.load(Ordering::Acquire) {
@@ -677,7 +962,11 @@ async fn run_client_loop(
                     }
                     data
                 };
-                if should_bridge_clipboard_image_paste(&data) {
+                if should_bridge_clipboard_image_paste(
+                    &data,
+                    is_remote_client_process(),
+                    state.remote_image_paste_key,
+                ) {
                     if let Some(image) = crate::platform::read_clipboard_image() {
                         if image.bytes.len() > MAX_CLIPBOARD_IMAGE_PAYLOAD {
                             warn!(
@@ -705,7 +994,62 @@ async fn run_client_loop(
                         "clipboard image paste trigger received, but local clipboard has no image"
                     );
                 }
+                if let Some(image) =
+                    read_image_file_from_terminal_drop(&data, is_remote_client_process())
+                {
+                    info!(
+                        bytes = image.bytes.len(),
+                        extension = image.extension,
+                        "bridging local image file drop to remote server"
+                    );
+                    let msg = ClientMessage::ClipboardImage {
+                        extension: image.extension.to_owned(),
+                        data: image.bytes,
+                    };
+                    if let Err(e) = write_to_server(&mut write_stream, &msg) {
+                        return Err(ClientError::ConnectionLost(e));
+                    }
+                    continue;
+                }
                 let msg = ClientMessage::Input { data };
+                if let Err(e) = write_to_server(&mut write_stream, &msg) {
+                    return Err(ClientError::ConnectionLost(e));
+                }
+            }
+            #[cfg(windows)]
+            ClientLoopEvent::StdinEvents(events) => {
+                if state.attach_escape.is_some() {
+                    let data = semantic_events_to_attach_bytes(&events);
+                    let data = match state
+                        .attach_escape
+                        .as_mut()
+                        .expect("attach escape state checked above")
+                        .filter_input(data)
+                    {
+                        AttachInputAction::Forward(data) => data,
+                        AttachInputAction::Detach => {
+                            let _ = write_to_server(&mut write_stream, &ClientMessage::Detach);
+                            return Ok(());
+                        }
+                        AttachInputAction::None => continue,
+                    };
+                    let msg = ClientMessage::Input { data };
+                    if let Err(e) = write_to_server(&mut write_stream, &msg) {
+                        return Err(ClientError::ConnectionLost(e));
+                    }
+                    continue;
+                }
+                let raw_events = events
+                    .iter()
+                    .map(crate::protocol::ClientInputEvent::to_raw_input_event)
+                    .collect::<Vec<_>>();
+                if crate::raw_input::events_require_host_surface_redraw(
+                    &raw_events,
+                    state.redraw_on_focus_gained,
+                ) {
+                    state.request_full_redraw();
+                }
+                let msg = ClientMessage::InputEvents { events };
                 if let Err(e) = write_to_server(&mut write_stream, &msg) {
                     return Err(ClientError::ConnectionLost(e));
                 }
@@ -724,7 +1068,18 @@ async fn run_client_loop(
             }
             ClientLoopEvent::ServerMessage(msg) => match msg {
                 ServerMessage::Frame(frame_data) => {
-                    let encoded = state.blit_encoder.encode(&frame_data, false);
+                    let frame_data = if state.draw_host_cursor {
+                        render_ansi::frame_with_drawn_cursor(frame_data)
+                    } else {
+                        frame_data
+                    };
+                    let encoded = if state.draw_host_cursor {
+                        state
+                            .blit_encoder
+                            .encode_with_suppressed_visible_cursor(&frame_data, false)
+                    } else {
+                        state.blit_encoder.encode(&frame_data, false)
+                    };
                     let mut stdout = io::stdout();
                     let graphics = if state.kitty_graphics_enabled {
                         frame_data.graphics.as_slice()
@@ -770,6 +1125,8 @@ async fn run_client_loop(
                     reload_local_client_config(
                         &mut state.sound_config,
                         &mut state.redraw_on_focus_gained,
+                        &mut state.draw_host_cursor,
+                        &mut state.remote_image_paste_key,
                     );
                 }
                 ServerMessage::MouseCapture { enabled } => {
@@ -777,6 +1134,14 @@ async fn run_client_loop(
                     if desired != state.mouse_capture_active {
                         set_mouse_capture(desired).map_err(ClientError::ConnectionFailed)?;
                         state.mouse_capture_active = desired;
+                        host_mouse_capture_active.store(desired, Ordering::Release);
+                    }
+                }
+                ServerMessage::PrefixInputSource { active } => {
+                    if active {
+                        prefix_input_source.switch_to_ascii();
+                    } else {
+                        prefix_input_source.restore();
                     }
                 }
                 ServerMessage::Welcome { .. } => {
@@ -873,15 +1238,23 @@ fn write_to_server(stream: &mut LocalStream, msg: &ClientMessage) -> io::Result<
 
 fn reload_local_client_config(
     sound_config: &mut crate::config::SoundConfig,
+    draw_host_cursor: &mut bool,
     redraw_on_focus_gained: &mut bool,
+    remote_image_paste_key: &mut Option<(
+        crossterm::event::KeyCode,
+        crossterm::event::KeyModifiers,
+    )>,
 ) {
     match crate::config::load_live_config() {
         Ok(loaded) => {
             for diagnostic in loaded.config.ui.sound.diagnostics() {
                 warn!(diagnostic = %diagnostic, "local sound config diagnostic");
             }
+            let loaded_remote_image_paste_key = client_remote_image_paste_key(&loaded.config);
             *sound_config = loaded.config.ui.sound;
             *redraw_on_focus_gained = loaded.config.ui.redraw_on_focus_gained;
+            *draw_host_cursor = should_draw_host_cursor(loaded.config.ui.host_cursor);
+            *remote_image_paste_key = loaded_remote_image_paste_key;
             debug!("reloaded local client config");
         }
         Err(diagnostics) => {
@@ -951,19 +1324,162 @@ fn sound_from_notify_message(message: &str) -> Option<crate::sound::Sound> {
     }
 }
 
-fn should_bridge_clipboard_image_paste(data: &[u8]) -> bool {
-    if data == b"\x1b[200~\x1b[201~" {
-        return true;
+fn is_remote_client_process() -> bool {
+    cfg!(unix) && std::env::var(crate::remote::REMOTE_KEYBINDINGS_ENV_VAR).is_ok()
+}
+
+fn client_remote_image_paste_key(
+    config: &crate::config::Config,
+) -> Option<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)> {
+    if !is_remote_client_process() {
+        return None;
     }
 
+    match config.remote_image_paste_key() {
+        Ok(key) => key,
+        Err(diagnostic) => {
+            warn!(diagnostic = %diagnostic, "local remote image paste key config diagnostic");
+            None
+        }
+    }
+}
+
+fn should_bridge_clipboard_image_paste(
+    data: &[u8],
+    is_remote_client: bool,
+    remote_image_paste_key: Option<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
+) -> bool {
+    if data == b"\x1b[200~\x1b[201~" {
+        return is_remote_client;
+    }
+
+    let Some(remote_image_paste_key) = remote_image_paste_key else {
+        return false;
+    };
     let events = crate::raw_input::parse_raw_input_bytes_sync(data);
     matches!(
         events.as_slice(),
         [crate::raw_input::RawInputEvent::Key(key)]
             if key.kind == crossterm::event::KeyEventKind::Press
-                && key.modifiers == crossterm::event::KeyModifiers::CONTROL
-                && matches!(key.code, crossterm::event::KeyCode::Char('v' | 'V'))
+                && crate::config::terminal_key_matches_combo(*key, remote_image_paste_key)
     )
+}
+
+#[cfg(unix)]
+fn read_image_file_from_terminal_drop(
+    data: &[u8],
+    is_remote_client: bool,
+) -> Option<crate::platform::ClipboardImage> {
+    let (path, extension) = image_path_from_terminal_drop(data, is_remote_client)?;
+    let metadata = std::fs::metadata(&path).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+
+    let file = std::fs::File::open(&path).ok()?;
+    let bytes =
+        match crate::platform::read_limited_reader(file, MAX_CLIPBOARD_IMAGE_PAYLOAD).ok()? {
+            crate::platform::LimitedRead::Complete(bytes) => bytes,
+            crate::platform::LimitedRead::Empty => return None,
+            crate::platform::LimitedRead::Oversized => {
+                warn!(
+                    max = MAX_CLIPBOARD_IMAGE_PAYLOAD,
+                    "local image file drop is too large to bridge"
+                );
+                return None;
+            }
+        };
+
+    Some(crate::platform::ClipboardImage { bytes, extension })
+}
+
+#[cfg(not(unix))]
+fn read_image_file_from_terminal_drop(
+    _data: &[u8],
+    _is_remote_client: bool,
+) -> Option<crate::platform::ClipboardImage> {
+    None
+}
+
+#[cfg(unix)]
+fn image_path_from_terminal_drop(
+    data: &[u8],
+    is_remote_client: bool,
+) -> Option<(std::path::PathBuf, &'static str)> {
+    if !is_remote_client {
+        return None;
+    }
+
+    let bytes = bracketed_paste_payload(data).unwrap_or(data);
+    let text = std::str::from_utf8(bytes).ok()?;
+    let text = text.trim_end_matches(['\r', '\n']);
+    if text.is_empty() || text.contains(['\r', '\n']) {
+        return None;
+    }
+
+    let text = unescape_terminal_drop_path(strip_matching_path_quotes(text));
+    let path = std::path::PathBuf::from(text);
+    if !path.is_absolute() {
+        return None;
+    }
+
+    let extension = recognized_image_extension(path.extension()?.to_str()?)?;
+    Some((path, extension))
+}
+
+#[cfg(unix)]
+fn bracketed_paste_payload(data: &[u8]) -> Option<&[u8]> {
+    const START: &[u8] = b"\x1b[200~";
+    const END: &[u8] = b"\x1b[201~";
+    data.strip_prefix(START)?.strip_suffix(END)
+}
+
+#[cfg(unix)]
+fn strip_matching_path_quotes(text: &str) -> &str {
+    if text.len() < 2 {
+        return text;
+    }
+
+    let bytes = text.as_bytes();
+    match (bytes.first(), bytes.last()) {
+        (Some(b'\''), Some(b'\'')) | (Some(b'"'), Some(b'"')) => &text[1..text.len() - 1],
+        _ => text,
+    }
+}
+
+#[cfg(unix)]
+fn unescape_terminal_drop_path(text: &str) -> String {
+    let mut unescaped = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(escaped) = chars.next() {
+                unescaped.push(escaped);
+            } else {
+                unescaped.push(ch);
+            }
+        } else {
+            unescaped.push(ch);
+        }
+    }
+    unescaped
+}
+
+#[cfg(unix)]
+fn recognized_image_extension(extension: &str) -> Option<&'static str> {
+    if extension.eq_ignore_ascii_case("png") {
+        Some("png")
+    } else if extension.eq_ignore_ascii_case("jpg") || extension.eq_ignore_ascii_case("jpeg") {
+        Some("jpg")
+    } else if extension.eq_ignore_ascii_case("gif") {
+        Some("gif")
+    } else if extension.eq_ignore_ascii_case("webp") {
+        Some("webp")
+    } else if extension.eq_ignore_ascii_case("bmp") {
+        Some("bmp")
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1158,6 +1674,12 @@ fn query_host_terminal_theme() {
 fn should_query_host_terminal_theme() -> bool {
     !cfg!(windows)
 }
+#[cfg(windows)]
+fn windows_vti_input_backend_enabled() -> bool {
+    std::env::var("HAKO_WINDOWS_INPUT_BACKEND")
+        .map(|backend| !backend.eq_ignore_ascii_case("crossterm"))
+        .unwrap_or(true)
+}
 
 fn write_host_terminal_theme_query(mut writer: impl io::Write) -> io::Result<()> {
     writer.write_all(crate::terminal_theme::HOST_COLOR_QUERY_SEQUENCE.as_bytes())?;
@@ -1209,15 +1731,125 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
-    fn clipboard_image_paste_bridge_triggers_on_ctrl_v_and_empty_paste() {
-        assert!(should_bridge_clipboard_image_paste(&[0x16]));
-        assert!(should_bridge_clipboard_image_paste(b"\x1b[118;5u"));
-        assert!(should_bridge_clipboard_image_paste(b"\x1b[200~\x1b[201~"));
-        assert!(!should_bridge_clipboard_image_paste(
-            b"\x1b[200~text\x1b[201~"
+    fn clipboard_image_paste_bridge_is_remote_scoped_and_configured() {
+        let ctrl_v = crate::config::parse_key_combo("ctrl+v").unwrap();
+        assert!(should_bridge_clipboard_image_paste(
+            &[0x16],
+            true,
+            Some(ctrl_v)
         ));
-        assert!(!should_bridge_clipboard_image_paste(b"v"));
+        assert!(should_bridge_clipboard_image_paste(
+            b"\x1b[118;5u",
+            true,
+            Some(ctrl_v)
+        ));
+        assert!(should_bridge_clipboard_image_paste(
+            b"\x1b[200~\x1b[201~",
+            true,
+            None
+        ));
+        assert!(!should_bridge_clipboard_image_paste(
+            b"\x1b[200~\x1b[201~",
+            false,
+            Some(ctrl_v)
+        ));
+        assert!(!should_bridge_clipboard_image_paste(
+            b"\x1b[200~text\x1b[201~",
+            true,
+            Some(ctrl_v)
+        ));
+        assert!(!should_bridge_clipboard_image_paste(&[0x16], true, None));
+        assert!(!should_bridge_clipboard_image_paste(
+            b"v",
+            true,
+            Some(ctrl_v)
+        ));
+    }
+
+    #[cfg(unix)]
+    struct TempImageFile {
+        path: std::path::PathBuf,
+    }
+
+    #[cfg(unix)]
+    impl TempImageFile {
+        fn new(extension: &str, bytes: &[u8]) -> Self {
+            Self::with_name_fragment("test", extension, bytes)
+        }
+
+        fn with_name_fragment(name_fragment: &str, extension: &str, bytes: &[u8]) -> Self {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "hako-client-drop-{name_fragment}-{}-{nanos}.{extension}",
+                std::process::id()
+            ));
+            std::fs::write(&path, bytes).unwrap();
+            Self { path }
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for TempImageFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_image_file_drop_bridge_reads_bracketed_absolute_image_path() {
+        let file = TempImageFile::new("PNG", b"image-bytes");
+        let input = format!("\x1b[200~{}\x1b[201~", file.path.display());
+
+        let image = read_image_file_from_terminal_drop(input.as_bytes(), true).unwrap();
+
+        assert_eq!(image.extension, "png");
+        assert_eq!(image.bytes, b"image-bytes");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_image_file_drop_bridge_reads_plain_quoted_path_with_newline() {
+        let file = TempImageFile::new("jpeg", b"jpeg-bytes");
+        let input = format!("'{}'\n", file.path.display());
+
+        let image = read_image_file_from_terminal_drop(input.as_bytes(), true).unwrap();
+
+        assert_eq!(image.extension, "jpg");
+        assert_eq!(image.bytes, b"jpeg-bytes");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_image_file_drop_bridge_unescapes_spaces_in_paths() {
+        let file = TempImageFile::with_name_fragment("space test", "png", b"image-bytes");
+        let escaped_path = file.path.display().to_string().replace(' ', "\\ ");
+
+        let image = read_image_file_from_terminal_drop(escaped_path.as_bytes(), true).unwrap();
+
+        assert_eq!(image.extension, "png");
+        assert_eq!(image.bytes, b"image-bytes");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_image_file_drop_bridge_ignores_non_remote_and_non_image_input() {
+        let file = TempImageFile::new("png", b"image-bytes");
+        let path = file.path.display().to_string();
+
+        assert!(read_image_file_from_terminal_drop(path.as_bytes(), false).is_none());
+        assert!(read_image_file_from_terminal_drop(b"relative.png\n", true).is_none());
+        assert!(read_image_file_from_terminal_drop(b"/tmp/file.txt\n", true).is_none());
+        assert!(read_image_file_from_terminal_drop(
+            format!("{}\nextra", file.path.display()).as_bytes(),
+            true
+        )
+        .is_none());
     }
 
     #[test]
@@ -1322,6 +1954,56 @@ mod tests {
             AttachInputAction::Forward(bytes) => assert_eq!(bytes, vec![0x02, b'x']),
             other => panic!("expected forwarded bytes, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn semantic_attach_events_preserve_detach_prefix() {
+        use crate::protocol::{ClientInputEvent, ClientKeyCode, ClientKeyKind};
+
+        let events = vec![
+            ClientInputEvent::Key {
+                code: ClientKeyCode::Char('b'),
+                modifiers: crossterm::event::KeyModifiers::CONTROL.bits(),
+                kind: ClientKeyKind::Press,
+            },
+            ClientInputEvent::Key {
+                code: ClientKeyCode::Char('q'),
+                modifiers: 0,
+                kind: ClientKeyKind::Press,
+            },
+        ];
+        assert_eq!(semantic_events_to_attach_bytes(&events), vec![0x02, b'q']);
+
+        let mut escape = AttachEscapeState::default();
+        assert!(matches!(
+            escape.filter_input(semantic_events_to_attach_bytes(&events[..1])),
+            AttachInputAction::None
+        ));
+        assert!(matches!(
+            escape.filter_input(semantic_events_to_attach_bytes(&events[1..])),
+            AttachInputAction::Detach
+        ));
+    }
+
+    #[test]
+    fn semantic_attach_events_forward_paste_and_ignore_releases() {
+        use crate::protocol::{ClientInputEvent, ClientKeyCode, ClientKeyKind};
+
+        let events = vec![
+            ClientInputEvent::Key {
+                code: ClientKeyCode::Char('x'),
+                modifiers: 0,
+                kind: ClientKeyKind::Release,
+            },
+            ClientInputEvent::Paste("paste".into()),
+        ];
+        assert_eq!(semantic_events_to_attach_bytes(&events), b"paste");
+
+        let mut escape = AttachEscapeState::default();
+        assert!(matches!(
+            escape.filter_input(semantic_events_to_attach_bytes(&events)),
+            AttachInputAction::Forward(bytes) if bytes == b"paste"
+        ));
     }
 
     #[test]
@@ -1476,11 +2158,24 @@ mod tests {
         let _env = EnvVarGuard::set(crate::config::CONFIG_PATH_ENV_VAR, &path_string);
         let mut sound_config = crate::config::SoundConfig::default();
         let mut redraw_on_focus_gained = true;
+        let mut draw_host_cursor = false;
+        let mut remote_image_paste_key = None;
 
-        reload_local_client_config(&mut sound_config, &mut redraw_on_focus_gained);
+        reload_local_client_config(
+            &mut sound_config,
+            &mut draw_host_cursor,
+            &mut redraw_on_focus_gained,
+            &mut remote_image_paste_key,
+        );
 
         assert!(!redraw_on_focus_gained);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn remote_handshake_allows_high_latency_connection_setup() {
+        assert_eq!(handshake_read_timeout(false), Duration::from_secs(5));
+        assert_eq!(handshake_read_timeout(true), Duration::from_secs(60));
     }
 
     #[test]

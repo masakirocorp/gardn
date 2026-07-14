@@ -1344,7 +1344,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
     );
     let omp_content = fs::read_to_string(&expected_omp_extension).unwrap();
     assert!(omp_content.contains("HAKO_INTEGRATION_ID=omp"));
-    assert!(omp_content.contains("HAKO_INTEGRATION_VERSION=4"));
+    assert!(omp_content.contains("HAKO_INTEGRATION_VERSION=5"));
     assert!(omp_content.contains("agent: \"omp\""));
 
     let integration_status = Command::new(env!("CARGO_BIN_EXE_hako"))
@@ -1355,9 +1355,9 @@ fn integration_commands_run_locally_when_server_is_missing() {
         .unwrap();
     assert_eq!(integration_status.status.code(), Some(0));
     let status_stdout = String::from_utf8_lossy(&integration_status.stdout);
-    assert!(status_stdout.contains("pi: current (v4)"));
+    assert!(status_stdout.contains("pi: current (v5)"));
     assert!(status_stdout.contains("claude: not installed"));
-    assert!(status_stdout.contains("omp: current (v4)"));
+    assert!(status_stdout.contains("omp: current (v5)"));
 
     let integration_uninstall = Command::new(env!("CARGO_BIN_EXE_hako"))
         .args(["integration", "uninstall", "pi"])
@@ -1468,7 +1468,7 @@ fn status_commands_report_client_and_server_versions() {
         "stdout: {full_stdout}"
     );
     assert!(
-        full_stdout.contains("  protocol: 11"),
+        full_stdout.contains("  protocol: 12"),
         "stdout: {full_stdout}"
     );
     assert!(full_stdout.contains("server:\n"), "stdout: {full_stdout}");
@@ -1501,7 +1501,7 @@ fn status_commands_report_client_and_server_versions() {
         "stdout: {server_stdout}"
     );
     assert!(
-        server_stdout.contains("protocol: 11"),
+        server_stdout.contains("protocol: 12"),
         "stdout: {server_stdout}"
     );
 
@@ -1513,7 +1513,7 @@ fn status_commands_report_client_and_server_versions() {
         "stdout: {client_stdout}"
     );
     assert!(
-        client_stdout.contains("protocol: 11"),
+        client_stdout.contains("protocol: 12"),
         "stdout: {client_stdout}"
     );
     assert!(
@@ -1523,7 +1523,7 @@ fn status_commands_report_client_and_server_versions() {
 
     let full_json = run_cli_json(&socket_path, &["status", "--json"]);
     assert_eq!(full_json["client"]["version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(full_json["client"]["protocol"], 11);
+    assert_eq!(full_json["client"]["protocol"], 12);
     assert_eq!(full_json["server"]["status"], "running");
     assert_eq!(full_json["server"]["running"], true);
     assert_eq!(full_json["server"]["compatible"], true);
@@ -1537,12 +1537,12 @@ fn status_commands_report_client_and_server_versions() {
     let server_json = run_cli_json(&socket_path, &["status", "server", "--json"]);
     assert_eq!(server_json["status"], "running");
     assert_eq!(server_json["version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(server_json["protocol"], 11);
+    assert_eq!(server_json["protocol"], 12);
     assert_eq!(server_json["compatible"], true);
 
     let client_json = run_cli_json(&socket_path, &["status", "client", "--json"]);
     assert_eq!(client_json["version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(client_json["protocol"], 11);
+    assert_eq!(client_json["protocol"], 12);
     assert!(client_json["binary"]
         .as_str()
         .is_some_and(|path| !path.is_empty()));
@@ -1605,24 +1605,18 @@ fn server_stop_command_shuts_down_running_server() {
         String::from_utf8_lossy(&stopped.stdout)
     );
 
+    assert!(
+        !socket_path.exists() || UnixStream::connect(&socket_path).is_err(),
+        "api socket should be removed or stale before server stop returns"
+    );
+    assert!(
+        !client_socket.exists() || UnixStream::connect(&client_socket).is_err(),
+        "client socket should be removed or stale before server stop returns"
+    );
     let pid = hako.child.process_id();
     let exit_status = hako.child.wait().unwrap();
     unregister_spawned_hako_pid(pid);
     assert!(exit_status.success(), "server stop should exit cleanly");
-
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while Instant::now() < deadline && (socket_path.exists() || client_socket.exists()) {
-        thread::sleep(Duration::from_millis(25));
-    }
-
-    assert!(
-        !socket_path.exists() || UnixStream::connect(&socket_path).is_err(),
-        "api socket should be removed or stale after server stop"
-    );
-    assert!(
-        !client_socket.exists() || UnixStream::connect(&client_socket).is_err(),
-        "client socket should be removed or stale after server stop"
-    );
 
     cleanup_spawned_hako(hako, base);
 }

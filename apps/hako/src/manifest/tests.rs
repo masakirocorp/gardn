@@ -290,7 +290,7 @@ line_regex = ["^exact line$"]
 #[test]
 fn remote_manifest_loads_between_local_override_and_bundled() {
     with_manifest_dirs("remote-source", || {
-        write_remote_codex(&remote_manifest("2026.06.10.4", "blocked", "remote-ready"));
+        write_remote_codex(&remote_manifest("9999.01.01.1", "blocked", "remote-ready"));
 
         let explain = explain(Agent::Codex, "remote-ready");
 
@@ -299,10 +299,10 @@ fn remote_manifest_loads_between_local_override_and_bundled() {
             explain.source,
             Some(ManifestSource::Remote { .. })
         ));
-        assert_eq!(explain.manifest_version.as_deref(), Some("2026.06.10.4"));
+        assert_eq!(explain.manifest_version.as_deref(), Some("9999.01.01.1"));
         assert_eq!(
             explain.cached_remote_version.as_deref(),
-            Some("2026.06.10.4")
+            Some("9999.01.01.1")
         );
     });
 }
@@ -310,7 +310,7 @@ fn remote_manifest_loads_between_local_override_and_bundled() {
 #[test]
 fn fallback_explain_preserves_active_manifest_version() {
     with_manifest_dirs("fallback-version", || {
-        write_remote_codex(&remote_manifest("2026.06.10.4", "blocked", "remote-ready"));
+        write_remote_codex(&remote_manifest("9999.01.01.1", "blocked", "remote-ready"));
 
         let explain = explain(Agent::Codex, "ordinary prompt text");
 
@@ -319,7 +319,7 @@ fn fallback_explain_preserves_active_manifest_version() {
             explain.fallback_reason.as_deref(),
             Some(DEFAULT_KNOWN_AGENT_IDLE_FALLBACK)
         );
-        assert_eq!(explain.manifest_version.as_deref(), Some("2026.06.10.4"));
+        assert_eq!(explain.manifest_version.as_deref(), Some("9999.01.01.1"));
         assert!(matches!(
             explain.source,
             Some(ManifestSource::Remote { .. })
@@ -350,7 +350,7 @@ fn older_cached_remote_manifest_does_not_shadow_newer_bundled_manifest() {
 #[test]
 fn local_override_shadows_cached_remote_manifest() {
     with_manifest_dirs("local-shadows-remote", || {
-        write_remote_codex(&remote_manifest("2026.06.10.4", "blocked", "remote-ready"));
+        write_remote_codex(&remote_manifest("9999.01.01.1", "blocked", "remote-ready"));
         write_local_codex(&local_manifest("idle", "local-ready"));
 
         let explain = explain(Agent::Codex, "local-ready");
@@ -360,7 +360,7 @@ fn local_override_shadows_cached_remote_manifest() {
         assert!(explain.local_override_shadowing_remote);
         assert_eq!(
             explain.cached_remote_version.as_deref(),
-            Some("2026.06.10.4")
+            Some("9999.01.01.1")
         );
     });
 }
@@ -368,7 +368,7 @@ fn local_override_shadows_cached_remote_manifest() {
 #[test]
 fn invalid_local_override_falls_back_to_cached_remote_manifest() {
     with_manifest_dirs("invalid-local-remote-fallback", || {
-        write_remote_codex(&remote_manifest("2026.06.10.4", "blocked", "remote-ready"));
+        write_remote_codex(&remote_manifest("9999.01.01.1", "blocked", "remote-ready"));
         write_local_codex("id = ");
 
         let explain = explain(Agent::Codex, "remote-ready");
@@ -385,7 +385,7 @@ fn invalid_local_override_falls_back_to_cached_remote_manifest() {
 #[test]
 fn detection_uses_cached_manifest_until_explicit_reload() {
     with_manifest_dirs("cache-boundary", || {
-        write_remote_codex(&remote_manifest("2026.06.10.4", "blocked", "cached-ready"));
+        write_remote_codex(&remote_manifest("9999.01.01.1", "blocked", "cached-ready"));
 
         let cached = explain(Agent::Codex, "cached-ready");
         assert_eq!(cached.state, AgentState::Blocked);
@@ -395,7 +395,7 @@ fn detection_uses_cached_manifest_until_explicit_reload() {
             Some("test")
         );
 
-        write_remote_codex_without_reload(&remote_manifest("2026.06.10.5", "working", "new-ready"));
+        write_remote_codex_without_reload(&remote_manifest("9999.01.01.2", "working", "new-ready"));
 
         let unchanged = explain(Agent::Codex, "new-ready");
         assert_eq!(unchanged.state, AgentState::Idle);
@@ -405,7 +405,7 @@ fn detection_uses_cached_manifest_until_explicit_reload() {
         );
         assert_eq!(
             unchanged.cached_remote_version.as_deref(),
-            Some("2026.06.10.4")
+            Some("9999.01.01.1")
         );
 
         reload_manifests();
@@ -414,7 +414,7 @@ fn detection_uses_cached_manifest_until_explicit_reload() {
         assert_eq!(reloaded.state, AgentState::Working);
         assert_eq!(
             reloaded.cached_remote_version.as_deref(),
-            Some("2026.06.10.5")
+            Some("9999.01.01.2")
         );
         assert_eq!(
             reloaded.matched_rule.as_ref().map(|rule| rule.id.as_str()),
@@ -616,4 +616,102 @@ fn bottom_non_empty_lines_uses_bottom_occurrence_for_repeated_text() {
         ),
         "marker\nnew\n"
     );
+}
+
+#[test]
+fn copilot_accept_and_interrupt_chrome_are_classified() {
+    let blocked = explain(
+        Agent::GithubCopilot,
+        "Do you want to proceed?\nesc cancel\nenter accept",
+    );
+    assert_eq!(blocked.state, AgentState::Blocked);
+    assert!(blocked.visible_blocker);
+    assert_eq!(
+        blocked.matched_rule.as_ref().map(|rule| rule.id.as_str()),
+        Some("selection_blocker")
+    );
+
+    let working = explain(Agent::GithubCopilot, "esc interrupt");
+    assert_eq!(working.state, AgentState::Working);
+    assert!(working.visible_working);
+}
+
+#[test]
+fn antigravity_background_task_count_without_tasks_hint_is_working() {
+    let working = explain(Agent::Antigravity, "· 2 tasks");
+
+    assert_eq!(working.state, AgentState::Working);
+    assert!(working.visible_working);
+    assert_eq!(
+        working.matched_rule.as_ref().map(|rule| rule.id.as_str()),
+        Some("background_tasks_working")
+    );
+}
+
+#[test]
+fn grok_current_ui_chrome_distinguishes_blocked_working_and_idle() {
+    let permission = explain(
+        Agent::Grok,
+        "┃  2 (○) Yes, proceed\n1/3:select │ Ctrl+o:yolo │ Ctrl+c:cancel",
+    );
+    assert_eq!(permission.state, AgentState::Blocked);
+    assert!(permission.visible_blocker);
+
+    let question = explain(
+        Agent::Grok,
+        "┃  z (○) Type your answer here\nEsc:unselect │ Tab:scrollback │ Shift+x:dismiss",
+    );
+    assert_eq!(question.state, AgentState::Blocked);
+    assert!(question.visible_blocker);
+
+    let working = explain(
+        Agent::Grok,
+        "⠧ Waiting on subagent… 2.8s   13s ⇣29.7k [stop]\nEsc:cancel │ Ctrl+.:shortcuts",
+    );
+    assert_eq!(working.state, AgentState::Working);
+    assert!(working.visible_working);
+
+    let idle = explain(Agent::Grok, "Ctrl+.:shortcuts");
+    assert_eq!(idle.state, AgentState::Idle);
+    assert!(idle.visible_idle);
+}
+
+#[test]
+fn amp_osc_and_footer_chrome_tracks_active_turns() {
+    let blocked = explain_with_input(
+        Agent::Amp,
+        DetectionInput {
+            screen: "",
+            osc_title: "Plugin confirmation needed",
+            osc_progress: "",
+        },
+    );
+    assert_eq!(blocked.state, AgentState::Blocked);
+    assert!(!blocked.visible_blocker);
+
+    let working = explain_with_input(
+        Agent::Amp,
+        DetectionInput {
+            screen: "╰ running tools ─",
+            osc_title: "⠧ amp",
+            osc_progress: "",
+        },
+    );
+    assert_eq!(working.state, AgentState::Working);
+    assert!(!working.visible_working);
+
+    let footer_working = explain(Agent::Amp, "╰ 1 waiting ─");
+    assert_eq!(footer_working.state, AgentState::Working);
+    assert!(footer_working.visible_working);
+
+    let idle = explain_with_input(
+        Agent::Amp,
+        DetectionInput {
+            screen: "",
+            osc_title: "Session - amp - ",
+            osc_progress: "",
+        },
+    );
+    assert_eq!(idle.state, AgentState::Idle);
+    assert!(!idle.visible_idle);
 }

@@ -964,6 +964,7 @@ mod tests {
             display_agent: Some("OMP".to_string()),
             custom_status: Some("thinking".to_string()),
             state_labels: HashMap::from([("working".to_string(), "busy".to_string())]),
+            tokens: HashMap::new(),
             clear_title: false,
             clear_display_agent: false,
             clear_custom_status: false,

@@ -8,6 +8,7 @@ use crate::api::schema::{
 use crate::app::App;
 
 use super::responses::{encode_error, encode_success};
+mod deferred;
 
 struct ApiFailure {
     code: &'static str,
@@ -113,13 +114,12 @@ impl App {
             }
         }
 
-        let command = crate::worktree::build_worktree_add_new_branch_command(
+        if let Err(err) = crate::worktree::run_worktree_add_command(
             &source.source_checkout_path,
             &checkout_path,
             &branch,
             &base,
-        );
-        if let Err(err) = crate::worktree::run_worktree_command(&command) {
+        ) {
             return encode_error(id, "worktree_create_failed", err);
         }
         if let Err(err) = self.ensure_source_parent_membership(&mut source, true) {
@@ -345,8 +345,7 @@ impl App {
                 current.is_linked_worktree && current.checkout_path == space.checkout_path
             });
         if still_same_linked_worktree {
-            self.state.selected = ws_idx;
-            self.state.remove_selected_workspace();
+            self.close_removed_linked_worktree_workspace(ws_idx);
             self.shutdown_detached_terminal_runtimes();
             self.emit_event(EventEnvelope {
                 event: EventKind::WorkspaceClosed,
@@ -373,6 +372,31 @@ impl App {
                 forced: params.force,
             },
         )
+    }
+
+    pub(crate) fn close_removed_linked_worktree_workspace(&mut self, ws_idx: usize) {
+        let parent_key = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.worktree_space())
+            .filter(|space| space.is_linked_worktree)
+            .map(|space| space.key.clone());
+
+        self.state.selected = ws_idx;
+        self.state.close_selected_workspace();
+
+        let Some(parent_key) = parent_key else {
+            return;
+        };
+        let Some(parent_idx) = self.state.workspaces.iter().position(|workspace| {
+            workspace
+                .worktree_space()
+                .is_some_and(|space| !space.is_linked_worktree && space.key == parent_key)
+        }) else {
+            return;
+        };
+        self.state.switch_workspace(parent_idx);
     }
 
     fn resolve_worktree_source(
@@ -1722,6 +1746,109 @@ mod tests {
             )
         }));
 
+        let _ = std::fs::remove_dir_all(repo);
+    }
+
+    #[test]
+    fn api_worktree_remove_focuses_parent_workspace() {
+        let mut app = test_app();
+        let checkout = PathBuf::from("/repo/herdr-issue");
+        let mut parent = Workspace::test_new("parent");
+        parent.worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
+            key: "repo-key".into(),
+            label: "herdr".into(),
+            repo_root: "/repo/herdr".into(),
+            checkout_path: "/repo/herdr".into(),
+            is_linked_worktree: false,
+        });
+        let parent_id = parent.id.clone();
+        let mut child = Workspace::test_new("child");
+        child.worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
+            key: "repo-key".into(),
+            label: "herdr".into(),
+            repo_root: "/repo/herdr".into(),
+            checkout_path: checkout.clone(),
+            is_linked_worktree: true,
+        });
+        let child_id = child.id.clone();
+        app.state.workspaces = vec![parent, child, Workspace::test_new("sibling")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(1);
+        app.state.selected = 1;
+
+        app.state.workspaces[1].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
+            key: "repo-key".into(),
+            label: "herdr".into(),
+            repo_root: "/repo/herdr".into(),
+            checkout_path: checkout.clone(),
+            is_linked_worktree: true,
+        });
+
+        app.close_removed_linked_worktree_workspace(1);
+
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
+        assert_eq!(app.state.workspaces[0].id, parent_id);
+        assert_ne!(app.state.workspaces[0].id, child_id);
+        assert_eq!(app.state.workspaces.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn deferred_worktree_create_responds_after_background_completion() {
+        let repo = create_committed_repo("api-worktree-deferred-repo");
+        let worktree_root = unique_temp_path("api-worktree-deferred-root");
+        let mut app = app_with_parent(&repo);
+        app.state.worktree_directory = worktree_root.clone();
+        let parent_id = app.state.workspaces[0].id.clone();
+        let (respond_to, response_rx) = std::sync::mpsc::channel();
+
+        assert!(app.handle_deferred_worktree_api_request(
+            Request {
+                id: "deferred".into(),
+                method: crate::api::schema::Method::WorktreeCreate(
+                    crate::api::schema::WorktreeCreateParams {
+                        workspace_id: Some(parent_id),
+                        branch: Some("worktree/deferred".into()),
+                        ..Default::default()
+                    },
+                ),
+            },
+            respond_to,
+        ));
+        assert!(response_rx.try_recv().is_err());
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            match app.event_rx.try_recv() {
+                Ok(event) => {
+                    app.handle_internal_event(event);
+                    break;
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                    assert!(std::time::Instant::now() < deadline);
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                    panic!("app event channel disconnected")
+                }
+            }
+        }
+
+        let response = response_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("deferred worktree create should respond");
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert!(matches!(
+            success.result,
+            ResponseResult::WorktreeCreated { .. }
+        ));
+        assert!(app.pending_api_worktree_creates.is_empty());
+        assert!(app.state.workspaces.len() >= 2);
+
+        for (_, runtime) in app.terminal_runtimes.drain() {
+            runtime.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(worktree_root);
         let _ = std::fs::remove_dir_all(repo);
     }
 }

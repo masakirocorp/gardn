@@ -65,6 +65,7 @@ rustPlatform.buildRustPackage {
         ../apps/hako/src
         ../apps/hako/vendor/libghostty-vt
         ../apps/hako/vendor/libghostty-vt.vendor.json
+        ../apps/hako/vendor/portable-pty
         ../apps/hako/build.rs
         ../apps/hako/Cargo.toml
         ../apps/hako/CHANGELOG.md
