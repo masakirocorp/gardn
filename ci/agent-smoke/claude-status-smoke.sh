@@ -270,7 +270,8 @@ def assert_single_session_identity(pane_id):
 def assert_output_contains(run_dir, marker):
     output = (workdir / run_dir / "output.jsonl").read_text(errors="replace")
     if marker not in output:
-        raise SystemExit(f"{run_dir}: missing output marker {marker}")
+        print(f"{run_dir}: missing output marker {marker}", file=sys.stderr)
+        raise SystemExit(75)
 
 
 for pane in (
