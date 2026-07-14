@@ -70,6 +70,7 @@ run_agent() {
   mkdir -p "$dir/config" "$dir/agent" "$dir/project"
   cat >"$dir/trace.ts" <<'EOF_TRACE'
 export default function (pi) {
+  console.error(`HAKO_ENV_TRACE env=${process.env.HAKO_ENV} socket=${process.env.HAKO_SOCKET_PATH} pane=${process.env.HAKO_PANE_ID}`);
   for (const event of ["session_start", "agent_start", "agent_end", "session_shutdown"]) {
     pi.on(event, () => console.error(`HAKO_EVENT_TRACE ${event}`));
   }
