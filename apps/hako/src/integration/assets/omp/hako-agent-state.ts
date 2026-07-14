@@ -11,7 +11,6 @@ const HAKO_ENV = process.env.HAKO_ENV;
 const socketPath = process.env.HAKO_SOCKET_PATH;
 const paneId = process.env.HAKO_PANE_ID;
 const source = "hako:omp";
-console.error(`HAKO_OMP_TRACE env=${HAKO_ENV} socket=${socketPath} pane=${paneId}`);
 
 function enabled() {
   return HAKO_ENV === "1" && !!socketPath && !!paneId;
@@ -36,23 +35,11 @@ function sendRequestAttempt(request: unknown, timeoutMs: number): Promise<boolea
     resolve(delivered);
   };
 
-  socket.on("error", (error) => {
-    console.error(`HAKO_OMP_TRACE socket error ${error}`);
-    finish(false);
-  });
-  socket.on("connect", () => {
-    console.error("HAKO_OMP_TRACE socket connected");
-    socket.write(`${JSON.stringify(request)}\n`);
-  });
-  socket.on("data", () => {
-    console.error("HAKO_OMP_TRACE socket data");
-    finish(true);
-  });
+  socket.on("error", () => finish(false));
+  socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
+  socket.on("data", () => finish(true));
   socket.on("end", () => finish(false));
-  timeout = setTimeout(() => {
-    console.error(`HAKO_OMP_TRACE socket timeout ${timeoutMs}`);
-    finish(false);
-  }, timeoutMs);
+  timeout = setTimeout(() => finish(false), timeoutMs);
   timeout.unref?.();
   return promise;
 }
@@ -571,13 +558,13 @@ export default function (pi) {
   pi.on("session_compact", markIdle);
   pi.on("auto_compaction_end", markIdle);
 
-  pi.on("session_shutdown", async (event) => {
+  pi.on("session_shutdown", async () => {
     if (!rootSession) {
       return;
     }
     clearPendingTimers();
     activeAgents.delete(instanceId);
-    if (activeAgents.size === 0 && event?.reason === "quit") {
+    if (activeAgents.size === 0) {
       await releaseAgent();
     }
   });
