@@ -2,22 +2,22 @@
 set -euo pipefail
 
 if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
-  echo "OPENROUTER_API_KEY is required for real CLI smoke runs" >&2
+  echo "OPENROUTER_API_KEY is required for real CLI test runs" >&2
   exit 64
 fi
 
-model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
-fallback_models="${HAKO_SMOKE_FALLBACK_MODELS:-openrouter/free,openai/gpt-oss-120b:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/owl-alpha}"
+model="${HAKO_TEST_MODEL:-poolside/laguna-m.1:free}"
+fallback_models="${HAKO_TEST_FALLBACK_MODELS:-openrouter/free,openai/gpt-oss-120b:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/owl-alpha}"
 openrouter_base="${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
 
-export HAKO_SMOKE_MODEL="$model"
-export HAKO_OPENCODE_SMOKE_MODEL="${HAKO_OPENCODE_SMOKE_MODEL:-openrouter/openrouter/free}"
-export HAKO_SMOKE_FALLBACK_MODELS="$fallback_models"
+export HAKO_TEST_MODEL="$model"
+export HAKO_OPENCODE_TEST_MODEL="${HAKO_OPENCODE_TEST_MODEL:-openrouter/openrouter/free}"
+export HAKO_TEST_FALLBACK_MODELS="$fallback_models"
 export OPENROUTER_API_KEY
 export OPENAI_API_KEY="$OPENROUTER_API_KEY"
 export ANTHROPIC_AUTH_TOKEN="$OPENROUTER_API_KEY"
 export ANTHROPIC_BASE_URL="$openrouter_base"
-export ANTHROPIC_MODEL="${HAKO_SMOKE_ANTHROPIC_MODEL:-$model}"
+export ANTHROPIC_MODEL="${HAKO_TEST_ANTHROPIC_MODEL:-$model}"
 export COPILOT_PROVIDER_API_KEY="$OPENROUTER_API_KEY"
 export COPILOT_PROVIDER_BASE_URL="$openrouter_base"
 export COPILOT_MODEL="$model"
@@ -41,7 +41,7 @@ cat > "$HOME/.factory/settings.json" <<EOF_FACTORY
   "customModels": [
     {
       "model": "$model",
-      "displayName": "Hako Smoke OpenRouter",
+      "displayName": "Hako Test OpenRouter",
       "baseUrl": "$openrouter_base",
       "apiKey": "\${OPENROUTER_API_KEY}",
       "provider": "generic-chat-completion-api",

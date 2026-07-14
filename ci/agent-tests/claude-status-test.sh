@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /usr/local/lib/hako-agent-smoke-models.sh
-primary_model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
-if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" ]]; then
-  hako_smoke_unique_candidates "$primary_model" "${HAKO_SMOKE_FALLBACK_MODELS:-}" \
-    | hako_smoke_openrouter_api_candidates \
-    | hako_smoke_non_anthropic_candidates \
-    | hako_smoke_run_with_fallbacks "$0" HAKO_SMOKE_MODEL "$@"
+source /usr/local/lib/hako-agent-test-models.sh
+primary_model="${HAKO_TEST_MODEL:-poolside/laguna-m.1:free}"
+if [[ -z "${HAKO_TEST_ACTIVE_MODEL:-}" ]]; then
+  hako_test_unique_candidates "$primary_model" "${HAKO_TEST_FALLBACK_MODELS:-}" \
+    | hako_test_openrouter_api_candidates \
+    | hako_test_non_anthropic_candidates \
+    | hako_test_run_with_fallbacks "$0" HAKO_TEST_MODEL "$@"
   exit $?
 fi
 
-model="$HAKO_SMOKE_ACTIVE_MODEL"
+model="$HAKO_TEST_ACTIVE_MODEL"
 repo_dir="${HAKO_REPO_DIR:-/repo}"
 hook_path="$repo_dir/apps/hako/src/integration/assets/claude/hako-agent-state.sh"
-workdir="${HAKO_CLAUDE_STATUS_SMOKE_DIR:-$(mktemp -d)}"
+workdir="${HAKO_CLAUDE_STATUS_TEST_DIR:-$(mktemp -d)}"
 socket_path="$workdir/hako.sock"
 request_log="$workdir/hako-requests.jsonl"
 
@@ -144,7 +144,7 @@ run_claude() {
     HAKO_ENV=1 \
     HAKO_SOCKET_PATH="$socket_path" \
     HAKO_PANE_ID="$pane_id" \
-    timeout "${HAKO_CLAUDE_STATUS_SMOKE_TIMEOUT:-180}" claude -p \
+    timeout "${HAKO_CLAUDE_STATUS_TEST_TIMEOUT:-180}" claude -p \
       --settings "$dir/settings.json" \
       --model "$model" \
       --output-format stream-json \
@@ -158,14 +158,14 @@ run_claude() {
   local status=$?
   set -e
   if [[ "$status" -ne 0 ]]; then
-    if hako_smoke_retryable_status_or_output "$status" "$dir/output.jsonl"; then
+    if hako_test_retryable_status_or_output "$status" "$dir/output.jsonl"; then
       echo "$pane_id: retryable Claude/OpenRouter provider failure with $model" >&2
       exit 75
     fi
     return "$status"
   fi
   if grep -E 'api\.anthropic\.com|"model":"anthropic/|"model":"claude' "$dir/output.jsonl" >/dev/null; then
-    echo "$pane_id: Claude smoke used Anthropic routing/model" >&2
+    echo "$pane_id: Claude test used Anthropic routing/model" >&2
     exit 1
   fi
 }

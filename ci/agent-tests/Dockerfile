@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Small runtime image for optional real-agent smoke tests.
+# Runtime image for live agent tests.
 # Secrets are never baked in; pass OPENROUTER_API_KEY at docker run time.
 FROM node:24-bookworm-slim
 
@@ -33,11 +33,11 @@ RUN apt-get update \
         tini \
     && rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,id=hako-agent-smoke-pnpm,target=/pnpm/store \
+RUN --mount=type=cache,id=hako-agent-tests-pnpm,target=/pnpm/store \
     corepack enable pnpm \
     && corepack prepare "pnpm@${PNPM_VERSION}" --activate \
-    && mkdir -p /opt/agent-smoke-node \
-    && cd /opt/agent-smoke-node \
+    && mkdir -p /opt/agent-tests-node \
+    && cd /opt/agent-tests-node \
     && printf '%s\n' \
         'minimumReleaseAge: 0' \
         'allowBuilds:' \
@@ -61,7 +61,7 @@ RUN --mount=type=cache,id=hako-agent-smoke-pnpm,target=/pnpm/store \
         > package.json \
     && pnpm install --prod \
     && for bin in claude codex opencode copilot hermes droid; do \
-        printf '%s\n' '#!/bin/sh' "exec /opt/agent-smoke-node/node_modules/.bin/${bin} \"\$@\"" > "/usr/local/bin/${bin}"; \
+        printf '%s\n' '#!/bin/sh' "exec /opt/agent-tests-node/node_modules/.bin/${bin} \"\$@\"" > "/usr/local/bin/${bin}"; \
         chmod +x "/usr/local/bin/${bin}"; \
     done \
     && pnpm store prune
@@ -156,27 +156,28 @@ RUN set -eux; \
     chmod +x /usr/local/bin/omp; \
     ln -s /usr/local/bin/omp /usr/local/bin/pi
 
-COPY smoke-env.sh /usr/local/bin/hako-agent-smoke-env
-COPY doctor.sh /usr/local/bin/hako-agent-smoke-doctor
-COPY verify-env.sh /usr/local/bin/hako-agent-smoke-verify-env
-COPY opencode-smoke.sh /usr/local/bin/hako-agent-smoke-opencode
-COPY smoke-models.sh /usr/local/lib/hako-agent-smoke-models.sh
-COPY opencode-status-smoke.sh /usr/local/bin/hako-agent-smoke-opencode-status
+COPY test-env.sh /usr/local/bin/hako-agent-tests-env
+COPY doctor.sh /usr/local/bin/hako-agent-tests-doctor
+COPY verify-env.sh /usr/local/bin/hako-agent-tests-verify-env
+COPY opencode-cli-test.sh /usr/local/bin/hako-agent-tests-opencode
+COPY test-models.sh /usr/local/lib/hako-agent-test-models.sh
+COPY opencode-status-test.sh /usr/local/bin/hako-agent-tests-opencode-status
 COPY opencode-plugin-status-test.mjs /usr/local/bin/hako-agent-opencode-plugin-status-test
 COPY pi-omp-plugin-status-test.mjs /usr/local/bin/hako-agent-pi-omp-plugin-status-test
-COPY pi-omp-status-smoke.sh /usr/local/bin/hako-agent-smoke-pi-omp-status
-COPY claude-status-smoke.sh /usr/local/bin/hako-agent-smoke-claude-status
-COPY codex-status-smoke.sh /usr/local/bin/hako-agent-smoke-codex-status
-COPY remaining-status-smoke.sh /usr/local/bin/hako-agent-smoke-remaining-status
+COPY pi-omp-status-test.sh /usr/local/bin/hako-agent-tests-pi-omp-status
+COPY claude-status-test.sh /usr/local/bin/hako-agent-tests-claude-status
+COPY codex-status-test.sh /usr/local/bin/hako-agent-tests-codex-status
+COPY remaining-status-test.sh /usr/local/bin/hako-agent-tests-remaining-status
 COPY cursor-openrouter-proxy.mjs /usr/local/bin/hako-agent-cursor-openrouter-proxy
-COPY cursor-proxy-status-smoke.sh /usr/local/bin/hako-agent-smoke-cursor-proxy-status
+COPY cursor-proxy-status-test.sh /usr/local/bin/hako-agent-tests-cursor-proxy-status
 COPY qoder-openrouter-proxy.mjs /usr/local/bin/hako-agent-qoder-openrouter-proxy
-COPY qoder-proxy-status-smoke.sh /usr/local/bin/hako-agent-smoke-qoder-proxy-status
-COPY maki-status-smoke.sh /usr/local/bin/hako-agent-smoke-maki-status
-RUN chmod +x /usr/local/bin/hako-agent-smoke-env /usr/local/bin/hako-agent-smoke-doctor /usr/local/bin/hako-agent-smoke-verify-env /usr/local/bin/hako-agent-smoke-opencode /usr/local/bin/hako-agent-smoke-opencode-status /usr/local/bin/hako-agent-smoke-pi-omp-status /usr/local/bin/hako-agent-smoke-claude-status /usr/local/bin/hako-agent-smoke-codex-status /usr/local/bin/hako-agent-smoke-remaining-status /usr/local/bin/hako-agent-smoke-cursor-proxy-status /usr/local/bin/hako-agent-smoke-qoder-proxy-status /usr/local/bin/hako-agent-smoke-maki-status /usr/local/bin/hako-agent-cursor-openrouter-proxy /usr/local/bin/hako-agent-qoder-openrouter-proxy /usr/local/bin/hako-agent-opencode-plugin-status-test /usr/local/bin/hako-agent-pi-omp-plugin-status-test \
-    && useradd --create-home --shell /bin/bash smoke
+COPY qoder-proxy-status-test.sh /usr/local/bin/hako-agent-tests-qoder-proxy-status
+COPY maki-status-test.sh /usr/local/bin/hako-agent-tests-maki-status
+COPY run-target.sh /usr/local/bin/hako-agent-tests-target
+RUN chmod +x /usr/local/bin/hako-agent-tests-env /usr/local/bin/hako-agent-tests-doctor /usr/local/bin/hako-agent-tests-verify-env /usr/local/bin/hako-agent-tests-opencode /usr/local/bin/hako-agent-tests-opencode-status /usr/local/bin/hako-agent-tests-pi-omp-status /usr/local/bin/hako-agent-tests-claude-status /usr/local/bin/hako-agent-tests-codex-status /usr/local/bin/hako-agent-tests-remaining-status /usr/local/bin/hako-agent-tests-cursor-proxy-status /usr/local/bin/hako-agent-tests-qoder-proxy-status /usr/local/bin/hako-agent-tests-maki-status /usr/local/bin/hako-agent-tests-target /usr/local/bin/hako-agent-cursor-openrouter-proxy /usr/local/bin/hako-agent-qoder-openrouter-proxy /usr/local/bin/hako-agent-opencode-plugin-status-test /usr/local/bin/hako-agent-pi-omp-plugin-status-test \
+    && useradd --create-home --shell /bin/bash agenttest
 
-USER smoke
+USER agenttest
 WORKDIR /work
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["hako-agent-smoke-doctor"]
+CMD ["hako-agent-tests-doctor"]

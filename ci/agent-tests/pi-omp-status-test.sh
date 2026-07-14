@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /usr/local/lib/hako-agent-smoke-models.sh
-primary_model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
-if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" ]]; then
-  hako_smoke_unique_candidates "$primary_model" "${HAKO_SMOKE_FALLBACK_MODELS:-}" \
-    | hako_smoke_opencode_candidates \
-    | hako_smoke_run_with_fallbacks "$0" HAKO_SMOKE_MODEL "$@"
+target="${HAKO_PI_OMP_STATUS_TARGET:-all}"
+case "$target" in
+  all|pi|omp) ;;
+  *)
+    echo "unknown Pi/OMP status test target: $target" >&2
+    exit 2
+    ;;
+esac
+source /usr/local/lib/hako-agent-test-models.sh
+primary_model="${HAKO_TEST_MODEL:-poolside/laguna-m.1:free}"
+if [[ -z "${HAKO_TEST_ACTIVE_MODEL:-}" ]]; then
+  hako_test_unique_candidates "$primary_model" "${HAKO_TEST_FALLBACK_MODELS:-}" \
+    | hako_test_opencode_candidates \
+    | hako_test_run_with_fallbacks "$0" HAKO_TEST_MODEL "$@"
   exit $?
 fi
 
-model="$HAKO_SMOKE_ACTIVE_MODEL"
+model="$HAKO_TEST_ACTIVE_MODEL"
 repo_dir="${HAKO_REPO_DIR:-/repo}"
 workdir="${HAKO_PI_OMP_STATUS_DIR:-$(mktemp -d)}"
 socket_path="$workdir/hako.sock"
@@ -187,7 +195,7 @@ try:
     if proc.returncode != 0:
         raise RuntimeError(f"{agent} exited with status {proc.returncode}")
 except Exception as exc:
-    print(f"{agent} interactive smoke failed: {exc}", file=sys.stderr)
+    print(f"{agent} interactive test failed: {exc}", file=sys.stderr)
     if proc.poll() is None:
         os.killpg(proc.pid, signal.SIGTERM)
         try:
@@ -200,7 +208,7 @@ finally:
     os.close(master)
 PY
   then
-    printf '%s\n' "$agent $scenario smoke failed; output:" >&2
+    printf '%s\n' "$agent $scenario test failed; output:" >&2
     sed -n '1,200p' "$dir/output.txt" >&2
     return 1
   fi
@@ -220,12 +228,16 @@ run_subagent_agent() {
   run_agent "$agent" "$extension" "$pane" subagent task,yield "Launch one subagent with assignment: reply exactly CHILD_OK. Then reply exactly HAKO_${agent^^}_SUBAGENT_OK."
 }
 
-run_basic_agent omp "$repo_dir/apps/hako/src/integration/assets/omp/hako-agent-state.ts" pane-omp-real
-run_basic_agent pi "$repo_dir/apps/hako/src/integration/assets/pi/hako-agent-state.ts" pane-pi-real
-run_subagent_agent omp "$repo_dir/apps/hako/src/integration/assets/omp/hako-agent-state.ts" pane-omp-subagent
-run_subagent_agent pi "$repo_dir/apps/hako/src/integration/assets/pi/hako-agent-state.ts" pane-pi-subagent
+if [[ "$target" == "all" || "$target" == "omp" ]]; then
+  run_basic_agent omp "$repo_dir/apps/hako/src/integration/assets/omp/hako-agent-state.ts" pane-omp-real
+  run_subagent_agent omp "$repo_dir/apps/hako/src/integration/assets/omp/hako-agent-state.ts" pane-omp-subagent
+fi
+if [[ "$target" == "all" || "$target" == "pi" ]]; then
+  run_basic_agent pi "$repo_dir/apps/hako/src/integration/assets/pi/hako-agent-state.ts" pane-pi-real
+  run_subagent_agent pi "$repo_dir/apps/hako/src/integration/assets/pi/hako-agent-state.ts" pane-pi-subagent
+fi
 
-REQUEST_LOG="$request_log" WORKDIR="$workdir" python3 - <<'PY'
+REQUEST_LOG="$request_log" WORKDIR="$workdir" TARGET="$target" python3 - <<'PY'
 import json
 import os
 import sys
@@ -233,11 +245,12 @@ from pathlib import Path
 
 request_log = Path(os.environ["REQUEST_LOG"])
 workdir = Path(os.environ["WORKDIR"])
+target = os.environ["TARGET"]
 if not request_log.exists():
     for output_path in sorted(workdir.glob("*/output.txt")):
         output = output_path.read_text(encoding="utf-8", errors="replace")
         print(f"{output_path.parent.name} output:\n{output}", file=sys.stderr)
-    raise SystemExit("Pi/OMP smoke emitted no Hako status requests")
+    raise SystemExit("Pi/OMP test emitted no Hako status requests")
 requests = [json.loads(line) for line in request_log.read_text(encoding="utf-8").splitlines() if line.strip()]
 reports = [req for req in requests if req.get("method") == "pane.report_agent"]
 releases = [req for req in requests if req.get("method") == "pane.release_agent"]
@@ -319,9 +332,10 @@ def assert_agent(agent, scenario, pane_id, marker_suffix):
     assert_single_session_root(agent, session_paths, release_paths)
 
 
-assert_agent("omp", "basic", "pane-omp-real", "STATUS_OK")
-assert_agent("pi", "basic", "pane-pi-real", "STATUS_OK")
-assert_agent("omp", "subagent", "pane-omp-subagent", "SUBAGENT_OK")
-assert_agent("pi", "subagent", "pane-pi-subagent", "SUBAGENT_OK")
-print("pi/omp status test ok: real cli reports session root identity, working, idle, release, launch env, and scoped subagent identity")
+selected_agents = ["omp", "pi"] if target == "all" else [target]
+for agent in selected_agents:
+    assert_agent(agent, "basic", f"pane-{agent}-real", "STATUS_OK")
+    assert_agent(agent, "subagent", f"pane-{agent}-subagent", "SUBAGENT_OK")
+scope = "pi/omp" if target == "all" else target
+print(f"{scope} status test ok: real cli reports session root identity, working, idle, release, launch env, and scoped subagent identity")
 PY

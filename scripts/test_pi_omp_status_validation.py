@@ -8,9 +8,9 @@ import unittest
 from pathlib import Path
 
 
-class PiOmpStatusSmokeValidationTests(unittest.TestCase):
+class PiOmpStatusTestValidationTests(unittest.TestCase):
     def test_subagent_child_session_path_under_parent_session_stem_is_accepted(self):
-        result = self.run_smoke_with_subagent_session_variant("child")
+        result = self.run_test_with_subagent_session_variant("child")
 
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0, output)
@@ -20,7 +20,7 @@ class PiOmpStatusSmokeValidationTests(unittest.TestCase):
         )
 
     def test_openrouter_free_active_model_is_passed_to_agents_unchanged(self):
-        result = self.run_smoke_with_subagent_session_variant(
+        result = self.run_test_with_subagent_session_variant(
             "child",
             active_model="openrouter/openrouter/free",
         )
@@ -33,34 +33,34 @@ class PiOmpStatusSmokeValidationTests(unittest.TestCase):
         )
 
     def test_subagent_unrelated_second_session_path_is_rejected(self):
-        result = self.run_smoke_with_subagent_session_variant("unrelated")
+        result = self.run_test_with_subagent_session_variant("unrelated")
 
         output = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0, output)
         self.assertIn("expected one session identity", output)
         self.assertIn("other.jsonl", output)
 
-    def run_smoke_with_subagent_session_variant(self, variant, active_model="test-model"):
+    def run_test_with_subagent_session_variant(self, variant, active_model="test-model"):
         repo_root = Path(__file__).resolve().parents[1]
-        source_script = repo_root / "ci" / "agent-smoke" / "pi-omp-status-smoke.sh"
+        source_script = repo_root / "ci" / "agent-tests" / "pi-omp-status-test.sh"
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             bin_dir = tmp_path / "bin"
             lib_dir = tmp_path / "lib"
-            smoke_dir = tmp_path / "smoke"
+            test_dir = tmp_path / "test"
             bin_dir.mkdir()
             lib_dir.mkdir()
-            smoke_dir.mkdir()
+            test_dir.mkdir()
 
-            models_stub = lib_dir / "hako-agent-smoke-models.sh"
-            models_stub.write_text("# test stub: HAKO_SMOKE_ACTIVE_MODEL bypasses fallback lookup\n")
+            models_stub = lib_dir / "hako-agent-test-models.sh"
+            models_stub.write_text("# test stub: HAKO_TEST_ACTIVE_MODEL bypasses fallback lookup\n")
 
-            script_copy = bin_dir / "hako-agent-smoke-pi-omp-status"
+            script_copy = bin_dir / "hako-agent-tests-pi-omp-status"
             script_text = source_script.read_text()
             script_copy.write_text(
                 script_text.replace(
-                    "source /usr/local/lib/hako-agent-smoke-models.sh",
+                    "source /usr/local/lib/hako-agent-test-models.sh",
                     f"source {shlex.quote(str(models_stub))}",
                 )
                 .replace("${agent^^}_STATUS_OK", "${agent}_STATUS_OK")
@@ -200,9 +200,9 @@ class PiOmpStatusSmokeValidationTests(unittest.TestCase):
                 **os.environ,
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                 "HAKO_REPO_DIR": str(repo_root),
-                "HAKO_PI_OMP_STATUS_DIR": str(smoke_dir),
+                "HAKO_PI_OMP_STATUS_DIR": str(test_dir),
                 "HAKO_PI_OMP_STATUS_TIMEOUT": "5",
-                "HAKO_SMOKE_ACTIVE_MODEL": active_model,
+                "HAKO_TEST_ACTIVE_MODEL": active_model,
                 "HAKO_TEST_SESSION_ROOT": str(tmp_path / "run" / "agent"),
                 "HAKO_TEST_SUBAGENT_SESSION_VARIANT": variant,
                 "HAKO_EXPECTED_ACTIVE_MODEL": active_model,

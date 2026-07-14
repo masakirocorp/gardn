@@ -8,29 +8,29 @@ import unittest
 from pathlib import Path
 
 
-class CodexStatusSmokeFallbackTests(unittest.TestCase):
+class CodexStatusTestFallbackTests(unittest.TestCase):
     def test_retries_when_codex_exec_writes_retryable_provider_output_before_exiting(self):
         repo_root = Path(__file__).resolve().parents[1]
-        source_script = repo_root / "ci" / "agent-smoke" / "codex-status-smoke.sh"
-        source_models = repo_root / "ci" / "agent-smoke" / "smoke-models.sh"
+        source_script = repo_root / "ci" / "agent-tests" / "codex-status-test.sh"
+        source_models = repo_root / "ci" / "agent-tests" / "test-models.sh"
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             bin_dir = tmp_path / "bin"
             lib_dir = tmp_path / "lib"
-            smoke_dir = tmp_path / "smoke"
+            test_dir = tmp_path / "test"
             bin_dir.mkdir()
             lib_dir.mkdir()
-            smoke_dir.mkdir()
+            test_dir.mkdir()
 
-            models_copy = lib_dir / "hako-agent-smoke-models.sh"
+            models_copy = lib_dir / "hako-agent-test-models.sh"
             models_copy.write_text(source_models.read_text())
 
-            script_copy = bin_dir / "hako-agent-smoke-codex-status"
+            script_copy = bin_dir / "hako-agent-tests-codex-status"
             script_text = source_script.read_text()
             script_copy.write_text(
                 script_text.replace(
-                    "source /usr/local/lib/hako-agent-smoke-models.sh",
+                    "source /usr/local/lib/hako-agent-test-models.sh",
                     f"source {shlex.quote(str(models_copy))}",
                 )
             )
@@ -99,10 +99,10 @@ class CodexStatusSmokeFallbackTests(unittest.TestCase):
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                 "OPENROUTER_API_KEY": "sk-test-fake-openrouter-key",
                 "HAKO_REPO_DIR": str(repo_root),
-                "HAKO_CODEX_STATUS_SMOKE_DIR": str(smoke_dir),
-                "HAKO_CODEX_STATUS_SMOKE_TIMEOUT": "5",
-                "HAKO_SMOKE_MODEL": "openrouter/anthropic/overloaded",
-                "HAKO_SMOKE_FALLBACK_MODELS": "openrouter/anthropic/ok",
+                "HAKO_CODEX_STATUS_TEST_DIR": str(test_dir),
+                "HAKO_CODEX_STATUS_TEST_TIMEOUT": "5",
+                "HAKO_TEST_MODEL": "openrouter/anthropic/overloaded",
+                "HAKO_TEST_FALLBACK_MODELS": "openrouter/anthropic/ok",
             }
 
             result = subprocess.run(

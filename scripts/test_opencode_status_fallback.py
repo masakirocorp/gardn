@@ -8,10 +8,10 @@ import unittest
 from pathlib import Path
 
 
-def run_opencode_status_smoke(primary_model: str, fallback_model: str):
+def run_opencode_status_test(primary_model: str, fallback_model: str):
     repo_root = Path(__file__).resolve().parents[1]
-    source_script = repo_root / "ci" / "agent-smoke" / "opencode-status-smoke.sh"
-    source_models = repo_root / "ci" / "agent-smoke" / "smoke-models.sh"
+    source_script = repo_root / "ci" / "agent-tests" / "opencode-status-test.sh"
+    source_models = repo_root / "ci" / "agent-tests" / "test-models.sh"
 
     temp_dir = tempfile.TemporaryDirectory()
     tmp_path = Path(temp_dir.name)
@@ -20,13 +20,13 @@ def run_opencode_status_smoke(primary_model: str, fallback_model: str):
     bin_dir.mkdir()
     lib_dir.mkdir()
 
-    models_copy = lib_dir / "hako-agent-smoke-models.sh"
+    models_copy = lib_dir / "hako-agent-test-models.sh"
     models_copy.write_text(source_models.read_text())
 
-    script_copy = bin_dir / "hako-agent-smoke-opencode-status"
+    script_copy = bin_dir / "hako-agent-tests-opencode-status"
     script_copy.write_text(
         source_script.read_text().replace(
-            "source /usr/local/lib/hako-agent-smoke-models.sh",
+            "source /usr/local/lib/hako-agent-test-models.sh",
             f"source {shlex.quote(str(models_copy))}",
         )
     )
@@ -113,9 +113,9 @@ def run_opencode_status_smoke(primary_model: str, fallback_model: str):
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
         "HAKO_REPO_DIR": str(repo_root),
         "TMPDIR": str(tmp_path),
-        "HAKO_OPENCODE_STATUS_SMOKE_TIMEOUT": "5",
-        "HAKO_OPENCODE_SMOKE_MODEL": primary_model,
-        "HAKO_SMOKE_FALLBACK_MODELS": fallback_model,
+        "HAKO_OPENCODE_STATUS_TEST_TIMEOUT": "5",
+        "HAKO_OPENCODE_TEST_MODEL": primary_model,
+        "HAKO_TEST_FALLBACK_MODELS": fallback_model,
     }
     result = subprocess.run(
         [str(script_copy)],
@@ -130,9 +130,9 @@ def run_opencode_status_smoke(primary_model: str, fallback_model: str):
     return temp_dir, result, attempts
 
 
-class OpenCodeStatusSmokeFallbackTests(unittest.TestCase):
+class OpenCodeStatusTestFallbackTests(unittest.TestCase):
     def test_retries_another_free_model_when_the_first_omits_completion_marker(self):
-        temp_dir, result, attempts = run_opencode_status_smoke(
+        temp_dir, result, attempts = run_opencode_status_test(
             "openrouter/noncompliant", "openrouter/ok"
         )
         self.addCleanup(temp_dir.cleanup)
@@ -146,7 +146,7 @@ class OpenCodeStatusSmokeFallbackTests(unittest.TestCase):
         self.assertIn("opencode status test ok:", output)
 
     def test_does_not_retry_hako_status_assertion_failures(self):
-        temp_dir, result, attempts = run_opencode_status_smoke(
+        temp_dir, result, attempts = run_opencode_status_test(
             "openrouter/hako-broken", "openrouter/ok"
         )
         self.addCleanup(temp_dir.cleanup)
@@ -154,7 +154,7 @@ class OpenCodeStatusSmokeFallbackTests(unittest.TestCase):
         output = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0, output)
         self.assertEqual(attempts, ["openrouter/hako-broken"], output)
-        self.assertNotIn("trying smoke model: openrouter/ok", output)
+        self.assertNotIn("trying test model: openrouter/ok", output)
         self.assertIn("wrong:source", output)
 
 

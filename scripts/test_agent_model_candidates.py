@@ -3,10 +3,10 @@ import unittest
 from pathlib import Path
 
 
-class SmokeModelCandidateTests(unittest.TestCase):
+class TestModelCandidateTests(unittest.TestCase):
     def test_openrouter_api_candidates_preserve_openrouter_models_and_strip_outer_provider_prefix(self):
         candidates = self.run_candidate_function(
-            "hako_smoke_openrouter_api_candidates",
+            "hako_test_openrouter_api_candidates",
             [
                 "openrouter/free",
                 "openrouter/owl-alpha",
@@ -25,7 +25,7 @@ class SmokeModelCandidateTests(unittest.TestCase):
 
     def test_opencode_candidates_double_prefix_openrouter_owned_models(self):
         candidates = self.run_candidate_function(
-            "hako_smoke_opencode_candidates",
+            "hako_test_opencode_candidates",
             [
                 "openrouter/free",
                 "openrouter/owl-alpha",
@@ -42,7 +42,7 @@ class SmokeModelCandidateTests(unittest.TestCase):
 
     def run_candidate_function(self, function_name, models):
         repo_root = Path(__file__).resolve().parents[1]
-        source_script = repo_root / "ci" / "agent-smoke" / "smoke-models.sh"
+        source_script = repo_root / "ci" / "agent-tests" / "test-models.sh"
         input_models = "\n".join(models) + "\n"
 
         result = subprocess.run(

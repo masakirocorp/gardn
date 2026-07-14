@@ -14,7 +14,7 @@ if (( missing )); then
   exit 1
 fi
 
-printf 'agent smoke image ok\n'
+printf 'agent test image ok\n'
 printf 'node: '; node --version
 printf 'pnpm: '; pnpm --version
 for bin in claude codex opencode copilot hermes droid kimi maki kiro-cli cursor-agent qoder qodercli omp pi; do

@@ -1,0 +1,187 @@
+name: Live Agent Tests
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/agent-tests.yml
+      - .github/workflows/live-agent-tests.yml
+      - ci/agent-tests/**
+      - apps/hako/src/manifests/maki.toml
+      - apps/hako/src/integration/assets/**
+      - apps/hako/src/integration/mod.rs
+      - justfile
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Optional OpenRouter model slug.
+        type: string
+        default: poolside/laguna-m.1:free
+      fallback_models:
+        description: Optional comma-separated fallback OpenRouter model slugs.
+        type: string
+        default: openrouter/free,openai/gpt-oss-120b:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/owl-alpha
+      opencode_model:
+        description: Optional OpenCode model id.
+        type: string
+        default: openrouter/openrouter/free
+      target:
+        description: Agent to run, or all agents.
+        type: choice
+        default: all
+        options:
+          - all
+          - opencode
+          - pi
+          - omp
+          - claude
+          - codex
+          - copilot
+          - cursor
+          - qoder
+          - devin
+          - droid
+          - kimi
+          - hermes
+          - maki
+  schedule:
+    - cron: "17 9 * * *"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: live-agent-tests-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/hako-agent-tests
+  HAKO_TEST_MODEL: ${{ inputs.model || 'poolside/laguna-m.1:free' }}
+  HAKO_TEST_FALLBACK_MODELS: ${{ inputs.fallback_models || 'openrouter/free,openai/gpt-oss-120b:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/owl-alpha' }}
+  HAKO_OPENCODE_TEST_MODEL: ${{ inputs.opencode_model || 'openrouter/openrouter/free' }}
+
+jobs:
+  plan:
+    name: select live test targets
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.targets.outputs.targets }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Select targets
+        id: targets
+        env:
+          REQUESTED_TARGET: ${{ inputs.target || 'all' }}
+        run: echo "targets=$(ci/agent-tests/target-matrix.sh "$REQUESTED_TARGET")" >> "$GITHUB_OUTPUT"
+
+  image:
+    name: build and publish agent test image
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        run: docker build -t "$IMAGE:${{ github.sha }}" ci/agent-tests
+
+      - name: Check installed CLIs
+        run: docker run --rm "$IMAGE:${{ github.sha }}"
+
+      - name: Check provider env wiring
+        run: >-
+          docker run --rm
+          -e OPENROUTER_API_KEY=sk-hako-agent-test
+          "$IMAGE:${{ github.sha }}"
+          hako-agent-tests-env hako-agent-tests-verify-env
+
+      - name: Log in to GHCR
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Publish image
+        run: docker push "$IMAGE:${{ github.sha }}"
+
+  test:
+    name: ${{ matrix.target == 'devin' && 'Devin hook status test' || matrix.target == 'pi' && 'Pi integration status test' || format('{0} live status test', matrix.target) }}
+    needs: [plan, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        target: ${{ fromJSON(needs.plan.outputs.targets) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Log in to GHCR
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull image
+        run: docker pull "$IMAGE:${{ github.sha }}"
+
+      - name: Run ${{ matrix.target == 'devin' && 'Devin hook status test' || matrix.target == 'pi' && 'Pi integration status test' || format('{0} live status test', matrix.target) }}
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          QODER_PERSONAL_ACCESS_TOKEN: ${{ secrets.QODER_PERSONAL_ACCESS_TOKEN }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          args=(
+            --rm
+            -e OPENROUTER_API_KEY
+            -e HAKO_TEST_MODEL
+            -e HAKO_TEST_FALLBACK_MODELS
+            -e HAKO_OPENCODE_TEST_MODEL
+            -v "${{ github.workspace }}:/repo:ro"
+          )
+          case "$TARGET" in
+            cursor)
+              args+=(
+                --user root
+                --add-host api2.cursor.sh:127.0.0.1
+                --add-host api3.cursor.sh:127.0.0.1
+                --add-host api4.cursor.sh:127.0.0.1
+              )
+              ;;
+            qoder)
+              args+=(
+                --user root
+                -e QODER_PERSONAL_ACCESS_TOKEN
+                --add-host api1.qoder.sh:127.0.0.1
+                --add-host api2.qoder.sh:127.0.0.1
+                --add-host api2-v2.qoder.sh:127.0.0.1
+              )
+              ;;
+          esac
+          docker run "${args[@]}" "$IMAGE:${{ github.sha }}" \
+            hako-agent-tests-env hako-agent-tests-target "$TARGET"
+
+      - name: Cool down provider quota
+        if: ${{ always() && (inputs.target == '' || inputs.target == 'all') }}
+        run: sleep 20
+
+  suite:
+    name: live agent test suite passed
+    if: ${{ always() }}
+    needs: [plan, image, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require executed successful tests
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          IMAGE_RESULT: ${{ needs.image.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          test "$PLAN_RESULT" = success
+          test "$IMAGE_RESULT" = success
+          test "$TEST_RESULT" = success

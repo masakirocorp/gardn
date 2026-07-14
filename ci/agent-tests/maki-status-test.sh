@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-smoke_model_lib="${HAKO_AGENT_SMOKE_MODELS_LIB:-/usr/local/lib/hako-agent-smoke-models.sh}"
+test_model_lib="${HAKO_AGENT_TEST_MODELS_LIB:-/usr/local/lib/hako-agent-test-models.sh}"
 seam_only="${HAKO_MAKI_STATUS_SEAM_ONLY:-0}"
 repo_dir="${HAKO_REPO_DIR:-/repo}"
 manifest="$repo_dir/apps/hako/src/manifests/maki.toml"
@@ -17,7 +17,7 @@ manifest_path = Path(sys.argv[1])
 manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
 
 # These are captured screen lines from Maki's ratatui output. The production
-# manifest is loaded here rather than copying its patterns into the smoke.
+# manifest is loaded here rather than copying its patterns into the test.
 fixtures = [
     ("working", "output\n ⠋ [BUILD]"),
     ("idle", "output\n [PLAN]"),
@@ -86,31 +86,31 @@ PY
   exit 0
 fi
 
-if [[ ! -f "$smoke_model_lib" ]]; then
-  echo "Maki status smoke needs $smoke_model_lib" >&2
+if [[ ! -f "$test_model_lib" ]]; then
+  echo "Maki status test needs $test_model_lib" >&2
   exit 1
 fi
-source "$smoke_model_lib"
+source "$test_model_lib"
 
-primary_model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
-if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" ]]; then
-  hako_smoke_unique_candidates "$primary_model" "${HAKO_SMOKE_FALLBACK_MODELS:-}" \
-    | hako_smoke_openrouter_prefixed_candidates \
-    | hako_smoke_non_openai_candidates \
-    | hako_smoke_run_with_fallbacks "$0" HAKO_SMOKE_MODEL "$@"
+primary_model="${HAKO_TEST_MODEL:-poolside/laguna-m.1:free}"
+if [[ -z "${HAKO_TEST_ACTIVE_MODEL:-}" ]]; then
+  hako_test_unique_candidates "$primary_model" "${HAKO_TEST_FALLBACK_MODELS:-}" \
+    | hako_test_openrouter_prefixed_candidates \
+    | hako_test_non_openai_candidates \
+    | hako_test_run_with_fallbacks "$0" HAKO_TEST_MODEL "$@"
   exit $?
 fi
 
 if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
-  echo "Maki status smoke needs OPENROUTER_API_KEY" >&2
+  echo "Maki status test needs OPENROUTER_API_KEY" >&2
   exit 1
 fi
-model="$HAKO_SMOKE_ACTIVE_MODEL"
+model="$HAKO_TEST_ACTIVE_MODEL"
 case "$model" in
   openrouter/*) model_spec="$model" ;;
   *) model_spec="openrouter/$model" ;;
 esac
-workdir="${HAKO_MAKI_STATUS_SMOKE_DIR:-$(mktemp -d)}"
+workdir="${HAKO_MAKI_STATUS_TEST_DIR:-$(mktemp -d)}"
 output="$workdir/maki-screen.txt"
 mkdir -p "$workdir"
 
@@ -212,10 +212,10 @@ try:
     send("\x03")
     read_until(idle.search, 30, "idle Maki status bar after denying the request", start)
     Path(output_path).write_text(clean(bytes(raw)), encoding="utf-8")
-    print("maki real status smoke ok: idle -> working -> blocked -> idle screen transitions")
+    print("maki real status test ok: idle -> working -> blocked -> idle screen transitions")
 except Exception as exc:
     Path(output_path).write_text(clean(bytes(raw)), encoding="utf-8")
-    print(f"Maki real CLI screen smoke failed: {exc}", file=sys.stderr)
+    print(f"Maki real CLI screen test failed: {exc}", file=sys.stderr)
     raise
 finally:
     if proc.poll() is None:

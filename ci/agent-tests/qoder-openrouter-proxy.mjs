@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Minimal Qoder -> OpenRouter smoke proxy. Test-only: keep Qoder auth/catalog
+// Minimal Qoder -> OpenRouter test proxy. Test-only: keep Qoder auth/catalog
 // traffic real, intercept the entitlement-gated inference stream, and emit the
 // same Qoder SSE envelope shape the CLI expects.
 import https from 'node:https';
@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
 const LOG = process.env.HAKO_QODER_PROXY_LOG || '/tmp/hako-qoder-proxy.log';
 const CERT = process.env.HAKO_QODER_PROXY_CERT;
 const KEY = process.env.HAKO_QODER_PROXY_KEY;
-const MODEL = process.env.HAKO_SMOKE_QODER_PROXY_MODEL || process.env.HAKO_SMOKE_MODEL || 'poolside/laguna-m.1:free';
+const MODEL = process.env.HAKO_TEST_QODER_PROXY_MODEL || process.env.HAKO_TEST_MODEL || 'poolside/laguna-m.1:free';
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 
 const isDirectRun = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
@@ -161,7 +161,7 @@ async function handleInference(req, res) {
 
 function writeQoderChunk(res, content) {
   const inner = {
-    id: 'chatcmpl-hako-qoder-smoke',
+    id: 'chatcmpl-hako-qoder-test',
     object: 'chat.completion.chunk',
     created: Math.floor(Date.now() / 1000),
     model: 'qmodel_latest',
@@ -172,7 +172,7 @@ function writeQoderChunk(res, content) {
 
 function writeQoderDone(res) {
   const inner = {
-    id: 'chatcmpl-hako-qoder-smoke',
+    id: 'chatcmpl-hako-qoder-test',
     object: 'chat.completion.chunk',
     created: Math.floor(Date.now() / 1000),
     model: 'qmodel_latest',

@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# This is a status acceptance test, not an optional smoke. A zero exit must mean
+# This is a status acceptance test, not an optional test. A zero exit must mean
 # the latest real qodercli hook path reported Hako status updates through the
 # proxy. Provider, pricing, or entitlement failures are inputs to fix or route
 # around, never successful skips.
-source /usr/local/lib/hako-agent-smoke-models.sh
-primary_model="${HAKO_SMOKE_QODER_PROXY_MODEL:-${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}}"
-if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" ]]; then
-  hako_smoke_unique_candidates "$primary_model" "${HAKO_SMOKE_FALLBACK_MODELS:-}" \
-    | hako_smoke_openrouter_api_candidates \
-    | hako_smoke_run_with_fallbacks "$0" HAKO_SMOKE_QODER_PROXY_MODEL "$@"
+source /usr/local/lib/hako-agent-test-models.sh
+primary_model="${HAKO_TEST_QODER_PROXY_MODEL:-${HAKO_TEST_MODEL:-poolside/laguna-m.1:free}}"
+if [[ -z "${HAKO_TEST_ACTIVE_MODEL:-}" ]]; then
+  hako_test_unique_candidates "$primary_model" "${HAKO_TEST_FALLBACK_MODELS:-}" \
+    | hako_test_openrouter_api_candidates \
+    | hako_test_run_with_fallbacks "$0" HAKO_TEST_QODER_PROXY_MODEL "$@"
   exit $?
 fi
 
-model="$HAKO_SMOKE_ACTIVE_MODEL"
-workdir="${HAKO_QODER_PROXY_STATUS_SMOKE_DIR:-$(mktemp -d)}"
+model="$HAKO_TEST_ACTIVE_MODEL"
+workdir="${HAKO_QODER_PROXY_STATUS_TEST_DIR:-$(mktemp -d)}"
 proxy_log="$workdir/qoder-proxy.log"
 repo_dir="${HAKO_REPO_DIR:-/repo}"
 socket_path="$workdir/hako.sock"
@@ -90,7 +90,7 @@ HAKO_QODER_PROXY_CERT="$workdir/qoder.crt" \
 HAKO_QODER_PROXY_KEY="$workdir/qoder.key" \
 HAKO_QODER_PROXY_LOG="$proxy_log" \
 OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
-HAKO_SMOKE_QODER_PROXY_MODEL="$model" \
+HAKO_TEST_QODER_PROXY_MODEL="$model" \
 HAKO_QODER_PROXY_STATIC_REPLY="$static_reply" \
 node /usr/local/bin/hako-agent-qoder-openrouter-proxy &
 proxy_pid=$!
@@ -133,11 +133,11 @@ set +e
   REQUESTS_CA_BUNDLE="$workdir/qoder.crt" \
   QODER_MODEL_TRANSPORT="http" \
   QODER_MODEL_SERVER_HOST="localhost" \
-  timeout "${HAKO_QODER_PROXY_STATUS_SMOKE_TIMEOUT:-180}" qodercli \
+  timeout "${HAKO_QODER_PROXY_STATUS_TEST_TIMEOUT:-180}" qodercli \
     -p \
     --output-format json \
     --permission-mode dont_ask \
-    --model "${HAKO_SMOKE_QODER_CLI_MODEL:-efficient}" \
+    --model "${HAKO_TEST_QODER_CLI_MODEL:-efficient}" \
     "$generic_prompt" >"$workdir/qoder-output.jsonl" 2>&1
 )
 status=$?
@@ -161,7 +161,7 @@ output = Path(sys.argv[1]).read_text(errors='replace')
 proxy = Path(sys.argv[2]).read_text(errors='replace')
 requests = [json.loads(line) for line in Path(sys.argv[3]).read_text(errors='replace').splitlines() if line.strip()]
 if 'HAKO_QODER_PROXY_OK' not in output:
-    print(f'qoder proxy smoke did not return expected marker: {output[-1000:]}', file=sys.stderr)
+    print(f'qoder proxy test did not return expected marker: {output[-1000:]}', file=sys.stderr)
     print('qoder proxy log:', proxy[-2000:], file=sys.stderr)
     raise SystemExit(75)
 if 'request POST /model/v1/chat/completions' not in proxy:
@@ -173,14 +173,14 @@ reports = [req for req in requests if req.get('method') == 'pane.report_agent']
 releases = [req for req in requests if req.get('method') == 'pane.release_agent']
 states = [req.get('params', {}).get('state') for req in reports]
 if 'working' not in states:
-    raise SystemExit(f'qoder hook smoke did not report working state: {requests}')
+    raise SystemExit(f'qoder hook test did not report working state: {requests}')
 if 'idle' not in states:
-    raise SystemExit(f'qoder hook smoke did not report idle state: {requests}')
+    raise SystemExit(f'qoder hook test did not report idle state: {requests}')
 if not releases:
-    raise SystemExit(f'qoder hook smoke did not release agent: {requests}')
+    raise SystemExit(f'qoder hook test did not release agent: {requests}')
 for req in reports + releases:
     params = req.get('params', {})
     if params.get('source') != 'hako:qodercli' or params.get('agent') != 'qodercli':
-        raise SystemExit(f'qoder hook smoke reported wrong source/agent: {req}')
+        raise SystemExit(f'qoder hook test reported wrong source/agent: {req}')
 print('qoder proxy status test ok: real Qoder CLI completed through deterministic local proxy and emitted Hako status hooks')
 PY

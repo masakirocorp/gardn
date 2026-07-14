@@ -8,11 +8,11 @@ import unittest
 from pathlib import Path
 
 
-class QoderProxyStatusSmokeValidationTests(unittest.TestCase):
+class QoderProxyStatusTestValidationTests(unittest.TestCase):
     def test_openrouter_proxy_routes_only_inference_requests(self):
         repo_root = Path(__file__).resolve().parents[1]
         result = subprocess.run(
-            ["node", str(repo_root / "ci" / "agent-smoke" / "qoder-openrouter-proxy-test.mjs")],
+            ["node", str(repo_root / "ci" / "agent-tests" / "qoder-openrouter-proxy-test.mjs")],
             cwd=repo_root,
             text=True,
             stdout=subprocess.PIPE,
@@ -25,25 +25,25 @@ class QoderProxyStatusSmokeValidationTests(unittest.TestCase):
         self.assertIn("qoder proxy inference URL matching test ok", output)
 
     def test_forbidden_pricing_response_is_retryable_status_acceptance_failure(self):
-        result = self.run_smoke_with_fake_qodercli("entitlement_forbidden")
+        result = self.run_test_with_fake_qodercli("entitlement_forbidden")
 
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 75, output)
-        self.assertIn("qoder proxy smoke did not return expected marker", output)
+        self.assertIn("qoder proxy test did not return expected marker", output)
         self.assertIn("Qoder API error: FORBIDDEN", output)
         self.assertIn("pricingUrl", output)
-        self.assertNotIn("status smoke skipped", output)
+        self.assertNotIn("status test skipped", output)
 
     def test_missing_marker_output_still_fails(self):
-        result = self.run_smoke_with_fake_qodercli("missing_marker")
+        result = self.run_test_with_fake_qodercli("missing_marker")
 
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 75, output)
-        self.assertIn("qoder proxy smoke did not return expected marker", output)
+        self.assertIn("qoder proxy test did not return expected marker", output)
         self.assertIn("ordinary qoder output without expected marker", output)
 
     def test_default_qoder_cli_model_is_documented_efficient(self):
-        result = self.run_smoke_with_fake_qodercli(
+        result = self.run_test_with_fake_qodercli(
             "success",
             expected_qoder_cli_model="efficient",
         )
@@ -55,30 +55,30 @@ class QoderProxyStatusSmokeValidationTests(unittest.TestCase):
             output,
         )
 
-    def run_smoke_with_fake_qodercli(self, scenario, expected_qoder_cli_model="efficient"):
+    def run_test_with_fake_qodercli(self, scenario, expected_qoder_cli_model="efficient"):
         repo_root = Path(__file__).resolve().parents[1]
-        source_script = repo_root / "ci" / "agent-smoke" / "qoder-proxy-status-smoke.sh"
+        source_script = repo_root / "ci" / "agent-tests" / "qoder-proxy-status-test.sh"
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             bin_dir = tmp_path / "bin"
             lib_dir = tmp_path / "lib"
-            smoke_dir = tmp_path / "smoke"
+            test_dir = tmp_path / "test"
             repo_dir = tmp_path / "repo"
             hook_dir = repo_dir / "apps" / "hako" / "src" / "integration" / "assets" / "qodercli"
             bin_dir.mkdir()
             lib_dir.mkdir()
-            smoke_dir.mkdir()
+            test_dir.mkdir()
             hook_dir.mkdir(parents=True)
 
-            models_stub = lib_dir / "hako-agent-smoke-models.sh"
-            models_stub.write_text("# test stub: HAKO_SMOKE_ACTIVE_MODEL bypasses fallback lookup\n")
+            models_stub = lib_dir / "hako-agent-test-models.sh"
+            models_stub.write_text("# test stub: HAKO_TEST_ACTIVE_MODEL bypasses fallback lookup\n")
 
-            script_copy = bin_dir / "hako-agent-smoke-qoder-proxy-status"
+            script_copy = bin_dir / "hako-agent-tests-qoder-proxy-status"
             script_text = source_script.read_text()
             script_copy.write_text(
                 script_text.replace(
-                    "source /usr/local/lib/hako-agent-smoke-models.sh",
+                    "source /usr/local/lib/hako-agent-test-models.sh",
                     f"source {shlex.quote(str(models_stub))}",
                 )
             )
@@ -259,13 +259,13 @@ class QoderProxyStatusSmokeValidationTests(unittest.TestCase):
                 "OPENROUTER_API_KEY": "sk-test-fake-openrouter-key",
                 "QODER_PERSONAL_ACCESS_TOKEN": "qoder-test-token",
                 "HAKO_REPO_DIR": str(repo_dir),
-                "HAKO_QODER_PROXY_STATUS_SMOKE_DIR": str(smoke_dir),
-                "HAKO_QODER_PROXY_STATUS_SMOKE_TIMEOUT": "5",
-                "HAKO_SMOKE_ACTIVE_MODEL": "test-model",
+                "HAKO_QODER_PROXY_STATUS_TEST_DIR": str(test_dir),
+                "HAKO_QODER_PROXY_STATUS_TEST_TIMEOUT": "5",
+                "HAKO_TEST_ACTIVE_MODEL": "test-model",
                 "HAKO_TEST_QODER_SCENARIO": scenario,
                 "HAKO_EXPECTED_QODER_CLI_MODEL": expected_qoder_cli_model,
             }
-            env.pop("HAKO_SMOKE_QODER_CLI_MODEL", None)
+            env.pop("HAKO_TEST_QODER_CLI_MODEL", None)
 
             return subprocess.run(
                 [str(script_copy)],

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 
-def smoke_script(contents):
+def test_script(contents):
     lines = contents.splitlines()
     if lines and not lines[0].strip():
         lines = lines[1:]
@@ -20,38 +20,38 @@ def smoke_script(contents):
     return "\n".join(line[indent:] if line.strip() else "" for line in lines) + "\n"
 
 
-class RemainingStatusSmokeFallbackTests(unittest.TestCase):
+class RemainingStatusTestFallbackTests(unittest.TestCase):
     def test_retries_when_real_cli_writes_retryable_provider_output_before_exiting(self):
         repo_root = Path(__file__).resolve().parents[1]
-        source_script = repo_root / "ci" / "agent-smoke" / "remaining-status-smoke.sh"
-        source_models = repo_root / "ci" / "agent-smoke" / "smoke-models.sh"
+        source_script = repo_root / "ci" / "agent-tests" / "remaining-status-test.sh"
+        source_models = repo_root / "ci" / "agent-tests" / "test-models.sh"
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             bin_dir = tmp_path / "bin"
             lib_dir = tmp_path / "lib"
-            smoke_dir = tmp_path / "smoke"
+            test_dir = tmp_path / "test"
             home_dir = tmp_path / "home"
             factory_home = tmp_path / "factory-home"
             kimi_home = tmp_path / "kimi-home"
             bin_dir.mkdir()
             lib_dir.mkdir()
-            smoke_dir.mkdir()
+            test_dir.mkdir()
             home_dir.mkdir()
             factory_home.mkdir()
             kimi_home.mkdir()
             (factory_home / "settings.json").write_text("{}")
 
-            models_copy = lib_dir / "hako-agent-smoke-models.sh"
+            models_copy = lib_dir / "hako-agent-test-models.sh"
             models_copy.write_text(source_models.read_text())
 
-            script_copy = bin_dir / "hako-agent-smoke-remaining-status"
+            script_copy = bin_dir / "hako-agent-tests-remaining-status"
             script_copy.write_text(source_script.read_text())
             script_copy.chmod(script_copy.stat().st_mode | stat.S_IXUSR)
 
             reporter = bin_dir / "hako-test-report"
             reporter.write_text(
-                smoke_script(
+                test_script(
                     r"""
                     #!/usr/bin/env python3
                     import json
@@ -87,7 +87,7 @@ class RemainingStatusSmokeFallbackTests(unittest.TestCase):
             attempts_log = tmp_path / "cli-attempts.txt"
             fake_copilot = bin_dir / "copilot"
             fake_copilot.write_text(
-                smoke_script(
+                test_script(
                     fr"""
                     #!/usr/bin/env bash
                     set -euo pipefail
@@ -127,7 +127,7 @@ class RemainingStatusSmokeFallbackTests(unittest.TestCase):
 
             fake_droid = bin_dir / "droid"
             fake_droid.write_text(
-                smoke_script(
+                test_script(
                     fr"""
                     #!/usr/bin/env bash
                     set -euo pipefail
@@ -163,7 +163,7 @@ class RemainingStatusSmokeFallbackTests(unittest.TestCase):
 
             fake_kimi = bin_dir / "kimi"
             fake_kimi.write_text(
-                smoke_script(
+                test_script(
                     fr"""
                     #!/usr/bin/env bash
                     set -euo pipefail
@@ -180,7 +180,7 @@ class RemainingStatusSmokeFallbackTests(unittest.TestCase):
 
             fake_hermes = bin_dir / "hermes"
             fake_hermes.write_text(
-                smoke_script(
+                test_script(
                     fr"""
                     #!/usr/bin/env bash
                     set -euo pipefail
@@ -212,7 +212,7 @@ class RemainingStatusSmokeFallbackTests(unittest.TestCase):
 
             fake_cursor = bin_dir / "cursor-agent"
             fake_cursor.write_text(
-                smoke_script(
+                test_script(
                     r"""
                     #!/usr/bin/env bash
                     set -euo pipefail
@@ -225,7 +225,7 @@ class RemainingStatusSmokeFallbackTests(unittest.TestCase):
 
             fake_qoder = bin_dir / "qodercli"
             fake_qoder.write_text(
-                smoke_script(
+                test_script(
                     r"""
                     #!/usr/bin/env bash
                     set -euo pipefail
@@ -238,7 +238,7 @@ class RemainingStatusSmokeFallbackTests(unittest.TestCase):
 
             fake_timeout = bin_dir / "timeout"
             fake_timeout.write_text(
-                smoke_script(
+                test_script(
                     r"""
                     #!/usr/bin/env bash
                     set -euo pipefail
@@ -255,11 +255,11 @@ class RemainingStatusSmokeFallbackTests(unittest.TestCase):
                 "HOME": str(home_dir),
                 "OPENROUTER_API_KEY": "sk-test-fake-openrouter-key",
                 "HAKO_REPO_DIR": str(repo_root),
-                "HAKO_AGENT_SMOKE_MODELS_LIB": str(models_copy),
-                "HAKO_REMAINING_STATUS_SMOKE_DIR": str(smoke_dir),
-                "HAKO_REMAINING_STATUS_SMOKE_TIMEOUT": "5",
-                "HAKO_SMOKE_MODEL": "openrouter/anthropic/overloaded",
-                "HAKO_SMOKE_FALLBACK_MODELS": "openrouter/anthropic/ok",
+                "HAKO_AGENT_TEST_MODELS_LIB": str(models_copy),
+                "HAKO_REMAINING_STATUS_TEST_DIR": str(test_dir),
+                "HAKO_REMAINING_STATUS_TEST_TIMEOUT": "5",
+                "HAKO_TEST_MODEL": "openrouter/anthropic/overloaded",
+                "HAKO_TEST_FALLBACK_MODELS": "openrouter/anthropic/ok",
                 "DROID_HOME": str(factory_home),
                 "FACTORY_HOME": str(factory_home),
                 "KIMI_CODE_HOME": str(kimi_home),
@@ -295,7 +295,7 @@ class RemainingStatusSmokeFallbackTests(unittest.TestCase):
                 "retrying after provider/model failure: anthropic/overloaded",
                 output,
             )
-            self.assertIn("trying smoke model: anthropic/ok", output)
+            self.assertIn("trying test model: anthropic/ok", output)
             self.assertIn("remaining status test ok:", output)
 
 

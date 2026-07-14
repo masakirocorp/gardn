@@ -1,30 +1,45 @@
 #!/usr/bin/env bash
 set -euo pipefail
-smoke_model_lib="${HAKO_AGENT_SMOKE_MODELS_LIB:-/usr/local/lib/hako-agent-smoke-models.sh}"
+target="${HAKO_REMAINING_STATUS_TARGET:-all}"
+case "$target" in
+  all|copilot|qoder|cursor|devin|droid|kimi|hermes) ;;
+  *)
+    echo "unknown remaining status test target: $target" >&2
+    exit 2
+    ;;
+esac
+
+target_selected() {
+  [[ "$target" == "all" || "$target" == "$1" ]]
+}
+
+test_model_lib="${HAKO_AGENT_TEST_MODELS_LIB:-/usr/local/lib/hako-agent-test-models.sh}"
 seam_only="${HAKO_REMAINING_STATUS_SEAM_ONLY:-0}"
-if [[ -f "$smoke_model_lib" ]]; then
-  source "$smoke_model_lib"
-elif [[ "$seam_only" != "1" ]]; then
-  echo "remaining status test needs $smoke_model_lib" >&2
+needs_model=1
+[[ "$target" == "devin" ]] && needs_model=0
+if [[ -f "$test_model_lib" ]]; then
+  source "$test_model_lib"
+elif [[ "$seam_only" != "1" && "$needs_model" == "1" ]]; then
+  echo "remaining status test needs $test_model_lib" >&2
   exit 1
 fi
-primary_model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
-if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" && "$seam_only" != "1" ]]; then
-  hako_smoke_unique_candidates "$primary_model" "${HAKO_SMOKE_FALLBACK_MODELS:-}" \
-    | hako_smoke_openrouter_api_candidates \
-    | hako_smoke_non_openai_candidates \
-    | hako_smoke_run_with_fallbacks "$0" HAKO_SMOKE_MODEL "$@"
+primary_model="${HAKO_TEST_MODEL:-poolside/laguna-m.1:free}"
+if [[ -z "${HAKO_TEST_ACTIVE_MODEL:-}" && "$seam_only" != "1" && "$needs_model" == "1" ]]; then
+  hako_test_unique_candidates "$primary_model" "${HAKO_TEST_FALLBACK_MODELS:-}" \
+    | hako_test_openrouter_api_candidates \
+    | hako_test_non_openai_candidates \
+    | hako_test_run_with_fallbacks "$0" HAKO_TEST_MODEL "$@"
   exit $?
 fi
 
-model="${HAKO_SMOKE_ACTIVE_MODEL:-$primary_model}"
+model="${HAKO_TEST_ACTIVE_MODEL:-$primary_model}"
 repo_dir="${HAKO_REPO_DIR:-/repo}"
-workdir="${HAKO_REMAINING_STATUS_SMOKE_DIR:-$(mktemp -d)}"
+workdir="${HAKO_REMAINING_STATUS_TEST_DIR:-$(mktemp -d)}"
 socket_path="$workdir/hako.sock"
 request_log="$workdir/hako-requests.jsonl"
 
 
-if [[ "$seam_only" != "1" ]]; then
+if [[ "$seam_only" != "1" && "$needs_model" == "1" ]]; then
   if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
     echo "remaining status test needs OPENROUTER_API_KEY" >&2
     exit 1
@@ -99,7 +114,7 @@ return_real_cli_failure() {
   local output="$1"
   local status="$2"
   cat "$output" >&2 || true
-  if hako_smoke_retryable_status_or_output "$status" "$output"; then
+  if hako_test_retryable_status_or_output "$status" "$output"; then
     return 75
   fi
   return "$status"
@@ -205,7 +220,7 @@ run_copilot_cli() {
     COPILOT_MODEL="$model" \
     COPILOT_PROVIDER_WIRE_API="responses" \
     COPILOT_HOME="$dir/home" \
-    timeout "${HAKO_REMAINING_STATUS_SMOKE_TIMEOUT:-180}" copilot \
+    timeout "${HAKO_REMAINING_STATUS_TEST_TIMEOUT:-180}" copilot \
       -p "Reply exactly HAKO_COPILOT_STATUS_OK" \
       --output-format json \
       --allow-all \
@@ -225,7 +240,7 @@ output = Path(sys.argv[1]).read_text(errors="replace")
 if "HAKO_COPILOT_STATUS_OK" not in output:
     raise SystemExit("copilot real cli did not produce expected marker")
 if "api.githubcopilot.com" in output or "api.openai.com" in output:
-    raise SystemExit("copilot smoke used hosted Copilot/OpenAI routing")
+    raise SystemExit("copilot test used hosted Copilot/OpenAI routing")
 PY
 }
 
@@ -235,12 +250,12 @@ run_cursor_cli_or_auth_contract() {
   if [[ -n "${CURSOR_API_KEY:-}" ]]; then
     (
       cd "$dir/run"
-      timeout "${HAKO_REMAINING_STATUS_SMOKE_TIMEOUT:-180}" cursor-agent \
+      timeout "${HAKO_REMAINING_STATUS_TEST_TIMEOUT:-180}" cursor-agent \
         --print \
         --output-format text \
         --trust \
         --api-key "$CURSOR_API_KEY" \
-        --model "${HAKO_SMOKE_CURSOR_MODEL:-$model}" \
+        --model "${HAKO_TEST_CURSOR_MODEL:-$model}" \
         "Reply exactly HAKO_CURSOR_STATUS_OK" >"$dir/output.txt" 2>&1
     )
     python3 - "$dir/output.txt" <<'PY'
@@ -267,7 +282,7 @@ PY
   local code=$?
   set -e
   if [[ "$code" -eq 0 ]]; then
-    echo "cursor accepted OPENROUTER_API_KEY as --api-key; add real smoke coverage instead of auth-contract coverage" >&2
+    echo "cursor accepted OPENROUTER_API_KEY as --api-key; add real test coverage instead of auth-contract coverage" >&2
     exit 1
   fi
   python3 - "$dir/output.txt" <<'PY'
@@ -285,11 +300,11 @@ run_qoder_cli_or_auth_contract() {
   if [[ -n "${QODER_PERSONAL_ACCESS_TOKEN:-}" ]]; then
     (
       cd "$dir/run"
-      timeout "${HAKO_REMAINING_STATUS_SMOKE_TIMEOUT:-180}" qodercli \
+      timeout "${HAKO_REMAINING_STATUS_TEST_TIMEOUT:-180}" qodercli \
         -p \
         --output-format json \
         --permission-mode dont_ask \
-        --model "${HAKO_SMOKE_QODER_MODEL:-$model}" \
+        --model "${HAKO_TEST_QODER_MODEL:-$model}" \
         "Reply exactly HAKO_QODER_STATUS_OK" >"$dir/output.jsonl" 2>&1
     )
     python3 - "$dir/output.jsonl" <<'PY'
@@ -315,7 +330,7 @@ PY
   local code=$?
   set -e
   if [[ "$code" -eq 0 ]]; then
-    echo "qodercli ran without QODER_PERSONAL_ACCESS_TOKEN; add real smoke coverage instead of auth-contract coverage" >&2
+    echo "qodercli ran without QODER_PERSONAL_ACCESS_TOKEN; add real test coverage instead of auth-contract coverage" >&2
     exit 1
   fi
   python3 - "$dir/output.jsonl" <<'PY'
@@ -338,7 +353,7 @@ run_droid_cli() {
     HAKO_PANE_ID="pane-droid-real" \
     DROID_HOME="${DROID_HOME:-$HOME/.factory}" \
     FACTORY_HOME="${FACTORY_HOME:-$HOME/.factory}" \
-    timeout "${HAKO_REMAINING_STATUS_SMOKE_TIMEOUT:-180}" droid exec \
+    timeout "${HAKO_REMAINING_STATUS_TEST_TIMEOUT:-180}" droid exec \
       --model "$model" \
       --output-format json \
       --cwd "$dir/run" \
@@ -356,7 +371,7 @@ import sys
 from pathlib import Path
 output = Path(sys.argv[1]).read_text(errors="replace")
 if "api.openai.com" in output:
-    raise SystemExit("droid smoke used OpenAI routing")
+    raise SystemExit("droid test used OpenAI routing")
 for line in output.splitlines():
     try:
         item = json.loads(line)
@@ -379,7 +394,7 @@ run_kimi_cli() {
     HAKO_SOCKET_PATH="$socket_path" \
     HAKO_PANE_ID="pane-kimi-real" \
     KIMI_CODE_HOME="${KIMI_CODE_HOME:-$HOME/.kimi-code}" \
-    timeout "${HAKO_REMAINING_STATUS_SMOKE_TIMEOUT:-180}" kimi \
+    timeout "${HAKO_REMAINING_STATUS_TEST_TIMEOUT:-180}" kimi \
       -p "Reply exactly HAKO_KIMI_STATUS_OK" \
       --output-format text >"$dir/output.txt" 2>&1
   )
@@ -396,7 +411,7 @@ output = Path(sys.argv[1]).read_text(errors="replace")
 if "HAKO_KIMI_STATUS_OK" not in output:
     raise SystemExit(f"kimi real cli did not produce expected marker: {output[-1000:]}")
 if "api.openai.com" in output:
-    raise SystemExit("kimi smoke used OpenAI routing")
+    raise SystemExit("kimi test used OpenAI routing")
 PY
 }
 
@@ -434,7 +449,7 @@ run_hermes_cli() {
     HAKO_SOCKET_PATH="$socket_path" \
     HAKO_PANE_ID="pane-hermes-real" \
     HERMES_ACCEPT_HOOKS=1 \
-    timeout "${HAKO_REMAINING_STATUS_SMOKE_TIMEOUT:-180}" hermes \
+    timeout "${HAKO_REMAINING_STATUS_TEST_TIMEOUT:-180}" hermes \
       -z "Reply exactly HAKO_HERMES_STATUS_OK" \
       --provider openrouter \
       --model "$model" \
@@ -453,7 +468,7 @@ output = Path(sys.argv[1]).read_text(errors="replace")
 if "HAKO_HERMES_STATUS_OK" not in output:
     raise SystemExit(f"hermes real cli did not produce expected marker: {output[-1000:]}")
 if "api.openai.com" in output:
-    raise SystemExit("hermes smoke used OpenAI routing")
+    raise SystemExit("hermes test used OpenAI routing")
 PY
 }
 
@@ -510,85 +525,112 @@ PY
 }
 
 if [[ "$seam_only" != "1" ]]; then
-  install_droid_real_hooks
-  install_copilot_real_hooks
-  install_kimi_real_hooks
-  install_hermes_real_plugin
-
-  run_copilot_cli
-  run_cursor_cli_or_auth_contract
-  run_qoder_cli_or_auth_contract
-  run_droid_cli
-  run_kimi_cli
-  run_hermes_cli
+  if target_selected copilot; then
+    install_copilot_real_hooks
+    run_copilot_cli
+  fi
+  if target_selected cursor; then
+    run_cursor_cli_or_auth_contract
+  fi
+  if target_selected qoder; then
+    run_qoder_cli_or_auth_contract
+  fi
+  if target_selected droid; then
+    install_droid_real_hooks
+    run_droid_cli
+  fi
+  if target_selected kimi; then
+    install_kimi_real_hooks
+    run_kimi_cli
+  fi
+  if target_selected hermes; then
+    install_hermes_real_plugin
+    run_hermes_cli
+  fi
 fi
 
-send_shell_hook copilot pane-copilot-allowed '' '{"hook_event_name":"SessionStart","session_id":"copilot-session","initial_prompt":"hello"}'
-send_shell_hook copilot pane-copilot-allowed '' '{"hook_event_name":"Stop","session_id":"copilot-session","stop_reason":"end_turn"}'
-send_shell_hook copilot pane-copilot-allowed '' '{"hook_event_name":"SessionEnd","session_id":"copilot-session","reason":"user_exit"}'
-send_shell_hook copilot pane-copilot-blocked '' '{"hook_event_name":"UserPromptSubmit","session_id":"blocked-copilot","prompt":"hello"}'
-send_shell_hook copilot pane-copilot-blocked '' '{"hook_event_name":"PreToolUse","session_id":"blocked-copilot","tool_name":"ask_user"}'
-send_shell_hook copilot pane-copilot-subagent '' '{"hook_event_name":"UserPromptSubmit","session_id":"copilot-parent","prompt":"hello"}'
-send_shell_hook copilot pane-copilot-subagent '' '{"hook_event_name":"agentStop","session_id":"copilot-parent","stop_reason":"end_turn"}'
+if target_selected copilot; then
+  send_shell_hook copilot pane-copilot-allowed '' '{"hook_event_name":"SessionStart","session_id":"copilot-session","initial_prompt":"hello"}'
+  send_shell_hook copilot pane-copilot-allowed '' '{"hook_event_name":"Stop","session_id":"copilot-session","stop_reason":"end_turn"}'
+  send_shell_hook copilot pane-copilot-allowed '' '{"hook_event_name":"SessionEnd","session_id":"copilot-session","reason":"user_exit"}'
+  send_shell_hook copilot pane-copilot-blocked '' '{"hook_event_name":"UserPromptSubmit","session_id":"blocked-copilot","prompt":"hello"}'
+  send_shell_hook copilot pane-copilot-blocked '' '{"hook_event_name":"PreToolUse","session_id":"blocked-copilot","tool_name":"ask_user"}'
+  send_shell_hook copilot pane-copilot-subagent '' '{"hook_event_name":"UserPromptSubmit","session_id":"copilot-parent","prompt":"hello"}'
+  send_shell_hook copilot pane-copilot-subagent '' '{"hook_event_name":"agentStop","session_id":"copilot-parent","stop_reason":"end_turn"}'
+fi
 
-send_shell_hook qodercli pane-qoder-allowed idle '{"hook_event_name":"SessionStart","session_id":"qoder-session"}'
-send_shell_hook qodercli pane-qoder-allowed working '{"hook_event_name":"UserPromptSubmit","session_id":"qoder-session"}'
-send_shell_hook qodercli pane-qoder-allowed idle '{"hook_event_name":"Stop","session_id":"qoder-session"}'
-send_shell_hook qodercli pane-qoder-allowed release '{"hook_event_name":"SessionEnd","session_id":"qoder-session"}'
-send_shell_hook qodercli pane-qoder-blocked working '{"hook_event_name":"UserPromptSubmit","session_id":"qoder-blocked"}'
-send_shell_hook qodercli pane-qoder-blocked blocked '{"hook_event_name":"PermissionRequest","session_id":"qoder-blocked"}'
-send_shell_hook qodercli pane-qoder-subagent working '{"hook_event_name":"UserPromptSubmit","session_id":"qoder-parent"}'
-send_shell_hook qodercli pane-qoder-subagent idle '{"hook_event_name":"SubagentStop","session_id":"qoder-parent","agent_id":"child"}'
-send_shell_hook qodercli pane-qoder-subagent idle '{"hook_event_name":"Stop","session_id":"qoder-parent"}'
+if target_selected qoder; then
+  send_shell_hook qodercli pane-qoder-allowed idle '{"hook_event_name":"SessionStart","session_id":"qoder-session"}'
+  send_shell_hook qodercli pane-qoder-allowed working '{"hook_event_name":"UserPromptSubmit","session_id":"qoder-session"}'
+  send_shell_hook qodercli pane-qoder-allowed idle '{"hook_event_name":"Stop","session_id":"qoder-session"}'
+  send_shell_hook qodercli pane-qoder-allowed release '{"hook_event_name":"SessionEnd","session_id":"qoder-session"}'
+  send_shell_hook qodercli pane-qoder-blocked working '{"hook_event_name":"UserPromptSubmit","session_id":"qoder-blocked"}'
+  send_shell_hook qodercli pane-qoder-blocked blocked '{"hook_event_name":"PermissionRequest","session_id":"qoder-blocked"}'
+  send_shell_hook qodercli pane-qoder-subagent working '{"hook_event_name":"UserPromptSubmit","session_id":"qoder-parent"}'
+  send_shell_hook qodercli pane-qoder-subagent idle '{"hook_event_name":"SubagentStop","session_id":"qoder-parent","agent_id":"child"}'
+  send_shell_hook qodercli pane-qoder-subagent idle '{"hook_event_name":"Stop","session_id":"qoder-parent"}'
+fi
 
-send_shell_hook cursor pane-cursor-allowed idle '{"hook_event_name":"sessionStart","session_id":"cursor-session"}'
-send_shell_hook cursor pane-cursor-allowed working '{"hook_event_name":"beforeSubmitPrompt","session_id":"cursor-session"}'
-send_shell_hook cursor pane-cursor-allowed idle '{"hook_event_name":"stop","session_id":"cursor-session"}'
-send_shell_hook cursor pane-cursor-allowed release '{"hook_event_name":"sessionEnd","session_id":"cursor-session"}'
-send_shell_hook cursor pane-cursor-subagent working '{"hook_event_name":"beforeSubmitPrompt","session_id":"cursor-parent"}'
-send_shell_hook cursor pane-cursor-subagent working '{"hook_event_name":"beforeShellExecution","session_id":"cursor-parent","agent_id":"child"}'
-send_shell_hook cursor pane-cursor-subagent idle '{"hook_event_name":"stop","session_id":"cursor-parent"}'
+if target_selected cursor; then
+  send_shell_hook cursor pane-cursor-allowed idle '{"hook_event_name":"sessionStart","session_id":"cursor-session"}'
+  send_shell_hook cursor pane-cursor-allowed working '{"hook_event_name":"beforeSubmitPrompt","session_id":"cursor-session"}'
+  send_shell_hook cursor pane-cursor-allowed idle '{"hook_event_name":"stop","session_id":"cursor-session"}'
+  send_shell_hook cursor pane-cursor-allowed release '{"hook_event_name":"sessionEnd","session_id":"cursor-session"}'
+  send_shell_hook cursor pane-cursor-subagent working '{"hook_event_name":"beforeSubmitPrompt","session_id":"cursor-parent"}'
+  send_shell_hook cursor pane-cursor-subagent working '{"hook_event_name":"beforeShellExecution","session_id":"cursor-parent","agent_id":"child"}'
+  send_shell_hook cursor pane-cursor-subagent idle '{"hook_event_name":"stop","session_id":"cursor-parent"}'
+fi
 
-send_devin_hook pane-devin-direct /tmp/hako-devin-project '[{"id":"stale-devin-direct","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"SessionStart","session_id":"devin-direct","source":"startup"}'
-send_devin_hook pane-devin-list /tmp/hako-devin-project '[{"id":"other-devin","working_directory":"/tmp/hako-other-project"},{"id":"devin-list","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"PreToolUse","tool_name":"exec"}'
-send_devin_hook pane-devin-prompt-stale /tmp/hako-devin-project '[{"id":"stale-prompt","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"UserPromptSubmit","prompt":"run tests"}'
-send_devin_hook pane-devin-startup-stale /tmp/hako-devin-project '[{"id":"stale-startup","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"SessionStart","source":"startup"}'
-send_shell_hook droid pane-droid-allowed idle '{"hook_event_name":"SessionStart","session_id":"droid-session"}'
-send_shell_hook droid pane-droid-allowed working '{"hook_event_name":"UserPromptSubmit","session_id":"droid-session"}'
-send_shell_hook droid pane-droid-allowed idle '{"hook_event_name":"Stop","session_id":"droid-session"}'
-send_shell_hook droid pane-droid-allowed release '{"hook_event_name":"SessionEnd","session_id":"droid-session"}'
-send_shell_hook droid pane-droid-blocked working '{"hook_event_name":"UserPromptSubmit","session_id":"droid-blocked"}'
-send_shell_hook droid pane-droid-blocked blocked '{"hook_event_name":"PermissionRequest","session_id":"droid-blocked"}'
-send_shell_hook droid pane-droid-subagent working '{"hook_event_name":"UserPromptSubmit","session_id":"droid-parent"}'
-send_shell_hook droid pane-droid-subagent idle '{"hook_event_name":"SubagentStop","session_id":"droid-parent","agent_id":"child"}'
-send_shell_hook droid pane-droid-subagent idle '{"hook_event_name":"Stop","session_id":"droid-parent"}'
-send_shell_hook droid pane-droid-compact working '{"hook_event_name":"PreCompact","session_id":"droid-compact"}'
+if target_selected devin; then
+  send_devin_hook pane-devin-direct /tmp/hako-devin-project '[{"id":"stale-devin-direct","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"SessionStart","session_id":"devin-direct","source":"startup"}'
+  send_devin_hook pane-devin-list /tmp/hako-devin-project '[{"id":"other-devin","working_directory":"/tmp/hako-other-project"},{"id":"devin-list","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"PreToolUse","tool_name":"exec"}'
+  send_devin_hook pane-devin-prompt-stale /tmp/hako-devin-project '[{"id":"stale-prompt","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"UserPromptSubmit","prompt":"run tests"}'
+  send_devin_hook pane-devin-startup-stale /tmp/hako-devin-project '[{"id":"stale-startup","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"SessionStart","source":"startup"}'
+fi
 
-send_shell_hook kimi pane-kimi-allowed idle '{"hook_event_name":"SessionStart","session_id":"kimi-session"}'
-send_shell_hook kimi pane-kimi-allowed working '{"hook_event_name":"UserPromptSubmit","session_id":"kimi-session"}'
-send_shell_hook kimi pane-kimi-allowed idle '{"hook_event_name":"Stop","session_id":"kimi-session"}'
-send_shell_hook kimi pane-kimi-allowed release '{"hook_event_name":"SessionEnd","session_id":"kimi-session"}'
-send_shell_hook kimi pane-kimi-blocked working '{"hook_event_name":"UserPromptSubmit","session_id":"kimi-blocked"}'
-send_shell_hook kimi pane-kimi-blocked blocked '{"hook_event_name":"PermissionRequest","session_id":"kimi-blocked"}'
-send_shell_hook kimi pane-kimi-subagent working '{"hook_event_name":"UserPromptSubmit","session_id":"kimi-parent"}'
-send_shell_hook kimi pane-kimi-subagent idle '{"hook_event_name":"SubagentStop","session_id":"kimi-parent","agent_id":"child"}'
-send_shell_hook kimi pane-kimi-subagent idle '{"hook_event_name":"Stop","session_id":"kimi-parent"}'
-send_shell_hook kimi pane-kimi-compact working '{"hook_event_name":"PreCompact","session_id":"kimi-compact"}'
+if target_selected droid; then
+  send_shell_hook droid pane-droid-allowed idle '{"hook_event_name":"SessionStart","session_id":"droid-session"}'
+  send_shell_hook droid pane-droid-allowed working '{"hook_event_name":"UserPromptSubmit","session_id":"droid-session"}'
+  send_shell_hook droid pane-droid-allowed idle '{"hook_event_name":"Stop","session_id":"droid-session"}'
+  send_shell_hook droid pane-droid-allowed release '{"hook_event_name":"SessionEnd","session_id":"droid-session"}'
+  send_shell_hook droid pane-droid-blocked working '{"hook_event_name":"UserPromptSubmit","session_id":"droid-blocked"}'
+  send_shell_hook droid pane-droid-blocked blocked '{"hook_event_name":"PermissionRequest","session_id":"droid-blocked"}'
+  send_shell_hook droid pane-droid-subagent working '{"hook_event_name":"UserPromptSubmit","session_id":"droid-parent"}'
+  send_shell_hook droid pane-droid-subagent idle '{"hook_event_name":"SubagentStop","session_id":"droid-parent","agent_id":"child"}'
+  send_shell_hook droid pane-droid-subagent idle '{"hook_event_name":"Stop","session_id":"droid-parent"}'
+  send_shell_hook droid pane-droid-compact working '{"hook_event_name":"PreCompact","session_id":"droid-compact"}'
+fi
 
-send_hermes_hook pane-hermes-allowed _working hermes-session
-send_hermes_hook pane-hermes-allowed _idle hermes-session
-send_hermes_hook pane-hermes-allowed _finalize hermes-session
-send_hermes_hook pane-hermes-blocked _working hermes-blocked
-send_hermes_hook pane-hermes-blocked _blocked hermes-blocked
-send_hermes_hook pane-hermes-compact _working hermes-compact
+if target_selected kimi; then
+  send_shell_hook kimi pane-kimi-allowed idle '{"hook_event_name":"SessionStart","session_id":"kimi-session"}'
+  send_shell_hook kimi pane-kimi-allowed working '{"hook_event_name":"UserPromptSubmit","session_id":"kimi-session"}'
+  send_shell_hook kimi pane-kimi-allowed idle '{"hook_event_name":"Stop","session_id":"kimi-session"}'
+  send_shell_hook kimi pane-kimi-allowed release '{"hook_event_name":"SessionEnd","session_id":"kimi-session"}'
+  send_shell_hook kimi pane-kimi-blocked working '{"hook_event_name":"UserPromptSubmit","session_id":"kimi-blocked"}'
+  send_shell_hook kimi pane-kimi-blocked blocked '{"hook_event_name":"PermissionRequest","session_id":"kimi-blocked"}'
+  send_shell_hook kimi pane-kimi-subagent working '{"hook_event_name":"UserPromptSubmit","session_id":"kimi-parent"}'
+  send_shell_hook kimi pane-kimi-subagent idle '{"hook_event_name":"SubagentStop","session_id":"kimi-parent","agent_id":"child"}'
+  send_shell_hook kimi pane-kimi-subagent idle '{"hook_event_name":"Stop","session_id":"kimi-parent"}'
+  send_shell_hook kimi pane-kimi-compact working '{"hook_event_name":"PreCompact","session_id":"kimi-compact"}'
+fi
 
-python3 - "$request_log" "$seam_only" <<'PY'
+if target_selected hermes; then
+  send_hermes_hook pane-hermes-allowed _working hermes-session
+  send_hermes_hook pane-hermes-allowed _idle hermes-session
+  send_hermes_hook pane-hermes-allowed _finalize hermes-session
+  send_hermes_hook pane-hermes-blocked _working hermes-blocked
+  send_hermes_hook pane-hermes-blocked _blocked hermes-blocked
+  send_hermes_hook pane-hermes-compact _working hermes-compact
+fi
+
+python3 - "$request_log" "$seam_only" "$target" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 requests = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines() if line.strip()]
 seam_only = sys.argv[2] == "1"
+target = sys.argv[3]
 reports = [req for req in requests if req.get("method") == "pane.report_agent"]
 sessions = [req for req in requests if req.get("method") == "pane.report_agent_session"]
 releases = [req for req in requests if req.get("method") == "pane.release_agent"]
@@ -648,103 +690,134 @@ def assert_no_pane_reports(pane):
     if items:
         raise SystemExit(f"{pane}: expected no Hako reports, observed {items}")
 
+expected_by_target = {
+    "copilot": [
+        ("pane-copilot-allowed", "copilot", "hako:copilot"),
+        ("pane-copilot-blocked", "copilot", "hako:copilot"),
+        ("pane-copilot-subagent", "copilot", "hako:copilot"),
+    ],
+    "qoder": [
+        ("pane-qoder-allowed", "qodercli", "hako:qodercli"),
+        ("pane-qoder-blocked", "qodercli", "hako:qodercli"),
+        ("pane-qoder-subagent", "qodercli", "hako:qodercli"),
+    ],
+    "cursor": [
+        ("pane-cursor-allowed", "cursor", "hako:cursor"),
+        ("pane-cursor-subagent", "cursor", "hako:cursor"),
+    ],
+    "devin": [
+        ("pane-devin-direct", "devin", "hako:devin"),
+        ("pane-devin-list", "devin", "hako:devin"),
+    ],
+    "droid": [
+        ("pane-droid-allowed", "droid", "hako:droid"),
+        ("pane-droid-blocked", "droid", "hako:droid"),
+        ("pane-droid-subagent", "droid", "hako:droid"),
+        ("pane-droid-compact", "droid", "hako:droid"),
+    ],
+    "kimi": [
+        ("pane-kimi-allowed", "kimi", "hako:kimi"),
+        ("pane-kimi-blocked", "kimi", "hako:kimi"),
+        ("pane-kimi-subagent", "kimi", "hako:kimi"),
+        ("pane-kimi-compact", "kimi", "hako:kimi"),
+    ],
+    "hermes": [
+        ("pane-hermes-allowed", "hermes", "hako:hermes"),
+        ("pane-hermes-blocked", "hermes", "hako:hermes"),
+        ("pane-hermes-compact", "hermes", "hako:hermes"),
+    ],
+}
+selected_targets = list(expected_by_target) if target == "all" else [target]
 expected_agents = [
-    ("pane-copilot-allowed", "copilot", "hako:copilot"),
-    ("pane-copilot-blocked", "copilot", "hako:copilot"),
-    ("pane-copilot-subagent", "copilot", "hako:copilot"),
-    ("pane-qoder-allowed", "qodercli", "hako:qodercli"),
-    ("pane-qoder-blocked", "qodercli", "hako:qodercli"),
-    ("pane-qoder-subagent", "qodercli", "hako:qodercli"),
-    ("pane-cursor-allowed", "cursor", "hako:cursor"),
-    ("pane-cursor-subagent", "cursor", "hako:cursor"),
-    ("pane-devin-direct", "devin", "hako:devin"),
-    ("pane-devin-list", "devin", "hako:devin"),
-    ("pane-droid-allowed", "droid", "hako:droid"),
-    ("pane-droid-blocked", "droid", "hako:droid"),
-    ("pane-droid-subagent", "droid", "hako:droid"),
-    ("pane-droid-compact", "droid", "hako:droid"),
-    ("pane-kimi-allowed", "kimi", "hako:kimi"),
-    ("pane-kimi-blocked", "kimi", "hako:kimi"),
-    ("pane-kimi-subagent", "kimi", "hako:kimi"),
-    ("pane-kimi-compact", "kimi", "hako:kimi"),
-    ("pane-hermes-allowed", "hermes", "hako:hermes"),
-    ("pane-hermes-blocked", "hermes", "hako:hermes"),
-    ("pane-hermes-compact", "hermes", "hako:hermes"),
+    expected
+    for selected in selected_targets
+    for expected in expected_by_target[selected]
 ]
 if not seam_only:
-    expected_agents.extend([
-        ("pane-copilot-real", "copilot", "hako:copilot"),
-        ("pane-droid-real", "droid", "hako:droid"),
-        ("pane-kimi-real", "kimi", "hako:kimi"),
-        ("pane-hermes-real", "hermes", "hako:hermes"),
-    ])
+    real_by_target = {
+        "copilot": ("pane-copilot-real", "copilot", "hako:copilot"),
+        "droid": ("pane-droid-real", "droid", "hako:droid"),
+        "kimi": ("pane-kimi-real", "kimi", "hako:kimi"),
+        "hermes": ("pane-hermes-real", "hermes", "hako:hermes"),
+    }
+    expected_agents.extend(
+        real_by_target[selected]
+        for selected in selected_targets
+        if selected in real_by_target
+    )
 
 for pane, agent, source in expected_agents:
     assert_agent(pane, agent, source)
     assert_single_identity(pane)
 
-if not seam_only:
-    assert_in_order("pane-copilot-real", ["working", "idle"])
-assert_in_order("pane-copilot-allowed", ["working", "idle"])
-if not by_pane(releases, "pane-copilot-allowed"):
-    raise SystemExit("pane-copilot-allowed: missing release")
-assert_in_order("pane-copilot-blocked", ["working", "blocked"])
-assert_in_order("pane-copilot-subagent", ["working", "idle"])
+if "copilot" in selected_targets:
+    if not seam_only:
+        assert_in_order("pane-copilot-real", ["working", "idle"])
+    assert_in_order("pane-copilot-allowed", ["working", "idle"])
+    if not by_pane(releases, "pane-copilot-allowed"):
+        raise SystemExit("pane-copilot-allowed: missing release")
+    assert_in_order("pane-copilot-blocked", ["working", "blocked"])
+    assert_in_order("pane-copilot-subagent", ["working", "idle"])
 
-assert_in_order("pane-qoder-allowed", ["idle", "working", "idle"])
-if not by_pane(releases, "pane-qoder-allowed"):
-    raise SystemExit("pane-qoder-allowed: missing release")
-assert_in_order("pane-qoder-blocked", ["working", "blocked"])
-assert_in_order("pane-qoder-subagent", ["working", "idle"])
-if states("pane-qoder-subagent").count("idle") != 1:
-    raise SystemExit(f"pane-qoder-subagent: child stop should not idle parent; observed {states('pane-qoder-subagent')}")
+if "qoder" in selected_targets:
+    assert_in_order("pane-qoder-allowed", ["idle", "working", "idle"])
+    if not by_pane(releases, "pane-qoder-allowed"):
+        raise SystemExit("pane-qoder-allowed: missing release")
+    assert_in_order("pane-qoder-blocked", ["working", "blocked"])
+    assert_in_order("pane-qoder-subagent", ["working", "idle"])
+    if states("pane-qoder-subagent").count("idle") != 1:
+        raise SystemExit(f"pane-qoder-subagent: child stop should not idle parent; observed {states('pane-qoder-subagent')}")
 
-assert_in_order("pane-cursor-allowed", ["idle", "working", "idle"])
-if not by_pane(releases, "pane-cursor-allowed"):
-    raise SystemExit("pane-cursor-allowed: missing release")
-assert_in_order("pane-cursor-subagent", ["working", "idle"])
+if "cursor" in selected_targets:
+    assert_in_order("pane-cursor-allowed", ["idle", "working", "idle"])
+    if not by_pane(releases, "pane-cursor-allowed"):
+        raise SystemExit("pane-cursor-allowed: missing release")
+    assert_in_order("pane-cursor-subagent", ["working", "idle"])
 
-assert_devin_identity_only("pane-devin-direct", "devin-direct")
-assert_devin_identity_only("pane-devin-list", "devin-list")
-assert_no_pane_reports("pane-devin-prompt-stale")
-assert_no_pane_reports("pane-devin-startup-stale")
+if "devin" in selected_targets:
+    assert_devin_identity_only("pane-devin-direct", "devin-direct")
+    assert_devin_identity_only("pane-devin-list", "devin-list")
+    assert_no_pane_reports("pane-devin-prompt-stale")
+    assert_no_pane_reports("pane-devin-startup-stale")
 
-if not seam_only:
-    assert_in_order("pane-droid-real", ["idle"])
-    if not by_pane(releases, "pane-droid-real"):
-        raise SystemExit("pane-droid-real: missing release")
-assert_in_order("pane-droid-allowed", ["idle", "working", "idle"])
-if not by_pane(releases, "pane-droid-allowed"):
-    raise SystemExit("pane-droid-allowed: missing release")
-assert_in_order("pane-droid-blocked", ["working", "blocked"])
-assert_in_order("pane-droid-subagent", ["working", "idle"])
-if states("pane-droid-subagent").count("idle") != 1:
-    raise SystemExit(f"pane-droid-subagent: child stop should not idle parent; observed {states('pane-droid-subagent')}")
-assert_in_order("pane-droid-compact", ["working"])
+if "droid" in selected_targets:
+    if not seam_only:
+        assert_in_order("pane-droid-real", ["idle"])
+        if not by_pane(releases, "pane-droid-real"):
+            raise SystemExit("pane-droid-real: missing release")
+    assert_in_order("pane-droid-allowed", ["idle", "working", "idle"])
+    if not by_pane(releases, "pane-droid-allowed"):
+        raise SystemExit("pane-droid-allowed: missing release")
+    assert_in_order("pane-droid-blocked", ["working", "blocked"])
+    assert_in_order("pane-droid-subagent", ["working", "idle"])
+    if states("pane-droid-subagent").count("idle") != 1:
+        raise SystemExit(f"pane-droid-subagent: child stop should not idle parent; observed {states('pane-droid-subagent')}")
+    assert_in_order("pane-droid-compact", ["working"])
 
-if not seam_only:
-    assert_in_order("pane-kimi-real", ["idle", "working", "idle"])
-    if not by_pane(releases, "pane-kimi-real"):
-        raise SystemExit("pane-kimi-real: missing release")
-assert_in_order("pane-kimi-allowed", ["idle", "working", "idle"])
-if not by_pane(releases, "pane-kimi-allowed"):
-    raise SystemExit("pane-kimi-allowed: missing release")
-assert_in_order("pane-kimi-blocked", ["working", "blocked"])
-assert_in_order("pane-kimi-subagent", ["working", "idle"])
-if states("pane-kimi-subagent").count("idle") != 1:
-    raise SystemExit(f"pane-kimi-subagent: child stop should not idle parent; observed {states('pane-kimi-subagent')}")
-assert_in_order("pane-kimi-compact", ["working"])
+if "kimi" in selected_targets:
+    if not seam_only:
+        assert_in_order("pane-kimi-real", ["idle", "working", "idle"])
+        if not by_pane(releases, "pane-kimi-real"):
+            raise SystemExit("pane-kimi-real: missing release")
+    assert_in_order("pane-kimi-allowed", ["idle", "working", "idle"])
+    if not by_pane(releases, "pane-kimi-allowed"):
+        raise SystemExit("pane-kimi-allowed: missing release")
+    assert_in_order("pane-kimi-blocked", ["working", "blocked"])
+    assert_in_order("pane-kimi-subagent", ["working", "idle"])
+    if states("pane-kimi-subagent").count("idle") != 1:
+        raise SystemExit(f"pane-kimi-subagent: child stop should not idle parent; observed {states('pane-kimi-subagent')}")
+    assert_in_order("pane-kimi-compact", ["working"])
 
-if not seam_only:
-    assert_in_order("pane-hermes-real", ["idle", "working", "idle"])
-assert_in_order("pane-hermes-allowed", ["working", "idle"])
-if not by_pane(releases, "pane-hermes-allowed"):
-    raise SystemExit("pane-hermes-allowed: missing release")
-assert_in_order("pane-hermes-blocked", ["working", "blocked"])
-assert_in_order("pane-hermes-compact", ["working"])
+if "hermes" in selected_targets:
+    if not seam_only:
+        assert_in_order("pane-hermes-real", ["idle", "working", "idle"])
+    assert_in_order("pane-hermes-allowed", ["working", "idle"])
+    if not by_pane(releases, "pane-hermes-allowed"):
+        raise SystemExit("pane-hermes-allowed: missing release")
+    assert_in_order("pane-hermes-blocked", ["working", "blocked"])
+    assert_in_order("pane-hermes-compact", ["working"])
 
-if seam_only:
-    print("remaining status seam test ok: Copilot, qodercli, Cursor, Devin, Droid, Kimi, and Hermes hooks emit expected Hako reports without real CLIs")
-else:
-    print("remaining status test ok: Copilot, Droid, Kimi, and Hermes real CLIs work through OpenRouter; Copilot, qodercli, Cursor, Devin, Droid, Kimi, and Hermes emit real Hako hooks; Cursor/qodercli proxy smokes cover their real hook paths separately; seam hooks still cover blocked/subagent/compact/session edges")
+scope = "all grouped agents" if target == "all" else target
+mode = "seam" if seam_only else ("hook" if target == "devin" else "real")
+print(f"remaining status test ok: target={scope}; mode={mode}")
 PY

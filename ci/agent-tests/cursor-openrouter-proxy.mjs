@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Minimal Cursor -> OpenRouter smoke proxy, adapted from OpenRouterLabs/spawn's
+// Minimal Cursor -> OpenRouter test proxy, adapted from OpenRouterLabs/spawn's
 // cursor proxy approach. It is intentionally test-only: fake Cursor auth/model
 // RPCs, translate one AgentService stream into OpenRouter chat-completions, and
 // log only event names/statuses, never API keys.
@@ -9,7 +9,7 @@ import { appendFileSync } from 'node:fs';
 const LOG = process.env.HAKO_CURSOR_PROXY_LOG || '/tmp/hako-cursor-proxy.log';
 const CERT = process.env.HAKO_CURSOR_PROXY_CERT;
 const KEY = process.env.HAKO_CURSOR_PROXY_KEY;
-const MODEL = process.env.HAKO_SMOKE_CURSOR_MODEL || process.env.HAKO_SMOKE_MODEL || 'openrouter/auto';
+const MODEL = process.env.HAKO_TEST_CURSOR_MODEL || process.env.HAKO_TEST_MODEL || 'openrouter/auto';
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 
 function log(msg) {
@@ -42,7 +42,7 @@ server.on('request', (req, res) => {
     log(`unary ${req.method} ${url}`);
     if (url === '/auth/exchange_user_api_key') {
       res.writeHead(200, {'content-type':'application/json'});
-      res.end(JSON.stringify({accessToken:'hako-smoke-token', refreshToken:'hako-smoke-refresh', authId:'hako-smoke'}));
+      res.end(JSON.stringify({accessToken:'hako-test-token', refreshToken:'hako-test-refresh', authId:'hako-test'}));
       return;
     }
     if (url.includes('GetUsableModels')) {

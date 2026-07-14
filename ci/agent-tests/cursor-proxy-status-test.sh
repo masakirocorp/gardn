@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /usr/local/lib/hako-agent-smoke-models.sh
-primary_model="${HAKO_SMOKE_CURSOR_MODEL:-${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}}"
-if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" ]]; then
-  hako_smoke_unique_candidates "$primary_model" "${HAKO_SMOKE_FALLBACK_MODELS:-}" \
-    | hako_smoke_openrouter_api_candidates \
-    | hako_smoke_run_with_fallbacks "$0" HAKO_SMOKE_CURSOR_MODEL "$@"
+source /usr/local/lib/hako-agent-test-models.sh
+primary_model="${HAKO_TEST_CURSOR_MODEL:-${HAKO_TEST_MODEL:-poolside/laguna-m.1:free}}"
+if [[ -z "${HAKO_TEST_ACTIVE_MODEL:-}" ]]; then
+  hako_test_unique_candidates "$primary_model" "${HAKO_TEST_FALLBACK_MODELS:-}" \
+    | hako_test_openrouter_api_candidates \
+    | hako_test_run_with_fallbacks "$0" HAKO_TEST_CURSOR_MODEL "$@"
   exit $?
 fi
 
-model="$HAKO_SMOKE_ACTIVE_MODEL"
+model="$HAKO_TEST_ACTIVE_MODEL"
 repo_dir="${HAKO_REPO_DIR:-/repo}"
-workdir="${HAKO_CURSOR_PROXY_STATUS_SMOKE_DIR:-$(mktemp -d)}"
+workdir="${HAKO_CURSOR_PROXY_STATUS_TEST_DIR:-$(mktemp -d)}"
 socket_path="$workdir/hako.sock"
 request_log="$workdir/hako-requests.jsonl"
 proxy_log="$workdir/cursor-proxy.log"
@@ -102,7 +102,7 @@ HAKO_CURSOR_PROXY_CERT="$workdir/cursor.crt" \
 HAKO_CURSOR_PROXY_KEY="$workdir/cursor.key" \
 HAKO_CURSOR_PROXY_LOG="$proxy_log" \
 OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
-HAKO_SMOKE_CURSOR_MODEL="$model" \
+HAKO_TEST_CURSOR_MODEL="$model" \
 HAKO_CURSOR_PROXY_STATIC_REPLY="$static_reply" \
 node /usr/local/bin/hako-agent-cursor-openrouter-proxy &
 proxy_pid=$!
@@ -123,7 +123,7 @@ generic_prompt='Reply exactly HAKO_CURSOR_PROXY_OK and nothing else.'
   SSL_CERT_FILE="$workdir/cursor.crt" \
   REQUESTS_CA_BUNDLE="$workdir/cursor.crt" \
   CURSOR_API_KEY="$OPENROUTER_API_KEY" \
-  timeout "${HAKO_CURSOR_PROXY_STATUS_SMOKE_TIMEOUT:-180}" cursor-agent \
+  timeout "${HAKO_CURSOR_PROXY_STATUS_TEST_TIMEOUT:-180}" cursor-agent \
     --print \
     --output-format text \
     --trust \
@@ -143,7 +143,7 @@ before_interactive_completions="$(grep -c 'static-complete' "$proxy_log" 2>/dev/
   REQUESTS_CA_BUNDLE="$workdir/cursor.crt" \
   CURSOR_API_KEY="$OPENROUTER_API_KEY" \
   HAKO_CURSOR_INTERACTIVE_ARGS="$(printf '%s\n' --api-key "$OPENROUTER_API_KEY" --model "$model" "$generic_prompt")" \
-  timeout "${HAKO_CURSOR_INTERACTIVE_STATUS_SMOKE_TIMEOUT:-120}" python3 - "$workdir/cursor-interactive-output.txt" "$proxy_log" "$before_interactive_completions" <<'PY' || true
+  timeout "${HAKO_CURSOR_INTERACTIVE_STATUS_TEST_TIMEOUT:-120}" python3 - "$workdir/cursor-interactive-output.txt" "$proxy_log" "$before_interactive_completions" <<'PY' || true
 import os, select, signal, subprocess, sys, time
 out_path, proxy_log, before_count = sys.argv[1], sys.argv[2], int(sys.argv[3])
 args = ["cursor-agent", *os.environ["HAKO_CURSOR_INTERACTIVE_ARGS"].splitlines()]
@@ -195,13 +195,13 @@ output = Path(sys.argv[1]).read_text(errors='replace')
 proxy = Path(sys.argv[2]).read_text(errors='replace')
 requests = [json.loads(line) for line in Path(sys.argv[3]).read_text(errors='replace').splitlines() if line.strip()]
 if 'HAKO_CURSOR_PROXY_OK' not in output:
-    print(f'cursor proxy smoke did not return expected marker: {output[-1000:]}', file=sys.stderr)
+    print(f'cursor proxy test did not return expected marker: {output[-1000:]}', file=sys.stderr)
     raise SystemExit(75)
 for needle in ['unary', 'agent-stream', 'static-complete']:
     if needle not in proxy:
         raise SystemExit(f'cursor proxy log missing {needle}: {proxy[-1000:]}')
 states = [req.get('params', {}).get('state') for req in requests if req.get('method') == 'pane.report_agent']
 if 'working' not in states or not any(req.get('method') == 'pane.release_agent' for req in requests):
-    raise SystemExit(f'cursor hook smoke did not observe working+release from real CLI hooks: {requests}')
+    raise SystemExit(f'cursor hook test did not observe working+release from real CLI hooks: {requests}')
 print('cursor proxy status test ok: real Cursor CLI completed through deterministic local proxy and emitted Hako status hooks')
 PY

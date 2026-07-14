@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 
-class AgentSmokeStatusAcceptanceInvariantTests(unittest.TestCase):
+class AgentTestStatusAcceptanceInvariantTests(unittest.TestCase):
     provider_failure_terms = re.compile(
         r"\b(?:pricing|entitlement|forbidden)\b|"
         r"provider[^\n]*(?:failure|error|unavailable)|"
@@ -13,11 +13,11 @@ class AgentSmokeStatusAcceptanceInvariantTests(unittest.TestCase):
     skip_terms = re.compile(r"\bskip(?:ped|ping)?\b", re.IGNORECASE)
     success_terms = re.compile(r"\b(?:exit|return)\s+0\b")
 
-    def test_status_smokes_do_not_successfully_skip_provider_acceptance_failures(self):
+    def test_status_tests_do_not_successfully_skip_provider_acceptance_failures(self):
         repo_root = Path(__file__).resolve().parents[1]
         failures = []
 
-        for script in sorted((repo_root / "ci" / "agent-smoke").glob("*status-smoke.sh")):
+        for script in sorted((repo_root / "ci" / "agent-test").glob("*status-test.sh")):
             executable_lines = [
                 (line_number, line.strip())
                 for line_number, line in enumerate(script.read_text().splitlines(), start=1)

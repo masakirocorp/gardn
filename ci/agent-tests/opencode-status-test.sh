@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /usr/local/lib/hako-agent-smoke-models.sh
-primary_model="${HAKO_OPENCODE_SMOKE_MODEL:-openrouter/openrouter/free}"
-if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" ]]; then
-  hako_smoke_unique_candidates "$primary_model" "${HAKO_SMOKE_FALLBACK_MODELS:-}" \
-    | hako_smoke_opencode_candidates \
-    | hako_smoke_run_with_fallbacks "$0" HAKO_OPENCODE_SMOKE_MODEL "$@"
+source /usr/local/lib/hako-agent-test-models.sh
+primary_model="${HAKO_OPENCODE_TEST_MODEL:-openrouter/openrouter/free}"
+if [[ -z "${HAKO_TEST_ACTIVE_MODEL:-}" ]]; then
+  hako_test_unique_candidates "$primary_model" "${HAKO_TEST_FALLBACK_MODELS:-}" \
+    | hako_test_opencode_candidates \
+    | hako_test_run_with_fallbacks "$0" HAKO_OPENCODE_TEST_MODEL "$@"
   exit $?
 fi
 
-model="$HAKO_SMOKE_ACTIVE_MODEL"
+model="$HAKO_TEST_ACTIVE_MODEL"
 repo_dir="${HAKO_REPO_DIR:-/repo}"
 plugin_path="$repo_dir/apps/hako/src/integration/assets/opencode/hako-agent-state.js"
-workdir="${HAKO_OPENCODE_STATUS_SMOKE_DIR:-$(mktemp -d)}"
+workdir="${HAKO_OPENCODE_STATUS_TEST_DIR:-$(mktemp -d)}"
 socket_path="$workdir/hako.sock"
 request_log="$workdir/hako-requests.jsonl"
 
@@ -117,7 +117,7 @@ EOF_CONFIG
   HAKO_ENV=1 \
   HAKO_SOCKET_PATH="$socket_path" \
   HAKO_PANE_ID="$pane_id" \
-  timeout "${HAKO_OPENCODE_STATUS_SMOKE_TIMEOUT:-180}" opencode run \
+  timeout "${HAKO_OPENCODE_STATUS_TEST_TIMEOUT:-180}" opencode run \
     --dir "$dir" \
     --model "$model" \
     --format json \
@@ -126,7 +126,7 @@ EOF_CONFIG
   local status=$?
   set -e
   if [[ "$status" -ne 0 ]]; then
-    if hako_smoke_retryable_status_or_output "$status" "$dir/output.jsonl"; then
+    if hako_test_retryable_status_or_output "$status" "$dir/output.jsonl"; then
       echo "$pane_id: retryable OpenCode provider/model failure with $model" >&2
       exit 75
     fi

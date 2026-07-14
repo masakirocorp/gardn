@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${OPENROUTER_API_KEY:-}" != "sk-hako-smoke-test" ]]; then
-  echo "OPENROUTER_API_KEY was not propagated into the smoke environment" >&2
+if [[ "${OPENROUTER_API_KEY:-}" != "sk-hako-agent-test" ]]; then
+  echo "OPENROUTER_API_KEY was not propagated into the test environment" >&2
   exit 1
 fi
 
@@ -15,14 +15,14 @@ required_env=(
   COPILOT_PROVIDER_BASE_URL
   COPILOT_MODEL
   CODEX_HOME
-  HAKO_SMOKE_MODEL
-  HAKO_SMOKE_FALLBACK_MODELS
+  HAKO_TEST_MODEL
+  HAKO_TEST_FALLBACK_MODELS
   OPENCODE_AUTH_CONTENT
 )
 
 for key in "${required_env[@]}"; do
   if [[ -z "${!key:-}" ]]; then
-    echo "missing smoke environment variable: $key" >&2
+    echo "missing test environment variable: $key" >&2
     exit 1
   fi
 done
@@ -42,9 +42,9 @@ grep -q 'provider: openrouter' "$HOME/.hermes/config.yaml"
 grep -q "default: \"poolside/laguna-m.1:free\"" "$HOME/.hermes/config.yaml"
 grep -q 'openrouter' <<<"$OPENCODE_AUTH_CONTENT"
 
-if [[ "$(id -un)" != "smoke" ]]; then
-  echo "smoke checks must run as the non-root smoke user" >&2
+if [[ "$(id -un)" != "agenttest" ]]; then
+  echo "agent checks must run as the non-root agent user" >&2
   exit 1
 fi
 
-printf 'agent smoke environment ok\n'
+printf 'agent test environment ok\n'

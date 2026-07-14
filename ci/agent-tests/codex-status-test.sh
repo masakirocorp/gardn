@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /usr/local/lib/hako-agent-smoke-models.sh
-primary_model="${HAKO_SMOKE_MODEL:-poolside/laguna-m.1:free}"
-if [[ -z "${HAKO_SMOKE_ACTIVE_MODEL:-}" ]]; then
-  hako_smoke_unique_candidates "$primary_model" "${HAKO_SMOKE_FALLBACK_MODELS:-}" \
-    | hako_smoke_openrouter_api_candidates \
-    | hako_smoke_non_openai_candidates \
-    | hako_smoke_run_with_fallbacks "$0" HAKO_SMOKE_MODEL "$@"
+source /usr/local/lib/hako-agent-test-models.sh
+primary_model="${HAKO_TEST_MODEL:-poolside/laguna-m.1:free}"
+if [[ -z "${HAKO_TEST_ACTIVE_MODEL:-}" ]]; then
+  hako_test_unique_candidates "$primary_model" "${HAKO_TEST_FALLBACK_MODELS:-}" \
+    | hako_test_openrouter_api_candidates \
+    | hako_test_non_openai_candidates \
+    | hako_test_run_with_fallbacks "$0" HAKO_TEST_MODEL "$@"
   exit $?
 fi
 
-model="$HAKO_SMOKE_ACTIVE_MODEL"
+model="$HAKO_TEST_ACTIVE_MODEL"
 repo_dir="${HAKO_REPO_DIR:-/repo}"
 hook_path="$repo_dir/apps/hako/src/integration/assets/codex/hako-agent-state.sh"
-workdir="${HAKO_CODEX_STATUS_SMOKE_DIR:-$(mktemp -d)}"
+workdir="${HAKO_CODEX_STATUS_TEST_DIR:-$(mktemp -d)}"
 socket_path="$workdir/hako.sock"
 request_log="$workdir/hako-requests.jsonl"
 
@@ -98,7 +98,7 @@ fi
 # hook assertions once upstream dispatches hooks in exec mode. Codex currently
 # documents hooks for config layers, but openai/codex#26452 and #26383 track
 # that `codex exec` does not dispatch valid hooks.json/config.toml hooks. Until
-# that is fixed upstream, this smoke can only prove real Codex OpenRouter
+# that is fixed upstream, this test can only prove real Codex OpenRouter
 # transport plus Hako's hook-script behavior through direct invocation.
 
 run_codex_cli() {
@@ -124,7 +124,7 @@ EOF_CONFIG
     cd "$dir/run"
     set +e
     CODEX_HOME="$dir/codex" \
-    timeout "${HAKO_CODEX_STATUS_SMOKE_TIMEOUT:-180}" codex exec \
+    timeout "${HAKO_CODEX_STATUS_TEST_TIMEOUT:-180}" codex exec \
       --cd "$dir/run" \
       --model "$model" \
       'Reply exactly HAKO_CODEX_STATUS_OK.' >"$dir/output.txt" 2>&1
@@ -142,9 +142,9 @@ output = Path(sys.argv[1]).read_text(errors="replace")
 if "HAKO_CODEX_STATUS_OK" not in output:
     raise SystemExit("codex real cli did not produce expected marker")
 if "api.openai.com" in output or '"provider":"openai"' in output:
-    raise SystemExit("codex smoke used OpenAI routing")
+    raise SystemExit("codex test used OpenAI routing")
 if "provider: openrouter" not in output:
-    raise SystemExit("codex smoke did not report OpenRouter provider")
+    raise SystemExit("codex test did not report OpenRouter provider")
 PY
 }
 

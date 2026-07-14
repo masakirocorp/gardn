@@ -3,7 +3,7 @@
 # Run local tests with incremental compilation
 test:
     cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
-    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty scripts.test_testing_guidelines scripts.test_extract_release_notes scripts.test_check_tegami_release_scope scripts.test_codex_status_smoke_fallback scripts.test_opencode_status_smoke_fallback
+    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty scripts.test_testing_guidelines scripts.test_extract_release_notes scripts.test_check_tegami_release_scope scripts.test_codex_status_fallback scripts.test_opencode_status_fallback scripts.test_agent_workflows
 
 # Run one nextest filter, e.g. `just test-one codex_stale_working`
 test-one filter:
@@ -28,7 +28,7 @@ ci: lint ci-test
 
 # Check formatting + run unit tests + maintenance script tests
 check: ci
-    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty scripts.test_testing_guidelines scripts.test_extract_release_notes scripts.test_check_tegami_release_scope scripts.test_codex_status_smoke_fallback scripts.test_opencode_status_smoke_fallback scripts.test_pi_omp_status_smoke_validation scripts.test_qoder_proxy_status_smoke_validation scripts.test_agent_smoke_status_acceptance_invariant scripts.test_smoke_model_candidates scripts.test_remaining_status_smoke_fallback
+    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty scripts.test_testing_guidelines scripts.test_extract_release_notes scripts.test_check_tegami_release_scope scripts.test_codex_status_fallback scripts.test_opencode_status_fallback scripts.test_pi_omp_status_validation scripts.test_qoder_proxy_status_validation scripts.test_agent_status_acceptance_invariant scripts.test_agent_model_candidates scripts.test_remaining_status_fallback scripts.test_agent_workflows
     @echo "docs reminder: if this changes user-facing behavior, update README.md or call it out before release."
 
 
@@ -81,61 +81,61 @@ release:
     git push origin "$tag"; \
     echo "$tag released — GitHub Actions building binaries"
 
-# Build optional real-agent smoke-test image
-agent-smoke-image:
-    docker build -t hako-agent-smoke:local ci/agent-smoke
+# Build the live agent test image
+agent-test-image:
+    docker build -t hako-agent-tests:local ci/agent-tests
 
-# Print versions from optional real-agent smoke-test image
-agent-smoke-doctor:
-    docker run --rm hako-agent-smoke:local
-
-
-# Verify optional real-agent smoke-test env wiring without calling providers
-agent-smoke-verify:
-    docker run --rm -e OPENROUTER_API_KEY=sk-hako-smoke-test hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-verify-env
+# Print versions from the live agent test image
+agent-test-doctor:
+    docker run --rm hako-agent-tests:local
 
 
-# Run OpenCode against the configured free OpenRouter smoke model
-agent-smoke-opencode:
-    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_FALLBACK_MODELS -e HAKO_OPENCODE_SMOKE_MODEL hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-opencode
+# Verify live agent test environment wiring without calling providers
+agent-test-verify:
+    docker run --rm -e OPENROUTER_API_KEY=sk-hako-agent-test hako-agent-tests:local hako-agent-tests-env hako-agent-tests-verify-env
+
+
+# Run OpenCode against the configured free OpenRouter test model
+agent-test-opencode:
+    docker run --rm -e OPENROUTER_API_KEY -e HAKO_TEST_FALLBACK_MODELS -e HAKO_OPENCODE_TEST_MODEL hako-agent-tests:local hako-agent-tests-env hako-agent-tests-opencode
 
 
 # Run OpenCode and verify Hako status reports from the real plugin
-agent-smoke-opencode-status:
-    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -e HAKO_OPENCODE_SMOKE_MODEL -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-opencode-status
+agent-test-opencode-status:
+    docker run --rm -e OPENROUTER_API_KEY -e HAKO_TEST_MODEL -e HAKO_TEST_FALLBACK_MODELS -e HAKO_OPENCODE_TEST_MODEL -v "$PWD:/repo:ro" hako-agent-tests:local hako-agent-tests-env hako-agent-tests-opencode-status
 
 
 
 # Run Pi/OMP and verify Hako status reports from the real plugin
-agent-smoke-pi-omp-status:
-    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-pi-omp-status
+agent-test-pi-omp-status:
+    docker run --rm -e OPENROUTER_API_KEY -e HAKO_TEST_MODEL -e HAKO_TEST_FALLBACK_MODELS -v "$PWD:/repo:ro" hako-agent-tests:local hako-agent-tests-env hako-agent-tests-pi-omp-status
 
 # Run Claude through OpenRouter and verify Hako status reports from the real hook
-agent-smoke-claude-status:
-    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-claude-status
+agent-test-claude-status:
+    docker run --rm -e OPENROUTER_API_KEY -e HAKO_TEST_MODEL -e HAKO_TEST_FALLBACK_MODELS -v "$PWD:/repo:ro" hako-agent-tests:local hako-agent-tests-env hako-agent-tests-claude-status
 
 # Run Codex through OpenRouter and verify Hako status reports from the real hook
-agent-smoke-codex-status:
-    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-codex-status
+agent-test-codex-status:
+    docker run --rm -e OPENROUTER_API_KEY -e HAKO_TEST_MODEL -e HAKO_TEST_FALLBACK_MODELS -v "$PWD:/repo:ro" hako-agent-tests:local hako-agent-tests-env hako-agent-tests-codex-status
 
 # Run remaining installed agents and verify Hako status reports where hooks exist
-agent-smoke-remaining-status:
-    docker run --rm -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -v "$PWD:/repo:ro" hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-remaining-status
+agent-test-remaining-status:
+    docker run --rm -e OPENROUTER_API_KEY -e HAKO_TEST_MODEL -e HAKO_TEST_FALLBACK_MODELS -v "$PWD:/repo:ro" hako-agent-tests:local hako-agent-tests-env hako-agent-tests-remaining-status
 
 
-# Run Cursor through an opt-in local OpenRouter proxy; hook states stay covered by seam smoke
-agent-smoke-cursor-proxy-status:
-    docker run --rm --user root -e OPENROUTER_API_KEY -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -e HAKO_SMOKE_CURSOR_MODEL -v "$PWD:/repo:ro" --add-host api2.cursor.sh:127.0.0.1 --add-host api2geo.cursor.sh:127.0.0.1 --add-host api2direct.cursor.sh:127.0.0.1 --add-host agentn.api5.cursor.sh:127.0.0.1 --add-host agent.api5.cursor.sh:127.0.0.1 hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-cursor-proxy-status
+# Run Cursor through a local OpenRouter proxy and assert real hook states
+agent-test-cursor-proxy-status:
+    docker run --rm --user root -e OPENROUTER_API_KEY -e HAKO_TEST_MODEL -e HAKO_TEST_FALLBACK_MODELS -e HAKO_TEST_CURSOR_MODEL -v "$PWD:/repo:ro" --add-host api2.cursor.sh:127.0.0.1 --add-host api2geo.cursor.sh:127.0.0.1 --add-host api2direct.cursor.sh:127.0.0.1 --add-host agentn.api5.cursor.sh:127.0.0.1 --add-host agent.api5.cursor.sh:127.0.0.1 hako-agent-tests:local hako-agent-tests-env hako-agent-tests-cursor-proxy-status
 
 
-# Run Qoder through an opt-in local OpenRouter proxy; hook states stay covered by seam smoke
-agent-smoke-qoder-proxy-status:
-    docker run --rm --user root -e OPENROUTER_API_KEY -e QODER_PERSONAL_ACCESS_TOKEN -e HAKO_SMOKE_MODEL -e HAKO_SMOKE_FALLBACK_MODELS -e HAKO_SMOKE_QODER_PROXY_MODEL -v "$PWD:/repo:ro" --add-host api1.qoder.sh:127.0.0.1 --add-host api2.qoder.sh:127.0.0.1 hako-agent-smoke:local hako-agent-smoke-env hako-agent-smoke-qoder-proxy-status
+# Run Qoder through a local OpenRouter proxy and assert real hook states
+agent-test-qoder-proxy-status:
+    docker run --rm --user root -e OPENROUTER_API_KEY -e QODER_PERSONAL_ACCESS_TOKEN -e HAKO_TEST_MODEL -e HAKO_TEST_FALLBACK_MODELS -e HAKO_TEST_QODER_PROXY_MODEL -v "$PWD:/repo:ro" --add-host api1.qoder.sh:127.0.0.1 --add-host api2.qoder.sh:127.0.0.1 hako-agent-tests:local hako-agent-tests-env hako-agent-tests-qoder-proxy-status
 
 # Verify Pi/OMP plugin lifecycle reports without calling providers
-agent-smoke-pi-omp-plugin-status:
-    docker run --rm -v "$PWD:/repo:ro" hako-agent-smoke:local node --experimental-strip-types /usr/local/bin/hako-agent-pi-omp-plugin-status-test /repo/apps/hako/src/integration/assets/pi/hako-agent-state.ts pi
-    docker run --rm -v "$PWD:/repo:ro" hako-agent-smoke:local node --experimental-strip-types /usr/local/bin/hako-agent-pi-omp-plugin-status-test /repo/apps/hako/src/integration/assets/omp/hako-agent-state.ts omp
+agent-test-pi-omp-plugin-status:
+    docker run --rm -v "$PWD:/repo:ro" hako-agent-tests:local node --experimental-strip-types /usr/local/bin/hako-agent-pi-omp-plugin-status-test /repo/apps/hako/src/integration/assets/pi/hako-agent-state.ts pi
+    docker run --rm -v "$PWD:/repo:ro" hako-agent-tests:local node --experimental-strip-types /usr/local/bin/hako-agent-pi-omp-plugin-status-test /repo/apps/hako/src/integration/assets/omp/hako-agent-state.ts omp
 
 # Print default config
 default-config:
