@@ -2063,11 +2063,14 @@ impl App {
                     }
                 }
                 crate::raw_input::RawInputEvent::OuterFocusGained => {
+                    self.send_outer_focus_event(crate::ghostty::FocusEvent::Gained);
                     if apply_host_terminal_theme {
                         self.query_host_terminal_theme();
                     }
                 }
-                crate::raw_input::RawInputEvent::OuterFocusLost => {}
+                crate::raw_input::RawInputEvent::OuterFocusLost => {
+                    self.send_outer_focus_event(crate::ghostty::FocusEvent::Lost);
+                }
                 crate::raw_input::RawInputEvent::HostDefaultColor { kind, color } => {
                     if apply_host_terminal_theme {
                         self.update_host_terminal_theme(kind, color);
@@ -2103,6 +2106,10 @@ impl App {
                     self.route_client_key_for_view(client_view, key);
                 }
                 crate::raw_input::RawInputEvent::OuterFocusGained => {
+                    self.send_outer_focus_event_for_view(
+                        client_view,
+                        crate::ghostty::FocusEvent::Gained,
+                    );
                     if apply_host_terminal_theme {
                         self.query_host_terminal_theme();
                     }
@@ -2122,8 +2129,13 @@ impl App {
                         self.update_host_terminal_cursor_color(color);
                     }
                 }
-                crate::raw_input::RawInputEvent::OuterFocusLost
-                | crate::raw_input::RawInputEvent::Unsupported => {}
+                crate::raw_input::RawInputEvent::OuterFocusLost => {
+                    self.send_outer_focus_event_for_view(
+                        client_view,
+                        crate::ghostty::FocusEvent::Lost,
+                    );
+                }
+                crate::raw_input::RawInputEvent::Unsupported => {}
                 crate::raw_input::RawInputEvent::Paste(text) => {
                     self.paste_for_view(client_view, &text);
                 }
@@ -10355,6 +10367,73 @@ mod tests {
         assert!(app.state.workspaces[0].tabs[0].panes[&root_pane].seen);
         assert!(app.state.workspaces[0].tabs[0].panes[&split_pane].seen);
         assert!(!app.state.workspaces[0].tabs[background_tab].panes[&background_pane].seen);
+    }
+
+    #[tokio::test]
+    async fn monolithic_outer_focus_events_reach_reporting_pane() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("focus-reporting");
+        let pane_id = workspace.tabs[0].root_pane;
+        let (runtime, mut input_rx) =
+            TerminalRuntime::test_with_channel_and_scrollback_bytes(80, 24, 0, b"\x1b[?1004h", 4);
+        workspace.insert_test_runtime(pane_id, runtime);
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        assert!(
+            app.handle_raw_input_event(crate::raw_input::RawInputEvent::OuterFocusGained)
+                .await
+        );
+        assert_eq!(
+            input_rx
+                .recv()
+                .await
+                .expect("forwarded focus gained report"),
+            bytes::Bytes::from_static(b"\x1b[I")
+        );
+
+        assert!(
+            !app.handle_raw_input_event(crate::raw_input::RawInputEvent::OuterFocusLost)
+                .await
+        );
+        assert_eq!(
+            input_rx.recv().await.expect("forwarded focus lost report"),
+            bytes::Bytes::from_static(b"\x1b[O")
+        );
+    }
+
+    #[tokio::test]
+    async fn client_view_outer_focus_targets_that_clients_focused_pane() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("focus-view");
+        let first_pane = workspace.tabs[0].root_pane;
+        let second_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        let (first_runtime, mut first_rx) =
+            TerminalRuntime::test_with_channel_and_scrollback_bytes(80, 24, 0, b"\x1b[?1004h", 4);
+        let (second_runtime, mut second_rx) =
+            TerminalRuntime::test_with_channel_and_scrollback_bytes(80, 24, 0, b"\x1b[?1004h", 4);
+        workspace.insert_test_runtime(first_pane, first_runtime);
+        workspace.insert_test_runtime(second_pane, second_runtime);
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        let mut client_view = ClientViewState::from_default_client_state(&app.state);
+        let _ = client_view.focus_pane_in_workspace(&app.state, 0, 0, second_pane);
+
+        app.route_client_events_for_view(
+            &mut client_view,
+            vec![crate::raw_input::RawInputEvent::OuterFocusGained],
+            false,
+        );
+
+        assert_eq!(
+            second_rx.recv().await.expect("client focused pane report"),
+            bytes::Bytes::from_static(b"\x1b[I")
+        );
+        assert!(first_rx.try_recv().is_err());
     }
 
     #[tokio::test]

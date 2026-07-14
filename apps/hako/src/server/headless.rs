@@ -41,8 +41,8 @@ use crate::server::client_accept::{
 };
 use crate::server::client_transport::ServerEvent;
 use crate::server::clients::{
-    events_include_interaction, events_need_client_view_state, latest_app_client, render_targets,
-    terminal_attach_client_ids, ClientConnection, ClientConnectionMode,
+    events_include_interaction, latest_app_client, render_targets, terminal_attach_client_ids,
+    ClientConnection, ClientConnectionMode,
 };
 use crate::server::keybindings::{app_keybindings, apply_keybindings};
 use crate::server::notifications::{
@@ -1873,6 +1873,11 @@ impl HeadlessServer {
                     return false;
                 }
                 debug!(client_id, len = data.len(), "client input received");
+                let source_was_foreground = self.foreground_client_id == Some(client_id);
+                let source_is_full_app = self
+                    .clients
+                    .get(&client_id)
+                    .is_some_and(ClientConnection::is_full_app_client);
                 if let Some(ClientConnection {
                     mode: ClientConnectionMode::TerminalAttach { terminal_id },
                     ..
@@ -1902,7 +1907,11 @@ impl HeadlessServer {
                         client.request_semantic_redraw_after_input();
                     }
                 }
-                self.update_client_outer_focus_from_events(client_id, &events);
+                if source_is_full_app {
+                    self.update_client_outer_focus_from_events(client_id, &events);
+                }
+                let events =
+                    events_for_app_routing(events, source_was_foreground, source_is_full_app);
                 let interaction = events_include_interaction(&events);
                 let foreground_changed = if interaction {
                     self.promote_client_to_foreground(client_id)
@@ -1914,7 +1923,11 @@ impl HeadlessServer {
                 }
                 let theme_changed = self.update_client_host_theme_from_events(client_id, &events);
                 let apply_host_terminal_theme = self.foreground_client_id == Some(client_id);
-                if events_need_client_view_state(&events) {
+                if self
+                    .clients
+                    .get(&client_id)
+                    .is_some_and(|client| client.view_state.is_some())
+                {
                     if let Some(client) = self.clients.get_mut(&client_id) {
                         if let Some(view_state) = client.view_state.as_mut() {
                             self.app.route_client_events_for_view(
@@ -1986,6 +1999,11 @@ impl HeadlessServer {
                     len = events.len(),
                     "client input events received"
                 );
+                let source_was_foreground = self.foreground_client_id == Some(client_id);
+                let source_is_full_app = self
+                    .clients
+                    .get(&client_id)
+                    .is_some_and(ClientConnection::is_full_app_client);
                 if let Some(ClientConnection {
                     mode: ClientConnectionMode::TerminalAttach { terminal_id },
                     ..
@@ -2021,7 +2039,11 @@ impl HeadlessServer {
                         client.request_semantic_redraw_after_input();
                     }
                 }
-                self.update_client_outer_focus_from_events(client_id, &events);
+                if source_is_full_app {
+                    self.update_client_outer_focus_from_events(client_id, &events);
+                }
+                let events =
+                    events_for_app_routing(events, source_was_foreground, source_is_full_app);
                 let interaction = events_include_interaction(&events);
                 let foreground_changed = if interaction {
                     self.promote_client_to_foreground(client_id)
@@ -2033,7 +2055,11 @@ impl HeadlessServer {
                 }
                 let theme_changed = self.update_client_host_theme_from_events(client_id, &events);
                 let apply_host_terminal_theme = self.foreground_client_id == Some(client_id);
-                if events_need_client_view_state(&events) {
+                if self
+                    .clients
+                    .get(&client_id)
+                    .is_some_and(|client| client.view_state.is_some())
+                {
                     if let Some(client) = self.clients.get_mut(&client_id) {
                         if let Some(view_state) = client.view_state.as_mut() {
                             self.app.route_client_events_for_view(
@@ -2988,6 +3014,36 @@ impl HeadlessServer {
     }
 }
 
+fn events_for_app_routing(
+    events: Vec<crate::raw_input::RawInputEvent>,
+    mut source_is_foreground: bool,
+    source_is_full_app: bool,
+) -> Vec<crate::raw_input::RawInputEvent> {
+    events
+        .into_iter()
+        .filter_map(|event| match event {
+            crate::raw_input::RawInputEvent::OuterFocusGained
+            | crate::raw_input::RawInputEvent::OuterFocusLost
+                if !source_is_full_app =>
+            {
+                None
+            }
+            crate::raw_input::RawInputEvent::OuterFocusGained => {
+                source_is_foreground = true;
+                Some(event)
+            }
+            crate::raw_input::RawInputEvent::OuterFocusLost if !source_is_foreground => None,
+            crate::raw_input::RawInputEvent::Key(_)
+            | crate::raw_input::RawInputEvent::Mouse(_)
+            | crate::raw_input::RawInputEvent::Paste(_) => {
+                source_is_foreground = true;
+                Some(event)
+            }
+            _ => Some(event),
+        })
+        .collect()
+}
+
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
         let staged_files = self
@@ -3320,6 +3376,39 @@ mod tests {
             server_event_rx,
             server_event_tx,
         }
+    }
+    fn install_focused_test_runtime(
+        server: &mut HeadlessServer,
+        terminal_bytes: &[u8],
+    ) -> tokio::sync::mpsc::Receiver<Bytes> {
+        let mut workspace = crate::workspace::Workspace::test_new("focus-reporting");
+        let pane_id = workspace.tabs[0].root_pane;
+        let (runtime, input_rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
+                80,
+                24,
+                0,
+                terminal_bytes,
+                4,
+            );
+        workspace.insert_test_runtime(pane_id, runtime);
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        server.app.state.mode = crate::app::Mode::Terminal;
+        input_rx
+    }
+
+    fn test_app_client(outer_terminal_focus: Option<bool>, last_activity: u64) -> ClientConnection {
+        ClientConnection::new(
+            (80, 24),
+            crate::kitty_graphics::HostCellSize::default(),
+            crate::terminal_theme::TerminalTheme::default(),
+            outer_terminal_focus,
+            last_activity,
+            RenderEncoding::SemanticFrame,
+            None,
+        )
     }
 
     #[tokio::test]
@@ -5174,6 +5263,151 @@ next_tab = ""
             1
         );
         assert!(client_rx.recv_timeout(Duration::from_millis(50)).is_err());
+    }
+    #[tokio::test]
+    async fn foreground_focus_events_reach_reporting_pane() {
+        let mut server = test_headless_server();
+        let mut input_rx = install_focused_test_runtime(&mut server, b"\x1b[?1004h");
+        server.clients.insert(1, test_app_client(Some(false), 1));
+        server.foreground_client_id = Some(1);
+        server.sync_foreground_client_state();
+
+        assert!(server.handle_server_event(ServerEvent::ClientInput {
+            client_id: 1,
+            data: b"\x1b[I".to_vec(),
+        }));
+        assert_eq!(
+            input_rx
+                .recv()
+                .await
+                .expect("forwarded focus gained report"),
+            Bytes::from_static(b"\x1b[I")
+        );
+
+        assert!(!server.handle_server_event(ServerEvent::ClientInput {
+            client_id: 1,
+            data: b"\x1b[O".to_vec(),
+        }));
+        assert_eq!(
+            input_rx.recv().await.expect("forwarded focus lost report"),
+            Bytes::from_static(b"\x1b[O")
+        );
+    }
+
+    #[tokio::test]
+    async fn structured_focus_targets_the_clients_focused_pane() {
+        let mut server = test_headless_server();
+        let mut workspace = crate::workspace::Workspace::test_new("focus-view");
+        let first_pane = workspace.tabs[0].root_pane;
+        let second_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        let (first_runtime, mut first_rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
+                80,
+                24,
+                0,
+                b"\x1b[?1004h",
+                4,
+            );
+        let (second_runtime, mut second_rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
+                80,
+                24,
+                0,
+                b"\x1b[?1004h",
+                4,
+            );
+        workspace.insert_test_runtime(first_pane, first_runtime);
+        workspace.insert_test_runtime(second_pane, second_runtime);
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        server.app.state.mode = crate::app::Mode::Terminal;
+
+        let mut client = test_app_client(Some(false), 1);
+        let mut client_view =
+            crate::app::ClientViewState::from_default_client_state(&server.app.state);
+        let _ = client_view.focus_pane_in_workspace(&server.app.state, 0, 0, second_pane);
+        client.view_state = Some(client_view);
+        server.clients.insert(1, client);
+        server.foreground_client_id = Some(1);
+        server.sync_foreground_client_state();
+
+        assert!(server.handle_server_event(ServerEvent::ClientInputEvents {
+            client_id: 1,
+            events: vec![crate::raw_input::RawInputEvent::OuterFocusGained],
+        }));
+        assert_eq!(
+            second_rx.recv().await.expect("client focused pane report"),
+            Bytes::from_static(b"\x1b[I")
+        );
+        assert!(first_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn background_focus_batch_forwards_only_after_promotion() {
+        let mut server = test_headless_server();
+        let mut input_rx = install_focused_test_runtime(&mut server, b"\x1b[?1004h");
+        server.clients.insert(1, test_app_client(Some(true), 1));
+        server.clients.insert(2, test_app_client(Some(false), 2));
+        server.foreground_client_id = Some(1);
+        server.sync_foreground_client_state();
+
+        assert!(server.handle_server_event(ServerEvent::ClientInputEvents {
+            client_id: 2,
+            events: vec![
+                crate::raw_input::RawInputEvent::OuterFocusLost,
+                crate::raw_input::RawInputEvent::OuterFocusGained,
+            ],
+        }));
+        assert_eq!(server.foreground_client_id, Some(2));
+        assert_eq!(server.app.state.outer_terminal_focus, Some(true));
+        assert_eq!(
+            input_rx.recv().await.expect("focus gained after promotion"),
+            Bytes::from_static(b"\x1b[I")
+        );
+        assert!(input_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn non_app_focus_events_are_ignored_without_suppressing_keys() {
+        let mut server = test_headless_server();
+        let mut input_rx = install_focused_test_runtime(&mut server, b"\x1b[?1004h");
+        server.clients.insert(1, test_app_client(Some(true), 1));
+
+        let mut attached = test_app_client(Some(false), 2);
+        attached.mode = ClientConnectionMode::TerminalAttach {
+            terminal_id: "attached".to_owned(),
+        };
+        server.clients.insert(2, attached);
+
+        let mut pending = test_app_client(Some(false), 3);
+        pending.pending_terminal_attach = true;
+        server.clients.insert(3, pending);
+        server.foreground_client_id = Some(1);
+        server.sync_foreground_client_state();
+
+        for client_id in [2, 3] {
+            let _ = server.handle_server_event(ServerEvent::ClientInputEvents {
+                client_id,
+                events: vec![crate::raw_input::RawInputEvent::OuterFocusGained],
+            });
+            assert_eq!(server.foreground_client_id, Some(1));
+            assert_eq!(server.app.state.outer_terminal_focus, Some(true));
+            assert_eq!(server.clients[&client_id].outer_terminal_focus, Some(false));
+        }
+        assert!(input_rx.try_recv().is_err());
+
+        assert!(server.handle_server_event(ServerEvent::ClientInputEvents {
+            client_id: 3,
+            events: vec![crate::raw_input::RawInputEvent::Key(
+                crate::input::TerminalKey::new(
+                    crossterm::event::KeyCode::Char('x'),
+                    crossterm::event::KeyModifiers::empty(),
+                )
+                .with_kind(crossterm::event::KeyEventKind::Press),
+            )],
+        }));
+        assert_eq!(server.foreground_client_id, Some(3));
     }
 
     #[test]

@@ -197,6 +197,7 @@ impl App {
                 true
             }
             crate::raw_input::RawInputEvent::OuterFocusGained => {
+                self.send_outer_focus_event(crate::ghostty::FocusEvent::Gained);
                 if self.state.redraw_on_focus_gained {
                     self.request_full_redraw();
                 }
@@ -206,6 +207,7 @@ impl App {
                 true
             }
             crate::raw_input::RawInputEvent::OuterFocusLost => {
+                self.send_outer_focus_event(crate::ghostty::FocusEvent::Lost);
                 self.state.outer_terminal_focus = Some(false);
                 false
             }

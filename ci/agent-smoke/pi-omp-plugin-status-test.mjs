@@ -19,6 +19,7 @@ const pane = `pane-${expectedAgent}`;
 const root = mkdtempSync(path.join(os.tmpdir(), `hako-${expectedAgent}-plugin-`));
 const socketPath = path.join(root, "hako.sock");
 const requests = [];
+let dropNextLifecycleResponse = false;
 
 const server = net.createServer((conn) => {
   let buffer = "";
@@ -31,6 +32,10 @@ const server = net.createServer((conn) => {
       if (!line.trim()) continue;
       const request = JSON.parse(line);
       requests.push(request);
+      if (expectedAgent === "omp" && request.method === "pane.report_agent" && dropNextLifecycleResponse) {
+        dropNextLifecycleResponse = false;
+        continue;
+      }
       conn.write(`${JSON.stringify({ id: request.id, result: { type: "ok" } })}\n`);
       conn.end();
     }
@@ -75,6 +80,8 @@ class Harness {
 
 function context(sessionFile = `${root}/project/session.jsonl`, sessionId = "session-root") {
   return {
+    hasUI: true,
+    isIdle: () => true,
     sessionManager: {
       getSessionFile: () => sessionFile,
       getSessionId: () => sessionId,
@@ -90,12 +97,22 @@ async function waitForNewRequests(previousCount, added = 1) {
 }
 
 
+function lifecycleRequests() {
+  return requests.filter(
+    (request) => request.method === "pane.report_agent" || request.method === "pane.release_agent",
+  );
+}
+
 async function waitForRequests(count) {
   const deadline = Date.now() + 1000;
-  while (requests.length < count && Date.now() < deadline) {
+  while (lifecycleRequests().length < count && Date.now() < deadline) {
     await sleep(5);
   }
-  assert.equal(requests.length >= count, true, `expected at least ${count} requests, got ${requests.length}`);
+  assert.equal(
+    lifecycleRequests().length >= count,
+    true,
+    `expected at least ${count} lifecycle requests, got ${lifecycleRequests().length}`,
+  );
 }
 
 function reports() {
@@ -117,7 +134,12 @@ function assertCommon() {
     assert.equal(params.source, expectedSource, JSON.stringify(request));
     assert.equal(params.agent, expectedAgent, JSON.stringify(request));
     assert.equal(typeof params.seq, "number", JSON.stringify(request));
-    assert.equal(params.agent_session_path, `${root}/project/session.jsonl`, JSON.stringify(request));
+    assert.equal(typeof params.agent_session_path, "string", JSON.stringify(request));
+    assert.ok(
+      params.agent_session_path === `${root}/project/session.jsonl`
+        || params.agent_session_path.startsWith(`${root}/project/session/`),
+      JSON.stringify(request),
+    );
     assert.deepEqual(params.launch_env, {
       PI_CONFIG_DIR: path.join(root, "config"),
       PI_CODING_AGENT_DIR: path.join(root, "agent"),
@@ -205,7 +227,7 @@ pi.emit("agent_end", { messages: [] });
 await sleep(20);
 assert.equal(states().at(-1), "idle", JSON.stringify(states()));
 
-const beforeManualCompact = requests.length;
+const beforeManualCompact = lifecycleRequests().length;
 pi.emit("session.compacting");
 await waitForNewRequests(beforeManualCompact);
 assert.equal(states().at(-1), "working", JSON.stringify(states()));
@@ -213,7 +235,7 @@ pi.emit("session_compact");
 await sleep(20);
 assert.equal(states().at(-1), "idle", JSON.stringify(states()));
 
-const beforeAutoCompact = requests.length;
+const beforeAutoCompact = lifecycleRequests().length;
 pi.emit("auto_compaction_start");
 await waitForNewRequests(beforeAutoCompact);
 assert.equal(states().at(-1), "working", JSON.stringify(states()));
@@ -226,7 +248,32 @@ pi.emit("agent_end", { messages: [] });
 await sleep(20);
 assert.equal(states().length, beforeDuplicateEnd, "duplicate agent_end should not publish another state");
 
-const beforeRetryStart = requests.length;
+if (expectedAgent === "omp") {
+  const beforeDroppedLifecycle = lifecycleRequests().length;
+  const beforeDroppedReports = reports().length;
+  dropNextLifecycleResponse = true;
+  pi.emit("agent_start");
+  await waitForNewRequests(beforeDroppedLifecycle);
+  const droppedRequest = reports()[beforeDroppedReports];
+  pi.emit("agent_end", { messages: [] });
+  await waitForNewRequests(beforeDroppedLifecycle + 1);
+  assert.deepEqual(
+    reports()[beforeDroppedReports + 1],
+    droppedRequest,
+    "dropped lifecycle report should be retried unchanged",
+  );
+  await waitForNewRequests(beforeDroppedLifecycle + 2);
+  assert.equal(states().at(-1), "idle", JSON.stringify(states()));
+  const afterRetryRequests = lifecycleRequests().length;
+  await sleep(50);
+  assert.equal(
+    lifecycleRequests().length,
+    afterRetryRequests,
+    "successful lifecycle retry should not produce another report",
+  );
+}
+
+const beforeRetryStart = lifecycleRequests().length;
 pi.emit("agent_start");
 await waitForNewRequests(beforeRetryStart);
 pi.emit("agent_end", {
@@ -242,7 +289,7 @@ assert.equal(states().at(-1), "working", JSON.stringify(states()));
 await sleep(30);
 assert.equal(states().at(-1), "blocked", JSON.stringify(states()));
 
-const beforeBlockedRecovery = requests.length;
+const beforeBlockedRecovery = lifecycleRequests().length;
 pi.emit("agent_start");
 await waitForNewRequests(beforeBlockedRecovery);
 assert.equal(states().at(-1), "working", JSON.stringify(states()));
@@ -250,7 +297,7 @@ assert.equal(states().at(-1), "working", JSON.stringify(states()));
 const child = new Harness();
 plugin(child);
 child.emit("session_start", {}, context(`${root}/project/session/child.jsonl`, "child-session"));
-const beforeChildStart = requests.length;
+const beforeChildStart = lifecycleRequests().length;
 child.emit("agent_start");
 await waitForNewRequests(beforeChildStart);
 assert.equal(states().at(-1), "working", JSON.stringify(states()));
@@ -266,8 +313,8 @@ pi.emit("agent_end", { messages: [] });
 await sleep(20);
 assert.equal(states().at(-1), "idle", JSON.stringify(states()));
 
-const beforeShutdown = requests.length;
-pi.emit("session_shutdown");
+const beforeShutdown = lifecycleRequests().length;
+pi.emit("session_shutdown", { reason: "quit" });
 await waitForNewRequests(beforeShutdown);
 assert.equal(releases().length, 1, "session_shutdown should release the pane agent");
 assertCommon();

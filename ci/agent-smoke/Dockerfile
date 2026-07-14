@@ -11,6 +11,7 @@ ARG HERMES_VERSION=latest
 ARG DROID_VERSION=latest
 ARG PNPM_VERSION=11.6.0
 ARG KIMI_VERSION=latest
+ARG MAKI_VERSION=latest
 ARG OMP_REF=
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
@@ -105,6 +106,22 @@ RUN set -eux; \
     ln -s "$kiro_bin" /usr/local/bin/kiro; \
     rm -f /tmp/kirocli.zip
 
+# Maki publishes static musl binaries for the two architectures used by CI.
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) maki_arch=x86_64 ;; \
+      arm64) maki_arch=aarch64 ;; \
+      *) echo "unsupported Maki arch: $arch" >&2; exit 1 ;; \
+    esac; \
+    if [ "$MAKI_VERSION" = "latest" ]; then \
+      tag="$(curl -fsSL https://api.github.com/repos/tontinton/maki/releases/latest | jq -r .tag_name)"; \
+    else \
+      case "$MAKI_VERSION" in v*) tag="$MAKI_VERSION" ;; *) tag="v$MAKI_VERSION" ;; esac; \
+    fi; \
+    curl -fsSL "https://github.com/tontinton/maki/releases/download/${tag}/maki-${tag}-${maki_arch}-unknown-linux-musl.tar.gz" \
+      | tar xz -C /usr/local/bin; \
+    chmod +x /usr/local/bin/maki
 RUN curl -fsSL https://cursor.com/install | bash \
     && mkdir -p /opt \
     && cp -a /root/.local/share/cursor-agent /opt/cursor-agent \
@@ -155,7 +172,8 @@ COPY cursor-openrouter-proxy.mjs /usr/local/bin/hako-agent-cursor-openrouter-pro
 COPY cursor-proxy-status-smoke.sh /usr/local/bin/hako-agent-smoke-cursor-proxy-status
 COPY qoder-openrouter-proxy.mjs /usr/local/bin/hako-agent-qoder-openrouter-proxy
 COPY qoder-proxy-status-smoke.sh /usr/local/bin/hako-agent-smoke-qoder-proxy-status
-RUN chmod +x /usr/local/bin/hako-agent-smoke-env /usr/local/bin/hako-agent-smoke-doctor /usr/local/bin/hako-agent-smoke-verify-env /usr/local/bin/hako-agent-smoke-opencode /usr/local/bin/hako-agent-smoke-opencode-status /usr/local/bin/hako-agent-smoke-pi-omp-status /usr/local/bin/hako-agent-smoke-claude-status /usr/local/bin/hako-agent-smoke-codex-status /usr/local/bin/hako-agent-smoke-remaining-status /usr/local/bin/hako-agent-smoke-cursor-proxy-status /usr/local/bin/hako-agent-smoke-qoder-proxy-status /usr/local/bin/hako-agent-cursor-openrouter-proxy /usr/local/bin/hako-agent-qoder-openrouter-proxy /usr/local/bin/hako-agent-opencode-plugin-status-test /usr/local/bin/hako-agent-pi-omp-plugin-status-test \
+COPY maki-status-smoke.sh /usr/local/bin/hako-agent-smoke-maki-status
+RUN chmod +x /usr/local/bin/hako-agent-smoke-env /usr/local/bin/hako-agent-smoke-doctor /usr/local/bin/hako-agent-smoke-verify-env /usr/local/bin/hako-agent-smoke-opencode /usr/local/bin/hako-agent-smoke-opencode-status /usr/local/bin/hako-agent-smoke-pi-omp-status /usr/local/bin/hako-agent-smoke-claude-status /usr/local/bin/hako-agent-smoke-codex-status /usr/local/bin/hako-agent-smoke-remaining-status /usr/local/bin/hako-agent-smoke-cursor-proxy-status /usr/local/bin/hako-agent-smoke-qoder-proxy-status /usr/local/bin/hako-agent-smoke-maki-status /usr/local/bin/hako-agent-cursor-openrouter-proxy /usr/local/bin/hako-agent-qoder-openrouter-proxy /usr/local/bin/hako-agent-opencode-plugin-status-test /usr/local/bin/hako-agent-pi-omp-plugin-status-test \
     && useradd --create-home --shell /bin/bash smoke
 
 USER smoke

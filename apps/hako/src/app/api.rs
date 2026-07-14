@@ -708,7 +708,28 @@ impl App {
         self.sync_focus_events_for_view(&view);
     }
 
+    pub(super) fn send_outer_focus_event(&mut self, event: crate::ghostty::FocusEvent) {
+        let view = self.default_client_view.clone_reconciled(&self.state);
+        self.send_outer_focus_event_for_view(&view, event);
+    }
+
+    pub(super) fn send_outer_focus_event_for_view(
+        &mut self,
+        view: &ClientViewState,
+        event: crate::ghostty::FocusEvent,
+    ) {
+        self.sync_focus_events_with_outer_event(view, Some(event));
+    }
+
     pub(crate) fn sync_focus_events_for_view(&mut self, view: &ClientViewState) {
+        self.sync_focus_events_with_outer_event(view, None);
+    }
+
+    fn sync_focus_events_with_outer_event(
+        &mut self,
+        view: &ClientViewState,
+        outer_event: Option<crate::ghostty::FocusEvent>,
+    ) {
         let current_focus = view.active_workspace.and_then(|idx| {
             self.state.workspaces.get(idx).and_then(|ws| {
                 let tab_idx = view
@@ -722,6 +743,9 @@ impl App {
             })
         });
         if current_focus == self.last_focus {
+            if let (Some((ws_idx, pane_id)), Some(event)) = (current_focus, outer_event) {
+                self.send_pane_focus_event(ws_idx, pane_id, event);
+            }
             return;
         }
 
@@ -729,7 +753,14 @@ impl App {
             self.send_pane_focus_event(ws_idx, pane_id, crate::ghostty::FocusEvent::Lost);
         }
         if let Some((ws_idx, pane_id)) = current_focus {
-            self.send_pane_focus_event(ws_idx, pane_id, crate::ghostty::FocusEvent::Gained);
+            let event = outer_event.unwrap_or_else(|| {
+                if self.state.outer_terminal_focus == Some(false) {
+                    crate::ghostty::FocusEvent::Lost
+                } else {
+                    crate::ghostty::FocusEvent::Gained
+                }
+            });
+            self.send_pane_focus_event(ws_idx, pane_id, event);
             self.emit_event(crate::api::schema::EventEnvelope {
                 event: crate::api::schema::EventKind::WorkspaceFocused,
                 data: crate::api::schema::EventData::WorkspaceFocused {

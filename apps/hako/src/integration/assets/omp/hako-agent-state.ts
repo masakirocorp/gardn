@@ -18,30 +18,37 @@ function enabled() {
 
 let requestQueue = Promise.resolve();
 
-function sendRequestNow(request: unknown): Promise<void> {
+function sendRequestAttempt(request: unknown, timeoutMs: number): Promise<boolean> {
   if (!enabled()) {
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
 
-  const { promise, resolve } = Promise.withResolvers<void>();
+  const { promise, resolve } = Promise.withResolvers<boolean>();
   let done = false;
   let timeout;
   const socket = createConnection(socketPath!);
-  const finish = () => {
+  const finish = (delivered: boolean) => {
     if (done) return;
     done = true;
     clearTimeout(timeout);
     socket.destroy();
-    resolve();
+    resolve(delivered);
   };
 
-  socket.on("error", finish);
+  socket.on("error", () => finish(false));
   socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
-  socket.on("data", finish);
-  socket.on("end", finish);
-  timeout = setTimeout(finish, 500);
+  socket.on("data", () => finish(true));
+  socket.on("end", () => finish(false));
+  timeout = setTimeout(() => finish(false), timeoutMs);
   timeout.unref?.();
   return promise;
+}
+
+async function sendRequestNow(request: unknown): Promise<void> {
+  if (await sendRequestAttempt(request, 500)) {
+    return;
+  }
+  await sendRequestAttempt(request, 1500);
 }
 
 function sendRequest(request: unknown): Promise<void> {

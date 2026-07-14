@@ -3269,6 +3269,30 @@
       "subject": "fix: show renamed single tabs in agents sidebar",
       "status": "ported",
       "reason": "Equivalent invariant already exists in Hako; reviewed during ENG-91 backlog classification."
+    },
+    {
+      "upstream": "ca7ae086e8d6e80f6efc969d541b390328a6d143",
+      "subject": "fix(website): scope docs search by locale and channel",
+      "status": "skipped",
+      "reason": "Hako-owned website is maintained separately; upstream Herdr website behavior is not portable."
+    },
+    {
+      "upstream": "2e5da968ea3fb7105c56f7674caf822de41ec176",
+      "subject": "fix: forward outer focus events to panes (#1388)",
+      "status": "ported",
+      "reason": "Integrated under ENG-91 follow-up with client-view-aware focus forwarding coverage."
+    },
+    {
+      "upstream": "9e4fdd6102e6f68e42fbe419d447b758c161f0db",
+      "subject": "fix: retry dropped omp lifecycle reports",
+      "status": "ported",
+      "reason": "Integrated under ENG-91 follow-up with dropped-response and no-duplicate coverage."
+    },
+    {
+      "upstream": "4c9a3f380d221fe02fa8c4d2d9ef94438fa1957f",
+      "subject": "fix: forward horizontal wheel events to panes (#1402)",
+      "status": "ported",
+      "reason": "Integrated under ENG-91 follow-up with horizontal pane-forwarding and local-UI coverage."
     }
   ]
 }

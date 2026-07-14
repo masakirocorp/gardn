@@ -1069,15 +1069,18 @@ impl AppState {
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
                 if !in_chrome && self.scroll_selection_with_wheel(terminal_runtimes, mouse) => {}
 
-            MouseEventKind::ScrollUp
-            | MouseEventKind::ScrollDown
-            | MouseEventKind::ScrollLeft
-            | MouseEventKind::ScrollRight
-                if !in_chrome =>
-            {
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown if !in_chrome => {
                 self.selection = None;
                 self.selection_autoscroll = None;
                 self.handle_terminal_wheel(terminal_runtimes, mouse);
+            }
+
+            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight
+                if self.mode == Mode::Terminal && !in_chrome =>
+            {
+                if let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() {
+                    self.forward_pane_reported_wheel(terminal_runtimes, &info, mouse);
+                }
             }
 
             MouseEventKind::ScrollUp if in_right_sidebar => {
@@ -3788,6 +3791,76 @@ mod tests {
         ));
 
         assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[tokio::test]
+    async fn mouse_capture_forwards_horizontal_wheel_with_sgr_modifiers() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let pane_id = ws.tabs[0].root_pane;
+        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let info = pane_infos[0].clone();
+        let (runtime, mut input_rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_screen_bytes(
+                info.inner_rect.width,
+                info.inner_rect.height,
+                b"\x1b[?1000h\x1b[?1006h",
+            );
+        ws.insert_test_runtime(pane_id, runtime);
+
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.view.pane_infos = pane_infos;
+        assert!(app.state.mouse_capture);
+
+        let column = info.inner_rect.x + 2;
+        let row = info.inner_rect.y + 3;
+        let modifiers = KeyModifiers::SHIFT | KeyModifiers::ALT;
+        for (kind, button) in [
+            (MouseEventKind::ScrollLeft, 66),
+            (MouseEventKind::ScrollRight, 67),
+        ] {
+            app.handle_mouse(MouseEvent {
+                kind,
+                column,
+                row,
+                modifiers,
+            });
+
+            assert_eq!(
+                input_rx.try_recv().expect("horizontal wheel reaches pane"),
+                Bytes::from(format!("\x1b[<{};3;4M", button + 12))
+            );
+        }
+        assert!(input_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn horizontal_wheel_over_sidebar_stays_local() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let pane_id = ws.tabs[0].root_pane;
+        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let info = pane_infos[0].clone();
+        let (runtime, mut input_rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_screen_bytes(
+                info.inner_rect.width,
+                info.inner_rect.height,
+                b"\x1b[?1000h\x1b[?1006h",
+            );
+        ws.insert_test_runtime(pane_id, runtime);
+
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.view.pane_infos = pane_infos;
+
+        app.handle_mouse(mouse(MouseEventKind::ScrollLeft, 2, 3));
+
+        assert!(input_rx.try_recv().is_err());
     }
 
     #[test]

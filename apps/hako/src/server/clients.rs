@@ -192,17 +192,6 @@ pub(crate) fn events_include_interaction(events: &[crate::raw_input::RawInputEve
     })
 }
 
-pub(crate) fn events_need_client_view_state(events: &[crate::raw_input::RawInputEvent]) -> bool {
-    events.iter().any(|event| {
-        matches!(
-            event,
-            crate::raw_input::RawInputEvent::Key(_)
-                | crate::raw_input::RawInputEvent::Mouse(_)
-                | crate::raw_input::RawInputEvent::Paste(_)
-        )
-    })
-}
-
 pub(crate) fn latest_app_client(clients: &HashMap<u64, ClientConnection>) -> Option<u64> {
     clients
         .iter()

@@ -4140,6 +4140,36 @@ mod tests {
     }
 
     #[test]
+    fn outdated_integrations_detect_previous_omp_version() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let home = base.join("home");
+        let ext_dir = home.join(".omp/agent/extensions");
+        fs::create_dir_all(&ext_dir).unwrap();
+        let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
+        fs::write(
+            &extension_path,
+            "// HAKO_INTEGRATION_ID=omp\n// HAKO_INTEGRATION_VERSION=4\n",
+        )
+        .unwrap();
+        let _home_env = TestEnvVar::set("HOME", &home);
+
+        let outdated = outdated_installed_integrations();
+
+        assert_eq!(outdated.len(), 1);
+        assert_eq!(
+            outdated[0].target,
+            crate::api::schema::IntegrationTarget::Omp
+        );
+        assert_eq!(outdated[0].path, extension_path);
+        assert_eq!(outdated[0].installed_version, Some(4));
+        assert_eq!(outdated[0].expected_version, OMP_INTEGRATION_VERSION);
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
     fn integration_status_treats_same_version_with_stale_content_as_outdated() {
         let _lock = integration_env_lock();
         let _path_env = clear_integration_path_env();
