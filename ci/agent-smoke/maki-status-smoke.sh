@@ -117,10 +117,13 @@ mkdir -p "$workdir"
 set +e
 python3 - "$model_spec" "$output" <<'PY'
 import os
+import fcntl
 import pty
 import re
 import select
 import signal
+import struct
+import termios
 import subprocess
 import sys
 import time
@@ -137,6 +140,7 @@ env.update({
 })
 
 master, slave = pty.openpty()
+fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
 proc = subprocess.Popen(
     ["maki", "--model", model],
     stdin=slave,
@@ -177,11 +181,24 @@ def send(value):
     os.write(master, value.encode("utf-8"))
 
 try:
-    idle = re.compile(r"(?m)^ \[(?:BUILD|PLAN|BASH)\]")
-    working = re.compile(r"(?m)^ (?:[\u2800-\u28ff]){1,2} \[(?:BUILD|PLAN|BASH)\]")
+    idle = re.compile(r"(?<![\u2800-\u28ff]) \[(?:BUILD|PLAN|BASH)\]")
+    working = re.compile(r"(?:[\u2800-\u28ff]){1,2} \[(?:BUILD|PLAN|BASH)\]")
     blocked = re.compile(r"(?is)permission required.*(?:y allow.*n deny|confirm allow|confirm deny)|plan complete.*enter confirm")
+    denied = re.compile(r"permission denied", re.IGNORECASE)
+    splash = re.compile(r"v\d+\.\d+\.\d+")
 
-    read_until(idle.search, 45, "initial idle Maki status bar")
+    read_until(splash.search, 15, "Maki splash screen")
+    for _ in range(10):
+        time.sleep(1)
+        send("\r")
+        try:
+            read_until(idle.search, 2, "initial idle Maki status bar")
+            break
+        except RuntimeError:
+            if proc.poll() is not None:
+                raise
+    else:
+        read_until(idle.search, 25, "initial idle Maki status bar")
     start = len(raw)
     send("Use the bash tool to run exactly: printf HAKO_MAKI_STATUS_OK. Do not answer until the command has run.\r")
     read_until(working.search, 90, "working Maki status bar", start)
@@ -191,6 +208,8 @@ try:
     send("n")
     time.sleep(0.2)
     send("\r")
+    read_until(denied.search, 15, "Maki permission denial", start)
+    send("\x03")
     read_until(idle.search, 30, "idle Maki status bar after denying the request", start)
     Path(output_path).write_text(clean(bytes(raw)), encoding="utf-8")
     print("maki real status smoke ok: idle -> working -> blocked -> idle screen transitions")

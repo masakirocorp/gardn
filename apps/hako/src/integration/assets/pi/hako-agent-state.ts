@@ -503,13 +503,13 @@ export default function (pi) {
   pi.on("session_compact", markIdle);
   pi.on("auto_compaction_end", markIdle);
 
-  pi.on("session_shutdown", async (event) => {
+  pi.on("session_shutdown", async () => {
     if (!rootSession) {
       return;
     }
     clearPendingTimers();
     activeAgents.delete(instanceId);
-    if (activeAgents.size === 0 && event?.reason === "quit") {
+    if (activeAgents.size === 0) {
       await releaseAgent();
     }
   });

@@ -5730,7 +5730,7 @@ model: auto
         assert!(OMP_EXTENSION_ASSET.contains("tool_execution_end"));
         assert!(PI_EXTENSION_ASSET.contains("function sendRequestAttempt"));
         assert!(PI_EXTENSION_ASSET.contains("await sendRequestAttempt(request, 1500)"));
-        assert!(PI_EXTENSION_ASSET.contains("event?.reason === \"quit\""));
+
         assert!(PI_EXTENSION_ASSET.contains("let rootSession = false"));
         assert!(OMP_EXTENSION_ASSET.contains("let requestQueue = Promise.resolve()"));
         assert!(OMP_EXTENSION_ASSET
@@ -5738,7 +5738,7 @@ model: auto
         assert!(OMP_EXTENSION_ASSET.contains("let rootSession = false"));
         assert!(OMP_EXTENSION_ASSET.contains("pi.on(\"session_switch\""));
         assert!(OMP_EXTENSION_ASSET.contains("tool_approval_requested"));
-        assert!(OMP_EXTENSION_ASSET.contains("event?.reason === \"quit\""));
+
         assert!(CLAUDE_HOOK_ASSET.contains("agent_session_path"));
         assert!(CLAUDE_HOOK_ASSET.contains("session_start_source"));
         let stale_session_ref_freeze = "if (currentAgentSessionPath || currentAgentSessionId)";

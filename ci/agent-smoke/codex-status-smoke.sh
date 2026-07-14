@@ -111,6 +111,9 @@ model_provider = "openrouter"
 approval_policy = "never"
 sandbox_mode = "workspace-write"
 
+[features]
+multi_agent = false
+
 [model_providers.openrouter]
 name = "OpenRouter"
 base_url = "https://openrouter.ai/api/v1"

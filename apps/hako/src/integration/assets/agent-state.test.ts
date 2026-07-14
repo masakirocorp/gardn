@@ -151,37 +151,33 @@ test("Pi and OMP reloads preserve working status", async () => {
   }
 });
 
-test("OMP ignores non-UI runtimes and releases only on quit", async () => {
-  let recording: RecordingSocket | undefined;
-  try {
-    recording = await recordingSocket((_request, _connection, socket) => socket.end("{}\n"));
-    process.env.HAKO_ENV = "1";
-    process.env.HAKO_SOCKET_PATH = recording.path;
-    process.env.HAKO_PANE_ID = "test:p2";
-    const harness = createPiHarness();
-    const { default: install } = await freshImport("./omp/hako-agent-state.ts");
-    install(harness.pi);
-    const sessionStart = harness.handlers.get("session_start");
-    const agentStart = harness.handlers.get("agent_start");
-    const shutdown = harness.handlers.get("session_shutdown");
-    expect(sessionStart).toBeDefined();
-    expect(agentStart).toBeDefined();
-    expect(shutdown).toBeDefined();
-    await sessionStart?.({}, { hasUI: false, isIdle: () => false });
-    await agentStart?.({}, { hasUI: false });
-    await Bun.sleep(25);
-    expect(recording.requests).toHaveLength(0);
+test("Pi and OMP ignore non-UI runtimes and release on shutdown", async () => {
+  for (const integration of ["pi", "omp"] as const) {
+    let recording: RecordingSocket | undefined;
+    try {
+      recording = await recordingSocket((_request, _connection, socket) => socket.end("{}\n"));
+      process.env.HAKO_ENV = "1";
+      process.env.HAKO_SOCKET_PATH = recording.path;
+      process.env.HAKO_PANE_ID = `test:${integration}`;
+      const harness = createPiHarness();
+      const { default: install } = await freshImport(`./${integration}/hako-agent-state.ts`);
+      install(harness.pi);
+      const sessionStart = harness.handlers.get("session_start");
+      const agentStart = harness.handlers.get("agent_start");
+      const shutdown = harness.handlers.get("session_shutdown");
+      expect(sessionStart).toBeDefined();
+      expect(agentStart).toBeDefined();
+      expect(shutdown).toBeDefined();
+      await sessionStart?.({}, { hasUI: false, isIdle: () => false });
+      await agentStart?.({}, { hasUI: false });
+      expect(recording.requests).toHaveLength(0);
 
-    await sessionStart?.({}, { hasUI: true, isIdle: () => false });
-    await shutdown?.({ reason: "reload" });
-    await Bun.sleep(25);
-    expect(recording.requests.some((request) => request.method === "pane.release_agent")).toBe(false);
-
-    await shutdown?.({ reason: "quit" });
-    await Bun.sleep(25);
-    expect(recording.requests.some((request) => request.method === "pane.release_agent")).toBe(true);
-  } finally {
-    if (recording) await closeRecordingSocket(recording);
+      await sessionStart?.({}, { hasUI: true, isIdle: () => false });
+      await shutdown?.({ type: "session_shutdown" });
+      expect(recording.requests.some((request) => request.method === "pane.release_agent")).toBe(true);
+    } finally {
+      if (recording) await closeRecordingSocket(recording);
+    }
   }
 });
 
