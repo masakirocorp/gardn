@@ -116,6 +116,11 @@ from pathlib import Path
 
 request_log = Path(os.environ["REQUEST_LOG"])
 workdir = Path(os.environ["WORKDIR"])
+if not request_log.exists():
+    for output_path in sorted(workdir.glob("*/output.txt")):
+        output = output_path.read_text(encoding="utf-8", errors="replace")
+        print(f"{output_path.parent.name} output:\n{output}", file=sys.stderr)
+    raise SystemExit("Pi/OMP smoke emitted no Hako status requests")
 requests = [json.loads(line) for line in request_log.read_text(encoding="utf-8").splitlines() if line.strip()]
 reports = [req for req in requests if req.get("method") == "pane.report_agent"]
 releases = [req for req in requests if req.get("method") == "pane.release_agent"]
