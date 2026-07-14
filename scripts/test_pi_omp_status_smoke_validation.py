@@ -148,7 +148,12 @@ class PiOmpStatusSmokeValidationTests(unittest.TestCase):
                 }
 
                 for seq, (state, session_path) in enumerate(
-                    [("idle", parent_session), ("working", second_report_session)], start=1
+                    [
+                        ("idle", parent_session),
+                        ("working", second_report_session),
+                        ("idle", second_report_session),
+                    ],
+                    start=1,
                 ):
                     rpc(
                         "pane.report_agent",
@@ -164,7 +169,7 @@ class PiOmpStatusSmokeValidationTests(unittest.TestCase):
                     "pane.release_agent",
                     {
                         **base_params,
-                        "seq": 3,
+                        "seq": 4,
                         "agent_session_path": str(parent_session),
                     },
                 )

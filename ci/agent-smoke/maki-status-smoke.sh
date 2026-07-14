@@ -187,6 +187,7 @@ try:
     splash = re.compile(r"v\d+\.\d+\.\d+")
 
     read_until(splash.search, 15, "Maki splash screen")
+    time.sleep(1)
     send("\r")
 
     read_until(idle.search, 45, "initial idle Maki status bar")

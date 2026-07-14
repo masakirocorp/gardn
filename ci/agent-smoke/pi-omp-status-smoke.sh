@@ -68,21 +68,115 @@ run_agent() {
   local prompt="$6"
   local dir="$workdir/$agent-$scenario"
   mkdir -p "$dir/config" "$dir/agent" "$dir/project"
-  if ! (
-    cd "$dir/project"
-    HAKO_ENV=1 \
+  if ! HAKO_ENV=1 \
     HAKO_SOCKET_PATH="$socket_path" \
     HAKO_PANE_ID="$pane" \
     PI_CONFIG_DIR="$dir/config" \
     PI_CODING_AGENT_DIR="$dir/agent" \
-    timeout "${HAKO_PI_OMP_STATUS_TIMEOUT:-180}" "$agent" \
-      -p \
-      --model "$model" \
-      --tools "$tools" \
-      --auto-approve \
-      -e "$extension" \
-      "$prompt" >"$dir/output.txt" 2>&1
-  ); then
+    python3 - "$agent" "$model" "$tools" "$extension" "$prompt" "$pane" \
+      "$request_log" "$dir/output.txt" "$dir/project" "${HAKO_PI_OMP_STATUS_TIMEOUT:-180}" <<'PY'
+import fcntl
+import json
+import os
+import pty
+import select
+import signal
+import struct
+import subprocess
+import sys
+import termios
+import time
+from pathlib import Path
+
+agent, model, tools, extension, prompt, pane, request_log, output_path, workdir, timeout_raw = sys.argv[1:]
+timeout = float(timeout_raw)
+master, slave = pty.openpty()
+fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
+proc = subprocess.Popen(
+    [agent, "--model", model, "--tools", tools, "--auto-approve", "-e", extension],
+    stdin=slave,
+    stdout=slave,
+    stderr=slave,
+    cwd=workdir,
+    env={**os.environ, "TERM": "xterm-256color", "COLUMNS": "120", "LINES": "40"},
+    start_new_session=True,
+    close_fds=True,
+)
+os.close(slave)
+raw = bytearray()
+
+
+def read_output(wait=0.2):
+    readable, _, _ = select.select([master], [], [], wait)
+    if master not in readable:
+        return
+    try:
+        raw.extend(os.read(master, 65536))
+    except OSError:
+        pass
+
+
+def pane_states():
+    try:
+        lines = Path(request_log).read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return []
+    states = []
+    for line in lines:
+        try:
+            request = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        params = request.get("params", {})
+        if request.get("method") == "pane.report_agent" and params.get("pane_id") == pane:
+            states.append(params.get("state"))
+    return states
+
+
+def wait_for_state(predicate, deadline, label):
+    while time.monotonic() < deadline:
+        read_output()
+        states = pane_states()
+        if predicate(states):
+            return
+        if proc.poll() is not None:
+            break
+    raise RuntimeError(f"timed out waiting for {label}; process={proc.poll()} states={pane_states()}")
+
+
+try:
+    started = time.monotonic()
+    wait_for_state(lambda states: "idle" in states, started + min(30, timeout), "initial idle state")
+    os.write(master, (prompt + "\r").encode())
+    wait_for_state(
+        lambda states: "working" in states and states[-1] == "idle",
+        started + timeout,
+        "working-to-idle lifecycle",
+    )
+    if proc.poll() is None:
+        os.write(master, b"/exit\r")
+        exit_deadline = time.monotonic() + 20
+        while proc.poll() is None and time.monotonic() < exit_deadline:
+            read_output()
+        if proc.poll() is None:
+            raise RuntimeError("timed out waiting for graceful /exit")
+        read_output(0)
+    if proc.returncode != 0:
+        raise RuntimeError(f"{agent} exited with status {proc.returncode}")
+except Exception as exc:
+    print(f"{agent} interactive smoke failed: {exc}", file=sys.stderr)
+    if proc.poll() is None:
+        os.killpg(proc.pid, signal.SIGTERM)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+    raise
+finally:
+    Path(output_path).write_bytes(raw)
+    os.close(master)
+PY
+  then
     printf '%s\n' "$agent $scenario smoke failed; output:" >&2
     sed -n '1,200p' "$dir/output.txt" >&2
     return 1
