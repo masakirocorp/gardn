@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use interprocess::local_socket::traits::Stream as _;
 use std::fs;
 use std::io::{self, Read};

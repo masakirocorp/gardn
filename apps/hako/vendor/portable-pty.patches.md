@@ -29,3 +29,29 @@ verification:
 ```sh
 python3 -m unittest scripts.test_vendor_portable_pty
 ```
+
+## 0002 preserve raw Windows command arguments
+
+status: active
+
+patch: `apps/hako/vendor/patches/portable-pty/0002-preserve-raw-windows-command-arguments.patch`
+
+vendored base: `portable-pty 0.9.0`
+
+local file:
+
+- `apps/hako/vendor/portable-pty/src/cmdbuilder.rs`
+
+reason: Hako launches custom commands through `cmd.exe /d /c`. Quoting the
+command as a normal argument changes shell operators such as `&`, pipes, and
+redirections. The vendored builder needs the equivalent of
+`std::os::windows::process::CommandExt::raw_arg`.
+
+remove when: upstream `portable-pty` exposes an equivalent raw Windows argument
+API or Hako replaces its Windows PTY backend.
+
+verification:
+
+```sh
+python3 -m unittest scripts.test_vendor_portable_pty
+```

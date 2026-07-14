@@ -1,5 +1,7 @@
 use interprocess::local_socket::traits::{ListenerExt as _, Stream as _};
-use std::io::{self, Read, Write};
+#[cfg(not(windows))]
+use std::io::Read;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

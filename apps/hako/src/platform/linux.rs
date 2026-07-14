@@ -272,7 +272,7 @@ impl ForegroundMembersCache {
         process_group_id: u32,
         now: Instant,
         max_age: Duration,
-        mut build: impl FnMut() -> ForegroundMembersByGroup,
+        build: impl FnOnce() -> ForegroundMembersByGroup,
         mut validate: impl FnMut(u32, u32) -> Option<ProcGroupMember>,
     ) -> Option<Vec<ProcGroupMember>> {
         if let Some(cached) = &self.cached {
