@@ -760,7 +760,7 @@ fn server_crash_after_attach_causes_lost_connection_error() {
 
     let mut spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
-    wait_for_file(&client_socket, Duration::from_secs(10));
+    drop(connect_unix_socket(&client_socket, Duration::from_secs(10)));
 
     // Attach a real thin client (client subcommand) through PTY so handshake and
     // terminal setup paths are exercised.
