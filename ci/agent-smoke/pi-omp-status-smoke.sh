@@ -68,6 +68,13 @@ run_agent() {
   local prompt="$6"
   local dir="$workdir/$agent-$scenario"
   mkdir -p "$dir/config" "$dir/agent" "$dir/project"
+  cat >"$dir/trace.ts" <<'EOF_TRACE'
+export default function (pi) {
+  for (const event of ["session_start", "agent_start", "agent_end", "session_shutdown"]) {
+    pi.on(event, () => console.error(`HAKO_EVENT_TRACE ${event}`));
+  }
+}
+EOF_TRACE
   if ! (
     cd "$dir/project"
     HAKO_ENV=1 \
@@ -81,6 +88,7 @@ run_agent() {
       --tools "$tools" \
       --auto-approve \
       -e "$extension" \
+      -e "$dir/trace.ts" \
       "$prompt" >"$dir/output.txt" 2>&1
   ); then
     printf '%s\n' "$agent $scenario smoke failed; output:" >&2
