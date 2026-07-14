@@ -147,6 +147,7 @@ def wait_for_state(predicate, deadline, label):
 try:
     started = time.monotonic()
     wait_for_state(lambda states: "idle" in states, started + min(30, timeout), "initial idle state")
+    time.sleep(1)
     os.write(master, (prompt + "\r").encode())
     wait_for_state(
         lambda states: "working" in states and states[-1] == "idle",
