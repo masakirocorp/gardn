@@ -38,6 +38,10 @@ git commit -m "short imperative summary"
 
 Direct commits to `master` are OK while Hako is solo/pre-public. Use PRs for upstream syncs, risky release changes, or when CI/review is useful. Never force-push `origin/master`.
 
+## Manual QA
+
+Use the [manual QA matrix](manual-qa.md) to select checks during development. Before tagging a release, run M01-M08 and the P1 cases affected by the release. After the release artifacts publish, run M09 before treating the release as cleared.
+
 ## Release
 
 ```bash
