@@ -117,10 +117,13 @@ mkdir -p "$workdir"
 set +e
 python3 - "$model_spec" "$output" <<'PY'
 import os
+import fcntl
 import pty
 import re
 import select
 import signal
+import struct
+import termios
 import subprocess
 import sys
 import time
@@ -137,6 +140,7 @@ env.update({
 })
 
 master, slave = pty.openpty()
+fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
 proc = subprocess.Popen(
     ["maki", "--model", model],
     stdin=slave,
