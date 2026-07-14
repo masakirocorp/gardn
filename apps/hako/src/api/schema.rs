@@ -913,6 +913,7 @@ pub enum IntegrationTarget {
     Hermes,
     Qodercli,
     Cursor,
+    Grok,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

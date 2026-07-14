@@ -255,6 +255,7 @@ pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> 
             | ("hako:copilot", "copilot")
             | ("hako:cursor", "cursor")
             | ("hako:droid", "droid")
+            | ("hako:grok", "grok")
             | ("hako:hermes", "hermes")
             | ("hako:opencode", "opencode")
             | ("hako:kilo", "kilo")

@@ -1700,11 +1700,15 @@ fn parse_integration_target(
     action: &str,
 ) -> std::io::Result<Option<IntegrationTarget>> {
     let Some(target) = args.first().map(|arg| arg.as_str()) else {
-        eprintln!("usage: hako integration {action} <pi|omp|claude|codex|devin|opencode|hermes>");
+        eprintln!(
+            "usage: hako integration {action} <pi|omp|claude|codex|devin|opencode|hermes|grok>"
+        );
         return Ok(None);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako integration {action} <pi|omp|claude|codex|devin|opencode|hermes>");
+        eprintln!(
+            "usage: hako integration {action} <pi|omp|claude|codex|devin|opencode|hermes|grok>"
+        );
         return Ok(None);
     }
 
@@ -1718,10 +1722,11 @@ fn parse_integration_target(
         "opencode" => IntegrationTarget::Opencode,
         "hermes" => IntegrationTarget::Hermes,
         "qodercli" => IntegrationTarget::Qodercli,
+        "grok" => IntegrationTarget::Grok,
         _ => {
             eprintln!("unknown integration target: {target}");
             eprintln!(
-                "currently supported: pi, omp, claude, codex, devin, copilot, opencode, hermes, qodercli"
+                "currently supported: pi, omp, claude, codex, devin, copilot, opencode, hermes, qodercli, grok"
             );
             return Ok(None);
         }

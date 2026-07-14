@@ -114,7 +114,7 @@ Supported built-in detection includes:
 - **Agent labels** — manual, detected, and integration-reported labels are surfaced in lists and pane borders.
 - **Agent metadata tokens** — pane metadata token patches are exposed consistently through pane/agent API snapshots and rendered without leaking one client's sidebar view into another.
 - **State notifications** — background state changes can trigger Hako toasts, terminal toasts, system toasts, and sounds.
-- **Integration authority** — installed hooks either report native session identity for restore or report state directly. Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, and Qoder-style integrations can report state directly; Kimi, Droid, and Cursor use session identity plus screen detection for state.
+- **Integration authority** — installed hooks either report native session identity for restore or report state directly. Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, Qoder-style, and Grok Build integrations can report state directly; Kimi, Droid, and Cursor use session identity plus screen detection for state.
 - **Missing integration warning** — if screen detection sees an integration-capable agent such as Codex but no accepted Hako hook, session, or metadata report arrives for that pane, Hako shows a pane-targeted toast with the matching `hako integration install <agent>` command.
 
 
@@ -235,6 +235,7 @@ Built-in installable integrations:
 - OMP
 - Claude Code
 - Codex
+- Grok Build
 - OpenCode
 - Hermes
 
@@ -246,12 +247,12 @@ Integration management supports:
 - outdated-version detection
 - in-app integration management
 
-Integration install side effects are agent-specific: pi and OMP install extensions, Claude, Codex, Kimi, Droid, Cursor, Copilot, and Qoder-style CLIs install/update hooks or settings, OpenCode installs a plugin, and Hermes installs/enables a plugin.
+Integration install side effects are agent-specific: pi and OMP install extensions, Claude, Codex, Grok Build, Kimi, Droid, Cursor, Copilot, and Qoder-style CLIs install/update hooks or settings, OpenCode installs a plugin, and Hermes installs/enables a plugin.
 
-Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, and Qoder-style integrations can report state directly. Claude and Codex hooks also report session identity for restore, so compaction, subagent starts, permissions, and stop/idle events keep activity status authoritative without relying only on visible terminal chrome. OpenCode's plugin reports busy, idle, and permission-request states directly, keeps the root pane session as the visible identity, and keeps the pane working while child/subagent sessions are still active.
+Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, Qoder-style, and Grok Build integrations can report state directly. The Grok Build integration reports native session identity plus parent-agent working, blocked, idle, and release transitions while ignoring child-agent completion as a parent completion. Its Hako-owned hook also prevents Grok's Claude and Cursor compatibility hooks from claiming Grok panes.
 
-Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
-- On Windows, installable integrations are limited to CLI hook integrations with supported path layouts: Claude, Codex, Copilot, Kimi, Droid, and Qoder-style CLIs.
+Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, `KIMI_CODE_HOME`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
+- On Windows, installable integrations are limited to CLI hook integrations with supported path layouts: Claude, Codex, Copilot, Grok Build, Kimi, Droid, and Qoder-style CLIs.
 
 
 ## Plugins
@@ -274,7 +275,7 @@ Hako is a terminal workspace manager, so some features call user-installed tools
 | --- | --- | --- |
 | `git` | Git status, repository discovery, worktree operations, and Git-aware project commands. | Required for Git-aware features. |
 | Configured Git diff command | Repository review from command palette and contextual Git actions. Defaults to `lazygit`; configure `[git].diff_command` for another command. | Optional; required only when using the Git diff action. |
-| Agent CLIs such as `pi`, `omp`, `claude`, `codex`, `opencode`, `hermes`, `copilot`, `kimi`, `droid`, `qodercli`, and `cursor-agent` | Launching agent panes and installing/updating matching Hako integrations. | Required only for the agent/profile the user launches or integrates. |
+| Agent CLIs such as `pi`, `omp`, `claude`, `codex`, `grok`, `opencode`, `hermes`, `copilot`, `kimi`, `droid`, `qodercli`, and `cursor-agent` | Launching agent panes and installing/updating matching Hako integrations. | Required only for the agent/profile the user launches or integrates. |
 | `python3` | Installed hook scripts for agent integrations. | Required for hook-based state/session reports; hooks exit quietly when it is missing. |
 | `curl` | Update checks, release downloads, manifest refreshes, and remote bootstrap downloads. | Required for those networked update/bootstrap features. |
 | `ssh` | Remote attach, remote install, and remote client bridge. | Required for remote features. |

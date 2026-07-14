@@ -17,11 +17,12 @@ pub enum AgentKind {
     Hermes,
     Qodercli,
     Cursor,
+    Grok,
     Custom,
 }
 
 impl AgentKind {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::Claude,
         Self::Codex,
         Self::Copilot,
@@ -29,6 +30,7 @@ impl AgentKind {
         Self::Custom,
         Self::Devin,
         Self::Droid,
+        Self::Grok,
         Self::Hermes,
         Self::Kimi,
         Self::Omp,
@@ -37,13 +39,14 @@ impl AgentKind {
         Self::Qodercli,
     ];
 
-    pub const SYSTEM: [Self; 12] = [
+    pub const SYSTEM: [Self; 13] = [
         Self::Claude,
         Self::Codex,
         Self::Copilot,
         Self::Cursor,
         Self::Devin,
         Self::Droid,
+        Self::Grok,
         Self::Hermes,
         Self::Kimi,
         Self::Omp,
@@ -63,6 +66,7 @@ impl AgentKind {
             Self::Kimi => "kimi",
             Self::Droid => "droid",
             Self::Opencode => "opencode",
+            Self::Grok => "grok",
             Self::Hermes => "hermes",
             Self::Qodercli => "qodercli",
             Self::Cursor => "cursor",
@@ -82,6 +86,7 @@ impl AgentKind {
             Self::Droid => "droid",
             Self::Opencode => "opencode",
             Self::Hermes => "hermes",
+            Self::Grok => "grok",
             Self::Qodercli => "qoder",
             Self::Cursor => "cursor-agent",
             Self::Custom => "custom",
@@ -108,6 +113,7 @@ impl AgentKind {
             Self::Droid => Some(crate::api::schema::IntegrationTarget::Droid),
             Self::Opencode => Some(crate::api::schema::IntegrationTarget::Opencode),
             Self::Hermes => Some(crate::api::schema::IntegrationTarget::Hermes),
+            Self::Grok => Some(crate::api::schema::IntegrationTarget::Grok),
             Self::Qodercli => Some(crate::api::schema::IntegrationTarget::Qodercli),
             Self::Cursor => Some(crate::api::schema::IntegrationTarget::Cursor),
             Self::Custom => None,
@@ -128,6 +134,7 @@ impl From<crate::api::schema::IntegrationTarget> for AgentKind {
             crate::api::schema::IntegrationTarget::Droid => Self::Droid,
             crate::api::schema::IntegrationTarget::Opencode => Self::Opencode,
             crate::api::schema::IntegrationTarget::Hermes => Self::Hermes,
+            crate::api::schema::IntegrationTarget::Grok => Self::Grok,
             crate::api::schema::IntegrationTarget::Qodercli => Self::Qodercli,
             crate::api::schema::IntegrationTarget::Cursor => Self::Cursor,
         }

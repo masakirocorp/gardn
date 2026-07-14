@@ -3,9 +3,12 @@
 # managed by hako; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HAKO_INTEGRATION_ID=cursor
-# HAKO_INTEGRATION_VERSION=2
+# HAKO_INTEGRATION_VERSION=3
 
 set -eu
+
+# Grok Build loads Cursor compatibility hooks. Its native Hako hook owns Grok panes.
+[ -z "${GROK_HOOK_EVENT:-}" ] || exit 0
 
 action="${1:-}"
 hook_input_file="$(mktemp "${TMPDIR:-/tmp}/hako-cursor-hook.XXXXXX")" || exit 0

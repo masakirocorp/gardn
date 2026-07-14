@@ -21,7 +21,7 @@ const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
 const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
 const CLAUDE_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const CLAUDE_HOOK_ASSET: &str = include_str!("assets/claude/hako-agent-state.sh");
-const CLAUDE_INTEGRATION_VERSION: u32 = 3;
+const CLAUDE_INTEGRATION_VERSION: u32 = 4;
 const CLAUDE_CONFIG_DIR_ENV_VAR: &str = "CLAUDE_CONFIG_DIR";
 const CLAUDE_HOOK_EVENTS: [(&str, &str, Option<&str>); 13] = [
     ("SessionStart", "session", Some("*")),
@@ -141,8 +141,13 @@ const QODERCLI_INTEGRATION_VERSION: u32 = 1;
 const QODERCLI_CONFIG_DIR_ENV_VAR: &str = "QODER_CONFIG_DIR";
 const CURSOR_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
 const CURSOR_HOOK_ASSET: &str = include_str!("assets/cursor/hako-agent-state.sh");
-const CURSOR_INTEGRATION_VERSION: u32 = 2;
+const CURSOR_INTEGRATION_VERSION: u32 = 3;
 const CURSOR_CONFIG_DIR_ENV_VAR: &str = "CURSOR_CONFIG_DIR";
+const GROK_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
+const GROK_HOOK_CONFIG_INSTALL_NAME: &str = "hako.json";
+const GROK_HOOK_ASSET: &str = include_str!("assets/grok/hako-agent-state.sh");
+const GROK_INTEGRATION_VERSION: u32 = 1;
+const GROK_HOME_ENV_VAR: &str = "GROK_HOME";
 const INTEGRATION_VERSION_MARKER: &str = "HAKO_INTEGRATION_VERSION=";
 const INTEGRATION_ID_MARKER: &str = "HAKO_INTEGRATION_ID=";
 
@@ -215,6 +220,12 @@ pub(crate) struct CursorInstallPaths {
 }
 
 #[derive(Debug)]
+pub(crate) struct GrokInstallPaths {
+    pub hook_path: PathBuf,
+    pub config_path: PathBuf,
+}
+
+#[derive(Debug)]
 pub(crate) struct QodercliUninstallResult {
     pub hook_path: PathBuf,
     pub settings_path: PathBuf,
@@ -262,6 +273,14 @@ pub(crate) struct CursorUninstallResult {
     pub hooks_path: PathBuf,
     pub removed_hook_file: bool,
     pub updated_hooks: bool,
+}
+
+#[derive(Debug)]
+pub(crate) struct GrokUninstallResult {
+    pub hook_path: PathBuf,
+    pub config_path: PathBuf,
+    pub removed_hook_file: bool,
+    pub removed_config_file: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -812,6 +831,19 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
                 format!("updated cursor hooks at {}", installed.hooks_path.display()),
             ]
         }
+        crate::api::schema::IntegrationTarget::Grok => {
+            let installed = install_grok()?;
+            vec![
+                format!(
+                    "installed grok integration hook to {}",
+                    installed.hook_path.display()
+                ),
+                format!(
+                    "installed grok hook config to {}",
+                    installed.config_path.display()
+                ),
+            ]
+        }
     };
 
     if let Some(warning) = version_warning {
@@ -1099,6 +1131,27 @@ pub(crate) fn uninstall_target(
             }
             messages
         }
+        crate::api::schema::IntegrationTarget::Grok => {
+            let result = uninstall_grok()?;
+            let mut messages = Vec::new();
+            messages.push(if result.removed_hook_file {
+                format!("removed grok hook at {}", result.hook_path.display())
+            } else {
+                format!("no grok hook found at {}", result.hook_path.display())
+            });
+            messages.push(if result.removed_config_file {
+                format!(
+                    "removed grok hook config at {}",
+                    result.config_path.display()
+                )
+            } else {
+                format!(
+                    "no grok hook config found at {}",
+                    result.config_path.display()
+                )
+            });
+            messages
+        }
     };
 
     crate::logging::integration_action("uninstall", integration_target_label(target), "ok");
@@ -1121,6 +1174,7 @@ pub(crate) fn integration_target_label(
         crate::api::schema::IntegrationTarget::Hermes => "hermes",
         crate::api::schema::IntegrationTarget::Qodercli => "qodercli",
         crate::api::schema::IntegrationTarget::Cursor => "cursor",
+        crate::api::schema::IntegrationTarget::Grok => "grok",
     }
 }
 
@@ -1140,6 +1194,7 @@ pub(crate) fn integration_target_command(
         crate::api::schema::IntegrationTarget::Hermes => "hermes",
         crate::api::schema::IntegrationTarget::Qodercli => "qodercli",
         crate::api::schema::IntegrationTarget::Cursor => "cursor-agent",
+        crate::api::schema::IntegrationTarget::Grok => "grok",
     }
 }
 
@@ -1163,6 +1218,7 @@ fn integration_target_supported_for_platform(
             | crate::api::schema::IntegrationTarget::Droid
             | crate::api::schema::IntegrationTarget::Kimi
             | crate::api::schema::IntegrationTarget::Qodercli
+            | crate::api::schema::IntegrationTarget::Grok
     )
 }
 
@@ -1275,7 +1331,7 @@ fn integration_specs() -> [(
     crate::api::schema::IntegrationTarget,
     io::Result<PathBuf>,
     u32,
-); 12] {
+); 13] {
     [
         (
             crate::api::schema::IntegrationTarget::Pi,
@@ -1336,6 +1392,11 @@ fn integration_specs() -> [(
             crate::api::schema::IntegrationTarget::Cursor,
             cursor_dir().map(|dir| dir.join(CURSOR_HOOK_INSTALL_NAME)),
             CURSOR_INTEGRATION_VERSION,
+        ),
+        (
+            crate::api::schema::IntegrationTarget::Grok,
+            grok_dir().map(|dir| dir.join("hooks").join(GROK_HOOK_INSTALL_NAME)),
+            GROK_INTEGRATION_VERSION,
         ),
     ]
 }
@@ -1433,6 +1494,7 @@ fn integration_asset_for_target(target: crate::api::schema::IntegrationTarget) -
         crate::api::schema::IntegrationTarget::Hermes => HERMES_PLUGIN_INIT_ASSET,
         crate::api::schema::IntegrationTarget::Qodercli => QODERCLI_HOOK_ASSET,
         crate::api::schema::IntegrationTarget::Cursor => CURSOR_HOOK_ASSET,
+        crate::api::schema::IntegrationTarget::Grok => GROK_HOOK_ASSET,
     }
 }
 
@@ -2488,6 +2550,83 @@ pub(crate) fn install_cursor() -> io::Result<CursorInstallPaths> {
     })
 }
 
+pub(crate) fn install_grok() -> io::Result<GrokInstallPaths> {
+    let dir = grok_dir()?;
+    if !dir.is_dir() {
+        return Err(io::Error::other(format!(
+            "grok config directory not found at {}. install grok build first",
+            dir.display()
+        )));
+    }
+
+    let hooks_dir = dir.join("hooks");
+    fs::create_dir_all(&hooks_dir)?;
+    let hook_path = hooks_dir.join(GROK_HOOK_INSTALL_NAME);
+    fs::write(&hook_path, GROK_HOOK_ASSET)?;
+    make_executable(&hook_path)?;
+
+    let quoted_hook_path = shell_single_quote(&hook_path.display().to_string());
+    let command = |action: &str| {
+        json!({
+            "type": "command",
+            "command": format!("bash {quoted_hook_path} {action}"),
+            "timeout": 10
+        })
+    };
+    let group = |action: &str| json!({ "hooks": [command(action)] });
+    let working = || vec![group("working")];
+    let hook_config = json!({
+        "description": "Hako Grok Build lifecycle integration",
+        "hooks": {
+            "SessionStart": [{
+                "hooks": [command("session"), command("idle")]
+            }],
+            "UserPromptSubmit": working(),
+            "SubagentStart": working(),
+            "PreCompact": working(),
+            "PostCompact": working(),
+            "PreToolUse": working(),
+            "PostToolUse": working(),
+            "PostToolUseFailure": working(),
+            "PermissionDenied": working(),
+            "Notification": [
+                {
+                    "matcher": "permission_prompt|elicitation_dialog",
+                    "hooks": [command("blocked")]
+                },
+                {
+                    "matcher": "idle_prompt",
+                    "hooks": [command("idle")]
+                }
+            ],
+            "Stop": [group("idle")],
+            "StopFailure": [group("idle")],
+            "SessionEnd": [group("release")]
+        }
+    });
+    let config_path = hooks_dir.join(GROK_HOOK_CONFIG_INSTALL_NAME);
+    fs::write(&config_path, serde_json::to_string_pretty(&hook_config)?)?;
+
+    Ok(GrokInstallPaths {
+        hook_path,
+        config_path,
+    })
+}
+
+pub(crate) fn uninstall_grok() -> io::Result<GrokUninstallResult> {
+    let hooks_dir = grok_dir()?.join("hooks");
+    let hook_path = hooks_dir.join(GROK_HOOK_INSTALL_NAME);
+    let config_path = hooks_dir.join(GROK_HOOK_CONFIG_INSTALL_NAME);
+    let removed_hook_file = remove_file_if_exists(&hook_path)?;
+    let removed_config_file = remove_file_if_exists(&config_path)?;
+    Ok(GrokUninstallResult {
+        hook_path,
+        config_path,
+        removed_hook_file,
+        removed_config_file,
+    })
+}
+
 pub(crate) fn uninstall_qodercli() -> io::Result<QodercliUninstallResult> {
     let hook_path = qodercli_dir()?
         .join("hooks")
@@ -3527,6 +3666,9 @@ fn qodercli_dir() -> io::Result<PathBuf> {
 }
 fn cursor_dir() -> io::Result<PathBuf> {
     config_dir_from_env_or_home(CURSOR_CONFIG_DIR_ENV_VAR, &[".cursor"])
+}
+fn grok_dir() -> io::Result<PathBuf> {
+    config_dir_from_env_or_home(GROK_HOME_ENV_VAR, &[".grok"])
 }
 
 fn home_dir() -> io::Result<PathBuf> {
@@ -5709,6 +5851,174 @@ model: auto
             .as_str()
             .unwrap()
             .contains(" release"));
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn install_and_uninstall_grok_manage_lifecycle_hooks() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let grok_dir = base.join(".grok");
+        fs::create_dir_all(&grok_dir).unwrap();
+        let _grok_home_env = TestEnvVar::set(GROK_HOME_ENV_VAR, &grok_dir);
+
+        let installed = install_grok().unwrap();
+        install_grok().unwrap();
+        let config: Value =
+            serde_json::from_str(&fs::read_to_string(&installed.config_path).unwrap()).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&installed.hook_path).unwrap(),
+            GROK_HOOK_ASSET
+        );
+        for event in [
+            "SessionStart",
+            "UserPromptSubmit",
+            "SubagentStart",
+            "PreCompact",
+            "PostCompact",
+            "PreToolUse",
+            "PostToolUse",
+            "PostToolUseFailure",
+            "PermissionDenied",
+            "Notification",
+            "Stop",
+            "StopFailure",
+            "SessionEnd",
+        ] {
+            assert!(config["hooks"].get(event).is_some(), "missing {event}");
+        }
+        assert_eq!(
+            config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+                .as_str()
+                .unwrap()
+                .split_whitespace()
+                .last(),
+            Some("session")
+        );
+        assert_eq!(
+            config["hooks"]["SessionEnd"][0]["hooks"][0]["command"]
+                .as_str()
+                .unwrap()
+                .split_whitespace()
+                .last(),
+            Some("release")
+        );
+
+        let removed = uninstall_grok().unwrap();
+        assert!(removed.removed_hook_file);
+        assert!(removed.removed_config_file);
+        assert!(!removed.hook_path.exists());
+        assert!(!removed.config_path.exists());
+        let already_removed = uninstall_grok().unwrap();
+        assert!(!already_removed.removed_hook_file);
+        assert!(!already_removed.removed_config_file);
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn grok_hook_reports_parent_lifecycle_and_ignores_subagent_stop() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::os::unix::net::UnixListener;
+        use std::process::{Command, Stdio};
+
+        fn run_hook(hook_path: &Path, action: &str, payload: &str) -> Value {
+            let socket_path = std::env::temp_dir()
+                .join(format!("hako-grok-{}-{action}.sock", std::process::id()));
+            let _ = fs::remove_file(&socket_path);
+            let listener = UnixListener::bind(&socket_path).unwrap();
+            let request = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut line = String::new();
+                BufReader::new(&stream).read_line(&mut line).unwrap();
+                stream.write_all(b"{\"ok\":true}\n").unwrap();
+                serde_json::from_str::<Value>(&line).unwrap()
+            });
+            let mut child = Command::new("sh")
+                .arg(hook_path)
+                .arg(action)
+                .env("HAKO_ENV", "1")
+                .env("HAKO_PANE_ID", "pane-7")
+                .env("HAKO_SOCKET_PATH", &socket_path)
+                .stdin(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(payload.as_bytes())
+                .unwrap();
+            assert!(child.wait().unwrap().success());
+            let request = request.join().unwrap();
+            let _ = fs::remove_file(socket_path);
+            request
+        }
+
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let grok_dir = base.join(".grok");
+        fs::create_dir_all(&grok_dir).unwrap();
+        let _grok_home_env = TestEnvVar::set(GROK_HOME_ENV_VAR, &grok_dir);
+        let installed = install_grok().unwrap();
+
+        let session = run_hook(
+            &installed.hook_path,
+            "session",
+            r#"{"hookEventName":"SessionStart","sessionId":"grok-session"}"#,
+        );
+        assert_eq!(session["method"], "pane.report_agent_session");
+        assert_eq!(session["params"]["source"], "hako:grok");
+        assert_eq!(session["params"]["agent"], "grok");
+        assert_eq!(session["params"]["agent_session_id"], "grok-session");
+
+        for (action, expected_method, expected_state) in [
+            ("working", "pane.report_agent", Some("working")),
+            ("blocked", "pane.report_agent", Some("blocked")),
+            ("idle", "pane.report_agent", Some("idle")),
+            ("release", "pane.release_agent", None),
+        ] {
+            let request = run_hook(
+                &installed.hook_path,
+                action,
+                r#"{"hookEventName":"Stop","sessionId":"grok-session"}"#,
+            );
+            assert_eq!(request["method"], expected_method);
+            assert_eq!(request["params"]["state"].as_str(), expected_state);
+        }
+
+        let ignored_socket_path =
+            std::env::temp_dir().join(format!("hako-grok-{}-ignored.sock", std::process::id()));
+        let _ = fs::remove_file(&ignored_socket_path);
+        let ignored_listener = UnixListener::bind(&ignored_socket_path).unwrap();
+        ignored_listener.set_nonblocking(true).unwrap();
+        let mut ignored = Command::new("sh")
+            .arg(&installed.hook_path)
+            .arg("idle")
+            .env("HAKO_ENV", "1")
+            .env("HAKO_PANE_ID", "pane-7")
+            .env("HAKO_SOCKET_PATH", &ignored_socket_path)
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        ignored
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(
+                br#"{"hookEventName":"SubagentStop","agentId":"child","sessionId":"grok-session"}"#,
+            )
+            .unwrap();
+        assert!(ignored.wait().unwrap().success());
+        assert!(matches!(
+            ignored_listener.accept(),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock
+        ));
+        drop(ignored_listener);
+        let _ = fs::remove_file(ignored_socket_path);
         let _ = fs::remove_dir_all(base);
     }
 

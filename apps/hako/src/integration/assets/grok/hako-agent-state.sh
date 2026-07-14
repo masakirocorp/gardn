@@ -2,16 +2,13 @@
 # installed by hako
 # managed by hako; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
-# HAKO_INTEGRATION_ID=claude
-# HAKO_INTEGRATION_VERSION=4
+# HAKO_INTEGRATION_ID=grok
+# HAKO_INTEGRATION_VERSION=1
 
 set -eu
 
-# Grok Build loads Claude compatibility hooks. Its native Hako hook owns Grok panes.
-[ -z "${GROK_HOOK_EVENT:-}" ] || exit 0
-
 action="${1:-}"
-hook_input_file="$(mktemp "${TMPDIR:-/tmp}/hako-claude-hook.XXXXXX")" || exit 0
+hook_input_file="$(mktemp "${TMPDIR:-/tmp}/hako-grok-hook.XXXXXX")" || exit 0
 trap 'rm -f "$hook_input_file"' EXIT HUP INT TERM
 cat >"$hook_input_file" 2>/dev/null || true
 
@@ -32,8 +29,8 @@ import random
 import socket
 import time
 
-source = "hako:claude"
-agent = "claude"
+source = "hako:grok"
+agent = "grok"
 action = os.environ.get("HAKO_ACTION", "")
 pane_id = os.environ.get("HAKO_PANE_ID")
 socket_path = os.environ.get("HAKO_SOCKET_PATH")
@@ -63,13 +60,15 @@ def first_text(*keys):
     return None
 
 
-hook_event_name = first_text("hook_event_name", "hookEventName") or ""
-notification_type = first_text("notification_type", "notificationType") or ""
-is_subagent = bool(hook_input.get("agent_id")) or hook_event_name in ("SubagentStart", "SubagentStop")
+hook_event_name = first_text("hookEventName", "hook_event_name") or os.environ.get(
+    "GROK_HOOK_EVENT", ""
+)
+notification_type = first_text("notificationType", "notification_type") or ""
+is_subagent = bool(hook_input.get("agentId") or hook_input.get("agent_id")) or hook_event_name in (
+    "SubagentStart",
+    "SubagentStop",
+)
 
-# Subagent completion is not parent completion. Claude can emit recap/summary
-# SubagentStop events after the parent turn is already idle; never let those
-# revive or idle the parent pane.
 if hook_event_name == "SubagentStop":
     raise SystemExit(0)
 if is_subagent and action in ("idle", "release"):
@@ -79,23 +78,19 @@ if action == "blocked" and notification_type and notification_type not in (
     "elicitation_dialog",
 ):
     raise SystemExit(0)
-if action == "idle" and notification_type and notification_type != "idle_prompt":
+if (
+    action == "idle"
+    and hook_event_name == "Notification"
+    and notification_type
+    and notification_type != "idle_prompt"
+):
     raise SystemExit(0)
 
-session_id = first_text("session_id", "sessionId")
+session_id = first_text("sessionId", "session_id")
 agent_session_id = session_id if session_id else None
-transcript_path = first_text("transcript_path", "transcriptPath")
-agent_session_path = transcript_path if transcript_path else None
-session_start_source = (
-    first_text("source", "session_start_source")
-    if hook_event_name == "SessionStart"
-    else None
-)
-if session_start_source not in ("startup", "resume", "clear", "compact"):
-    session_start_source = None
 launch_env = {
     key: value
-    for key in ("CLAUDE_CONFIG_DIR",)
+    for key in ("GROK_HOME",)
     if isinstance((value := os.environ.get(key)), str) and value
 }
 request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
@@ -116,10 +111,6 @@ if action == "session":
             "launch_env": launch_env,
         },
     }
-    if agent_session_path:
-        request["params"]["agent_session_path"] = agent_session_path
-    if session_start_source:
-        request["params"]["session_start_source"] = session_start_source
 elif action == "release":
     request = {
         "id": request_id,
@@ -133,8 +124,6 @@ elif action == "release":
     }
     if agent_session_id:
         request["params"]["agent_session_id"] = agent_session_id
-    if agent_session_path:
-        request["params"]["agent_session_path"] = agent_session_path
 else:
     request = {
         "id": request_id,
@@ -150,8 +139,7 @@ else:
     }
     if agent_session_id:
         request["params"]["agent_session_id"] = agent_session_id
-    if agent_session_path:
-        request["params"]["agent_session_path"] = agent_session_path
+
 try:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.settimeout(0.5)

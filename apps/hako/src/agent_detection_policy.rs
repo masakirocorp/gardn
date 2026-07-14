@@ -39,6 +39,7 @@ pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> 
         (source, agent_label),
         ("hako:claude", "claude")
             | ("hako:codex", "codex")
+            | ("hako:grok", "grok")
             | ("hako:hermes", "hermes")
             | ("hako:opencode", "opencode")
             | ("hako:kilo", "kilo")
@@ -90,6 +91,7 @@ mod tests {
         assert!(!full_lifecycle_hook_authority("hako:omp", "omp"));
         assert!(full_lifecycle_hook_authority("hako:claude", "claude"));
         assert!(full_lifecycle_hook_authority("hako:codex", "codex"));
+        assert!(full_lifecycle_hook_authority("hako:grok", "grok"));
         assert!(full_lifecycle_hook_authority("hako:hermes", "hermes"));
         assert!(full_lifecycle_hook_authority("hako:opencode", "opencode"));
         assert!(full_lifecycle_hook_authority("hako:kilo", "kilo"));
