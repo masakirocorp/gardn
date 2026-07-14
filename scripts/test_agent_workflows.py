@@ -58,6 +58,16 @@ class AgentTestWorkflowTests(unittest.TestCase):
         self.assertIn('test "$TEST_RESULT" = success', workflow)
         self.assertNotIn("type: boolean", workflow)
 
+        cursor_hosts = [
+            "api2.cursor.sh",
+            "api2geo.cursor.sh",
+            "api2direct.cursor.sh",
+            "agentn.api5.cursor.sh",
+            "agent.api5.cursor.sh",
+        ]
+        for host in cursor_hosts:
+            self.assertIn(f"--add-host {host}:127.0.0.1", workflow)
+
     def test_target_dispatcher_runs_exactly_one_agent(self):
         dispatcher = self.repo_root / "ci/agent-tests/run-target.sh"
         commands = {

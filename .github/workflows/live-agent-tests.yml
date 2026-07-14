@@ -149,8 +149,10 @@ jobs:
               args+=(
                 --user root
                 --add-host api2.cursor.sh:127.0.0.1
-                --add-host api3.cursor.sh:127.0.0.1
-                --add-host api4.cursor.sh:127.0.0.1
+                --add-host api2geo.cursor.sh:127.0.0.1
+                --add-host api2direct.cursor.sh:127.0.0.1
+                --add-host agentn.api5.cursor.sh:127.0.0.1
+                --add-host agent.api5.cursor.sh:127.0.0.1
               )
               ;;
             qoder)
