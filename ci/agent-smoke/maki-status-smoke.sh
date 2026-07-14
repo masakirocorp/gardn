@@ -181,16 +181,23 @@ def send(value):
     os.write(master, value.encode("utf-8"))
 
 try:
-    idle = re.compile(r"(?m)^ \[(?:BUILD|PLAN|BASH)\]")
-    working = re.compile(r"(?m)^ (?:[\u2800-\u28ff]){1,2} \[(?:BUILD|PLAN|BASH)\]")
+    idle = re.compile(r"(?<![\u2800-\u28ff]) \[(?:BUILD|PLAN|BASH)\]")
+    working = re.compile(r"(?:[\u2800-\u28ff]){1,2} \[(?:BUILD|PLAN|BASH)\]")
     blocked = re.compile(r"(?is)permission required.*(?:y allow.*n deny|confirm allow|confirm deny)|plan complete.*enter confirm")
     splash = re.compile(r"v\d+\.\d+\.\d+")
 
     read_until(splash.search, 15, "Maki splash screen")
-    time.sleep(1)
-    send("\r")
-
-    read_until(idle.search, 45, "initial idle Maki status bar")
+    for _ in range(10):
+        time.sleep(1)
+        send("\r")
+        try:
+            read_until(idle.search, 2, "initial idle Maki status bar")
+            break
+        except RuntimeError:
+            if proc.poll() is not None:
+                raise
+    else:
+        read_until(idle.search, 25, "initial idle Maki status bar")
     start = len(raw)
     send("Use the bash tool to run exactly: printf HAKO_MAKI_STATUS_OK. Do not answer until the command has run.\r")
     read_until(working.search, 90, "working Maki status bar", start)
