@@ -147,6 +147,13 @@ def wait_for_state(predicate, deadline, label):
 try:
     started = time.monotonic()
     wait_for_state(lambda states: "idle" in states, started + min(30, timeout), "initial idle state")
+    splash_deadline = time.monotonic() + 5
+    while proc.poll() is None and time.monotonic() < splash_deadline:
+        read_output()
+        if b"press enter to skip" in raw.lower():
+            os.write(master, b"\r")
+            time.sleep(1)
+            break
     if "working" not in pane_states():
         prompt_deadline = min(started + timeout, time.monotonic() + 30)
         while proc.poll() is None and time.monotonic() < prompt_deadline:
