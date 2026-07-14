@@ -295,7 +295,16 @@ impl From<protocol::FramingError> for ClientError {
                 io::ErrorKind::UnexpectedEof,
                 "server closed connection",
             )),
-            protocol::FramingError::Io(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
+            protocol::FramingError::Io(err)
+                if matches!(
+                    err.kind(),
+                    io::ErrorKind::UnexpectedEof
+                        | io::ErrorKind::ConnectionReset
+                        | io::ErrorKind::ConnectionAborted
+                        | io::ErrorKind::BrokenPipe
+                        | io::ErrorKind::NotConnected
+                ) =>
+            {
                 ClientError::ConnectionLost(err)
             }
             err => ClientError::Protocol(err),
@@ -2112,8 +2121,10 @@ mod tests {
 
     #[test]
     fn client_error_display_connection_lost() {
-        let err =
-            ClientError::ConnectionLost(io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe"));
+        let err = ClientError::from(protocol::FramingError::Io(io::Error::new(
+            io::ErrorKind::ConnectionReset,
+            "connection reset",
+        )));
         let msg = err.to_string();
         assert!(
             msg.contains("lost connection to server"),

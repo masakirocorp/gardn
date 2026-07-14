@@ -20,7 +20,7 @@ pub(super) fn ghostty_key_event_from_terminal_key(
     )?);
 
     if let Some(text) = ghostty_key_text(key) {
-        event.set_utf8(&text);
+        event.set_utf8(text);
     } else {
         event.set_utf8("");
     }

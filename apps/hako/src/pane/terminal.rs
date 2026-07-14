@@ -3437,11 +3437,11 @@ mod tests {
 
         let key = crate::input::TerminalKey::new(
             crossterm::event::KeyCode::Char('a'),
-            crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::SHIFT,
+            crossterm::event::KeyModifiers::SUPER | crossterm::event::KeyModifiers::SHIFT,
         );
         let encoded = pane.encode_terminal_key(key, crate::input::KeyboardProtocol::Legacy);
 
-        assert_eq!(encoded, b"\x1b[27;6;0~");
+        assert_eq!(encoded, b"\x1b[27;10;97~");
     }
 
     #[test]

@@ -2144,13 +2144,17 @@ impl Drop for RenderState {
 
 pub struct KeyEvent {
     raw: ffi::GhosttyKeyEvent_ptr,
+    utf8: String,
 }
 
 impl KeyEvent {
     pub fn new() -> Result<Self, Error> {
         let mut raw = ptr::null_mut();
         unsafe { ffi::ghostty_key_event_new(ptr::null(), &mut raw).into_result()? };
-        Ok(Self { raw })
+        Ok(Self {
+            raw,
+            utf8: String::new(),
+        })
     }
 
     pub fn set_action(&mut self, action: ffi::GhosttyKeyAction) {
@@ -2165,9 +2169,14 @@ impl KeyEvent {
         unsafe { ffi::ghostty_key_event_set_mods(self.raw, mods) }
     }
 
-    pub fn set_utf8(&mut self, text: &str) {
+    pub fn set_utf8(&mut self, text: impl Into<String>) {
+        self.utf8 = text.into();
         unsafe {
-            ffi::ghostty_key_event_set_utf8(self.raw, text.as_ptr().cast::<c_char>(), text.len())
+            ffi::ghostty_key_event_set_utf8(
+                self.raw,
+                self.utf8.as_ptr().cast::<c_char>(),
+                self.utf8.len(),
+            )
         }
     }
 
