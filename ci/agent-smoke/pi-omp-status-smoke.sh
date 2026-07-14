@@ -147,9 +147,19 @@ def wait_for_state(predicate, deadline, label):
 try:
     started = time.monotonic()
     wait_for_state(lambda states: "idle" in states, started + min(30, timeout), "initial idle state")
-    time.sleep(1)
-    if proc.poll() is None:
-        os.write(master, (prompt + "\r").encode())
+    if "working" not in pane_states():
+        prompt_deadline = min(started + timeout, time.monotonic() + 30)
+        while proc.poll() is None and time.monotonic() < prompt_deadline:
+            os.write(master, (prompt + "\r").encode())
+            try:
+                wait_for_state(
+                    lambda states: "working" in states,
+                    min(prompt_deadline, time.monotonic() + 5),
+                    "working state",
+                )
+                break
+            except RuntimeError:
+                continue
     wait_for_state(
         lambda states: "working" in states and states[-1] == "idle",
         started + timeout,
