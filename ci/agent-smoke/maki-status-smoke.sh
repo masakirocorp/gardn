@@ -184,6 +184,7 @@ try:
     idle = re.compile(r"(?<![\u2800-\u28ff]) \[(?:BUILD|PLAN|BASH)\]")
     working = re.compile(r"(?:[\u2800-\u28ff]){1,2} \[(?:BUILD|PLAN|BASH)\]")
     blocked = re.compile(r"(?is)permission required.*(?:y allow.*n deny|confirm allow|confirm deny)|plan complete.*enter confirm")
+    denied = re.compile(r"permission denied", re.IGNORECASE)
     splash = re.compile(r"v\d+\.\d+\.\d+")
 
     read_until(splash.search, 15, "Maki splash screen")
@@ -207,6 +208,8 @@ try:
     send("n")
     time.sleep(0.2)
     send("\r")
+    read_until(denied.search, 15, "Maki permission denial", start)
+    send("\x03")
     read_until(idle.search, 30, "idle Maki status bar after denying the request", start)
     Path(output_path).write_text(clean(bytes(raw)), encoding="utf-8")
     print("maki real status smoke ok: idle -> working -> blocked -> idle screen transitions")
