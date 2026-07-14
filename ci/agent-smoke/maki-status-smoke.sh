@@ -184,6 +184,10 @@ try:
     idle = re.compile(r"(?m)^ \[(?:BUILD|PLAN|BASH)\]")
     working = re.compile(r"(?m)^ (?:[\u2800-\u28ff]){1,2} \[(?:BUILD|PLAN|BASH)\]")
     blocked = re.compile(r"(?is)permission required.*(?:y allow.*n deny|confirm allow|confirm deny)|plan complete.*enter confirm")
+    splash = re.compile(r"v\d+\.\d+\.\d+")
+
+    read_until(splash.search, 15, "Maki splash screen")
+    send("\r")
 
     read_until(idle.search, 45, "initial idle Maki status bar")
     start = len(raw)
