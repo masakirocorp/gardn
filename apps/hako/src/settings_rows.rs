@@ -69,7 +69,16 @@ pub(crate) enum SettingsMarkerTone {
     Disabled,
 }
 
-pub(crate) fn option_index_for_visual_row(rows: &[SettingsListRow], row: usize) -> Option<usize> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SettingsRowHit {
+    pub index: usize,
+    pub hoverable: bool,
+}
+
+pub(crate) fn option_hit_for_visual_row(
+    rows: &[SettingsListRow],
+    row: usize,
+) -> Option<SettingsRowHit> {
     let mut visual_row = 0;
     for entry in rows {
         match entry {
@@ -81,13 +90,19 @@ pub(crate) fn option_index_for_visual_row(rows: &[SettingsListRow], row: usize) 
             }
             SettingsListRow::Toggle { index, .. } | SettingsListRow::Value { index, .. } => {
                 if row == visual_row || row == visual_row + 1 {
-                    return Some(*index);
+                    return Some(SettingsRowHit {
+                        index: *index,
+                        hoverable: true,
+                    });
                 }
                 visual_row += 2;
             }
             SettingsListRow::TextInput { index, .. } => {
                 if row == visual_row + 1 {
-                    return Some(*index);
+                    return Some(SettingsRowHit {
+                        index: *index,
+                        hoverable: false,
+                    });
                 }
                 visual_row += 2;
             }
@@ -95,19 +110,29 @@ pub(crate) fn option_index_for_visual_row(rows: &[SettingsListRow], row: usize) 
             | SettingsListRow::Action { index, .. }
             | SettingsListRow::Status { index, .. } => {
                 if row == visual_row {
-                    return Some(*index);
+                    return Some(SettingsRowHit {
+                        index: *index,
+                        hoverable: true,
+                    });
                 }
                 visual_row += 1;
             }
             SettingsListRow::Profile { index, .. } => {
                 if row == visual_row {
-                    return Some(*index);
+                    return Some(SettingsRowHit {
+                        index: *index,
+                        hoverable: true,
+                    });
                 }
                 visual_row += 1;
             }
         }
     }
     None
+}
+
+pub(crate) fn option_index_for_visual_row(rows: &[SettingsListRow], row: usize) -> Option<usize> {
+    option_hit_for_visual_row(rows, row).map(|hit| hit.index)
 }
 
 pub(crate) fn rows_for_section(

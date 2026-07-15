@@ -838,11 +838,22 @@ fn render_settings_rows_for_view(
                 )));
             }
             SettingsListRow::TextInput { title, value, .. } => {
+                if selected {
+                    selected_row = Some(rows.len() + 1);
+                }
                 rows.push(ListItem::new(settings_description_line(
-                    title, list_width, style, false,
+                    title,
+                    list_width,
+                    Style::default().fg(p.text),
+                    false,
                 )));
+                let input_value = if selected {
+                    format!("{value}█")
+                } else {
+                    value.to_string()
+                };
                 rows.push(ListItem::new(settings_description_line(
-                    value,
+                    &input_value,
                     list_width,
                     Style::default().fg(p.text).bg(p.surface0),
                     false,
@@ -1737,6 +1748,44 @@ mod tests {
         assert!(!text.contains("●"));
         assert!(!text.contains("○"));
         assert!(!text.contains("Work█"));
+    }
+
+    #[test]
+    fn client_group_general_input_shows_focus_without_highlighting_its_label() {
+        let mut app = AppState::test_new();
+        let group_idx = app.create_group("Work".to_string());
+        let mut client_view = crate::app::ClientViewState::from_default_client_state(&app);
+        client_view.settings.group_settings_target = Some(group_idx);
+        client_view.settings.section = SettingsSection::GroupGeneral;
+        client_view.settings.pending_group_name = Some("Work".to_string());
+        client_view.settings.list.selected = 0;
+        client_view.settings.selection_active = true;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| {
+                render_settings_overlay_for_view(
+                    &app,
+                    &client_view,
+                    frame,
+                    Rect::new(0, 0, 80, 24),
+                );
+            })
+            .expect("render client group settings overlay");
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, 80, 24);
+        let (label_y, label_x) = find_text_cell(&text, "name").expect("name label");
+        let (input_y, input_x) = find_text_cell(&text, "Work█").expect("focused name input");
+        assert_ne!(
+            buffer[(label_x, label_y)].style().bg,
+            Some(app.palette.accent)
+        );
+        assert_eq!(
+            buffer[(input_x, input_y)].style().bg,
+            Some(app.palette.surface0)
+        );
     }
 
     #[test]

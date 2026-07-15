@@ -15,8 +15,8 @@ use crate::{
         NewTerminalCwdConfig, SidebarArrangementConfig, TerminalAccent, ThemeMode, ToastDelivery,
     },
     settings_rows::{
-        option_count, option_index_for_visual_row, rows_for_section, selected_visual_row,
-        visual_row_count,
+        option_count, option_hit_for_visual_row, option_index_for_visual_row, rows_for_section,
+        selected_visual_row, visual_row_count, SettingsRowHit,
     },
     terminal_theme::ThemeAppearance,
 };
@@ -2353,7 +2353,7 @@ impl AppState {
         crate::ui::settings_stack_areas(self, inner).content
     }
 
-    fn settings_list_index_at(&self, col: u16, row: u16) -> Option<usize> {
+    fn settings_list_hit_at(&self, col: u16, row: u16) -> Option<SettingsRowHit> {
         let area = self.settings_content_rect();
         if row < area.y || row >= area.y + area.height || col < area.x || col >= area.x + area.width
         {
@@ -2364,7 +2364,10 @@ impl AppState {
             SettingsSection::Theme => {
                 let list = settings_section_list_geometry(self, SettingsSection::Theme);
                 let visual_row = list.hit_visual_row(col, row)?;
-                theme_selection_for_visual_row(self, visual_row)
+                theme_selection_for_visual_row(self, visual_row).map(|index| SettingsRowHit {
+                    index,
+                    hoverable: true,
+                })
             }
             SettingsSection::Layout
             | SettingsSection::Sound
@@ -2379,7 +2382,7 @@ impl AppState {
                 let list = settings_section_list_geometry(self, self.settings.section);
                 let visual_row = list.hit_visual_row(col, row)?;
                 let rows = rows_for_section(self, self.settings.section)?;
-                option_index_for_visual_row(&rows, visual_row)
+                option_hit_for_visual_row(&rows, visual_row)
             }
         }
     }
@@ -2477,7 +2480,8 @@ impl AppState {
                     close_agent_profile_editor(self);
                     return None;
                 }
-                if let Some(idx) = self.settings_list_index_at(mouse.column, mouse.row) {
+                if let Some(target) = self.settings_list_hit_at(mouse.column, mouse.row) {
+                    let idx = target.index;
                     self.settings.list.select(idx);
                     self.settings.selection_active = true;
                     if self.settings.section == SettingsSection::Theme {
@@ -2552,8 +2556,11 @@ impl AppState {
                 None
             }
             MouseEventKind::Moved => {
-                if let Some(idx) = self.settings_list_index_at(mouse.column, mouse.row) {
-                    self.settings.list.select(idx);
+                if let Some(target) = self
+                    .settings_list_hit_at(mouse.column, mouse.row)
+                    .filter(|target| target.hoverable)
+                {
+                    self.settings.list.select(target.index);
                     self.settings.selection_active = true;
                     ensure_settings_selection_visible(self);
                 }
@@ -3495,16 +3502,28 @@ mod tests {
     }
 
     #[test]
-    fn group_general_mouse_focuses_name_without_saving() {
+    fn group_general_mouse_hover_is_inert_and_click_focuses_name_without_saving() {
         let mut app = app_for_mouse_test();
         let group_idx = app.state.create_group("Side".to_string());
         app.state.view.terminal_area = Rect::new(26, 0, 100, 30);
         open_group_settings(&mut app.state, group_idx);
         app.state.settings.section = SettingsSection::GroupGeneral;
         app.state.settings.list.selected = 2;
-        app.state.settings.selection_active = true;
+        app.state.settings.selection_active = false;
 
         let list_area = settings_section_list_rect(&app.state, SettingsSection::GroupGeneral);
+        for input_row in [1, 4] {
+            let hover_action = app.state.handle_settings_mouse(mouse(
+                MouseEventKind::Moved,
+                list_area.x + 2,
+                list_area.y + input_row,
+            ));
+
+            assert_eq!(hover_action, None);
+            assert_eq!(app.state.settings.list.selected, 2);
+            assert!(!app.state.settings.selection_active);
+        }
+
         let action = app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             list_area.x + 2,
@@ -3513,6 +3532,22 @@ mod tests {
 
         assert_eq!(action, None);
         assert_eq!(app.state.settings.list.selected, 0);
+        assert!(app.state.settings.selection_active);
+        let edit_action = update_settings_state(
+            &mut app.state,
+            KeyEvent::new(KeyCode::Char('!'), KeyModifiers::empty()),
+        );
+        assert_eq!(
+            edit_action,
+            Some(SettingsAction::SaveGroupName {
+                group_idx,
+                name: "Side!".to_string(),
+            })
+        );
+        assert_eq!(
+            app.state.settings.pending_group_name.as_deref(),
+            Some("Side!")
+        );
         assert_eq!(app.state.mode, Mode::Settings);
         assert_eq!(app.state.groups[group_idx].name, "Side");
     }

@@ -90,8 +90,7 @@ use self::sidebar::{
     render_sidebar_collapsed_for_view, render_sidebar_for_view,
 };
 use self::status::{
-    copy_feedback_rect, render_config_diagnostic, render_copy_feedback, render_toast_notification,
-    toast_notification_rect,
+    copy_feedback_rect, render_copy_feedback, render_toast_notification, toast_notification_rect,
 };
 use self::tabs::{render_tab_bar, render_tab_bar_for_view};
 use self::widgets::fill_rect;
@@ -444,7 +443,6 @@ fn compute_view_for_client_internal(
             toast_notification_rect(
                 area,
                 toast,
-                app.config_diagnostic.is_some(),
                 toast.position.unwrap_or(app.toast_config.hako.position),
             )
         })
@@ -664,7 +662,6 @@ fn compute_view_internal(
             toast_notification_rect(
                 area,
                 toast,
-                app.config_diagnostic.is_some(),
                 toast.position.unwrap_or(app.toast_config.hako.position),
             )
         })
@@ -742,7 +739,7 @@ fn compute_mobile_view(
     let toast_hit_area = app
         .toast
         .as_ref()
-        .map(|_| mobile_toast_banner_rect(area, app.config_diagnostic.is_some()))
+        .map(|_| mobile_toast_banner_rect(area))
         .unwrap_or_default();
 
     app.view = crate::app::ViewState {
@@ -828,7 +825,7 @@ fn compute_mobile_view_for_client(
     let toast_hit_area = app
         .toast
         .as_ref()
-        .map(|_| mobile_toast_banner_rect(area, app.config_diagnostic.is_some()))
+        .map(|_| mobile_toast_banner_rect(area))
         .unwrap_or_default();
 
     client_view.computed = crate::app::ViewState {
@@ -1021,41 +1018,16 @@ pub fn render_with_runtime_registry_for_view(
 }
 
 fn render_notifications(app: &AppState, frame: &mut Frame, terminal_area: Rect) {
-    let has_config_diagnostic = app.config_diagnostic.is_some();
-    if let Some(message) = &app.config_diagnostic {
-        render_config_diagnostic(frame, terminal_area, message, &app.palette);
-    }
-    let mut copy_feedback_offset = u16::from(has_config_diagnostic);
+    let mut copy_feedback_offset = 0;
     let mut toast_rect = None;
     if let Some(toast) = &app.toast {
         if app.view.layout == ViewLayout::Mobile {
-            render_mobile_toast_banner(
-                frame,
-                frame.area(),
-                toast,
-                has_config_diagnostic,
-                &app.palette,
-            );
-            toast_rect = Some(mobile_toast_banner_rect(
-                frame.area(),
-                has_config_diagnostic,
-            ));
+            render_mobile_toast_banner(frame, frame.area(), toast, &app.palette);
+            toast_rect = Some(mobile_toast_banner_rect(frame.area()));
         } else {
             let position = toast.position.unwrap_or(app.toast_config.hako.position);
-            render_toast_notification(
-                frame,
-                frame.area(),
-                toast,
-                has_config_diagnostic,
-                position,
-                &app.palette,
-            );
-            toast_rect = Some(toast_notification_rect(
-                frame.area(),
-                toast,
-                has_config_diagnostic,
-                position,
-            ));
+            render_toast_notification(frame, frame.area(), toast, position, &app.palette);
+            toast_rect = Some(toast_notification_rect(frame.area(), toast, position));
         }
     }
     if let Some(feedback) = &app.copy_feedback {
@@ -1090,41 +1062,16 @@ fn render_notifications_for_view(
     frame: &mut Frame,
     terminal_area: Rect,
 ) {
-    let has_config_diagnostic = app.config_diagnostic.is_some();
-    if let Some(message) = &app.config_diagnostic {
-        render_config_diagnostic(frame, terminal_area, message, &app.palette);
-    }
-    let mut copy_feedback_offset = u16::from(has_config_diagnostic);
+    let mut copy_feedback_offset = 0;
     let mut toast_rect = None;
     if let Some(toast) = &app.toast {
         if client_view.computed.layout == ViewLayout::Mobile {
-            render_mobile_toast_banner(
-                frame,
-                frame.area(),
-                toast,
-                has_config_diagnostic,
-                &app.palette,
-            );
-            toast_rect = Some(mobile_toast_banner_rect(
-                frame.area(),
-                has_config_diagnostic,
-            ));
+            render_mobile_toast_banner(frame, frame.area(), toast, &app.palette);
+            toast_rect = Some(mobile_toast_banner_rect(frame.area()));
         } else {
             let position = toast.position.unwrap_or(app.toast_config.hako.position);
-            render_toast_notification(
-                frame,
-                frame.area(),
-                toast,
-                has_config_diagnostic,
-                position,
-                &app.palette,
-            );
-            toast_rect = Some(toast_notification_rect(
-                frame.area(),
-                toast,
-                has_config_diagnostic,
-                position,
-            ));
+            render_toast_notification(frame, frame.area(), toast, position, &app.palette);
+            toast_rect = Some(toast_notification_rect(frame.area(), toast, position));
         }
     }
     if let Some(feedback) = &app.copy_feedback {
@@ -1352,44 +1299,28 @@ mod tests {
     }
 
     #[test]
-    fn product_announcement_renders_above_config_diagnostic() {
+    fn config_diagnostic_does_not_render_over_terminal() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = vec![Workspace::test_new("one")];
         app.active = Some(0);
         app.selected = 0;
-        app.mode = Mode::ProductAnnouncement;
-        app.product_announcement = Some(crate::app::state::ProductAnnouncementState {
-            version: "0.6.0".into(),
-            id: "keybinding-v2".into(),
-            title: "Keybinding syntax changed".into(),
-            body: "### Update\n- Body".into(),
-            scroll: 0,
-            preview: false,
-        });
         app.config_diagnostic = Some(
             "unsafe direct keybinding: keys.new_workspace = \"n\"\nunsafe direct keybinding: keys.new_tab = \"c\""
                 .into(),
         );
 
-        let area = Rect::new(0, 0, 44, 20);
+        let area = Rect::new(0, 0, 80, 20);
         compute_view(&mut app, area);
-
         let backend = TestBackend::new(area.width, area.height);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|frame| render(&app, frame)).unwrap();
+
         let buffer = terminal.backend().buffer();
-
-        let popup = centered_popup_rect(
-            area,
-            PRODUCT_ANNOUNCEMENT_MODAL_SIZE.0,
-            PRODUCT_ANNOUNCEMENT_MODAL_SIZE.1,
-        )
-        .expect("announcement popup");
-        let title_row = popup.y + 1;
-        let row = buffer_row_text(buffer, Rect::new(0, title_row, area.width, 1), title_row);
-
-        assert!(row.contains("Keybinding syntax changed"));
-        assert!(!row.contains("config warning"));
+        let text = (0..area.height)
+            .map(|row| buffer_row_text(buffer, Rect::new(0, row, area.width, 1), row))
+            .collect::<String>();
+        assert!(!text.contains("config warning"));
+        assert!(!text.contains("unsafe direct keybinding"));
     }
 
     #[test]
