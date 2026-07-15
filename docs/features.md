@@ -343,6 +343,7 @@ Hako supports terminal-derived colors and built-in palettes.
 - **Theme source** — terminal colors or theme palettes.
 - **Appearance mode** — system, light, or dark.
 - **Light and dark palette selection** — choose separate palettes when system mode is enabled.
+- **Live system sync** — in system mode, Hako follows foreground host-terminal light/dark color changes while it is running and refreshes pane terminal defaults.
 - **Custom token overrides** — override individual theme colors.
 - **Group settings** — rename or delete groups, assign per-group ANSI accent colors, choose favorite/default agent profiles, or inherit the global accent from the group settings modal.
 - **Accent color** — configure highlight, border, and navigation accent color; when following terminal colors, choose separate terminal ANSI accents for light and dark appearances.

@@ -900,6 +900,7 @@ async fn run_client_loop(
     if will_query_host_terminal_theme {
         query_host_terminal_theme();
     }
+    let mut last_host_terminal_theme_query = std::time::Instant::now();
 
     // Spawn the resize poller thread.
     let resize_quit = should_quit.clone();
@@ -1164,7 +1165,13 @@ async fn run_client_loop(
                 )));
             }
             ClientLoopEvent::Timer => {
-                // Check if we should quit.
+                if will_query_host_terminal_theme {
+                    let _ = refresh_host_terminal_theme_if_due(
+                        &mut last_host_terminal_theme_query,
+                        std::time::Instant::now(),
+                        io::stdout(),
+                    );
+                }
             }
         }
     }
@@ -1675,6 +1682,8 @@ fn resize_poll_loop(
 // Logging
 // ---------------------------------------------------------------------------
 
+const HOST_THEME_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
+
 /// Initialize logging for the client process.
 fn query_host_terminal_theme() {
     let _ = write_host_terminal_theme_query(io::stdout());
@@ -1693,6 +1702,19 @@ fn windows_vti_input_backend_enabled() -> bool {
 fn write_host_terminal_theme_query(mut writer: impl io::Write) -> io::Result<()> {
     writer.write_all(crate::terminal_theme::HOST_COLOR_QUERY_SEQUENCE.as_bytes())?;
     writer.flush()
+}
+fn refresh_host_terminal_theme_if_due(
+    last_query: &mut std::time::Instant,
+    now: std::time::Instant,
+    writer: impl io::Write,
+) -> io::Result<bool> {
+    if now.saturating_duration_since(*last_query) < HOST_THEME_REFRESH_INTERVAL {
+        return Ok(false);
+    }
+
+    write_host_terminal_theme_query(writer)?;
+    *last_query = now;
+    Ok(true)
 }
 
 fn init_logging() {
@@ -1917,6 +1939,40 @@ mod tests {
             output,
             crate::terminal_theme::HOST_COLOR_QUERY_SEQUENCE.as_bytes()
         );
+    }
+    #[test]
+    fn host_terminal_theme_query_repeats_after_refresh_interval() {
+        let started_at = std::time::Instant::now();
+        let mut last_query = started_at;
+        let mut output = Vec::new();
+
+        assert!(!refresh_host_terminal_theme_if_due(
+            &mut last_query,
+            started_at + HOST_THEME_REFRESH_INTERVAL - Duration::from_millis(1),
+            &mut output,
+        )
+        .unwrap());
+        assert!(output.is_empty());
+
+        assert!(refresh_host_terminal_theme_if_due(
+            &mut last_query,
+            started_at + HOST_THEME_REFRESH_INTERVAL,
+            &mut output,
+        )
+        .unwrap());
+        assert_eq!(
+            output,
+            crate::terminal_theme::HOST_COLOR_QUERY_SEQUENCE.as_bytes()
+        );
+
+        output.clear();
+        assert!(!refresh_host_terminal_theme_if_due(
+            &mut last_query,
+            started_at + HOST_THEME_REFRESH_INTERVAL * 2 - Duration::from_millis(1),
+            &mut output,
+        )
+        .unwrap());
+        assert!(output.is_empty());
     }
 
     #[test]
