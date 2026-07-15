@@ -230,6 +230,47 @@ impl AppState {
             return None;
         }
 
+        if self.mode == Mode::ConfigDiagnostics {
+            let max_scroll = crate::ui::config_diagnostics_max_scroll(
+                self.screen_rect(),
+                self.config_issue.as_ref(),
+                &self.palette,
+            );
+            match mouse.kind {
+                MouseEventKind::ScrollUp => {
+                    self.config_diagnostics_scroll = self
+                        .config_diagnostics_scroll
+                        .saturating_sub(super::MODAL_WHEEL_SCROLL_ROWS as u16);
+                }
+                MouseEventKind::ScrollDown => {
+                    self.config_diagnostics_scroll = self
+                        .config_diagnostics_scroll
+                        .saturating_add(super::MODAL_WHEEL_SCROLL_ROWS as u16)
+                        .min(max_scroll);
+                }
+                MouseEventKind::Down(MouseButton::Left) => {
+                    match crate::ui::config_diagnostics_action_at(
+                        self.screen_rect(),
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        Some(crate::ui::ConfigDiagnosticsAction::Close) => leave_modal(self),
+                        None => {
+                            let outside =
+                                crate::ui::config_diagnostics_popup_rect(self.screen_rect())
+                                    .map(|popup| !rect_contains(popup, mouse.column, mouse.row))
+                                    .unwrap_or(true);
+                            if outside {
+                                leave_modal(self);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return None;
+        }
+
         if self.mode == Mode::KeybindHelp {
             return None;
         }
@@ -2257,6 +2298,19 @@ mod tests {
     fn command_palette_clicking_outside_closes() {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::CommandPalette;
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 0, 0));
+
+        assert_eq!(app.state.mode, Mode::Navigate);
+    }
+
+    #[test]
+    fn configuration_diagnostics_clicking_outside_closes() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::ConfigDiagnostics;
+        app.state.config_issue = Some(crate::app::state::ConfigIssue::from_details(
+            "config.toml: unknown key `colour`".to_string(),
+        ));
 
         app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 0, 0));
 

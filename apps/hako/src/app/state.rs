@@ -1489,6 +1489,7 @@ pub enum Mode {
     CommandPalette,
     AgentProfilePicker,
     GitRepoPicker,
+    ConfigDiagnostics,
 }
 
 impl Mode {
@@ -1510,6 +1511,7 @@ impl Mode {
                 | Mode::AgentMenu
                 | Mode::KeybindHelp
                 | Mode::Navigator
+                | Mode::ConfigDiagnostics
         )
     }
 }
@@ -2278,6 +2280,88 @@ impl ContextMenuState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigIssueImpact {
+    UsingDefaults,
+    KeepingCurrent,
+    Warnings,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConfigDiagnosticEntry {
+    pub number: String,
+    pub title: String,
+    pub details: Vec<String>,
+}
+
+impl ConfigDiagnosticEntry {
+    fn new(index: usize, diagnostic: &str) -> Self {
+        let (title, details) = if let Some((title, details)) = diagnostic.split_once(": ") {
+            (title, Some(details))
+        } else if let Some((title, details)) = diagnostic.split_once("; ") {
+            (title, Some(details))
+        } else {
+            (diagnostic, None)
+        };
+        let details = details
+            .into_iter()
+            .flat_map(|details| details.split("; "))
+            .flat_map(str::lines)
+            .map(str::trim)
+            .filter(|detail| !detail.is_empty())
+            .map(str::to_owned)
+            .collect();
+        Self {
+            number: (index + 1).to_string(),
+            title: title.trim().to_string(),
+            details,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigIssue {
+    pub details: String,
+    pub(crate) entries: Vec<ConfigDiagnosticEntry>,
+    pub impact: ConfigIssueImpact,
+}
+
+impl ConfigIssue {
+    pub fn from_details(details: String) -> Self {
+        let diagnostics = details.lines().map(str::to_owned).collect();
+        Self::from_diagnostics(diagnostics)
+    }
+
+    pub fn from_diagnostics(diagnostics: Vec<String>) -> Self {
+        let details = diagnostics.join("\n");
+        let impact = if details.contains("using defaults") {
+            ConfigIssueImpact::UsingDefaults
+        } else if details.contains("keeping current") {
+            ConfigIssueImpact::KeepingCurrent
+        } else {
+            ConfigIssueImpact::Warnings
+        };
+        let entries = diagnostics
+            .iter()
+            .enumerate()
+            .map(|(index, diagnostic)| ConfigDiagnosticEntry::new(index, diagnostic))
+            .collect();
+        Self {
+            details,
+            entries,
+            impact,
+        }
+    }
+
+    pub fn summary(&self) -> &'static str {
+        match self.impact {
+            ConfigIssueImpact::UsingDefaults => "Hako is using default settings.",
+            ConfigIssueImpact::KeepingCurrent => "Some changes were not applied.",
+            ConfigIssueImpact::Warnings => "Some configuration was ignored.",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToastKind {
     NeedsAttention,
     Finished,
@@ -2504,6 +2588,7 @@ pub struct AppState {
     pub release_notes: Option<ReleaseNotesState>,
     pub product_announcement: Option<ProductAnnouncementState>,
     pub keybind_help: KeybindHelpState,
+    pub config_diagnostics_scroll: u16,
     pub navigator: NavigatorState,
     pub command_palette: CommandPaletteState,
     pub agent_profile_picker: AgentProfilePickerState,
@@ -2535,6 +2620,7 @@ pub struct AppState {
     pub latest_release_notes_available: bool,
     pub update_dismissed: bool,
     pub config_diagnostic: Option<String>,
+    pub config_issue: Option<ConfigIssue>,
     pub toast: Option<ToastNotification>,
     pub pending_agent_notifications: std::collections::HashMap<PaneId, PendingAgentNotification>,
     pub copy_feedback: Option<CopyFeedback>,
@@ -3013,14 +3099,16 @@ impl AppState {
     }
 
     pub(crate) fn global_menu_attention_badge_visible(&self) -> bool {
-        self.update_available.is_some()
+        self.config_issue.is_some()
+            || self.update_available.is_some()
             || self.latest_release_notes_available
             || self.integration_updates_available()
     }
 
     pub(crate) fn global_menu_item_has_badge(&self, item: &str) -> bool {
-        (item == "changelog"
-            && (self.update_available.is_some() || self.latest_release_notes_available))
+        (item == "configuration issue" && self.config_issue.is_some())
+            || (item == "changelog"
+                && (self.update_available.is_some() || self.latest_release_notes_available))
             || (item == "integrations" && self.integration_updates_available())
     }
 
@@ -3222,6 +3310,7 @@ impl AppState {
             release_notes: None,
             product_announcement: None,
             keybind_help: KeybindHelpState { scroll: 0 },
+            config_diagnostics_scroll: 0,
             command_palette: CommandPaletteState {
                 query: String::new(),
                 selected: 0,
@@ -3284,6 +3373,7 @@ impl AppState {
             latest_release_notes_available: false,
             update_dismissed: false,
             config_diagnostic: None,
+            config_issue: None,
             toast: None,
             pending_agent_notifications: std::collections::HashMap::new(),
             outer_terminal_focus: None,

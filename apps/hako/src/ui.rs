@@ -7,6 +7,7 @@ use ratatui::{
 
 mod agent_profile_picker;
 mod command_palette;
+mod config_diagnostics;
 mod dialogs;
 pub(crate) mod git_repo_picker;
 mod keybind_help;
@@ -30,6 +31,13 @@ use self::agent_profile_picker::{
 };
 use self::command_palette::{
     render_command_palette_overlay, render_command_palette_overlay_for_view,
+};
+pub(crate) use self::config_diagnostics::{
+    config_diagnostics_action_at, config_diagnostics_max_scroll, config_diagnostics_popup_rect,
+    ConfigDiagnosticsAction,
+};
+use self::config_diagnostics::{
+    render_config_diagnostics_overlay, render_config_diagnostics_overlay_for_view,
 };
 use self::dialogs::{
     render_confirm_close_overlay, render_confirm_close_overlay_for_view,
@@ -913,6 +921,7 @@ pub fn render_with_runtime_registry(
         Mode::CommandPalette => render_command_palette_overlay(app, frame),
         Mode::AgentProfilePicker => render_agent_profile_picker_overlay(app, frame),
         Mode::GitRepoPicker => render_git_repo_picker_overlay(app, frame),
+        Mode::ConfigDiagnostics => render_config_diagnostics_overlay(app, frame),
         Mode::Terminal => {}
     }
 }
@@ -1004,6 +1013,9 @@ pub fn render_with_runtime_registry_for_view(
             render_agent_profile_picker_overlay_for_view(app, client_view, frame)
         }
         Mode::GitRepoPicker => render_git_repo_picker_overlay_for_view(app, client_view, frame),
+        Mode::ConfigDiagnostics => {
+            render_config_diagnostics_overlay_for_view(app, client_view, frame)
+        }
         Mode::Terminal => {}
     }
 }

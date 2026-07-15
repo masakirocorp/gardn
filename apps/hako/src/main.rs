@@ -714,7 +714,8 @@ fn main() -> io::Result<()> {
     }));
 
     let config = &loaded_config.config;
-    let config_diagnostic = config::config_diagnostic_summary(&loaded_config.diagnostics);
+    let config_diagnostics =
+        (!loaded_config.diagnostics.is_empty()).then(|| loaded_config.diagnostics.clone());
     logging::startup("app");
 
     // Background update check (non-blocking, best-effort)
@@ -753,7 +754,7 @@ fn main() -> io::Result<()> {
         let mut app = app::App::new(
             config,
             true, // no_session — monolithic mode never saves/restores sessions
-            config_diagnostic,
+            config_diagnostics,
             api_rx,
             event_hub,
         );

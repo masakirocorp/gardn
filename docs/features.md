@@ -365,6 +365,7 @@ Hako treats `config.toml` as a stable hand-editable configuration surface. Setti
 
 Runtime reload is section-scoped for live sections: valid sections apply, invalid sections keep the previous live settings and emit diagnostics through the app/server reload path.
 - **Offline validation** — `hako config check` validates `config.toml`, prints diagnostics, and exits without starting or attaching to a session.
+- **Configuration status** — startup and reload diagnostics raise one transient toast, then remain available from the bottom-left `config issue` status and its diagnostics modal until a successful reload clears them.
 
 
 Configurable areas include:

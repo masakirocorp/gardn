@@ -53,8 +53,9 @@ use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute, terminal,
 };
+use ratatui::backend::Backend;
 use ratatui::layout::{Direction, Rect};
-use ratatui::DefaultTerminal;
+use ratatui::{DefaultTerminal, Terminal};
 use tokio::sync::{mpsc, Notify};
 use tracing::{debug, info};
 
@@ -66,7 +67,7 @@ pub(crate) use view_state::ClientViewState;
 
 pub(crate) fn client_global_menu_rect(state: &AppState, view: &ClientViewState) -> Rect {
     let screen = view.screen_rect();
-    let launcher = crate::ui::global_launcher_rect_for_view(view);
+    let launcher = crate::ui::global_launcher_rect_for_view(state, view);
     let labels = state.global_menu_labels();
     let content_width = labels
         .iter()
@@ -579,7 +580,7 @@ impl App {
     pub fn new(
         config: &Config,
         no_session: bool,
-        config_diagnostic: Option<String>,
+        config_diagnostics: Option<Vec<String>>,
         api_rx: tokio::sync::mpsc::UnboundedReceiver<crate::api::ApiRequestMessage>,
         event_hub: crate::api::EventHub,
     ) -> Self {
@@ -588,6 +589,15 @@ impl App {
         let (event_tx, event_rx) = mpsc::channel::<AppEvent>(64);
         let render_notify = Arc::new(Notify::new());
         let render_dirty = Arc::new(AtomicBool::new(false));
+        let config_issue = config_diagnostics.map(state::ConfigIssue::from_diagnostics);
+        let config_diagnostic = config_issue.as_ref().map(|issue| issue.details.clone());
+        let startup_config_toast = config_issue.as_ref().map(|issue| state::ToastNotification {
+            kind: state::ToastKind::NeedsAttention,
+            title: "configuration issue".to_string(),
+            context: issue.summary().to_string(),
+            position: None,
+            target: None,
+        });
 
         // Try to restore previous session
         let mut restored_terminals = std::collections::HashMap::new();
@@ -829,6 +839,7 @@ impl App {
                 }
             }),
             keybind_help: state::KeybindHelpState { scroll: 0 },
+            config_diagnostics_scroll: 0,
             command_palette: state::CommandPaletteState {
                 query: String::new(),
                 selected: 0,
@@ -884,7 +895,8 @@ impl App {
             latest_release_notes_available,
             update_dismissed: false,
             config_diagnostic,
-            toast: None,
+            config_issue,
+            toast: startup_config_toast,
             pending_agent_notifications: std::collections::HashMap::new(),
             copy_feedback: None,
             outer_terminal_focus: None,
@@ -1068,10 +1080,14 @@ impl App {
         });
 
         let default_client_view = ClientViewState::from_default_client_state(&state);
+        let toast_deadline = state
+            .toast
+            .as_ref()
+            .map(|_| Instant::now() + Duration::from_secs(8));
 
         Self {
             config_diagnostic_deadline: None,
-            toast_deadline: None,
+            toast_deadline,
             copy_feedback_deadline: None,
             state,
             default_client_view,
@@ -1133,7 +1149,7 @@ impl App {
     #[cfg(unix)]
     pub fn new_from_handoff(
         config: &Config,
-        config_diagnostic: Option<String>,
+        config_diagnostics: Option<Vec<String>>,
         api_rx: tokio::sync::mpsc::UnboundedReceiver<crate::api::ApiRequestMessage>,
         event_hub: crate::api::EventHub,
         snapshot: &crate::persist::SessionSnapshot,
@@ -1142,7 +1158,7 @@ impl App {
             crate::handoff_runtime::ImportedHandoffRuntime,
         >,
     ) -> io::Result<Self> {
-        let mut app = Self::new(config, true, config_diagnostic, api_rx, event_hub);
+        let mut app = Self::new(config, true, config_diagnostics, api_rx, event_hub);
         let (workspaces, terminals, runtimes) = crate::persist::restore_handoff(
             snapshot,
             config.advanced.scrollback_limit_bytes,
@@ -1341,6 +1357,15 @@ impl App {
         true
     }
 
+    fn clear_terminal_for_full_redraw<B: Backend>(
+        terminal: &mut Terminal<B>,
+    ) -> Result<(), B::Error> {
+        // Ratatui's clear() queries the host cursor. Hako's raw input reader can
+        // consume that response first, so resize the fullscreen viewport instead.
+        let size = terminal.size()?;
+        terminal.resize(Rect::new(0, 0, size.width, size.height))
+    }
+
     pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
         if self.input_rx.is_none() {
             self.input_rx = Some(crate::raw_input::spawn_input_reader());
@@ -1420,7 +1445,7 @@ impl App {
                     if kitty_graphics_enabled {
                         crate::kitty_graphics::clear_all_host_graphics()?;
                     }
-                    terminal.clear()?;
+                    Self::clear_terminal_for_full_redraw(terminal)?;
                     self.full_redraw_pending = false;
                 }
                 let mut cell_size = crate::kitty_graphics::HostCellSize::default();
@@ -1684,10 +1709,18 @@ impl App {
                 notify_success,
             ),
             Err(diagnostics) => {
-                self.state.toast = None;
-                self.state.config_diagnostic =
-                    crate::config::config_diagnostic_summary(&diagnostics);
-                self.config_diagnostic_deadline = None;
+                let issue = state::ConfigIssue::from_diagnostics(diagnostics.clone());
+                if notify_success {
+                    self.state.toast = Some(state::ToastNotification {
+                        kind: state::ToastKind::NeedsAttention,
+                        title: "configuration issue".to_string(),
+                        context: issue.summary().to_string(),
+                        position: None,
+                        target: None,
+                    });
+                }
+                self.state.config_diagnostic = Some(issue.details.clone());
+                self.state.config_issue = Some(issue);
                 crate::config::ConfigReloadReport {
                     status: crate::config::ConfigReloadStatus::Failed,
                     diagnostics,
@@ -1917,7 +1950,7 @@ impl App {
 
         if diagnostics.is_empty() {
             self.state.config_diagnostic = None;
-            self.config_diagnostic_deadline = None;
+            self.state.config_issue = None;
             if notify_success {
                 self.state.toast = Some(crate::app::state::ToastNotification {
                     kind: crate::app::state::ToastKind::UpdateInstalled,
@@ -1928,17 +1961,18 @@ impl App {
                 });
             }
         } else {
-            self.state.config_diagnostic = crate::config::config_diagnostic_summary(&diagnostics);
-            self.config_diagnostic_deadline = None;
+            let issue = state::ConfigIssue::from_diagnostics(diagnostics.clone());
             if notify_success {
                 self.state.toast = Some(crate::app::state::ToastNotification {
-                    kind: crate::app::state::ToastKind::UpdateInstalled,
-                    title: "reloaded config".to_string(),
-                    context: "with warnings".to_string(),
+                    kind: crate::app::state::ToastKind::NeedsAttention,
+                    title: "configuration issue".to_string(),
+                    context: issue.summary().to_string(),
                     position: None,
                     target: None,
                 });
             }
+            self.state.config_diagnostic = Some(issue.details.clone());
+            self.state.config_issue = Some(issue);
         }
 
         crate::config::ConfigReloadReport {
@@ -2345,6 +2379,9 @@ impl App {
             Mode::KeybindHelp => {
                 self.handle_client_view_keybind_help_key(client_view, key);
             }
+            Mode::ConfigDiagnostics => {
+                self.handle_client_view_config_diagnostics_key(client_view, key);
+            }
             Mode::Navigator => {
                 if key.code == crossterm::event::KeyCode::Enter {
                     self.accept_client_view_navigator_selection(client_view);
@@ -2460,6 +2497,54 @@ impl App {
             }
             crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
                 client_view.keybind_help.scroll = client_view.keybind_help.scroll.saturating_add(1);
+            }
+            _ => {}
+        }
+    }
+    fn handle_client_view_config_diagnostics_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        key: crossterm::event::KeyEvent,
+    ) {
+        let max_scroll = crate::ui::config_diagnostics_max_scroll(
+            client_view.screen_rect(),
+            self.state.config_issue.as_ref(),
+            &self.state.palette,
+        );
+        match key.code {
+            crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
+                client_view.config_diagnostics_scroll =
+                    client_view.config_diagnostics_scroll.saturating_sub(1);
+            }
+            crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
+                client_view.config_diagnostics_scroll = client_view
+                    .config_diagnostics_scroll
+                    .saturating_add(1)
+                    .min(max_scroll);
+            }
+            crossterm::event::KeyCode::PageUp => {
+                client_view.config_diagnostics_scroll = client_view
+                    .config_diagnostics_scroll
+                    .saturating_sub(input::MODAL_PAGE_SCROLL_ROWS as u16);
+            }
+            crossterm::event::KeyCode::PageDown => {
+                client_view.config_diagnostics_scroll = client_view
+                    .config_diagnostics_scroll
+                    .saturating_add(input::MODAL_PAGE_SCROLL_ROWS as u16)
+                    .min(max_scroll);
+            }
+            crossterm::event::KeyCode::Home => client_view.config_diagnostics_scroll = 0,
+            crossterm::event::KeyCode::End => {
+                client_view.config_diagnostics_scroll = max_scroll;
+            }
+            crossterm::event::KeyCode::Char('r') => {
+                self.state.request_reload_config = true;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            crossterm::event::KeyCode::Esc
+            | crossterm::event::KeyCode::Enter
+            | crossterm::event::KeyCode::Char('?') => {
+                Self::leave_client_view_command_mode(client_view);
             }
             _ => {}
         }
@@ -3117,6 +3202,10 @@ impl App {
         client_view.keybind_help.scroll = 0;
         client_view.mode = Mode::KeybindHelp;
     }
+    fn open_client_view_config_diagnostics(client_view: &mut ClientViewState) {
+        client_view.config_diagnostics_scroll = 0;
+        client_view.mode = Mode::ConfigDiagnostics;
+    }
 
     fn open_client_view_changelog(client_view: &mut ClientViewState) {
         let notes = crate::release_notes::load_changelog();
@@ -3347,6 +3436,9 @@ impl App {
         };
 
         match action {
+            input::GlobalMenuAction::ConfigIssue => {
+                Self::open_client_view_config_diagnostics(client_view)
+            }
             input::GlobalMenuAction::Detach => {
                 input::request_detach(&mut self.state);
                 Self::leave_client_view_command_mode(client_view);
@@ -5315,6 +5407,9 @@ impl App {
             return;
         }
 
+        if self.handle_client_view_config_diagnostics_mouse(client_view, mouse) {
+            return;
+        }
         if self.handle_client_view_settings_mouse(client_view, mouse) {
             return;
         }
@@ -7197,6 +7292,55 @@ impl App {
         client_view.mode = Mode::ContextMenu;
         true
     }
+    fn handle_client_view_config_diagnostics_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if client_view.mode != Mode::ConfigDiagnostics {
+            return false;
+        }
+
+        let screen = client_view.screen_rect();
+        let max_scroll = crate::ui::config_diagnostics_max_scroll(
+            screen,
+            self.state.config_issue.as_ref(),
+            &self.state.palette,
+        );
+        match mouse.kind {
+            MouseEventKind::ScrollUp => {
+                client_view.config_diagnostics_scroll = client_view
+                    .config_diagnostics_scroll
+                    .saturating_sub(input::MODAL_WHEEL_SCROLL_ROWS as u16);
+            }
+            MouseEventKind::ScrollDown => {
+                client_view.config_diagnostics_scroll = client_view
+                    .config_diagnostics_scroll
+                    .saturating_add(input::MODAL_WHEEL_SCROLL_ROWS as u16)
+                    .min(max_scroll);
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                match crate::ui::config_diagnostics_action_at(screen, mouse.column, mouse.row) {
+                    Some(crate::ui::ConfigDiagnosticsAction::Close) => {
+                        Self::leave_client_view_command_mode(client_view);
+                    }
+                    None => {
+                        let outside = crate::ui::config_diagnostics_popup_rect(screen)
+                            .map(|popup| !Self::rect_contains(popup, mouse.column, mouse.row))
+                            .unwrap_or(true);
+                        if outside {
+                            Self::leave_client_view_command_mode(client_view);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        true
+    }
+
     fn handle_client_view_settings_mouse(
         &mut self,
         client_view: &mut ClientViewState,
@@ -7324,7 +7468,7 @@ impl App {
 
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                if Self::client_view_on_global_launcher(client_view, mouse) {
+                if Self::client_view_on_global_launcher(&self.state, client_view, mouse) {
                     client_view.global_menu = state::MenuListState::new(0);
                     client_view.mode = Mode::GlobalMenu;
                     return true;
@@ -7488,11 +7632,12 @@ impl App {
     }
 
     fn client_view_on_global_launcher(
+        state: &AppState,
         client_view: &ClientViewState,
         mouse: crossterm::event::MouseEvent,
     ) -> bool {
         Self::rect_contains(
-            crate::ui::global_launcher_rect_for_view(client_view),
+            crate::ui::global_launcher_rect_for_view(state, client_view),
             mouse.column,
             mouse.row,
         )
@@ -8713,6 +8858,9 @@ impl App {
             Mode::KeybindHelp => {
                 input::handle_keybind_help_key(&mut self.state, key_event);
             }
+            Mode::ConfigDiagnostics => {
+                input::handle_config_diagnostics_key(&mut self.state, key_event);
+            }
             Mode::Navigator => {
                 input::handle_navigator_key(&mut self.state, key_event);
             }
@@ -8771,6 +8919,73 @@ mod tests {
     use crate::workspace::Workspace;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
     use std::sync::Mutex;
+
+    struct CursorQueryFailingBackend;
+
+    impl ratatui::backend::Backend for CursorQueryFailingBackend {
+        type Error = io::Error;
+
+        fn draw<'a, I>(&mut self, _content: I) -> Result<(), Self::Error>
+        where
+            I: Iterator<Item = (u16, u16, &'a ratatui::buffer::Cell)>,
+        {
+            Ok(())
+        }
+
+        fn hide_cursor(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn show_cursor(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn get_cursor_position(&mut self) -> Result<ratatui::layout::Position, Self::Error> {
+            Err(io::Error::other("cursor query forbidden"))
+        }
+
+        fn set_cursor_position<P: Into<ratatui::layout::Position>>(
+            &mut self,
+            _position: P,
+        ) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn clear(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn clear_region(
+            &mut self,
+            _clear_type: ratatui::backend::ClearType,
+        ) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn size(&self) -> Result<ratatui::layout::Size, Self::Error> {
+            Ok(ratatui::layout::Size::new(80, 24))
+        }
+
+        fn window_size(&mut self) -> Result<ratatui::backend::WindowSize, Self::Error> {
+            Ok(ratatui::backend::WindowSize {
+                columns_rows: ratatui::layout::Size::new(80, 24),
+                pixels: ratatui::layout::Size::new(0, 0),
+            })
+        }
+
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn full_redraw_does_not_query_host_cursor() {
+        let mut terminal =
+            ratatui::Terminal::new(CursorQueryFailingBackend).expect("test terminal");
+
+        App::clear_terminal_for_full_redraw(&mut terminal)
+            .expect("full redraw must not query the host cursor");
+    }
 
     fn raw_key(
         code: KeyCode,
@@ -9034,6 +9249,54 @@ mod tests {
             api_rx,
             crate::api::EventHub::default(),
         )
+    }
+    #[test]
+    fn startup_configuration_diagnostic_creates_transient_toast_and_persistent_issue() {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let app = App::new(
+            &Config::default(),
+            true,
+            Some(vec!["config.toml: unknown key `colour`".to_string()]),
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+
+        assert_eq!(
+            app.state
+                .config_issue
+                .as_ref()
+                .map(|issue| issue.details.as_str()),
+            Some("config.toml: unknown key `colour`")
+        );
+        assert_eq!(
+            app.state.toast.as_ref().map(|toast| toast.kind),
+            Some(state::ToastKind::NeedsAttention)
+        );
+        assert!(app.toast_deadline.is_some());
+        assert_eq!(
+            app.state.config_diagnostic.as_deref(),
+            Some("config.toml: unknown key `colour`")
+        );
+        assert!(app.config_diagnostic_deadline.is_none());
+    }
+
+    #[test]
+    fn successful_config_reload_clears_persistent_issue() {
+        let mut app = test_app();
+        app.state.config_issue = Some(state::ConfigIssue::from_details(
+            "config.toml: unknown key `colour`".to_string(),
+        ));
+        app.state.config_diagnostic = Some("config.toml: unknown key `colour`".to_string());
+
+        let report = app.apply_live_config(&Config::default(), &[], &[], true);
+
+        assert_eq!(report.status, crate::config::ConfigReloadStatus::Applied);
+        assert!(app.state.config_issue.is_none());
+        assert!(app.state.config_diagnostic.is_none());
+        assert_eq!(
+            app.state.toast.as_ref().map(|toast| toast.title.as_str()),
+            Some("reloaded config")
+        );
     }
 
     fn drained_prefix_active(app: &mut App) -> Vec<bool> {
@@ -10275,7 +10538,13 @@ mod tests {
             .is_some_and(|message| {
                 message.contains("config parse error") && message.contains("keeping current config")
             }));
-        assert!(app.state.toast.is_none());
+        assert_eq!(
+            app.state
+                .toast
+                .as_ref()
+                .map(|toast| (&toast.kind, toast.title.as_str())),
+            Some((&state::ToastKind::NeedsAttention, "configuration issue"))
+        );
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
@@ -14579,6 +14848,84 @@ command = "printf literal > '{}'"
     }
 
     #[test]
+    fn route_client_events_for_view_configuration_issue_stays_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.config_issue = Some(state::ConfigIssue::from_details(
+            "config.toml: unknown key `colour`".to_string(),
+        ));
+
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
+        first_client.mode = Mode::GlobalMenu;
+        let issue_idx = crate::app::input::global_menu_actions(&app.state)
+            .iter()
+            .position(|action| *action == crate::app::input::GlobalMenuAction::ConfigIssue)
+            .expect("configuration issue action should be present");
+        first_client.global_menu = state::MenuListState::new(issue_idx);
+        let second_client = ClientViewState::from_default_client_state(&app.state);
+
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        assert_eq!(first_client.mode, Mode::ConfigDiagnostics);
+        assert_eq!(second_client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
+
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![raw_key(
+                KeyCode::Char('r'),
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        assert_eq!(first_client.mode, Mode::Terminal);
+        assert!(app.state.request_reload_config);
+        assert!(app.state.config_issue.is_some());
+    }
+
+    #[test]
+    fn route_client_events_for_view_configuration_issue_clicking_outside_stays_client_local() {
+        let mut app = test_app();
+        app.state.mode = Mode::Terminal;
+        app.state.config_issue = Some(state::ConfigIssue::from_details(
+            "config.toml: unknown key `colour`".to_string(),
+        ));
+
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
+        first_client.mode = Mode::ConfigDiagnostics;
+        let second_client = ClientViewState::from_default_client_state(&app.state);
+
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                0,
+                0,
+            )],
+            true,
+        );
+
+        assert_eq!(first_client.mode, Mode::Navigate);
+        assert_eq!(second_client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(!app.state.request_reload_config);
+    }
+
+    #[test]
     fn route_client_events_for_view_global_menu_rendered_row_maps_to_keybinds() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("test")];
@@ -14790,7 +15137,7 @@ command = "printf literal > '{}'"
             &mut first_client,
             ratatui::layout::Rect::new(0, 0, 120, 30),
         );
-        let launcher = crate::ui::global_launcher_rect_for_view(&first_client);
+        let launcher = crate::ui::global_launcher_rect_for_view(&app.state, &first_client);
         assert!(
             launcher.width > 0 && launcher.height > 0,
             "client view should expose the footer help launcher"

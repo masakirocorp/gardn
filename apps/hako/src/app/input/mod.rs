@@ -23,7 +23,7 @@ enum WheelRouting {
 pub(super) const WORKSPACE_DRAG_THRESHOLD: u16 = 1;
 pub(super) const TAB_DRAG_THRESHOLD: u16 = 1;
 pub(super) const MODAL_WHEEL_SCROLL_ROWS: i16 = 3;
-const MODAL_PAGE_SCROLL_ROWS: i16 = 8;
+pub(super) const MODAL_PAGE_SCROLL_ROWS: i16 = 8;
 
 fn modified_url_click_modifier() -> KeyModifiers {
     KeyModifiers::CONTROL
@@ -55,11 +55,11 @@ pub(crate) use self::{
     modal::{
         confirm_close_accept, confirm_close_cancel, confirm_delete_group_accept,
         confirm_delete_group_cancel, global_menu_actions, handle_agent_menu_key,
-        handle_confirm_close_key, handle_confirm_delete_group_key, handle_context_menu_key,
-        handle_global_menu_key, handle_group_menu_key, handle_keybind_help_key,
-        handle_navigator_key, handle_rename_key, handle_resize_key, handle_worktree_directory_key,
-        insert_navigator_search_text, insert_rename_input_text, request_detach, GlobalMenuAction,
-        ModalAction,
+        handle_config_diagnostics_key, handle_confirm_close_key, handle_confirm_delete_group_key,
+        handle_context_menu_key, handle_global_menu_key, handle_group_menu_key,
+        handle_keybind_help_key, handle_navigator_key, handle_rename_key, handle_resize_key,
+        handle_worktree_directory_key, insert_navigator_search_text, insert_rename_input_text,
+        request_detach, GlobalMenuAction, ModalAction,
     },
     navigate::{
         command_for_key, indexed_navigation_action, non_indexed_action_for_key,
@@ -126,6 +126,7 @@ impl App {
             Mode::GroupMenu => handle_group_menu_key(&mut self.state, key_event),
             Mode::AgentMenu => handle_agent_menu_key(&mut self.state, key_event),
             Mode::KeybindHelp => handle_keybind_help_key(&mut self.state, key_event),
+            Mode::ConfigDiagnostics => handle_config_diagnostics_key(&mut self.state, key_event),
             Mode::Navigator => handle_navigator_key(&mut self.state, key_event),
             Mode::CommandPalette if key_event.code == KeyCode::Enter => {
                 self.execute_selected_command_palette_command_interactive()

@@ -2295,7 +2295,9 @@ pub(crate) fn workspace_drop_indicator_row(
 
 fn global_launcher_style(app: &AppState) -> Style {
     Style::default()
-        .fg(if app.global_menu_attention_badge_visible() {
+        .fg(if app.config_issue.is_some() {
+            app.palette.yellow
+        } else if app.global_menu_attention_badge_visible() {
             app.palette.accent
         } else {
             app.palette.overlay0
@@ -2310,7 +2312,10 @@ fn render_global_launcher(app: &AppState, frame: &mut Frame) {
     }
 
     frame.render_widget(
-        Paragraph::new(Span::styled("?", global_launcher_style(app))),
+        Paragraph::new(Span::styled(
+            app.global_launcher_label(area.width),
+            global_launcher_style(app),
+        )),
         area,
     );
 }
@@ -2320,18 +2325,21 @@ fn render_global_launcher_for_view(
     client_view: &ClientViewState,
     frame: &mut Frame,
 ) {
-    let area = global_launcher_rect_for_view(client_view);
+    let area = global_launcher_rect_for_view(app, client_view);
     if area == Rect::default() {
         return;
     }
 
     frame.render_widget(
-        Paragraph::new(Span::styled("?", global_launcher_style(app))),
+        Paragraph::new(Span::styled(
+            app.global_launcher_label(area.width),
+            global_launcher_style(app),
+        )),
         area,
     );
 }
 
-pub(crate) fn global_launcher_rect_for_view(client_view: &ClientViewState) -> Rect {
+pub(crate) fn global_launcher_rect_for_view(app: &AppState, client_view: &ClientViewState) -> Rect {
     if client_view.computed.layout == crate::app::state::ViewLayout::Mobile {
         return client_view.computed.mobile_menu_hit_area;
     }
@@ -2341,15 +2349,19 @@ pub(crate) fn global_launcher_rect_for_view(client_view: &ClientViewState) -> Re
         return Rect::default();
     }
 
-    Rect::new(
-        footer
-            .x
-            .saturating_add(1)
-            .min(footer.x.saturating_add(footer.width.saturating_sub(1))),
-        footer.y,
-        1.min(footer.width),
-        footer.height,
-    )
+    let x = footer
+        .x
+        .saturating_add(1)
+        .min(footer.x.saturating_add(footer.width.saturating_sub(1)));
+    let available = footer.x.saturating_add(footer.width).saturating_sub(x);
+    let width = if app.config_issue.is_some() && available >= 14 {
+        14
+    } else if app.config_issue.is_some() && available >= 2 {
+        2
+    } else {
+        1.min(available)
+    };
+    Rect::new(x, footer.y, width, footer.height)
 }
 
 fn client_view_sidebar_footer_rect(client_view: &ClientViewState) -> Rect {

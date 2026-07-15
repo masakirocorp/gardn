@@ -242,19 +242,39 @@ impl AppState {
             return Rect::default();
         }
 
-        Rect::new(
-            footer
-                .x
-                .saturating_add(1)
-                .min(footer.x.saturating_add(footer.width.saturating_sub(1))),
-            footer.y,
-            1.min(footer.width),
-            footer.height,
-        )
+        let x = footer
+            .x
+            .saturating_add(1)
+            .min(footer.x.saturating_add(footer.width.saturating_sub(1)));
+        let available = footer.x.saturating_add(footer.width).saturating_sub(x);
+        let width = if self.config_issue.is_some() && available >= 14 {
+            14
+        } else if self.config_issue.is_some() && available >= 2 {
+            2
+        } else {
+            1.min(available)
+        };
+        Rect::new(x, footer.y, width, footer.height)
+    }
+
+    pub(crate) fn global_launcher_label(&self, width: u16) -> &'static str {
+        if self.config_issue.is_none() {
+            "?"
+        } else if width >= 14 {
+            "? config issue"
+        } else if width >= 2 {
+            "?!"
+        } else {
+            "?"
+        }
     }
 
     pub(crate) fn global_menu_labels(&self) -> Vec<&'static str> {
-        let mut labels = vec!["changelog"];
+        let mut labels = Vec::new();
+        if self.config_issue.is_some() {
+            labels.push("configuration issue");
+        }
+        labels.push("changelog");
         if self.integration_updates_available() {
             labels.push("integrations");
         }
@@ -1899,6 +1919,86 @@ mod tests {
             !text.contains("integrations"),
             "the footer should only expose the help affordance before the menu is open; rendered app:\n{text}"
         );
+    }
+
+    #[test]
+    fn configuration_issue_replaces_footer_help_and_opens_diagnostics() {
+        let mut app = app_for_mouse_test();
+        app.state.integration_recommendations.clear();
+        app.state.config_issue = Some(crate::app::state::ConfigIssue::from_diagnostics(vec![
+            "config.toml: unknown key `colour`".to_string(),
+            "config read error: permission denied; using defaults".to_string(),
+        ]));
+        app.state.mode = Mode::Terminal;
+
+        let (_, buffer) = render_app(&mut app, 120, 30);
+        let launcher = app.state.global_launcher_rect();
+        assert_eq!(buffer_rect_text(&buffer, launcher), "? config issue");
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            launcher.x,
+            launcher.y,
+        ));
+        assert_eq!(app.state.mode, Mode::GlobalMenu);
+        assert_eq!(
+            app.state.global_menu_labels().first(),
+            Some(&"configuration issue")
+        );
+
+        let menu = app.state.global_menu_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + 1,
+        ));
+        assert_eq!(app.state.mode, Mode::ConfigDiagnostics);
+
+        let (text, _) = render_app(&mut app, 120, 30);
+        assert!(text.contains("configuration issue"));
+        assert!(text.contains("diagnostics · 2"));
+        assert!(text.contains("CLI"));
+        assert!(text.contains("$ hako config check"));
+        assert!(text.contains("1. config.toml"));
+        assert!(text.contains("unknown key `colour`"));
+        assert!(text.contains("2. config read error"));
+        assert!(text.contains("permission denied"));
+        assert!(text.contains("using defaults"));
+        let lines: Vec<_> = text.lines().collect();
+        let heading_row = lines
+            .iter()
+            .position(|line| line.contains("diagnostics"))
+            .expect("diagnostics heading");
+        let entry_row = lines
+            .iter()
+            .position(|line| line.contains("1. config.toml"))
+            .expect("first diagnostic entry");
+        let detail_row = lines
+            .iter()
+            .position(|line| line.contains("unknown key `colour`"))
+            .expect("first diagnostic detail");
+        let heading_col = lines[heading_row]
+            .find("diagnostics")
+            .expect("diagnostics heading column");
+        assert_eq!(entry_row, heading_row + 2);
+        assert!(
+            lines[entry_row].find("1.").expect("entry column") > heading_col,
+            "rendered modal:\n{text}"
+        );
+        assert!(
+            lines[detail_row]
+                .find("unknown key")
+                .expect("detail column")
+                > heading_col,
+            "rendered modal:\n{text}"
+        );
+        assert!(text.contains("reload r"), "rendered modal:\n{text}");
+        assert!(
+            text.contains("scroll wheel / ↑↓"),
+            "rendered modal:\n{text}"
+        );
+        assert!(text.contains("jump pgup / pgdn"), "rendered modal:\n{text}");
+        assert!(text.contains("close"));
     }
 
     #[test]

@@ -751,10 +751,14 @@ impl HeadlessServer {
         } else {
             &self.server_config_diagnostic
         };
-        if self.app.state.config_diagnostic == self.server_config_diagnostic
-            || self.app.state.config_diagnostic == self.server_config_diagnostic_without_keybindings
+        let current = self.app.state.config_diagnostic.as_ref();
+        if current == self.server_config_diagnostic.as_ref()
+            || current == self.server_config_diagnostic_without_keybindings.as_ref()
         {
             self.app.state.config_diagnostic = visible.clone();
+            self.app.state.config_issue = visible
+                .clone()
+                .map(crate::app::state::ConfigIssue::from_details);
         }
     }
 
@@ -3153,7 +3157,7 @@ pub fn run_server() -> io::Result<()> {
         let mut app = app::App::new(
             &loaded_config.config,
             no_session,
-            config::config_diagnostic_summary(&loaded_config.diagnostics),
+            (!loaded_config.diagnostics.is_empty()).then(|| loaded_config.diagnostics.clone()),
             api_rx,
             event_hub,
         );
@@ -3225,7 +3229,7 @@ fn run_handoff_import_server(socket_path: &Path, token: &str) -> io::Result<()> 
     let result = rt.block_on(async {
         let mut app = app::App::new_from_handoff(
             &loaded_config.config,
-            config::config_diagnostic_summary(&loaded_config.diagnostics),
+            (!loaded_config.diagnostics.is_empty()).then(|| loaded_config.diagnostics.clone()),
             api_rx,
             event_hub.clone(),
             &received.manifest.snapshot,

@@ -70,6 +70,7 @@ pub(super) fn modal_action_from_buttons<A: Copy>(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GlobalMenuAction {
+    ConfigIssue,
     Detach,
     UpdateIntegrations,
     Changelog,
@@ -79,7 +80,11 @@ pub(crate) enum GlobalMenuAction {
 }
 
 pub(crate) fn global_menu_actions(state: &AppState) -> Vec<GlobalMenuAction> {
-    let mut actions = vec![GlobalMenuAction::Changelog];
+    let mut actions = Vec::new();
+    if state.config_issue.is_some() {
+        actions.push(GlobalMenuAction::ConfigIssue);
+    }
+    actions.push(GlobalMenuAction::Changelog);
     if state.integration_updates_available() {
         actions.push(GlobalMenuAction::UpdateIntegrations);
     }
@@ -90,6 +95,11 @@ pub(crate) fn global_menu_actions(state: &AppState) -> Vec<GlobalMenuAction> {
         GlobalMenuAction::Detach,
     ]);
     actions
+}
+
+pub(super) fn open_config_diagnostics(state: &mut AppState) {
+    state.config_diagnostics_scroll = 0;
+    state.mode = Mode::ConfigDiagnostics;
 }
 
 pub(super) fn open_global_menu(state: &mut AppState) {
@@ -144,6 +154,7 @@ pub(crate) fn request_detach(state: &mut AppState) {
 
 pub(super) fn apply_global_menu_action(state: &mut AppState, action: GlobalMenuAction) {
     match action {
+        GlobalMenuAction::ConfigIssue => open_config_diagnostics(state),
         GlobalMenuAction::Detach => {
             leave_modal(state);
             request_detach(state);
@@ -393,6 +404,43 @@ pub(super) fn apply_agent_menu_action(
     };
     state.agent_panel_scroll = 0;
     state.mark_session_dirty();
+}
+pub(crate) fn handle_config_diagnostics_key(state: &mut AppState, key: KeyEvent) {
+    let max_scroll = crate::ui::config_diagnostics_max_scroll(
+        state.screen_rect(),
+        state.config_issue.as_ref(),
+        &state.palette,
+    );
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => {
+            state.config_diagnostics_scroll = state.config_diagnostics_scroll.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            state.config_diagnostics_scroll = state
+                .config_diagnostics_scroll
+                .saturating_add(1)
+                .min(max_scroll);
+        }
+        KeyCode::PageUp => {
+            state.config_diagnostics_scroll = state
+                .config_diagnostics_scroll
+                .saturating_sub(super::MODAL_PAGE_SCROLL_ROWS as u16);
+        }
+        KeyCode::PageDown => {
+            state.config_diagnostics_scroll = state
+                .config_diagnostics_scroll
+                .saturating_add(super::MODAL_PAGE_SCROLL_ROWS as u16)
+                .min(max_scroll);
+        }
+        KeyCode::Home => state.config_diagnostics_scroll = 0,
+        KeyCode::End => state.config_diagnostics_scroll = max_scroll,
+        KeyCode::Char('r') => {
+            state.request_reload_config = true;
+            leave_modal(state);
+        }
+        KeyCode::Esc | KeyCode::Enter | KeyCode::Char('?') => leave_modal(state),
+        _ => {}
+    }
 }
 
 pub(crate) fn insert_navigator_search_text(state: &mut AppState, text: &str) {
