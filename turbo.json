@@ -46,66 +46,6 @@
         "^test"
       ],
       "outputs": []
-    },
-    "hako-docs#build": {
-      "inputs": [
-        "$TURBO_ROOT$/docs/**",
-        "$TURBO_ROOT$/apps/docs/package.json",
-        "$TURBO_ROOT$/apps/docs/CHANGELOG.md"
-      ],
-      "outputs": [],
-      "cache": true
-    },
-    "hako-docs#check": {
-      "inputs": [
-        "$TURBO_ROOT$/docs/**",
-        "$TURBO_ROOT$/apps/docs/package.json",
-        "$TURBO_ROOT$/apps/docs/CHANGELOG.md"
-      ],
-      "outputs": [],
-      "cache": true
-    },
-    "hako-docs#test": {
-      "inputs": [
-        "$TURBO_ROOT$/docs/**",
-        "$TURBO_ROOT$/apps/docs/package.json",
-        "$TURBO_ROOT$/apps/docs/CHANGELOG.md"
-      ],
-      "outputs": [],
-      "cache": true
-    },
-    "hako-nix#build": {
-      "inputs": [
-        "$TURBO_ROOT$/flake.nix",
-        "$TURBO_ROOT$/flake.lock",
-        "$TURBO_ROOT$/nix/**",
-        "$TURBO_ROOT$/packages/nix/package.json",
-        "$TURBO_ROOT$/packages/nix/CHANGELOG.md"
-      ],
-      "outputs": [],
-      "cache": true
-    },
-    "hako-nix#check": {
-      "inputs": [
-        "$TURBO_ROOT$/flake.nix",
-        "$TURBO_ROOT$/flake.lock",
-        "$TURBO_ROOT$/nix/**",
-        "$TURBO_ROOT$/packages/nix/package.json",
-        "$TURBO_ROOT$/packages/nix/CHANGELOG.md"
-      ],
-      "outputs": [],
-      "cache": true
-    },
-    "hako-nix#test": {
-      "inputs": [
-        "$TURBO_ROOT$/flake.nix",
-        "$TURBO_ROOT$/flake.lock",
-        "$TURBO_ROOT$/nix/**",
-        "$TURBO_ROOT$/packages/nix/package.json",
-        "$TURBO_ROOT$/packages/nix/CHANGELOG.md"
-      ],
-      "outputs": [],
-      "cache": true
     }
   }
 }

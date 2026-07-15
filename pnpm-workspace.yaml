@@ -1,5 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+  - "!apps/docs"
+  - "!packages/nix"
 
 minimumReleaseAge: 1440
