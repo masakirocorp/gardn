@@ -11879,10 +11879,19 @@ command = "printf literal > '{}'"
         );
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        while !output_path.exists() && std::time::Instant::now() < deadline {
+        let output = loop {
+            if let Ok(content) = std::fs::read_to_string(&output_path) {
+                if !content.is_empty() {
+                    break content;
+                }
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for custom binding output"
+            );
             std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        assert_eq!(std::fs::read_to_string(&output_path).unwrap(), "literal");
+        };
+        assert_eq!(output, "literal");
         assert_eq!(client.selected_workspace, 1);
         assert_eq!(client.mode, Mode::Terminal);
         assert_eq!(app.state.active, Some(0));

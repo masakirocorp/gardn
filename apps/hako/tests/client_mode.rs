@@ -8,7 +8,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::{mpsc, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -761,40 +761,51 @@ fn server_crash_after_attach_causes_lost_connection_error() {
     let mut spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
     drop(connect_unix_socket(&client_socket, Duration::from_secs(10)));
+    let ready_marker = "§";
+    let _ = create_workspace_and_root_pane(&api_socket, ready_marker);
 
     // Attach a real thin client (client subcommand) through PTY so handshake and
     // terminal setup paths are exercised.
     let mut thin_client = spawn_client_process(&config_home, &runtime_dir, &api_socket);
 
-    // Prove attached before kill by waiting for at least one frame message.
+    // Prove attached before kill by waiting for a rendered workspace marker.
+    // Read in a background thread because PTY reads are blocking.
     let mut thin_reader = thin_client
         ._master
         .as_ref()
         .expect("thin client master")
         .try_clone_reader()
         .expect("clone client PTY reader");
-    let attached_before_kill = {
-        let deadline = Instant::now() + Duration::from_secs(8);
+    let (output_tx, output_rx) = mpsc::channel();
+    let output_reader = thread::spawn(move || {
         let mut buf = [0u8; 4096];
-        let mut seen = false;
-        while Instant::now() < deadline {
+        loop {
             match thin_reader.read(&mut buf) {
-                Ok(n) if n > 0 => {
-                    let out = String::from_utf8_lossy(&buf[..n]);
-                    if !out.is_empty() {
-                        seen = true;
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    if output_tx
+                        .send(String::from_utf8_lossy(&buf[..n]).into_owned())
+                        .is_err()
+                    {
                         break;
                     }
                 }
-                Ok(_) => thread::sleep(Duration::from_millis(30)),
-                Err(_) => thread::sleep(Duration::from_millis(30)),
             }
         }
-        seen
-    };
+    });
+
+    let mut attached_output = String::new();
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while !attached_output.contains(ready_marker) && Instant::now() < deadline {
+        match output_rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(chunk) => attached_output.push_str(&chunk),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
     assert!(
-        attached_before_kill,
-        "thin client must complete attach and receive frame before server crash"
+        attached_output.contains(ready_marker),
+        "thin client must render the ready workspace before server crash; output: {attached_output:?}"
     );
 
     // Kill server unexpectedly.
@@ -806,27 +817,18 @@ fn server_crash_after_attach_causes_lost_connection_error() {
     spawned.close_master();
 
     // Client should exit non-zero after connection loss.
-    let mut crash_output = String::new();
-    let exited = {
-        let deadline = Instant::now() + Duration::from_secs(12);
-        let mut exited = false;
-        while Instant::now() < deadline {
-            if thin_client.child.try_wait().ok().flatten().is_some() {
-                exited = true;
-                break;
-            }
-            // Keep draining client output so the process can progress to exit.
-            let mut buf = [0u8; 1024];
-            if let Ok(n) = thin_reader.read(&mut buf) {
-                if n > 0 {
-                    crash_output.push_str(&String::from_utf8_lossy(&buf[..n]));
-                }
-            }
-            thread::sleep(Duration::from_millis(20));
+    let mut crash_output = attached_output;
+    let deadline = Instant::now() + Duration::from_secs(12);
+    while thin_client.child.try_wait().ok().flatten().is_none() && Instant::now() < deadline {
+        while let Ok(chunk) = output_rx.try_recv() {
+            crash_output.push_str(&chunk);
         }
-        exited
-    };
-    assert!(exited, "thin client should exit after server SIGKILL");
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        thin_client.child.try_wait().ok().flatten().is_some(),
+        "thin client should exit after server SIGKILL"
+    );
 
     let status = thin_client.child.wait().expect("wait thin client status");
     assert!(
@@ -836,15 +838,20 @@ fn server_crash_after_attach_causes_lost_connection_error() {
 
     // Drain trailing output and require the explicit user-visible lost-connection message.
     let deadline = Instant::now() + Duration::from_secs(5);
-    let mut buf = [0u8; 2048];
     while Instant::now() < deadline {
-        match thin_reader.read(&mut buf) {
-            Ok(n) if n > 0 => crash_output.push_str(&String::from_utf8_lossy(&buf[..n])),
-            Ok(_) => break,
+        match output_rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(chunk) => crash_output.push_str(&chunk),
+            Err(mpsc::RecvTimeoutError::Timeout) if !output_reader.is_finished() => {}
             Err(_) => break,
         }
-        thread::sleep(Duration::from_millis(30));
     }
+    assert!(
+        output_reader.is_finished(),
+        "thin client output reader should finish after client exit"
+    );
+    output_reader
+        .join()
+        .expect("join thin client output reader");
 
     let crash_output_lc = crash_output.to_lowercase();
     assert!(
