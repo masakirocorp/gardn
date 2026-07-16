@@ -43,7 +43,7 @@ jobs:
         run: pnpm turbo run check --dry=json
 
       - name: Check Tegami release scope
-        run: node scripts/check-tegami-release-scope.mts hako
+        run: node scripts/check-tegami-release-scope.mts omh
       - name: Run Tegami release-scope tests
         run: python3 -m unittest scripts.test_check_tegami_release_scope
 
@@ -104,8 +104,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          cargo build --locked --bin hako
-          .\scripts\smoke_windows_conpty_path.ps1 -ExePath (Join-Path $PWD "target\debug\hako.exe") -Session "ci-windows-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          cargo build --locked --bin omh
+          .\scripts\smoke_windows_conpty_path.ps1 -ExePath (Join-Path $PWD "target\debug\omh.exe") -Session "ci-windows-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
 
       - name: Run Rust tests
         if: runner.os != 'Windows'

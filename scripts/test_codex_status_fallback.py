@@ -23,14 +23,14 @@ class CodexStatusTestFallbackTests(unittest.TestCase):
             lib_dir.mkdir()
             test_dir.mkdir()
 
-            models_copy = lib_dir / "hako-agent-test-models.sh"
+            models_copy = lib_dir / "omh-agent-test-models.sh"
             models_copy.write_text(source_models.read_text())
 
-            script_copy = bin_dir / "hako-agent-tests-codex-status"
+            script_copy = bin_dir / "omh-agent-tests-codex-status"
             script_text = source_script.read_text()
             script_copy.write_text(
                 script_text.replace(
-                    "source /usr/local/lib/hako-agent-test-models.sh",
+                    "source /usr/local/lib/omh-agent-test-models.sh",
                     f"source {shlex.quote(str(models_copy))}",
                 )
             )
@@ -68,7 +68,7 @@ class CodexStatusTestFallbackTests(unittest.TestCase):
                         ;;
                       anthropic/ok)
                         echo "provider: openrouter"
-                        echo "HAKO_CODEX_STATUS_OK"
+                        echo "OMH_CODEX_STATUS_OK"
                         exit 0
                         ;;
                       *)
@@ -98,11 +98,11 @@ class CodexStatusTestFallbackTests(unittest.TestCase):
                 **os.environ,
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                 "OPENROUTER_API_KEY": "sk-test-fake-openrouter-key",
-                "HAKO_REPO_DIR": str(repo_root),
-                "HAKO_CODEX_STATUS_TEST_DIR": str(test_dir),
-                "HAKO_CODEX_STATUS_TEST_TIMEOUT": "5",
-                "HAKO_TEST_MODEL": "openrouter/anthropic/overloaded",
-                "HAKO_TEST_FALLBACK_MODELS": "openrouter/anthropic/ok",
+                "OMH_REPO_DIR": str(repo_root),
+                "OMH_CODEX_STATUS_TEST_DIR": str(test_dir),
+                "OMH_CODEX_STATUS_TEST_TIMEOUT": "5",
+                "OMH_TEST_MODEL": "openrouter/anthropic/overloaded",
+                "OMH_TEST_FALLBACK_MODELS": "openrouter/anthropic/ok",
             }
 
             result = subprocess.run(

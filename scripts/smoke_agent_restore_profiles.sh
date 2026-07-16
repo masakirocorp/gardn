@@ -10,7 +10,7 @@ OMP_RESTORE_WRAPPER="${OMP_RESTORE_WRAPPER:-omp}"
 OPENCODE_RESTORE_WRAPPER="${OPENCODE_RESTORE_WRAPPER:-opencode}"
 CODEX_RESTORE_WRAPPER="${CODEX_RESTORE_WRAPPER:-codex}"
 
-echo "== hako restore command tests =="
+echo "== omh restore command tests =="
 cargo test --locked planner_preserves_launch_command_for_every_resumable_agent
 cargo test --locked restore_plan_preserves_saved_launch_command_for_every_resumable_agent
 cargo test --locked pending_agent_resume_executes_profile_environment
@@ -65,9 +65,9 @@ PI_SESSION_MANAGER_MODULE="$PI_SESSION_MANAGER_MODULE" bun -e '
   import { tmpdir } from "os";
 
   const { SessionManager } = await import(process.env.PI_SESSION_MANAGER_MODULE);
-  const root = mkdtempSync(join(tmpdir(), "hako-omp-restore-smoke-"));
+  const root = mkdtempSync(join(tmpdir(), "omh-omp-restore-smoke-"));
   const cwd = process.cwd();
-  const projectDir = join(root, "sessions", "-projects-masakiro-hako");
+  const projectDir = join(root, "sessions", "-projects-masakiro-omh");
   const childDir = join(projectDir, "2026-child");
   mkdirSync(childDir, { recursive: true });
 

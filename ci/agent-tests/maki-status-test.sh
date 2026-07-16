@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-test_model_lib="${HAKO_AGENT_TEST_MODELS_LIB:-/usr/local/lib/hako-agent-test-models.sh}"
-seam_only="${HAKO_MAKI_STATUS_SEAM_ONLY:-0}"
-repo_dir="${HAKO_REPO_DIR:-/repo}"
-manifest="$repo_dir/apps/hako/src/manifests/maki.toml"
+test_model_lib="${OMH_AGENT_TEST_MODELS_LIB:-/usr/local/lib/omh-agent-test-models.sh}"
+seam_only="${OMH_MAKI_STATUS_SEAM_ONLY:-0}"
+repo_dir="${OMH_REPO_DIR:-/repo}"
+manifest="$repo_dir/apps/omh/src/manifests/maki.toml"
 
 if [[ "$seam_only" == "1" ]]; then
   python3 - "$manifest" <<'PY'
@@ -92,12 +92,12 @@ if [[ ! -f "$test_model_lib" ]]; then
 fi
 source "$test_model_lib"
 
-primary_model="${HAKO_TEST_MODEL:-poolside/laguna-m.1:free}"
-if [[ -z "${HAKO_TEST_ACTIVE_MODEL:-}" ]]; then
-  hako_test_unique_candidates "$primary_model" "${HAKO_TEST_FALLBACK_MODELS:-}" \
-    | hako_test_openrouter_prefixed_candidates \
-    | hako_test_non_openai_candidates \
-    | hako_test_run_with_fallbacks "$0" HAKO_TEST_MODEL "$@"
+primary_model="${OMH_TEST_MODEL:-poolside/laguna-m.1:free}"
+if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
+  omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
+    | omh_test_openrouter_prefixed_candidates \
+    | omh_test_non_openai_candidates \
+    | omh_test_run_with_fallbacks "$0" OMH_TEST_MODEL "$@"
   exit $?
 fi
 
@@ -105,12 +105,12 @@ if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
   echo "Maki status test needs OPENROUTER_API_KEY" >&2
   exit 1
 fi
-model="$HAKO_TEST_ACTIVE_MODEL"
+model="$OMH_TEST_ACTIVE_MODEL"
 case "$model" in
   openrouter/*) model_spec="$model" ;;
   *) model_spec="openrouter/$model" ;;
 esac
-workdir="${HAKO_MAKI_STATUS_TEST_DIR:-$(mktemp -d)}"
+workdir="${OMH_MAKI_STATUS_TEST_DIR:-$(mktemp -d)}"
 output="$workdir/maki-screen.txt"
 mkdir -p "$workdir"
 
@@ -146,7 +146,7 @@ proc = subprocess.Popen(
     stdin=slave,
     stdout=slave,
     stderr=slave,
-    cwd=os.environ.get("HAKO_MAKI_WORKDIR", "/work"),
+    cwd=os.environ.get("OMH_MAKI_WORKDIR", "/work"),
     env=env,
     start_new_session=True,
 )
@@ -200,7 +200,7 @@ try:
     else:
         read_until(idle.search, 25, "initial idle Maki status bar")
     start = len(raw)
-    send("Use the bash tool to run exactly: printf HAKO_MAKI_STATUS_OK. Do not answer until the command has run.\r")
+    send("Use the bash tool to run exactly: printf OMH_MAKI_STATUS_OK. Do not answer until the command has run.\r")
     read_until(working.search, 90, "working Maki status bar", start)
     start = len(raw)
     read_until(blocked.search, 120, "blocked Maki permission or plan-complete panel", start)

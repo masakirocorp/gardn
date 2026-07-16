@@ -14,9 +14,9 @@
 }:
 
 let
-  manifest = lib.importTOML ../apps/hako/Cargo.toml;
-  zigDeps = callPackage ../apps/hako/vendor/libghostty-vt/build.zig.zon.nix {
-    name = "hako-libghostty-vt-zig-cache";
+  manifest = lib.importTOML ../apps/omh/Cargo.toml;
+  zigDeps = callPackage ../apps/omh/vendor/libghostty-vt/build.zig.zon.nix {
+    name = "omh-libghostty-vt-zig-cache";
     inherit zstd;
     linkFarm =
       name: entries:
@@ -27,7 +27,7 @@ let
         '') entries}
       '';
   };
-  zigTool = runCommand "hako-zig-tool" { } ''
+  zigTool = runCommand "omh-zig-tool" { } ''
     mkdir -p $out/bin
     ln -s ${lib.getExe zig_0_15} $out/bin/zig
   '';
@@ -52,7 +52,7 @@ let
   '';
 in
 rustPlatform.buildRustPackage {
-  pname = "hako";
+  pname = "omh";
   version = manifest.package.version;
 
   src = lib.fileset.toSource {
@@ -61,14 +61,14 @@ rustPlatform.buildRustPackage {
       lib.fileset.unions [
         ../Cargo.lock
         ../Cargo.toml
-        ../apps/hako/assets
-        ../apps/hako/src
-        ../apps/hako/vendor/libghostty-vt
-        ../apps/hako/vendor/libghostty-vt.vendor.json
-        ../apps/hako/vendor/portable-pty
-        ../apps/hako/build.rs
-        ../apps/hako/Cargo.toml
-        ../apps/hako/CHANGELOG.md
+        ../apps/omh/assets
+        ../apps/omh/src
+        ../apps/omh/vendor/libghostty-vt
+        ../apps/omh/vendor/libghostty-vt.vendor.json
+        ../apps/omh/vendor/portable-pty
+        ../apps/omh/build.rs
+        ../apps/omh/Cargo.toml
+        ../apps/omh/CHANGELOG.md
       ]
     );
   };
@@ -110,9 +110,9 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Terminal workspace manager for AI coding agents";
-    homepage = "https://hako.masakiro.com";
+    homepage = "https://github.com/masakirocorp/oh-my-herdr";
     license = lib.licenses.agpl3Plus;
-    mainProgram = "hako";
+    mainProgram = "omh";
     platforms = lib.platforms.linux ++ lib.platforms.darwin;
   };
 }

@@ -42,14 +42,14 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
             kimi_home.mkdir()
             (factory_home / "settings.json").write_text("{}")
 
-            models_copy = lib_dir / "hako-agent-test-models.sh"
+            models_copy = lib_dir / "omh-agent-test-models.sh"
             models_copy.write_text(source_models.read_text())
 
-            script_copy = bin_dir / "hako-agent-tests-remaining-status"
+            script_copy = bin_dir / "omh-agent-tests-remaining-status"
             script_copy.write_text(source_script.read_text())
             script_copy.chmod(script_copy.stat().st_mode | stat.S_IXUSR)
 
-            reporter = bin_dir / "hako-test-report"
+            reporter = bin_dir / "omh-test-report"
             reporter.write_text(
                 test_script(
                     r"""
@@ -73,7 +73,7 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                     request = {"id": f"test:{pane}:{event}:{state}", "method": method, "params": params}
                     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                     client.settimeout(1)
-                    client.connect(os.environ["HAKO_SOCKET_PATH"])
+                    client.connect(os.environ["OMH_SOCKET_PATH"])
                     client.sendall((json.dumps(request) + "\n").encode("utf-8"))
                     try:
                         client.recv(4096)
@@ -110,9 +110,9 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                         exit 1
                         ;;
                       anthropic/ok)
-                        hako-test-report pane-copilot-real copilot hako:copilot copilot-real report working
-                        hako-test-report pane-copilot-real copilot hako:copilot copilot-real report idle
-                        echo '{{"message":"HAKO_COPILOT_STATUS_OK"}}'
+                        omh-test-report pane-copilot-real copilot omh:copilot copilot-real report working
+                        omh-test-report pane-copilot-real copilot omh:copilot copilot-real report idle
+                        echo '{{"message":"OMH_COPILOT_STATUS_OK"}}'
                         exit 0
                         ;;
                       *)
@@ -153,9 +153,9 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                       echo "unexpected droid model: $model" >&2
                       exit 65
                     fi
-                    hako-test-report pane-droid-real droid hako:droid droid-real report idle
-                    hako-test-report pane-droid-real droid hako:droid droid-real release release
-                    printf '%s\n' '{{"type":"result","result":"HAKO_DROID_STATUS_OK"}}'
+                    omh-test-report pane-droid-real droid omh:droid droid-real report idle
+                    omh-test-report pane-droid-real droid omh:droid droid-real release release
+                    printf '%s\n' '{{"type":"result","result":"OMH_DROID_STATUS_OK"}}'
                     """
                 )
             )
@@ -167,12 +167,12 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                     fr"""
                     #!/usr/bin/env bash
                     set -euo pipefail
-                    printf 'kimi:%s\n' "${{HAKO_PANE_ID:-missing-pane}}" >> {shlex.quote(str(attempts_log))}
-                    hako-test-report pane-kimi-real kimi hako:kimi kimi-real report idle
-                    hako-test-report pane-kimi-real kimi hako:kimi kimi-real report working
-                    hako-test-report pane-kimi-real kimi hako:kimi kimi-real report idle
-                    hako-test-report pane-kimi-real kimi hako:kimi kimi-real release release
-                    echo "HAKO_KIMI_STATUS_OK"
+                    printf 'kimi:%s\n' "${{OMH_PANE_ID:-missing-pane}}" >> {shlex.quote(str(attempts_log))}
+                    omh-test-report pane-kimi-real kimi omh:kimi kimi-real report idle
+                    omh-test-report pane-kimi-real kimi omh:kimi kimi-real report working
+                    omh-test-report pane-kimi-real kimi omh:kimi kimi-real report idle
+                    omh-test-report pane-kimi-real kimi omh:kimi kimi-real release release
+                    echo "OMH_KIMI_STATUS_OK"
                     """
                 )
             )
@@ -201,10 +201,10 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                       echo "unexpected hermes model: $model" >&2
                       exit 65
                     fi
-                    hako-test-report pane-hermes-real hermes hako:hermes hermes-real report idle
-                    hako-test-report pane-hermes-real hermes hako:hermes hermes-real report working
-                    hako-test-report pane-hermes-real hermes hako:hermes hermes-real report idle
-                    echo "HAKO_HERMES_STATUS_OK"
+                    omh-test-report pane-hermes-real hermes omh:hermes hermes-real report idle
+                    omh-test-report pane-hermes-real hermes omh:hermes hermes-real report working
+                    omh-test-report pane-hermes-real hermes omh:hermes hermes-real report idle
+                    echo "OMH_HERMES_STATUS_OK"
                     """
                 )
             )
@@ -254,12 +254,12 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                 "HOME": str(home_dir),
                 "OPENROUTER_API_KEY": "sk-test-fake-openrouter-key",
-                "HAKO_REPO_DIR": str(repo_root),
-                "HAKO_AGENT_TEST_MODELS_LIB": str(models_copy),
-                "HAKO_REMAINING_STATUS_TEST_DIR": str(test_dir),
-                "HAKO_REMAINING_STATUS_TEST_TIMEOUT": "5",
-                "HAKO_TEST_MODEL": "openrouter/anthropic/overloaded",
-                "HAKO_TEST_FALLBACK_MODELS": "openrouter/anthropic/ok",
+                "OMH_REPO_DIR": str(repo_root),
+                "OMH_AGENT_TEST_MODELS_LIB": str(models_copy),
+                "OMH_REMAINING_STATUS_TEST_DIR": str(test_dir),
+                "OMH_REMAINING_STATUS_TEST_TIMEOUT": "5",
+                "OMH_TEST_MODEL": "openrouter/anthropic/overloaded",
+                "OMH_TEST_FALLBACK_MODELS": "openrouter/anthropic/ok",
                 "DROID_HOME": str(factory_home),
                 "FACTORY_HOME": str(factory_home),
                 "KIMI_CODE_HOME": str(kimi_home),

@@ -6,7 +6,7 @@ from pathlib import Path
 class TestModelCandidateTests(unittest.TestCase):
     def test_openrouter_api_candidates_preserve_openrouter_models_and_strip_outer_provider_prefix(self):
         candidates = self.run_candidate_function(
-            "hako_test_openrouter_api_candidates",
+            "omh_test_openrouter_api_candidates",
             [
                 "openrouter/free",
                 "openrouter/owl-alpha",
@@ -25,7 +25,7 @@ class TestModelCandidateTests(unittest.TestCase):
 
     def test_opencode_candidates_double_prefix_openrouter_owned_models(self):
         candidates = self.run_candidate_function(
-            "hako_test_opencode_candidates",
+            "omh_test_opencode_candidates",
             [
                 "openrouter/free",
                 "openrouter/owl-alpha",

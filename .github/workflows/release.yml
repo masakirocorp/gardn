@@ -42,27 +42,27 @@ jobs:
         include:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            name: hako-linux-x86_64
+            name: omh-linux-x86_64
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
-            name: hako-linux-aarch64
+            name: omh-linux-aarch64
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
           - target: x86_64-apple-darwin
             os: macos-latest
-            name: hako-macos-x86_64
+            name: omh-macos-x86_64
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
           - target: aarch64-apple-darwin
             os: macos-latest
-            name: hako-macos-aarch64
+            name: omh-macos-aarch64
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            name: hako-windows-x86_64.exe
+            name: omh-windows-x86_64.exe
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
 
@@ -79,7 +79,7 @@ jobs:
       - name: Verify tag matches Cargo.toml version
         shell: bash
         run: |
-          CARGO_VERSION=$(grep '^version' apps/hako/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          CARGO_VERSION=$(grep '^version' apps/omh/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
             echo "error: tag $GITHUB_REF_NAME doesn't match Cargo.toml version $CARGO_VERSION"
@@ -148,7 +148,7 @@ jobs:
 
       - name: Remove Zig caches
         shell: bash
-        run: rm -rf .zig-cache apps/hako/vendor/libghostty-vt/.zig-cache apps/hako/vendor/libghostty-vt/zig-out
+        run: rm -rf .zig-cache apps/omh/vendor/libghostty-vt/.zig-cache apps/omh/vendor/libghostty-vt/zig-out
 
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}
@@ -156,15 +156,15 @@ jobs:
       - name: Run Windows smoke
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/smoke_windows_ci.ps1 target/${{ matrix.target }}/release/hako.exe
+        run: ./scripts/smoke_windows_ci.ps1 target/${{ matrix.target }}/release/omh.exe
 
       - name: Rename binary
         shell: bash
         run: |
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            cp target/${{ matrix.target }}/release/hako.exe "${{ matrix.name }}"
+            cp target/${{ matrix.target }}/release/omh.exe "${{ matrix.name }}"
           else
-            cp target/${{ matrix.target }}/release/hako "${{ matrix.name }}"
+            cp target/${{ matrix.target }}/release/omh "${{ matrix.name }}"
           fi
 
       - name: Upload artifact
@@ -188,16 +188,16 @@ jobs:
         uses: actions/download-artifact@v8
 
       - name: Prepare release notes
-        run: python3 scripts/extract_release_notes.py apps/hako/CHANGELOG.md hako "${GITHUB_REF_NAME#v}" > RELEASE_NOTES.md
+        run: python3 scripts/extract_release_notes.py apps/omh/CHANGELOG.md omh "${GITHUB_REF_NAME#v}" > RELEASE_NOTES.md
 
       - name: Create release
         uses: softprops/action-gh-release@v3
         with:
           files: |
-            hako-linux-x86_64/hako-linux-x86_64
-            hako-linux-aarch64/hako-linux-aarch64
-            hako-macos-x86_64/hako-macos-x86_64
-            hako-macos-aarch64/hako-macos-aarch64
-            hako-windows-x86_64.exe/hako-windows-x86_64.exe
+            omh-linux-x86_64/omh-linux-x86_64
+            omh-linux-aarch64/omh-linux-aarch64
+            omh-macos-x86_64/omh-macos-x86_64
+            omh-macos-aarch64/omh-macos-aarch64
+            omh-windows-x86_64.exe/omh-windows-x86_64.exe
           body_path: RELEASE_NOTES.md
 

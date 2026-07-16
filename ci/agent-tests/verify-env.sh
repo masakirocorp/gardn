@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${OPENROUTER_API_KEY:-}" != "sk-hako-agent-test" ]]; then
+if [[ "${OPENROUTER_API_KEY:-}" != "sk-omh-agent-test" ]]; then
   echo "OPENROUTER_API_KEY was not propagated into the test environment" >&2
   exit 1
 fi
@@ -15,8 +15,8 @@ required_env=(
   COPILOT_PROVIDER_BASE_URL
   COPILOT_MODEL
   CODEX_HOME
-  HAKO_TEST_MODEL
-  HAKO_TEST_FALLBACK_MODELS
+  OMH_TEST_MODEL
+  OMH_TEST_FALLBACK_MODELS
   OPENCODE_AUTH_CONTENT
 )
 

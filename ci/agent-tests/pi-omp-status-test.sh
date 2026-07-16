@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-target="${HAKO_PI_OMP_STATUS_TARGET:-all}"
+target="${OMH_PI_OMP_STATUS_TARGET:-all}"
 case "$target" in
   all|pi|omp) ;;
   *)
@@ -8,19 +8,19 @@ case "$target" in
     exit 2
     ;;
 esac
-source /usr/local/lib/hako-agent-test-models.sh
-primary_model="${HAKO_TEST_MODEL:-poolside/laguna-m.1:free}"
-if [[ -z "${HAKO_TEST_ACTIVE_MODEL:-}" ]]; then
-  hako_test_unique_candidates "$primary_model" "${HAKO_TEST_FALLBACK_MODELS:-}" \
-    | hako_test_opencode_candidates \
-    | hako_test_run_with_fallbacks "$0" HAKO_TEST_MODEL "$@"
+source /usr/local/lib/omh-agent-test-models.sh
+primary_model="${OMH_TEST_MODEL:-poolside/laguna-m.1:free}"
+if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
+  omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
+    | omh_test_opencode_candidates \
+    | omh_test_run_with_fallbacks "$0" OMH_TEST_MODEL "$@"
   exit $?
 fi
 
-model="$HAKO_TEST_ACTIVE_MODEL"
-repo_dir="${HAKO_REPO_DIR:-/repo}"
-workdir="${HAKO_PI_OMP_STATUS_DIR:-$(mktemp -d)}"
-socket_path="$workdir/hako.sock"
+model="$OMH_TEST_ACTIVE_MODEL"
+repo_dir="${OMH_REPO_DIR:-/repo}"
+workdir="${OMH_PI_OMP_STATUS_DIR:-$(mktemp -d)}"
+socket_path="$workdir/omh.sock"
 request_log="$workdir/requests.jsonl"
 
 
@@ -76,13 +76,13 @@ run_agent() {
   local prompt="$6"
   local dir="$workdir/$agent-$scenario"
   mkdir -p "$dir/config" "$dir/agent" "$dir/project"
-  if ! HAKO_ENV=1 \
-    HAKO_SOCKET_PATH="$socket_path" \
-    HAKO_PANE_ID="$pane" \
+  if ! OMH_ENV=1 \
+    OMH_SOCKET_PATH="$socket_path" \
+    OMH_PANE_ID="$pane" \
     PI_CONFIG_DIR="$dir/config" \
     PI_CODING_AGENT_DIR="$dir/agent" \
     python3 - "$agent" "$model" "$tools" "$extension" "$prompt" "$pane" \
-      "$request_log" "$dir/output.txt" "$dir/project" "${HAKO_PI_OMP_STATUS_TIMEOUT:-180}" <<'PY'
+      "$request_log" "$dir/output.txt" "$dir/project" "${OMH_PI_OMP_STATUS_TIMEOUT:-180}" <<'PY'
 import fcntl
 import json
 import os
@@ -218,23 +218,23 @@ run_basic_agent() {
   local agent="$1"
   local extension="$2"
   local pane="$3"
-  run_agent "$agent" "$extension" "$pane" basic none "Reply exactly HAKO_${agent^^}_STATUS_OK"
+  run_agent "$agent" "$extension" "$pane" basic none "Reply exactly OMH_${agent^^}_STATUS_OK"
 }
 
 run_subagent_agent() {
   local agent="$1"
   local extension="$2"
   local pane="$3"
-  run_agent "$agent" "$extension" "$pane" subagent task,yield "Launch one subagent with assignment: reply exactly CHILD_OK. Then reply exactly HAKO_${agent^^}_SUBAGENT_OK."
+  run_agent "$agent" "$extension" "$pane" subagent task,yield "Launch one subagent with assignment: reply exactly CHILD_OK. Then reply exactly OMH_${agent^^}_SUBAGENT_OK."
 }
 
 if [[ "$target" == "all" || "$target" == "omp" ]]; then
-  run_basic_agent omp "$repo_dir/apps/hako/src/integration/assets/omp/hako-agent-state.ts" pane-omp-real
-  run_subagent_agent omp "$repo_dir/apps/hako/src/integration/assets/omp/hako-agent-state.ts" pane-omp-subagent
+  run_basic_agent omp "$repo_dir/apps/omh/src/integration/assets/omp/omh-agent-state.ts" pane-omp-real
+  run_subagent_agent omp "$repo_dir/apps/omh/src/integration/assets/omp/omh-agent-state.ts" pane-omp-subagent
 fi
 if [[ "$target" == "all" || "$target" == "pi" ]]; then
-  run_basic_agent pi "$repo_dir/apps/hako/src/integration/assets/pi/hako-agent-state.ts" pane-pi-real
-  run_subagent_agent pi "$repo_dir/apps/hako/src/integration/assets/pi/hako-agent-state.ts" pane-pi-subagent
+  run_basic_agent pi "$repo_dir/apps/omh/src/integration/assets/pi/omh-agent-state.ts" pane-pi-real
+  run_subagent_agent pi "$repo_dir/apps/omh/src/integration/assets/pi/omh-agent-state.ts" pane-pi-subagent
 fi
 
 REQUEST_LOG="$request_log" WORKDIR="$workdir" TARGET="$target" python3 - <<'PY'
@@ -250,7 +250,7 @@ if not request_log.exists():
     for output_path in sorted(workdir.glob("*/output.txt")):
         output = output_path.read_text(encoding="utf-8", errors="replace")
         print(f"{output_path.parent.name} output:\n{output}", file=sys.stderr)
-    raise SystemExit("Pi/OMP test emitted no Hako status requests")
+    raise SystemExit("Pi/OMP test emitted no Oh My Herdr status requests")
 requests = [json.loads(line) for line in request_log.read_text(encoding="utf-8").splitlines() if line.strip()]
 reports = [req for req in requests if req.get("method") == "pane.report_agent"]
 releases = [req for req in requests if req.get("method") == "pane.release_agent"]
@@ -293,7 +293,7 @@ def states_for(pane_id):
 
 def assert_agent(agent, scenario, pane_id, marker_suffix):
     output = (workdir / f"{agent}-{scenario}" / "output.txt").read_text(encoding="utf-8")
-    marker = f"HAKO_{agent.upper()}_{marker_suffix}"
+    marker = f"OMH_{agent.upper()}_{marker_suffix}"
     if marker not in output:
         print(f"{agent} {scenario}: missing output marker {marker}; output was {output!r}", file=sys.stderr)
         raise SystemExit(75)
@@ -308,7 +308,7 @@ def assert_agent(agent, scenario, pane_id, marker_suffix):
     if "idle" not in states or "working" not in states:
         raise SystemExit(f"{agent}: expected idle and working states, observed {states}")
 
-    expected_source = f"hako:{agent}"
+    expected_source = f"omh:{agent}"
     expected_config = str(workdir / f"{agent}-{scenario}" / "config")
     expected_agent_dir = str(workdir / f"{agent}-{scenario}" / "agent")
     session_paths = set()

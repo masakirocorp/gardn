@@ -65,26 +65,26 @@ class QoderProxyStatusTestValidationTests(unittest.TestCase):
             lib_dir = tmp_path / "lib"
             test_dir = tmp_path / "test"
             repo_dir = tmp_path / "repo"
-            hook_dir = repo_dir / "apps" / "hako" / "src" / "integration" / "assets" / "qodercli"
+            hook_dir = repo_dir / "apps" / "omh" / "src" / "integration" / "assets" / "qodercli"
             bin_dir.mkdir()
             lib_dir.mkdir()
             test_dir.mkdir()
             hook_dir.mkdir(parents=True)
 
-            models_stub = lib_dir / "hako-agent-test-models.sh"
-            models_stub.write_text("# test stub: HAKO_TEST_ACTIVE_MODEL bypasses fallback lookup\n")
+            models_stub = lib_dir / "omh-agent-test-models.sh"
+            models_stub.write_text("# test stub: OMH_TEST_ACTIVE_MODEL bypasses fallback lookup\n")
 
-            script_copy = bin_dir / "hako-agent-tests-qoder-proxy-status"
+            script_copy = bin_dir / "omh-agent-tests-qoder-proxy-status"
             script_text = source_script.read_text()
             script_copy.write_text(
                 script_text.replace(
-                    "source /usr/local/lib/hako-agent-test-models.sh",
+                    "source /usr/local/lib/omh-agent-test-models.sh",
                     f"source {shlex.quote(str(models_stub))}",
                 )
             )
             script_copy.chmod(script_copy.stat().st_mode | stat.S_IXUSR)
 
-            hook_path = hook_dir / "hako-agent-state.sh"
+            hook_path = hook_dir / "omh-agent-state.sh"
             hook_path.write_text("#!/usr/bin/env bash\nexit 0\n")
             hook_path.chmod(hook_path.stat().st_mode | stat.S_IXUSR)
 
@@ -142,7 +142,7 @@ class QoderProxyStatusTestValidationTests(unittest.TestCase):
                     import signal
                     import time
 
-                    with open(os.environ["HAKO_QODER_PROXY_LOG"], "a", encoding="utf-8") as log:
+                    with open(os.environ["OMH_QODER_PROXY_LOG"], "a", encoding="utf-8") as log:
                         log.write("qoder-proxy-listening\\n")
                         log.flush()
 
@@ -189,14 +189,14 @@ class QoderProxyStatusTestValidationTests(unittest.TestCase):
                         client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                         client.settimeout(1)
                         try:
-                            client.connect(os.environ["HAKO_SOCKET_PATH"])
+                            client.connect(os.environ["OMH_SOCKET_PATH"])
                             client.sendall((json.dumps(request) + "\\n").encode("utf-8"))
                             client.recv(4096)
                         finally:
                             client.close()
 
 
-                    scenario = os.environ["HAKO_TEST_QODER_SCENARIO"]
+                    scenario = os.environ["OMH_TEST_QODER_SCENARIO"]
                     if os.environ.get("QODER_MODEL_TRANSPORT") != "http":
                         print(
                             f"expected QODER_MODEL_TRANSPORT='http', observed {os.environ.get('QODER_MODEL_TRANSPORT')!r}",
@@ -222,7 +222,7 @@ class QoderProxyStatusTestValidationTests(unittest.TestCase):
                         sys.exit(0)
 
                     if scenario == "success":
-                        expected_model = os.environ["HAKO_EXPECTED_QODER_CLI_MODEL"]
+                        expected_model = os.environ["OMH_EXPECTED_QODER_CLI_MODEL"]
                         actual_model = value_after("--model")
                         if actual_model != expected_model:
                             print(
@@ -235,18 +235,18 @@ class QoderProxyStatusTestValidationTests(unittest.TestCase):
                             log.write("request POST /model/v1/chat/completions bytes=75815\\nstatic-complete\\n")
 
                         base_params = {
-                            "pane_id": os.environ["HAKO_PANE_ID"],
-                            "source": "hako:qodercli",
+                            "pane_id": os.environ["OMH_PANE_ID"],
+                            "source": "omh:qodercli",
                             "agent": "qodercli",
                             "seq": 1,
                         }
                         rpc("pane.report_agent", {**base_params, "state": "working"})
                         rpc("pane.report_agent", {**base_params, "seq": 2, "state": "idle"})
                         rpc("pane.release_agent", {**base_params, "seq": 3})
-                        print("HAKO_QODER_PROXY_OK")
+                        print("OMH_QODER_PROXY_OK")
                         sys.exit(0)
 
-                    print(f"unexpected HAKO_TEST_QODER_SCENARIO={scenario}", file=sys.stderr)
+                    print(f"unexpected OMH_TEST_QODER_SCENARIO={scenario}", file=sys.stderr)
                     sys.exit(64)
                     """
                 )
@@ -258,14 +258,14 @@ class QoderProxyStatusTestValidationTests(unittest.TestCase):
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                 "OPENROUTER_API_KEY": "sk-test-fake-openrouter-key",
                 "QODER_PERSONAL_ACCESS_TOKEN": "qoder-test-token",
-                "HAKO_REPO_DIR": str(repo_dir),
-                "HAKO_QODER_PROXY_STATUS_TEST_DIR": str(test_dir),
-                "HAKO_QODER_PROXY_STATUS_TEST_TIMEOUT": "5",
-                "HAKO_TEST_ACTIVE_MODEL": "test-model",
-                "HAKO_TEST_QODER_SCENARIO": scenario,
-                "HAKO_EXPECTED_QODER_CLI_MODEL": expected_qoder_cli_model,
+                "OMH_REPO_DIR": str(repo_dir),
+                "OMH_QODER_PROXY_STATUS_TEST_DIR": str(test_dir),
+                "OMH_QODER_PROXY_STATUS_TEST_TIMEOUT": "5",
+                "OMH_TEST_ACTIVE_MODEL": "test-model",
+                "OMH_TEST_QODER_SCENARIO": scenario,
+                "OMH_EXPECTED_QODER_CLI_MODEL": expected_qoder_cli_model,
             }
-            env.pop("HAKO_TEST_QODER_CLI_MODEL", None)
+            env.pop("OMH_TEST_QODER_CLI_MODEL", None)
 
             return subprocess.run(
                 [str(script_copy)],

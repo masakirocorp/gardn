@@ -143,7 +143,7 @@ def render_status(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Report Hako's upstream Herdr port ledger status")
+    parser = argparse.ArgumentParser(description="Report Oh My Herdr's upstream Herdr port ledger status")
     parser.add_argument("--base", default="origin/master")
     parser.add_argument("--upstream", default="upstream/master")
     parser.add_argument("--ledger", default="upstream-port-map.json")

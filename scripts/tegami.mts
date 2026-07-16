@@ -16,13 +16,13 @@ export function createPaper() {
       }),
     ],
     packages: {
-      hako: {
+      omh: {
         publish: false,
       },
-      "hako-docs": {
+      "omh-docs": {
         publish: false,
       },
-      "hako-nix": {
+      "omh-nix": {
         publish: false,
       },
     },

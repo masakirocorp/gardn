@@ -8,7 +8,7 @@ contains the upstream fix and the listed verification still passes.
 
 status: active
 
-patch: `apps/hako/vendor/patches/libghostty-vt/0001-backport-resizecols-cursor-subtraction.patch`
+patch: `apps/omh/vendor/patches/libghostty-vt/0001-backport-resizecols-cursor-subtraction.patch`
 
 herdr issue: https://github.com/ogulcancelik/herdr/issues/465
 
@@ -22,8 +22,8 @@ vendored base: `0f7cd84b880b203c98683e520e84b9db0c5938d8`
 
 local files:
 
-- `apps/hako/vendor/libghostty-vt/src/terminal/PageList.zig`
-- `apps/hako/vendor/libghostty-vt/src/terminal/c/terminal.zig`
+- `apps/omh/vendor/libghostty-vt/src/terminal/PageList.zig`
+- `apps/omh/vendor/libghostty-vt/src/terminal/c/terminal.zig`
 
 reason: shrinking rows and columns in one resize can leave the pre-resize
 cursor row past the new row count. `PageList.resizeCols` then computed rows

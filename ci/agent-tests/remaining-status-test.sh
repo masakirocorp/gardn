@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-target="${HAKO_REMAINING_STATUS_TARGET:-all}"
+target="${OMH_REMAINING_STATUS_TARGET:-all}"
 case "$target" in
   all|copilot|qoder|cursor|devin|droid|kimi|hermes) ;;
   *)
@@ -13,8 +13,8 @@ target_selected() {
   [[ "$target" == "all" || "$target" == "$1" ]]
 }
 
-test_model_lib="${HAKO_AGENT_TEST_MODELS_LIB:-/usr/local/lib/hako-agent-test-models.sh}"
-seam_only="${HAKO_REMAINING_STATUS_SEAM_ONLY:-0}"
+test_model_lib="${OMH_AGENT_TEST_MODELS_LIB:-/usr/local/lib/omh-agent-test-models.sh}"
+seam_only="${OMH_REMAINING_STATUS_SEAM_ONLY:-0}"
 needs_model=1
 [[ "$target" == "devin" ]] && needs_model=0
 if [[ -f "$test_model_lib" ]]; then
@@ -23,20 +23,20 @@ elif [[ "$seam_only" != "1" && "$needs_model" == "1" ]]; then
   echo "remaining status test needs $test_model_lib" >&2
   exit 1
 fi
-primary_model="${HAKO_TEST_MODEL:-poolside/laguna-m.1:free}"
-if [[ -z "${HAKO_TEST_ACTIVE_MODEL:-}" && "$seam_only" != "1" && "$needs_model" == "1" ]]; then
-  hako_test_unique_candidates "$primary_model" "${HAKO_TEST_FALLBACK_MODELS:-}" \
-    | hako_test_openrouter_api_candidates \
-    | hako_test_non_openai_candidates \
-    | hako_test_run_with_fallbacks "$0" HAKO_TEST_MODEL "$@"
+primary_model="${OMH_TEST_MODEL:-poolside/laguna-m.1:free}"
+if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" && "$seam_only" != "1" && "$needs_model" == "1" ]]; then
+  omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
+    | omh_test_openrouter_api_candidates \
+    | omh_test_non_openai_candidates \
+    | omh_test_run_with_fallbacks "$0" OMH_TEST_MODEL "$@"
   exit $?
 fi
 
-model="${HAKO_TEST_ACTIVE_MODEL:-$primary_model}"
-repo_dir="${HAKO_REPO_DIR:-/repo}"
-workdir="${HAKO_REMAINING_STATUS_TEST_DIR:-$(mktemp -d)}"
-socket_path="$workdir/hako.sock"
-request_log="$workdir/hako-requests.jsonl"
+model="${OMH_TEST_ACTIVE_MODEL:-$primary_model}"
+repo_dir="${OMH_REPO_DIR:-/repo}"
+workdir="${OMH_REMAINING_STATUS_TEST_DIR:-$(mktemp -d)}"
+socket_path="$workdir/omh.sock"
+request_log="$workdir/omh-requests.jsonl"
 
 
 if [[ "$seam_only" != "1" && "$needs_model" == "1" ]]; then
@@ -105,7 +105,7 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 if [[ ! -S "$socket_path" ]]; then
-  echo "fake hako socket did not start" >&2
+  echo "fake omh socket did not start" >&2
   exit 1
 fi
 
@@ -114,7 +114,7 @@ return_real_cli_failure() {
   local output="$1"
   local status="$2"
   cat "$output" >&2 || true
-  if hako_test_retryable_status_or_output "$status" "$output"; then
+  if omh_test_retryable_status_or_output "$status" "$output"; then
     return 75
   fi
   return "$status"
@@ -122,9 +122,9 @@ return_real_cli_failure() {
 
 install_copilot_real_hooks() {
   local home="$workdir/copilot-real/home"
-  local hook="$home/hooks/hako-agent-state.sh"
+  local hook="$home/hooks/omh-agent-state.sh"
   mkdir -p "$home/hooks"
-  cp "$repo_dir/apps/hako/src/integration/assets/copilot/hako-agent-state.sh" "$hook"
+  cp "$repo_dir/apps/omh/src/integration/assets/copilot/omh-agent-state.sh" "$hook"
   chmod +x "$hook"
   cat > "$home/settings.json" <<EOF_COPILOT
 {
@@ -144,7 +144,7 @@ EOF_COPILOT
 }
 
 install_droid_real_hooks() {
-  local hook="$repo_dir/apps/hako/src/integration/assets/droid/hako-agent-state.sh"
+  local hook="$repo_dir/apps/omh/src/integration/assets/droid/omh-agent-state.sh"
   local settings="${FACTORY_HOME:-$HOME/.factory}/settings.json"
   python3 - "$settings" "$hook" <<'PY'
 import json, sys
@@ -171,7 +171,7 @@ PY
 }
 
 install_kimi_real_hooks() {
-  local hook="$repo_dir/apps/hako/src/integration/assets/kimi/hako-agent-state.sh"
+  local hook="$repo_dir/apps/omh/src/integration/assets/kimi/omh-agent-state.sh"
   local config="${KIMI_CODE_HOME:-$HOME/.kimi-code}/config.toml"
   cat >> "$config" <<EOF_KIMI_HOOKS
 
@@ -212,16 +212,16 @@ run_copilot_cli() {
   set +e
   (
     cd "$dir/run"
-    HAKO_ENV=1 \
-    HAKO_SOCKET_PATH="$socket_path" \
-    HAKO_PANE_ID="pane-copilot-real" \
+    OMH_ENV=1 \
+    OMH_SOCKET_PATH="$socket_path" \
+    OMH_PANE_ID="pane-copilot-real" \
     COPILOT_PROVIDER_BASE_URL="https://openrouter.ai/api/v1" \
     COPILOT_PROVIDER_API_KEY="$OPENROUTER_API_KEY" \
     COPILOT_MODEL="$model" \
     COPILOT_PROVIDER_WIRE_API="responses" \
     COPILOT_HOME="$dir/home" \
-    timeout "${HAKO_REMAINING_STATUS_TEST_TIMEOUT:-180}" copilot \
-      -p "Reply exactly HAKO_COPILOT_STATUS_OK" \
+    timeout "${OMH_REMAINING_STATUS_TEST_TIMEOUT:-180}" copilot \
+      -p "Reply exactly OMH_COPILOT_STATUS_OK" \
       --output-format json \
       --allow-all \
       --model "$model" \
@@ -237,7 +237,7 @@ run_copilot_cli() {
 import sys
 from pathlib import Path
 output = Path(sys.argv[1]).read_text(errors="replace")
-if "HAKO_COPILOT_STATUS_OK" not in output:
+if "OMH_COPILOT_STATUS_OK" not in output:
     raise SystemExit("copilot real cli did not produce expected marker")
 if "api.githubcopilot.com" in output or "api.openai.com" in output:
     raise SystemExit("copilot test used hosted Copilot/OpenAI routing")
@@ -250,19 +250,19 @@ run_cursor_cli_or_auth_contract() {
   if [[ -n "${CURSOR_API_KEY:-}" ]]; then
     (
       cd "$dir/run"
-      timeout "${HAKO_REMAINING_STATUS_TEST_TIMEOUT:-180}" cursor-agent \
+      timeout "${OMH_REMAINING_STATUS_TEST_TIMEOUT:-180}" cursor-agent \
         --print \
         --output-format text \
         --trust \
         --api-key "$CURSOR_API_KEY" \
-        --model "${HAKO_TEST_CURSOR_MODEL:-$model}" \
-        "Reply exactly HAKO_CURSOR_STATUS_OK" >"$dir/output.txt" 2>&1
+        --model "${OMH_TEST_CURSOR_MODEL:-$model}" \
+        "Reply exactly OMH_CURSOR_STATUS_OK" >"$dir/output.txt" 2>&1
     )
     python3 - "$dir/output.txt" <<'PY'
 import sys
 from pathlib import Path
 output = Path(sys.argv[1]).read_text(errors="replace")
-if "HAKO_CURSOR_STATUS_OK" not in output:
+if "OMH_CURSOR_STATUS_OK" not in output:
     raise SystemExit(f"cursor real cli did not produce expected marker: {output[-1000:]}")
 PY
     return
@@ -277,7 +277,7 @@ PY
       --trust \
       --api-key "$OPENROUTER_API_KEY" \
       --model "$model" \
-      "Reply exactly HAKO_CURSOR_STATUS_OK" >"$dir/output.txt" 2>&1
+      "Reply exactly OMH_CURSOR_STATUS_OK" >"$dir/output.txt" 2>&1
   )
   local code=$?
   set -e
@@ -300,18 +300,18 @@ run_qoder_cli_or_auth_contract() {
   if [[ -n "${QODER_PERSONAL_ACCESS_TOKEN:-}" ]]; then
     (
       cd "$dir/run"
-      timeout "${HAKO_REMAINING_STATUS_TEST_TIMEOUT:-180}" qodercli \
+      timeout "${OMH_REMAINING_STATUS_TEST_TIMEOUT:-180}" qodercli \
         -p \
         --output-format json \
         --permission-mode dont_ask \
-        --model "${HAKO_TEST_QODER_MODEL:-$model}" \
-        "Reply exactly HAKO_QODER_STATUS_OK" >"$dir/output.jsonl" 2>&1
+        --model "${OMH_TEST_QODER_MODEL:-$model}" \
+        "Reply exactly OMH_QODER_STATUS_OK" >"$dir/output.jsonl" 2>&1
     )
     python3 - "$dir/output.jsonl" <<'PY'
 import sys
 from pathlib import Path
 output = Path(sys.argv[1]).read_text(errors="replace")
-if "HAKO_QODER_STATUS_OK" not in output:
+if "OMH_QODER_STATUS_OK" not in output:
     raise SystemExit(f"qodercli real cli did not produce expected marker: {output[-1000:]}")
 PY
     return
@@ -325,7 +325,7 @@ PY
       --output-format json \
       --permission-mode dont_ask \
       --model "$model" \
-      "Reply exactly HAKO_QODER_STATUS_OK" >"$dir/output.jsonl" 2>&1
+      "Reply exactly OMH_QODER_STATUS_OK" >"$dir/output.jsonl" 2>&1
   )
   local code=$?
   set -e
@@ -348,16 +348,16 @@ run_droid_cli() {
   set +e
   (
     cd "$dir/run"
-    HAKO_ENV=1 \
-    HAKO_SOCKET_PATH="$socket_path" \
-    HAKO_PANE_ID="pane-droid-real" \
+    OMH_ENV=1 \
+    OMH_SOCKET_PATH="$socket_path" \
+    OMH_PANE_ID="pane-droid-real" \
     DROID_HOME="${DROID_HOME:-$HOME/.factory}" \
     FACTORY_HOME="${FACTORY_HOME:-$HOME/.factory}" \
-    timeout "${HAKO_REMAINING_STATUS_TEST_TIMEOUT:-180}" droid exec \
+    timeout "${OMH_REMAINING_STATUS_TEST_TIMEOUT:-180}" droid exec \
       --model "$model" \
       --output-format json \
       --cwd "$dir/run" \
-      "Reply exactly HAKO_DROID_STATUS_OK" >"$dir/output.jsonl" 2>&1
+      "Reply exactly OMH_DROID_STATUS_OK" >"$dir/output.jsonl" 2>&1
   )
   local code=$?
   set -e
@@ -377,7 +377,7 @@ for line in output.splitlines():
         item = json.loads(line)
     except json.JSONDecodeError:
         continue
-    if item.get("type") == "result" and "HAKO_DROID_STATUS_OK" in str(item.get("result", "")):
+    if item.get("type") == "result" and "OMH_DROID_STATUS_OK" in str(item.get("result", "")):
         break
 else:
     raise SystemExit(f"droid real cli did not produce expected marker: {output[-1000:]}")
@@ -390,12 +390,12 @@ run_kimi_cli() {
   set +e
   (
     cd "$dir/run"
-    HAKO_ENV=1 \
-    HAKO_SOCKET_PATH="$socket_path" \
-    HAKO_PANE_ID="pane-kimi-real" \
+    OMH_ENV=1 \
+    OMH_SOCKET_PATH="$socket_path" \
+    OMH_PANE_ID="pane-kimi-real" \
     KIMI_CODE_HOME="${KIMI_CODE_HOME:-$HOME/.kimi-code}" \
-    timeout "${HAKO_REMAINING_STATUS_TEST_TIMEOUT:-180}" kimi \
-      -p "Reply exactly HAKO_KIMI_STATUS_OK" \
+    timeout "${OMH_REMAINING_STATUS_TEST_TIMEOUT:-180}" kimi \
+      -p "Reply exactly OMH_KIMI_STATUS_OK" \
       --output-format text >"$dir/output.txt" 2>&1
   )
   local code=$?
@@ -408,7 +408,7 @@ run_kimi_cli() {
 import sys
 from pathlib import Path
 output = Path(sys.argv[1]).read_text(errors="replace")
-if "HAKO_KIMI_STATUS_OK" not in output:
+if "OMH_KIMI_STATUS_OK" not in output:
     raise SystemExit(f"kimi real cli did not produce expected marker: {output[-1000:]}")
 if "api.openai.com" in output:
     raise SystemExit("kimi test used OpenAI routing")
@@ -417,10 +417,10 @@ PY
 
 install_hermes_real_plugin() {
   local dir="$HOME/.hermes"
-  local plugin_dir="$dir/plugins/hako-agent-state"
+  local plugin_dir="$dir/plugins/omh-agent-state"
   mkdir -p "$plugin_dir"
-  cp "$repo_dir/apps/hako/src/integration/assets/hermes/__init__.py" "$plugin_dir/__init__.py"
-  cp "$repo_dir/apps/hako/src/integration/assets/hermes/plugin.yaml" "$plugin_dir/plugin.yaml"
+  cp "$repo_dir/apps/omh/src/integration/assets/hermes/__init__.py" "$plugin_dir/__init__.py"
+  cp "$repo_dir/apps/omh/src/integration/assets/hermes/plugin.yaml" "$plugin_dir/plugin.yaml"
   python3 - "$dir/config.yaml" <<'PY'
 import sys
 from pathlib import Path
@@ -430,11 +430,11 @@ content = config_path.read_text() if config_path.exists() else ""
 if "plugins:" not in content:
     if content and not content.endswith("\n"):
         content += "\n"
-    content += "\nplugins:\n  enabled:\n    - hako-agent-state\n"
-elif "hako-agent-state" not in content:
+    content += "\nplugins:\n  enabled:\n    - omh-agent-state\n"
+elif "omh-agent-state" not in content:
     if content and not content.endswith("\n"):
         content += "\n"
-    content += "  enabled:\n    - hako-agent-state\n"
+    content += "  enabled:\n    - omh-agent-state\n"
 config_path.write_text(content)
 PY
 }
@@ -445,12 +445,12 @@ run_hermes_cli() {
   set +e
   (
     cd "$dir/run"
-    HAKO_ENV=1 \
-    HAKO_SOCKET_PATH="$socket_path" \
-    HAKO_PANE_ID="pane-hermes-real" \
+    OMH_ENV=1 \
+    OMH_SOCKET_PATH="$socket_path" \
+    OMH_PANE_ID="pane-hermes-real" \
     HERMES_ACCEPT_HOOKS=1 \
-    timeout "${HAKO_REMAINING_STATUS_TEST_TIMEOUT:-180}" hermes \
-      -z "Reply exactly HAKO_HERMES_STATUS_OK" \
+    timeout "${OMH_REMAINING_STATUS_TEST_TIMEOUT:-180}" hermes \
+      -z "Reply exactly OMH_HERMES_STATUS_OK" \
       --provider openrouter \
       --model "$model" \
       --ignore-rules >"$dir/output.txt" 2>&1
@@ -465,7 +465,7 @@ run_hermes_cli() {
 import sys
 from pathlib import Path
 output = Path(sys.argv[1]).read_text(errors="replace")
-if "HAKO_HERMES_STATUS_OK" not in output:
+if "OMH_HERMES_STATUS_OK" not in output:
     raise SystemExit(f"hermes real cli did not produce expected marker: {output[-1000:]}")
 if "api.openai.com" in output:
     raise SystemExit("hermes test used OpenAI routing")
@@ -477,10 +477,10 @@ send_shell_hook() {
   local pane_id="$2"
   local action="$3"
   local payload="$4"
-  local hook="$repo_dir/apps/hako/src/integration/assets/$agent/hako-agent-state.sh"
-  HAKO_ENV=1 \
-  HAKO_SOCKET_PATH="$socket_path" \
-  HAKO_PANE_ID="$pane_id" \
+  local hook="$repo_dir/apps/omh/src/integration/assets/$agent/omh-agent-state.sh"
+  OMH_ENV=1 \
+  OMH_SOCKET_PATH="$socket_path" \
+  OMH_PANE_ID="$pane_id" \
   COPILOT_HOME="$workdir/copilot-home" \
   QODER_CONFIG_DIR="$workdir/qoder-home" \
   KIMI_CODE_HOME="$workdir/kimi-home" \
@@ -494,12 +494,12 @@ send_devin_hook() {
   local project_dir="$2"
   local list_json="$3"
   local payload="$4"
-  local hook="$repo_dir/apps/hako/src/integration/assets/devin/hako-agent-state.sh"
-  HAKO_ENV=1 \
-  HAKO_SOCKET_PATH="$socket_path" \
-  HAKO_PANE_ID="$pane_id" \
+  local hook="$repo_dir/apps/omh/src/integration/assets/devin/omh-agent-state.sh"
+  OMH_ENV=1 \
+  OMH_SOCKET_PATH="$socket_path" \
+  OMH_PANE_ID="$pane_id" \
   DEVIN_PROJECT_DIR="$project_dir" \
-  HAKO_DEVIN_LIST_JSON="$list_json" \
+  OMH_DEVIN_LIST_JSON="$list_json" \
   bash "$hook" session <<<"$payload"
 }
 
@@ -507,17 +507,17 @@ send_hermes_hook() {
   local pane_id="$1"
   local fn_name="$2"
   local session_id="$3"
-  HAKO_ENV=1 \
-  HAKO_SOCKET_PATH="$socket_path" \
-  HAKO_PANE_ID="$pane_id" \
+  OMH_ENV=1 \
+  OMH_SOCKET_PATH="$socket_path" \
+  OMH_PANE_ID="$pane_id" \
   HERMES_HOME="$workdir/hermes-home" \
-  HERMES_PLUGIN_PATH="$repo_dir/apps/hako/src/integration/assets/hermes/__init__.py" \
+  HERMES_PLUGIN_PATH="$repo_dir/apps/omh/src/integration/assets/hermes/__init__.py" \
   HERMES_FN="$fn_name" \
   HERMES_SESSION_ID="$session_id" \
   python3 - <<'PY'
 import importlib.util
 import os
-spec = importlib.util.spec_from_file_location("hako_hermes", os.environ["HERMES_PLUGIN_PATH"])
+spec = importlib.util.spec_from_file_location("omh_hermes", os.environ["HERMES_PLUGIN_PATH"])
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 getattr(mod, os.environ["HERMES_FN"])(session_id=os.environ["HERMES_SESSION_ID"])
@@ -582,10 +582,10 @@ if target_selected cursor; then
 fi
 
 if target_selected devin; then
-  send_devin_hook pane-devin-direct /tmp/hako-devin-project '[{"id":"stale-devin-direct","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"SessionStart","session_id":"devin-direct","source":"startup"}'
-  send_devin_hook pane-devin-list /tmp/hako-devin-project '[{"id":"other-devin","working_directory":"/tmp/hako-other-project"},{"id":"devin-list","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"PreToolUse","tool_name":"exec"}'
-  send_devin_hook pane-devin-prompt-stale /tmp/hako-devin-project '[{"id":"stale-prompt","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"UserPromptSubmit","prompt":"run tests"}'
-  send_devin_hook pane-devin-startup-stale /tmp/hako-devin-project '[{"id":"stale-startup","working_directory":"/tmp/hako-devin-project"}]' '{"hook_event_name":"SessionStart","source":"startup"}'
+  send_devin_hook pane-devin-direct /tmp/omh-devin-project '[{"id":"stale-devin-direct","working_directory":"/tmp/omh-devin-project"}]' '{"hook_event_name":"SessionStart","session_id":"devin-direct","source":"startup"}'
+  send_devin_hook pane-devin-list /tmp/omh-devin-project '[{"id":"other-devin","working_directory":"/tmp/omh-other-project"},{"id":"devin-list","working_directory":"/tmp/omh-devin-project"}]' '{"hook_event_name":"PreToolUse","tool_name":"exec"}'
+  send_devin_hook pane-devin-prompt-stale /tmp/omh-devin-project '[{"id":"stale-prompt","working_directory":"/tmp/omh-devin-project"}]' '{"hook_event_name":"UserPromptSubmit","prompt":"run tests"}'
+  send_devin_hook pane-devin-startup-stale /tmp/omh-devin-project '[{"id":"stale-startup","working_directory":"/tmp/omh-devin-project"}]' '{"hook_event_name":"SessionStart","source":"startup"}'
 fi
 
 if target_selected droid; then
@@ -644,7 +644,7 @@ def states(pane):
 def assert_agent(pane, agent, source):
     items = by_pane(reports, pane) + by_pane(sessions, pane) + by_pane(releases, pane)
     if not items:
-        raise SystemExit(f"{pane}: no Hako reports")
+        raise SystemExit(f"{pane}: no Oh My Herdr reports")
     for req in items:
         params = req.get("params", {})
         assert params.get("pane_id") == pane, req
@@ -688,43 +688,43 @@ def assert_devin_identity_only(pane, expected_session_id):
 def assert_no_pane_reports(pane):
     items = by_pane(reports, pane) + by_pane(sessions, pane) + by_pane(releases, pane)
     if items:
-        raise SystemExit(f"{pane}: expected no Hako reports, observed {items}")
+        raise SystemExit(f"{pane}: expected no Oh My Herdr reports, observed {items}")
 
 expected_by_target = {
     "copilot": [
-        ("pane-copilot-allowed", "copilot", "hako:copilot"),
-        ("pane-copilot-blocked", "copilot", "hako:copilot"),
-        ("pane-copilot-subagent", "copilot", "hako:copilot"),
+        ("pane-copilot-allowed", "copilot", "omh:copilot"),
+        ("pane-copilot-blocked", "copilot", "omh:copilot"),
+        ("pane-copilot-subagent", "copilot", "omh:copilot"),
     ],
     "qoder": [
-        ("pane-qoder-allowed", "qodercli", "hako:qodercli"),
-        ("pane-qoder-blocked", "qodercli", "hako:qodercli"),
-        ("pane-qoder-subagent", "qodercli", "hako:qodercli"),
+        ("pane-qoder-allowed", "qodercli", "omh:qodercli"),
+        ("pane-qoder-blocked", "qodercli", "omh:qodercli"),
+        ("pane-qoder-subagent", "qodercli", "omh:qodercli"),
     ],
     "cursor": [
-        ("pane-cursor-allowed", "cursor", "hako:cursor"),
-        ("pane-cursor-subagent", "cursor", "hako:cursor"),
+        ("pane-cursor-allowed", "cursor", "omh:cursor"),
+        ("pane-cursor-subagent", "cursor", "omh:cursor"),
     ],
     "devin": [
-        ("pane-devin-direct", "devin", "hako:devin"),
-        ("pane-devin-list", "devin", "hako:devin"),
+        ("pane-devin-direct", "devin", "omh:devin"),
+        ("pane-devin-list", "devin", "omh:devin"),
     ],
     "droid": [
-        ("pane-droid-allowed", "droid", "hako:droid"),
-        ("pane-droid-blocked", "droid", "hako:droid"),
-        ("pane-droid-subagent", "droid", "hako:droid"),
-        ("pane-droid-compact", "droid", "hako:droid"),
+        ("pane-droid-allowed", "droid", "omh:droid"),
+        ("pane-droid-blocked", "droid", "omh:droid"),
+        ("pane-droid-subagent", "droid", "omh:droid"),
+        ("pane-droid-compact", "droid", "omh:droid"),
     ],
     "kimi": [
-        ("pane-kimi-allowed", "kimi", "hako:kimi"),
-        ("pane-kimi-blocked", "kimi", "hako:kimi"),
-        ("pane-kimi-subagent", "kimi", "hako:kimi"),
-        ("pane-kimi-compact", "kimi", "hako:kimi"),
+        ("pane-kimi-allowed", "kimi", "omh:kimi"),
+        ("pane-kimi-blocked", "kimi", "omh:kimi"),
+        ("pane-kimi-subagent", "kimi", "omh:kimi"),
+        ("pane-kimi-compact", "kimi", "omh:kimi"),
     ],
     "hermes": [
-        ("pane-hermes-allowed", "hermes", "hako:hermes"),
-        ("pane-hermes-blocked", "hermes", "hako:hermes"),
-        ("pane-hermes-compact", "hermes", "hako:hermes"),
+        ("pane-hermes-allowed", "hermes", "omh:hermes"),
+        ("pane-hermes-blocked", "hermes", "omh:hermes"),
+        ("pane-hermes-compact", "hermes", "omh:hermes"),
     ],
 }
 selected_targets = list(expected_by_target) if target == "all" else [target]
@@ -735,10 +735,10 @@ expected_agents = [
 ]
 if not seam_only:
     real_by_target = {
-        "copilot": ("pane-copilot-real", "copilot", "hako:copilot"),
-        "droid": ("pane-droid-real", "droid", "hako:droid"),
-        "kimi": ("pane-kimi-real", "kimi", "hako:kimi"),
-        "hermes": ("pane-hermes-real", "hermes", "hako:hermes"),
+        "copilot": ("pane-copilot-real", "copilot", "omh:copilot"),
+        "droid": ("pane-droid-real", "droid", "omh:droid"),
+        "kimi": ("pane-kimi-real", "kimi", "omh:kimi"),
+        "hermes": ("pane-hermes-real", "hermes", "omh:hermes"),
     }
     expected_agents.extend(
         real_by_target[selected]

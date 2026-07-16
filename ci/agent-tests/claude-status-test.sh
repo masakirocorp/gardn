@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /usr/local/lib/hako-agent-test-models.sh
-primary_model="${HAKO_TEST_MODEL:-poolside/laguna-m.1:free}"
-if [[ -z "${HAKO_TEST_ACTIVE_MODEL:-}" ]]; then
-  hako_test_unique_candidates "$primary_model" "${HAKO_TEST_FALLBACK_MODELS:-}" \
-    | hako_test_openrouter_api_candidates \
-    | hako_test_non_anthropic_candidates \
-    | hako_test_run_with_fallbacks "$0" HAKO_TEST_MODEL "$@"
+source /usr/local/lib/omh-agent-test-models.sh
+primary_model="${OMH_TEST_MODEL:-poolside/laguna-m.1:free}"
+if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
+  omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
+    | omh_test_openrouter_api_candidates \
+    | omh_test_non_anthropic_candidates \
+    | omh_test_run_with_fallbacks "$0" OMH_TEST_MODEL "$@"
   exit $?
 fi
 
-model="$HAKO_TEST_ACTIVE_MODEL"
-repo_dir="${HAKO_REPO_DIR:-/repo}"
-hook_path="$repo_dir/apps/hako/src/integration/assets/claude/hako-agent-state.sh"
-workdir="${HAKO_CLAUDE_STATUS_TEST_DIR:-$(mktemp -d)}"
-socket_path="$workdir/hako.sock"
-request_log="$workdir/hako-requests.jsonl"
+model="$OMH_TEST_ACTIVE_MODEL"
+repo_dir="${OMH_REPO_DIR:-/repo}"
+hook_path="$repo_dir/apps/omh/src/integration/assets/claude/omh-agent-state.sh"
+workdir="${OMH_CLAUDE_STATUS_TEST_DIR:-$(mktemp -d)}"
+socket_path="$workdir/omh.sock"
+request_log="$workdir/omh-requests.jsonl"
 
 
 if [[ ! -f "$hook_path" ]]; then
-  echo "claude status test needs hako repo mounted at $repo_dir" >&2
+  echo "claude status test needs omh repo mounted at $repo_dir" >&2
   exit 1
 fi
 if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
@@ -91,7 +91,7 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 if [[ ! -S "$socket_path" ]]; then
-  echo "fake hako socket did not start" >&2
+  echo "fake omh socket did not start" >&2
   exit 1
 fi
 
@@ -141,10 +141,10 @@ run_claude() {
   set +e
   (
     cd "$dir/run"
-    HAKO_ENV=1 \
-    HAKO_SOCKET_PATH="$socket_path" \
-    HAKO_PANE_ID="$pane_id" \
-    timeout "${HAKO_CLAUDE_STATUS_TEST_TIMEOUT:-180}" claude -p \
+    OMH_ENV=1 \
+    OMH_SOCKET_PATH="$socket_path" \
+    OMH_PANE_ID="$pane_id" \
+    timeout "${OMH_CLAUDE_STATUS_TEST_TIMEOUT:-180}" claude -p \
       --settings "$dir/settings.json" \
       --model "$model" \
       --output-format stream-json \
@@ -158,7 +158,7 @@ run_claude() {
   local status=$?
   set -e
   if [[ "$status" -ne 0 ]]; then
-    if hako_test_retryable_status_or_output "$status" "$dir/output.jsonl"; then
+    if omh_test_retryable_status_or_output "$status" "$dir/output.jsonl"; then
       echo "$pane_id: retryable Claude/OpenRouter provider failure with $model" >&2
       exit 75
     fi
@@ -173,33 +173,33 @@ run_claude() {
 run_claude \
   pane-claude-allowed \
   "$workdir/allowed" \
-  hako-claude-status-working-idle \
+  omh-claude-status-working-idle \
   "" \
-  'Reply exactly HAKO_CLAUDE_STATUS_IDLE.'
+  'Reply exactly OMH_CLAUDE_STATUS_IDLE.'
 
 run_claude \
   pane-claude-subagent \
   "$workdir/subagent" \
-  hako-claude-status-subagent \
+  omh-claude-status-subagent \
   "Task" \
-  'Use the Task tool to launch one subagent. The subagent must reply exactly CHILD_OK. After the subagent finishes, reply exactly HAKO_CLAUDE_SUBAGENT_DONE.'
+  'Use the Task tool to launch one subagent. The subagent must reply exactly CHILD_OK. After the subagent finishes, reply exactly OMH_CLAUDE_SUBAGENT_DONE.'
 
 # Permission and compaction are lifecycle hook seams. Claude print mode does not
 # reliably block on interactive approval, so exercise the real installed hook with
 # the same event payload shape the CLI sends.
-HAKO_ENV=1 HAKO_SOCKET_PATH="$socket_path" HAKO_PANE_ID="pane-claude-blocked" bash "$hook_path" session <<'EOF_HOOK'
+OMH_ENV=1 OMH_SOCKET_PATH="$socket_path" OMH_PANE_ID="pane-claude-blocked" bash "$hook_path" session <<'EOF_HOOK'
 {"session_id":"blocked-session","hook_event_name":"SessionStart"}
 EOF_HOOK
-HAKO_ENV=1 HAKO_SOCKET_PATH="$socket_path" HAKO_PANE_ID="pane-claude-blocked" bash "$hook_path" working <<'EOF_HOOK'
+OMH_ENV=1 OMH_SOCKET_PATH="$socket_path" OMH_PANE_ID="pane-claude-blocked" bash "$hook_path" working <<'EOF_HOOK'
 {"session_id":"blocked-session","hook_event_name":"UserPromptSubmit"}
 EOF_HOOK
-HAKO_ENV=1 HAKO_SOCKET_PATH="$socket_path" HAKO_PANE_ID="pane-claude-blocked" bash "$hook_path" blocked <<'EOF_HOOK'
+OMH_ENV=1 OMH_SOCKET_PATH="$socket_path" OMH_PANE_ID="pane-claude-blocked" bash "$hook_path" blocked <<'EOF_HOOK'
 {"session_id":"blocked-session","hook_event_name":"PermissionRequest"}
 EOF_HOOK
-HAKO_ENV=1 HAKO_SOCKET_PATH="$socket_path" HAKO_PANE_ID="pane-claude-compact" bash "$hook_path" session <<'EOF_HOOK'
+OMH_ENV=1 OMH_SOCKET_PATH="$socket_path" OMH_PANE_ID="pane-claude-compact" bash "$hook_path" session <<'EOF_HOOK'
 {"session_id":"compact-session","hook_event_name":"SessionStart"}
 EOF_HOOK
-HAKO_ENV=1 HAKO_SOCKET_PATH="$socket_path" HAKO_PANE_ID="pane-claude-compact" bash "$hook_path" working <<'EOF_HOOK'
+OMH_ENV=1 OMH_SOCKET_PATH="$socket_path" OMH_PANE_ID="pane-claude-compact" bash "$hook_path" working <<'EOF_HOOK'
 {"session_id":"compact-session","hook_event_name":"PreCompact"}
 EOF_HOOK
 
@@ -239,7 +239,7 @@ def assert_common(pane_id):
     for req in pane_reports:
         params = req.get("params", {})
         assert params.get("pane_id") == pane_id, req
-        assert params.get("source") == "hako:claude", req
+        assert params.get("source") == "omh:claude", req
         assert params.get("agent") == "claude", req
         assert isinstance(params.get("seq"), int), req
     if not sessions_for(pane_id):
@@ -283,13 +283,13 @@ for pane in (
     assert_common(pane)
     assert_single_session_identity(pane)
 
-assert_output_contains("allowed", "HAKO_CLAUDE_STATUS_IDLE")
+assert_output_contains("allowed", "OMH_CLAUDE_STATUS_IDLE")
 assert_contains_in_order("pane-claude-allowed", ["working", "idle"])
 if not releases_for("pane-claude-allowed"):
     raise SystemExit("pane-claude-allowed: missing release")
 
 assert_output_contains("subagent", "CHILD_OK")
-assert_output_contains("subagent", "HAKO_CLAUDE_SUBAGENT_DONE")
+assert_output_contains("subagent", "OMH_CLAUDE_SUBAGENT_DONE")
 assert_contains_in_order("pane-claude-subagent", ["working", "idle"])
 if not releases_for("pane-claude-subagent"):
     raise SystemExit("pane-claude-subagent: missing release")

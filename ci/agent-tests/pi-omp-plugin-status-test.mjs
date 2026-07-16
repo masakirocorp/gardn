@@ -14,10 +14,10 @@ if (!pluginPath || !expectedAgent) {
   process.exit(64);
 }
 
-const expectedSource = `hako:${expectedAgent}`;
+const expectedSource = `omh:${expectedAgent}`;
 const pane = `pane-${expectedAgent}`;
-const root = mkdtempSync(path.join(os.tmpdir(), `hako-${expectedAgent}-plugin-`));
-const socketPath = path.join(root, "hako.sock");
+const root = mkdtempSync(path.join(os.tmpdir(), `omh-${expectedAgent}-plugin-`));
+const socketPath = path.join(root, "omh.sock");
 const requests = [];
 let dropNextLifecycleResponse = false;
 
@@ -49,15 +49,15 @@ await new Promise((resolve, reject) => {
   });
 });
 
-process.env.HAKO_ENV = "1";
-process.env.HAKO_SOCKET_PATH = socketPath;
-process.env.HAKO_PANE_ID = pane;
+process.env.OMH_ENV = "1";
+process.env.OMH_SOCKET_PATH = socketPath;
+process.env.OMH_PANE_ID = pane;
 process.env.PI_CONFIG_DIR = path.join(root, "config");
 process.env.PI_CODING_AGENT_DIR = path.join(root, "agent");
-process.env.HAKO_PI_IDLE_DEBOUNCE_MS = "5";
-process.env.HAKO_OMP_IDLE_DEBOUNCE_MS = "5";
-process.env.HAKO_PI_RETRY_GRACE_MS = "10";
-process.env.HAKO_OMP_RETRY_GRACE_MS = "10";
+process.env.OMH_PI_IDLE_DEBOUNCE_MS = "5";
+process.env.OMH_OMP_IDLE_DEBOUNCE_MS = "5";
+process.env.OMH_PI_RETRY_GRACE_MS = "10";
+process.env.OMH_OMP_RETRY_GRACE_MS = "10";
 
 class Harness {
   constructor() {
@@ -207,10 +207,10 @@ pi.emit("tool_execution_end", { toolCallId: "ask-1" });
 await waitForRequests(4);
 assertContainsInOrder(["idle", "working", "blocked", "working"]);
 
-pi.events.on("hako:blocked", () => {});
-pi.emit("event:hako:blocked", { active: true, label: "external blocker" });
+pi.events.on("omh:blocked", () => {});
+pi.emit("event:omh:blocked", { active: true, label: "external blocker" });
 await waitForRequests(5);
-pi.emit("event:hako:blocked", { active: false });
+pi.emit("event:omh:blocked", { active: false });
 await waitForRequests(6);
 assertContainsInOrder(["blocked", "working", "blocked", "working"]);
 

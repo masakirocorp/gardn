@@ -33,7 +33,7 @@ RUN apt-get update \
         tini \
     && rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,id=hako-agent-tests-pnpm,target=/pnpm/store \
+RUN --mount=type=cache,id=omh-agent-tests-pnpm,target=/pnpm/store \
     corepack enable pnpm \
     && corepack prepare "pnpm@${PNPM_VERSION}" --activate \
     && mkdir -p /opt/agent-tests-node \
@@ -137,7 +137,7 @@ RUN curl -fsSL https://qoder.com/install | bash \
     && ln -s /usr/local/bin/qodercli /usr/local/bin/qoder \
     && rm -rf /root/.qoder /root/.local/bin/qodercli /tmp/qodercli-natives-* /tmp/.setup-qodercli-natives-*
 
-# OMP is distributed as a compact release binary. Hako also supports `pi`; keep a
+# OMP is distributed as a compact release binary. Oh My Herdr also supports `pi`; keep a
 # `pi` entrypoint so launch/profile plumbing can be exercised without installing
 # a second copy of the same agent family.
 RUN set -eux; \
@@ -156,28 +156,28 @@ RUN set -eux; \
     chmod +x /usr/local/bin/omp; \
     ln -s /usr/local/bin/omp /usr/local/bin/pi
 
-COPY test-env.sh /usr/local/bin/hako-agent-tests-env
-COPY doctor.sh /usr/local/bin/hako-agent-tests-doctor
-COPY verify-env.sh /usr/local/bin/hako-agent-tests-verify-env
-COPY opencode-cli-test.sh /usr/local/bin/hako-agent-tests-opencode
-COPY test-models.sh /usr/local/lib/hako-agent-test-models.sh
-COPY opencode-status-test.sh /usr/local/bin/hako-agent-tests-opencode-status
-COPY opencode-plugin-status-test.mjs /usr/local/bin/hako-agent-opencode-plugin-status-test
-COPY pi-omp-plugin-status-test.mjs /usr/local/bin/hako-agent-pi-omp-plugin-status-test
-COPY pi-omp-status-test.sh /usr/local/bin/hako-agent-tests-pi-omp-status
-COPY claude-status-test.sh /usr/local/bin/hako-agent-tests-claude-status
-COPY codex-status-test.sh /usr/local/bin/hako-agent-tests-codex-status
-COPY remaining-status-test.sh /usr/local/bin/hako-agent-tests-remaining-status
-COPY cursor-openrouter-proxy.mjs /usr/local/bin/hako-agent-cursor-openrouter-proxy
-COPY cursor-proxy-status-test.sh /usr/local/bin/hako-agent-tests-cursor-proxy-status
-COPY qoder-openrouter-proxy.mjs /usr/local/bin/hako-agent-qoder-openrouter-proxy
-COPY qoder-proxy-status-test.sh /usr/local/bin/hako-agent-tests-qoder-proxy-status
-COPY maki-status-test.sh /usr/local/bin/hako-agent-tests-maki-status
-COPY run-target.sh /usr/local/bin/hako-agent-tests-target
-RUN chmod +x /usr/local/bin/hako-agent-tests-env /usr/local/bin/hako-agent-tests-doctor /usr/local/bin/hako-agent-tests-verify-env /usr/local/bin/hako-agent-tests-opencode /usr/local/bin/hako-agent-tests-opencode-status /usr/local/bin/hako-agent-tests-pi-omp-status /usr/local/bin/hako-agent-tests-claude-status /usr/local/bin/hako-agent-tests-codex-status /usr/local/bin/hako-agent-tests-remaining-status /usr/local/bin/hako-agent-tests-cursor-proxy-status /usr/local/bin/hako-agent-tests-qoder-proxy-status /usr/local/bin/hako-agent-tests-maki-status /usr/local/bin/hako-agent-tests-target /usr/local/bin/hako-agent-cursor-openrouter-proxy /usr/local/bin/hako-agent-qoder-openrouter-proxy /usr/local/bin/hako-agent-opencode-plugin-status-test /usr/local/bin/hako-agent-pi-omp-plugin-status-test \
+COPY test-env.sh /usr/local/bin/omh-agent-tests-env
+COPY doctor.sh /usr/local/bin/omh-agent-tests-doctor
+COPY verify-env.sh /usr/local/bin/omh-agent-tests-verify-env
+COPY opencode-cli-test.sh /usr/local/bin/omh-agent-tests-opencode
+COPY test-models.sh /usr/local/lib/omh-agent-test-models.sh
+COPY opencode-status-test.sh /usr/local/bin/omh-agent-tests-opencode-status
+COPY opencode-plugin-status-test.mjs /usr/local/bin/omh-agent-opencode-plugin-status-test
+COPY pi-omp-plugin-status-test.mjs /usr/local/bin/omh-agent-pi-omp-plugin-status-test
+COPY pi-omp-status-test.sh /usr/local/bin/omh-agent-tests-pi-omp-status
+COPY claude-status-test.sh /usr/local/bin/omh-agent-tests-claude-status
+COPY codex-status-test.sh /usr/local/bin/omh-agent-tests-codex-status
+COPY remaining-status-test.sh /usr/local/bin/omh-agent-tests-remaining-status
+COPY cursor-openrouter-proxy.mjs /usr/local/bin/omh-agent-cursor-openrouter-proxy
+COPY cursor-proxy-status-test.sh /usr/local/bin/omh-agent-tests-cursor-proxy-status
+COPY qoder-openrouter-proxy.mjs /usr/local/bin/omh-agent-qoder-openrouter-proxy
+COPY qoder-proxy-status-test.sh /usr/local/bin/omh-agent-tests-qoder-proxy-status
+COPY maki-status-test.sh /usr/local/bin/omh-agent-tests-maki-status
+COPY run-target.sh /usr/local/bin/omh-agent-tests-target
+RUN chmod +x /usr/local/bin/omh-agent-tests-env /usr/local/bin/omh-agent-tests-doctor /usr/local/bin/omh-agent-tests-verify-env /usr/local/bin/omh-agent-tests-opencode /usr/local/bin/omh-agent-tests-opencode-status /usr/local/bin/omh-agent-tests-pi-omp-status /usr/local/bin/omh-agent-tests-claude-status /usr/local/bin/omh-agent-tests-codex-status /usr/local/bin/omh-agent-tests-remaining-status /usr/local/bin/omh-agent-tests-cursor-proxy-status /usr/local/bin/omh-agent-tests-qoder-proxy-status /usr/local/bin/omh-agent-tests-maki-status /usr/local/bin/omh-agent-tests-target /usr/local/bin/omh-agent-cursor-openrouter-proxy /usr/local/bin/omh-agent-qoder-openrouter-proxy /usr/local/bin/omh-agent-opencode-plugin-status-test /usr/local/bin/omh-agent-pi-omp-plugin-status-test \
     && useradd --create-home --shell /bin/bash agenttest
 
 USER agenttest
 WORKDIR /work
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["hako-agent-tests-doctor"]
+CMD ["omh-agent-tests-doctor"]

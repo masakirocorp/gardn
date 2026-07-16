@@ -74,7 +74,7 @@ def vendor_libghostty_vt(source_repo: Path, destination: Path) -> VendorMetadata
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Vendor the pinned libghostty-vt source dist into hako")
+    parser = argparse.ArgumentParser(description="Vendor the pinned libghostty-vt source dist into omh")
     parser.add_argument(
         "--source-repo",
         default="/home/can/Projects/ghostty",
@@ -82,12 +82,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--destination",
-        default="apps/hako/vendor/libghostty-vt",
+        default="apps/omh/vendor/libghostty-vt",
         help="Destination directory for the extracted libghostty-vt source dist",
     )
     parser.add_argument(
         "--metadata",
-        default="apps/hako/vendor/libghostty-vt.vendor.json",
+        default="apps/omh/vendor/libghostty-vt.vendor.json",
         help="Path to write vendoring metadata JSON",
     )
     args = parser.parse_args()

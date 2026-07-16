@@ -6,10 +6,10 @@
 import http2 from 'node:http2';
 import { appendFileSync } from 'node:fs';
 
-const LOG = process.env.HAKO_CURSOR_PROXY_LOG || '/tmp/hako-cursor-proxy.log';
-const CERT = process.env.HAKO_CURSOR_PROXY_CERT;
-const KEY = process.env.HAKO_CURSOR_PROXY_KEY;
-const MODEL = process.env.HAKO_TEST_CURSOR_MODEL || process.env.HAKO_TEST_MODEL || 'openrouter/auto';
+const LOG = process.env.OMH_CURSOR_PROXY_LOG || '/tmp/omh-cursor-proxy.log';
+const CERT = process.env.OMH_CURSOR_PROXY_CERT;
+const KEY = process.env.OMH_CURSOR_PROXY_KEY;
+const MODEL = process.env.OMH_TEST_CURSOR_MODEL || process.env.OMH_TEST_MODEL || 'openrouter/auto';
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 
 function log(msg) {
@@ -28,7 +28,7 @@ function bmr(){return em(1,bmd(MODEL,MODEL));}
 function bdr(){return em(1,bmd(MODEL,MODEL));}
 function xstr(buf,out){let o=0;while(o<buf.length){let t=0,s=0;while(o<buf.length){const b=buf[o++];t|=(b&0x7f)<<s;s+=7;if(!(b&0x80))break;}const wt=t&7;if(wt===0){while(o<buf.length&&buf[o++]&0x80);}else if(wt===2){let l=0,s=0;while(o<buf.length){const b=buf[o++];l|=(b&0x7f)<<s;s+=7;if(!(b&0x80))break;}const d=buf.slice(o,o+l);o+=l;const st=d.toString('utf8');if(/^[\x20-\x7e]+$/.test(st))out.push(st);else try{xstr(d,out);}catch{}}else break;}}
 
-if (!CERT || !KEY) throw new Error('HAKO_CURSOR_PROXY_CERT and HAKO_CURSOR_PROXY_KEY are required');
+if (!CERT || !KEY) throw new Error('OMH_CURSOR_PROXY_CERT and OMH_CURSOR_PROXY_KEY are required');
 if (!OPENROUTER_KEY) throw new Error('OPENROUTER_API_KEY is required');
 
 const server = http2.createSecureServer({ cert: await import('node:fs').then(fs => fs.readFileSync(CERT)), key: await import('node:fs').then(fs => fs.readFileSync(KEY)), allowHTTP1: true });
@@ -42,7 +42,7 @@ server.on('request', (req, res) => {
     log(`unary ${req.method} ${url}`);
     if (url === '/auth/exchange_user_api_key') {
       res.writeHead(200, {'content-type':'application/json'});
-      res.end(JSON.stringify({accessToken:'hako-test-token', refreshToken:'hako-test-refresh', authId:'hako-test'}));
+      res.end(JSON.stringify({accessToken:'omh-test-token', refreshToken:'omh-test-refresh', authId:'omh-test'}));
       return;
     }
     if (url.includes('GetUsableModels')) {
@@ -75,8 +75,8 @@ server.on('stream', (stream, headers) => {
     handled = true;
     log(`cursor-prompt strings=${strs.length} bytes=${Buffer.byteLength(prompt, 'utf8')}`);
     stream.respond({':status':200, 'content-type':'application/connect+proto'});
-    if (process.env.HAKO_CURSOR_PROXY_STATIC_REPLY) {
-      stream.write(tdf(process.env.HAKO_CURSOR_PROXY_STATIC_REPLY));
+    if (process.env.OMH_CURSOR_PROXY_STATIC_REPLY) {
+      stream.write(tdf(process.env.OMH_CURSOR_PROXY_STATIC_REPLY));
       stream.write(tef()); stream.end(ct());
       log('static-complete');
       return;
@@ -95,7 +95,7 @@ server.on('stream', (stream, headers) => {
 function selectPrompt(strs) {
   const useful = strs.filter(s => s.length > 0 && s.length < 10000 && !/^[a-f0-9]{8}-/.test(s));
   return useful.sort((a, b) => b.length - a.length)[0]
-    || 'Reply exactly HAKO_CURSOR_PROXY_OK';
+    || 'Reply exactly OMH_CURSOR_PROXY_OK';
 }
 
 async function callOpenRouter(prompt, stream) {
@@ -132,7 +132,7 @@ async function callOpenRouter(prompt, stream) {
       } catch {}
     }
   }
-  if (!emitted) stream.write(tdf('HAKO_CURSOR_PROXY_OK'));
+  if (!emitted) stream.write(tdf('OMH_CURSOR_PROXY_OK'));
   stream.write(tef()); stream.end(ct());
   log('openrouter-complete');
 }

@@ -7,16 +7,16 @@ import dns from 'node:dns/promises';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-const LOG = process.env.HAKO_QODER_PROXY_LOG || '/tmp/hako-qoder-proxy.log';
-const CERT = process.env.HAKO_QODER_PROXY_CERT;
-const KEY = process.env.HAKO_QODER_PROXY_KEY;
-const MODEL = process.env.HAKO_TEST_QODER_PROXY_MODEL || process.env.HAKO_TEST_MODEL || 'poolside/laguna-m.1:free';
+const LOG = process.env.OMH_QODER_PROXY_LOG || '/tmp/omh-qoder-proxy.log';
+const CERT = process.env.OMH_QODER_PROXY_CERT;
+const KEY = process.env.OMH_QODER_PROXY_KEY;
+const MODEL = process.env.OMH_TEST_QODER_PROXY_MODEL || process.env.OMH_TEST_MODEL || 'poolside/laguna-m.1:free';
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 
 const isDirectRun = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isDirectRun) {
-  if (!CERT || !KEY) throw new Error('HAKO_QODER_PROXY_CERT and HAKO_QODER_PROXY_KEY are required');
+  if (!CERT || !KEY) throw new Error('OMH_QODER_PROXY_CERT and OMH_QODER_PROXY_KEY are required');
   if (!OPENROUTER_KEY) throw new Error('OPENROUTER_API_KEY is required');
 }
 
@@ -101,8 +101,8 @@ async function requestRealQoderApi2(req, body) {
 
 async function handleInference(req, res) {
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
-  if (process.env.HAKO_QODER_PROXY_STATIC_REPLY) {
-    writeQoderChunk(res, process.env.HAKO_QODER_PROXY_STATIC_REPLY);
+  if (process.env.OMH_QODER_PROXY_STATIC_REPLY) {
+    writeQoderChunk(res, process.env.OMH_QODER_PROXY_STATIC_REPLY);
     writeQoderDone(res);
     res.end();
     log('static-complete');
@@ -114,7 +114,7 @@ async function handleInference(req, res) {
     headers: { Authorization: `Bearer ${OPENROUTER_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: MODEL,
-      messages: [{ role: 'user', content: 'Reply exactly HAKO_QODER_PROXY_OK' }],
+      messages: [{ role: 'user', content: 'Reply exactly OMH_QODER_PROXY_OK' }],
       temperature: 0,
       max_tokens: 32,
       stream: true,
@@ -153,7 +153,7 @@ async function handleInference(req, res) {
       } catch {}
     }
   }
-  if (!emitted) writeQoderChunk(res, 'HAKO_QODER_PROXY_OK');
+  if (!emitted) writeQoderChunk(res, 'OMH_QODER_PROXY_OK');
   writeQoderDone(res);
   res.end();
   log('openrouter-complete');
@@ -161,7 +161,7 @@ async function handleInference(req, res) {
 
 function writeQoderChunk(res, content) {
   const inner = {
-    id: 'chatcmpl-hako-qoder-test',
+    id: 'chatcmpl-omh-qoder-test',
     object: 'chat.completion.chunk',
     created: Math.floor(Date.now() / 1000),
     model: 'qmodel_latest',
@@ -172,7 +172,7 @@ function writeQoderChunk(res, content) {
 
 function writeQoderDone(res) {
   const inner = {
-    id: 'chatcmpl-hako-qoder-test',
+    id: 'chatcmpl-omh-qoder-test',
     object: 'chat.completion.chunk',
     created: Math.floor(Date.now() / 1000),
     model: 'qmodel_latest',

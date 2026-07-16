@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /usr/local/lib/hako-agent-test-models.sh
-primary_model="${HAKO_TEST_MODEL:-poolside/laguna-m.1:free}"
-if [[ -z "${HAKO_TEST_ACTIVE_MODEL:-}" ]]; then
-  hako_test_unique_candidates "$primary_model" "${HAKO_TEST_FALLBACK_MODELS:-}" \
-    | hako_test_openrouter_api_candidates \
-    | hako_test_non_openai_candidates \
-    | hako_test_run_with_fallbacks "$0" HAKO_TEST_MODEL "$@"
+source /usr/local/lib/omh-agent-test-models.sh
+primary_model="${OMH_TEST_MODEL:-poolside/laguna-m.1:free}"
+if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
+  omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
+    | omh_test_openrouter_api_candidates \
+    | omh_test_non_openai_candidates \
+    | omh_test_run_with_fallbacks "$0" OMH_TEST_MODEL "$@"
   exit $?
 fi
 
-model="$HAKO_TEST_ACTIVE_MODEL"
-repo_dir="${HAKO_REPO_DIR:-/repo}"
-hook_path="$repo_dir/apps/hako/src/integration/assets/codex/hako-agent-state.sh"
-workdir="${HAKO_CODEX_STATUS_TEST_DIR:-$(mktemp -d)}"
-socket_path="$workdir/hako.sock"
-request_log="$workdir/hako-requests.jsonl"
+model="$OMH_TEST_ACTIVE_MODEL"
+repo_dir="${OMH_REPO_DIR:-/repo}"
+hook_path="$repo_dir/apps/omh/src/integration/assets/codex/omh-agent-state.sh"
+workdir="${OMH_CODEX_STATUS_TEST_DIR:-$(mktemp -d)}"
+socket_path="$workdir/omh.sock"
+request_log="$workdir/omh-requests.jsonl"
 
 
 if [[ ! -f "$hook_path" ]]; then
-  echo "codex status test needs hako repo mounted at $repo_dir" >&2
+  echo "codex status test needs omh repo mounted at $repo_dir" >&2
   exit 1
 fi
 if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
@@ -90,7 +90,7 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 if [[ ! -S "$socket_path" ]]; then
-  echo "fake hako socket did not start" >&2
+  echo "fake omh socket did not start" >&2
   exit 1
 fi
 
@@ -99,7 +99,7 @@ fi
 # documents hooks for config layers, but openai/codex#26452 and #26383 track
 # that `codex exec` does not dispatch valid hooks.json/config.toml hooks. Until
 # that is fixed upstream, this test can only prove real Codex OpenRouter
-# transport plus Hako's hook-script behavior through direct invocation.
+# transport plus Oh My Herdr's hook-script behavior through direct invocation.
 
 run_codex_cli() {
   local dir="$workdir/real-cli"
@@ -124,10 +124,10 @@ EOF_CONFIG
     cd "$dir/run"
     set +e
     CODEX_HOME="$dir/codex" \
-    timeout "${HAKO_CODEX_STATUS_TEST_TIMEOUT:-180}" codex exec \
+    timeout "${OMH_CODEX_STATUS_TEST_TIMEOUT:-180}" codex exec \
       --cd "$dir/run" \
       --model "$model" \
-      'Reply exactly HAKO_CODEX_STATUS_OK.' >"$dir/output.txt" 2>&1
+      'Reply exactly OMH_CODEX_STATUS_OK.' >"$dir/output.txt" 2>&1
     local status=$?
     set -e
     if [[ "$status" -ne 0 ]]; then
@@ -139,7 +139,7 @@ EOF_CONFIG
 import sys
 from pathlib import Path
 output = Path(sys.argv[1]).read_text(errors="replace")
-if "HAKO_CODEX_STATUS_OK" not in output:
+if "OMH_CODEX_STATUS_OK" not in output:
     raise SystemExit("codex real cli did not produce expected marker")
 if "api.openai.com" in output or '"provider":"openai"' in output:
     raise SystemExit("codex test used OpenAI routing")
@@ -152,9 +152,9 @@ send_hook() {
   local pane_id="$1"
   local action="$2"
   local payload="$3"
-  HAKO_ENV=1 \
-  HAKO_SOCKET_PATH="$socket_path" \
-  HAKO_PANE_ID="$pane_id" \
+  OMH_ENV=1 \
+  OMH_SOCKET_PATH="$socket_path" \
+  OMH_PANE_ID="$pane_id" \
   CODEX_HOME="$workdir/codex-profile" \
   bash "$hook_path" "$action" <<<"$payload"
 }
@@ -209,7 +209,7 @@ def assert_common(pane_id):
     for req in pane_reports:
         params = req.get("params", {})
         assert params.get("pane_id") == pane_id, req
-        assert params.get("source") == "hako:codex", req
+        assert params.get("source") == "omh:codex", req
         assert params.get("agent") == "codex", req
         assert isinstance(params.get("seq"), int), req
         launch_env = params.get("launch_env", {})

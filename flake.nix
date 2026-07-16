@@ -1,5 +1,5 @@
 {
-  description = "hako — terminal workspace manager for AI coding agents";
+  description = "Oh My Herdr — terminal workspace manager for AI coding agents";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -23,25 +23,25 @@
         system:
         let
           pkgs = pkgsFor system;
-          hako = pkgs.callPackage ./nix/package.nix { };
+          omh = pkgs.callPackage ./nix/package.nix { };
         in
         {
-          inherit hako;
-          default = hako;
+          inherit omh;
+          default = omh;
         }
       );
 
       apps = forAllSystems (system: {
         default = {
           type = "app";
-          program = "${self.packages.${system}.default}/bin/hako";
-          meta.description = "Run Hako";
+          program = "${self.packages.${system}.default}/bin/omh";
+          meta.description = "Run Oh My Herdr";
         };
       });
 
       checks = forAllSystems (system: {
-        hako = self.packages.${system}.default;
-        default = self.checks.${system}.hako;
+        omh = self.packages.${system}.default;
+        default = self.checks.${system}.omh;
       });
 
       devShells = forAllSystems (
@@ -51,7 +51,7 @@
         in
         {
           default = pkgs.mkShell {
-            name = "hako-dev";
+            name = "omh-dev";
             packages = with pkgs; [
               cargo
               cargo-nextest
@@ -76,7 +76,7 @@
       formatter = forAllSystems (system: (pkgsFor system).nixfmt);
 
       overlays.default = final: _prev: {
-        hako = final.callPackage ./nix/package.nix { };
+        omh = final.callPackage ./nix/package.nix { };
       };
     };
 }

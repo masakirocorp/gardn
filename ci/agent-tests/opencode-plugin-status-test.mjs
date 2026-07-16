@@ -6,15 +6,15 @@ import { pathToFileURL } from "node:url";
 
 const pluginPath = process.argv[2];
 if (!pluginPath) {
-  console.error("usage: opencode-plugin-status-test.mjs <hako-agent-state.js>");
+  console.error("usage: opencode-plugin-status-test.mjs <omh-agent-state.js>");
   process.exit(1);
 }
 
 async function runScenario(name, events, options = {}) {
   const tmp = await import("node:fs/promises").then((fs) =>
-    fs.mkdtemp(path.join(os.tmpdir(), `hako-opencode-${name}-`)),
+    fs.mkdtemp(path.join(os.tmpdir(), `omh-opencode-${name}-`)),
   );
-  const socketPath = path.join(tmp, "hako.sock");
+  const socketPath = path.join(tmp, "omh.sock");
   const requests = [];
 
   const server = net.createServer((client) => {
@@ -33,16 +33,16 @@ async function runScenario(name, events, options = {}) {
   });
   await new Promise((resolve) => server.listen(socketPath, resolve));
 
-  process.env.HAKO_ENV = "1";
-  process.env.HAKO_SOCKET_PATH = socketPath;
-  process.env.HAKO_PANE_ID = `pane-${name}`;
-  process.env.HAKO_OPENCODE_IDLE_REPORT_DELAY_MS = "5";
+  process.env.OMH_ENV = "1";
+  process.env.OMH_SOCKET_PATH = socketPath;
+  process.env.OMH_PANE_ID = `pane-${name}`;
+  process.env.OMH_OPENCODE_IDLE_REPORT_DELAY_MS = "5";
   process.env.OPENCODE_CONFIG = path.join(tmp, "opencode.json");
 
-  const { HakoAgentStatePlugin } = await import(
+  const { OmhAgentStatePlugin } = await import(
     `${pathToFileURL(pluginPath).href}?${name}-${Date.now()}-${Math.random()}`,
   );
-  const hooks = await HakoAgentStatePlugin();
+  const hooks = await OmhAgentStatePlugin();
 
   async function emit(item) {
     if (item.hook === "experimental.session.compacting") {
@@ -99,7 +99,7 @@ function assertCommon(scenario) {
   for (const request of scenario.reports) {
     const params = request.params;
     if (params.pane_id !== `pane-${scenario.name}`) fail(scenario, "wrong pane id");
-    if (params.source !== "hako:opencode") fail(scenario, "wrong source");
+    if (params.source !== "omh:opencode") fail(scenario, "wrong source");
     if (params.agent !== "opencode") fail(scenario, "wrong agent");
     if (!Number.isInteger(params.seq)) fail(scenario, "missing integer seq");
     if (params.launch_env.OPENCODE_CONFIG !== process.env.OPENCODE_CONFIG) {

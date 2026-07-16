@@ -1,7 +1,7 @@
-diff --git a/apps/hako/vendor/portable-pty/src/cmdbuilder.rs b/apps/hako/vendor/portable-pty/src/cmdbuilder.rs
+diff --git a/apps/omh/vendor/portable-pty/src/cmdbuilder.rs b/apps/omh/vendor/portable-pty/src/cmdbuilder.rs
 index b4ce50a8..93199e57 100644
---- a/apps/hako/vendor/portable-pty/src/cmdbuilder.rs
-+++ b/apps/hako/vendor/portable-pty/src/cmdbuilder.rs
+--- a/apps/omh/vendor/portable-pty/src/cmdbuilder.rs
++++ b/apps/omh/vendor/portable-pty/src/cmdbuilder.rs
 @@ -202,6 +202,8 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
  #[cfg_attr(feature = "serde_support", derive(Serialize, Deserialize))]
  pub struct CommandBuilder {

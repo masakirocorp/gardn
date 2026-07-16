@@ -22,25 +22,25 @@
       ],
       "outputs": []
     },
-    "@hako/app#build": {
+    "@omh/app#build": {
       "cache": false,
       "dependsOn": [
         "^build"
       ],
       "outputs": []
     },
-    "@hako/app#check": {
+    "@omh/app#check": {
       "cache": false,
       "dependsOn": [
         "^check"
       ],
       "outputs": []
     },
-    "@hako/app#lint": {
+    "@omh/app#lint": {
       "cache": false,
       "outputs": []
     },
-    "@hako/app#test": {
+    "@omh/app#test": {
       "cache": false,
       "dependsOn": [
         "^test"

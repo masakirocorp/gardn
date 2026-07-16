@@ -49,7 +49,7 @@ fn load_conpty() -> ConPtyFuncs {
         "this system does not support conpty.  Windows 10 October 2018 or newer is required",
     );
 
-    // Hako uses the Windows system ConPTY implementation. Do not load a
+    // Oh My Herdr uses the Windows system ConPTY implementation. Do not load a
     // bare `conpty.dll` from PATH, which could belong to another application.
     kernel
 }

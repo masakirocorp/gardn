@@ -1,6 +1,6 @@
 import { createPaper } from "./tegami.mts";
 
-const requiredPackage = process.argv[2] ?? "hako";
+const requiredPackage = process.argv[2] ?? "omh";
 const paper = createPaper();
 const draft = await paper.draft();
 const missingRequiredPackage = draft

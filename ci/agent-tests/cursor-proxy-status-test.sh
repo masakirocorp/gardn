@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /usr/local/lib/hako-agent-test-models.sh
-primary_model="${HAKO_TEST_CURSOR_MODEL:-${HAKO_TEST_MODEL:-poolside/laguna-m.1:free}}"
-if [[ -z "${HAKO_TEST_ACTIVE_MODEL:-}" ]]; then
-  hako_test_unique_candidates "$primary_model" "${HAKO_TEST_FALLBACK_MODELS:-}" \
-    | hako_test_openrouter_api_candidates \
-    | hako_test_run_with_fallbacks "$0" HAKO_TEST_CURSOR_MODEL "$@"
+source /usr/local/lib/omh-agent-test-models.sh
+primary_model="${OMH_TEST_CURSOR_MODEL:-${OMH_TEST_MODEL:-poolside/laguna-m.1:free}}"
+if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
+  omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
+    | omh_test_openrouter_api_candidates \
+    | omh_test_run_with_fallbacks "$0" OMH_TEST_CURSOR_MODEL "$@"
   exit $?
 fi
 
-model="$HAKO_TEST_ACTIVE_MODEL"
-repo_dir="${HAKO_REPO_DIR:-/repo}"
-workdir="${HAKO_CURSOR_PROXY_STATUS_TEST_DIR:-$(mktemp -d)}"
-socket_path="$workdir/hako.sock"
-request_log="$workdir/hako-requests.jsonl"
+model="$OMH_TEST_ACTIVE_MODEL"
+repo_dir="${OMH_REPO_DIR:-/repo}"
+workdir="${OMH_CURSOR_PROXY_STATUS_TEST_DIR:-$(mktemp -d)}"
+socket_path="$workdir/omh.sock"
+request_log="$workdir/omh-requests.jsonl"
 proxy_log="$workdir/cursor-proxy.log"
 
 
@@ -70,7 +70,7 @@ server_pid=$!
 proxy_pid=""
 trap '[[ -n "${proxy_pid:-}" ]] && kill "$proxy_pid" >/dev/null 2>&1 || true; kill "$server_pid" >/dev/null 2>&1 || true' EXIT
 for _ in $(seq 1 50); do [[ -S "$socket_path" ]] && break; sleep 0.1; done
-[[ -S "$socket_path" ]] || { echo "fake hako socket did not start" >&2; exit 1; }
+[[ -S "$socket_path" ]] || { echo "fake omh socket did not start" >&2; exit 1; }
 
 openssl req -x509 -newkey rsa:2048 -nodes \
   -keyout "$workdir/cursor.key" \
@@ -78,33 +78,33 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -days 1 \
   -subj "/CN=api2.cursor.sh" \
   -addext "subjectAltName=DNS:api2.cursor.sh,DNS:api2geo.cursor.sh,DNS:api2direct.cursor.sh,DNS:agentn.api5.cursor.sh,DNS:agent.api5.cursor.sh" >/dev/null 2>&1
-cp "$workdir/cursor.crt" /usr/local/share/ca-certificates/hako-cursor-proxy.crt
+cp "$workdir/cursor.crt" /usr/local/share/ca-certificates/omh-cursor-proxy.crt
 update-ca-certificates >/dev/null
 
-cp "$repo_dir/apps/hako/src/integration/assets/cursor/hako-agent-state.sh" "$HOME/.cursor/hako-agent-state.sh"
-chmod +x "$HOME/.cursor/hako-agent-state.sh"
+cp "$repo_dir/apps/omh/src/integration/assets/cursor/omh-agent-state.sh" "$HOME/.cursor/omh-agent-state.sh"
+chmod +x "$HOME/.cursor/omh-agent-state.sh"
 cat > "$HOME/.cursor/hooks.json" <<EOF_HOOKS
 {
   "version": 1,
   "hooks": {
-    "sessionStart": [{"command": "bash $HOME/.cursor/hako-agent-state.sh working", "timeout": 10}],
-    "beforeSubmitPrompt": [{"command": "bash $HOME/.cursor/hako-agent-state.sh working", "timeout": 10}],
-    "beforeShellExecution": [{"command": "bash $HOME/.cursor/hako-agent-state.sh working", "timeout": 10}],
-    "beforeMCPExecution": [{"command": "bash $HOME/.cursor/hako-agent-state.sh working", "timeout": 10}],
-    "stop": [{"command": "bash $HOME/.cursor/hako-agent-state.sh idle", "timeout": 10}],
-    "sessionEnd": [{"command": "bash $HOME/.cursor/hako-agent-state.sh release", "timeout": 10}]
+    "sessionStart": [{"command": "bash $HOME/.cursor/omh-agent-state.sh working", "timeout": 10}],
+    "beforeSubmitPrompt": [{"command": "bash $HOME/.cursor/omh-agent-state.sh working", "timeout": 10}],
+    "beforeShellExecution": [{"command": "bash $HOME/.cursor/omh-agent-state.sh working", "timeout": 10}],
+    "beforeMCPExecution": [{"command": "bash $HOME/.cursor/omh-agent-state.sh working", "timeout": 10}],
+    "stop": [{"command": "bash $HOME/.cursor/omh-agent-state.sh idle", "timeout": 10}],
+    "sessionEnd": [{"command": "bash $HOME/.cursor/omh-agent-state.sh release", "timeout": 10}]
   }
 }
 EOF_HOOKS
 
-static_reply="HAKO_CURSOR_PROXY_OK"
-HAKO_CURSOR_PROXY_CERT="$workdir/cursor.crt" \
-HAKO_CURSOR_PROXY_KEY="$workdir/cursor.key" \
-HAKO_CURSOR_PROXY_LOG="$proxy_log" \
+static_reply="OMH_CURSOR_PROXY_OK"
+OMH_CURSOR_PROXY_CERT="$workdir/cursor.crt" \
+OMH_CURSOR_PROXY_KEY="$workdir/cursor.key" \
+OMH_CURSOR_PROXY_LOG="$proxy_log" \
 OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
-HAKO_TEST_CURSOR_MODEL="$model" \
-HAKO_CURSOR_PROXY_STATIC_REPLY="$static_reply" \
-node /usr/local/bin/hako-agent-cursor-openrouter-proxy &
+OMH_TEST_CURSOR_MODEL="$model" \
+OMH_CURSOR_PROXY_STATIC_REPLY="$static_reply" \
+node /usr/local/bin/omh-agent-cursor-openrouter-proxy &
 proxy_pid=$!
 for _ in $(seq 1 50); do
   grep -q 'cursor-proxy-listening' "$proxy_log" 2>/dev/null && break
@@ -112,18 +112,18 @@ for _ in $(seq 1 50); do
 done
 grep -q 'cursor-proxy-listening' "$proxy_log" || { echo "cursor proxy did not start" >&2; exit 1; }
 
-generic_prompt='Reply exactly HAKO_CURSOR_PROXY_OK and nothing else.'
+generic_prompt='Reply exactly OMH_CURSOR_PROXY_OK and nothing else.'
 
 (
   cd "$workdir"
-  HAKO_ENV=1 \
-  HAKO_SOCKET_PATH="$socket_path" \
-  HAKO_PANE_ID="pane-cursor-proxy" \
+  OMH_ENV=1 \
+  OMH_SOCKET_PATH="$socket_path" \
+  OMH_PANE_ID="pane-cursor-proxy" \
   NODE_EXTRA_CA_CERTS="$workdir/cursor.crt" \
   SSL_CERT_FILE="$workdir/cursor.crt" \
   REQUESTS_CA_BUNDLE="$workdir/cursor.crt" \
   CURSOR_API_KEY="$OPENROUTER_API_KEY" \
-  timeout "${HAKO_CURSOR_PROXY_STATUS_TEST_TIMEOUT:-180}" cursor-agent \
+  timeout "${OMH_CURSOR_PROXY_STATUS_TEST_TIMEOUT:-180}" cursor-agent \
     --print \
     --output-format text \
     --trust \
@@ -135,18 +135,18 @@ generic_prompt='Reply exactly HAKO_CURSOR_PROXY_OK and nothing else.'
 before_interactive_completions="$(grep -c 'static-complete' "$proxy_log" 2>/dev/null || true)"
 (
   cd "$workdir"
-  HAKO_ENV=1 \
-  HAKO_SOCKET_PATH="$socket_path" \
-  HAKO_PANE_ID="pane-cursor-proxy-interactive" \
+  OMH_ENV=1 \
+  OMH_SOCKET_PATH="$socket_path" \
+  OMH_PANE_ID="pane-cursor-proxy-interactive" \
   NODE_EXTRA_CA_CERTS="$workdir/cursor.crt" \
   SSL_CERT_FILE="$workdir/cursor.crt" \
   REQUESTS_CA_BUNDLE="$workdir/cursor.crt" \
   CURSOR_API_KEY="$OPENROUTER_API_KEY" \
-  HAKO_CURSOR_INTERACTIVE_ARGS="$(printf '%s\n' --api-key "$OPENROUTER_API_KEY" --model "$model" "$generic_prompt")" \
-  timeout "${HAKO_CURSOR_INTERACTIVE_STATUS_TEST_TIMEOUT:-120}" python3 - "$workdir/cursor-interactive-output.txt" "$proxy_log" "$before_interactive_completions" <<'PY' || true
+  OMH_CURSOR_INTERACTIVE_ARGS="$(printf '%s\n' --api-key "$OPENROUTER_API_KEY" --model "$model" "$generic_prompt")" \
+  timeout "${OMH_CURSOR_INTERACTIVE_STATUS_TEST_TIMEOUT:-120}" python3 - "$workdir/cursor-interactive-output.txt" "$proxy_log" "$before_interactive_completions" <<'PY' || true
 import os, select, signal, subprocess, sys, time
 out_path, proxy_log, before_count = sys.argv[1], sys.argv[2], int(sys.argv[3])
-args = ["cursor-agent", *os.environ["HAKO_CURSOR_INTERACTIVE_ARGS"].splitlines()]
+args = ["cursor-agent", *os.environ["OMH_CURSOR_INTERACTIVE_ARGS"].splitlines()]
 proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=False, preexec_fn=os.setsid)
 deadline = time.time() + 90
 buf = bytearray()
@@ -194,7 +194,7 @@ from pathlib import Path
 output = Path(sys.argv[1]).read_text(errors='replace')
 proxy = Path(sys.argv[2]).read_text(errors='replace')
 requests = [json.loads(line) for line in Path(sys.argv[3]).read_text(errors='replace').splitlines() if line.strip()]
-if 'HAKO_CURSOR_PROXY_OK' not in output:
+if 'OMH_CURSOR_PROXY_OK' not in output:
     print(f'cursor proxy test did not return expected marker: {output[-1000:]}', file=sys.stderr)
     raise SystemExit(75)
 for needle in ['unary', 'agent-stream', 'static-complete']:
@@ -203,5 +203,5 @@ for needle in ['unary', 'agent-stream', 'static-complete']:
 states = [req.get('params', {}).get('state') for req in requests if req.get('method') == 'pane.report_agent']
 if 'working' not in states or not any(req.get('method') == 'pane.release_agent' for req in requests):
     raise SystemExit(f'cursor hook test did not observe working+release from real CLI hooks: {requests}')
-print('cursor proxy status test ok: real Cursor CLI completed through deterministic local proxy and emitted Hako status hooks')
+print('cursor proxy status test ok: real Cursor CLI completed through deterministic local proxy and emitted Oh My Herdr status hooks')
 PY

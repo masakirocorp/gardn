@@ -53,14 +53,14 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
             lib_dir.mkdir()
             test_dir.mkdir()
 
-            models_stub = lib_dir / "hako-agent-test-models.sh"
-            models_stub.write_text("# test stub: HAKO_TEST_ACTIVE_MODEL bypasses fallback lookup\n")
+            models_stub = lib_dir / "omh-agent-test-models.sh"
+            models_stub.write_text("# test stub: OMH_TEST_ACTIVE_MODEL bypasses fallback lookup\n")
 
-            script_copy = bin_dir / "hako-agent-tests-pi-omp-status"
+            script_copy = bin_dir / "omh-agent-tests-pi-omp-status"
             script_text = source_script.read_text()
             script_copy.write_text(
                 script_text.replace(
-                    "source /usr/local/lib/hako-agent-test-models.sh",
+                    "source /usr/local/lib/omh-agent-test-models.sh",
                     f"source {shlex.quote(str(models_stub))}",
                 )
                 .replace("${agent^^}_STATUS_OK", "${agent}_STATUS_OK")
@@ -83,7 +83,7 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
                     rpc.next_id += 1
                     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                     try:
-                        client.connect(os.environ["HAKO_SOCKET_PATH"])
+                        client.connect(os.environ["OMH_SOCKET_PATH"])
                         client.sendall((json.dumps(request) + "\\n").encode("utf-8"))
                         response = b""
                         while not response.endswith(b"\\n"):
@@ -112,7 +112,7 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
 
 
                 agent = Path(sys.argv[0]).name
-                expected_model = os.environ["HAKO_EXPECTED_ACTIVE_MODEL"]
+                expected_model = os.environ["OMH_EXPECTED_ACTIVE_MODEL"]
                 actual_model = argv_value_after("--model")
                 if actual_model != expected_model:
                     print(
@@ -120,14 +120,14 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
                         file=sys.stderr,
                     )
                     sys.exit(65)
-                pane_id = os.environ["HAKO_PANE_ID"]
+                pane_id = os.environ["OMH_PANE_ID"]
                 scenario = "subagent" if "subagent" in pane_id else "basic"
-                session_root = Path(os.environ["HAKO_TEST_SESSION_ROOT"]) / agent / "sessions" / "project"
+                session_root = Path(os.environ["OMH_TEST_SESSION_ROOT"]) / agent / "sessions" / "project"
                 parent_session = session_root / "parent.jsonl"
                 second_report_session = parent_session
 
                 if scenario == "subagent":
-                    variant = os.environ["HAKO_TEST_SUBAGENT_SESSION_VARIANT"]
+                    variant = os.environ["OMH_TEST_SUBAGENT_SESSION_VARIANT"]
                     if variant == "child":
                         second_report_session = parent_session.with_suffix("") / "Child.jsonl"
                     elif variant == "unrelated":
@@ -142,7 +142,7 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
                 }
                 base_params = {
                     "pane_id": pane_id,
-                    "source": f"hako:{agent}",
+                    "source": f"omh:{agent}",
                     "agent": agent,
                 }
                 if agent == "omp":
@@ -187,7 +187,7 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
                 )
 
                 marker_suffix = "SUBAGENT_OK" if scenario == "subagent" else "STATUS_OK"
-                print(f"HAKO_{agent.upper()}_{marker_suffix}")
+                print(f"OMH_{agent.upper()}_{marker_suffix}")
                 """
             )
             for agent_name in ("pi", "omp"):
@@ -211,13 +211,13 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
             env = {
                 **os.environ,
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-                "HAKO_REPO_DIR": str(repo_root),
-                "HAKO_PI_OMP_STATUS_DIR": str(test_dir),
-                "HAKO_PI_OMP_STATUS_TIMEOUT": "5",
-                "HAKO_TEST_ACTIVE_MODEL": active_model,
-                "HAKO_TEST_SESSION_ROOT": str(tmp_path / "run" / "agent"),
-                "HAKO_TEST_SUBAGENT_SESSION_VARIANT": variant,
-                "HAKO_EXPECTED_ACTIVE_MODEL": active_model,
+                "OMH_REPO_DIR": str(repo_root),
+                "OMH_PI_OMP_STATUS_DIR": str(test_dir),
+                "OMH_PI_OMP_STATUS_TIMEOUT": "5",
+                "OMH_TEST_ACTIVE_MODEL": active_model,
+                "OMH_TEST_SESSION_ROOT": str(tmp_path / "run" / "agent"),
+                "OMH_TEST_SUBAGENT_SESSION_VARIANT": variant,
+                "OMH_EXPECTED_ACTIVE_MODEL": active_model,
             }
 
             return subprocess.run(

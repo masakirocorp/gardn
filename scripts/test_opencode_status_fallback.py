@@ -20,19 +20,19 @@ def run_opencode_status_test(primary_model: str, fallback_model: str):
     bin_dir.mkdir()
     lib_dir.mkdir()
 
-    models_copy = lib_dir / "hako-agent-test-models.sh"
+    models_copy = lib_dir / "omh-agent-test-models.sh"
     models_copy.write_text(source_models.read_text())
 
-    script_copy = bin_dir / "hako-agent-tests-opencode-status"
+    script_copy = bin_dir / "omh-agent-tests-opencode-status"
     script_copy.write_text(
         source_script.read_text().replace(
-            "source /usr/local/lib/hako-agent-test-models.sh",
+            "source /usr/local/lib/omh-agent-test-models.sh",
             f"source {shlex.quote(str(models_copy))}",
         )
     )
     script_copy.chmod(script_copy.stat().st_mode | stat.S_IXUSR)
 
-    plugin_test = bin_dir / "hako-agent-opencode-plugin-status-test"
+    plugin_test = bin_dir / "omh-agent-opencode-plugin-status-test"
     plugin_test.write_text("#!/usr/bin/env bash\nexit 0\n")
     plugin_test.chmod(plugin_test.stat().st_mode | stat.S_IXUSR)
 
@@ -55,16 +55,16 @@ def run_opencode_status_test(primary_model: str, fallback_model: str):
             model = args[args.index("--model") + 1]
             title = args[args.index("--title") + 1]
             scenarios = {{
-                "hako-opencode-status-working-idle": ("pane-opencode-allowed", ["working"]),
-                "hako-opencode-status-blocked": ("pane-opencode-blocked", ["working", "blocked"]),
-                "hako-opencode-status-subagent": ("pane-opencode-subagent", ["working"]),
+                "omh-opencode-status-working-idle": ("pane-opencode-allowed", ["working"]),
+                "omh-opencode-status-blocked": ("pane-opencode-blocked", ["working", "blocked"]),
+                "omh-opencode-status-subagent": ("pane-opencode-subagent", ["working"]),
             }}
             pane_id, states = scenarios[title]
             if pane_id == "pane-opencode-allowed":
                 with open({str(attempts_log)!r}, "a", encoding="utf-8") as attempts:
                     attempts.write(model + "\\n")
 
-            source = "wrong:source" if model == "openrouter/hako-broken" else "hako:opencode"
+            source = "wrong:source" if model == "openrouter/omh-broken" else "omh:opencode"
             session_id = f"{{model}}-{{pane_id}}"
             requests = [{{
                 "id": 1,
@@ -90,19 +90,19 @@ def run_opencode_status_test(primary_model: str, fallback_model: str):
 
             for request in requests:
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-                    client.connect(os.environ["HAKO_SOCKET_PATH"])
+                    client.connect(os.environ["OMH_SOCKET_PATH"])
                     client.sendall((json.dumps(request) + "\\n").encode())
                     client.recv(4096)
 
             if pane_id == "pane-opencode-allowed":
-                print("HAKO_OPENCODE_STATUS_WORKING")
+                print("OMH_OPENCODE_STATUS_WORKING")
                 if model != "openrouter/noncompliant":
-                    print("HAKO_OPENCODE_STATUS_IDLE")
+                    print("OMH_OPENCODE_STATUS_IDLE")
             elif pane_id == "pane-opencode-subagent":
-                print("HAKO_OPENCODE_SUBAGENT_OK")
-                print("HAKO_OPENCODE_SUBAGENT_DONE")
+                print("OMH_OPENCODE_SUBAGENT_OK")
+                print("OMH_OPENCODE_SUBAGENT_DONE")
             else:
-                print("HAKO_OPENCODE_STATUS_BLOCKED")
+                print("OMH_OPENCODE_STATUS_BLOCKED")
             """
         )
     )
@@ -111,11 +111,11 @@ def run_opencode_status_test(primary_model: str, fallback_model: str):
     env = {
         **os.environ,
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-        "HAKO_REPO_DIR": str(repo_root),
+        "OMH_REPO_DIR": str(repo_root),
         "TMPDIR": str(tmp_path),
-        "HAKO_OPENCODE_STATUS_TEST_TIMEOUT": "5",
-        "HAKO_OPENCODE_TEST_MODEL": primary_model,
-        "HAKO_TEST_FALLBACK_MODELS": fallback_model,
+        "OMH_OPENCODE_STATUS_TEST_TIMEOUT": "5",
+        "OMH_OPENCODE_TEST_MODEL": primary_model,
+        "OMH_TEST_FALLBACK_MODELS": fallback_model,
     }
     result = subprocess.run(
         [str(script_copy)],
@@ -145,15 +145,15 @@ class OpenCodeStatusTestFallbackTests(unittest.TestCase):
         )
         self.assertIn("opencode status test ok:", output)
 
-    def test_does_not_retry_hako_status_assertion_failures(self):
+    def test_does_not_retry_omh_status_assertion_failures(self):
         temp_dir, result, attempts = run_opencode_status_test(
-            "openrouter/hako-broken", "openrouter/ok"
+            "openrouter/omh-broken", "openrouter/ok"
         )
         self.addCleanup(temp_dir.cleanup)
 
         output = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0, output)
-        self.assertEqual(attempts, ["openrouter/hako-broken"], output)
+        self.assertEqual(attempts, ["openrouter/omh-broken"], output)
         self.assertNotIn("trying test model: openrouter/ok", output)
         self.assertIn("wrong:source", output)
 

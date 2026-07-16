@@ -1,33 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-target="${1:?usage: hako-agent-tests-target <agent>}"
+target="${1:?usage: omh-agent-tests-target <agent>}"
 case "$target" in
   opencode)
-    exec hako-agent-tests-opencode-status
+    exec omh-agent-tests-opencode-status
     ;;
   pi|omp)
-    export HAKO_PI_OMP_STATUS_TARGET="$target"
-    exec hako-agent-tests-pi-omp-status
+    export OMH_PI_OMP_STATUS_TARGET="$target"
+    exec omh-agent-tests-pi-omp-status
     ;;
   claude)
-    exec hako-agent-tests-claude-status
+    exec omh-agent-tests-claude-status
     ;;
   codex)
-    exec hako-agent-tests-codex-status
+    exec omh-agent-tests-codex-status
     ;;
   copilot|devin|droid|kimi|hermes)
-    export HAKO_REMAINING_STATUS_TARGET="$target"
-    exec hako-agent-tests-remaining-status
+    export OMH_REMAINING_STATUS_TARGET="$target"
+    exec omh-agent-tests-remaining-status
     ;;
   cursor)
-    exec hako-agent-tests-cursor-proxy-status
+    exec omh-agent-tests-cursor-proxy-status
     ;;
   qoder)
-    exec hako-agent-tests-qoder-proxy-status
+    exec omh-agent-tests-qoder-proxy-status
     ;;
   maki)
-    exec hako-agent-tests-maki-status
+    exec omh-agent-tests-maki-status
     ;;
   *)
     echo "unknown agent test target: $target" >&2

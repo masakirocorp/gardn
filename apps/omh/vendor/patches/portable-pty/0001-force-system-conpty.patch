@@ -1,22 +1,22 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Hako maintainers <maintainers@hako.masakiro.com>
+From: Oh My Herdr maintainers <maintainers@oh-my-herdr.invalid>
 Date: Tue, 23 Jun 2026 00:00:00 +0000
 Subject: [PATCH] force system ConPTY
 
-Hako should use the ConPTY functions exported by kernel32.dll and must not
+Oh My Herdr should use the ConPTY functions exported by kernel32.dll and must not
 load a bare conpty.dll from PATH. portable-pty's sideload probe is intentional
-for WezTerm's bundled OpenConsole.exe/conpty.dll pair, but Hako does not ship
+for WezTerm's bundled OpenConsole.exe/conpty.dll pair, but Oh My Herdr does not ship
 that pair.
 
 Upstream base: portable-pty 0.9.0
 ---
- apps/hako/vendor/portable-pty/src/win/psuedocon.rs | 9 +--------
+ apps/omh/vendor/portable-pty/src/win/psuedocon.rs | 9 +--------
  1 file changed, 1 insertion(+), 8 deletions(-)
 
-diff --git a/apps/hako/vendor/portable-pty/src/win/psuedocon.rs b/apps/hako/vendor/portable-pty/src/win/psuedocon.rs
+diff --git a/apps/omh/vendor/portable-pty/src/win/psuedocon.rs b/apps/omh/vendor/portable-pty/src/win/psuedocon.rs
 index 0000000..0000000 100644
---- a/apps/hako/vendor/portable-pty/src/win/psuedocon.rs
-+++ b/apps/hako/vendor/portable-pty/src/win/psuedocon.rs
+--- a/apps/omh/vendor/portable-pty/src/win/psuedocon.rs
++++ b/apps/omh/vendor/portable-pty/src/win/psuedocon.rs
 @@ -49,14 +49,9 @@ fn load_conpty() -> ConPtyFuncs {
          "this system does not support conpty.  Windows 10 October 2018 or newer is required",
      );
@@ -30,7 +30,7 @@ index 0000000..0000000 100644
 -        kernel
 -    }
 +
-+    // Hako uses the Windows system ConPTY implementation. Do not load a
++    // Oh My Herdr uses the Windows system ConPTY implementation. Do not load a
 +    // bare `conpty.dll` from PATH, which could belong to another application.
 +    kernel
  }

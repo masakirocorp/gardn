@@ -71,19 +71,19 @@ class AgentTestWorkflowTests(unittest.TestCase):
     def test_target_dispatcher_runs_exactly_one_agent(self):
         dispatcher = self.repo_root / "ci/agent-tests/run-target.sh"
         commands = {
-            "opencode": "hako-agent-tests-opencode-status",
-            "pi": "hako-agent-tests-pi-omp-status",
-            "omp": "hako-agent-tests-pi-omp-status",
-            "claude": "hako-agent-tests-claude-status",
-            "codex": "hako-agent-tests-codex-status",
-            "copilot": "hako-agent-tests-remaining-status",
-            "cursor": "hako-agent-tests-cursor-proxy-status",
-            "qoder": "hako-agent-tests-qoder-proxy-status",
-            "devin": "hako-agent-tests-remaining-status",
-            "droid": "hako-agent-tests-remaining-status",
-            "kimi": "hako-agent-tests-remaining-status",
-            "hermes": "hako-agent-tests-remaining-status",
-            "maki": "hako-agent-tests-maki-status",
+            "opencode": "omh-agent-tests-opencode-status",
+            "pi": "omh-agent-tests-pi-omp-status",
+            "omp": "omh-agent-tests-pi-omp-status",
+            "claude": "omh-agent-tests-claude-status",
+            "codex": "omh-agent-tests-codex-status",
+            "copilot": "omh-agent-tests-remaining-status",
+            "cursor": "omh-agent-tests-cursor-proxy-status",
+            "qoder": "omh-agent-tests-qoder-proxy-status",
+            "devin": "omh-agent-tests-remaining-status",
+            "droid": "omh-agent-tests-remaining-status",
+            "kimi": "omh-agent-tests-remaining-status",
+            "hermes": "omh-agent-tests-remaining-status",
+            "maki": "omh-agent-tests-maki-status",
         }
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -94,8 +94,8 @@ class AgentTestWorkflowTests(unittest.TestCase):
                 fake = bin_dir / command
                 fake.write_text(
                     "#!/bin/sh\n"
-                    'printf "%s|%s|%s\\n" "$0" "${HAKO_PI_OMP_STATUS_TARGET:-}" '
-                    '"${HAKO_REMAINING_STATUS_TARGET:-}" > "$OUTPUT"\n'
+                    'printf "%s|%s|%s\\n" "$0" "${OMH_PI_OMP_STATUS_TARGET:-}" '
+                    '"${OMH_REMAINING_STATUS_TARGET:-}" > "$OUTPUT"\n'
                 )
                 fake.chmod(0o755)
 
@@ -115,7 +115,7 @@ class AgentTestWorkflowTests(unittest.TestCase):
                     self.assertEqual(target if target in {"pi", "omp"} else "", pi_omp_target)
                     self.assertEqual(
                         target
-                        if expected_command == "hako-agent-tests-remaining-status"
+                        if expected_command == "omh-agent-tests-remaining-status"
                         else "",
                         remaining_target,
                     )
@@ -130,10 +130,10 @@ class AgentTestWorkflowTests(unittest.TestCase):
                     env = os.environ.copy()
                     env.update(
                         {
-                            "HAKO_REMAINING_STATUS_TARGET": target,
-                            "HAKO_REMAINING_STATUS_SEAM_ONLY": "1",
-                            "HAKO_REPO_DIR": str(self.repo_root),
-                            "HAKO_REMAINING_STATUS_TEST_DIR": str(Path(tmp) / target),
+                            "OMH_REMAINING_STATUS_TARGET": target,
+                            "OMH_REMAINING_STATUS_SEAM_ONLY": "1",
+                            "OMH_REPO_DIR": str(self.repo_root),
+                            "OMH_REMAINING_STATUS_TEST_DIR": str(Path(tmp) / target),
                         }
                     )
                     result = subprocess.run(

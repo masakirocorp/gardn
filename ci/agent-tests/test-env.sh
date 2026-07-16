@@ -6,18 +6,18 @@ if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
   exit 64
 fi
 
-model="${HAKO_TEST_MODEL:-poolside/laguna-m.1:free}"
-fallback_models="${HAKO_TEST_FALLBACK_MODELS:-openrouter/free,openai/gpt-oss-120b:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/owl-alpha}"
+model="${OMH_TEST_MODEL:-poolside/laguna-m.1:free}"
+fallback_models="${OMH_TEST_FALLBACK_MODELS:-openrouter/free,openai/gpt-oss-120b:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/owl-alpha}"
 openrouter_base="${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
 
-export HAKO_TEST_MODEL="$model"
-export HAKO_OPENCODE_TEST_MODEL="${HAKO_OPENCODE_TEST_MODEL:-openrouter/openrouter/free}"
-export HAKO_TEST_FALLBACK_MODELS="$fallback_models"
+export OMH_TEST_MODEL="$model"
+export OMH_OPENCODE_TEST_MODEL="${OMH_OPENCODE_TEST_MODEL:-openrouter/openrouter/free}"
+export OMH_TEST_FALLBACK_MODELS="$fallback_models"
 export OPENROUTER_API_KEY
 export OPENAI_API_KEY="$OPENROUTER_API_KEY"
 export ANTHROPIC_AUTH_TOKEN="$OPENROUTER_API_KEY"
 export ANTHROPIC_BASE_URL="$openrouter_base"
-export ANTHROPIC_MODEL="${HAKO_TEST_ANTHROPIC_MODEL:-$model}"
+export ANTHROPIC_MODEL="${OMH_TEST_ANTHROPIC_MODEL:-$model}"
 export COPILOT_PROVIDER_API_KEY="$OPENROUTER_API_KEY"
 export COPILOT_PROVIDER_BASE_URL="$openrouter_base"
 export COPILOT_MODEL="$model"
@@ -41,7 +41,7 @@ cat > "$HOME/.factory/settings.json" <<EOF_FACTORY
   "customModels": [
     {
       "model": "$model",
-      "displayName": "Hako Test OpenRouter",
+      "displayName": "Oh My Herdr Test OpenRouter",
       "baseUrl": "$openrouter_base",
       "apiKey": "\${OPENROUTER_API_KEY}",
       "provider": "generic-chat-completion-api",

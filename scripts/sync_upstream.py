@@ -40,8 +40,8 @@ def ensure_clean_worktree() -> None:
 def ensure_remotes() -> None:
     origin = remote_url("origin")
     upstream = remote_url("upstream")
-    if "masakirocorp/hako" not in origin:
-        raise SystemExit(f"error: origin must point to masakirocorp/hako, got {origin}")
+    if "masakirocorp/oh-my-herdr" not in origin:
+        raise SystemExit(f"error: origin must point to masakirocorp/oh-my-herdr, got {origin}")
     if "ogulcancelik/herdr" not in upstream:
         raise SystemExit(f"error: upstream must point to ogulcancelik/herdr, got {upstream}")
 
@@ -78,11 +78,11 @@ def write_pr_body(path: Path, branch: str, base_ref: str, upstream_ref: str, com
     status_text = status.stdout if status.stdout else status.stderr
     body = [
         "## Summary",
-        f"- Merge `{upstream_ref}` into Hako on `{branch}`.",
+        f"- Merge `{upstream_ref}` into Oh My Herdr on `{branch}`.",
         f"- Upstream commits: {len(commits)}.",
-        "- Preserve Hako-owned identity, docs, website, release, and repo policy surfaces.",
+        "- Preserve Oh My Herdr-owned identity, docs, website, release, and repo policy surfaces.",
         "- Treat upstream as signal, not authority: port behavior, not trust.",
-        "- For each ported change: identify the invariant, check Hako context, add or adjust Hako tests, then merge.",
+        "- For each ported change: identify the invariant, check Oh My Herdr context, add or adjust Oh My Herdr tests, then merge.",
         "",
         "## Upstream commits",
     ]
@@ -106,7 +106,7 @@ def write_pr_body(path: Path, branch: str, base_ref: str, upstream_ref: str, com
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Create a Hako upstream sync branch and PR")
+    parser = argparse.ArgumentParser(description="Create an Oh My Herdr upstream sync branch and PR")
     parser.add_argument("--base", default="origin/master")
     parser.add_argument("--upstream", default="upstream/master")
     parser.add_argument("--date", default=dt.datetime.now(dt.UTC).strftime("%Y-%m-%d"))
@@ -193,7 +193,7 @@ def main() -> int:
         "pr",
         "create",
         "--repo",
-        "masakirocorp/hako",
+        "masakirocorp/oh-my-herdr",
         "--base",
         "master",
         "--head",
