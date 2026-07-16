@@ -1173,6 +1173,7 @@ impl App {
 
         let groups = groups_from_snapshot(snapshot);
         app.no_session = false;
+        app.state.installed_plugins = load_plugin_registry(app.no_session);
         let now = Instant::now();
         if background_update_check_enabled(app.no_session, app.update_version_check_enabled) {
             app.next_auto_update_check = app

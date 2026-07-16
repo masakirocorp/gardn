@@ -263,6 +263,8 @@ Plugin manifests use `hako-plugin.toml` with `min_hako_version`. Hako also accep
 
 Plugins run unsandboxed as the current user. Remote installs show source, build commands, actions, panes, link handlers, and event hooks before install, and require confirmation unless `--yes` is passed.
 
+Installed plugin registry entries survive live server handoff, so linked plugins remain available to the replacement server and later registry writes preserve the complete set.
+
 Plugin panes are normal Hako panes. Their pane attribution follows pane moves and is removed when tabs, workspaces, layouts, or plugins remove the pane.
 
 Plugin commands receive `HAKO_*` context variables, including plugin root/config/state directories and active workspace/tab/pane ids. Protected Hako/plugin variables cannot be overwritten by plugin-provided env overrides.
