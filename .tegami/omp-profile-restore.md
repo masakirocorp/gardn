@@ -1,6 +1,6 @@
 ---
 packages:
-  hako: patch
+  omh: patch
 ---
 
 ### Preserve OMP profiles during session restore

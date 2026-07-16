@@ -627,7 +627,7 @@ mod tests {
 
         let dir = temp_restore_dir("restore-omp-profile");
         let home = dir.join("home");
-        let session_dir = home.join(".omp-mk/agent/sessions/-projects-masakiro-hako");
+        let session_dir = home.join(".omp-mk/agent/sessions/-projects-masakiro-oh-my-herdr");
         std::fs::create_dir_all(&session_dir).expect("OMP session directory should be created");
         let session_path = session_dir.join("session.jsonl");
         std::fs::write(&session_path, b"session").expect("OMP session should exist");
@@ -670,7 +670,7 @@ mod tests {
             let _lock = crate::integration::integration_env_lock();
             let _home = crate::config::TestEnvVar::set("HOME", &home);
             crate::agent_resume::plan_with_launch_context(
-                "hako:omp",
+                "omh:omp",
                 "omp",
                 &crate::agent_resume::AgentSessionRef::path(
                     session_path.to_string_lossy().into_owned(),

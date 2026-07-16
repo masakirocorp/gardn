@@ -272,7 +272,7 @@ pub fn plan_with_launch_context(
         .cloned()
         .collect();
 
-    if source == "hako:omp" && agent == "omp" {
+    if source == "omh:omp" && agent == "omp" {
         if let Some(profile) = omp_profile_from_session_ref(session_ref) {
             let saved_command = launch_argv
                 .and_then(|argv| argv.first())
@@ -316,7 +316,7 @@ pub fn plan_with_launch_argv(
         if let Some(planned_command) = plan.argv.first_mut() {
             *planned_command = command;
         }
-    } else if source == "hako:omp" && agent == "omp" {
+    } else if source == "omh:omp" && agent == "omp" {
         if let Some(profile) = omp_profile_from_session_ref(session_ref) {
             if let Some(planned_command) = plan.argv.first_mut() {
                 *planned_command = profile.command;
@@ -811,11 +811,11 @@ mod tests {
     fn planner_repairs_poisoned_omp_profile_context_from_session_path() {
         let home = std::env::var("HOME").expect("HOME should be set in tests");
         let session_path =
-            format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako/session.jsonl");
+            format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-oh-my-herdr/session.jsonl");
         let session_ref = AgentSessionRef::path(session_path.clone()).unwrap();
 
         let plan = plan_with_launch_context(
-            "hako:omp",
+            "omh:omp",
             "omp",
             &session_ref,
             Some(&["omp".to_string()]),
@@ -836,7 +836,7 @@ mod tests {
                 "--resume",
                 &session_path,
                 "--session-dir",
-                &format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako"),
+                &format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-oh-my-herdr"),
             ]
         );
         assert_eq!(

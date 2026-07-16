@@ -2234,7 +2234,7 @@ mod tests {
     #[test]
     fn restore_repairs_poisoned_omp_profile_context() {
         let root = std::env::temp_dir().join(format!(
-            "hako-poisoned-omp-{}-{}",
+            "omh-poisoned-omp-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -2242,7 +2242,7 @@ mod tests {
                 .as_nanos()
         ));
         let home = root.join("home");
-        let session_dir = home.join(".omp-mk/agent/sessions/-projects-masakiro-hako");
+        let session_dir = home.join(".omp-mk/agent/sessions/-projects-masakiro-oh-my-herdr");
         std::fs::create_dir_all(&session_dir).expect("OMP session directory should exist");
         let session_path = session_dir.join("session.jsonl");
         std::fs::write(&session_path, b"session").expect("OMP session should exist");
@@ -2251,7 +2251,7 @@ mod tests {
         let _home = crate::config::TestEnvVar::set("HOME", &home);
         let mut snapshot =
             single_pane_snapshot(Some(super::super::snapshot::PaneAgentSessionSnapshot {
-                source: "hako:omp".into(),
+                source: "omh:omp".into(),
                 agent: "omp".into(),
                 kind: crate::agent_resume::AgentSessionRefKind::Path,
                 value: session_path.to_string_lossy().into_owned(),

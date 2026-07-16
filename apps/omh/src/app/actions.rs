@@ -5913,7 +5913,7 @@ mod tests {
         state.session_dirty = false;
         let same_session_updates = state.handle_app_event(AppEvent::HookSessionReported {
             pane_id,
-            source: "hako:pi".into(),
+            source: "omh:pi".into(),
             agent_label: "pi".into(),
             seq: Some(22),
             session_start_source: None,
