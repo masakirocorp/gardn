@@ -1366,7 +1366,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
     );
     let omp_content = fs::read_to_string(&expected_omp_extension).unwrap();
     assert!(omp_content.contains("OMH_INTEGRATION_ID=omp"));
-    assert!(omp_content.contains("OMH_INTEGRATION_VERSION=5"));
+    assert!(omp_content.contains("OMH_INTEGRATION_VERSION=6"));
     assert!(omp_content.contains("agent: \"omp\""));
 
     let integration_status = Command::new(env!("CARGO_BIN_EXE_omh"))
