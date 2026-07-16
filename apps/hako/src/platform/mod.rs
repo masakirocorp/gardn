@@ -240,9 +240,18 @@ mod fallback;
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub use fallback::*;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 pub fn process_agent_hint(_pid: u32) -> Option<crate::detect::Agent> {
     None
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) fn parse_agent_env_hint(environ: &[u8]) -> Option<crate::detect::Agent> {
+    environ.split(|&byte| byte == 0).find_map(|record| {
+        let value = record.strip_prefix(b"HAKO_AGENT=")?;
+        let value = std::str::from_utf8(value).ok()?;
+        crate::detect::parse_agent_label(value)
+    })
 }
 
 /// Whether the platform should draw Hako's cursor into frame cells by default.

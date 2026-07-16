@@ -107,6 +107,7 @@ Supported built-in detection includes:
 
 - **Manifest rules** — bundled per-agent TOML manifests define screen, OSC title, and OSC progress matching rules for every built-in agent family, including OMP. Screen rules can provide strong visible evidence; OSC-only rules are fallback evidence and do not override hook authority as visible UI.
 - **Manifest updates** — Hako can cache newer remote manifests, reject downgrades or incompatible engine versions, reload local manifests through `hako server reload-agent-manifests`, and report updated detection rules through the normal toast/update path.
+- **Wrapped-process hints** — on Linux and macOS, set `HAKO_AGENT=<agent>` on a host-visible wrapper command when a sandbox or VM hides the real agent process. The hint is scoped to that process, so avoid exporting it globally; upstream-branded hint names are not accepted.
 
 ### Agent UI
 

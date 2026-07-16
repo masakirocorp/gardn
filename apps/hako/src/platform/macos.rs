@@ -16,6 +16,11 @@ const PROC_PGRP_ONLY: u32 = 2;
 const SERVER_NOFILE_LIMIT_TARGET: libc::rlim_t = 8192;
 const CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 
+thread_local! {
+    static PROCARGS_ENV_BUFFER: std::cell::RefCell<Vec<u8>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
 pub(crate) fn should_draw_host_cursor_by_default_platform() -> bool {
     false
 }
@@ -466,26 +471,16 @@ fn process_argv0_name(pid: u32) -> Option<String> {
 }
 
 /// Raw `sysctl(KERN_PROCARGS2)` call. Returns the full buffer.
-fn kern_procargs2(pid: u32) -> Option<Vec<u8>> {
+fn read_kern_procargs2(pid: u32, buf: &mut [u8]) -> Option<usize> {
+    if buf.is_empty() {
+        return None;
+    }
+
+    // SAFETY: `mib` and `buf` point to valid memory for the duration of the
+    // synchronous sysctl call, and `size` starts at the buffer's exact length.
     unsafe {
         let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
-
-        // First call: query required buffer size
-        let mut size: libc::size_t = 0;
-        let ret = libc::sysctl(
-            mib.as_mut_ptr(),
-            3,
-            std::ptr::null_mut(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        );
-        if ret != 0 || size == 0 {
-            return None;
-        }
-
-        // Second call: read data
-        let mut buf = vec![0u8; size];
+        let mut size = buf.len();
         let ret = libc::sysctl(
             mib.as_mut_ptr(),
             3,
@@ -494,12 +489,59 @@ fn kern_procargs2(pid: u32) -> Option<Vec<u8>> {
             std::ptr::null_mut(),
             0,
         );
-        if ret != 0 {
-            return None;
-        }
-        buf.truncate(size);
-        Some(buf)
+        (ret == 0 && size <= buf.len()).then_some(size)
     }
+}
+
+fn kern_argmax() -> Option<usize> {
+    static ARG_MAX: std::sync::LazyLock<Option<usize>> = std::sync::LazyLock::new(|| {
+        // SAFETY: `mib`, `argmax`, and `size` are valid for the synchronous
+        // sysctl call, which only writes the fixed-size integer output.
+        unsafe {
+            let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
+            let mut argmax: libc::c_int = 0;
+            let mut size = std::mem::size_of_val(&argmax);
+            let ret = libc::sysctl(
+                mib.as_mut_ptr(),
+                2,
+                &mut argmax as *mut _ as *mut libc::c_void,
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            );
+            (ret == 0 && argmax > 0)
+                .then(|| usize::try_from(argmax).ok())
+                .flatten()
+        }
+    });
+    *ARG_MAX
+}
+
+/// Raw `sysctl(KERN_PROCARGS2)` call sized for argv inspection.
+fn kern_procargs2(pid: u32) -> Option<Vec<u8>> {
+    // A null output query reports enough bytes for argv, but not necessarily
+    // the environment block.
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
+    let mut size: libc::size_t = 0;
+    // SAFETY: `mib` and `size` are valid for this synchronous size query.
+    let ret = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            std::ptr::null_mut(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if ret != 0 || size == 0 {
+        return None;
+    }
+
+    let mut buf = vec![0u8; size];
+    let size = read_kern_procargs2(pid, &mut buf)?;
+    buf.truncate(size);
+    Some(buf)
 }
 
 pub fn write_clipboard(bytes: &[u8]) -> bool {
@@ -819,6 +861,38 @@ fn process_cmdline(pid: u32) -> Option<String> {
     Some(argv.join(" "))
 }
 
+/// Read Hako's agent identity hint from a process environment.
+pub fn process_agent_hint(pid: u32) -> Option<crate::detect::Agent> {
+    if pid == 0 {
+        return None;
+    }
+    let capacity = kern_argmax()?;
+    PROCARGS_ENV_BUFFER.with(|storage| {
+        let mut buf = storage.borrow_mut();
+        buf.resize(capacity, 0);
+        let size = read_kern_procargs2(pid, &mut buf)?;
+        procargs2_agent_hint(&buf[..size])
+    })
+}
+
+fn procargs2_argv_start(rest: &[u8]) -> Option<usize> {
+    let exec_end = rest.iter().position(|&byte| byte == 0)?;
+    let mut pos = exec_end;
+    while pos < rest.len() && rest[pos] == 0 {
+        pos += 1;
+    }
+    (pos < rest.len()).then_some(pos)
+}
+
+fn skip_nul_strings(bytes: &[u8], start: usize, count: usize) -> Option<usize> {
+    let mut current = start;
+    for _ in 0..count {
+        let end = bytes.get(current..)?.iter().position(|&byte| byte == 0)?;
+        current = current.checked_add(end)?.checked_add(1)?;
+    }
+    Some(current)
+}
+
 fn procargs2_argv(buf: &[u8]) -> Option<Vec<String>> {
     if buf.len() < 4 {
         return None;
@@ -829,26 +903,17 @@ fn procargs2_argv(buf: &[u8]) -> Option<Vec<String>> {
         return None;
     }
 
-    // Layout: [argc: i32] [exec_path\0] [padding\0...] [argv[0]\0] [argv[1]\0] ... [env\0] ...
+    // Layout: [argc: i32] [exec_path\0] [padding\0...] [argv[0]\0] ... [env\0] ...
     let rest = &buf[4..];
-    let exec_end = rest.iter().position(|&b| b == 0)?;
-    let mut pos = exec_end;
-    while pos < rest.len() && rest[pos] == 0 {
-        pos += 1;
-    }
-    if pos >= rest.len() {
-        return None;
-    }
-
+    let mut current = procargs2_argv_start(rest)?;
     let mut argv = Vec::with_capacity(argc as usize);
-    let mut current = pos;
     for _ in 0..argc {
         if current >= rest.len() {
             return None;
         }
         let end = rest[current..]
             .iter()
-            .position(|&b| b == 0)
+            .position(|&byte| byte == 0)
             .map(|offset| current + offset)
             .unwrap_or(rest.len());
         if end == current {
@@ -859,6 +924,26 @@ fn procargs2_argv(buf: &[u8]) -> Option<Vec<String>> {
     }
 
     Some(argv)
+}
+
+fn procargs2_env(buf: &[u8]) -> Option<&[u8]> {
+    if buf.len() < 4 {
+        return None;
+    }
+
+    let argc = i32::from_ne_bytes([buf[0], buf[1], buf[2], buf[3]]);
+    if argc < 1 {
+        return None;
+    }
+
+    let rest = &buf[4..];
+    let argv_start = procargs2_argv_start(rest)?;
+    let env_start = skip_nul_strings(rest, argv_start, argc as usize)?;
+    rest.get(env_start..)
+}
+
+fn procargs2_agent_hint(buf: &[u8]) -> Option<crate::detect::Agent> {
+    super::parse_agent_env_hint(procargs2_env(buf)?)
 }
 
 /// Get the current working directory of a process.
@@ -1077,6 +1162,85 @@ mod tests {
         assert_eq!(argv, vec!["node", "/Users/can/.local/bin/pi"]);
         assert_eq!(argv.join(" "), "node /Users/can/.local/bin/pi");
         assert!(!argv.join(" ").contains("codex.system"));
+    }
+
+    #[test]
+    fn procargs2_agent_hint_reads_hako_agent_after_argv() {
+        let buf = build_procargs2(
+            "/opt/homebrew/bin/nono",
+            &["nono", "run", "HAKO_AGENT=codex", "--", "claude"],
+            &["PATH=/usr/bin", "HAKO_AGENT=claude", "TERM=xterm-256color"],
+        );
+
+        assert_eq!(
+            procargs2_agent_hint(&buf),
+            Some(crate::detect::Agent::Claude)
+        );
+    }
+
+    #[test]
+    fn procargs2_agent_hint_does_not_treat_argv_as_environment() {
+        let buf = build_procargs2(
+            "/opt/homebrew/bin/nono",
+            &["nono", "run", "HAKO_AGENT=claude"],
+            &["PATH=/usr/bin"],
+        );
+
+        assert_eq!(procargs2_agent_hint(&buf), None);
+    }
+
+    #[test]
+    fn procargs2_agent_hint_rejects_non_hako_and_malformed_values() {
+        let upstream =
+            build_procargs2("/opt/homebrew/bin/nono", &["nono"], &["HERDR_AGENT=claude"]);
+        let unknown = build_procargs2(
+            "/opt/homebrew/bin/nono",
+            &["nono"],
+            &["HAKO_AGENT=not-an-agent"],
+        );
+        let mut truncated = build_procargs2("/opt/homebrew/bin/nono", &["nono"], &[]);
+        truncated[..4].copy_from_slice(&2_i32.to_ne_bytes());
+
+        assert_eq!(procargs2_agent_hint(&upstream), None);
+        assert_eq!(procargs2_agent_hint(&unknown), None);
+        assert_eq!(procargs2_agent_hint(&truncated), None);
+    }
+
+    #[test]
+    fn hinted_process_fixture() {
+        if std::env::var_os("HAKO_AGENT_HINT_TEST_CHILD").is_some() {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        }
+    }
+
+    #[test]
+    fn process_agent_hint_reads_spawned_process_environment() {
+        let mut child = Command::new(std::env::current_exe().expect("current test executable"))
+            .arg("platform::macos::tests::hinted_process_fixture")
+            .arg("--exact")
+            .env("HAKO_AGENT_HINT_TEST_CHILD", "1")
+            .env("HAKO_AGENT", "claude")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn hinted process");
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let hint = loop {
+            if let Some(agent) = process_agent_hint(child.id()) {
+                break Some(agent);
+            }
+            if child.try_wait().expect("inspect hinted process").is_some()
+                || std::time::Instant::now() >= deadline
+            {
+                break None;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert_eq!(hint, Some(crate::detect::Agent::Claude));
     }
 
     #[test]

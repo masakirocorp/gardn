@@ -363,15 +363,7 @@ pub fn process_agent_hint(pid: u32) -> Option<crate::detect::Agent> {
         return None;
     }
     let environ = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
-    parse_agent_env_hint(&environ)
-}
-
-fn parse_agent_env_hint(environ: &[u8]) -> Option<crate::detect::Agent> {
-    environ.split(|&byte| byte == 0).find_map(|record| {
-        let value = record.strip_prefix(b"HAKO_AGENT=")?;
-        let value = std::str::from_utf8(value).ok()?;
-        crate::detect::parse_agent_label(value)
-    })
+    super::parse_agent_env_hint(&environ)
 }
 
 pub fn active_tcp_listeners() -> Vec<super::TcpListenerInfo> {
@@ -758,6 +750,7 @@ fn all_pids() -> Vec<u32> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::parse_agent_env_hint;
     use super::*;
     use crate::config::TestEnvVar;
     use std::sync::atomic::{AtomicUsize, Ordering};
