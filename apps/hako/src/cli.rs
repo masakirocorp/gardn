@@ -9,13 +9,14 @@ use crate::api::schema::{
     AgentTarget, ClientWindowTitleSetParams, EmptyParams, GroupCreateParams, GroupRenameParams,
     GroupTarget, IntegrationTarget, Method, NotificationShowParams, NotificationShowSound,
     OutputMatch, PaneAgentState, PaneTarget, PaneWaitForOutputParams, PingParams, ReadFormat,
-    ReadSource, Request, ServerLiveHandoffParams, SplitDirection, Subscription,
+    ReadSource, Request, ResponseResult, ServerLiveHandoffParams, SplitDirection, Subscription,
 };
 
 #[path = "cli/api.rs"]
 mod api_cli;
 mod pane;
 mod plugin;
+mod protocol_guard;
 mod tab;
 mod workspace;
 mod worktree;
@@ -387,7 +388,7 @@ fn client_status_json() -> serde_json::Value {
 }
 
 fn read_server_runtime_status() -> std::io::Result<ServerRuntimeStatus> {
-    match send_request(&Request {
+    match send_request_unchecked(&Request {
         id: "cli:status:server".into(),
         method: Method::Ping(PingParams::default()),
     }) {
@@ -959,7 +960,7 @@ fn server_live_handoff(args: &[String]) -> std::io::Result<i32> {
         return Ok(2);
     };
 
-    let response = send_request(&Request {
+    let response = send_request_unchecked(&Request {
         id: "cli:server:live-handoff".into(),
         method: Method::ServerLiveHandoff(params),
     })?;
@@ -1946,7 +1947,9 @@ pub(super) fn wait_for_agent_change(
     timeout_message: &str,
 ) -> std::io::Result<i32> {
     let read_timeout = timeout_ms.map(Duration::from_millis);
-    let (ack, stream) = ApiClient::local()
+    let client = ApiClient::local();
+    ensure_server_protocol_compatible(&client, &request.id)?;
+    let (ack, stream) = client
         .subscribe_value(&request, read_timeout)
         .map_err(api_client_error_to_io)?;
     if let Err(err) = crate::api::client::parse_response_value(ack) {
@@ -2032,9 +2035,51 @@ pub(super) fn send_ok_request(method: Method) -> std::io::Result<i32> {
 }
 
 pub(super) fn send_request(request: &Request) -> std::io::Result<serde_json::Value> {
+    let client = ApiClient::local();
+    ensure_server_protocol_compatible(&client, &request.id)?;
+    client
+        .request_value(request)
+        .map_err(api_client_error_to_io)
+}
+
+fn send_request_unchecked(request: &Request) -> std::io::Result<serde_json::Value> {
     ApiClient::local()
         .request_value(request)
         .map_err(api_client_error_to_io)
+}
+
+fn ensure_server_protocol_compatible(client: &ApiClient, request_id: &str) -> std::io::Result<()> {
+    let ping = Request {
+        id: "cli:protocol-check".into(),
+        method: Method::Ping(PingParams::default()),
+    };
+    let response = client
+        .request_value(&ping)
+        .map_err(api_client_error_to_io)
+        .and_then(|value| {
+            crate::api::client::parse_response_value(value).map_err(api_client_error_to_io)
+        })?;
+    let ResponseResult::Pong {
+        version, protocol, ..
+    } = response.result
+    else {
+        return Err(std::io::Error::other(
+            "server protocol check returned an unexpected response",
+        ));
+    };
+    let Some(mismatch) = protocol_guard::mismatch_response(request_id, &version, protocol) else {
+        return Ok(());
+    };
+
+    eprintln!(
+        "{}",
+        serde_json::to_string(&mismatch).map_err(std::io::Error::other)?
+    );
+    Err(protocol_guard::reported_error())
+}
+
+pub(crate) fn protocol_mismatch_was_reported(error: &std::io::Error) -> bool {
+    protocol_guard::was_reported(error)
 }
 
 fn api_timeout_error(err: &std::io::Error) -> bool {

@@ -446,8 +446,11 @@ fn main() -> io::Result<()> {
         std::process::exit(2);
     }
 
-    if let cli::CommandOutcome::Handled(code) = cli::maybe_run(&args)? {
-        std::process::exit(code);
+    match cli::maybe_run(&args) {
+        Ok(cli::CommandOutcome::Handled(code)) => std::process::exit(code),
+        Ok(cli::CommandOutcome::NotCli) => {}
+        Err(error) if cli::protocol_mismatch_was_reported(&error) => std::process::exit(1),
+        Err(error) => return Err(error),
     }
 
     // subcommands and flags (no tui, no logging needed)

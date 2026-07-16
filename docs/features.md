@@ -291,6 +291,7 @@ Hako exposes the same runtime model through the CLI and local Unix socket API.
 ### CLI areas
 
 - **`hako status`** — show client/server status and protocol compatibility.
+- **Protocol guard** — operational CLI commands verify the server wire-protocol version before dispatch and return a request-correlated JSON error with update/restart guidance on mismatch; status checks and live handoff remain available for diagnosis and recovery.
 - **`hako session`** — list, attach, stop, and delete named sessions.
 - **`hako workspace`** — manage workspaces.
 - **`hako worktree`** — manage Git worktree checkouts.
