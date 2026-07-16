@@ -1,8 +1,8 @@
 {
-  "name": "@hako/app",
+  "name": "@omh/app",
   "private": true,
   "scripts": {
-    "build": "cargo build --locked --bin hako",
+    "build": "cargo build --locked --bin omh",
     "check": "cd ../.. && just check",
     "lint": "cd ../.. && just lint",
     "test": "cd ../.. && just test"

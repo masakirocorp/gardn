@@ -1,6 +1,6 @@
 [workspace]
-members = ["apps/hako"]
+members = ["apps/omh"]
 resolver = "2"
 
 [patch.crates-io]
-portable-pty = { path = "apps/hako/vendor/portable-pty" }
+portable-pty = { path = "apps/omh/vendor/portable-pty" }
