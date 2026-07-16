@@ -809,7 +809,7 @@ impl App {
             git_repo_picker: state::GitRepoPickerState {
                 ws_idx: 0,
                 roots: Vec::new(),
-                selected: 0,
+                list: state::ModalListState::hidden(0),
                 scroll: 0,
             },
             request_client_config_reload: false,
@@ -842,14 +842,14 @@ impl App {
             config_diagnostics_scroll: 0,
             command_palette: state::CommandPaletteState {
                 query: String::new(),
-                selected: 0,
+                list: state::ModalListState::hidden(0),
                 scroll: 0,
             },
             agent_profile_picker: state::AgentProfilePickerState {
                 ws_idx: 0,
                 query: String::new(),
                 kind_filter: None,
-                selected: 0,
+                list: state::ModalListState::hidden(0),
                 scroll: 0,
             },
             navigator: state::NavigatorState::default(),
@@ -978,8 +978,8 @@ impl App {
                     .is_none(),
             settings: state::SettingsState {
                 section: state::SettingsSection::Theme,
-                list: state::SelectionListState::new(0),
-                selection_active: false,
+                list: state::ModalListState::hidden(0),
+                focused_input: None,
                 scroll: 0,
                 original_palette: None,
                 original_theme: None,
@@ -1024,9 +1024,9 @@ impl App {
             plugin_command_logs: Vec::new(),
             next_plugin_command_log_id: 1,
             plugin_commands_in_flight: 0,
-            global_menu: state::MenuListState::new(0),
-            group_menu: state::MenuListState::new(0),
-            agent_menu: state::MenuListState::new(0),
+            global_menu: state::ModalListState::hidden(0),
+            group_menu: state::ModalListState::hidden(0),
+            agent_menu: state::ModalListState::hidden(0),
             host_terminal_theme,
             session_dirty: false,
             terminal_runtime_shutdowns: Vec::new(),
@@ -2573,33 +2573,34 @@ impl App {
         client_view: &mut ClientViewState,
         key: crossterm::event::KeyEvent,
     ) {
+        let len = self.state.group_menu_labels().len();
         match key.code {
             crossterm::event::KeyCode::Esc => Self::leave_client_view_command_mode(client_view),
             crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
-                let len = self.state.group_menu_labels().len();
-                for _ in 0..len {
-                    client_view.group_menu.move_prev();
-                    if self
-                        .state
-                        .group_menu_action_for_row(client_view.group_menu.highlighted)
-                        .is_some()
-                    {
+                let current = client_view.group_menu.selected;
+                let mut idx = current;
+                let mut next = None;
+                while idx > 0 {
+                    idx -= 1;
+                    if self.state.group_menu_action_for_row(idx).is_some() {
+                        next = Some(idx);
                         break;
                     }
                 }
+                client_view.group_menu.select(next.unwrap_or(current));
             }
             crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
-                let len = self.state.group_menu_labels().len();
-                for _ in 0..len {
-                    client_view.group_menu.move_next(len);
-                    if self
-                        .state
-                        .group_menu_action_for_row(client_view.group_menu.highlighted)
-                        .is_some()
-                    {
+                let current = client_view.group_menu.selected;
+                let mut idx = current;
+                let mut next = None;
+                while idx + 1 < len {
+                    idx += 1;
+                    if self.state.group_menu_action_for_row(idx).is_some() {
+                        next = Some(idx);
                         break;
                     }
                 }
+                client_view.group_menu.select(next.unwrap_or(current));
             }
             _ => {}
         }
@@ -2614,24 +2615,30 @@ impl App {
         match key.code {
             crossterm::event::KeyCode::Esc => Self::leave_client_view_command_mode(client_view),
             crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
-                let mut idx = client_view.agent_menu.highlighted;
+                let current = client_view.agent_menu.selected;
+                let mut idx = current;
+                let mut next = None;
                 while idx > 0 {
                     idx -= 1;
                     if self.state.agent_menu_action_for_row(idx).is_some() {
-                        client_view.agent_menu.highlighted = idx;
+                        next = Some(idx);
                         break;
                     }
                 }
+                client_view.agent_menu.select(next.unwrap_or(current));
             }
             crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
-                let mut idx = client_view.agent_menu.highlighted;
+                let current = client_view.agent_menu.selected;
+                let mut idx = current;
+                let mut next = None;
                 while idx + 1 < labels.len() {
                     idx += 1;
                     if self.state.agent_menu_action_for_row(idx).is_some() {
-                        client_view.agent_menu.highlighted = idx;
+                        next = Some(idx);
                         break;
                     }
                 }
+                client_view.agent_menu.select(next.unwrap_or(current));
             }
             _ => {}
         }
@@ -2642,8 +2649,74 @@ impl App {
             .navigator_rows_for_view(client_view, &self.terminal_runtimes)
     }
 
+    fn client_view_navigator_popup_rect(client_view: &ClientViewState) -> Rect {
+        let area = client_view.screen_rect();
+        let margin_x = (area.width / 16).max(2);
+        let margin_y = (area.height / 10).max(1);
+        Rect::new(
+            area.x + margin_x,
+            area.y + margin_y,
+            area.width.saturating_sub(margin_x.saturating_mul(2)).max(4),
+            area.height
+                .saturating_sub(margin_y.saturating_mul(2))
+                .max(4),
+        )
+    }
+
+    fn client_view_navigator_inner_rect(client_view: &ClientViewState) -> Rect {
+        let popup = Self::client_view_navigator_popup_rect(client_view);
+        Rect::new(
+            popup.x.saturating_add(1),
+            popup.y.saturating_add(1),
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
+        )
+    }
+
+    fn client_view_navigator_search_rect(client_view: &ClientViewState) -> Rect {
+        let inner = Self::client_view_navigator_inner_rect(client_view);
+        Rect::new(inner.x, inner.y, inner.width, inner.height.min(1))
+    }
+
+    fn client_view_navigator_body_rect(client_view: &ClientViewState) -> Rect {
+        let inner = Self::client_view_navigator_inner_rect(client_view);
+        if inner.height <= 4 {
+            return Rect::default();
+        }
+        Rect::new(
+            inner.x,
+            inner.y + 2,
+            inner.width,
+            inner.height.saturating_sub(4),
+        )
+    }
+
+    fn client_view_navigator_row_index_at(
+        &self,
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> Option<usize> {
+        let body = Self::client_view_navigator_body_rect(client_view);
+        if !Self::rect_contains(body, col, row) {
+            return None;
+        }
+        let rows = self.navigator_view_rows(client_view);
+        if body.width > 1
+            && rows.len() > body.height as usize
+            && col == body.x + body.width.saturating_sub(1)
+        {
+            return None;
+        }
+        let idx = client_view
+            .navigator
+            .scroll
+            .saturating_add(row.saturating_sub(body.y) as usize);
+        (idx < rows.len()).then_some(idx)
+    }
+
     fn ensure_client_view_navigator_selection_visible(&self, client_view: &mut ClientViewState) {
-        let viewport = 10usize;
+        let viewport = Self::client_view_navigator_body_rect(client_view).height as usize;
         if viewport == 0 {
             client_view.navigator.scroll = 0;
             return;
@@ -2652,13 +2725,14 @@ impl App {
             .navigator_view_rows(client_view)
             .len()
             .saturating_sub(viewport);
-        if client_view.navigator.selected < client_view.navigator.scroll {
-            client_view.navigator.scroll = client_view.navigator.selected;
-        } else if client_view.navigator.selected
+        if client_view.navigator.list.selected < client_view.navigator.scroll {
+            client_view.navigator.scroll = client_view.navigator.list.selected;
+        } else if client_view.navigator.list.selected
             >= client_view.navigator.scroll.saturating_add(viewport)
         {
             client_view.navigator.scroll = client_view
                 .navigator
+                .list
                 .selected
                 .saturating_add(1)
                 .saturating_sub(viewport);
@@ -2668,9 +2742,41 @@ impl App {
 
     fn clamp_client_view_navigator_selection(&self, client_view: &mut ClientViewState) {
         let count = self.navigator_view_rows(client_view).len();
-        client_view.navigator.selected =
-            client_view.navigator.selected.min(count.saturating_sub(1));
+        client_view.navigator.list.select(
+            client_view
+                .navigator
+                .list
+                .selected
+                .min(count.saturating_sub(1)),
+        );
         self.ensure_client_view_navigator_selection_visible(client_view);
+    }
+
+    fn toggle_client_view_navigator_workspace(&self, client_view: &mut ClientViewState) {
+        let Some(row) = self
+            .navigator_view_rows(client_view)
+            .get(client_view.navigator.list.selected)
+            .cloned()
+        else {
+            return;
+        };
+        let state::NavigatorTarget::Workspace { ws_idx } = row.target else {
+            return;
+        };
+        let Some(workspace_id) = self.state.workspaces.get(ws_idx).map(|ws| ws.id.clone()) else {
+            return;
+        };
+        if !client_view
+            .navigator
+            .expanded_workspaces
+            .remove(&workspace_id)
+        {
+            client_view
+                .navigator
+                .expanded_workspaces
+                .insert(workspace_id);
+        }
+        self.clamp_client_view_navigator_selection(client_view);
     }
 
     fn move_client_view_navigator_selection(
@@ -2680,12 +2786,15 @@ impl App {
     ) {
         let count = self.navigator_view_rows(client_view).len();
         if count == 0 {
-            client_view.navigator.selected = 0;
+            client_view.navigator.list.select(0);
             client_view.navigator.scroll = 0;
             return;
         }
-        let current = client_view.navigator.selected.min(count - 1) as isize;
-        client_view.navigator.selected = (current + delta).clamp(0, count as isize - 1) as usize;
+        let current = client_view.navigator.list.selected.min(count - 1) as isize;
+        client_view
+            .navigator
+            .list
+            .select((current + delta).clamp(0, count as isize - 1) as usize);
         self.ensure_client_view_navigator_selection_visible(client_view);
     }
 
@@ -2813,46 +2922,18 @@ impl App {
                 self.move_client_view_navigator_selection(client_view, -5)
             }
             crossterm::event::KeyCode::Char(' ') => {
-                let Some(row) = self
-                    .navigator_view_rows(client_view)
-                    .get(client_view.navigator.selected)
-                    .cloned()
-                else {
-                    return;
-                };
-                let state::NavigatorTarget::Workspace { ws_idx } = row.target else {
-                    return;
-                };
-                let Some(workspace_id) = self.state.workspaces.get(ws_idx).map(|ws| ws.id.clone())
-                else {
-                    return;
-                };
-                if client_view
-                    .navigator
-                    .expanded_workspaces
-                    .contains(&workspace_id)
-                {
-                    client_view
-                        .navigator
-                        .expanded_workspaces
-                        .remove(&workspace_id);
-                } else {
-                    client_view
-                        .navigator
-                        .expanded_workspaces
-                        .insert(workspace_id);
-                }
-                self.clamp_client_view_navigator_selection(client_view);
+                self.toggle_client_view_navigator_workspace(client_view);
             }
             crossterm::event::KeyCode::Home => {
-                client_view.navigator.selected = 0;
+                client_view.navigator.list.select(0);
                 self.ensure_client_view_navigator_selection_visible(client_view);
             }
             crossterm::event::KeyCode::End | crossterm::event::KeyCode::Char('G') => {
-                client_view.navigator.selected = self
+                let last = self
                     .navigator_view_rows(client_view)
                     .len()
                     .saturating_sub(1);
+                client_view.navigator.list.select(last);
                 self.ensure_client_view_navigator_selection_visible(client_view);
             }
             _ => {}
@@ -3380,7 +3461,8 @@ impl App {
                 client_view.agent_profile_picker.kind_filter = None;
                 client_view.agent_profile_picker.ws_idx = ws_idx;
                 client_view.agent_profile_picker.query.clear();
-                client_view.agent_profile_picker.selected = 0;
+                client_view.agent_profile_picker.list.select(0);
+                client_view.agent_profile_picker.list.hide();
                 client_view.agent_profile_picker.scroll = 0;
                 client_view.mode = Mode::AgentProfilePicker;
             }
@@ -3406,7 +3488,7 @@ impl App {
         let Some(row) = self
             .state
             .navigator_rows_for_view(client_view, &self.terminal_runtimes)
-            .get(client_view.navigator.selected)
+            .get(client_view.navigator.list.selected)
             .cloned()
         else {
             return;
@@ -3429,7 +3511,7 @@ impl App {
 
     fn accept_client_view_global_menu_selection(&mut self, client_view: &mut ClientViewState) {
         let Some(action) = input::global_menu_actions(&self.state)
-            .get(client_view.global_menu.highlighted)
+            .get(client_view.global_menu.selected)
             .copied()
         else {
             return;
@@ -3462,7 +3544,7 @@ impl App {
     fn accept_client_view_group_menu_selection(&mut self, client_view: &mut ClientViewState) {
         let Some(action) = self
             .state
-            .group_menu_action_for_row(client_view.group_menu.highlighted)
+            .group_menu_action_for_row(client_view.group_menu.selected)
         else {
             return;
         };
@@ -3540,7 +3622,7 @@ impl App {
     fn accept_client_view_agent_menu_selection(&mut self, client_view: &mut ClientViewState) {
         let Some(action) = self
             .state
-            .agent_menu_action_for_row(client_view.agent_menu.highlighted)
+            .agent_menu_action_for_row(client_view.agent_menu.selected)
         else {
             return;
         };
@@ -3643,7 +3725,7 @@ impl App {
                 } else {
                     1
                 };
-                client_view.group_menu = state::MenuListState::new(highlighted);
+                client_view.group_menu = state::ModalListState::hidden(highlighted);
                 client_view.mode = Mode::GroupMenu;
             }
             crate::app::command_palette::CommandPaletteAction::ShowAllGroups => {
@@ -3699,7 +3781,7 @@ impl App {
                     state::AgentPanelScope::CurrentWorkspace => 2,
                     state::AgentPanelScope::CurrentGroup => 3,
                 };
-                client_view.agent_menu = state::MenuListState::new(highlighted);
+                client_view.agent_menu = state::ModalListState::hidden(highlighted);
                 client_view.mode = Mode::AgentMenu;
             }
             crate::app::command_palette::CommandPaletteAction::SetAgentScope(scope) => {
@@ -3708,7 +3790,7 @@ impl App {
                 Self::leave_client_view_command_mode(client_view);
             }
             crate::app::command_palette::CommandPaletteAction::OpenGlobalMenu => {
-                client_view.global_menu = state::MenuListState::new(0);
+                client_view.global_menu = state::ModalListState::hidden(0);
                 client_view.mode = Mode::GlobalMenu;
             }
             crate::app::command_palette::CommandPaletteAction::OpenSettings => {
@@ -4428,22 +4510,22 @@ impl App {
                 client_view.return_to_active_workspace_mode();
             }
             crossterm::event::KeyCode::Up => {
-                client_view.git_repo_picker.selected =
-                    client_view.git_repo_picker.selected.saturating_sub(1);
-                if client_view.git_repo_picker.selected < client_view.git_repo_picker.scroll {
-                    client_view.git_repo_picker.scroll = client_view.git_repo_picker.selected;
+                let selected = client_view.git_repo_picker.list.selected.saturating_sub(1);
+                client_view.git_repo_picker.list.select(selected);
+                if client_view.git_repo_picker.list.selected < client_view.git_repo_picker.scroll {
+                    client_view.git_repo_picker.scroll = client_view.git_repo_picker.list.selected;
                 }
             }
             crossterm::event::KeyCode::Down => {
                 let max = client_view.git_repo_picker.roots.len().saturating_sub(1);
-                client_view.git_repo_picker.selected =
-                    (client_view.git_repo_picker.selected + 1).min(max);
+                let selected = (client_view.git_repo_picker.list.selected + 1).min(max);
+                client_view.git_repo_picker.list.select(selected);
                 let visible_repos = 5;
-                if client_view.git_repo_picker.selected
+                if client_view.git_repo_picker.list.selected
                     >= client_view.git_repo_picker.scroll + visible_repos
                 {
                     client_view.git_repo_picker.scroll =
-                        client_view.git_repo_picker.selected + 1 - visible_repos;
+                        client_view.git_repo_picker.list.selected + 1 - visible_repos;
                 }
             }
             _ => {}
@@ -4472,7 +4554,7 @@ impl App {
             }
             crossterm::event::KeyCode::Enter => {
                 if let Some(menu) = client_view.context_menu.take() {
-                    let idx = menu.list.highlighted;
+                    let idx = menu.list.selected;
                     if !menu.item_is_selectable(idx) {
                         let mut menu = menu;
                         menu.hover(Some(idx));
@@ -5033,7 +5115,8 @@ impl App {
             }
             input::NavigateAction::OpenCommandPalette => {
                 client_view.command_palette.query.clear();
-                client_view.command_palette.selected = 0;
+                client_view.command_palette.list.select(0);
+                client_view.command_palette.list.hide();
                 client_view.command_palette.scroll = 0;
                 client_view.mode = Mode::CommandPalette;
             }
@@ -5101,7 +5184,7 @@ impl App {
                 } else {
                     1
                 };
-                client_view.group_menu = state::MenuListState::new(highlighted);
+                client_view.group_menu = state::ModalListState::hidden(highlighted);
                 client_view.mode = Mode::GroupMenu;
             }
             input::NavigateAction::SwitchGroup(idx) => {
@@ -5135,7 +5218,7 @@ impl App {
                     state::AgentPanelScope::CurrentWorkspace => 2,
                     state::AgentPanelScope::CurrentGroup => 3,
                 };
-                client_view.agent_menu = state::MenuListState::new(highlighted);
+                client_view.agent_menu = state::ModalListState::hidden(highlighted);
                 client_view.mode = Mode::AgentMenu;
             }
             input::NavigateAction::EditScrollback => {
@@ -5392,6 +5475,80 @@ impl App {
         }
     }
 
+    fn handle_client_view_navigator_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        if client_view.mode != Mode::Navigator {
+            return false;
+        }
+
+        match mouse.kind {
+            crossterm::event::MouseEventKind::Moved => {
+                let hovered =
+                    self.client_view_navigator_row_index_at(client_view, mouse.column, mouse.row);
+                client_view.navigator.list.hover(hovered);
+                if hovered.is_some() {
+                    self.ensure_client_view_navigator_selection_visible(client_view);
+                }
+            }
+            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+                let search = Self::client_view_navigator_search_rect(client_view);
+                if Self::rect_contains(search, mouse.column, mouse.row) {
+                    client_view.navigator.list.hover(None);
+                    client_view.navigator.search_focused = true;
+                } else if let Some(idx) =
+                    self.client_view_navigator_row_index_at(client_view, mouse.column, mouse.row)
+                {
+                    client_view.navigator.list.select(idx);
+                    let is_workspace = self
+                        .navigator_view_rows(client_view)
+                        .get(idx)
+                        .is_some_and(|row| row.is_workspace);
+                    let body = Self::client_view_navigator_body_rect(client_view);
+                    if is_workspace && mouse.column <= body.x.saturating_add(3) {
+                        self.toggle_client_view_navigator_workspace(client_view);
+                    } else {
+                        self.accept_client_view_navigator_selection(client_view);
+                    }
+                } else if Self::rect_contains(
+                    Self::client_view_navigator_popup_rect(client_view),
+                    mouse.column,
+                    mouse.row,
+                ) {
+                    client_view.navigator.list.hover(None);
+                } else {
+                    Self::leave_client_view_command_mode(client_view);
+                }
+            }
+            crossterm::event::MouseEventKind::ScrollUp => {
+                client_view.navigator.scroll = client_view.navigator.scroll.saturating_sub(3);
+                client_view
+                    .navigator
+                    .list
+                    .select(client_view.navigator.scroll);
+                self.clamp_client_view_navigator_selection(client_view);
+            }
+            crossterm::event::MouseEventKind::ScrollDown => {
+                let viewport = Self::client_view_navigator_body_rect(client_view).height as usize;
+                let max = self
+                    .navigator_view_rows(client_view)
+                    .len()
+                    .saturating_sub(viewport);
+                client_view.navigator.scroll =
+                    client_view.navigator.scroll.saturating_add(3).min(max);
+                client_view
+                    .navigator
+                    .list
+                    .select(client_view.navigator.scroll);
+                self.clamp_client_view_navigator_selection(client_view);
+            }
+            _ => {}
+        }
+        true
+    }
+
     fn handle_mouse_for_view(
         &mut self,
         client_view: &mut ClientViewState,
@@ -5404,6 +5561,9 @@ impl App {
         }
 
         if self.handle_client_view_overlay_mouse(client_view, mouse) {
+            return;
+        }
+        if self.handle_client_view_navigator_mouse(client_view, mouse) {
             return;
         }
 
@@ -5738,7 +5898,7 @@ impl App {
                 client_view.reconcile(&self.state);
             }
             Some(crate::ui::MobileSwitcherTarget::Menu(action_idx)) => {
-                client_view.global_menu.highlighted = action_idx;
+                client_view.global_menu.select(action_idx);
                 self.accept_client_view_global_menu_selection(client_view);
             }
             None => {}
@@ -6162,7 +6322,7 @@ impl App {
             kind: state::ContextMenuKind::NewTabButton { ws_idx, can_diff },
             x: mouse.column,
             y: mouse.row,
-            list: state::MenuListState::new(1),
+            list: state::ModalListState::hidden(1),
         });
         client_view.mode = Mode::ContextMenu;
         true
@@ -7233,7 +7393,7 @@ impl App {
             },
             x: mouse.column,
             y: mouse.row,
-            list: state::MenuListState::new(0),
+            list: state::ModalListState::hidden(0),
         });
         client_view.mode = Mode::ContextMenu;
         true
@@ -7287,7 +7447,7 @@ impl App {
             },
             x: mouse.column,
             y: mouse.row,
-            list: state::MenuListState::new(0),
+            list: state::ModalListState::hidden(0),
         });
         client_view.mode = Mode::ContextMenu;
         true
@@ -7394,7 +7554,7 @@ impl App {
                     self.client_view_global_menu_item_at(client_view, mouse.column, mouse.row)
                 {
                     if let Some(idx) = actions.iter().position(|item| *item == action) {
-                        client_view.global_menu.highlighted = idx;
+                        client_view.global_menu.select(idx);
                     }
                     self.accept_client_view_global_menu_selection(client_view);
                 } else {
@@ -7414,7 +7574,7 @@ impl App {
                 if let Some(row) =
                     self.client_view_group_menu_row_at(client_view, mouse.column, mouse.row)
                 {
-                    client_view.group_menu.highlighted = row;
+                    client_view.group_menu.select(row);
                     self.accept_client_view_group_menu_selection(client_view);
                 } else {
                     let rect = self.client_view_group_menu_rect(client_view);
@@ -7440,7 +7600,7 @@ impl App {
                 if let Some(row) =
                     self.client_view_agent_menu_row_at(client_view, mouse.column, mouse.row)
                 {
-                    client_view.agent_menu.highlighted = row;
+                    client_view.agent_menu.select(row);
                     self.accept_client_view_agent_menu_selection(client_view);
                 } else {
                     let rect = self.client_view_agent_menu_rect(client_view);
@@ -7469,7 +7629,7 @@ impl App {
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 if Self::client_view_on_global_launcher(&self.state, client_view, mouse) {
-                    client_view.global_menu = state::MenuListState::new(0);
+                    client_view.global_menu = state::ModalListState::hidden(0);
                     client_view.mode = Mode::GlobalMenu;
                     return true;
                 }
@@ -7945,7 +8105,7 @@ impl App {
         } else {
             1
         };
-        client_view.group_menu = state::MenuListState::new(highlighted);
+        client_view.group_menu = state::ModalListState::hidden(highlighted);
         client_view.mode = Mode::GroupMenu;
     }
 
@@ -7955,7 +8115,7 @@ impl App {
             state::AgentPanelScope::CurrentWorkspace => 2,
             state::AgentPanelScope::CurrentGroup => 3,
         };
-        client_view.agent_menu = state::MenuListState::new(highlighted);
+        client_view.agent_menu = state::ModalListState::hidden(highlighted);
         client_view.mode = Mode::AgentMenu;
     }
 
@@ -8394,7 +8554,7 @@ impl App {
                         },
                         x: mouse.column,
                         y: mouse.row,
-                        list: state::MenuListState::new(1),
+                        list: state::ModalListState::hidden(1),
                     });
                     client_view.mode = Mode::ContextMenu;
                     return true;
@@ -8415,7 +8575,7 @@ impl App {
                         },
                         x: mouse.column,
                         y: mouse.row,
-                        list: state::MenuListState::new(1),
+                        list: state::ModalListState::hidden(1),
                     });
                     client_view.mode = Mode::ContextMenu;
                 }
@@ -8632,14 +8792,22 @@ impl App {
         }
 
         match mouse.kind {
-            MouseEventKind::Moved | MouseEventKind::Down(MouseButton::Left) => {
+            MouseEventKind::Moved => {
+                let hovered = crate::ui::git_repo_picker::git_repo_picker_index_at_for_view(
+                    client_view,
+                    mouse.column,
+                    mouse.row,
+                );
+                client_view.git_repo_picker.list.hover(hovered);
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
                 if let Some(idx) = crate::ui::git_repo_picker::git_repo_picker_index_at_for_view(
                     client_view,
                     mouse.column,
                     mouse.row,
                 ) {
-                    client_view.git_repo_picker.selected = idx;
-                } else if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                    client_view.git_repo_picker.list.select(idx);
+                } else {
                     client_view.return_to_active_workspace_mode();
                 }
             }
@@ -8719,7 +8887,7 @@ impl App {
                     mouse.column,
                     mouse.row,
                 ) {
-                    input::agent_profile_picker::hover_agent_profile_picker_selection_for_view(
+                    input::agent_profile_picker::select_agent_profile_picker_selection_for_view(
                         &self.state,
                         client_view,
                         mouse.column,
@@ -8767,7 +8935,7 @@ impl App {
                 &self.state,
                 &client_view.agent_profile_picker,
             )
-            .get(client_view.agent_profile_picker.selected)
+            .get(client_view.agent_profile_picker.list.selected)
             .cloned()
         else {
             return;
@@ -10761,7 +10929,7 @@ mod tests {
 
         assert!(press_handled);
         assert!(repeat_handled);
-        assert_eq!(app.state.command_palette.selected, 2);
+        assert_eq!(app.state.command_palette.list.selected, 2);
     }
 
     #[tokio::test]
@@ -13880,6 +14048,7 @@ command = "printf literal > '{}'"
         );
 
         assert_eq!(first_client.mode, Mode::CommandPalette);
+        assert_eq!(first_client.command_palette.list.visible(), None);
         assert_eq!(second_client.mode, Mode::Terminal);
         assert_eq!(app.state.mode, Mode::Terminal);
     }
@@ -13916,8 +14085,8 @@ command = "printf literal > '{}'"
         );
 
         assert_eq!(first_client.mode, Mode::CommandPalette);
-        assert_eq!(first_client.command_palette.selected, 0);
-        assert_eq!(second_client.command_palette.selected, 1);
+        assert_eq!(first_client.command_palette.list.selected, 0);
+        assert_eq!(second_client.command_palette.list.selected, 1);
     }
 
     #[tokio::test]
@@ -14106,12 +14275,12 @@ command = "printf literal > '{}'"
 
         assert_eq!(first_client.mode, Mode::CommandPalette);
         assert_eq!(first_client.command_palette.query, "n");
-        assert_eq!(first_client.command_palette.selected, 1);
+        assert_eq!(first_client.command_palette.list.selected, 1);
         assert_eq!(second_client.mode, Mode::Terminal);
         assert!(second_client.command_palette.query.is_empty());
         assert_eq!(app.state.mode, Mode::Terminal);
         assert!(app.state.command_palette.query.is_empty());
-        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.list.selected, 0);
     }
 
     #[test]
@@ -14301,7 +14470,7 @@ command = "printf literal > '{}'"
         app.state.mode = Mode::Terminal;
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
-        client.group_menu = state::MenuListState::new(2 + work_group);
+        client.group_menu = state::ModalListState::new(2 + work_group);
         client.mode = Mode::GroupMenu;
 
         app.route_client_events_for_view(
@@ -14334,7 +14503,7 @@ command = "printf literal > '{}'"
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
         client.mode = Mode::Navigator;
-        client.navigator.selected = 1;
+        client.navigator.list.selected = 1;
 
         app.route_client_events_for_view(
             &mut client,
@@ -14758,7 +14927,7 @@ command = "printf literal > '{}'"
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
         client.mode = Mode::Navigator;
-        client.navigator.selected = 1;
+        client.navigator.list.selected = 1;
 
         app.route_client_events_for_view(
             &mut client,
@@ -14790,7 +14959,7 @@ command = "printf literal > '{}'"
         first_client.mode = Mode::Settings;
         first_client.settings.section = state::SettingsSection::Theme;
         first_client.settings.list.selected = 0;
-        first_client.settings.selection_active = false;
+        first_client.settings.list.hide();
         let second_client = ClientViewState::from_default_client_state(&app.state);
 
         app.route_client_events_for_view(
@@ -14820,7 +14989,7 @@ command = "printf literal > '{}'"
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app.state.request_reload_config = false;
-        app.state.global_menu = state::MenuListState::new(2);
+        app.state.global_menu = state::ModalListState::new(2);
 
         let mut first_client = ClientViewState::from_default_client_state(&app.state);
         first_client.mode = Mode::GlobalMenu;
@@ -14828,7 +14997,7 @@ command = "printf literal > '{}'"
             .iter()
             .position(|action| *action == crate::app::input::GlobalMenuAction::Keybinds)
             .expect("keybinds action should be present");
-        first_client.global_menu = state::MenuListState::new(keybinds_idx);
+        first_client.global_menu = state::ModalListState::new(keybinds_idx);
         let second_client = ClientViewState::from_default_client_state(&app.state);
 
         app.route_client_events_for_view(
@@ -14865,7 +15034,7 @@ command = "printf literal > '{}'"
             .iter()
             .position(|action| *action == crate::app::input::GlobalMenuAction::ConfigIssue)
             .expect("configuration issue action should be present");
-        first_client.global_menu = state::MenuListState::new(issue_idx);
+        first_client.global_menu = state::ModalListState::new(issue_idx);
         let second_client = ClientViewState::from_default_client_state(&app.state);
 
         app.route_client_events_for_view(
@@ -14937,7 +15106,7 @@ command = "printf literal > '{}'"
 
         let mut first_client = ClientViewState::from_default_client_state(&app.state);
         first_client.mode = Mode::GlobalMenu;
-        first_client.global_menu = state::MenuListState::new(0);
+        first_client.global_menu = state::ModalListState::new(0);
         let second_client = ClientViewState::from_default_client_state(&app.state);
 
         compute_client_view(
@@ -15168,14 +15337,14 @@ command = "printf literal > '{}'"
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app.state.group_filter_enabled = true;
-        app.state.group_menu = state::MenuListState::new(0);
+        app.state.group_menu = state::ModalListState::new(0);
 
         let group_count = app.state.groups.len();
         let expected_name = format!("group {}", group_count + 1);
         let new_group_row = app.state.group_menu_labels().len() - 1;
         let mut first_client = ClientViewState::from_default_client_state(&app.state);
         first_client.mode = Mode::GroupMenu;
-        first_client.group_menu = state::MenuListState::new(new_group_row);
+        first_client.group_menu = state::ModalListState::new(new_group_row);
         let second_client = ClientViewState::from_default_client_state(&app.state);
 
         app.route_client_events_for_view(
@@ -15200,6 +15369,24 @@ command = "printf literal > '{}'"
     }
 
     #[test]
+    fn client_agent_menu_boundary_key_restores_hidden_selection() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::AgentMenu;
+        client.agent_menu = state::ModalListState::hidden(0);
+
+        app.handle_client_view_agent_menu_key(
+            &mut client,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
+        );
+
+        assert_eq!(client.agent_menu.visible(), Some(0));
+    }
+
+    #[test]
     fn route_client_events_for_view_agent_menu_enter_sets_invoking_client_scope() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("test")];
@@ -15208,11 +15395,11 @@ command = "printf literal > '{}'"
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app.state.agent_panel_scope = state::AgentPanelScope::CurrentWorkspace;
-        app.state.agent_menu = state::MenuListState::new(0);
+        app.state.agent_menu = state::ModalListState::new(0);
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
         client.mode = Mode::AgentMenu;
-        client.agent_menu = state::MenuListState::new(3);
+        client.agent_menu = state::ModalListState::new(3);
         let other_client = ClientViewState::from_default_client_state(&app.state);
 
         app.route_client_events_for_view(
@@ -15249,11 +15436,11 @@ command = "printf literal > '{}'"
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app.state.agent_panel_scope = state::AgentPanelScope::CurrentWorkspace;
-        app.state.agent_menu = state::MenuListState::new(0);
+        app.state.agent_menu = state::ModalListState::new(0);
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
         client.mode = Mode::AgentMenu;
-        client.agent_menu = state::MenuListState::new(0);
+        client.agent_menu = state::ModalListState::new(0);
         let other_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 100, 24));
 
@@ -16756,7 +16943,7 @@ command = "printf literal > '{}'"
         );
 
         assert_eq!(client.mode, Mode::AgentProfilePicker);
-        assert_eq!(client.agent_profile_picker.selected, 1);
+        assert_eq!(client.agent_profile_picker.list.selected, 1);
     }
 
     #[tokio::test]
@@ -16791,7 +16978,7 @@ command = "printf literal > '{}'"
                 kind,
                 x: 4,
                 y: 4,
-                list: state::MenuListState::new(1),
+                list: state::ModalListState::new(1),
             });
             client.mode = Mode::ContextMenu;
             compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
@@ -16839,6 +17026,54 @@ command = "printf literal > '{}'"
     }
 
     #[test]
+    fn route_client_events_for_view_navigator_hover_and_click_stay_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("first"), Workspace::test_new("second")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Navigator;
+        client.navigator.list = state::ModalListState::hidden(0);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let body = App::client_view_navigator_body_rect(&client);
+        let second_workspace_row = body.y + 1;
+        let row_col = body.x + 5;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Moved,
+                row_col,
+                second_workspace_row,
+            )],
+            true,
+        );
+        assert_eq!(client.navigator.list.selected, 0);
+        assert_eq!(client.navigator.list.visible(), Some(1));
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                row_col,
+                second_workspace_row,
+            )],
+            true,
+        );
+        assert_eq!(client.active_workspace, Some(1));
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(
+            app.state.active,
+            Some(0),
+            "navigator click remains local to the invoking client"
+        );
+    }
+
+    #[test]
     fn route_client_events_for_view_command_palette_mouse_move_selects_command() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("shell")];
@@ -16869,9 +17104,9 @@ command = "printf literal > '{}'"
         );
 
         assert_eq!(client.mode, Mode::CommandPalette);
-        assert_eq!(client.command_palette.selected, 1);
+        assert_eq!(client.command_palette.list.visible(), Some(1));
         assert_eq!(
-            app.state.command_palette.selected, 0,
+            app.state.command_palette.list.selected, 0,
             "command palette hover remains local to the invoking client"
         );
     }
@@ -16919,7 +17154,7 @@ command = "printf literal > '{}'"
         app.state.git_repo_picker = state::GitRepoPickerState {
             ws_idx: 0,
             roots: vec!["/tmp/one".into(), "/tmp/two".into()],
-            selected: 0,
+            list: state::ModalListState::new(0),
             scroll: 0,
         };
 
@@ -16943,11 +17178,28 @@ command = "printf literal > '{}'"
         );
 
         assert_eq!(client.mode, Mode::GitRepoPicker);
-        assert_eq!(client.git_repo_picker.selected, 1);
+        assert_eq!(client.git_repo_picker.list.visible(), Some(1));
         assert_eq!(
-            app.state.git_repo_picker.selected, 0,
+            app.state.git_repo_picker.list.selected, 0,
             "git picker hover remains local to the invoking client"
         );
+        assert_eq!(client.git_repo_picker.list.selected, 0);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(crossterm::event::MouseEventKind::Moved, 0, 0)],
+            true,
+        );
+        assert_eq!(client.git_repo_picker.list.visible(), None);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Down,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+        assert_eq!(client.git_repo_picker.list.visible(), Some(1));
     }
 
     #[test]
@@ -16969,7 +17221,7 @@ command = "printf literal > '{}'"
             },
             x: 4,
             y: 4,
-            list: state::MenuListState::new(2),
+            list: state::ModalListState::new(2),
         });
         client.mode = Mode::ContextMenu;
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
@@ -16987,7 +17239,7 @@ command = "printf literal > '{}'"
 
         assert_eq!(client.mode, Mode::AgentProfilePicker);
         assert_eq!(client.agent_profile_picker.ws_idx, 0);
-        assert_eq!(client.agent_profile_picker.selected, 0);
+        assert_eq!(client.agent_profile_picker.list.selected, 0);
         assert_eq!(app.state.mode, Mode::Terminal);
 
         app.route_client_events_for_view(
@@ -17001,7 +17253,7 @@ command = "printf literal > '{}'"
         );
 
         assert_eq!(client.mode, Mode::AgentProfilePicker);
-        assert_eq!(client.agent_profile_picker.selected, 1);
+        assert_eq!(client.agent_profile_picker.list.selected, 1);
         assert_eq!(app.state.mode, Mode::Terminal);
 
         app.route_client_events_for_view(
@@ -17056,11 +17308,28 @@ command = "printf literal > '{}'"
         );
 
         assert_eq!(client.mode, Mode::AgentProfilePicker);
-        assert_eq!(client.agent_profile_picker.selected, 1);
+        assert_eq!(client.agent_profile_picker.list.visible(), Some(1));
         assert_eq!(
-            app.state.agent_profile_picker.selected, 0,
+            app.state.agent_profile_picker.list.selected, 0,
             "picker hover remains local to the invoking client"
         );
+        assert_eq!(client.agent_profile_picker.list.selected, 0);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(crossterm::event::MouseEventKind::Moved, 0, 0)],
+            true,
+        );
+        assert_eq!(client.agent_profile_picker.list.visible(), None);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Down,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+        assert_eq!(client.agent_profile_picker.list.visible(), Some(1));
     }
 
     #[test]
@@ -17076,9 +17345,9 @@ command = "printf literal > '{}'"
         input::agent_profile_picker::open_new_agent_picker_for_workspace(&mut app.state, 0);
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
-        client.agent_profile_picker.selected = 1;
+        client.agent_profile_picker.list.selected = 1;
         app.state.mode = Mode::Terminal;
-        app.state.agent_profile_picker.selected = 0;
+        app.state.agent_profile_picker.list.selected = 0;
 
         let area = ratatui::layout::Rect::new(0, 0, 120, 30);
         compute_client_view(&app, &mut client, area);
@@ -17096,12 +17365,12 @@ command = "printf literal > '{}'"
                 &client.agent_profile_picker,
             );
         let selected_profile_id = entries
-            .get(client.agent_profile_picker.selected)
+            .get(client.agent_profile_picker.list.selected)
             .expect("client-selected agent profile")
             .profile_id
             .clone();
         assert_ne!(
-            app.state.agent_profile_picker.selected, client.agent_profile_picker.selected,
+            app.state.agent_profile_picker.list.selected, client.agent_profile_picker.list.selected,
             "test separates shared and invoking-client picker selection"
         );
 
@@ -17146,7 +17415,7 @@ command = "printf literal > '{}'"
         client.agent_profile_picker = app.state.agent_profile_picker.clone();
         let selected_profile_id =
             crate::app::agent_profile_picker::agent_profile_picker_filtered_entries(&app.state)
-                .get(client.agent_profile_picker.selected)
+                .get(client.agent_profile_picker.list.selected)
                 .expect("selected agent profile")
                 .profile_id
                 .clone();
@@ -17189,7 +17458,7 @@ command = "printf literal > '{}'"
 
         input::agent_profile_picker::open_new_agent_picker_for_workspace(&mut app.state, 0);
         let mut client = ClientViewState::from_default_client_state(&app.state);
-        client.agent_profile_picker.selected = 1;
+        client.agent_profile_picker.list.selected = 1;
         app.state.mode = Mode::Terminal;
 
         app.route_client_events_for_view(
@@ -17238,7 +17507,7 @@ command = "printf literal > '{}'"
             },
             x: 4,
             y: 4,
-            list: state::MenuListState::new(1),
+            list: state::ModalListState::new(1),
         });
         client.mode = Mode::ContextMenu;
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
@@ -17303,7 +17572,7 @@ command = "printf literal > '{}'"
             },
             x: 4,
             y: 4,
-            list: state::MenuListState::new(3),
+            list: state::ModalListState::new(3),
         });
         client.mode = Mode::ContextMenu;
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
@@ -17363,7 +17632,7 @@ command = "printf literal > '{}'"
             },
             x: 4,
             y: 4,
-            list: state::MenuListState::new(1),
+            list: state::ModalListState::new(1),
         });
         client.mode = Mode::ContextMenu;
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
@@ -17409,7 +17678,7 @@ command = "printf literal > '{}'"
             },
             x: 4,
             y: 4,
-            list: state::MenuListState::new(5),
+            list: state::ModalListState::new(5),
         });
         client.mode = Mode::ContextMenu;
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));

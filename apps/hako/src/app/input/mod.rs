@@ -300,7 +300,7 @@ impl App {
                         mouse.column,
                         mouse.row,
                     ) {
-                        command_palette::hover_command_palette_selection(
+                        command_palette::select_command_palette_selection(
                             &mut self.state,
                             mouse.column,
                             mouse.row,
@@ -369,7 +369,7 @@ impl App {
                         mouse.column,
                         mouse.row,
                     ) {
-                        self.state.git_repo_picker.selected = idx;
+                        self.state.git_repo_picker.list.select(idx);
                         self.handle_git_repo_picker_key(KeyEvent::new(
                             KeyCode::Enter,
                             KeyModifiers::empty(),
@@ -407,13 +407,13 @@ impl App {
                     return;
                 }
                 MouseEventKind::Moved => {
-                    if let Some(idx) = crate::ui::git_repo_picker::git_repo_picker_index_at(
-                        &self.state,
-                        mouse.column,
-                        mouse.row,
-                    ) {
-                        self.state.git_repo_picker.selected = idx;
-                    }
+                    self.state.git_repo_picker.list.hover(
+                        crate::ui::git_repo_picker::git_repo_picker_index_at(
+                            &self.state,
+                            mouse.column,
+                            mouse.row,
+                        ),
+                    );
                     return;
                 }
                 _ => {}
@@ -480,7 +480,7 @@ impl App {
                         mouse.column,
                         mouse.row,
                     ) {
-                        agent_profile_picker::hover_agent_profile_picker_selection(
+                        agent_profile_picker::select_agent_profile_picker_selection(
                             &mut self.state,
                             mouse.column,
                             mouse.row,
@@ -833,22 +833,24 @@ impl App {
                 self.state.return_to_active_workspace_mode();
             }
             KeyCode::Up => {
-                self.state.git_repo_picker.selected =
-                    self.state.git_repo_picker.selected.saturating_sub(1);
-                if self.state.git_repo_picker.selected < self.state.git_repo_picker.scroll {
-                    self.state.git_repo_picker.scroll = self.state.git_repo_picker.selected;
+                self.state.git_repo_picker.list.move_prev();
+                if self.state.git_repo_picker.list.selected < self.state.git_repo_picker.scroll {
+                    self.state.git_repo_picker.scroll = self.state.git_repo_picker.list.selected;
                 }
             }
             KeyCode::Down => {
-                let max = self.state.git_repo_picker.roots.len().saturating_sub(1);
-                self.state.git_repo_picker.selected =
-                    (self.state.git_repo_picker.selected + 1).min(max);
+                let count = self.state.git_repo_picker.roots.len();
+                if count == 0 {
+                    self.state.git_repo_picker.list.select(0);
+                } else {
+                    self.state.git_repo_picker.list.move_next(count);
+                }
                 let visible_repos = 5;
-                if self.state.git_repo_picker.selected
+                if self.state.git_repo_picker.list.selected
                     >= self.state.git_repo_picker.scroll + visible_repos
                 {
                     self.state.git_repo_picker.scroll =
-                        self.state.git_repo_picker.selected + 1 - visible_repos;
+                        self.state.git_repo_picker.list.selected + 1 - visible_repos;
                 }
             }
             _ => {}

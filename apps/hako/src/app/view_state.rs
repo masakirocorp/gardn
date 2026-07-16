@@ -4,7 +4,7 @@ static NEXT_CLIENT_VIEW_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::At
 
 use crate::app::state::{
     AgentProfilePickerState, AppState, CommandPaletteState, ContextMenuState, DragState,
-    GitRepoPickerState, GroupPressState, KeybindHelpState, MenuListState, Mode, NavigatorState,
+    GitRepoPickerState, GroupPressState, KeybindHelpState, ModalListState, Mode, NavigatorState,
     PaneFocusTarget, ProductAnnouncementState, ReleaseNotesState, RightClickPassthroughGesture,
     SelectionAutoscroll, SettingsState, TabPressState, ViewState, WorkspacePressState,
 };
@@ -121,9 +121,9 @@ pub(crate) struct ClientViewState {
     pub(crate) right_click_passthrough: Option<RightClickPassthroughGesture>,
     pub(crate) keybind_help: KeybindHelpState,
     pub(crate) config_diagnostics_scroll: u16,
-    pub(crate) global_menu: MenuListState,
-    pub(crate) group_menu: MenuListState,
-    pub(crate) agent_menu: MenuListState,
+    pub(crate) global_menu: ModalListState,
+    pub(crate) group_menu: ModalListState,
+    pub(crate) agent_menu: ModalListState,
     pub(crate) creating_new_tab: bool,
     pub(crate) creating_new_group: bool,
     pub(crate) group_icon_input: String,

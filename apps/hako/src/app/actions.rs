@@ -273,7 +273,10 @@ impl AppState {
         }
 
         self.mode = Mode::Navigator;
-        self.navigator.selected = self.current_navigator_row_index().unwrap_or(0);
+        self.navigator
+            .list
+            .select(self.current_navigator_row_index().unwrap_or(0));
+        self.navigator.list.hide();
         self.ensure_navigator_selection_visible();
     }
     #[cfg(test)]
@@ -292,9 +295,11 @@ impl AppState {
         }
 
         self.mode = Mode::Navigator;
-        self.navigator.selected = self
-            .current_navigator_row_index_from(terminal_runtimes)
-            .unwrap_or(0);
+        self.navigator.list.select(
+            self.current_navigator_row_index_from(terminal_runtimes)
+                .unwrap_or(0),
+        );
+        self.navigator.list.hide();
         self.ensure_navigator_selection_visible();
     }
 
@@ -546,11 +551,12 @@ impl AppState {
             return;
         }
         let max_scroll = self.navigator_max_scroll(viewport);
-        if self.navigator.selected < self.navigator.scroll {
-            self.navigator.scroll = self.navigator.selected;
-        } else if self.navigator.selected >= self.navigator.scroll.saturating_add(viewport) {
+        if self.navigator.list.selected < self.navigator.scroll {
+            self.navigator.scroll = self.navigator.list.selected;
+        } else if self.navigator.list.selected >= self.navigator.scroll.saturating_add(viewport) {
             self.navigator.scroll = self
                 .navigator
+                .list
                 .selected
                 .saturating_add(1)
                 .saturating_sub(viewport);
@@ -568,23 +574,40 @@ impl AppState {
     pub(crate) fn move_navigator_selection(&mut self, delta: isize) {
         let count = self.navigator_rows().len();
         if count == 0 {
-            self.navigator.selected = 0;
+            self.navigator.list.select(0);
             self.navigator.scroll = 0;
             return;
         }
-        let current = self.navigator.selected.min(count - 1) as isize;
-        self.navigator.selected = (current + delta).clamp(0, count as isize - 1) as usize;
+        let previous = self.navigator.list.selected;
+        let current = previous.min(count - 1);
+        if current != previous {
+            self.navigator.list.select(current);
+        }
+        match delta {
+            -1 => self.navigator.list.move_prev(),
+            1 => self.navigator.list.move_next(count),
+            _ => {
+                let next = (current as isize + delta).clamp(0, count as isize - 1) as usize;
+                self.navigator.list.select(next);
+            }
+        }
         self.ensure_navigator_selection_visible();
     }
 
     pub(crate) fn clamp_navigator_selection(&mut self) {
         let count = self.navigator_rows().len();
-        self.navigator.selected = self.navigator.selected.min(count.saturating_sub(1));
+        self.navigator
+            .list
+            .select(self.navigator.list.selected.min(count.saturating_sub(1)));
         self.ensure_navigator_selection_visible();
     }
 
     pub(crate) fn toggle_selected_navigator_workspace(&mut self) {
-        let Some(row) = self.navigator_rows().get(self.navigator.selected).cloned() else {
+        let Some(row) = self
+            .navigator_rows()
+            .get(self.navigator.list.selected)
+            .cloned()
+        else {
             return;
         };
         let NavigatorTarget::Workspace { ws_idx } = row.target else {
@@ -602,7 +625,11 @@ impl AppState {
     }
 
     pub(crate) fn accept_navigator_selection(&mut self) -> bool {
-        let Some(row) = self.navigator_rows().get(self.navigator.selected).cloned() else {
+        let Some(row) = self
+            .navigator_rows()
+            .get(self.navigator.list.selected)
+            .cloned()
+        else {
             return false;
         };
         self.focus_navigator_target(row.target)
@@ -938,7 +965,8 @@ impl AppState {
             _ => {
                 self.git_repo_picker.ws_idx = ws_idx;
                 self.git_repo_picker.roots = roots;
-                self.git_repo_picker.selected = 0;
+                self.git_repo_picker.list.select(0);
+                self.git_repo_picker.list.hide();
                 self.git_repo_picker.scroll = 0;
                 self.mode = Mode::GitRepoPicker;
                 return Ok(());
@@ -1016,7 +1044,7 @@ impl AppState {
         let Some(root) = self
             .git_repo_picker
             .roots
-            .get(self.git_repo_picker.selected)
+            .get(self.git_repo_picker.list.selected)
             .cloned()
         else {
             return Err("no git repo selected".to_string());
@@ -4201,7 +4229,7 @@ mod tests {
         let mut state = app_with_workspaces(&["one", "two"]);
         let target = state.workspaces[1].tabs[0].root_pane;
         state.open_navigator();
-        state.navigator.selected = state
+        let target_idx = state
             .navigator_rows()
             .iter()
             .position(|row| {
@@ -4211,12 +4239,33 @@ mod tests {
                 )
             })
             .unwrap();
+        state.navigator.list.select(target_idx);
 
         assert!(state.accept_navigator_selection());
 
         assert_eq!(state.active, Some(1));
         assert_eq!(state.workspaces[1].focused_pane_id(), Some(target));
         assert_eq!(state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn navigator_keyboard_restores_visible_selection_after_pointer_exit() {
+        let mut state = app_with_workspaces(&["one", "two"]);
+        state.open_navigator();
+        let anchor = state.navigator.list.selected;
+        assert_eq!(state.navigator.list.visible(), None);
+        let hovered = usize::from(anchor == 0);
+        state.navigator.list.hover(Some(hovered));
+        assert_eq!(state.navigator.list.selected, anchor);
+        assert_eq!(state.navigator.list.visible(), Some(hovered));
+
+        state.navigator.list.hover(None);
+        assert_eq!(state.navigator.list.visible(), None);
+
+        let expected = (anchor + 1).min(state.navigator_rows().len().saturating_sub(1));
+        state.move_navigator_selection(1);
+        assert_eq!(state.navigator.list.selected, expected);
+        assert_eq!(state.navigator.list.visible(), Some(expected));
     }
 
     #[test]

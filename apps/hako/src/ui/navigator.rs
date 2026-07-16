@@ -76,6 +76,7 @@ pub(super) fn render_navigator_overlay_for_view(
     );
     render_search_for_navigator(app, &view.navigator, frame, search);
     let rows = app.navigator_rows_for_view(view, terminal_runtimes);
+    let visible = view.navigator.list.visible();
     if body.height > 0 {
         render_separator(frame, Rect::new(inner.x, search.y + 1, inner.width, 1), app);
         let start = view.navigator.scroll.min(rows.len());
@@ -87,12 +88,12 @@ pub(super) fn render_navigator_overlay_for_view(
                 frame,
                 Rect::new(body.x, body.y + visible_idx as u16, body.width, 1),
                 row,
-                idx == view.navigator.selected,
+                Some(idx) == visible,
             );
         }
         render_navigator_scrollbar_for_view(app, &view.navigator, frame, body, rows.len());
     }
-    render_navigator_detail_for_view(app, frame, detail, rows.get(view.navigator.selected));
+    render_navigator_detail_for_view(app, frame, detail, visible.and_then(|idx| rows.get(idx)));
     render_footer(app, frame, footer);
 }
 
@@ -329,12 +330,12 @@ fn render_rows(app: &AppState, frame: &mut Frame, body: Rect) {
     let rows = app.navigator_rows();
     let start = app.navigator.scroll.min(rows.len());
     let end = rows.len().min(start.saturating_add(body.height as usize));
+    let visible = app.navigator.list.visible();
     for (visible_idx, row) in rows[start..end].iter().enumerate() {
         let idx = start + visible_idx;
         let y = body.y + visible_idx as u16;
         let rect = Rect::new(body.x, y, body.width, 1);
-        let selected = idx == app.navigator.selected;
-        render_row(app, frame, rect, row, selected);
+        render_row(app, frame, rect, row, Some(idx) == visible);
     }
 }
 
@@ -483,7 +484,7 @@ fn render_detail(app: &AppState, frame: &mut Frame, area: Rect) {
 
 fn selected_detail(app: &AppState) -> String {
     let rows = app.navigator_rows();
-    let Some(row) = rows.get(app.navigator.selected) else {
+    let Some(row) = app.navigator.list.visible().and_then(|idx| rows.get(idx)) else {
         return String::new();
     };
     detail_for_row(app, row)
@@ -672,6 +673,7 @@ mod tests {
 
         let mut view = ClientViewState::from_default_client_state(&app);
         view.navigator.query = "client-selected".to_string();
+        view.navigator.list.show();
 
         let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let backend = TestBackend::new(120, 30);

@@ -3745,7 +3745,7 @@ next_tab = ""
         server.app.state.mode = crate::app::Mode::Settings;
         server.app.state.settings.section = crate::app::state::SettingsSection::Toast;
         server.app.state.settings.list.selected = 0;
-        server.app.state.settings.selection_active = true;
+        server.app.state.settings.list.show();
         if let Some(client) = server.clients.get_mut(&1) {
             client.view_state = Some(crate::app::ClientViewState::from_default_client_state(
                 &server.app.state,

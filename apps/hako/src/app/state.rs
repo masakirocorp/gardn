@@ -1558,7 +1558,7 @@ pub(crate) enum NavigatorStateFilter {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct NavigatorState {
     pub query: String,
-    pub selected: usize,
+    pub list: ModalListState,
     pub scroll: usize,
     pub search_focused: bool,
     pub state_filter: Option<NavigatorStateFilter>,
@@ -1937,44 +1937,101 @@ pub fn theme_config_names(config: &ThemeConfig) -> (String, String) {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MenuListState {
-    pub highlighted: usize,
+pub struct ModalListState {
+    /// Persistent keyboard navigation anchor.
+    pub selected: usize,
+    hovered: Option<usize>,
+    pointer_active: bool,
+    engaged: bool,
 }
 
-impl MenuListState {
-    pub fn new(highlighted: usize) -> Self {
-        Self { highlighted }
+impl ModalListState {
+    #[cfg(test)]
+    /// Creates a list with its keyboard selection visible.
+    pub fn new(selected: usize) -> Self {
+        Self {
+            selected,
+            hovered: None,
+            pointer_active: false,
+            engaged: true,
+        }
+    }
+
+    /// Creates a list with no visible selection until it is interacted with.
+    pub fn hidden(selected: usize) -> Self {
+        Self {
+            selected,
+            hovered: None,
+            pointer_active: true,
+            engaged: false,
+        }
+    }
+
+    /// Returns the row that should be visibly highlighted.
+    pub fn visible(&self) -> Option<usize> {
+        if self.pointer_active {
+            self.hovered
+        } else {
+            Some(self.selected)
+        }
+    }
+
+    /// Selects a row through keyboard or click interaction.
+    pub fn select(&mut self, index: usize) {
+        self.selected = index;
+        self.hovered = None;
+        self.pointer_active = false;
+        self.engaged = true;
+    }
+
+    /// Restores the persistent cursor after pointer interaction.
+    pub fn show(&mut self) {
+        self.select(self.selected);
+    }
+
+    /// Restores the cursor only after this list has been interacted with.
+    pub fn restore(&mut self) -> bool {
+        if !self.engaged {
+            return false;
+        }
+        self.show();
+        true
+    }
+
+    /// Updates transient pointer highlighting without losing its navigation anchor.
+    pub fn hover(&mut self, index: Option<usize>) {
+        self.hovered = index;
+        self.pointer_active = true;
+    }
+
+    /// Hides the current selection while retaining its navigation anchor.
+    pub fn hide(&mut self) {
+        self.hover(None);
+    }
+
+    pub fn is_engaged(&self) -> bool {
+        self.engaged
+    }
+
+    #[cfg(test)]
+    pub fn is_active(&self) -> bool {
+        self.visible().is_some()
     }
 
     pub fn move_prev(&mut self) {
-        self.highlighted = self.highlighted.saturating_sub(1);
+        self.select(self.selected.saturating_sub(1));
     }
 
     pub fn move_next(&mut self, item_count: usize) {
         if item_count > 0 {
-            self.highlighted = (self.highlighted + 1).min(item_count - 1);
-        }
-    }
-
-    pub fn hover(&mut self, idx: Option<usize>) {
-        if let Some(idx) = idx {
-            self.highlighted = idx;
+            self.select((self.selected + 1).min(item_count - 1));
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SelectionListState {
-    pub selected: usize,
-}
-
-impl SelectionListState {
-    pub fn new(selected: usize) -> Self {
-        Self { selected }
-    }
-
-    pub fn select(&mut self, idx: usize) {
-        self.selected = idx;
+impl Default for ModalListState {
+    fn default() -> Self {
+        Self::hidden(0)
     }
 }
 
@@ -1983,9 +2040,9 @@ pub struct SettingsState {
     /// Which section tab is active.
     pub section: SettingsSection,
     /// Selected item index within the current section.
-    pub list: SelectionListState,
-    /// Whether the selected item should be visibly active.
-    pub selection_active: bool,
+    pub list: ModalListState,
+    /// Text input row that retains focus independently from pointer hover.
+    pub focused_input: Option<usize>,
     /// First visible row for scrollable settings sections.
     pub scroll: usize,
     /// The palette before opening settings (for cancel/restore).
@@ -2171,7 +2228,7 @@ pub struct ContextMenuState {
     pub kind: ContextMenuKind,
     pub x: u16,
     pub y: u16,
-    pub list: MenuListState,
+    pub list: ModalListState,
 }
 
 impl ContextMenuState {
@@ -2241,41 +2298,46 @@ impl ContextMenuState {
     }
 
     pub fn move_prev(&mut self) {
-        if self.list.highlighted == 0 {
-            return;
+        let current = self.list.selected;
+        if current > 0 {
+            let mut idx = current - 1;
+            loop {
+                if self.item_is_selectable(idx) {
+                    self.list.select(idx);
+                    return;
+                }
+                if idx == 0 {
+                    break;
+                }
+                idx -= 1;
+            }
         }
 
-        let mut idx = self.list.highlighted - 1;
-        loop {
-            if self.item_is_selectable(idx) {
-                self.list.highlighted = idx;
-                return;
-            }
-            if idx == 0 {
-                return;
-            }
-            idx -= 1;
+        if self.item_is_selectable(current) {
+            self.list.select(current);
         }
     }
 
     pub fn move_next(&mut self) {
+        let current = self.list.selected;
         let item_count = self.items().len();
-        let mut idx = self.list.highlighted.saturating_add(1);
+        let mut idx = current.saturating_add(1);
         while idx < item_count {
             if self.item_is_selectable(idx) {
-                self.list.highlighted = idx;
+                self.list.select(idx);
                 return;
             }
             idx += 1;
         }
+
+        if self.item_is_selectable(current) {
+            self.list.select(current);
+        }
     }
 
     pub fn hover(&mut self, idx: Option<usize>) {
-        if let Some(idx) = idx {
-            if self.item_is_selectable(idx) {
-                self.list.highlighted = idx;
-            }
-        }
+        let hovered = idx.filter(|idx| self.item_is_selectable(*idx));
+        self.list.hover(hovered);
     }
 }
 
@@ -2388,7 +2450,7 @@ mod context_menu_tests {
             },
             x: 0,
             y: 0,
-            list: MenuListState::new(1),
+            list: ModalListState::new(1),
         };
         let without_diff = ContextMenuState {
             kind: ContextMenuKind::Workspace {
@@ -2397,7 +2459,7 @@ mod context_menu_tests {
             },
             x: 0,
             y: 0,
-            list: MenuListState::new(1),
+            list: ModalListState::new(1),
         };
 
         assert!(with_diff.items().contains(&"diff"));
@@ -2415,7 +2477,7 @@ mod context_menu_tests {
             },
             x: 0,
             y: 0,
-            list: MenuListState::new(0),
+            list: ModalListState::new(0),
         };
         let without_diff = ContextMenuState {
             kind: ContextMenuKind::Tab {
@@ -2425,7 +2487,7 @@ mod context_menu_tests {
             },
             x: 0,
             y: 0,
-            list: MenuListState::new(0),
+            list: ModalListState::new(0),
         };
 
         assert_eq!(with_diff.items(), expected);
@@ -2496,7 +2558,7 @@ pub struct KeybindHelpState {
 #[derive(Clone)]
 pub struct CommandPaletteState {
     pub query: String,
-    pub selected: usize,
+    pub list: ModalListState,
     pub scroll: usize,
 }
 
@@ -2504,7 +2566,7 @@ pub struct CommandPaletteState {
 pub struct AgentProfilePickerState {
     pub ws_idx: usize,
     pub query: String,
-    pub selected: usize,
+    pub list: ModalListState,
     pub kind_filter: Option<crate::agent_profiles::AgentKind>,
     pub scroll: usize,
 }
@@ -2513,7 +2575,7 @@ pub struct AgentProfilePickerState {
 pub struct GitRepoPickerState {
     pub ws_idx: usize,
     pub roots: Vec<std::path::PathBuf>,
-    pub selected: usize,
+    pub list: ModalListState,
     pub scroll: usize,
 }
 
@@ -2742,11 +2804,11 @@ pub struct AppState {
     pub(crate) next_plugin_command_log_id: u64,
     pub(crate) plugin_commands_in_flight: usize,
     /// Highlight state for the bottom-right global launcher menu.
-    pub global_menu: MenuListState,
+    pub global_menu: ModalListState,
     /// Highlight state for the sidebar group switcher menu.
-    pub group_menu: MenuListState,
+    pub group_menu: ModalListState,
     /// Highlight state for the right-sidebar agent scope menu.
-    pub agent_menu: MenuListState,
+    pub agent_menu: ModalListState,
     /// Resolved host terminal default colors for theming embedded panes.
     pub host_terminal_theme: TerminalTheme,
     /// Set when a persisted session snapshot would change.
@@ -3313,20 +3375,20 @@ impl AppState {
             config_diagnostics_scroll: 0,
             command_palette: CommandPaletteState {
                 query: String::new(),
-                selected: 0,
+                list: ModalListState::hidden(0),
                 scroll: 0,
             },
             agent_profile_picker: AgentProfilePickerState {
                 ws_idx: 0,
                 query: String::new(),
                 kind_filter: None,
-                selected: 0,
+                list: ModalListState::hidden(0),
                 scroll: 0,
             },
             git_repo_picker: GitRepoPickerState {
                 ws_idx: 0,
                 roots: Vec::new(),
-                selected: 0,
+                list: ModalListState::hidden(0),
                 scroll: 0,
             },
             navigator: NavigatorState::default(),
@@ -3456,8 +3518,8 @@ impl AppState {
             global_theme_use_legacy_ui_accent: false,
             settings: SettingsState {
                 section: SettingsSection::Theme,
-                list: SelectionListState::new(0),
-                selection_active: false,
+                list: ModalListState::hidden(0),
+                focused_input: None,
                 scroll: 0,
                 original_palette: None,
                 original_theme: None,
@@ -3503,9 +3565,9 @@ impl AppState {
             plugin_command_logs: Vec::new(),
             next_plugin_command_log_id: 1,
             plugin_commands_in_flight: 0,
-            global_menu: MenuListState::new(0),
-            group_menu: MenuListState::new(0),
-            agent_menu: MenuListState::new(0),
+            global_menu: ModalListState::hidden(0),
+            group_menu: ModalListState::hidden(0),
+            agent_menu: ModalListState::hidden(0),
             host_terminal_theme: TerminalTheme::default(),
             session_dirty: false,
             terminal_runtime_shutdowns: Vec::new(),

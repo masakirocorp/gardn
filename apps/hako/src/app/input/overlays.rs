@@ -128,8 +128,9 @@ impl App {
         if self.state.mode == Mode::Navigator {
             match mouse.kind {
                 MouseEventKind::Moved => {
-                    if let Some(idx) = self.state.navigator_row_index_at(mouse.column, mouse.row) {
-                        self.state.navigator.selected = idx;
+                    let hovered = self.state.navigator_row_index_at(mouse.column, mouse.row);
+                    self.state.navigator.list.hover(hovered);
+                    if hovered.is_some() {
                         self.state.ensure_navigator_selection_visible();
                     }
                 }
@@ -138,11 +139,12 @@ impl App {
                         .state
                         .navigator_search_contains(mouse.column, mouse.row)
                     {
+                        self.state.navigator.list.hover(None);
                         self.state.navigator.search_focused = true;
                     } else if let Some(idx) =
                         self.state.navigator_row_index_at(mouse.column, mouse.row)
                     {
-                        self.state.navigator.selected = idx;
+                        self.state.navigator.list.select(idx);
                         let target = self
                             .state
                             .navigator_rows()
@@ -157,13 +159,18 @@ impl App {
                         } else {
                             self.state.accept_navigator_selection();
                         }
-                    } else if !self.state.navigator_popup_contains(mouse.column, mouse.row) {
+                    } else if self.state.navigator_popup_contains(mouse.column, mouse.row) {
+                        self.state.navigator.list.hover(None);
+                    } else {
                         leave_modal(&mut self.state);
                     }
                 }
                 MouseEventKind::ScrollUp => {
                     self.state.navigator.scroll = self.state.navigator.scroll.saturating_sub(3);
-                    self.state.navigator.selected = self.state.navigator.scroll;
+                    self.state
+                        .navigator
+                        .list
+                        .select(self.state.navigator.scroll);
                     self.state.clamp_navigator_selection();
                 }
                 MouseEventKind::ScrollDown => {
@@ -171,7 +178,10 @@ impl App {
                     let max = self.state.navigator_max_scroll(viewport);
                     self.state.navigator.scroll =
                         self.state.navigator.scroll.saturating_add(3).min(max);
-                    self.state.navigator.selected = self.state.navigator.scroll;
+                    self.state
+                        .navigator
+                        .list
+                        .select(self.state.navigator.scroll);
                     self.state.clamp_navigator_selection();
                 }
                 _ => {}
@@ -551,11 +561,18 @@ impl AppState {
         if !rect_contains(body, col, row) {
             return None;
         }
+        let rows = self.navigator_rows();
+        if body.width > 1
+            && rows.len() > body.height as usize
+            && col == body.x + body.width.saturating_sub(1)
+        {
+            return None;
+        }
         let idx = self
             .navigator
             .scroll
             .saturating_add(row.saturating_sub(body.y) as usize);
-        (idx < self.navigator_rows().len()).then_some(idx)
+        (idx < rows.len()).then_some(idx)
     }
 
     pub(crate) fn navigator_row_caret_at(&self, col: u16) -> bool {

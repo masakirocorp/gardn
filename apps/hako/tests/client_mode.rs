@@ -453,7 +453,7 @@ fn client_connects_and_receives_frame() {
 }
 
 #[test]
-fn client_sees_headless_startup_config_diagnostic() {
+fn client_sees_headless_startup_configuration_issue_notice() {
     let _lock = test_lock();
     let base = unique_test_dir();
     let config_home = base.join("config");
@@ -514,13 +514,13 @@ fn client_sees_headless_startup_config_diagnostic() {
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
-    let mut found_diagnostic = false;
+    let mut found_notice = false;
     while Instant::now() < deadline {
         match read_server_message(&mut stream) {
             Ok((1, payload)) => {
                 let frame = decode_frame_payload(&payload).expect("decode frame");
-                if frame_contains_text(&frame, "config parse error") {
-                    found_diagnostic = true;
+                if frame_contains_text(&frame, "configuration issue") {
+                    found_notice = true;
                     break;
                 }
             }
@@ -530,8 +530,8 @@ fn client_sees_headless_startup_config_diagnostic() {
     }
 
     assert!(
-        found_diagnostic,
-        "attached client should see startup config parse diagnostic"
+        found_notice,
+        "attached client should see startup configuration issue notice"
     );
 
     cleanup_spawned_hako(spawned, base);

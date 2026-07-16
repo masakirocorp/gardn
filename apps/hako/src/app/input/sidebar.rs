@@ -1040,7 +1040,7 @@ mod tests {
         ));
 
         assert_eq!(app.state.mode, Mode::GroupMenu);
-        assert_eq!(app.state.group_menu.highlighted, 3);
+        assert_eq!(app.state.group_menu.visible(), None);
     }
 
     #[test]
@@ -1588,7 +1588,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: crate::app::state::MenuListState::new(8),
+            list: crate::app::state::ModalListState::new(8),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -1616,7 +1616,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: crate::app::state::MenuListState::new(5),
+            list: crate::app::state::ModalListState::new(5),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -1643,7 +1643,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: crate::app::state::MenuListState::new(6),
+            list: crate::app::state::ModalListState::new(6),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -1713,7 +1713,7 @@ mod tests {
             menu.x + 2,
             menu.y + 1 + new_group_row,
         ));
-        assert_eq!(app.state.group_menu.highlighted, new_group_row as usize);
+        assert_eq!(app.state.group_menu.visible(), Some(new_group_row as usize));
         assert!(!app
             .state
             .group_menu_labels()
@@ -1784,11 +1784,15 @@ mod tests {
         let mut app = app_for_mouse_test();
         app.state.integration_recommendations.clear();
         app.state.mode = Mode::GlobalMenu;
+        assert_eq!(app.state.global_menu.visible(), None);
 
         let menu = app.state.global_menu_rect();
         app.handle_mouse(mouse(MouseEventKind::Moved, menu.x + 2, menu.y + 2));
 
-        assert_eq!(app.state.global_menu.highlighted, 1);
+        assert_eq!(app.state.global_menu.visible(), Some(1));
+        assert_eq!(app.state.global_menu.selected, 0);
+        app.handle_mouse(mouse(MouseEventKind::Moved, 0, 0));
+        assert_eq!(app.state.global_menu.visible(), None);
     }
 
     #[test]
@@ -2149,7 +2153,7 @@ mod tests {
         ));
 
         assert_eq!(app.state.mode, Mode::AgentMenu);
-        assert_eq!(app.state.agent_menu.highlighted, 2);
+        assert_eq!(app.state.agent_menu.visible(), None);
         assert_eq!(app.state.agent_panel_scroll, 3);
     }
 
@@ -2201,7 +2205,7 @@ mod tests {
             scope_toggle.y,
         ));
         let mode_after_scope_click = app.state.mode;
-        let highlighted_scope_row = app.state.agent_menu.highlighted;
+        let highlighted_scope_row = app.state.agent_menu.selected;
         let menu_rect_after_scope_click = app.state.agent_menu_rect();
 
         app.state.mode = Mode::Terminal;
@@ -2854,7 +2858,7 @@ mod tests {
         ));
 
         assert_eq!(app.state.mode, Mode::GroupMenu);
-        assert_eq!(app.state.group_menu.highlighted, 3);
+        assert_eq!(app.state.group_menu.visible(), None);
         assert!(app.state.group_menu_rect().width > app.state.view.sidebar_rect.width);
     }
 

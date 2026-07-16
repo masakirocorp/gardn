@@ -294,8 +294,9 @@ pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) 
         .min(app.git_repo_picker.roots.len());
     let selected = app
         .git_repo_picker
-        .selected
-        .min(app.git_repo_picker.roots.len().saturating_sub(1));
+        .list
+        .visible()
+        .filter(|idx| *idx < app.git_repo_picker.roots.len());
     let list_width = scroll_area.body.width as usize;
     let mut items = Vec::new();
     let mut selected_row = None;
@@ -304,7 +305,7 @@ pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) 
         .enumerate()
     {
         let repo_idx = first_repo + idx;
-        let selected = repo_idx == selected;
+        let selected = selected == Some(repo_idx);
         if selected {
             selected_row = Some(items.len());
         }
@@ -441,13 +442,16 @@ pub(super) fn render_git_repo_picker_overlay_for_view(
     let last_repo = first_repo
         .saturating_add(visible_repo_count)
         .min(picker.roots.len());
-    let selected = picker.selected.min(picker.roots.len().saturating_sub(1));
+    let selected = picker
+        .list
+        .visible()
+        .filter(|idx| *idx < picker.roots.len());
     let list_width = scroll_area.body.width as usize;
     let mut items = Vec::new();
     let mut selected_row = None;
     for (idx, root) in picker.roots[first_repo..last_repo].iter().enumerate() {
         let repo_idx = first_repo + idx;
-        let selected = repo_idx == selected;
+        let selected = selected == Some(repo_idx);
         if selected {
             selected_row = Some(items.len());
         }

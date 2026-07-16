@@ -251,7 +251,7 @@ fn render_agent_profile_picker_overlay_from(
         return;
     }
 
-    let selected = picker.selected.min(entries.len().saturating_sub(1));
+    let selected = picker.list.visible().filter(|idx| *idx < entries.len());
     let picker_rows = agent_profile_picker_rows_for_picker(app, picker, &entries);
     let Some(list) = agent_profile_picker_list_geometry(area, picker_rows.len(), picker.scroll)
     else {
@@ -271,7 +271,7 @@ fn render_agent_profile_picker_overlay_from(
                 modal_section_heading_style(&palette),
             )),
             AgentProfilePickerRow::Entry(idx, entry, shortcut, default) => {
-                let selected = *idx == selected;
+                let selected = selected == Some(*idx);
                 let row_style = if selected {
                     Style::default().bg(palette.accent)
                 } else {

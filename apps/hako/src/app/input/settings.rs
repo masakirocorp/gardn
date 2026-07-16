@@ -518,7 +518,10 @@ fn delete_pending_group_field_word(state: &mut AppState, selected: usize) {
 }
 
 fn edit_pending_group_field(state: &mut AppState, key: KeyEvent) -> bool {
-    let selected = state.settings.list.selected;
+    let Some(selected) = state.settings.focused_input else {
+        return false;
+    };
+    state.settings.list.select(selected);
     if !matches!(selected, 0 | 1) {
         return false;
     }
@@ -619,7 +622,10 @@ fn delete_pending_workspace_word(state: &mut AppState, selected: usize) {
 }
 
 fn edit_pending_workspace_field(state: &mut AppState, key: KeyEvent) -> bool {
-    let selected = state.settings.list.selected;
+    let Some(selected) = state.settings.focused_input else {
+        return false;
+    };
+    state.settings.list.select(selected);
     if selected > 1 {
         return false;
     }
@@ -725,7 +731,10 @@ fn delete_pending_agent_profile_word(state: &mut AppState, selected: usize) {
 }
 
 fn edit_pending_agent_profile_text(state: &mut AppState, key: KeyEvent) -> bool {
-    let selected = state.settings.list.selected;
+    let Some(selected) = state.settings.focused_input else {
+        return false;
+    };
+    state.settings.list.select(selected);
     if selected != AGENT_PROFILE_NAME_INDEX && selected != agent_profile_command_index(state) {
         return false;
     }
@@ -821,8 +830,8 @@ fn open_blank_agent_profile_editor(state: &mut AppState) {
         .unwrap_or_else(|| state.default_agent_profile_kind_choice());
     state.settings.pending_agent_profile_kind = Some(kind);
     state.settings.pending_agent_profile_command = Some(String::new());
-    state.settings.list.selected = AGENT_PROFILE_NAME_INDEX;
-    state.settings.selection_active = true;
+    state.settings.list.select(AGENT_PROFILE_NAME_INDEX);
+    state.settings.focused_input = Some(AGENT_PROFILE_NAME_INDEX);
     state.settings.scroll = 0;
 }
 
@@ -832,6 +841,7 @@ fn close_agent_profile_editor(state: &mut AppState) {
     state.settings.pending_agent_profile_kind = Some(state.default_agent_profile_kind_choice());
     state.settings.pending_agent_profile_command = None;
     state.settings.list.selected = 0;
+    state.settings.focused_input = None;
     clear_settings_selection(state);
     state.settings.scroll = 0;
 }
@@ -852,8 +862,8 @@ fn load_custom_agent_profile_editor(state: &mut AppState, profile_id: &str) -> b
     };
     state.settings.pending_agent_profile_kind = Some(kind);
     state.settings.pending_agent_profile_command = Some(profile.command.clone());
-    state.settings.list.selected = AGENT_PROFILE_NAME_INDEX;
-    state.settings.selection_active = true;
+    state.settings.list.select(AGENT_PROFILE_NAME_INDEX);
+    state.settings.focused_input = Some(AGENT_PROFILE_NAME_INDEX);
     true
 }
 
@@ -1471,11 +1481,12 @@ fn select_pending_notification_setting(state: &mut AppState) -> Option<SettingsA
 }
 
 fn settings_selection_active(state: &AppState) -> bool {
-    state.settings.selection_active
+    state.settings.list.is_engaged()
 }
 
 fn clear_settings_selection(state: &mut AppState) {
-    state.settings.selection_active = false;
+    state.settings.list.hide();
+    state.settings.focused_input = None;
 }
 
 fn switch_settings_section(state: &mut AppState, section: SettingsSection, selected: usize) {
@@ -1542,22 +1553,38 @@ fn selected_experiment_action(state: &mut AppState) -> Option<SettingsAction> {
         _ => None,
     }
 }
+fn settings_row_accepts_text_input(state: &AppState, selected: usize) -> bool {
+    match state.settings.section {
+        SettingsSection::GroupGeneral | SettingsSection::WorkspaceGeneral => selected <= 1,
+        SettingsSection::Agents if agent_profile_editor_open(state) => {
+            selected == AGENT_PROFILE_NAME_INDEX || selected == agent_profile_command_index(state)
+        }
+        _ => false,
+    }
+}
+
+fn focus_selected_settings_input(state: &mut AppState) {
+    let selected = state.settings.list.selected;
+    state.settings.focused_input =
+        settings_row_accepts_text_input(state, selected).then_some(selected);
+}
+
 fn select_previous_setting(state: &mut AppState, item_count: usize) {
     if item_count == 0 {
         return;
     }
 
-    if !state.settings.selection_active {
-        state.settings.list.selected = item_count - 1;
-        state.settings.selection_active = true;
-        return;
-    }
-    let selected = state.settings.list.selected.min(item_count - 1);
-    state.settings.list.selected = if selected == 0 {
-        item_count - 1
+    if !state.settings.list.restore() {
+        state.settings.list.select(item_count - 1);
     } else {
-        selected - 1
-    };
+        let selected = state.settings.list.selected.min(item_count - 1);
+        state.settings.list.select(if selected == 0 {
+            item_count - 1
+        } else {
+            selected - 1
+        });
+    }
+    focus_selected_settings_input(state);
 }
 
 fn select_next_setting(state: &mut AppState, item_count: usize) {
@@ -1565,17 +1592,17 @@ fn select_next_setting(state: &mut AppState, item_count: usize) {
         return;
     }
 
-    if !state.settings.selection_active {
-        state.settings.list.selected = 0;
-        state.settings.selection_active = true;
-        return;
-    }
-    let selected = state.settings.list.selected.min(item_count - 1);
-    state.settings.list.selected = if selected + 1 == item_count {
-        0
+    if !state.settings.list.restore() {
+        state.settings.list.select(0);
     } else {
-        selected + 1
-    };
+        let selected = state.settings.list.selected.min(item_count - 1);
+        state.settings.list.select(if selected + 1 == item_count {
+            0
+        } else {
+            selected + 1
+        });
+    }
+    focus_selected_settings_input(state);
 }
 
 fn handle_settings_modal_action(state: &mut AppState, key: &KeyEvent) -> Option<SettingsAction> {
@@ -1609,6 +1636,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
     {
         return None;
     }
+    state.settings.list.restore();
     match state.settings.section {
         SettingsSection::Theme => match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
@@ -1902,7 +1930,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 ensure_settings_selection_visible(state);
             }
             _ => {
-                if state.settings.selection_active && edit_pending_group_field(state, key) {
+                if state.settings.focused_input.is_some() && edit_pending_group_field(state, key) {
                     let group_idx = state.settings.group_settings_target?;
                     return match state.settings.list.selected {
                         0 => {
@@ -1996,7 +2024,9 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
             KeyCode::Enter => return selected_workspace_general_action(state),
             _ => {
-                if state.settings.selection_active && edit_pending_workspace_field(state, key) {
+                if state.settings.focused_input.is_some()
+                    && edit_pending_workspace_field(state, key)
+                {
                     return selected_workspace_general_action(state);
                 }
                 if let Some(action) = handle_settings_modal_action(state, &key) {
@@ -2127,7 +2157,8 @@ pub(crate) fn prepare_general_settings_state(
         SettingsSection::WorkspaceGeneral => 0,
     };
     settings.scroll = 0;
-    settings.selection_active = false;
+    settings.list = crate::app::state::ModalListState::hidden(settings.list.selected);
+    settings.focused_input = None;
 }
 
 fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsState) {
@@ -2171,9 +2202,9 @@ pub(crate) fn prepare_group_settings_state(
     settings.group_settings_target = Some(group_idx);
     settings.workspace_settings_target = None;
     settings.section = SettingsSection::GroupGeneral;
-    settings.list.selected = 0;
+    settings.list = crate::app::state::ModalListState::hidden(0);
+    settings.focused_input = None;
     settings.scroll = 0;
-    settings.selection_active = false;
     true
 }
 
@@ -2193,9 +2224,9 @@ pub(crate) fn prepare_workspace_settings_state(
     settings.group_settings_target = None;
     settings.workspace_settings_target = Some(ws_idx);
     settings.section = SettingsSection::WorkspaceGeneral;
-    settings.list.selected = 0;
+    settings.list = crate::app::state::ModalListState::hidden(0);
+    settings.focused_input = None;
     settings.scroll = 0;
-    settings.selection_active = false;
     true
 }
 
@@ -2450,6 +2481,7 @@ impl AppState {
 
                 if let Some(section) = self.settings_tab_at(mouse.column, mouse.row) {
                     self.settings.section = section;
+                    self.settings.focused_input = None;
                     self.settings.list.select(match section {
                         SettingsSection::Theme => {
                             if self.settings.group_settings_target.is_some() {
@@ -2483,7 +2515,7 @@ impl AppState {
                 if let Some(target) = self.settings_list_hit_at(mouse.column, mouse.row) {
                     let idx = target.index;
                     self.settings.list.select(idx);
-                    self.settings.selection_active = true;
+                    self.settings.focused_input = (!target.hoverable).then_some(idx);
                     if self.settings.section == SettingsSection::Theme {
                         ensure_settings_selection_visible(self);
                     }
@@ -2556,14 +2588,11 @@ impl AppState {
                 None
             }
             MouseEventKind::Moved => {
-                if let Some(target) = self
+                let hovered = self
                     .settings_list_hit_at(mouse.column, mouse.row)
                     .filter(|target| target.hoverable)
-                {
-                    self.settings.list.select(target.index);
-                    self.settings.selection_active = true;
-                    ensure_settings_selection_visible(self);
-                }
+                    .map(|target| target.index);
+                self.settings.list.hover(hovered);
                 None
             }
             MouseEventKind::ScrollUp => {
@@ -2728,7 +2757,7 @@ mod tests {
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::Theme;
         assert_eq!(state.settings.list.selected, 0);
-        state.settings.selection_active = true;
+        state.settings.list.show();
         let action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
@@ -2759,8 +2788,8 @@ mod tests {
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::Theme;
         state.settings.list.selected = 0;
-        state.settings.selection_active = true;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.list.show();
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
@@ -2779,7 +2808,7 @@ mod tests {
         state.settings.section = SettingsSection::Theme;
         state.settings.list.selected = group_accent_selection_index(&state);
         assert_eq!(state.settings.list.selected, 1);
-        state.settings.selection_active = true;
+        state.settings.list.show();
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
@@ -2818,8 +2847,8 @@ mod tests {
         state.settings.pending_agent_profile_command = Some("omp-mk --profile main".to_string());
         state.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Omp);
         state.settings.list.selected = agent_profile_save_index(&state);
-        state.settings.selection_active = true;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.list.show();
 
         let action = update_settings_state(
             &mut state,
@@ -2915,7 +2944,8 @@ mod tests {
         open_settings_at(&mut state, SettingsSection::Agents);
         assert!(load_custom_agent_profile_editor(&mut state, "user:omp-mk"));
         state.settings.list.selected = agent_profile_delete_index(&state);
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.focused_input = None;
 
         let action = update_settings_state(
             &mut state,
@@ -2966,7 +2996,7 @@ mod tests {
         let mut state = state_with_workspaces(&["test"]);
         open_settings_at(&mut state, SettingsSection::Agents);
         state.settings.list.selected = 1;
-        state.settings.selection_active = true;
+        state.settings.list.show();
 
         let action = update_settings_state(
             &mut state,
@@ -2987,7 +3017,8 @@ mod tests {
         state.settings.pending_agent_profile_name = Some(String::new());
         state.settings.pending_agent_profile_command = Some(String::new());
         state.settings.list.selected = 0;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.focused_input = Some(0);
 
         for ch in "ompmk".chars() {
             update_settings_state(
@@ -3008,7 +3039,7 @@ mod tests {
         let mut state = state_with_workspaces(&["test"]);
         open_settings_at(&mut state, SettingsSection::Agents);
         state.settings.list.selected = 1;
-        state.settings.selection_active = true;
+        state.settings.list.show();
 
         let action = update_settings_state(
             &mut state,
@@ -3130,8 +3161,8 @@ mod tests {
         state.settings.pending_agent_profile_command = Some("kilocode --profile main".to_string());
         state.settings.pending_agent_profile_kind = Some(crate::agent_profiles::AgentKind::Custom);
         state.settings.list.selected = agent_profile_save_index(&state);
-        state.settings.selection_active = true;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.list.show();
 
         let rows = rows_for_section(&state, SettingsSection::Agents).expect("agent rows");
         assert!(rows.iter().any(|row| {
@@ -3214,14 +3245,14 @@ mod tests {
     }
 
     #[test]
-    fn agent_settings_hover_matches_visual_rows() {
+    fn agent_settings_hover_tracks_visual_rows_without_moving_selection() {
         let mut app = app_for_mouse_test();
         app.state.view.terminal_area = Rect::new(0, 0, 100, 40);
         open_settings_at(&mut app.state, SettingsSection::Agents);
         open_blank_agent_profile_editor(&mut app.state);
 
         app.state.settings.list.selected = 9;
-        app.state.settings.selection_active = true;
+        app.state.settings.list.show();
         let list_area = settings_section_list_rect(&app.state, SettingsSection::Agents);
         let rows = rows_for_section(&app.state, SettingsSection::Agents).unwrap();
         let row_for = |index| selected_visual_row(&rows, index).unwrap() as u16;
@@ -3231,20 +3262,23 @@ mod tests {
             list_area.y + 1,
         ));
         assert_eq!(app.state.settings.list.selected, 9);
+        assert_eq!(app.state.settings.list.visible(), None);
 
         app.handle_mouse(mouse(
             MouseEventKind::Moved,
             list_area.x + 2,
             list_area.y + row_for(0),
         ));
-        assert_eq!(app.state.settings.list.selected, 0);
+        assert_eq!(app.state.settings.list.selected, 9);
+        assert_eq!(app.state.settings.list.visible(), None);
 
         app.handle_mouse(mouse(
             MouseEventKind::Moved,
             list_area.x + 2,
             list_area.y + row_for(1),
         ));
-        assert_eq!(app.state.settings.list.selected, 1);
+        assert_eq!(app.state.settings.list.selected, 9);
+        assert_eq!(app.state.settings.list.visible(), Some(1));
     }
 
     #[test]
@@ -3260,8 +3294,8 @@ mod tests {
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupProfiles;
         state.settings.list.selected = 0;
-        state.settings.selection_active = true;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.list.show();
         let action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
@@ -3276,8 +3310,8 @@ mod tests {
 
         state.session_dirty = false;
         state.settings.list.selected = 0;
-        state.settings.selection_active = true;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.list.show();
         let action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
@@ -3310,8 +3344,8 @@ mod tests {
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupProfiles;
         state.settings.list.selected = 1;
-        state.settings.selection_active = true;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.list.show();
         let action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
@@ -3330,8 +3364,8 @@ mod tests {
 
         state.session_dirty = false;
         state.settings.list.selected = 0;
-        state.settings.selection_active = true;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.list.show();
         let action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
@@ -3372,7 +3406,7 @@ mod tests {
         assert_eq!(state.settings.agent_profile_kind_filter, None);
 
         state.settings.list.selected = 1;
-        state.settings.selection_active = true;
+        state.settings.list.show();
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
@@ -3425,8 +3459,9 @@ mod tests {
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupGeneral;
         state.settings.list.selected = 0;
-        state.settings.selection_active = true;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.list.show();
+        state.settings.focused_input = Some(0);
         let first_action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
@@ -3467,7 +3502,8 @@ mod tests {
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupGeneral;
         state.settings.list.selected = 2;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.focused_input = None;
         let delete_action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
@@ -3485,7 +3521,8 @@ mod tests {
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupGeneral;
         state.settings.list.selected = 1;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.focused_input = Some(1);
 
         let action = update_settings_state(
             &mut state,
@@ -3502,6 +3539,34 @@ mod tests {
     }
 
     #[test]
+    fn group_general_keyboard_navigation_focuses_editable_rows() {
+        let mut state = state_with_workspaces(&["test"]);
+        let group_idx = state.create_group("Side".to_string());
+        open_group_settings(&mut state, group_idx);
+        state.settings.section = SettingsSection::GroupGeneral;
+        state.settings.list = crate::app::state::ModalListState::hidden(2);
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.list.visible(), Some(0));
+        assert_eq!(state.settings.focused_input, Some(0));
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('2'), KeyModifiers::empty()),
+        );
+        assert_eq!(
+            action,
+            Some(SettingsAction::SaveGroupName {
+                group_idx,
+                name: "Side2".to_string(),
+            })
+        );
+    }
+
+    #[test]
     fn group_general_mouse_hover_is_inert_and_click_focuses_name_without_saving() {
         let mut app = app_for_mouse_test();
         let group_idx = app.state.create_group("Side".to_string());
@@ -3509,7 +3574,7 @@ mod tests {
         open_group_settings(&mut app.state, group_idx);
         app.state.settings.section = SettingsSection::GroupGeneral;
         app.state.settings.list.selected = 2;
-        app.state.settings.selection_active = false;
+        app.state.settings.list.hide();
 
         let list_area = settings_section_list_rect(&app.state, SettingsSection::GroupGeneral);
         for input_row in [1, 4] {
@@ -3521,7 +3586,7 @@ mod tests {
 
             assert_eq!(hover_action, None);
             assert_eq!(app.state.settings.list.selected, 2);
-            assert!(!app.state.settings.selection_active);
+            assert!(!app.state.settings.list.is_active());
         }
 
         let action = app.state.handle_settings_mouse(mouse(
@@ -3532,7 +3597,14 @@ mod tests {
 
         assert_eq!(action, None);
         assert_eq!(app.state.settings.list.selected, 0);
-        assert!(app.state.settings.selection_active);
+        assert!(app.state.settings.list.is_active());
+        assert_eq!(app.state.settings.focused_input, Some(0));
+        app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Moved,
+            list_area.x + 2,
+            list_area.y + 4,
+        ));
+        assert_eq!(app.state.settings.focused_input, Some(0));
         let edit_action = update_settings_state(
             &mut app.state,
             KeyEvent::new(KeyCode::Char('!'), KeyModifiers::empty()),
@@ -3586,7 +3658,8 @@ mod tests {
         );
 
         state.settings.list.selected = 0;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.focused_input = Some(0);
         let name_action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char('2'), KeyModifiers::empty()),
@@ -3600,6 +3673,7 @@ mod tests {
         );
 
         state.settings.list.selected = 1;
+        state.settings.focused_input = Some(1);
         let cwd_action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char('2'), KeyModifiers::empty()),
@@ -3622,8 +3696,8 @@ mod tests {
         open_group_settings(&mut app.state, group_idx);
         app.state.settings.section = SettingsSection::Theme;
         app.state.settings.list.selected = 1;
-        app.state.settings.selection_active = true;
-        app.state.settings.selection_active = true;
+        app.state.settings.list.show();
+        app.state.settings.list.show();
         app.handle_settings_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()));
 
         assert_eq!(
@@ -3749,8 +3823,8 @@ mod tests {
 
         open_settings(&mut state);
         state.settings.list.selected = 2 + ThemeMode::ALL.len() + 1;
-        state.settings.selection_active = true;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.list.show();
         let action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
@@ -3770,7 +3844,9 @@ mod tests {
     fn settings_action_keys_do_nothing_without_active_selection() {
         let mut state = state_with_workspaces(&["test"]);
         open_settings_at(&mut state, SettingsSection::Sound);
-        assert!(!state.settings.selection_active);
+        assert!(!state.settings.list.is_active());
+        state.settings.list.hover(Some(1));
+        assert_eq!(state.settings.list.visible(), Some(1));
 
         let action = update_settings_state(
             &mut state,
@@ -3792,8 +3868,8 @@ mod tests {
         state.settings.pending_light_theme_name = Some("system".to_string());
         state.settings.pending_dark_theme_name = Some("system".to_string());
         state.settings.list.selected = 1;
-        state.settings.selection_active = true;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.list.show();
 
         let action = update_settings_state(
             &mut state,
@@ -3812,8 +3888,8 @@ mod tests {
         );
 
         state.settings.list.selected = 0;
-        state.settings.selection_active = true;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.list.show();
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
@@ -3835,8 +3911,8 @@ mod tests {
         open_settings(&mut state);
         state.settings.section = crate::app::state::SettingsSection::Sound;
         state.settings.list.selected = 0;
-        state.settings.selection_active = true;
-        state.settings.selection_active = true;
+        state.settings.list.show();
+        state.settings.list.show();
 
         let action = update_settings_state(
             &mut state,
@@ -3862,7 +3938,7 @@ mod tests {
         state.sidebar_min_width = 18;
         state.sidebar_max_width = 36;
         open_settings_at(&mut state, SettingsSection::Layout);
-        state.settings.selection_active = true;
+        state.settings.list.show();
 
         update_settings_state(
             &mut state,
@@ -3912,7 +3988,7 @@ mod tests {
         state.new_terminal_cwd = NewTerminalCwdConfig::Follow;
         state.mouse_scroll_lines = 3;
         open_settings_at(&mut state, SettingsSection::PaneLabels);
-        state.settings.selection_active = true;
+        state.settings.list.show();
 
         assert!(matches!(
             update_settings_state(
@@ -3994,7 +4070,7 @@ mod tests {
         let mut state = state_with_workspaces(&["test"]);
         state.switch_ascii_input_source_in_prefix = false;
         open_settings_at(&mut state, SettingsSection::Experiments);
-        state.settings.selection_active = true;
+        state.settings.list.show();
 
         let input_source_action = update_settings_state(
             &mut state,
@@ -4138,27 +4214,27 @@ mod tests {
         state.settings.pending_dark_theme_name =
             Some(crate::app::state::DEFAULT_DARK_THEME_NAME.to_string());
         state.settings.list.selected = 0;
-        state.settings.selection_active = true;
+        state.settings.list.show();
         assert_open_section_wraps(&mut state, SettingsSection::Theme);
 
         open_settings_at(&mut state, SettingsSection::Layout);
         state.settings.list.selected = 0;
-        state.settings.selection_active = true;
+        state.settings.list.show();
         assert_open_section_wraps(&mut state, SettingsSection::Layout);
 
         open_settings_at(&mut state, SettingsSection::Sound);
         state.settings.list.selected = 0;
-        state.settings.selection_active = true;
+        state.settings.list.show();
         assert_open_section_wraps(&mut state, SettingsSection::Sound);
 
         open_settings_at(&mut state, SettingsSection::Toast);
         state.settings.list.selected = 0;
-        state.settings.selection_active = true;
+        state.settings.list.show();
         assert_open_section_wraps(&mut state, SettingsSection::Toast);
 
         open_settings_at(&mut state, SettingsSection::PaneLabels);
         state.settings.list.selected = 0;
-        state.settings.selection_active = true;
+        state.settings.list.show();
         assert_open_section_wraps(&mut state, SettingsSection::PaneLabels);
 
         state.integration_recommendations = vec![
@@ -4175,7 +4251,7 @@ mod tests {
         ];
         open_settings_at(&mut state, SettingsSection::Integrations);
         state.settings.list.selected = 0;
-        state.settings.selection_active = true;
+        state.settings.list.show();
         assert_open_section_wraps(&mut state, SettingsSection::Integrations);
     }
 
@@ -4206,7 +4282,7 @@ mod tests {
             true,
         )];
         open_settings_at(&mut state, SettingsSection::Integrations);
-        state.settings.selection_active = true;
+        state.settings.list.show();
 
         let action = update_settings_state(
             &mut state,
@@ -4270,7 +4346,7 @@ mod tests {
             true,
         )];
         open_settings_at(&mut state, SettingsSection::Integrations);
-        state.settings.selection_active = true;
+        state.settings.list.show();
 
         let action = update_settings_state(
             &mut state,
@@ -4295,7 +4371,7 @@ mod tests {
             true,
         )];
         open_settings_at(&mut state, SettingsSection::Integrations);
-        state.settings.selection_active = true;
+        state.settings.list.show();
 
         let action = update_settings_state(
             &mut state,
@@ -4438,7 +4514,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_hover_moves_cursor_without_selecting_pending_value() {
+    fn settings_hover_highlights_without_moving_keyboard_selection() {
         let mut app = app_for_mouse_test();
         open_settings(&mut app.state);
         app.state.settings.list.select(0);
@@ -4451,7 +4527,8 @@ mod tests {
             list_area.y + 2,
         ));
 
-        assert_eq!(app.state.settings.list.selected, 1);
+        assert_eq!(app.state.settings.list.selected, 0);
+        assert_eq!(app.state.settings.list.visible(), Some(1));
         assert_eq!(
             app.state.settings.pending_theme_mode,
             Some(ThemeMode::System)
@@ -4474,6 +4551,7 @@ mod tests {
         app.handle_mouse(mouse(MouseEventKind::Moved, track.x, track.y + 1));
 
         assert_eq!(app.state.settings.list.selected, 0);
+        assert_eq!(app.state.settings.list.visible(), None);
     }
 
     #[test]
@@ -4589,7 +4667,7 @@ mod tests {
 
         let list_area = settings_section_list_rect(&app.state, SettingsSection::PaneLabels);
         app.state.settings.list.selected = 4;
-        app.state.settings.selection_active = true;
+        app.state.settings.list.show();
         assert_eq!(
             app.state.handle_settings_mouse(mouse(
                 MouseEventKind::Moved,
@@ -4611,7 +4689,8 @@ mod tests {
             list_area.x + 2,
             list_area.y + 1,
         ));
-        assert_eq!(app.state.settings.list.selected, 0);
+        assert_eq!(app.state.settings.list.selected, 4);
+        assert_eq!(app.state.settings.list.visible(), Some(0));
     }
 
     #[test]

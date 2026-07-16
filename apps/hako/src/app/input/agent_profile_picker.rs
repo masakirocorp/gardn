@@ -49,7 +49,8 @@ pub(crate) fn open_new_agent_picker_for_workspace(state: &mut AppState, ws_idx: 
             state.agent_profile_picker.kind_filter = None;
             state.agent_profile_picker.ws_idx = ws_idx;
             state.agent_profile_picker.query.clear();
-            state.agent_profile_picker.selected = 0;
+            state.agent_profile_picker.list.select(0);
+            state.agent_profile_picker.list.hide();
             state.agent_profile_picker.scroll = 0;
             state.mode = Mode::AgentProfilePicker;
         }
@@ -168,7 +169,7 @@ impl App {
     fn launch_selected_agent_profile(&mut self) {
         let entries = agent_profile_picker_filtered_entries(&self.state);
         let Some(entry) = entries
-            .get(self.state.agent_profile_picker.selected)
+            .get(self.state.agent_profile_picker.list.selected)
             .cloned()
         else {
             return;
@@ -193,7 +194,7 @@ impl App {
 
     fn toggle_selected_agent_profile_favorite(&mut self) {
         let entries = agent_profile_picker_filtered_entries(&self.state);
-        let Some(entry) = entries.get(self.state.agent_profile_picker.selected) else {
+        let Some(entry) = entries.get(self.state.agent_profile_picker.list.selected) else {
             return;
         };
         if let Some(group_idx) = self
@@ -209,7 +210,7 @@ impl App {
 
     fn toggle_selected_agent_profile_default(&mut self) {
         let entries = agent_profile_picker_filtered_entries(&self.state);
-        let Some(entry) = entries.get(self.state.agent_profile_picker.selected) else {
+        let Some(entry) = entries.get(self.state.agent_profile_picker.list.selected) else {
             return;
         };
         if let Some(group_idx) = self
@@ -252,7 +253,7 @@ fn launch_agent_profile_for_view(
 fn launch_selected_agent_profile_for_view(state: &mut AppState, view: &mut ClientViewState) {
     let Some(entry) =
         agent_profile_picker_filtered_entries_for_picker(state, &view.agent_profile_picker)
-            .get(view.agent_profile_picker.selected)
+            .get(view.agent_profile_picker.list.selected)
             .cloned()
     else {
         return;
@@ -281,7 +282,7 @@ fn selected_agent_profile_group_for_view(
     view: &ClientViewState,
 ) -> Option<(usize, String)> {
     let entry = agent_profile_picker_filtered_entries_for_picker(state, &view.agent_profile_picker)
-        .get(view.agent_profile_picker.selected)?
+        .get(view.agent_profile_picker.list.selected)?
         .clone();
     let group_idx = state
         .workspaces
@@ -367,7 +368,7 @@ pub(crate) fn select_agent_profile_picker_tab_at_for_view(
     };
 
     view.agent_profile_picker.kind_filter = AGENT_PROFILE_PICKER_TABS[tab_idx];
-    view.agent_profile_picker.selected = 0;
+    view.agent_profile_picker.list.select(0);
     view.agent_profile_picker.scroll = 0;
     clamp_agent_profile_picker_selection_for_view(state, view);
     true
@@ -408,7 +409,7 @@ pub(crate) fn select_agent_profile_picker_tab_at(state: &mut AppState, col: u16,
     };
 
     state.agent_profile_picker.kind_filter = AGENT_PROFILE_PICKER_TABS[tab_idx];
-    state.agent_profile_picker.selected = 0;
+    state.agent_profile_picker.list.select(0);
     state.agent_profile_picker.scroll = 0;
     clamp_agent_profile_picker_selection(state);
     true
@@ -423,17 +424,63 @@ pub(crate) fn agent_profile_picker_contains_point(state: &AppState, col: u16, ro
     })
 }
 
-pub(crate) fn hover_agent_profile_picker_selection(state: &mut AppState, col: u16, row: u16) {
-    let Some((list, rows)) = agent_profile_picker_viewport(state) else {
-        return;
-    };
-    let Some(row_idx) = list.hit_visual_row(col, row) else {
-        return;
-    };
+fn agent_profile_picker_selection_at(state: &AppState, col: u16, row: u16) -> Option<usize> {
+    let (list, rows) = agent_profile_picker_viewport(state)?;
+    let row_idx = list.hit_visual_row(col, row)?;
+    rows.get(row_idx).and_then(|row| row.as_ref().copied())
+}
 
-    if let Some(Some(entry_idx)) = rows.get(row_idx) {
-        state.agent_profile_picker.selected = *entry_idx;
-    }
+pub(crate) fn hover_agent_profile_picker_selection(state: &mut AppState, col: u16, row: u16) {
+    let hovered = agent_profile_picker_selection_at(state, col, row);
+    state.agent_profile_picker.list.hover(hovered);
+}
+
+pub(crate) fn select_agent_profile_picker_selection(
+    state: &mut AppState,
+    col: u16,
+    row: u16,
+) -> bool {
+    let Some(selected) = agent_profile_picker_selection_at(state, col, row) else {
+        return false;
+    };
+    state.agent_profile_picker.list.select(selected);
+    ensure_agent_profile_picker_selection_visible(state);
+    true
+}
+
+fn agent_profile_picker_selection_at_for_view(
+    state: &AppState,
+    view: &ClientViewState,
+    col: u16,
+    row: u16,
+) -> Option<usize> {
+    let (list, rows) = agent_profile_picker_viewport_for_view(state, view)?;
+    let row_idx = list.hit_visual_row(col, row)?;
+    rows.get(row_idx).and_then(|entry| entry.as_ref().copied())
+}
+
+pub(crate) fn hover_agent_profile_picker_selection_for_view(
+    state: &AppState,
+    view: &mut ClientViewState,
+    col: u16,
+    row: u16,
+) {
+    let hovered = agent_profile_picker_selection_at_for_view(state, view, col, row);
+    view.agent_profile_picker.list.hover(hovered);
+}
+
+pub(crate) fn select_agent_profile_picker_selection_for_view(
+    state: &AppState,
+    view: &mut ClientViewState,
+    col: u16,
+    row: u16,
+) -> bool {
+    let Some(selected) = agent_profile_picker_selection_at_for_view(state, view, col, row) else {
+        return false;
+    };
+    view.agent_profile_picker.list.select(selected);
+    ensure_agent_profile_picker_selection_visible_for_view(state, view);
+    true
 }
 
 pub(crate) fn scroll_agent_profile_picker_rows(state: &mut AppState, delta: i16) {
@@ -451,24 +498,6 @@ pub(crate) fn scroll_agent_profile_picker_rows(state: &mut AppState, delta: i16)
             .min(max_scroll)
     };
     state.agent_profile_picker.scroll = next.min(max_scroll);
-}
-
-pub(crate) fn hover_agent_profile_picker_selection_for_view(
-    state: &AppState,
-    view: &mut ClientViewState,
-    col: u16,
-    row: u16,
-) {
-    let Some((list, rows)) = agent_profile_picker_viewport_for_view(state, view) else {
-        return;
-    };
-    let Some(row_idx) = list.hit_visual_row(col, row) else {
-        return;
-    };
-
-    if let Some(Some(entry_idx)) = rows.get(row_idx) {
-        view.agent_profile_picker.selected = *entry_idx;
-    }
 }
 
 pub(crate) fn scroll_agent_profile_picker_rows_for_view(
@@ -544,31 +573,31 @@ pub(super) fn set_agent_profile_picker_offset_from_bottom(
 fn clamp_agent_profile_picker_selection(state: &mut AppState) {
     let count = agent_profile_picker_filtered_entries(state).len();
     if count == 0 {
-        state.agent_profile_picker.selected = 0;
+        state.agent_profile_picker.list.select(0);
         state.agent_profile_picker.scroll = 0;
         return;
     }
 
-    state.agent_profile_picker.selected = state.agent_profile_picker.selected.min(count - 1);
+    let selected = state.agent_profile_picker.list.selected.min(count - 1);
+    state.agent_profile_picker.list.select(selected);
     ensure_agent_profile_picker_selection_visible(state);
 }
 
 fn move_agent_profile_picker_selection(state: &mut AppState, down: bool) -> bool {
     let count = agent_profile_picker_filtered_entries(state).len();
     if count == 0 {
-        state.agent_profile_picker.selected = 0;
+        state.agent_profile_picker.list.select(0);
         state.agent_profile_picker.scroll = 0;
         return false;
     }
-    let next = if down {
-        (state.agent_profile_picker.selected + 1).min(count - 1)
+    let previous = state.agent_profile_picker.list.selected;
+    if down {
+        state.agent_profile_picker.list.move_next(count);
     } else {
-        state.agent_profile_picker.selected.saturating_sub(1)
-    };
-    let changed = next != state.agent_profile_picker.selected;
-    state.agent_profile_picker.selected = next;
+        state.agent_profile_picker.list.move_prev();
+    }
     ensure_agent_profile_picker_selection_visible(state);
-    changed
+    state.agent_profile_picker.list.selected != previous
 }
 
 fn move_agent_profile_picker_tab(state: &mut AppState, forward: bool) {
@@ -586,7 +615,7 @@ fn move_agent_profile_picker_tab(state: &mut AppState, forward: bool) {
     };
 
     state.agent_profile_picker.kind_filter = AGENT_PROFILE_PICKER_TABS[next_idx];
-    state.agent_profile_picker.selected = 0;
+    state.agent_profile_picker.list.select(0);
     state.agent_profile_picker.scroll = 0;
     clamp_agent_profile_picker_selection(state);
 }
@@ -599,15 +628,15 @@ fn move_agent_profile_picker_selection_for_view(
     let count =
         agent_profile_picker_filtered_entries_for_picker(state, &view.agent_profile_picker).len();
     if count == 0 {
-        view.agent_profile_picker.selected = 0;
+        view.agent_profile_picker.list.select(0);
         view.agent_profile_picker.scroll = 0;
         return;
     }
-    view.agent_profile_picker.selected = if down {
-        (view.agent_profile_picker.selected + 1).min(count - 1)
+    if down {
+        view.agent_profile_picker.list.move_next(count);
     } else {
-        view.agent_profile_picker.selected.saturating_sub(1)
-    };
+        view.agent_profile_picker.list.move_prev();
+    }
     ensure_agent_profile_picker_selection_visible_for_view(state, view);
 }
 
@@ -629,7 +658,7 @@ fn move_agent_profile_picker_tab_for_view(
             .unwrap_or(AGENT_PROFILE_PICKER_TABS.len() - 1)
     };
     view.agent_profile_picker.kind_filter = AGENT_PROFILE_PICKER_TABS[next_idx];
-    view.agent_profile_picker.selected = 0;
+    view.agent_profile_picker.list.select(0);
     view.agent_profile_picker.scroll = 0;
     clamp_agent_profile_picker_selection_for_view(state, view);
 }
@@ -682,10 +711,11 @@ fn clamp_agent_profile_picker_selection_for_view(state: &AppState, view: &mut Cl
     let count =
         agent_profile_picker_filtered_entries_for_picker(state, &view.agent_profile_picker).len();
     if count == 0 {
-        view.agent_profile_picker.selected = 0;
+        view.agent_profile_picker.list.select(0);
         view.agent_profile_picker.scroll = 0;
     } else {
-        view.agent_profile_picker.selected = view.agent_profile_picker.selected.min(count - 1);
+        let selected = view.agent_profile_picker.list.selected.min(count - 1);
+        view.agent_profile_picker.list.select(selected);
         ensure_agent_profile_picker_selection_visible_for_view(state, view);
     }
 }
@@ -701,7 +731,7 @@ fn ensure_agent_profile_picker_selection_visible_for_view(
 
     let Some(selected_row) = rows
         .iter()
-        .position(|row| *row == Some(view.agent_profile_picker.selected))
+        .position(|row| *row == Some(view.agent_profile_picker.list.selected))
     else {
         view.agent_profile_picker.scroll = list.viewport.scroll();
         return;
@@ -722,7 +752,7 @@ fn ensure_agent_profile_picker_selection_visible(state: &mut AppState) {
 
     let Some(selected_row) = rows
         .iter()
-        .position(|row| *row == Some(state.agent_profile_picker.selected))
+        .position(|row| *row == Some(state.agent_profile_picker.list.selected))
     else {
         state.agent_profile_picker.scroll = list.viewport.scroll();
         return;
@@ -1229,7 +1259,11 @@ mod tests {
             codex_y,
         ));
 
-        assert_eq!(app.state.agent_profile_picker.selected, codex_idx);
+        assert_eq!(app.state.agent_profile_picker.list.selected, 0);
+        assert_eq!(
+            app.state.agent_profile_picker.list.visible(),
+            Some(codex_idx)
+        );
         terminal
             .draw(|frame| crate::ui::render(&app.state, frame))
             .expect("render hovered agent picker");
@@ -1242,6 +1276,15 @@ mod tests {
             hovered[(codex_x, codex_y.saturating_add(1))].style().bg,
             Some(app.state.palette_for_workspace(0).accent)
         );
+        app.handle_mouse(super::super::mouse(
+            crossterm::event::MouseEventKind::Moved,
+            0,
+            0,
+        ));
+        assert_eq!(app.state.agent_profile_picker.list.visible(), None);
+        assert_eq!(app.state.agent_profile_picker.list.selected, 0);
+        app.handle_agent_profile_picker_key(KeyEvent::new(KeyCode::Down, KeyModifiers::empty()));
+        assert_eq!(app.state.agent_profile_picker.list.visible(), Some(1));
     }
 
     #[test]
@@ -1280,7 +1323,7 @@ mod tests {
             codex_y,
         ));
 
-        assert_eq!(app.state.agent_profile_picker.selected, codex_idx);
+        assert_eq!(app.state.agent_profile_picker.list.selected, codex_idx);
     }
 
     #[test]

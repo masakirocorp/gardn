@@ -3,7 +3,7 @@ use ratatui::layout::{Direction, Rect};
 
 use crate::{
     app::state::{
-        AppState, ContextMenuKind, ContextMenuState, MenuListState, Mode, NavigatorStateFilter,
+        AppState, ContextMenuKind, ContextMenuState, ModalListState, Mode, NavigatorStateFilter,
         DEFAULT_GROUP_ICON,
     },
     input::TerminalKey,
@@ -103,7 +103,7 @@ pub(super) fn open_config_diagnostics(state: &mut AppState) {
 }
 
 pub(super) fn open_global_menu(state: &mut AppState) {
-    state.global_menu = MenuListState::new(0);
+    state.global_menu = ModalListState::hidden(0);
     state.mode = Mode::GlobalMenu;
 }
 
@@ -113,7 +113,7 @@ pub(super) fn open_group_menu(state: &mut AppState) {
     } else {
         1
     };
-    state.group_menu = MenuListState::new(highlighted);
+    state.group_menu = ModalListState::hidden(highlighted);
     state.mode = Mode::GroupMenu;
 }
 
@@ -123,7 +123,7 @@ pub(super) fn open_agent_menu(state: &mut AppState) {
         crate::app::state::AgentPanelScope::CurrentWorkspace => 2,
         crate::app::state::AgentPanelScope::CurrentGroup => 3,
     };
-    state.agent_menu = MenuListState::new(highlighted);
+    state.agent_menu = ModalListState::hidden(highlighted);
     state.mode = Mode::AgentMenu;
 }
 
@@ -180,7 +180,7 @@ pub(crate) fn handle_global_menu_key(state: &mut AppState, key: KeyEvent) {
         KeyCode::Up | KeyCode::Char('k') => state.global_menu.move_prev(),
         KeyCode::Down | KeyCode::Char('j') => state.global_menu.move_next(actions.len()),
         KeyCode::Enter => {
-            if let Some(action) = actions.get(state.global_menu.highlighted).copied() {
+            if let Some(action) = actions.get(state.global_menu.selected).copied() {
                 apply_global_menu_action(state, action);
             }
         }
@@ -290,11 +290,14 @@ pub(crate) fn handle_navigator_key(state: &mut AppState, key: KeyEvent) {
             .move_navigator_selection(-((state.navigator_body_rect().height / 2).max(1) as isize)),
         KeyCode::Char(' ') => state.toggle_selected_navigator_workspace(),
         KeyCode::Home => {
-            state.navigator.selected = 0;
+            state.navigator.list.select(0);
             state.ensure_navigator_selection_visible();
         }
         KeyCode::End | KeyCode::Char('G') => {
-            state.navigator.selected = state.navigator_rows().len().saturating_sub(1);
+            state
+                .navigator
+                .list
+                .select(state.navigator_rows().len().saturating_sub(1));
             state.ensure_navigator_selection_visible();
         }
         _ => {}
@@ -309,7 +312,7 @@ pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
             for _ in 0..len {
                 state.group_menu.move_prev();
                 if state
-                    .group_menu_action_for_row(state.group_menu.highlighted)
+                    .group_menu_action_for_row(state.group_menu.selected)
                     .is_some()
                 {
                     break;
@@ -321,7 +324,7 @@ pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
             for _ in 0..len {
                 state.group_menu.move_next(len);
                 if state
-                    .group_menu_action_for_row(state.group_menu.highlighted)
+                    .group_menu_action_for_row(state.group_menu.selected)
                     .is_some()
                 {
                     break;
@@ -329,7 +332,7 @@ pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
             }
         }
         KeyCode::Enter => {
-            let Some(action) = state.group_menu_action_for_row(state.group_menu.highlighted) else {
+            let Some(action) = state.group_menu_action_for_row(state.group_menu.selected) else {
                 return;
             };
             match action {
@@ -353,31 +356,35 @@ pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
 }
 
 pub(crate) fn handle_agent_menu_key(state: &mut AppState, key: KeyEvent) {
-    let labels = state.agent_menu_labels();
     match key.code {
         KeyCode::Esc => leave_modal(state),
         KeyCode::Up | KeyCode::Char('k') => {
-            let mut idx = state.agent_menu.highlighted;
+            let current = state.agent_menu.selected;
+            let mut idx = current;
             while idx > 0 {
                 idx -= 1;
                 if state.agent_menu_action_for_row(idx).is_some() {
-                    state.agent_menu.highlighted = idx;
-                    break;
+                    state.agent_menu.select(idx);
+                    return;
                 }
             }
+            state.agent_menu.select(current);
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            let mut idx = state.agent_menu.highlighted;
+            let current = state.agent_menu.selected;
+            let labels = state.agent_menu_labels();
+            let mut idx = current;
             while idx + 1 < labels.len() {
                 idx += 1;
                 if state.agent_menu_action_for_row(idx).is_some() {
-                    state.agent_menu.highlighted = idx;
-                    break;
+                    state.agent_menu.select(idx);
+                    return;
                 }
             }
+            state.agent_menu.select(current);
         }
         KeyCode::Enter => {
-            let Some(action) = state.agent_menu_action_for_row(state.agent_menu.highlighted) else {
+            let Some(action) = state.agent_menu_action_for_row(state.agent_menu.selected) else {
                 return;
             };
             apply_agent_menu_action(state, action);
@@ -1335,7 +1342,7 @@ pub(crate) fn handle_context_menu_key(
         }
         KeyCode::Enter => {
             if let Some(menu) = state.context_menu.take() {
-                let idx = menu.list.highlighted;
+                let idx = menu.list.selected;
                 apply_context_menu_action(state, terminal_runtimes, menu, idx);
             }
         }
@@ -1452,7 +1459,7 @@ mod tests {
         assert!(state.global_menu_item_has_badge("integrations"));
 
         open_global_menu(&mut state);
-        state.global_menu.highlighted = integrations_idx;
+        state.global_menu.selected = integrations_idx;
         handle_global_menu_key(
             &mut state,
             KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
@@ -1990,7 +1997,7 @@ mod tests {
             },
             x: 0,
             y: 0,
-            list: MenuListState::new(2),
+            list: ModalListState::new(2),
         });
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
 
@@ -1999,14 +2006,32 @@ mod tests {
             &mut terminal_runtimes,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
         );
-        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 5);
+        assert_eq!(state.context_menu.as_ref().unwrap().list.selected, 5);
+        assert_eq!(state.context_menu.as_ref().unwrap().list.visible(), Some(5));
 
         handle_context_menu_key(
             &mut state,
             &mut terminal_runtimes,
             KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
         );
-        assert_eq!(state.context_menu.as_ref().unwrap().list.highlighted, 2);
+        assert_eq!(state.context_menu.as_ref().unwrap().list.selected, 2);
+        assert_eq!(state.context_menu.as_ref().unwrap().list.visible(), Some(2));
+
+        state.context_menu.as_mut().unwrap().list = ModalListState::hidden(1);
+        handle_context_menu_key(
+            &mut state,
+            &mut terminal_runtimes,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
+        );
+        assert_eq!(state.context_menu.as_ref().unwrap().list.visible(), Some(1));
+
+        state.context_menu.as_mut().unwrap().list = ModalListState::hidden(8);
+        handle_context_menu_key(
+            &mut state,
+            &mut terminal_runtimes,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(state.context_menu.as_ref().unwrap().list.visible(), Some(8));
     }
 
     #[test]
@@ -2038,7 +2063,7 @@ mod tests {
             },
             x: 0,
             y: 0,
-            list: MenuListState::new(1),
+            list: ModalListState::new(1),
         };
 
         apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 2);
@@ -2059,7 +2084,7 @@ mod tests {
             },
             x: 0,
             y: 0,
-            list: MenuListState::new(1),
+            list: ModalListState::new(1),
         };
 
         apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 1);
@@ -2086,7 +2111,7 @@ mod tests {
             },
             x: 0,
             y: 0,
-            list: MenuListState::new(0),
+            list: ModalListState::new(0),
         };
         let close_other_tabs = menu
             .items()
@@ -2136,7 +2161,7 @@ mod tests {
             },
             x: 0,
             y: 0,
-            list: MenuListState::new(4),
+            list: ModalListState::new(4),
         };
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
 

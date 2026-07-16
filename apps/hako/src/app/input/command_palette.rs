@@ -18,7 +18,8 @@ use super::{
 
 pub(super) fn open_command_palette(state: &mut AppState) {
     state.command_palette.query.clear();
-    state.command_palette.selected = 0;
+    state.command_palette.list.select(0);
+    state.command_palette.list.hide();
     state.command_palette.scroll = 0;
     state.mode = Mode::CommandPalette;
 }
@@ -26,7 +27,8 @@ pub(super) fn open_command_palette(state: &mut AppState) {
 #[cfg(test)]
 pub(crate) fn open_command_palette_for_view(view: &mut ClientViewState) {
     view.command_palette.query.clear();
-    view.command_palette.selected = 0;
+    view.command_palette.list.select(0);
+    view.command_palette.list.hide();
     view.command_palette.scroll = 0;
     view.mode = Mode::CommandPalette;
 }
@@ -76,7 +78,7 @@ pub(crate) fn selected_command_palette_action_for_view(
     view: &ClientViewState,
 ) -> Option<CommandPaletteAction> {
     command_palette_filtered_commands_for_view(state, view)
-        .get(view.command_palette.selected)
+        .get(view.command_palette.list.selected)
         .map(|command| command.action.clone())
 }
 
@@ -123,7 +125,10 @@ impl App {
 
     pub(super) fn execute_selected_command_palette_command(&mut self) {
         let commands = command_palette_visible_commands(&self.state);
-        let Some(command) = commands.get(self.state.command_palette.selected).cloned() else {
+        let Some(command) = commands
+            .get(self.state.command_palette.list.selected)
+            .cloned()
+        else {
             return;
         };
         execute_command_palette_action(self, command.action);
@@ -133,7 +138,10 @@ impl App {
 impl App {
     pub(super) async fn execute_selected_command_palette_command_interactive(&mut self) {
         let commands = command_palette_visible_commands(&self.state);
-        let Some(command) = commands.get(self.state.command_palette.selected).cloned() else {
+        let Some(command) = commands
+            .get(self.state.command_palette.list.selected)
+            .cloned()
+        else {
             return;
         };
 
@@ -187,30 +195,37 @@ pub(super) fn command_palette_action_button_at(
 fn clamp_command_palette_selection(state: &mut AppState) {
     let count = command_palette_visible_commands(state).len();
     if count == 0 {
-        state.command_palette.selected = 0;
+        state.command_palette.list.select(0);
         state.command_palette.scroll = 0;
         return;
     }
 
-    state.command_palette.selected = state.command_palette.selected.min(count - 1);
+    state
+        .command_palette
+        .list
+        .select(state.command_palette.list.selected.min(count - 1));
     ensure_command_palette_selection_visible(state);
 }
 
 fn move_command_palette_selection(state: &mut AppState, down: bool) -> bool {
     let count = command_palette_visible_commands(state).len();
     if count == 0 {
-        state.command_palette.selected = 0;
+        state.command_palette.list.select(0);
         state.command_palette.scroll = 0;
         return false;
     }
 
-    let next = if down {
-        (state.command_palette.selected + 1).min(count - 1)
+    let previous = state.command_palette.list.selected;
+    let current = previous.min(count - 1);
+    if current != previous {
+        state.command_palette.list.select(current);
+    }
+    if down {
+        state.command_palette.list.move_next(count);
     } else {
-        state.command_palette.selected.saturating_sub(1)
-    };
-    let changed = next != state.command_palette.selected;
-    state.command_palette.selected = next;
+        state.command_palette.list.move_prev();
+    }
+    let changed = state.command_palette.list.selected != previous;
     ensure_command_palette_selection_visible(state);
     changed
 }
@@ -233,16 +248,24 @@ pub(crate) fn scroll_command_palette_rows(state: &mut AppState, delta: i16) {
 }
 
 pub(crate) fn hover_command_palette_selection(state: &mut AppState, col: u16, row: u16) {
-    let Some((list, rows)) = command_palette_viewport(state) else {
-        return;
-    };
-    let Some(row_idx) = list.hit_visual_row(col, row) else {
-        return;
-    };
+    let hovered = command_palette_selection_at(state, col, row);
+    state.command_palette.list.hover(hovered);
+}
 
-    if let Some(Some(command_idx)) = rows.get(row_idx) {
-        state.command_palette.selected = *command_idx;
+pub(crate) fn select_command_palette_selection(state: &mut AppState, col: u16, row: u16) {
+    match command_palette_selection_at(state, col, row) {
+        Some(selected) => {
+            state.command_palette.list.select(selected);
+            ensure_command_palette_selection_visible(state);
+        }
+        None => state.command_palette.list.hover(None),
     }
+}
+
+fn command_palette_selection_at(state: &AppState, col: u16, row: u16) -> Option<usize> {
+    let (list, rows) = command_palette_viewport(state)?;
+    let row_idx = list.hit_visual_row(col, row)?;
+    rows.get(row_idx).copied().flatten()
 }
 
 pub(crate) fn command_palette_contains_point(state: &AppState, col: u16, row: u16) -> bool {
@@ -269,11 +292,11 @@ pub(crate) fn handle_command_palette_mouse_for_view(
         }
         MouseEventKind::Down(MouseButton::Left) => {
             if command_palette_contains_point_for_view(view, mouse.column, mouse.row) {
-                hover_command_palette_selection_for_view(state, view, mouse.column, mouse.row);
+                select_command_palette_selection_for_view(state, view, mouse.column, mouse.row);
             } else {
                 view.return_to_active_workspace_mode();
                 view.command_palette.query.clear();
-                view.command_palette.selected = 0;
+                view.command_palette.list.select(0);
                 view.command_palette.scroll = 0;
             }
         }
@@ -293,12 +316,14 @@ pub(crate) fn handle_command_palette_mouse_for_view(
 fn clamp_command_palette_selection_for_view(state: &AppState, view: &mut ClientViewState) {
     let count = command_palette_filtered_commands_for_view(state, view).len();
     if count == 0 {
-        view.command_palette.selected = 0;
+        view.command_palette.list.select(0);
         view.command_palette.scroll = 0;
         return;
     }
 
-    view.command_palette.selected = view.command_palette.selected.min(count - 1);
+    view.command_palette
+        .list
+        .select(view.command_palette.list.selected.min(count - 1));
     ensure_command_palette_selection_visible_for_view(state, view);
 }
 
@@ -309,18 +334,22 @@ fn move_command_palette_selection_for_view(
 ) -> bool {
     let count = command_palette_filtered_commands_for_view(state, view).len();
     if count == 0 {
-        view.command_palette.selected = 0;
+        view.command_palette.list.select(0);
         view.command_palette.scroll = 0;
         return false;
     }
 
-    let next = if down {
-        (view.command_palette.selected + 1).min(count - 1)
+    let previous = view.command_palette.list.selected;
+    let current = previous.min(count - 1);
+    if current != previous {
+        view.command_palette.list.select(current);
+    }
+    if down {
+        view.command_palette.list.move_next(count);
     } else {
-        view.command_palette.selected.saturating_sub(1)
-    };
-    let changed = next != view.command_palette.selected;
-    view.command_palette.selected = next;
+        view.command_palette.list.move_prev();
+    }
+    let changed = view.command_palette.list.selected != previous;
     ensure_command_palette_selection_visible_for_view(state, view);
     changed
 }
@@ -346,16 +375,34 @@ fn hover_command_palette_selection_for_view(
     col: u16,
     row: u16,
 ) {
-    let Some((list, rows)) = command_palette_viewport_for_view(state, view) else {
-        return;
-    };
-    let Some(row_idx) = list.hit_visual_row(col, row) else {
-        return;
-    };
+    let hovered = command_palette_selection_at_for_view(state, view, col, row);
+    view.command_palette.list.hover(hovered);
+}
 
-    if let Some(Some(command_idx)) = rows.get(row_idx) {
-        view.command_palette.selected = *command_idx;
+fn select_command_palette_selection_for_view(
+    state: &AppState,
+    view: &mut ClientViewState,
+    col: u16,
+    row: u16,
+) {
+    match command_palette_selection_at_for_view(state, view, col, row) {
+        Some(selected) => {
+            view.command_palette.list.select(selected);
+            ensure_command_palette_selection_visible_for_view(state, view);
+        }
+        None => view.command_palette.list.hover(None),
     }
+}
+
+fn command_palette_selection_at_for_view(
+    state: &AppState,
+    view: &ClientViewState,
+    col: u16,
+    row: u16,
+) -> Option<usize> {
+    let (list, rows) = command_palette_viewport_for_view(state, view)?;
+    let row_idx = list.hit_visual_row(col, row)?;
+    rows.get(row_idx).copied().flatten()
 }
 
 fn command_palette_contains_point_for_view(view: &ClientViewState, col: u16, row: u16) -> bool {
@@ -485,7 +532,7 @@ fn ensure_command_palette_selection_visible_for_view(state: &AppState, view: &mu
 
     let Some(selected_row) = rows
         .iter()
-        .position(|row| *row == Some(view.command_palette.selected))
+        .position(|row| *row == Some(view.command_palette.list.selected))
     else {
         view.command_palette.scroll = list.viewport.scroll();
         return;
@@ -507,7 +554,7 @@ fn ensure_command_palette_selection_visible(state: &mut AppState) {
 
     let Some(selected_row) = rows
         .iter()
-        .position(|row| *row == Some(state.command_palette.selected))
+        .position(|row| *row == Some(state.command_palette.list.selected))
     else {
         state.command_palette.scroll = list.viewport.scroll();
         return;
@@ -845,7 +892,7 @@ mod tests {
         let mut app = app_with_space();
         crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 119, 24));
         app.state.command_palette.query = "new tab".to_string();
-        app.state.command_palette.selected = 0;
+        app.state.command_palette.list.select(0);
 
         let backend = ratatui::backend::TestBackend::new(119, 24);
         let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
@@ -876,7 +923,7 @@ mod tests {
             new_tab_y,
         ));
 
-        assert_eq!(app.state.command_palette.selected, new_tab_idx);
+        assert_eq!(app.state.command_palette.list.selected, new_tab_idx);
     }
 
     #[test]
@@ -946,10 +993,10 @@ mod tests {
         let mut app = app_with_space();
 
         app.handle_command_palette_key(KeyEvent::new(KeyCode::Up, KeyModifiers::empty()));
-        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.list.selected, 0);
 
         app.handle_command_palette_key(KeyEvent::new(KeyCode::Down, KeyModifiers::empty()));
-        assert_eq!(app.state.command_palette.selected, 1);
+        assert_eq!(app.state.command_palette.list.selected, 1);
     }
 
     #[test]
@@ -964,10 +1011,10 @@ mod tests {
 
         let visible_commands = command_palette_visible_commands(&app.state);
         let selected_title = visible_commands
-            .get(app.state.command_palette.selected)
+            .get(app.state.command_palette.list.selected)
             .map(|command| command.title.as_str())
             .expect("selected command");
-        assert_eq!(app.state.command_palette.selected, 7);
+        assert_eq!(app.state.command_palette.list.selected, 7);
         assert!(app.state.command_palette.scroll > 0);
         rendered_text_point(&app, selected_title, 106, 20);
     }
@@ -979,14 +1026,14 @@ mod tests {
         app.state.view.terminal_area = ratatui::layout::Rect::new(26, 0, 80, 20);
 
         app.handle_command_palette_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::empty()));
-        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.list.selected, 0);
         assert_eq!(
             app.state.command_palette.scroll,
             MODAL_PAGE_SCROLL_ROWS as usize
         );
 
         app.handle_command_palette_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::empty()));
-        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.list.selected, 0);
         assert_eq!(app.state.command_palette.scroll, 0);
     }
 
@@ -1005,7 +1052,7 @@ mod tests {
             app.handle_command_palette_key(KeyEvent::new(KeyCode::Up, KeyModifiers::empty()));
         }
 
-        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.list.selected, 0);
         assert_eq!(app.state.command_palette.scroll, 0);
     }
 
@@ -1023,7 +1070,42 @@ mod tests {
             scrollbar.1,
         ));
 
-        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.list.selected, 0);
+        assert_eq!(app.state.command_palette.list.visible(), None);
+    }
+
+    #[test]
+    fn command_palette_pointer_exit_hides_highlight_and_keyboard_resumes_anchor() {
+        let mut app = app_with_space();
+        app.state.view.sidebar_rect = ratatui::layout::Rect::new(0, 0, 26, 20);
+        app.state.view.terminal_area = ratatui::layout::Rect::new(26, 0, 80, 20);
+
+        let (list, rows) = command_palette_viewport(&app.state).expect("palette rows");
+        assert_eq!(app.state.command_palette.list.visible(), None);
+        let row_idx = rows
+            .iter()
+            .position(|row| row.is_some_and(|index| index > 0))
+            .expect("second actionable row");
+        let hovered = rows[row_idx].expect("action index");
+        app.handle_mouse(super::super::mouse(
+            crossterm::event::MouseEventKind::Moved,
+            list.rect.x.saturating_add(2),
+            list.rect.y.saturating_add(row_idx as u16),
+        ));
+
+        assert_eq!(app.state.command_palette.list.selected, 0);
+        assert_eq!(app.state.command_palette.list.visible(), Some(hovered));
+
+        app.handle_mouse(super::super::mouse(
+            crossterm::event::MouseEventKind::Moved,
+            0,
+            0,
+        ));
+        assert_eq!(app.state.command_palette.list.visible(), None);
+
+        app.handle_command_palette_key(KeyEvent::new(KeyCode::Down, KeyModifiers::empty()));
+        assert_eq!(app.state.command_palette.list.selected, 1);
+        assert_eq!(app.state.command_palette.list.visible(), Some(1));
     }
 
     #[test]

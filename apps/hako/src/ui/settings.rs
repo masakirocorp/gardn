@@ -758,7 +758,8 @@ fn render_settings_rows_for_view(
                 None
             }
         };
-        let selected = settings.selection_active && selected_index == Some(settings.list.selected);
+        let selected =
+            settings.list.visible() == selected_index || settings.focused_input == selected_index;
         if selected {
             selected_row = Some(rows.len());
         }
@@ -1415,8 +1416,8 @@ fn render_settings_rows(
                 description,
                 enabled,
             } => {
-                let selected =
-                    app.settings.selection_active && app.settings.list.selected == *index;
+                let selected = app.settings.list.visible() == Some(*index)
+                    || app.settings.focused_input == Some(*index);
                 if selected {
                     selected_row = Some(rows.len());
                 }
@@ -1456,8 +1457,8 @@ fn render_settings_rows(
                 description,
                 value,
             } => {
-                let selected =
-                    app.settings.selection_active && app.settings.list.selected == *index;
+                let selected = app.settings.list.visible() == Some(*index)
+                    || app.settings.focused_input == Some(*index);
                 if selected {
                     selected_row = Some(rows.len());
                 }
@@ -1495,8 +1496,8 @@ fn render_settings_rows(
                 title,
                 value,
             } => {
-                let selected =
-                    app.settings.selection_active && app.settings.list.selected == *index;
+                let selected = app.settings.list.visible() == Some(*index)
+                    || app.settings.focused_input == Some(*index);
                 if selected {
                     selected_row = Some(rows.len() + 1);
                 }
@@ -1524,8 +1525,8 @@ fn render_settings_rows(
                 label,
                 checked,
             } => {
-                let selected =
-                    app.settings.selection_active && app.settings.list.selected == *index;
+                let selected = app.settings.list.visible() == Some(*index)
+                    || app.settings.focused_input == Some(*index);
                 if selected {
                     selected_row = Some(rows.len());
                 }
@@ -1556,8 +1557,8 @@ fn render_settings_rows(
                 label,
                 tone,
             } => {
-                let selected =
-                    app.settings.selection_active && app.settings.list.selected == *index;
+                let selected = app.settings.list.visible() == Some(*index)
+                    || app.settings.focused_input == Some(*index);
                 if selected {
                     selected_row = Some(rows.len());
                 }
@@ -1580,8 +1581,8 @@ fn render_settings_rows(
                 status,
                 tone,
             } => {
-                let selected =
-                    app.settings.selection_active && app.settings.list.selected == *index;
+                let selected = app.settings.list.visible() == Some(*index)
+                    || app.settings.focused_input == Some(*index);
                 if selected {
                     selected_row = Some(rows.len());
                 }
@@ -1611,8 +1612,8 @@ fn render_settings_rows(
                 badge,
                 tone,
             } => {
-                let selected =
-                    app.settings.selection_active && app.settings.list.selected == *index;
+                let selected = app.settings.list.visible() == Some(*index)
+                    || app.settings.focused_input == Some(*index);
                 if selected {
                     selected_row = Some(rows.len());
                 }
@@ -1759,7 +1760,7 @@ mod tests {
         client_view.settings.section = SettingsSection::GroupGeneral;
         client_view.settings.pending_group_name = Some("Work".to_string());
         client_view.settings.list.selected = 0;
-        client_view.settings.selection_active = true;
+        client_view.settings.list.show();
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("test backend");
@@ -1809,7 +1810,7 @@ mod tests {
         assert_ne!(buffer[(x, y)].style().bg, Some(app.palette.red));
 
         app.settings.list.selected = 2;
-        app.settings.selection_active = true;
+        app.settings.list.show();
         terminal
             .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
             .expect("render group settings overlay");
@@ -1982,7 +1983,7 @@ mod tests {
         assert_no_option_line(&text, "terminal");
 
         app.settings.list.selected = theme_names_for_appearance(ThemeAppearance::Light).len();
-        app.settings.selection_active = true;
+        app.settings.list.show();
         app.settings.scroll = theme_names_for_appearance(ThemeAppearance::Light).len() + 3;
         terminal
             .draw(|frame| render_settings_theme(&app, frame, Rect::new(0, 0, 100, 50)))
@@ -2002,7 +2003,7 @@ mod tests {
         app.settings.pending_light_theme_name = Some("solarized-light".to_string());
         app.settings.pending_dark_theme_name = Some("rose-pine".to_string());
         app.settings.list.selected = 0;
-        app.settings.selection_active = true;
+        app.settings.list.show();
         app.settings.scroll = theme_names_for_appearance(ThemeAppearance::Light).len() + 2;
 
         let backend = TestBackend::new(100, 50);
@@ -2025,7 +2026,7 @@ mod tests {
         app.settings.pending_theme_mode = Some(ThemeMode::Light);
         app.settings.pending_light_theme_name = Some("solarized-light".to_string());
         app.settings.list.selected = 1;
-        app.settings.selection_active = true;
+        app.settings.list.show();
 
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).expect("test backend");
@@ -2047,7 +2048,7 @@ mod tests {
         app.settings.section = SettingsSection::Theme;
         app.settings.pending_theme_mode = Some(ThemeMode::Light);
         app.settings.list.selected = 3;
-        app.settings.selection_active = true;
+        app.settings.list.show();
 
         let area = Rect::new(0, 0, 100, 80);
         let backend = TestBackend::new(area.width, area.height);
@@ -2080,7 +2081,7 @@ mod tests {
         app.settings.pending_light_theme_name = Some("system".to_string());
         app.settings.pending_dark_theme_name = Some("system".to_string());
         app.settings.list.selected = 2 + TerminalAccent::ALL.len();
-        app.settings.selection_active = true;
+        app.settings.list.show();
 
         let area = Rect::new(0, 0, 100, 50);
         let backend = TestBackend::new(area.width, area.height);
@@ -2123,7 +2124,7 @@ mod tests {
         app.settings.section = SettingsSection::Theme;
         app.settings.pending_theme_mode = Some(ThemeMode::Light);
         app.settings.list.selected = 3;
-        app.settings.selection_active = true;
+        app.settings.list.show();
 
         let area = Rect::new(0, 0, 100, 50);
         let backend = TestBackend::new(area.width, area.height);
@@ -2246,7 +2247,7 @@ mod tests {
             },
         ];
         app.settings.list.selected = 2;
-        app.settings.selection_active = true;
+        app.settings.list.show();
 
         let area = Rect::new(0, 0, 100, 40);
         let backend = TestBackend::new(area.width, area.height);
@@ -2552,7 +2553,7 @@ mod tests {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Layout;
         app.settings.list.selected = 0;
-        app.settings.selection_active = true;
+        app.settings.list.show();
 
         let area = Rect::new(0, 0, 100, 30);
         let backend = TestBackend::new(area.width, area.height);
@@ -2584,7 +2585,7 @@ mod tests {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Layout;
         app.settings.list.selected = 0;
-        app.settings.selection_active = false;
+        app.settings.list.hide();
 
         let area = Rect::new(0, 0, 100, 30);
         let backend = TestBackend::new(area.width, area.height);
@@ -2612,7 +2613,7 @@ mod tests {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Layout;
         app.settings.list.selected = 0;
-        app.settings.selection_active = true;
+        app.settings.list.show();
 
         let area = Rect::new(0, 0, 100, 30);
         let backend = TestBackend::new(area.width, area.height);
@@ -2640,7 +2641,7 @@ mod tests {
         app.switch_ascii_input_source_in_prefix = false;
         app.settings.section = SettingsSection::Experiments;
         app.settings.list.selected = 0;
-        app.settings.selection_active = true;
+        app.settings.list.show();
 
         let area = Rect::new(0, 0, 100, 30);
         let backend = TestBackend::new(area.width, area.height);
@@ -2834,7 +2835,7 @@ mod tests {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Integrations;
         app.settings.list.selected = 0;
-        app.settings.selection_active = true;
+        app.settings.list.show();
         app.integration_recommendations = vec![crate::integration::IntegrationRecommendation {
             target: crate::api::schema::IntegrationTarget::Omp,
             label: "omp",
@@ -2885,7 +2886,7 @@ mod tests {
         let mut client_view = crate::app::ClientViewState::from_default_client_state(&app);
         client_view.settings.section = SettingsSection::Integrations;
         client_view.settings.list.selected = 0;
-        client_view.settings.selection_active = true;
+        client_view.settings.list.show();
 
         let area = Rect::new(0, 0, 100, 30);
         let backend = TestBackend::new(area.width, area.height);
@@ -2916,7 +2917,7 @@ mod tests {
             .iter()
             .position(|accent| *accent == TerminalAccent::Magenta)
             .expect("magenta terminal accent");
-        client_view.settings.selection_active = true;
+        client_view.settings.list.show();
 
         let area = Rect::new(0, 0, 100, 30);
         let backend = TestBackend::new(area.width, area.height);
@@ -2943,7 +2944,7 @@ mod tests {
         app.switch_ascii_input_source_in_prefix = true;
         app.settings.section = SettingsSection::Experiments;
         app.settings.list.selected = 0;
-        app.settings.selection_active = true;
+        app.settings.list.show();
 
         let area = Rect::new(0, 0, 100, 30);
         let backend = TestBackend::new(area.width, area.height);

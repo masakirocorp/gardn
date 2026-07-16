@@ -531,12 +531,13 @@ pub(super) fn render_global_launcher_menu(app: &AppState, frame: &mut Frame) {
     };
 
     let items = app.global_menu_labels();
+    let visible = app.global_menu.visible();
     for (idx, item) in items.iter().enumerate() {
         let y = inner.y + idx as u16;
         if y >= inner.y + inner.height {
             break;
         }
-        let selected = idx == app.global_menu.highlighted;
+        let selected = visible == Some(idx);
         let rect = Rect::new(inner.x, y, inner.width, 1);
 
         let selected_style = Style::default()
@@ -593,9 +594,10 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
         .add_modifier(Modifier::BOLD);
     let text_style = Style::default().fg(app.palette.text);
     let dim_style = Style::default().fg(app.palette.overlay0);
+    let visible = app.group_menu.visible();
 
     for (idx, item) in app.group_menu_labels().iter().enumerate() {
-        let selected = idx == app.group_menu.highlighted;
+        let selected = visible == Some(idx);
         if idx == 1 {
             render_menu_row(
                 frame,
@@ -674,9 +676,10 @@ pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
         .add_modifier(Modifier::BOLD);
     let text_style = Style::default().fg(app.palette.text);
     let dim_style = Style::default().fg(app.palette.overlay0);
+    let visible = app.agent_menu.visible();
 
     for (idx, item) in app.agent_menu_labels().iter().enumerate() {
-        let selected = idx == app.agent_menu.highlighted;
+        let selected = visible == Some(idx);
         if app.agent_menu_action_for_row(idx).is_none() {
             if item == "---" {
                 render_menu_separator(frame, inner, idx, dim_style);
@@ -781,6 +784,7 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
     let text_style = Style::default().fg(p.text);
     let dim_style = Style::default().fg(p.overlay0);
 
+    let visible = menu.list.visible();
     for (idx, item) in menu.items().iter().enumerate() {
         if ContextMenuState::item_is_separator(item) {
             render_menu_separator(frame, inner, idx, dim_style);
@@ -805,7 +809,7 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
                 inner,
                 idx,
                 Line::from(label),
-                idx == menu.list.highlighted,
+                visible == Some(idx),
                 selected_style,
                 text_style,
             );
@@ -1056,6 +1060,7 @@ pub(super) fn render_context_menu_for_view(
         .add_modifier(Modifier::BOLD);
     let text = Style::default().fg(palette.text);
     let dim = Style::default().fg(palette.overlay0);
+    let visible = menu.list.visible();
     for (idx, item) in menu.items().iter().enumerate() {
         if ContextMenuState::item_is_separator(item) {
             render_menu_separator(frame, inner, idx, dim);
@@ -1070,7 +1075,7 @@ pub(super) fn render_context_menu_for_view(
                 } else {
                     format!("  {item}")
                 }),
-                !header && idx == menu.list.highlighted,
+                !header && visible == Some(idx),
                 selected,
                 if header { dim } else { text },
             );
@@ -1083,7 +1088,7 @@ fn render_client_list_menu(
     frame: &mut Frame,
     rect: Rect,
     labels: &[String],
-    highlighted: usize,
+    visible: Option<usize>,
 ) {
     let Some(inner) = render_panel_shell(frame, rect, app.palette.accent, app.palette.panel_bg)
     else {
@@ -1104,7 +1109,7 @@ fn render_client_list_menu(
                 inner,
                 idx,
                 Line::from(format!(" {label}")),
-                idx == highlighted,
+                visible == Some(idx),
                 selected,
                 text,
             );
@@ -1127,8 +1132,9 @@ pub(super) fn render_global_launcher_menu_for_view(
         .bg(app.palette.accent)
         .add_modifier(Modifier::BOLD);
     let text_style = Style::default().fg(app.palette.text);
+    let visible = view.global_menu.visible();
     for (idx, label) in app.global_menu_labels().iter().enumerate() {
-        let selected = idx == view.global_menu.highlighted;
+        let selected = visible == Some(idx);
         let item_style = if selected { selected_style } else { text_style };
         let badge_style = if selected {
             selected_style
@@ -1180,12 +1186,13 @@ pub(super) fn render_group_menu_for_view(
         .add_modifier(Modifier::BOLD);
     let text_style = Style::default().fg(app.palette.text);
     let dim_style = Style::default().fg(app.palette.overlay0);
+    let visible = view.group_menu.visible();
     for (idx, label) in labels.iter().enumerate() {
         if label == "---" {
             render_menu_separator(frame, inner, idx, dim_style);
             continue;
         }
-        let selected = idx == view.group_menu.highlighted;
+        let selected = visible == Some(idx) && app.group_menu_action_for_row(idx).is_some();
         let line = if let Some(group_idx) = group_menu_group_index(app, idx) {
             group_menu_group_line_for_selection(
                 app,
@@ -1221,7 +1228,9 @@ pub(super) fn render_agent_menu_for_view(
         frame,
         crate::app::client_agent_menu_rect(app, view),
         &labels,
-        view.agent_menu.highlighted,
+        view.agent_menu
+            .visible()
+            .filter(|idx| app.agent_menu_action_for_row(*idx).is_some()),
     );
 }
 #[cfg(test)]
@@ -1265,7 +1274,7 @@ mod tests {
         let mut view = ClientViewState::from_default_client_state(&app);
         view.computed.sidebar_rect = Rect::new(0, 0, 24, 20);
         view.computed.terminal_area = Rect::new(24, 0, 56, 20);
-        view.group_menu = crate::app::state::MenuListState::new(0);
+        view.group_menu = crate::app::state::ModalListState::new(0);
 
         let backend = TestBackend::new(80, 20);
         let mut terminal = Terminal::new(backend).expect("test backend");
@@ -1348,7 +1357,7 @@ mod tests {
         let mut app = AppState::test_new();
         app.view.sidebar_rect = Rect::new(0, 0, 24, 20);
         app.view.terminal_area = Rect::new(24, 0, 56, 20);
-        app.agent_menu = crate::app::state::MenuListState::new(0);
+        app.agent_menu = crate::app::state::ModalListState::new(0);
 
         let backend = TestBackend::new(80, 20);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -1393,7 +1402,7 @@ mod tests {
         let mut group_app = AppState::test_new();
         group_app.view.sidebar_rect = app.view.sidebar_rect;
         group_app.view.terminal_area = app.view.terminal_area;
-        group_app.group_menu = crate::app::state::MenuListState::new(0);
+        group_app.group_menu = crate::app::state::ModalListState::new(0);
 
         let backend = TestBackend::new(80, 20);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -1417,7 +1426,7 @@ mod tests {
         app.integration_recommendations.clear();
         app.update_available = None;
         app.latest_release_notes_available = false;
-        app.global_menu = crate::app::state::MenuListState::new(1);
+        app.global_menu = crate::app::state::ModalListState::new(1);
         app.view.sidebar_rect = Rect::new(0, 0, 24, 20);
         app.view.terminal_area = Rect::new(24, 0, 56, 20);
 
@@ -1434,7 +1443,7 @@ mod tests {
             rect.width.saturating_sub(2),
             rect.height.saturating_sub(2),
         );
-        let selected_y = inner.y + app.global_menu.highlighted as u16;
+        let selected_y = inner.y + app.global_menu.visible().expect("visible row") as u16;
         let buffer = terminal.backend().buffer();
         for x in inner.x..inner.x + inner.width {
             assert_eq!(

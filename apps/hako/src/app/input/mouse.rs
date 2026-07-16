@@ -6,7 +6,7 @@ use tracing::warn;
 use crate::{
     app::state::{
         AppState, ContextMenuKind, ContextMenuState, DragState, DragTarget, GroupPressState,
-        MenuListState, Mode, RightClickPassthroughGesture, TabPressState, ViewLayout,
+        ModalListState, Mode, RightClickPassthroughGesture, TabPressState, ViewLayout,
         WorkspacePressState,
     },
     layout::{PaneInfo, SplitBorder},
@@ -168,7 +168,11 @@ impl AppState {
 
         if self.mode == Mode::GlobalMenu {
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                let actions = global_menu_actions(self);
                 if let Some(action) = self.global_menu_item_at(mouse.column, mouse.row) {
+                    if let Some(idx) = actions.iter().position(|item| *item == action) {
+                        self.global_menu.select(idx);
+                    }
                     apply_global_menu_action(self, action);
                 } else {
                     leave_modal(self);
@@ -180,6 +184,9 @@ impl AppState {
         if self.mode == Mode::GroupMenu {
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
                 if let Some(action) = self.group_menu_item_at(mouse.column, mouse.row) {
+                    if let Some(idx) = self.group_menu_row_at(mouse.column, mouse.row) {
+                        self.group_menu.select(idx);
+                    }
                     match action {
                         super::sidebar::GroupMenuAction::AllSpaces => {
                             self.show_all_groups();
@@ -214,6 +221,9 @@ impl AppState {
         if self.mode == Mode::AgentMenu {
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
                 if let Some(action) = self.agent_menu_item_at(mouse.column, mouse.row) {
+                    if let Some(idx) = self.agent_menu_row_at(mouse.column, mouse.row) {
+                        self.agent_menu.select(idx);
+                    }
                     super::modal::apply_agent_menu_action(self, action);
                     leave_modal(self);
                 } else {
@@ -463,8 +473,11 @@ impl AppState {
 
                 if self.mode == Mode::ContextMenu {
                     let item_idx = self.context_menu_item_at(mouse.column, mouse.row);
-                    if let Some(menu) = self.context_menu.take() {
+                    if let Some(mut menu) = self.context_menu.take() {
                         if let Some(idx) = item_idx {
+                            if menu.item_is_selectable(idx) {
+                                menu.list.select(idx);
+                            }
                             apply_context_menu_action(self, terminal_runtimes, menu, idx);
                         } else {
                             leave_modal(self);
@@ -572,7 +585,7 @@ impl AppState {
                             kind: ContextMenuKind::NewTabButton { ws_idx, can_diff },
                             x: mouse.column,
                             y: mouse.row,
-                            list: MenuListState::new(1),
+                            list: ModalListState::hidden(1),
                         });
                         self.mode = Mode::ContextMenu;
                     }
@@ -1201,9 +1214,9 @@ impl AppState {
             }
 
             MouseEventKind::Moved if self.mode == Mode::ContextMenu => {
-                let hovered = self.context_menu_item_at(mouse.column, mouse.row);
+                let hovered = self.context_menu_hover_item_at(mouse.column, mouse.row);
                 if let Some(menu) = &mut self.context_menu {
-                    menu.hover(hovered);
+                    menu.list.hover(hovered);
                 }
             }
 
@@ -1228,7 +1241,7 @@ impl AppState {
                         },
                         x: mouse.column,
                         y: mouse.row,
-                        list: MenuListState::new(1),
+                        list: ModalListState::hidden(1),
                     });
                     self.mode = Mode::ContextMenu;
                     return None;
@@ -1245,7 +1258,7 @@ impl AppState {
                         },
                         x: mouse.column,
                         y: mouse.row,
-                        list: MenuListState::new(1),
+                        list: ModalListState::hidden(1),
                     });
                     self.mode = Mode::ContextMenu;
                 }
@@ -1269,7 +1282,7 @@ impl AppState {
                         },
                         x: mouse.column,
                         y: mouse.row,
-                        list: MenuListState::new(0),
+                        list: ModalListState::hidden(0),
                     });
                     self.mode = Mode::ContextMenu;
                 }
@@ -1294,7 +1307,7 @@ impl AppState {
                         },
                         x: mouse.column,
                         y: mouse.row,
-                        list: MenuListState::new(0),
+                        list: ModalListState::hidden(0),
                     });
                     self.mode = Mode::ContextMenu;
                 }
@@ -1454,6 +1467,14 @@ impl AppState {
         } else {
             None
         }
+    }
+
+    fn context_menu_hover_item_at(&self, col: u16, row: u16) -> Option<usize> {
+        let idx = self.context_menu_item_at(col, row)?;
+        self.context_menu
+            .as_ref()
+            .is_some_and(|menu| menu.item_is_selectable(idx))
+            .then_some(idx)
     }
 
     pub(super) fn tab_at(&self, col: u16, row: u16) -> Option<usize> {
@@ -2122,7 +2143,7 @@ mod tests {
     };
     use super::*;
     use crate::{
-        app::state::{ContextMenuKind, ContextMenuState, MenuListState, Mode, ViewLayout},
+        app::state::{ContextMenuKind, ContextMenuState, ModalListState, Mode, ViewLayout},
         detect::{Agent, AgentState},
         workspace::Workspace,
     };
@@ -2166,7 +2187,7 @@ mod tests {
     }
 
     #[test]
-    fn hovering_context_menu_updates_highlight() {
+    fn context_menu_hover_is_ephemeral_and_keyboard_restores_selection() {
         let mut app = app_for_mouse_test();
         app.state.context_menu = Some(ContextMenuState {
             kind: ContextMenuKind::Workspace {
@@ -2175,14 +2196,43 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: MenuListState::new(0),
+            list: ModalListState::new(0),
         });
         app.state.mode = Mode::ContextMenu;
 
         let menu = app.state.context_menu_rect().unwrap();
         app.handle_mouse(mouse(MouseEventKind::Moved, menu.x + 2, menu.y + 2));
+        {
+            let list = &app.state.context_menu.as_ref().unwrap().list;
+            assert_eq!(list.selected, 0);
+            assert_eq!(list.visible(), Some(1));
+        }
 
-        assert_eq!(app.state.context_menu.unwrap().list.highlighted, 1);
+        app.handle_mouse(mouse(MouseEventKind::Moved, menu.x + 2, menu.y + 1 + 3));
+        assert_eq!(
+            app.state.context_menu.as_ref().unwrap().list.visible(),
+            None
+        );
+        assert_eq!(app.state.context_menu.as_ref().unwrap().list.selected, 0);
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            menu.x.saturating_sub(1),
+            menu.y,
+        ));
+        assert_eq!(
+            app.state.context_menu.as_ref().unwrap().list.visible(),
+            None
+        );
+
+        handle_context_menu_key(
+            &mut app.state,
+            &mut app.terminal_runtimes,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        let list = &app.state.context_menu.as_ref().unwrap().list;
+        assert_eq!(list.selected, 1);
+        assert_eq!(list.visible(), Some(1));
     }
 
     #[test]
@@ -2191,11 +2241,11 @@ mod tests {
         app.state.mode = Mode::CommandPalette;
 
         app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
-        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.list.selected, 0);
         assert_eq!(app.state.command_palette.scroll, 3);
 
         app.handle_mouse(mouse(MouseEventKind::ScrollUp, 40, 8));
-        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.list.selected, 0);
         assert_eq!(app.state.command_palette.scroll, 0);
     }
 
@@ -2205,7 +2255,7 @@ mod tests {
         app.state.mode = Mode::CommandPalette;
 
         app.handle_mouse(mouse(MouseEventKind::ScrollUp, 40, 8));
-        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.list.selected, 0);
         assert_eq!(app.state.command_palette.scroll, 0);
 
         for _ in 0..100 {
@@ -2216,7 +2266,7 @@ mod tests {
 
         app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
         assert_eq!(app.state.command_palette.scroll, scroll);
-        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.list.selected, 0);
     }
 
     fn rendered_text_point(app: &crate::app::App, text: &str) -> (u16, u16) {
@@ -2246,17 +2296,19 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_hover_selects_visible_command() {
+    fn command_palette_hover_highlights_without_moving_keyboard_selection() {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::CommandPalette;
 
         let first = rendered_text_point(&app, "new space");
         app.handle_mouse(mouse(MouseEventKind::Moved, first.0, first.1));
-        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.list.selected, 0);
+        assert_eq!(app.state.command_palette.list.visible(), Some(0));
 
         let second = rendered_text_point(&app, "rename selected space");
         app.handle_mouse(mouse(MouseEventKind::Moved, second.0, second.1));
-        assert_eq!(app.state.command_palette.selected, 1);
+        assert_eq!(app.state.command_palette.list.selected, 0);
+        assert_eq!(app.state.command_palette.list.visible(), Some(1));
     }
 
     #[test]
@@ -2266,15 +2318,15 @@ mod tests {
 
         app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
         let scroll = app.state.command_palette.scroll;
-        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.list.selected, 0);
 
         app.handle_mouse(mouse(MouseEventKind::Moved, 18, 6));
-        assert!(app.state.command_palette.selected > 0);
+        assert!(app.state.command_palette.list.visible().is_some());
         assert_eq!(app.state.command_palette.scroll, scroll);
 
-        let selected = app.state.command_palette.selected;
+        let selected = app.state.command_palette.list.selected;
         app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 8));
-        assert_eq!(app.state.command_palette.selected, selected);
+        assert_eq!(app.state.command_palette.list.selected, selected);
         assert_eq!(app.state.command_palette.scroll, scroll + 3);
     }
 
@@ -2326,7 +2378,7 @@ mod tests {
         app.handle_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), 89, 17));
 
         assert!(app.state.command_palette.scroll > 0);
-        assert_eq!(app.state.command_palette.selected, 0);
+        assert_eq!(app.state.command_palette.list.selected, 0);
 
         app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 89, 17));
         assert!(app.state.drag.is_none());
@@ -2645,7 +2697,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: MenuListState::new(9),
+            list: ModalListState::new(9),
         });
         app.state.mode = Mode::ContextMenu;
         handle_context_menu_key(
@@ -2689,7 +2741,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: MenuListState::new(9),
+            list: ModalListState::new(9),
         });
         app.state.mode = Mode::ContextMenu;
         handle_context_menu_key(
@@ -2734,7 +2786,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: MenuListState::new(9),
+            list: ModalListState::new(9),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -2781,7 +2833,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: MenuListState::new(9),
+            list: ModalListState::new(9),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -2830,7 +2882,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: MenuListState::new(1),
+            list: ModalListState::new(1),
         });
         app.state.mode = Mode::ContextMenu;
 

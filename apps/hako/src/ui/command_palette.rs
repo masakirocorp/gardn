@@ -177,7 +177,7 @@ fn render_command_palette_overlay_from(
         return;
     }
 
-    let selected = palette_state.selected.min(commands.len().saturating_sub(1));
+    let selected = palette_state.list.visible();
     let palette_rows = command_palette_rows(&commands);
     let Some(list) = command_palette_list_geometry(area, palette_rows.len(), palette_state.scroll)
     else {
@@ -198,7 +198,7 @@ fn render_command_palette_overlay_from(
                 modal_section_heading_style(&app.palette),
             )),
             CommandPaletteRow::Command(idx, command) => {
-                let selected = *idx == selected;
+                let selected = Some(*idx) == selected;
                 let row_style = if selected {
                     Style::default().bg(app.palette.accent)
                 } else {
