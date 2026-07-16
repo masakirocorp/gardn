@@ -4,7 +4,7 @@ status: accepted
 
 # Perform live handoff through a dedicated import socket and FD exchange
 
-Hako performs live handoff through a dedicated Unix import socket, not through the wire-protocol client socket or Local API socket. The old server binds a temporary handoff socket with restricted permissions, spawns a replacement server in `server --handoff-import` mode, and authenticates that replacement with a one-use token before sending the handoff manifest. The manifest carries the handoff protocol version, source build/protocol versions, expected replacement version/protocol constraints, the handoff snapshot, and per-pane runtime handoff state.
+Oh My Herdr performs live handoff through a dedicated Unix import socket, not through the wire-protocol client socket or Local API socket. The old server binds a temporary handoff socket with restricted permissions, spawns a replacement server in `server --handoff-import` mode, and authenticates that replacement with a one-use token before sending the handoff manifest. The manifest carries the handoff protocol version, source build/protocol versions, expected replacement version/protocol constraints, the handoff snapshot, and per-pane runtime handoff state.
 
 The replacement validates the manifest before the old server transfers file descriptors. The old server sends duplicated pane runtime fds over the handoff Unix stream with `SCM_RIGHTS` and waits for a `restored` acknowledgement after the replacement has rebuilt `App` state from the handoff snapshot and imported runtimes. Only then does the old server remove its public API/client sockets and wait for the replacement to bind them and report `ready`.
 
@@ -16,7 +16,7 @@ This is separate from ADR 0009's snapshot/history/handoff state split: that ADR 
 
 ## Current rationale
 
-`[INFERENCE]` Hako uses a dedicated import socket and fd exchange because wire-protocol client and Local API sockets are public session surfaces with incompatible message contracts. Live handoff needs a short-lived private channel that can authenticate the replacement process, transfer PTY/runtime file descriptors, coordinate public socket ownership, and keep the old server able to roll back until the replacement proves it has restored and bound the session.
+`[INFERENCE]` Oh My Herdr uses a dedicated import socket and fd exchange because wire-protocol client and Local API sockets are public session surfaces with incompatible message contracts. Live handoff needs a short-lived private channel that can authenticate the replacement process, transfer PTY/runtime file descriptors, coordinate public socket ownership, and keep the old server able to roll back until the replacement proves it has restored and bound the session.
 
 ## Consequences
 

@@ -1,6 +1,6 @@
 ---
 packages:
-  hako: patch
+  omh: patch
 ---
 
 ### Add configurable selection copying

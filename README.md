@@ -1,12 +1,12 @@
-# hako
+# Oh My Herdr
 
 
 <p align="center">
-  <img src="apps/hako/assets/logo.svg" alt="hako" width="100" />
+  <img src="apps/omh/assets/logo.svg" alt="Oh My Herdr" width="100" />
 </p>
 
 <p align="center">
-  <a href="https://hako.masakiro.com">hako.masakiro.com</a> · <a href="#install">install</a> · <a href="#quick-start">quick start</a> · <a href="#supported-agents">supported agents</a> · <a href="https://hako.masakiro.com/docs/integrations/">integrations</a> · <a href="https://hako.masakiro.com/docs/configuration/">configuration</a> · <a href="https://hako.masakiro.com/docs/socket-api/">socket api</a>
+  <a href="https://github.com/masakirocorp/oh-my-herdr">github.com/masakirocorp/oh-my-herdr</a> · <a href="#install">install</a> · <a href="#quick-start">quick start</a> · <a href="#supported-agents">supported agents</a> · <a href="https://github.com/masakirocorp/oh-my-herdr/tree/master/docs">integrations</a> · <a href="https://github.com/masakirocorp/oh-my-herdr/tree/master/docs">configuration</a> · <a href="https://github.com/masakirocorp/oh-my-herdr/tree/master/docs">socket api</a>
 </p>
 
 ---
@@ -15,42 +15,42 @@
 
 workspaces, tabs, panes. mouse-native: click, drag, split. every agent at a glance: blocked, working, done. detach and reattach, agents keep running. no gui app, no electron, no mac-only native wrapper. you see the agent's own terminal, not someone's interpretation of it.
 
-Hako is Masakiro's product fork of [Herdr](https://github.com/ogulcancelik/herdr), originally created by Ogulcan Celik. It uses its own binary, config, sockets, integrations, release channel, and docs so it can coexist with upstream Herdr without namespace collisions.
+Oh My Herdr is Masakiro's product fork of [Herdr](https://github.com/ogulcancelik/herdr), originally created by Ogulcan Celik. It uses its own binary, config, sockets, integrations, release channel, and docs so it can coexist with upstream Herdr without namespace collisions.
 
 ---
 
 ## install
 
-Download a binary from [GitHub releases](https://github.com/masakirocorp/hako/releases) after the first Hako release, or build from source:
+Download a binary from [GitHub releases](https://github.com/masakirocorp/oh-my-herdr/releases) after the first Oh My Herdr release, or build from source:
 
 ```bash
-cargo install --path apps/hako
+cargo install --path apps/omh
 ```
 
 ### update
 
-hako notifies you when a new version is available. run manually to update:
+Oh My Herdr notifies you when a new version is available. run manually to update:
 
 ```bash
-hako update
+omh update
 ```
 
 ## quick start
 
 ```bash
-hako
+omh
 ```
 
-by default hako launches or attaches to one background session server. `ctrl+b q` detaches the client. agents keep running. use `hako server stop` to stop the default server. use `--no-session` for the old single-process mode.
+by default Oh My Herdr launches or attaches to one background session server. `ctrl+b q` detaches the client. agents keep running. use `omh server stop` to stop the default server. use `--no-session` for the old single-process mode.
 
-named sessions are runtime/socket namespaces for separate persistent hako servers. they do not replace workspaces; each named session has its own panes, tabs, workspaces, sockets, and session state while sharing the same global config file.
+named sessions are runtime/socket namespaces for separate persistent Oh My Herdr servers. they do not replace workspaces; each named session has its own panes, tabs, workspaces, sockets, and session state while sharing the same global config file.
 
 ```bash
-hako session list
-hako session attach work
-hako session attach side-project
-hako session stop work
-hako session delete side-project
+omh session list
+omh session attach work
+omh session attach side-project
+omh session stop work
+omh session delete side-project
 ```
 
 1. press `ctrl+b`, then `shift+n` to create a workspace
@@ -59,11 +59,11 @@ hako session delete side-project
 4. use `ctrl+b`, then `v` or `minus` to split panes, or `ctrl+b`, then `c` to create a new tab
 5. watch the sidebar for blocked, working, and done states
 
-on first run hako opens a short onboarding flow. after that, restored sessions land in terminal mode; fresh sessions start in **navigate mode**.
+on first run Oh My Herdr opens a short onboarding flow. after that, restored sessions land in terminal mode; fresh sessions start in **navigate mode**.
 
 ## how it compares
 
-|                          | tmux | gui managers | hako |
+|                          | tmux | gui managers | omh |
 |--------------------------|------|--------------|-------|
 | persistent sessions       | ✓    | —            | ✓     |
 | detach / reattach        | ✓    | —            | ✓     |
@@ -75,26 +75,26 @@ on first run hako opens a short onboarding flow. after that, restored sessions l
 | lightweight binary       | ✓    | —            | ✓     |
 | agents can orchestrate   | ?    | ?            | ✓     |
 
-tmux gives you persistence and panes, but it was built before agents existed. gui managers show agent state, but they make you leave your terminal and use their wrapped view. hako is persistence and awareness in one tool that stays out of your way.
+tmux gives you persistence and panes, but it was built before agents existed. gui managers show agent state, but they make you leave your terminal and use their wrapped view. Oh My Herdr is persistence and awareness in one tool that stays out of your way.
 
 ## persistence
 
-start hako where the work lives. locally, run `hako`. it starts or attaches to the background session automatically, with no socket setup. run your agents, split panes, do your work. press `ctrl+b q` to detach. close your terminal, close your laptop; your agents keep running. open a new terminal, run `hako`, you're back. same session, same panes, same agents.
+start omh where the work lives. locally, run `omh`. it starts or attaches to the background session automatically, with no socket setup. run your agents, split panes, do your work. press `ctrl+b q` to detach. close your terminal, close your laptop; your agents keep running. open a new terminal, run `omh`, you're back. same session, same panes, same agents.
 
 ### from anywhere
 
-need to check on your agents from your phone? just ssh in and run hako. your shell is remote, hako runs there, and the panes keep running there after detach. any ssh client works. no app to download, no account to create.
+need to check on your agents from your phone? just ssh in and run omh. your shell is remote, Oh My Herdr runs there, and the panes keep running there after detach. any ssh client works. no app to download, no account to create.
 
 ```
 ssh you@yourserver
-hako
+omh
 ```
 
-or attach from your local terminal through ssh without opening a shell first. your local hako acts as a thin client, connects over ssh, starts or attaches to the remote hako server, and streams the ui back to your terminal. remote attach uses your local keybindings by default; pass `--remote-keybindings server` to use the remote server config instead.
+or attach from your local terminal through ssh without opening a shell first. your local Oh My Herdr acts as a thin client, connects over ssh, starts or attaches to the remote omh server, and streams the ui back to your terminal. remote attach uses your local keybindings by default; pass `--remote-keybindings server` to use the remote server config instead.
 
 ```bash
-hako --remote workbox
-hako --remote ssh://you@yourserver:2222
+omh --remote workbox
+omh --remote ssh://you@yourserver:2222
 ```
 
 for repeat targets, use your ssh config:
@@ -106,13 +106,13 @@ Host workbox
   Port 2222
 ```
 
-Remote attach reads your normal SSH config. By default Hako also uses a private generated SSH config that includes your config first and adds a keepalive fallback for idle network/NAT timeouts. Set `[remote].manage_ssh_config = false` to disable that wrapper.
+Remote attach reads your normal SSH config. By default Oh My Herdr also uses a private generated SSH config that includes your config first and adds a keepalive fallback for idle network/NAT timeouts. Set `[remote].manage_ssh_config = false` to disable that wrapper.
 
 same session, same agents, same state.
 
 ### direct agent attach
 
-`hako` and `hako --remote` attach to the full Hako session UI. `hako agent attach <target>` attaches your current terminal directly to one server-owned terminal, like a single-pane terminal attach. `hako terminal attach <terminal_id>` does the same by terminal id.
+`omh` and `omh --remote` attach to the full Oh My Herdr session UI. `omh agent attach <target>` attaches your current terminal directly to one server-owned terminal, like a single-pane terminal attach. `omh terminal attach <terminal_id>` does the same by terminal id.
 
 Direct attach streams the current rendered terminal state first, then live ANSI frames. Your input goes straight to that terminal. Detach with `ctrl+b q`; send a literal `ctrl+b` with `ctrl+b ctrl+b`. One writable client owns input and resize for a terminal. A second attach fails unless you pass `--takeover`.
 
@@ -131,7 +131,7 @@ detection works by reading foreground process and terminal output. zero config, 
 
 ## lives in your terminal
 
-not a gui window, not a web dashboard, not electron. hako runs inside whatever terminal you already use. single rust binary, no dependencies. works inside tmux. agent auto-detection observes the current terminal pane; agents hidden inside nested tmux panes can require explicit profiles or direct attachment.
+not a gui window, not a web dashboard, not electron. Oh My Herdr runs inside whatever terminal you already use. single rust binary, no dependencies. works inside tmux. agent auto-detection observes the current terminal pane; agents hidden inside nested tmux panes can require explicit profiles or direct attachment.
 
 ## what you get
 
@@ -143,30 +143,30 @@ not a gui window, not a web dashboard, not electron. hako runs inside whatever t
 - **built-in light and dark themes** — choose separate palettes for system light/dark, or force a light-only or dark-only theme list
 - **session persistence** — pane processes survive client detach; sessions restore after full restart
 
-## agents can use hako too
+## agents can use Oh My Herdr too
 
 the local unix socket lets agents create workspaces, split panes, spawn helpers, read output, and wait for state changes.
 
 ```bash
 # create a workspace and tab
-hako workspace create --cwd ~/project --label "api"
-hako tab create --label "logs"
+omh workspace create --cwd ~/project --label "api"
+omh tab create --label "logs"
 
 # split a pane and run
-hako pane split 1-1 --direction right
-hako pane run 1-2 "npm test"
+omh pane split 1-1 --direction right
+omh pane run 1-2 "npm test"
 
 # wait for a pane-level UI attention state
-hako wait agent-status 1-1 --status done
+omh wait agent-status 1-1 --status done
 
 # read output
-hako pane read 1-2 --source recent --lines 50
+omh pane read 1-2 --source recent --lines 50
 
 # read a rendered ANSI snapshot for TUI feedback loops
-hako pane read 1-2 --source visible --ansi
+omh pane read 1-2 --source visible --ansi
 ```
 
-full reference: [socket api](https://hako.masakiro.com/docs/socket-api/) and [`SKILL.md`](./SKILL.md).
+full reference: [socket api](https://github.com/masakirocorp/oh-my-herdr/tree/master/docs) and [`SKILL.md`](./SKILL.md).
 
 ## supported agents
 
@@ -191,27 +191,27 @@ automatic detection works out of the box. process name matching plus terminal ou
 
 detected but not fully tested: gemini cli, cline.
 
-for agents outside the built-in list, hako still works as a terminal multiplexer with workspaces, panes, and tiling. custom integrations can report agent labels over the socket api. see the [socket api docs](https://hako.masakiro.com/docs/socket-api/).
+for agents outside the built-in list, Oh My Herdr still works as a terminal multiplexer with workspaces, panes, and tiling. custom integrations can report agent labels over the socket api. see the [socket api docs](https://github.com/masakirocorp/oh-my-herdr/tree/master/docs).
 
 ### direct integrations
 
-the built-in pi, omp, copilot, hermes, and qodercli integrations can forward semantic state to hako over the socket api. claude code, codex, kimi, droid, cursor, and opencode integrations report native session identity for restore while hako reads their visible terminal UI for state. install with:
+the built-in pi, omp, copilot, hermes, and qodercli integrations can forward semantic state to omh over the socket api. claude code, codex, kimi, droid, cursor, and opencode integrations report native session identity for restore while omh reads their visible terminal UI for state. install with:
 
 ```bash
-hako integration install pi
-hako integration install omp
-hako integration install claude
-hako integration install codex
-hako integration install kimi
-hako integration install droid
-hako integration install copilot
-hako integration install opencode
-hako integration install hermes
-hako integration install qodercli
-hako integration install cursor
+omh integration install pi
+omh integration install omp
+omh integration install claude
+omh integration install codex
+omh integration install kimi
+omh integration install droid
+omh integration install copilot
+omh integration install opencode
+omh integration install hermes
+omh integration install qodercli
+omh integration install cursor
 ```
 
-see the [integrations docs](https://hako.masakiro.com/docs/integrations/) for setup details.
+see the [integrations docs](https://github.com/masakirocorp/oh-my-herdr/tree/master/docs) for setup details.
 
 ## keybindings
 
@@ -250,30 +250,30 @@ command = "lazygit"
 description = "open lazygit"
 ```
 
-if you have old custom keybindings and want the new defaults, run `hako config reset-keys`. hako backs up `config.toml`, removes only keybinding config, and uses built-in v2 defaults after restart or config reload.
+if you have old custom keybindings and want the new defaults, run `omh config reset-keys`. omh backs up `config.toml`, removes only keybinding config, and uses built-in v2 defaults after restart or config reload.
 
-mouse is supported throughout. full reference: [configuration docs](https://hako.masakiro.com/docs/configuration/).
+mouse is supported throughout. full reference: [configuration docs](https://github.com/masakirocorp/oh-my-herdr/tree/master/docs).
 
 ## configuration
 
-config file: `~/.config/hako/config.toml`
+config file: `~/.config/omh/config.toml`
 
 ```bash
-hako --default-config   # print full default config
+omh --default-config   # print full default config
 ```
 
-in-app settings screen for theme, sound, and toast preferences. full reference: [configuration docs](https://hako.masakiro.com/docs/configuration/).
+in-app settings screen for theme, sound, and toast preferences. full reference: [configuration docs](https://github.com/masakirocorp/oh-my-herdr/tree/master/docs).
 
 ## logs
 
-hako writes logs under `~/.config/hako/`.
+omh writes logs under `~/.config/omh/`.
 
 common files:
 
 ```text
-~/.config/hako/hako.log
-~/.config/hako/hako-client.log
-~/.config/hako/hako-server.log
+~/.config/omh/omh.log
+~/.config/omh/omh-client.log
+~/.config/omh/omh-server.log
 ```
 
 in persistent session mode, the client and server logs are usually the useful ones. logs rotate automatically and keep a few older files like `.1` and `.2`.
@@ -283,18 +283,18 @@ for issue reports, include the relevant current log plus rotated siblings if the
 use a higher log level only when needed:
 
 ```bash
-HAKO_LOG=hako=debug hako
+OMH_LOG=omh=debug omh
 ```
 
-full logging and environment variable details: [configuration docs](https://hako.masakiro.com/docs/configuration/).
+full logging and environment variable details: [configuration docs](https://github.com/masakirocorp/oh-my-herdr/tree/master/docs).
 
 ## docs
 
 - [features](./docs/features.md) — product feature reference
-- [configuration](https://hako.masakiro.com/docs/configuration/) — keybindings, themes, notifications, environment variables
-- [integrations](https://hako.masakiro.com/docs/integrations/) — pi, omp, claude code, codex, kimi, droid, cursor, opencode, hermes integrations
+- [configuration](https://github.com/masakirocorp/oh-my-herdr/tree/master/docs) — keybindings, themes, notifications, environment variables
+- [integrations](https://github.com/masakirocorp/oh-my-herdr/tree/master/docs) — pi, omp, claude code, codex, kimi, droid, cursor, opencode, hermes integrations
 - [`SKILL.md`](./SKILL.md) — reusable agent skill
-- [socket api](https://hako.masakiro.com/docs/socket-api/) — socket protocol and cli reference
+- [socket api](https://github.com/masakirocorp/oh-my-herdr/tree/master/docs) — socket protocol and cli reference
 
 ## agent instructions
 
@@ -303,27 +303,27 @@ If you are an AI agent helping with this repository, read [`AGENTS.md`](./AGENTS
 ## building from source
 
 ```bash
-git clone https://github.com/masakirocorp/hako
-cd hako
+git clone https://github.com/masakirocorp/oh-my-herdr
+cd oh-my-herdr
 cargo build --release
-./target/release/hako
+./target/release/omh
 ```
 
 ## nix
 
-Hako provides optional Nix flake outputs for users who already use Nix. The flake builds Hako from source.
+Oh My Herdr provides optional Nix flake outputs for users who already use Nix. The flake builds Oh My Herdr from source.
 
 ```bash
-nix run github:masakirocorp/hako/v0.x.y
-nix build github:masakirocorp/hako/v0.x.y
-nix develop github:masakirocorp/hako/v0.x.y
+nix run github:masakirocorp/oh-my-herdr/v0.x.y
+nix build github:masakirocorp/oh-my-herdr/v0.x.y
+nix develop github:masakirocorp/oh-my-herdr/v0.x.y
 ```
 
 Replace `v0.x.y` with the latest release tag. You can omit the tag to track `master`, but release tags are recommended for normal installs.
 
 The flake exposes `packages.<system>.default`, `apps.<system>.default`, `devShells.<system>.default`, and `overlays.default`.
 
-Update through the same Nix workflow you used to install Hako. For profile installs, run `nix profile list` and then `nix profile upgrade <index-or-name>`. For flake inputs, run `nix flake update hako` in your own flake and rebuild.
+Update through the same Nix workflow you used to install Oh My Herdr. For profile installs, run `nix profile list` and then `nix profile upgrade <index-or-name>`. For flake inputs, run `nix flake update omh` in your own flake and rebuild.
 
 ## testing
 
@@ -338,10 +338,10 @@ AGPL-3.0: free to use, modify, and distribute. modified versions must be open-so
 
 ## pi, ghostty, and shift+enter
 
-hako does not require or install terminal keybinds for pi.
+omh does not require or install terminal keybinds for pi.
 
 ghostty does not ship a default `shift+enter=text:\n` or `shift+enter=text:\x1b\r` keybind. if those lines exist in your ghostty config, they were added by user config or another tool, commonly claude code. they collapse shift+enter into legacy bytes, so downstream programs cannot reliably distinguish shift+enter from ctrl+j or alt+enter.
 
-if shift+enter behaves differently in pi inside hako, first remove those custom terminal keybinds and retest. do not file this as a hako keyboard encoding bug unless it reproduces with a clean terminal config.
+if shift+enter behaves differently in pi inside omh, first remove those custom terminal keybinds and retest. do not file this as an Oh My Herdr keyboard encoding bug unless it reproduces with a clean terminal config.
 
 related context: #78, #81, #106, and earendil-works/pi#1872.

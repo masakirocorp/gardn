@@ -4,7 +4,7 @@ status: accepted
 
 # Adopt Oh My Herdr product identity
 
-The product name is **Oh My Herdr**. Its canonical machine namespace is `omh`: the executable, Rust package, application workspace directory, Tegami package scope, environment-variable prefix, config/cache/runtime directories, socket names, integration source prefix, release assets, and local development binary names use `omh` or `OMH` as appropriate. The canonical repository is `masakirocorp/oh-my-herdr`, and the product homepage is `https://omh.masakiro.com`.
+The product name is **Oh My Herdr**. Its canonical machine namespace is `omh`: the executable, Rust package, application workspace directory, Tegami package scope, environment-variable prefix, config/cache/runtime directories, socket names, integration source prefix, release assets, and local development binary names use `omh` or `OMH` as appropriate. The canonical repository and current product homepage are `https://github.com/masakirocorp/oh-my-herdr`; a dedicated product domain is not established yet.
 
 This is a clean product-identity cutover. Production code does not retain a `hako` executable alias, accept `HAKO_*` environment variables, search Hako-named runtime or persistence paths, or publish Hako-named release assets. Existing pre-public development state may be copied once outside the product into the new namespace, but compatibility shims do not remain in the application.
 

@@ -1,6 +1,6 @@
 # Manual QA matrix
 
-Use this guide to select and run the manual checks that Hako's automated suite cannot prove reliably. It complements `just check`; it does not repeat state, protocol, socket, PTY, or render behavior already covered by automated tests.
+Use this guide to select and run the manual checks that Oh My Herdr's automated suite cannot prove reliably. It complements `just check`; it does not repeat state, protocol, socket, PTY, or render behavior already covered by automated tests.
 
 Run M01-M08 before tagging a release, then run M09 against the published artifacts. Run affected P1 cases when changing their surface, and run the full P1 set for broad platform, terminal, or lifecycle changes.
 
@@ -8,14 +8,14 @@ Run M01-M08 before tagging a release, then run M09 against the published artifac
 
 Record this environment before each run:
 
-- commit SHA and Hako version
+- commit SHA and Oh My Herdr version
 - binary source and checksum
 - OS and architecture
 - terminal application and version
 - shell
 - session and config namespace
 
-Record each selected case as `PASS`, `FAIL`, or `BLOCKED`. For failures, preserve the relevant Hako logs, exact reproduction steps, and a screenshot or short recording when presentation matters. Track each defect separately and link it from the run record.
+Record each selected case as `PASS`, `FAIL`, or `BLOCKED`. For failures, preserve the relevant Oh My Herdr logs, exact reproduction steps, and a screenshot or short recording when presentation matters. Track each defect separately and link it from the run record.
 
 ## Matrix
 
@@ -36,7 +36,7 @@ Record each selected case as `PASS`, `FAIL`, or `BLOCKED`. For failures, preserv
 
 ## M01: First launch and core TUI
 
-1. Use an isolated `hako-dev` configuration or disposable OS user and a named QA session.
+1. Use an isolated `omh-dev` configuration or disposable OS user and a named QA session.
 2. Launch with no server, complete onboarding, and confirm the first shell is usable.
 3. Create two workspaces, a group, three tabs, and a three-pane layout.
 4. Navigate the sidebar, tabs, global menu, navigator, command palette, Settings, help, and confirmation dialogs once by keyboard and once by mouse.
@@ -94,18 +94,18 @@ Pass when PTYs and the listener survive, every pane has one owner, input remains
 
 1. Install the candidate Grok Build integration through Settings and confirm its status is current.
 2. Launch real Grok Build and exercise prompt submission, a tool call, a permission or elicitation block, compaction, a subagent, stop or idle, and session end.
-3. Verify Hako's working, blocked, idle, and release transitions. Verify child completion never idles or releases the parent and the pane is never labeled as another agent.
+3. Verify Oh My Herdr's working, blocked, idle, and release transitions. Verify child completion never idles or releases the parent and the pane is never labeled as another agent.
 4. Restart or restore and verify native Grok session continuity.
 5. Repeat the core working, blocked, and idle path with an established direct integration such as Claude Code or Codex.
 6. Uninstall Grok and verify manifest detection remains a usable fallback and missing-integration guidance is accurate.
 
-Pass when state matches the visible agent, identity remains stable, restore works, and install or uninstall changes only Hako-owned integration files.
+Pass when state matches the visible agent, identity remains stable, restore works, and install or uninstall changes only Oh My Herdr-owned integration files.
 
 ## M08: Remote attach and bootstrap
 
-1. Attach to a clean Linux host over SSH with no running Hako server and exercise bootstrap.
+1. Attach to a clean Linux host over SSH with no running Oh My Herdr server and exercise bootstrap.
 2. Create a pane workload, interrupt the SSH connection, and reconnect.
-3. Repeat with an older remote Hako binary to exercise the compatibility and restart prompt.
+3. Repeat with an older remote Oh My Herdr binary to exercise the compatibility and restart prompt.
 4. Verify resize, keyboard input, direct terminal attach, and clipboard behavior supported by the client and host pair.
 
 Pass when prompts are accurate, no silent destructive restart occurs, workloads survive transport loss, and reconnect selects the intended session.

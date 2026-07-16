@@ -4,11 +4,11 @@ status: accepted
 
 # Test agent integrations against current CLI releases
 
-Hako's optional real-agent smoke image installs the current release of each supported coding-agent CLI by default. The image keeps build tooling pinned where needed, such as pnpm, but does not pin the agent CLIs themselves. Push builds verify that the image still builds, that provider configuration wiring is sane, and publish the image to GHCR for scheduled/manual compatibility probes. Scheduled and manually dispatched runs exercise the real agent CLIs through that image and configured provider secrets.
+Oh My Herdr's optional real-agent smoke image installs the current release of each supported coding-agent CLI by default. The image keeps build tooling pinned where needed, such as pnpm, but does not pin the agent CLIs themselves. Push builds verify that the image still builds, that provider configuration wiring is sane, and publish the image to GHCR for scheduled/manual compatibility probes. Scheduled and manually dispatched runs exercise the real agent CLIs through that image and configured provider secrets.
 
-Real-agent smokes use OpenRouter-backed model configuration with an ordered free-model fallback list where the CLI supports a usable BYOK/provider path. A single unavailable, removed, rate-limited, or timed-out model is provider volatility, not a Hako result. Smoke scripts may retry whole smoke scenarios with the next candidate model before they reach Hako assertions. Once a CLI run produces a valid provider response, missing status reports, wrong state ordering, bad hook metadata, or missing proxy routing remain hard test failures. Cursor and Qoder are explicit exceptions: their CI coverage uses a deterministic local inference proxy because their current CLIs do not expose the same direct OpenRouter path Hako can drive for the other agents. Devin is a different explicit exception: its current CLI auth/model contract is Devin-account based, and Hako's Devin integration hook reports session identity only, so CI covers the hook seam instead of spending a credentialed real Devin session.
+Real-agent smokes use OpenRouter-backed model configuration with an ordered free-model fallback list where the CLI supports a usable BYOK/provider path. A single unavailable, removed, rate-limited, or timed-out model is provider volatility, not an Oh My Herdr result. Smoke scripts may retry whole smoke scenarios with the next candidate model before they reach Oh My Herdr assertions. Once a CLI run produces a valid provider response, missing status reports, wrong state ordering, bad hook metadata, or missing proxy routing remain hard test failures. Cursor and Qoder are explicit exceptions: their CI coverage uses a deterministic local inference proxy because their current CLIs do not expose the same direct OpenRouter path Oh My Herdr can drive for the other agents. Devin is a different explicit exception: its current CLI auth/model contract is Devin-account based, and Oh My Herdr's Devin integration hook reports session identity only, so CI covers the hook seam instead of spending a credentialed real Devin session.
 
-This is separate from ADR 0016's agent profile and integration authority boundary and ADR 0048's state-evidence precedence. Those ADRs record how Hako interprets agent reports once they arrive. This ADR records which upstream CLI versions and provider behavior the smoke workflow treats as the compatibility target.
+This is separate from ADR 0016's agent profile and integration authority boundary and ADR 0048's state-evidence precedence. Those ADRs record how Oh My Herdr interprets agent reports once they arrive. This ADR records which upstream CLI versions and provider behavior the smoke workflow treats as the compatibility target.
 
 ## Current coverage contract
 
@@ -25,17 +25,17 @@ The smoke workflow must be explicit about coverage level per agent. A row is not
 | Droid | real CLI + hooks | BYOK/OpenRouter provider path. |
 | Kimi | real CLI + hooks | BYOK/OpenRouter provider path. |
 | Hermes | real CLI + plugin | BYOK/OpenRouter provider path. |
-| Cursor | proxy/auth contract + hook proxy | Requires Cursor-specific proxy handling; the smoke verifies real Cursor CLI launch, Hako hooks, and deterministic proxied response delivery. |
-| Qoder | proxy/auth contract + hook proxy | Requires Qoder token/proxy handling; the smoke verifies real Qoder CLI launch, Hako hooks, and deterministic proxied response delivery. |
-| Devin | hook seam only | Devin CLI auth/model selection is tied to Devin account access, not Hako's OpenRouter smoke path. The current Hako hook only reports `pane.report_agent_session`, so the smoke asserts session identity and stale-list suppression rather than lifecycle states. |
+| Cursor | proxy/auth contract + hook proxy | Requires Cursor-specific proxy handling; the smoke verifies real Cursor CLI launch, Oh My Herdr hooks, and deterministic proxied response delivery. |
+| Qoder | proxy/auth contract + hook proxy | Requires Qoder token/proxy handling; the smoke verifies real Qoder CLI launch, Oh My Herdr hooks, and deterministic proxied response delivery. |
+| Devin | hook seam only | Devin CLI auth/model selection is tied to Devin account access, not Oh My Herdr's OpenRouter smoke path. The current Oh My Herdr hook only reports `pane.report_agent_session`, so the smoke asserts session identity and stale-list suppression rather than lifecycle states. |
 
 ## Current rationale
 
-The supported coding agents are fast-moving developer tools. Users normally run recently updated CLIs, not the exact versions Hako tested when a commit landed. Pinning every smoke image agent version would make CI stable but would prove compatibility with stale surfaces and delay detection when an agent changes hook shape, environment requirements, model configuration, or status behavior.
+The supported coding agents are fast-moving developer tools. Users normally run recently updated CLIs, not the exact versions Oh My Herdr tested when a commit landed. Pinning every smoke image agent version would make CI stable but would prove compatibility with stale surfaces and delay detection when an agent changes hook shape, environment requirements, model configuration, or status behavior.
 
-Provider availability is a separate volatile dependency. Free OpenRouter models can disappear, timeout, or reject a route independently of Hako. Retrying complete smoke scenarios against an ordered fallback list preserves the compatibility signal while keeping the assertion boundary honest: retry before Hako receives a provider-backed answer, fail after Hako-observable behavior is wrong.
+Provider availability is a separate volatile dependency. Free OpenRouter models can disappear, timeout, or reject a route independently of Oh My Herdr. Retrying complete smoke scenarios against an ordered fallback list preserves the compatibility signal while keeping the assertion boundary honest: retry before Oh My Herdr receives a provider-backed answer, fail after Oh My Herdr-observable behavior is wrong.
 
-The smoke workflow intentionally accepts some external volatility. A current-agent smoke failure may be caused by Hako, by an upstream CLI change, or by provider availability. That is acceptable because these checks are optional scheduled/manual compatibility probes, not the core deterministic `just check` gate.
+The smoke workflow intentionally accepts some external volatility. A current-agent smoke failure may be caused by Oh My Herdr, by an upstream CLI change, or by provider availability. That is acceptable because these checks are optional scheduled/manual compatibility probes, not the core deterministic `just check` gate.
 
 ## Considered options
 
@@ -43,12 +43,12 @@ The smoke workflow intentionally accepts some external volatility. A current-age
 - Float all build tooling and agent CLIs. Rejected because installer/tooling churn would make the image itself noisy for reasons unrelated to agent behavior.
 - Pin image tooling but install current agent CLIs by default. Accepted because it keeps the container construction mostly reproducible while making the tested agent surfaces match the current user-facing ecosystem.
 
-- Use one hardcoded free model and fail on any provider issue. Rejected because removed or unavailable free models would make the smoke harness noisy without proving anything about Hako.
-- Retry complete smoke scenarios through an ordered free-model fallback list, but do not retry assertion failures. Accepted because it separates provider volatility from Hako behavior while avoiding partial-run mixed-model state.
+- Use one hardcoded free model and fail on any provider issue. Rejected because removed or unavailable free models would make the smoke harness noisy without proving anything about Oh My Herdr.
+- Retry complete smoke scenarios through an ordered free-model fallback list, but do not retry assertion failures. Accepted because it separates provider volatility from Oh My Herdr behavior while avoiding partial-run mixed-model state.
 
 ## Consequences
 
-Smoke failures must be triaged as compatibility signals, not automatically treated as Hako regressions. When an upstream CLI change breaks Hako integration behavior, prefer updating the integration or smoke setup over pinning the old CLI unless the new upstream release is clearly broken and temporary quarantine is needed.
+Smoke failures must be triaged as compatibility signals, not automatically treated as Oh My Herdr regressions. When an upstream CLI change breaks Oh My Herdr integration behavior, prefer updating the integration or smoke setup over pinning the old CLI unless the new upstream release is clearly broken and temporary quarantine is needed.
 
 Fallback model lists should be explicit, printed in logs, and routed through the same CLI configuration path the smoke is validating. A script may transform model identifiers only when a CLI requires its own provider/model syntax, such as OpenCode's `openrouter/...` model ids.
 

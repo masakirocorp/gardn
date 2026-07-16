@@ -11,7 +11,7 @@ Implemented in worktree:
 - Navigator search commands preserved (copy-mode search UI intentionally left to Eng86CopyMode).
 - Plugin-driven tab rename refreshes tab bar via `emit_layout_updated_event` -> plugin context -> tab label.
 
-Compile status: hako crate still has 104 errors from concurrent sibling agent work on
+Compile status: omh crate still has 104 errors from concurrent sibling agent work on
 overlay pane ownership, copy-mode search, runtime mutation dispatch, and client input
 fields. The UI/mobile/config edits themselves no longer introduce errors; remaining
 failures are cross-agent integration blockers.

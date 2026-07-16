@@ -1,13 +1,13 @@
 ---
-name: hako
-description: "Control hako from inside it. Manage workspaces and tabs, split panes, spawn agents, read output, and wait for state changes — all via CLI commands that talk to the running hako instance over a local unix socket. Use when running inside hako (HAKO_ENV=1)."
+name: omh
+description: "Control omh from inside it. Manage workspaces and tabs, split panes, spawn agents, read output, and wait for state changes — all via CLI commands that talk to the running omh instance over a local unix socket. Use when running inside omh (OMH_ENV=1)."
 ---
 
-# hako — agent skill
+# Oh My Herdr — agent skill
 
-before using this skill, check that `HAKO_ENV=1`. if it is not set to `1`, say you are not running inside a hako-managed pane and stop. do not inspect or control the focused hako pane from outside hako.
+before using this skill, check that `OMH_ENV=1`. if it is not set to `1`, say you are not running inside an Oh My Herdr-managed pane and stop. do not inspect or control the focused omh pane from outside omh.
 
-you are running inside hako, a terminal-native agent multiplexer. hako gives you workspaces, tabs, and panes — each pane is a real terminal with its own shell, agent, server, or log stream — and you can control all of it from the cli.
+you are running inside Oh My Herdr, a terminal-native agent multiplexer. omh gives you workspaces, tabs, and panes — each pane is a real terminal with its own shell, agent, server, or log stream — and you can control all of it from the cli.
 
 this means you can:
 
@@ -19,9 +19,9 @@ this means you can:
 - wait for another agent to finish
 - spawn more agent instances
 
-the `hako` binary is available in your PATH. its workspace, tab, pane, and wait commands talk to the running hako instance over a local unix socket.
+the `omh` binary is available in your PATH. its workspace, tab, pane, and wait commands talk to the running omh instance over a local unix socket.
 
-if you need the raw protocol or full api reference, read the [socket api docs](https://hako.masakiro.com/docs/socket-api/).
+if you need the raw protocol or full api reference, read the [socket api docs](https://github.com/masakirocorp/oh-my-herdr/tree/master/docs).
 
 ## concepts
 
@@ -31,13 +31,13 @@ if you need the raw protocol or full api reference, read the [socket api docs](h
 
 **panes** are terminal splits inside a tab. each pane runs its own process — a shell, an agent, a server, anything.
 
-**agent status** is detected automatically by hako. the api exposes one public field for it:
+**agent status** is detected automatically by omh. the api exposes one public field for it:
 
 - `agent_status` — `idle`, `working`, `blocked`, `done`, `unknown`
 
 `done` means the agent finished, but you have not looked at that finished pane yet.
 
-plain shells still exist as panes, but hako's sidebar agent section intentionally focuses on detected agents rather than listing every shell.
+plain shells still exist as panes, but Oh My Herdr's sidebar agent section intentionally focuses on detected agents rather than listing every shell.
 
 **ids** — workspace ids look like `1`, `2`. tab ids look like `1:1`, `1:2`, `2:1`. pane ids look like `1-1`, `1-2`, `2-1`. these are compact public ids for the current live session.
 
@@ -48,7 +48,7 @@ important: ids can compact when tabs, panes, or workspaces are closed. do not tr
 see what panes exist and which one is focused:
 
 ```bash
-hako pane list
+omh pane list
 ```
 
 the focused pane is yours. other panes are your neighbors.
@@ -56,13 +56,13 @@ the focused pane is yours. other panes are your neighbors.
 list workspaces:
 
 ```bash
-hako workspace list
+omh workspace list
 ```
 
 list sidebar groups:
 
 ```bash
-hako group list
+omh group list
 ```
 
 ## tab management
@@ -70,13 +70,13 @@ hako group list
 list tabs in the current workspace:
 
 ```bash
-hako tab list --workspace 1
+omh tab list --workspace 1
 ```
 
 create a new tab:
 
 ```bash
-hako tab create --workspace 1
+omh tab create --workspace 1
 ```
 
 without `--label`, the new tab keeps the default numbered tab name.
@@ -84,25 +84,25 @@ without `--label`, the new tab keeps the default numbered tab name.
 create and name it in one step:
 
 ```bash
-hako tab create --workspace 1 --label "logs"
+omh tab create --workspace 1 --label "logs"
 ```
 
 rename it:
 
 ```bash
-hako tab rename 1:2 "logs"
+omh tab rename 1:2 "logs"
 ```
 
 focus it:
 
 ```bash
-hako tab focus 1:2
+omh tab focus 1:2
 ```
 
 close it:
 
 ```bash
-hako tab close 1:2
+omh tab close 1:2
 ```
 
 ## read another pane
@@ -110,7 +110,7 @@ hako tab close 1:2
 see what is on another pane's screen:
 
 ```bash
-hako pane read 1-1 --source recent --lines 50
+omh pane read 1-1 --source recent --lines 50
 ```
 
 - `--source visible` = current viewport
@@ -122,20 +122,20 @@ hako pane read 1-1 --source recent --lines 50
 split your pane to the right and keep focus on your current pane:
 
 ```bash
-hako pane split 1-2 --direction right --no-focus
+omh pane split 1-2 --direction right --no-focus
 ```
 
 that prints json with the new pane nested at `result.pane.pane_id`. parse that value, then run a command in that pane:
 
 ```bash
-NEW_PANE=$(hako pane split 1-2 --direction right --no-focus | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
-hako pane run "$NEW_PANE" "npm run dev"
+NEW_PANE=$(omh pane split 1-2 --direction right --no-focus | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
+omh pane run "$NEW_PANE" "npm run dev"
 ```
 
 split downward instead:
 
 ```bash
-hako pane split 1-2 --direction down --no-focus
+omh pane split 1-2 --direction down --no-focus
 ```
 
 ## wait for output
@@ -145,13 +145,13 @@ block until specific text appears in a pane. useful for waiting on servers, buil
 for `--source recent`, matching uses unwrapped recent terminal text, so pane width and soft wrapping do not break matches. `pane read --source recent` still shows the pane as rendered. if you want to inspect the same transcript that the waiter matches, use `pane read --source recent-unwrapped`.
 
 ```bash
-hako wait output 1-3 --match "ready on port 3000" --timeout 30000
+omh wait output 1-3 --match "ready on port 3000" --timeout 30000
 ```
 
 with regex:
 
 ```bash
-hako wait output 1-3 --match "server.*ready" --regex --timeout 30000
+omh wait output 1-3 --match "server.*ready" --regex --timeout 30000
 ```
 
 if it times out, exit code is `1`.
@@ -161,7 +161,7 @@ if it times out, exit code is `1`.
 block until another agent reaches a specific status:
 
 ```bash
-hako wait agent-status 1-1 --status done --timeout 60000
+omh wait agent-status 1-1 --status done --timeout 60000
 ```
 
 use this when you want the same `done` / `idle` distinction the UI shows.
@@ -171,36 +171,36 @@ use this when you want the same `done` / `idle` distinction the UI shows.
 send text without pressing Enter:
 
 ```bash
-hako pane send-text 1-1 "hello from claude"
+omh pane send-text 1-1 "hello from claude"
 ```
 
 press Enter or other keys:
 
 ```bash
-hako pane send-keys 1-1 Enter
+omh pane send-keys 1-1 Enter
 ```
 
 `pane run` sends the text and then a real `Enter` key in one request:
 
 ```bash
-hako pane run 1-1 "echo hello"
+omh pane run 1-1 "echo hello"
 ```
 
 ## workspace management
 
-groups are sidebar filters inside the current session. they do not create separate hako server sockets.
+groups are sidebar filters inside the current session. they do not create separate omh server sockets.
 
 create and focus a group:
 
 ```bash
-hako group create "client work"
-hako group focus 2
+omh group create "client work"
+omh group focus 2
 ```
 
 create a new workspace:
 
 ```bash
-hako workspace create --cwd /path/to/project
+omh workspace create --cwd /path/to/project
 ```
 
 without `--label`, the new workspace keeps the default cwd-based name.
@@ -208,43 +208,43 @@ without `--label`, the new workspace keeps the default cwd-based name.
 create and name one in one step:
 
 ```bash
-hako workspace create --cwd /path/to/project --label "api server"
+omh workspace create --cwd /path/to/project --label "api server"
 ```
 
 create one without focusing it:
 
 ```bash
-hako workspace create --no-focus
+omh workspace create --no-focus
 ```
 
 focus a workspace:
 
 ```bash
-hako workspace focus 2
+omh workspace focus 2
 ```
 
 move a workspace to a group:
 
 ```bash
-hako workspace move-to-group 2 1
+omh workspace move-to-group 2 1
 ```
 
 rename:
 
 ```bash
-hako workspace rename 1 "api server"
+omh workspace rename 1 "api server"
 ```
 
 close:
 
 ```bash
-hako workspace close 2
+omh workspace close 2
 ```
 
 ## close a pane
 
 ```bash
-hako pane close 1-3
+omh pane close 1-3
 ```
 
 ## recipes
@@ -252,26 +252,26 @@ hako pane close 1-3
 ### run a server and wait until it is ready
 
 ```bash
-NEW_PANE=$(hako pane split 1-2 --direction right --no-focus | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
-hako pane run "$NEW_PANE" "npm run dev"
-hako wait output "$NEW_PANE" --match "ready" --timeout 30000
-hako pane read "$NEW_PANE" --source recent --lines 20
+NEW_PANE=$(omh pane split 1-2 --direction right --no-focus | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
+omh pane run "$NEW_PANE" "npm run dev"
+omh wait output "$NEW_PANE" --match "ready" --timeout 30000
+omh pane read "$NEW_PANE" --source recent --lines 20
 ```
 
 ### run tests in a separate pane and inspect the result
 
 ```bash
-hako pane split 1-2 --direction down --no-focus
-hako pane run 1-3 "cargo test"
-hako wait output 1-3 --match "test result" --timeout 60000
-hako pane read 1-3 --source recent --lines 30
+omh pane split 1-2 --direction down --no-focus
+omh pane run 1-3 "cargo test"
+omh wait output 1-3 --match "test result" --timeout 60000
+omh pane read 1-3 --source recent --lines 30
 ```
 
 ### check what another agent is working on
 
 ```bash
-hako pane list
-hako pane read 1-1 --source recent --lines 80
+omh pane list
+omh pane read 1-1 --source recent --lines 80
 ```
 
 ### watch another pane robustly
@@ -280,30 +280,30 @@ use this pattern when you need to coordinate with a sibling pane:
 
 ```bash
 # inspect what is already there
-hako pane read 1-3 --source recent --lines 40
+omh pane read 1-3 --source recent --lines 40
 
 # wait only for the next output you expect
-hako wait output 1-3 --match "ready" --timeout 30000
+omh wait output 1-3 --match "ready" --timeout 30000
 
 # if you need to inspect the same transcript the waiter matched,
 # read the unwrapped recent text directly
-hako pane read 1-3 --source recent-unwrapped --lines 40
+omh pane read 1-3 --source recent-unwrapped --lines 40
 ```
 
 ### spawn a new agent and give it a task
 
 ```bash
-hako pane split 1-2 --direction right --no-focus
-hako pane run 1-3 "claude"
-hako wait output 1-3 --match ">" --timeout 15000
-hako pane run 1-3 "review the test coverage in apps/hako/src/api/"
+omh pane split 1-2 --direction right --no-focus
+omh pane run 1-3 "claude"
+omh wait output 1-3 --match ">" --timeout 15000
+omh pane run 1-3 "review the test coverage in apps/omh/src/api/"
 ```
 
 ### coordinate with another agent
 
 ```bash
-hako wait agent-status 1-1 --status done --timeout 120000
-hako pane read 1-1 --source recent --lines 100
+omh wait agent-status 1-1 --status done --timeout 120000
+omh pane read 1-1 --source recent --lines 100
 ```
 
 ## notes
@@ -318,4 +318,4 @@ hako pane read 1-1 --source recent --lines 100
 - `--no-focus` on split, tab create, and workspace create keeps your current terminal context focused.
 - without `--label`, workspace create keeps cwd-based naming and tab create keeps numbered naming.
 - `--label` on tab create and workspace create applies the custom name immediately.
-- if you are running inside hako, the `HAKO_ENV` environment variable is set to `1`.
+- if you are running inside Oh My Herdr, the `OMH_ENV` environment variable is set to `1`.

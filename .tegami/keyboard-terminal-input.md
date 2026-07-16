@@ -1,6 +1,6 @@
 ---
 packages:
-  hako: patch
+  omh: patch
 ---
 
 ### Fix keyboard and terminal input

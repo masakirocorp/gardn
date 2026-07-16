@@ -1,21 +1,21 @@
-# Hako features
+# Oh My Herdr features
 
-This is the product feature reference for Hako.
+This is the product feature reference for Oh My Herdr.
 
 ## Workspace model
 
 ### Sessions
 
-A session is a persistent Hako runtime with its own sockets, panes, tabs, workspaces, and saved state.
+A session is a persistent Oh My Herdr runtime with its own sockets, panes, tabs, workspaces, and saved state.
 
-- **Default session** — `hako` launches or attaches to the default background session.
-- **Named sessions** — `hako --session <name>` and `hako session attach <name>` select separate runtime namespaces.
+- **Default session** — `omh` launches or attaches to the default background session.
+- **Named sessions** — `omh --session <name>` and `omh session attach <name>` select separate runtime namespaces.
 - **Detach / reattach** — clients can detach while panes and agents continue running in the server.
-- **Remote attach** — `hako --remote <target>` attaches to a Hako server over SSH.
-- **Remote bootstrap** — remote attach can detect the remote platform, reuse an existing compatible binary, or install a matching Hako binary before connecting.
+- **Remote attach** — `omh --remote <target>` attaches to an Oh My Herdr server over SSH.
+- **Remote bootstrap** — remote attach can detect the remote platform, reuse an existing compatible binary, or install a matching Oh My Herdr binary before connecting.
 - **Remote server restart flow** — remote attach checks protocol/version compatibility and can prompt to stop or restart an incompatible remote server.
 - **SSH keepalive fallback** — remote attach can add private generated SSH keepalive defaults without overriding your own SSH config.
-- **Direct terminal attach** — `hako terminal attach <terminal-id>` and `hako agent attach <target>` attach directly to a single server-owned terminal.
+- **Direct terminal attach** — `omh terminal attach <terminal-id>` and `omh agent attach <target>` attach directly to a single server-owned terminal.
 - **Attach takeover** — direct attach is exclusive by default; `--takeover` can claim a terminal attachment from another client.
 - **Multiple clients** — more than one client can connect to a server; each client owns its navigation and sidebar view, while the foreground interactive client drives shared runtime size, focus, theme, and keybindings.
 - **Clipboard bridging** — thin clients forward OSC 52 clipboard writes locally and can bridge local clipboard-image paste into server panes.
@@ -61,15 +61,15 @@ A pane is a terminal runtime inside a tab layout.
 - **Pane close** — close panes with confirmation where configured.
 - **Scrollback** — scroll panes, edit scrollback in `$EDITOR`, and read visible/recent output through the API.
 - **Pane history** — persist recent screen history to `session-history.json` by default.
-- **Terminal identity** — panes advertise Hako's terminal layer instead of leaking the outer terminal identity.
+- **Terminal identity** — panes advertise Oh My Herdr's terminal layer instead of leaking the outer terminal identity.
 - **Snapshot restore** — saved sessions restore groups, active selections, sidebar sizing and arrangement, tabs, pane layouts, focus, zoom, cwd, labels, and agent session references.
 - **Selection copy** — drag-selected pane text copies on mouse-up and keeps the highlight until the next click or keypress.
-- **Automatic selection copy** — `ui.copy_on_select` defaults to `true`; set it to `false` to disable Hako's mouse drag and double-click selection copying while leaving explicit copy actions available.
+- **Automatic selection copy** — `ui.copy_on_select` defaults to `true`; set it to `false` to disable Oh My Herdr's mouse drag and double-click selection copying while leaving explicit copy actions available.
 - **Keyboard protocol encoding** — pane input honors negotiated terminal keyboard protocols, including Kitty CSI u and legacy modified-key sequences.
 
 ## Agent awareness
 
-Hako detects and tracks coding agents running inside panes.
+Oh My Herdr detects and tracks coding agents running inside panes.
 
 ### Agent states
 
@@ -81,7 +81,7 @@ Hako detects and tracks coding agents running inside panes.
 
 ### Detection
 
-Hako combines foreground-process detection, terminal-screen heuristics, and optional integration reports.
+Oh My Herdr combines foreground-process detection, terminal-screen heuristics, and optional integration reports.
 
 Supported built-in detection includes:
 
@@ -106,8 +106,8 @@ Supported built-in detection includes:
 
 
 - **Manifest rules** — bundled per-agent TOML manifests define screen, OSC title, and OSC progress matching rules for every built-in agent family, including OMP. Screen rules can provide strong visible evidence; OSC-only rules are fallback evidence and do not override hook authority as visible UI.
-- **Manifest updates** — Hako can cache newer remote manifests, reject downgrades or incompatible engine versions, reload local manifests through `hako server reload-agent-manifests`, and report updated detection rules through the normal toast/update path.
-- **Wrapped-process hints** — Hako-managed profiles automatically set `HAKO_AGENT=<agent>` from the selected supported agent kind, so host-visible wrappers remain detectable on Linux and macOS. Set the hint explicitly only when launching a wrapper manually inside an arbitrary pane. The hint is process-scoped; avoid exporting it globally. Upstream-branded hint names are not accepted.
+- **Manifest updates** — Oh My Herdr can cache newer remote manifests, reject downgrades or incompatible engine versions, reload local manifests through `omh server reload-agent-manifests`, and report updated detection rules through the normal toast/update path.
+- **Wrapped-process hints** — Oh My Herdr-managed profiles automatically set `OMH_AGENT=<agent>` from the selected supported agent kind, so host-visible wrappers remain detectable on Linux and macOS. Set the hint explicitly only when launching a wrapper manually inside an arbitrary pane. The hint is process-scoped; avoid exporting it globally. Upstream-branded hint names are not accepted.
 
 ### Agent UI
 
@@ -115,21 +115,21 @@ Supported built-in detection includes:
 - **Agent focus** — focus agents from the activity panel, command surfaces, CLI, or socket API.
 - **Agent labels** — manual, detected, and integration-reported labels are surfaced in lists and pane borders.
 - **Agent metadata tokens** — pane metadata token patches are exposed consistently through pane/agent API snapshots and rendered without leaking one client's sidebar view into another.
-- **State notifications** — background state changes can trigger Hako toasts, terminal toasts, system toasts, and sounds.
+- **State notifications** — background state changes can trigger Oh My Herdr toasts, terminal toasts, system toasts, and sounds.
 - **Integration authority** — installed hooks either report native session identity for restore or report state directly. Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, Qoder-style, and Grok Build integrations can report state directly; Kimi, Droid, and Cursor use session identity plus screen detection for state.
-- **Missing integration warning** — if screen detection sees an integration-capable agent such as Codex but no accepted Hako hook, session, or metadata report arrives for that pane, Hako shows a pane-targeted toast with the matching `hako integration install <agent>` command.
+- **Missing integration warning** — if screen detection sees an integration-capable agent such as Codex but no accepted Oh My Herdr hook, session, or metadata report arrives for that pane, Oh My Herdr shows a pane-targeted toast with the matching `omh integration install <agent>` command.
 
 
 ### Agent profiles
 
-- **System profiles** — Hako exposes one read-only system profile for each supported integration target.
-- **Custom profiles** — add or edit profile-specific commands from Settings > Agents. Hako persists them to `[agent_profiles]`; known-family wrappers automatically receive the selected kind as `HAKO_AGENT`, keep native profile/tooling restore behavior, and cannot override that managed identity through profile environment entries. `custom` unsupported agents are labeled `custom · launch-only`.
+- **System profiles** — Oh My Herdr exposes one read-only system profile for each supported integration target.
+- **Custom profiles** — add or edit profile-specific commands from Settings > Agents. Oh My Herdr persists them to `[agent_profiles]`; known-family wrappers automatically receive the selected kind as `OMH_AGENT`, keep native profile/tooling restore behavior, and cannot override that managed identity through profile environment entries. `custom` unsupported agents are labeled `custom · launch-only`.
 - **Group favorites and defaults** — group settings can promote favorite profiles with `ctrl+f` and set a default with `ctrl+d`. Favorites appear before available profiles while both sections keep the global profile order. When a group default is set, `new agent` starts it directly instead of opening the picker.
-- **New agent launch** — choose `new agent` from the command palette, space context menu, tab context menu, or the tab `+` dropdown. Hako starts the group default or only available profile immediately, or opens a favorites-first profile picker when multiple profiles are available.
+- **New agent launch** — choose `new agent` from the command palette, space context menu, tab context menu, or the tab `+` dropdown. Oh My Herdr starts the group default or only available profile immediately, or opens a favorites-first profile picker when multiple profiles are available.
 
 ### Agent session restore
 
-Hako resumes supported agents into native agent sessions during session restore by default. Set `[session].resume_agents_on_restore = false` to disable it.
+Oh My Herdr resumes supported agents into native agent sessions during session restore by default. Set `[session].resume_agents_on_restore = false` to disable it.
 
 - Supported restore sources come from installed integrations that report session references.
 - Duplicate session references are deduplicated during a restore pass.
@@ -140,7 +140,7 @@ Hako resumes supported agents into native agent sessions during session restore 
 
 ### Prefix mode
 
-Hako uses a prefix key before most built-in shortcuts. The default prefix is `ctrl+b`.
+Oh My Herdr uses a prefix key before most built-in shortcuts. The default prefix is `ctrl+b`.
 
 On macOS, `[experimental].switch_ascii_input_source_in_prefix = true` temporarily switches the host input source to an ASCII-capable layout while prefix mode is active, then restores the previous source when prefix mode exits.
 
@@ -168,7 +168,7 @@ Mouse capture is enabled by default.
 - Drag workspace rows to reorder.
 - Scroll lists, panes, modals, and scrollbars.
 - Right-click where context menus are available.
-- Configure `ui.right_click_passthrough_modifier` to send modified right-click hold/drag gestures to mouse-reporting pane apps while normal right-click keeps Hako menus.
+- Configure `ui.right_click_passthrough_modifier` to send modified right-click hold/drag gestures to mouse-reporting pane apps while normal right-click keeps Oh My Herdr menus.
 - Select pane text for copy workflows.
 - **Mobile layout** — narrow terminals use a compact header and scrollable switcher for spaces, tabs, agents, and global menu actions.
 
@@ -188,7 +188,7 @@ The navigator is a workspace/tab/pane chooser.
 
 ### Command palette and command panel
 
-Hako can discover and run project commands. The command palette is also a general action surface for app, workspace, group, tab, pane, layout, agent-scope, settings, reload, notification, and detach/quit actions.
+Oh My Herdr can discover and run project commands. The command palette is also a general action surface for app, workspace, group, tab, pane, layout, agent-scope, settings, reload, notification, and detach/quit actions.
 
 - Commands are scoped from the active workspace or selected workspace while navigating.
 - Command rows are grouped by repo and branch context.
@@ -196,7 +196,7 @@ Hako can discover and run project commands. The command palette is also a genera
 - Custom keybindings can launch shell helpers or pane commands.
 - **Panel actions** — command rows can run, focus, expand, or stop commands from the right sidebar.
 - **Git diff command** — command palette and contextual Git actions open the configured external diff command in a managed tab for the selected repository. The default command is `lazygit`; set `[git].diff_command` to use another terminal Git UI or plain `git diff`.
-- **Command discovery** — Hako discovers VS Code tasks, package scripts, just recipes, Make targets, and defaults for common Cargo, Go, Java, Python, .NET, PHP, and Ruby projects.
+- **Command discovery** — Oh My Herdr discovers VS Code tasks, package scripts, just recipes, Make targets, and defaults for common Cargo, Go, Java, Python, .NET, PHP, and Ruby projects.
 - **Managed reruns** — rerunning a managed command focuses an existing run or restarts a stopped/failed run in the same pane instead of spawning duplicates.
 
 ### Activity panels
@@ -221,7 +221,7 @@ The modal supports keyboard navigation, mouse navigation, scrollbars, immediate 
 
 ### Help and confirmations
 
-Hako includes a scrollable keybinding help modal generated from current bindings, including custom command bindings. Destructive actions such as workspace close and group delete use confirmation dialogs that show the affected target.
+Oh My Herdr includes a scrollable keybinding help modal generated from current bindings, including custom command bindings. Destructive actions such as workspace close and group delete use confirmation dialogs that show the affected target.
 
 ### Global menu
 
@@ -229,7 +229,7 @@ The global menu exposes settings, keybinding help, config reload, update/release
 
 ## Integrations
 
-Hako ships installable integrations for agents that report semantic state, native session identity, or both over the socket API.
+Oh My Herdr ships installable integrations for agents that report semantic state, native session identity, or both over the socket API.
 
 Built-in installable integrations:
 
@@ -251,7 +251,7 @@ Integration management supports:
 
 Integration install side effects are agent-specific: pi and OMP install extensions, Claude, Codex, Grok Build, Kimi, Droid, Cursor, Copilot, and Qoder-style CLIs install/update hooks or settings, OpenCode installs a plugin, and Hermes installs/enables a plugin.
 
-Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, Qoder-style, and Grok Build integrations can report state directly. The Grok Build integration reports native session identity plus parent-agent working, blocked, idle, and release transitions while ignoring child-agent completion as a parent completion. Its Hako-owned hook also prevents Grok's Claude and Cursor compatibility hooks from claiming Grok panes.
+Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, Qoder-style, and Grok Build integrations can report state directly. The Grok Build integration reports native session identity plus parent-agent working, blocked, idle, and release transitions while ignoring child-agent completion as a parent completion. Its Oh My Herdr-owned hook also prevents Grok's Claude and Cursor compatibility hooks from claiming Grok panes.
 
 Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, `KIMI_CODE_HOME`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
 - On Windows, installable integrations are limited to CLI hook integrations with supported path layouts: Claude, Codex, Copilot, Grok Build, Kimi, Droid, and Qoder-style CLIs.
@@ -259,57 +259,57 @@ Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAU
 
 ## Plugins
 
-Hako plugin v1 lets local extensions add actions, panes, link handlers, and event hooks through the Hako socket API and CLI.
+Oh My Herdr plugin v1 lets local extensions add actions, panes, link handlers, and event hooks through the Oh My Herdr socket API and CLI.
 
-Plugin manifests use `hako-plugin.toml` with `min_hako_version`. Hako also accepts upstream-compatible `herdr-plugin.toml` and `min_herdr_version` aliases, but Hako names are preferred for new plugins.
+Plugin manifests use `omh-plugin.toml` with `min_omh_version`. Oh My Herdr also accepts upstream-compatible `herdr-plugin.toml` and `min_herdr_version` aliases, but Oh My Herdr names are preferred for new plugins.
 
 Plugins run unsandboxed as the current user. Remote installs show source, build commands, actions, panes, link handlers, and event hooks before install, and require confirmation unless `--yes` is passed.
 
 Installed plugin registry entries survive live server handoff, so linked plugins remain available to the replacement server and later registry writes preserve the complete set.
 
-Plugin panes are normal Hako panes. Their pane attribution follows pane moves and is removed when tabs, workspaces, layouts, or plugins remove the pane.
+Plugin panes are normal Oh My Herdr panes. Their pane attribution follows pane moves and is removed when tabs, workspaces, layouts, or plugins remove the pane.
 
-Plugin commands receive `HAKO_*` context variables, including plugin root/config/state directories and active workspace/tab/pane ids. Protected Hako/plugin variables cannot be overwritten by plugin-provided env overrides.
+Plugin commands receive `OMH_*` context variables, including plugin root/config/state directories and active workspace/tab/pane ids. Protected Oh My Herdr/plugin variables cannot be overwritten by plugin-provided env overrides.
 
 ## External tools
 
-Hako is a terminal workspace manager, so some features call user-installed tools instead of bundling every backend.
+Oh My Herdr is a terminal workspace manager, so some features call user-installed tools instead of bundling every backend.
 
 | Tool | Used for | Requirement |
 | --- | --- | --- |
 | `git` | Git status, repository discovery, worktree operations, and Git-aware project commands. | Required for Git-aware features. |
 | Configured Git diff command | Repository review from command palette and contextual Git actions. Defaults to `lazygit`; configure `[git].diff_command` for another command. | Optional; required only when using the Git diff action. |
-| Agent CLIs such as `pi`, `omp`, `claude`, `codex`, `grok`, `opencode`, `hermes`, `copilot`, `kimi`, `droid`, `qodercli`, and `cursor-agent` | Launching agent panes and installing/updating matching Hako integrations. | Required only for the agent/profile the user launches or integrates. |
+| Agent CLIs such as `pi`, `omp`, `claude`, `codex`, `grok`, `opencode`, `hermes`, `copilot`, `kimi`, `droid`, `qodercli`, and `cursor-agent` | Launching agent panes and installing/updating matching Oh My Herdr integrations. | Required only for the agent/profile the user launches or integrates. |
 | `python3` | Installed hook scripts for agent integrations. | Required for hook-based state/session reports; hooks exit quietly when it is missing. |
 | `curl` | Update checks, release downloads, manifest refreshes, and remote bootstrap downloads. | Required for those networked update/bootstrap features. |
 | `ssh` | Remote attach, remote install, and remote client bridge. | Required for remote features. |
 | `lsof` | Local TCP listener discovery for the ports panel. | Optional; missing or failing probes produce no port observations. |
-| macOS `pbcopy`, `pbpaste`, `open`, `/usr/bin/osascript`, optional `terminal-notifier`, and optional `mdfind` | Clipboard, URL opening, and system notifications on macOS. | Platform helpers; Hako falls back where possible. |
+| macOS `pbcopy`, `pbpaste`, `open`, `/usr/bin/osascript`, optional `terminal-notifier`, and optional `mdfind` | Clipboard, URL opening, and system notifications on macOS. | Platform helpers; Oh My Herdr falls back where possible. |
 | Linux `xdg-open`, `notify-send`, `wl-copy`, `wl-paste`, `xclip`, and `xsel` | URL opening, system notifications, and clipboard/image paste on Linux. | Optional per feature and display server; missing helpers disable the matching bridge/fallback. |
 | macOS `afplay` | Custom sound notification playback. | Required only for custom notification sound playback on macOS. |
 
 ## CLI and socket API
 
-Hako exposes the same runtime model through the CLI and local Unix socket API.
+Oh My Herdr exposes the same runtime model through the CLI and local Unix socket API.
 
 ### CLI areas
 
-- **`hako status`** — show client/server status and protocol compatibility.
+- **`omh status`** — show client/server status and protocol compatibility.
 - **Protocol guard** — operational CLI commands verify the server wire-protocol version before dispatch and return a request-correlated JSON error with update/restart guidance on mismatch; status checks and live handoff remain available for diagnosis and recovery.
-- **`hako session`** — list, attach, stop, and delete named sessions.
-- **`hako workspace`** — manage workspaces.
-- **`hako worktree`** — manage Git worktree checkouts.
-- **`hako tab`** — manage tabs.
-- **`hako pane`** — manage panes, read output, send input, report agent state, and run commands.
-- **`hako agent`** — list, inspect, focus, read, send to, attach to, rename, and start agents.
-- **`hako agent explain`** — inspect why an agent pane is classified as idle, working, blocked, unknown, or skipped by manifest detection.
-- **`hako wait`** — wait for output matches or agent status changes.
-- **`hako integration`** — install, uninstall, and inspect agent integrations.
-- **`hako group`** — list, create, focus/switch, rename, and delete workspace groups.
-- **`hako config reset-keys`** — remove custom keybindings while preserving the rest of the config.
-- **`hako update`** — self-update supported binary installs; `--handoff` can preserve live panes while moving running sessions to the updated server.
-- **`hako server`** — run the headless server, stop it, reload config, or trigger a live handoff.
-- **`hako api`** — print or write the generated public API schema and request a live session snapshot.
+- **`omh session`** — list, attach, stop, and delete named sessions.
+- **`omh workspace`** — manage workspaces.
+- **`omh worktree`** — manage Git worktree checkouts.
+- **`omh tab`** — manage tabs.
+- **`omh pane`** — manage panes, read output, send input, report agent state, and run commands.
+- **`omh agent`** — list, inspect, focus, read, send to, attach to, rename, and start agents.
+- **`omh agent explain`** — inspect why an agent pane is classified as idle, working, blocked, unknown, or skipped by manifest detection.
+- **`omh wait`** — wait for output matches or agent status changes.
+- **`omh integration`** — install, uninstall, and inspect agent integrations.
+- **`omh group`** — list, create, focus/switch, rename, and delete workspace groups.
+- **`omh config reset-keys`** — remove custom keybindings while preserving the rest of the config.
+- **`omh update`** — self-update supported binary installs; `--handoff` can preserve live panes while moving running sessions to the updated server.
+- **`omh server`** — run the headless server, stop it, reload config, or trigger a live handoff.
+- **`omh api`** — print or write the generated public API schema and request a live session snapshot.
 - **Launch flags** — `--no-session`, `--default-config`, and `--remote-keybindings <local|server>` control startup and remote behavior.
 - **JSON output** — status, session, and worktree commands expose machine-readable output where supported.
 - **Read modes** — pane and agent reads support visible, recent, recent-unwrapped, ANSI, raw, and bounded line output.
@@ -343,33 +343,33 @@ API-visible domains include:
 
 ### Themes
 
-Hako supports terminal-derived colors and built-in palettes.
+Oh My Herdr supports terminal-derived colors and built-in palettes.
 
 - **Theme source** — terminal colors or theme palettes.
 - **Appearance mode** — system, light, or dark.
 - **Light and dark palette selection** — choose separate palettes when system mode is enabled.
-- **Live system sync** — in system mode, Hako follows foreground host-terminal light/dark color changes while it is running and refreshes pane terminal defaults.
+- **Live system sync** — in system mode, Oh My Herdr follows foreground host-terminal light/dark color changes while it is running and refreshes pane terminal defaults.
 - **Custom token overrides** — override individual theme colors.
 - **Group settings** — rename or delete groups, assign per-group ANSI accent colors, choose favorite/default agent profiles, or inherit the global accent from the group settings modal.
 - **Accent color** — configure highlight, border, and navigation accent color; when following terminal colors, choose separate terminal ANSI accents for light and dark appearances.
 
 ### Sound and toasts
 
-- **Toast delivery** — off, Hako, terminal, or system.
+- **Toast delivery** — off, Oh My Herdr, terminal, or system.
 - **Sound notifications** — request and done sounds for background agent activity.
 - **Per-agent sounds** — agent-specific sound overrides.
 - **Validation** — invalid or missing sound files fall back to defaults and emit diagnostics.
 - **Terminal toast backends** — terminal toasts use supported terminal notification protocols, including tmux passthrough where available.
 - **Custom sound files** — request/done sounds can use MP3 files resolved relative to the config file.
-- **Sound disable switch** — `HAKO_DISABLE_SOUND` disables playback.
+- **Sound disable switch** — `OMH_DISABLE_SOUND` disables playback.
 
 ## Configuration
 
-Configuration file: `~/.config/hako/config.toml`.
-Hako treats `config.toml` as a stable hand-editable configuration surface. Settings modal changes rewrite their owned keys or sections, preserve unrelated sections, and reload the file into the running app after successful writes.
+Configuration file: `~/.config/omh/config.toml`.
+Oh My Herdr treats `config.toml` as a stable hand-editable configuration surface. Settings modal changes rewrite their owned keys or sections, preserve unrelated sections, and reload the file into the running app after successful writes.
 
 Runtime reload is section-scoped for live sections: valid sections apply, invalid sections keep the previous live settings and emit diagnostics through the app/server reload path.
-- **Offline validation** — `hako config check` validates `config.toml`, prints diagnostics, and exits without starting or attaching to a session.
+- **Offline validation** — `omh config check` validates `config.toml`, prints diagnostics, and exits without starting or attaching to a session.
 - **Configuration status** — startup and reload diagnostics raise one transient toast, then remain available from the bottom-left `config issue` status and its diagnostics modal until a successful reload clears them.
 
 
@@ -399,10 +399,10 @@ Configurable areas include:
 Direct installs use GitHub Releases for update checks, release metadata, and binary downloads on Linux, macOS, and Windows. mise and Nix-managed installs are routed to their package manager instead of self-update.
 
 - The app can notify when a new release or managed-install update is available.
-- `hako update` downloads and swaps supported direct binary installs.
+- `omh update` downloads and swaps supported direct binary installs.
 - mise and Nix-managed installs are blocked from self-update and should use their package manager.
 - Live handoff can preserve running pane processes during updates when both the old and new server support the handoff protocol.
-- Windows direct updates use the stable `hako-windows-x86_64.exe` release asset; Hako does not use a preview channel.
+- Windows direct updates use the stable `omh-windows-x86_64.exe` release asset; Oh My Herdr does not use a preview channel.
 - In-app release notes can be shown after an update.
 - Post-update checks can report outdated integrations.
 - Product announcements can be shown separately from release notes and tracked as seen per version.
@@ -411,18 +411,18 @@ Direct installs use GitHub Releases for update checks, release metadata, and bin
 
 ## Fork maintenance
 
-Hako tracks upstream Herdr commits with an explicit port ledger.
+Oh My Herdr tracks upstream Herdr commits with an explicit port ledger.
 
 - **Upstream port ledger** — `upstream-port-map.json` records each upstream commit as ported, superseded, skipped, or pending.
 - **Ledger check** — `just upstream-status` reports upstream status and fails when commits are unclassified or still pending.
 - **Sync guard integration** — upstream-sync reports include the ledger status so product-specific skips and superseded changes stay visible.
-- **Hako-owned surfaces** — docs, website, release, and repository-process commits can be skipped with explicit reasons instead of silently reintroducing upstream identity.
+- **Oh My Herdr-owned surfaces** — docs, website, release, and repository-process commits can be skipped with explicit reasons instead of silently reintroducing upstream identity.
 
 ## Experimental features
 
 Experimental options currently include:
 
-- nested Hako sessions
+- nested Oh My Herdr sessions
 - local Kitty graphics rendering for attached clients
 - CJK IME hidden-cursor anchoring
 - agent-scoped CJK IME anchoring

@@ -4,7 +4,7 @@ status: accepted
 
 # Keep AppState rendering read-only
 
-Hako separates view computation from drawing. `compute_view*` functions take `&mut AppState` and may reconcile view geometry, scroll bounds, pane sizes, mobile layout, hit areas, and cached `ViewState`; `render*` functions take `&AppState` and must not mutate app, workspace, or layout state.
+Oh My Herdr separates view computation from drawing. `compute_view*` functions take `&mut AppState` and may reconcile view geometry, scroll bounds, pane sizes, mobile layout, hit areas, and cached `ViewState`; `render*` functions take `&AppState` and must not mutate app, workspace, or layout state.
 
 This is accepted because drawing should be a projection of already computed app state, not another place where app-state transitions happen. The current UI entry points encode that boundary: the application render loop calls `compute_view_with_*(&mut self.state, ...)` before `render_with_runtime_registry(&self.state, ...)`, and headless virtual rendering follows the same sequence. `ViewState` is explicitly the computed geometry consumed by render and mouse handling.
 

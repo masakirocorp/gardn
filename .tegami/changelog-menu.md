@@ -1,6 +1,6 @@
 ---
 packages:
-  hako: patch
+  omh: patch
 ---
 
 ### Add changelog menu
@@ -9,4 +9,4 @@ The global menu now has a stable changelog entry backed by Tegami-managed releas
 
 ### Remove nonexistent Homebrew update prompts
 
-Hako no longer checks or recommends Homebrew updates before a Homebrew formula exists.
+Oh My Herdr no longer checks or recommends Homebrew updates before a Homebrew formula exists.

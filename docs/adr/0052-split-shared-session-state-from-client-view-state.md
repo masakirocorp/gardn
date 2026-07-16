@@ -4,7 +4,7 @@ status: accepted
 
 # Split shared session state from client view state
 
-Hako will support multiple normal app clients attached to one server as one shared session with independent client views. The shared session owns durable workspace and runtime-adjacent product state; each normal app client owns its own navigation, transient UI state, computed geometry, and render/input surface state. A client can look at a different workspace, tab, pane, modal, sidebar scroll position, command palette query, or terminal scrollback viewport without changing another client's view.
+Oh My Herdr will support multiple normal app clients attached to one server as one shared session with independent client views. The shared session owns durable workspace and runtime-adjacent product state; each normal app client owns its own navigation, transient UI state, computed geometry, and render/input surface state. A client can look at a different workspace, tab, pane, modal, sidebar scroll position, command palette query, or terminal scrollback viewport without changing another client's view.
 
 This refines ADR 0028 rather than replacing it. One foreground app client remains authoritative for shared runtime context that cannot be merged safely: pane runtime/effective size, outer-terminal focus, host terminal theme, and active keybinding profile. Independent client views must not make every attached terminal surface resize PTYs or race over host-context fields. Direct terminal attach clients remain outside the normal app view model under ADR 0011 and ADR 0029.
 
@@ -46,7 +46,7 @@ Notifications remain centralized unless a later ADR changes delivery policy. Vie
 
 ## Terminal viewport split
 
-Terminal runtime output, parser state, history buffers, and pane terminal identity stay shared runtime/session data under ADR 0001. A client's scrollback viewport and search/navigation position are client view state unless Hako intentionally exposes a shared follow/observe mode later.
+Terminal runtime output, parser state, history buffers, and pane terminal identity stay shared runtime/session data under ADR 0001. A client's scrollback viewport and search/navigation position are client view state unless Oh My Herdr intentionally exposes a shared follow/observe mode later.
 
 ## MVP transition sequence
 
@@ -60,7 +60,7 @@ Terminal runtime output, parser state, history buffers, and pane terminal identi
 
 ## Current rationale
 
-`[INFERENCE]` Users expect multiple attached Hako app clients to behave like multiple views into one workspace manager, not a screen share where every navigation action yanks other clients around. The current code already treats render streams and client surface data as per-client, but app navigation state remains shared in `AppState`, so the implementation is halfway between independent views and shared screen mirroring. Splitting shared session state from client view state completes the existing direction without moving terminal/runtime ownership into clients.
+`[INFERENCE]` Users expect multiple attached Oh My Herdr app clients to behave like multiple views into one workspace manager, not a screen share where every navigation action yanks other clients around. The current code already treats render streams and client surface data as per-client, but app navigation state remains shared in `AppState`, so the implementation is halfway between independent views and shared screen mirroring. Splitting shared session state from client view state completes the existing direction without moving terminal/runtime ownership into clients.
 
 ## Consequences
 
