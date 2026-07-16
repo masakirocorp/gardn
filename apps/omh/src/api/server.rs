@@ -446,7 +446,8 @@ fn stream_subscriptions(
         let active =
             match ActiveSubscription::new(subscription, &request_id, index, api_tx, event_hub) {
                 Ok(active) => active,
-                Err(response) => {
+                Err(mut response) => {
+                    response.id = request_id.clone();
                     if let Err(err) = write_json_line(&mut stream, &response) {
                         if is_connection_closed_error(&err) {
                             return Ok(());
@@ -462,7 +463,7 @@ fn stream_subscriptions(
     if let Err(err) = write_json_line(
         &mut stream,
         &SuccessResponse {
-            id: request_id,
+            id: request_id.clone(),
             result: ResponseResult::SubscriptionStarted {},
         },
     ) {
@@ -476,14 +477,26 @@ fn stream_subscriptions(
         if should_stop_connection(&mut stream, running)? {
             return Ok(());
         }
-
         for subscription in &mut subscriptions {
-            if let Some(event) = subscription.poll(api_tx, event_hub) {
-                if let Err(err) = write_json_line(&mut stream, &event) {
-                    if is_connection_closed_error(&err) {
-                        return Ok(());
+            match subscription.poll(api_tx, event_hub) {
+                Ok(Some(event)) => {
+                    if let Err(err) = write_json_line(&mut stream, &event) {
+                        if is_connection_closed_error(&err) {
+                            return Ok(());
+                        }
+                        return Err(err);
                     }
-                    return Err(err);
+                }
+                Ok(None) => {}
+                Err(mut response) => {
+                    response.id = request_id.clone();
+                    if let Err(err) = write_json_line(&mut stream, &response) {
+                        if is_connection_closed_error(&err) {
+                            return Ok(());
+                        }
+                        return Err(err);
+                    }
+                    return Ok(());
                 }
             }
         }
@@ -930,6 +943,83 @@ mod tests {
         let result = done_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         assert!(result.is_ok());
         server_thread.join().unwrap();
+    }
+
+    #[test]
+    fn subscriptions_report_pane_not_found_when_agent_status_pane_closes() {
+        let (api_tx, mut api_rx) = mpsc::unbounded_channel::<ApiRequestMessage>();
+        let responder = std::thread::spawn(move || {
+            let mut pane_get_count = 0;
+            while let Some(msg) = api_rx.blocking_recv() {
+                assert!(matches!(msg.request.method, Method::PaneGet(_)));
+                pane_get_count += 1;
+                let response = if pane_get_count == 1 {
+                    serde_json::to_string(&SuccessResponse {
+                        id: msg.request.id,
+                        result: ResponseResult::PaneInfo {
+                            pane: crate::api::schema::PaneInfo {
+                                pane_id: "pane_1".into(),
+                                terminal_id: "terminal_1".into(),
+                                workspace_id: "workspace_1".into(),
+                                tab_id: "tab_1".into(),
+                                focused: false,
+                                cwd: None,
+                                foreground_cwd: None,
+                                label: None,
+                                agent: Some("pi".into()),
+                                title: None,
+                                display_agent: Some("pi".into()),
+                                agent_status: crate::api::schema::AgentStatus::Unknown,
+                                custom_status: None,
+                                state_labels: std::collections::HashMap::new(),
+                                tokens: std::collections::HashMap::new(),
+                                agent_session: None,
+                                scroll: None,
+                                revision: 0,
+                            },
+                        },
+                    })
+                    .unwrap()
+                } else {
+                    error_response_json(
+                        msg.request.id,
+                        "pane_not_found",
+                        "pane pane_1 not found".into(),
+                    )
+                };
+                msg.respond_to.send(response).unwrap();
+            }
+        });
+
+        let (mut client, server, path) = local_stream_pair("api-sub-pane-close");
+        client
+            .write_all(
+                br#"{"id":"sub_agent_wait","method":"events.subscribe","params":{"subscriptions":[{"type":"pane.agent_status_changed","pane_id":"pane_1","agent_status":"done"}]}}"#,
+            )
+            .unwrap();
+        client.write_all(b"\n").unwrap();
+        client.flush().unwrap();
+
+        let running = Arc::new(AtomicBool::new(true));
+        handle_connection(server, &api_tx, &EventHub::default(), &running, None).unwrap();
+
+        let mut reader = BufReader::new(client);
+        let mut ack_line = String::new();
+        reader.read_line(&mut ack_line).unwrap();
+        let ack: serde_json::Value = serde_json::from_str(&ack_line).unwrap();
+        assert_eq!(ack["id"], "sub_agent_wait");
+        assert_eq!(ack["result"]["type"], "subscription_started");
+
+        let mut error_line = String::new();
+        reader.read_line(&mut error_line).unwrap();
+        let response: serde_json::Value = serde_json::from_str(&error_line).unwrap();
+        assert_eq!(response["id"], "sub_agent_wait");
+        assert_eq!(response["error"]["code"], "pane_not_found");
+        assert_eq!(response["error"]["message"], "pane pane_1 not found");
+
+        drop(api_tx);
+        responder.join().unwrap();
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

@@ -257,18 +257,42 @@ impl ActiveSubscription {
         &mut self,
         api_tx: &ApiRequestSender,
         event_hub: &EventHub,
-    ) -> Option<serde_json::Value> {
+    ) -> Result<Option<serde_json::Value>, ErrorResponse> {
         match self {
-            Self::Event(subscription) => subscription.poll(event_hub),
-            Self::OutputMatched(subscription) => {
-                serde_json::to_value(subscription.poll(api_tx)?).ok()
-            }
-            Self::AgentStatusChanged(subscription) => {
-                serde_json::to_value(subscription.poll(api_tx)?).ok()
-            }
-            Self::ScrollChanged(subscription) => {
-                serde_json::to_value(subscription.poll(api_tx)?).ok()
-            }
+            Self::Event(subscription) => Ok(subscription.poll(event_hub)),
+            Self::OutputMatched(subscription) => subscription
+                .poll(api_tx)?
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|err| ErrorResponse {
+                    id: String::new(),
+                    error: ErrorBody {
+                        code: "internal_error".into(),
+                        message: format!("failed to encode subscription event: {err}"),
+                    },
+                }),
+            Self::AgentStatusChanged(subscription) => subscription
+                .poll(api_tx)?
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|err| ErrorResponse {
+                    id: String::new(),
+                    error: ErrorBody {
+                        code: "internal_error".into(),
+                        message: format!("failed to encode subscription event: {err}"),
+                    },
+                }),
+            Self::ScrollChanged(subscription) => subscription
+                .poll(api_tx)?
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|err| ErrorResponse {
+                    id: String::new(),
+                    error: ErrorBody {
+                        code: "internal_error".into(),
+                        message: format!("failed to encode subscription event: {err}"),
+                    },
+                }),
         }
     }
 }
@@ -286,7 +310,10 @@ impl ActiveEventSubscription {
 }
 
 impl ActiveOutputMatchedSubscription {
-    fn poll(&mut self, api_tx: &ApiRequestSender) -> Option<SubscriptionEventEnvelope> {
+    fn poll(
+        &mut self,
+        api_tx: &ApiRequestSender,
+    ) -> Result<Option<SubscriptionEventEnvelope>, ErrorResponse> {
         let read = pane_read(
             format!("{}:read", self.request_prefix),
             &self.pane_id,
@@ -294,41 +321,42 @@ impl ActiveOutputMatchedSubscription {
             self.lines,
             self.strip_ansi,
             api_tx,
-        )
-        .ok()?;
+        )?;
 
         let matched_line = match_output(&read.text, &self.matcher, self.regex.as_ref());
         match matched_line {
             Some(matched_line) => {
                 if self.currently_matching {
-                    return None;
+                    return Ok(None);
                 }
                 self.currently_matching = true;
-                Some(SubscriptionEventEnvelope {
+                Ok(Some(SubscriptionEventEnvelope {
                     event: SubscriptionEventKind::PaneOutputMatched,
                     data: SubscriptionEventData::PaneOutputMatched(PaneOutputMatchedEvent {
                         pane_id: self.pane_id.clone(),
                         matched_line,
                         read,
                     }),
-                })
+                }))
             }
             None => {
                 self.currently_matching = false;
-                None
+                Ok(None)
             }
         }
     }
 }
 
 impl ActiveAgentStatusChangedSubscription {
-    fn poll(&mut self, api_tx: &ApiRequestSender) -> Option<SubscriptionEventEnvelope> {
+    fn poll(
+        &mut self,
+        api_tx: &ApiRequestSender,
+    ) -> Result<Option<SubscriptionEventEnvelope>, ErrorResponse> {
         let pane = pane_get(
             format!("{}:pane", self.request_prefix),
             &self.pane_id,
             api_tx,
-        )
-        .ok()?;
+        )?;
         let current_status = pane.agent_status;
         let current_presentation = PanePresentationSnapshot::from(&pane);
         let previous_status = self.last_status.replace(current_status);
@@ -348,10 +376,10 @@ impl ActiveAgentStatusChangedSubscription {
                     .is_some_and(|wanted| wanted != current_status)
         };
         if !should_emit {
-            return None;
+            return Ok(None);
         }
 
-        Some(SubscriptionEventEnvelope {
+        Ok(Some(SubscriptionEventEnvelope {
             event: SubscriptionEventKind::PaneAgentStatusChanged,
             data: SubscriptionEventData::PaneAgentStatusChanged(PaneAgentStatusChangedEvent {
                 pane_id: pane.pane_id,
@@ -364,19 +392,21 @@ impl ActiveAgentStatusChangedSubscription {
                 state_labels: pane.state_labels,
                 tokens: pane.tokens,
             }),
-        })
+        }))
     }
 }
 
 impl ActiveScrollChangedSubscription {
-    fn poll(&mut self, api_tx: &ApiRequestSender) -> Option<SubscriptionEventEnvelope> {
+    fn poll(
+        &mut self,
+        api_tx: &ApiRequestSender,
+    ) -> Result<Option<SubscriptionEventEnvelope>, ErrorResponse> {
         let pane = pane_get(
             format!("{}:pane", self.request_prefix),
             &self.pane_id,
             api_tx,
-        )
-        .ok()?;
-        self.event_from_snapshot(pane)
+        )?;
+        Ok(self.event_from_snapshot(pane))
     }
 
     fn event_from_snapshot(
@@ -431,13 +461,15 @@ fn pane_read(
         },
     })?;
     if value.get("error").is_some() {
-        return serde_json::from_value(value).map_err(|_| ErrorResponse {
-            id: request_id,
-            error: ErrorBody {
-                code: "internal_error".into(),
-                message: "failed to decode pane read error".into(),
-            },
-        });
+        let response =
+            serde_json::from_value::<ErrorResponse>(value).map_err(|_| ErrorResponse {
+                id: request_id.clone(),
+                error: ErrorBody {
+                    code: "internal_error".into(),
+                    message: "failed to decode pane read error".into(),
+                },
+            })?;
+        return Err(response);
     }
     serde_json::from_value(value["result"]["read"].clone()).map_err(|_| ErrorResponse {
         id: request_id,
@@ -471,13 +503,15 @@ fn pane_get(
         },
     })?;
     if value.get("error").is_some() {
-        return serde_json::from_value(value).map_err(|_| ErrorResponse {
-            id: request_id,
-            error: ErrorBody {
-                code: "internal_error".into(),
-                message: "failed to decode pane get error".into(),
-            },
-        });
+        let response =
+            serde_json::from_value::<ErrorResponse>(value).map_err(|_| ErrorResponse {
+                id: request_id.clone(),
+                error: ErrorBody {
+                    code: "internal_error".into(),
+                    message: "failed to decode pane get error".into(),
+                },
+            })?;
+        return Err(response);
     }
     serde_json::from_value(value["result"]["pane"].clone()).map_err(|_| ErrorResponse {
         id: request_id,
