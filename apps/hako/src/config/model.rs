@@ -63,6 +63,32 @@ pub enum AgentPanelScopeConfig {
     All,
 }
 
+impl AgentPanelScopeConfig {
+    pub(crate) fn next(self) -> Self {
+        match self {
+            Self::All => Self::Group,
+            Self::Group => Self::Current,
+            Self::Current => Self::All,
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Group => "current group",
+            Self::Current => "current space",
+        }
+    }
+
+    pub(crate) fn config_value(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Group => "group",
+            Self::Current => "current",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SidebarArrangementConfig {
@@ -895,8 +921,6 @@ pub struct UiConfig {
     pub hide_tab_bar_when_single_tab: bool,
     /// How to render the collapsed sidebar. Default: "compact".
     pub sidebar_collapsed_mode: SidebarCollapsedModeConfig,
-    /// Agent sidebar scope. Saved values are "current", "group", or "all". Default: "current".
-    pub agent_panel_scope: AgentPanelScopeConfig,
     /// Accent color for highlights, borders, and navigation UI.
     /// Accepts hex (#89b4fa), named colors (cyan, blue), or RGB (rgb(137,180,250)).
     pub accent: String,
@@ -1108,7 +1132,6 @@ impl Default for UiConfig {
             pane_gaps: true,
             hide_tab_bar_when_single_tab: false,
             sidebar_collapsed_mode: SidebarCollapsedModeConfig::default(),
-            agent_panel_scope: AgentPanelScopeConfig::Current,
             accent: "cyan".into(),
             toast: ToastConfig::default(),
             sound: SoundConfig::default(),
@@ -1283,13 +1306,33 @@ resume_agents_on_restore = false
     }
 
     #[test]
-    fn agent_panel_scope_config_parses() {
-        let toml = r#"
-[ui]
-agent_panel_scope = "group"
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.ui.agent_panel_scope, AgentPanelScopeConfig::Group);
+    fn initial_sidebar_config_defaults_and_parses() {
+        let defaults = Config::default();
+        assert_eq!(
+            defaults.ui.sidebar.initial_state,
+            crate::config::SidebarInitialStateConfig::Expanded
+        );
+        assert_eq!(
+            defaults.ui.sidebar.initial_agent_scope,
+            AgentPanelScopeConfig::All
+        );
+
+        let config: Config = toml::from_str(
+            r#"
+[ui.sidebar]
+initial_state = "collapsed"
+initial_agent_scope = "group"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.ui.sidebar.initial_state,
+            crate::config::SidebarInitialStateConfig::Collapsed
+        );
+        assert_eq!(
+            config.ui.sidebar.initial_agent_scope,
+            AgentPanelScopeConfig::Group
+        );
     }
 
     #[test]

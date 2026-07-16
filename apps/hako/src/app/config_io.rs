@@ -198,6 +198,32 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
+    pub(super) fn save_sidebar_initial_view(
+        &mut self,
+        initial_state: crate::config::SidebarInitialStateConfig,
+        initial_agent_scope: crate::config::AgentPanelScopeConfig,
+    ) {
+        self.state.sidebar_config.initial_state = initial_state;
+        self.state.sidebar_config.initial_agent_scope = initial_agent_scope;
+        self.state.settings.pending_sidebar_initial_state = Some(initial_state);
+        self.state.settings.pending_sidebar_initial_agent_scope = Some(initial_agent_scope);
+        if self.update_config_file("initial sidebar view", |content| {
+            let content = crate::config::upsert_section_value(
+                content,
+                "ui.sidebar",
+                "initial_state",
+                &format!("{:?}", initial_state.label()),
+            );
+            crate::config::upsert_section_value(
+                &content,
+                "ui.sidebar",
+                "initial_agent_scope",
+                &format!("{:?}", initial_agent_scope.config_value()),
+            )
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
     pub(super) fn save_worktree_directory(&mut self, directory: &str) {
         self.state.worktree_directory = crate::worktree::expand_tilde_absolute_path(directory);
         self.state.settings.pending_worktree_directory = Some(directory.to_string());

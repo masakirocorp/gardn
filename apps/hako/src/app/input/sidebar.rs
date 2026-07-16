@@ -2353,7 +2353,7 @@ mod tests {
 
         assert_eq!(
             app.state.agent_menu_labels(),
-            vec!["filter", "  all", "✓ space", "  group"]
+            vec!["filter", "✓ all", "  space", "  group"]
         );
     }
 
@@ -2363,7 +2363,7 @@ mod tests {
 
         assert_eq!(
             app.state.agent_menu_labels(),
-            vec!["filter", "  all", "✓ space", "  group"]
+            vec!["filter", "✓ all", "  space", "  group"]
         );
         assert_eq!(
             app.state.agent_menu_rect().width,
@@ -2926,6 +2926,7 @@ mod tests {
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.sidebar_collapsed = true;
+        app.state.group_filter_enabled = true;
         app.state.view.sidebar_rect = Rect::new(0, 0, 4, 20);
         app.state.view.terminal_area = Rect::new(4, 0, 80, 20);
 
@@ -3398,6 +3399,7 @@ mod tests {
     #[test]
     fn compact_workspace_rows_still_have_distinct_drop_targets() {
         let mut app = app_for_mouse_test();
+        app.state.group_filter_enabled = true;
         let first_repo = temp_git_repo("main");
         let second_repo = temp_git_repo("main");
 

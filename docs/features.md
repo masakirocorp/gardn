@@ -17,7 +17,7 @@ A session is a persistent Hako runtime with its own sockets, panes, tabs, worksp
 - **SSH keepalive fallback** — remote attach can add private generated SSH keepalive defaults without overriding your own SSH config.
 - **Direct terminal attach** — `hako terminal attach <terminal-id>` and `hako agent attach <target>` attach directly to a single server-owned terminal.
 - **Attach takeover** — direct attach is exclusive by default; `--takeover` can claim a terminal attachment from another client.
-- **Multiple clients** — more than one client can connect to a server; the foreground interactive client drives shared runtime size, focus, theme, and keybindings.
+- **Multiple clients** — more than one client can connect to a server; each client owns its navigation and sidebar view, while the foreground interactive client drives shared runtime size, focus, theme, and keybindings.
 - **Clipboard bridging** — thin clients forward OSC 52 clipboard writes locally and can bridge local clipboard-image paste into server panes.
 - **Live server handoff** — supported updates can move live pane PTYs and session state into a replacement server so running pane processes survive a server swap.
 
@@ -28,6 +28,7 @@ A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 - **Workspace creation and focus** — create, focus, rename, close, list, and inspect workspaces from the TUI, CLI, or socket API.
 - **Workspace sidebar** — expanded workspace rows show the workspace name, activity state, and git/cwd summary.
 - **Configurable sidebar metadata** — `[ui.sidebar.agents]` and `[ui.sidebar.spaces]` rows accept built-in tokens and `$custom` metadata reported through the socket API; defaults preserve compact workspace and agent labels across expanded, collapsed, and mobile views.
+- **New-client sidebar defaults** — every app client starts with all spaces visible. `ui.sidebar.initial_state` and `ui.sidebar.initial_agent_scope` choose its initial expansion and agent scope; defaults are `expanded` and `all`, and one client's runtime changes never seed another client.
 - **Workspace navigator** — search and filter workspaces, tabs, and panes by text or state.
 - **Workspace groups** — group workspaces, filter the sidebar by group, collapse groups, and assign per-group ANSI accent colors that tint group labels, tabs, menus, and related group UI.
 - **Group lifecycle** — create, rename, delete, focus, and switch groups from the TUI, CLI, or socket API; reorder groups by dragging headers in the all-groups sidebar.
@@ -61,7 +62,7 @@ A pane is a terminal runtime inside a tab layout.
 - **Scrollback** — scroll panes, edit scrollback in `$EDITOR`, and read visible/recent output through the API.
 - **Pane history** — persist recent screen history to `session-history.json` by default.
 - **Terminal identity** — panes advertise Hako's terminal layer instead of leaking the outer terminal identity.
-- **Snapshot restore** — saved sessions restore groups, active selections, sidebar layout, tabs, pane layouts, focus, zoom, cwd, labels, and agent session references.
+- **Snapshot restore** — saved sessions restore groups, active selections, sidebar sizing and arrangement, tabs, pane layouts, focus, zoom, cwd, labels, and agent session references.
 - **Selection copy** — drag-selected pane text copies on mouse-up and keeps the highlight until the next click or keypress.
 - **Automatic selection copy** — `ui.copy_on_select` defaults to `true`; set it to `false` to disable Hako's mouse drag and double-click selection copying while leaving explicit copy actions available.
 - **Keyboard protocol encoding** — pane input honors negotiated terminal keyboard protocols, including Kitty CSI u and legacy modified-key sequences.
@@ -383,9 +384,9 @@ Configurable areas include:
   Shell actions and temporary pane actions run through the platform command interpreter: `/bin/sh` on Unix and `cmd.exe` on Windows.
 - multiple bindings per action
 - prefix-mode and direct key chords
-- sidebar size and mouse behavior
+- sidebar size, initial state, and mouse behavior
 - close and naming prompts
-- agent panel scope
+- initial agent panel scope
 - pane border labels
 - toast and sound settings
 - worktree directory

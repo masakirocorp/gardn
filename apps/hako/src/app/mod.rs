@@ -599,6 +599,11 @@ impl App {
             target: None,
         });
 
+        let initial_sidebar_collapsed = matches!(
+            config.ui.sidebar.initial_state,
+            crate::config::SidebarInitialStateConfig::Collapsed
+        );
+
         // Try to restore previous session
         let mut restored_terminals = std::collections::HashMap::new();
         let mut restored_terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
@@ -620,17 +625,17 @@ impl App {
             (
                 vec![state::Group::default_group()],
                 0,
-                true,
+                false,
                 Vec::new(),
                 None,
                 0,
                 state::AgentPanelScope::CurrentWorkspace,
                 config.ui.sidebar_width,
                 state::SidebarWidthSource::ConfigDefault,
-                false,
+                initial_sidebar_collapsed,
                 0.5_f32,
                 28,
-                false,
+                initial_sidebar_collapsed,
             )
         } else if let Some(snap) = crate::persist::load() {
             let history = config
@@ -706,21 +711,22 @@ impl App {
             (
                 vec![state::Group::default_group()],
                 0,
-                true,
+                false,
                 Vec::new(),
                 None,
                 0,
                 state::AgentPanelScope::CurrentWorkspace,
                 config.ui.sidebar_width,
                 state::SidebarWidthSource::ConfigDefault,
-                false,
+                initial_sidebar_collapsed,
                 0.5_f32,
                 28,
-                false,
+                initial_sidebar_collapsed,
             )
         };
 
-        let agent_panel_scope = agent_panel_scope_from_config(config.ui.agent_panel_scope);
+        let agent_panel_scope =
+            agent_panel_scope_from_config(config.ui.sidebar.initial_agent_scope);
         let active_group = active_group.min(groups.len().saturating_sub(1));
         let host_terminal_theme = crate::terminal_theme::TerminalTheme::default();
         let global_palette = resolve_palette(config, host_terminal_theme);
@@ -999,6 +1005,8 @@ impl App {
                 pending_sidebar_min_width: None,
                 pending_sidebar_max_width: None,
                 pending_sidebar_arrangement: None,
+                pending_sidebar_initial_state: None,
+                pending_sidebar_initial_agent_scope: None,
                 pending_worktree_directory: None,
                 pending_agent_border_labels: None,
                 pending_switch_ascii_input_source_in_prefix: None,
@@ -1824,11 +1832,8 @@ impl App {
                 self.state.pane_gaps = config.ui.pane_gaps;
                 self.state.hide_tab_bar_when_single_tab = config.ui.hide_tab_bar_when_single_tab;
                 self.state.sidebar_collapsed_mode = config.ui.sidebar_collapsed_mode;
-                self.state.agent_panel_scope =
-                    agent_panel_scope_from_config(config.ui.agent_panel_scope);
                 self.state.sidebar_arrangement = config.ui.sidebar_arrangement;
                 self.state.sidebar_config = config.ui.sidebar.clone();
-                self.state.agent_panel_scroll = 0;
                 self.state.accent = crate::config::parse_color(&config.ui.accent);
                 if !self.state.local_sound_playback && self.state.sound != config.ui.sound {
                     self.state.request_client_config_reload = true;
@@ -10035,13 +10040,17 @@ mod tests {
     }
 
     #[test]
-    fn startup_uses_configured_agent_panel_scope() {
+    fn no_session_startup_uses_configured_initial_sidebar_view() {
         let mut config = Config::default();
-        config.ui.agent_panel_scope = crate::config::AgentPanelScopeConfig::Current;
+        config.ui.sidebar.initial_state = crate::config::SidebarInitialStateConfig::Collapsed;
+        config.ui.sidebar.initial_agent_scope = crate::config::AgentPanelScopeConfig::Current;
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let app = App::new(&config, true, None, api_rx, crate::api::EventHub::default());
 
+        assert!(app.state.sidebar_collapsed);
+        assert!(app.state.right_sidebar_collapsed);
+        assert!(!app.state.group_filter_enabled);
         assert_eq!(
             app.state.agent_panel_scope,
             state::AgentPanelScope::CurrentWorkspace
@@ -10164,13 +10173,13 @@ mod tests {
     }
 
     #[test]
-    fn reload_config_updates_live_state() {
+    fn reload_config_updates_live_state_and_future_client_defaults() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("reload-config-success");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
-            "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"non_login\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+g\"\nprefix = \"ctrl+a\"\n[update]\nversion_check = false\nmanifest_check = false\n[ui]\nagent_panel_scope = \"current\"\nredraw_on_focus_gained = false\nright_click_passthrough_modifier = \"ctrl\"\n[ui.toast]\ndelivery = \"hako\"\n",
+            "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"non_login\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+g\"\nprefix = \"ctrl+a\"\n[update]\nversion_check = false\nmanifest_check = false\n[ui]\nredraw_on_focus_gained = false\nright_click_passthrough_modifier = \"ctrl\"\n[ui.sidebar]\ninitial_state = \"collapsed\"\ninitial_agent_scope = \"current\"\n[ui.toast]\ndelivery = \"hako\"\n",
         )
         .unwrap();
         let _config_path_env =
@@ -10195,6 +10204,21 @@ mod tests {
         );
         assert_eq!(
             app.state.agent_panel_scope,
+            state::AgentPanelScope::AllWorkspaces
+        );
+        assert_eq!(
+            app.state.sidebar_config.initial_agent_scope,
+            crate::config::AgentPanelScopeConfig::Current
+        );
+        assert!(!app.default_client_view.sidebar_collapsed);
+        assert_eq!(
+            app.default_client_view.agent_panel_scope,
+            state::AgentPanelScope::AllWorkspaces
+        );
+        let next_client = ClientViewState::for_new_client(&app.state);
+        assert!(next_client.sidebar_collapsed);
+        assert_eq!(
+            next_client.agent_panel_scope,
             state::AgentPanelScope::CurrentWorkspace
         );
         assert!(!app.state.redraw_on_focus_gained);

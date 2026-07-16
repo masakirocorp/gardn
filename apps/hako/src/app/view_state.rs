@@ -224,10 +224,18 @@ impl ClientViewState {
         view
     }
 
-    pub(crate) fn clone_for_new_client(&self, state: &AppState) -> Self {
-        let mut view = self.clone();
-        view.id = NEXT_CLIENT_VIEW_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        view.overlay_return_states.clear();
+    pub(crate) fn for_new_client(state: &AppState) -> Self {
+        let mut view = Self::from_default_client_state(state);
+        let sidebar_collapsed = matches!(
+            state.sidebar_config.initial_state,
+            crate::config::SidebarInitialStateConfig::Collapsed
+        );
+        view.group_filter_enabled = false;
+        view.agent_panel_scope =
+            super::agent_panel_scope_from_config(state.sidebar_config.initial_agent_scope);
+        view.sidebar_collapsed = sidebar_collapsed;
+        view.right_sidebar_collapsed = sidebar_collapsed;
+        view.agent_panel_scroll = 0;
         view.reconcile(state);
         view
     }

@@ -1838,13 +1838,8 @@ impl HeadlessServer {
                     Some(writer),
                 );
                 if !direct_attach_requested {
-                    let mut view_state = if first_app_client {
-                        crate::app::ClientViewState::from_default_client_state(&self.app.state)
-                    } else {
-                        self.app
-                            .default_client_view
-                            .clone_for_new_client(&self.app.state)
-                    };
+                    let mut view_state =
+                        crate::app::ClientViewState::for_new_client(&self.app.state);
                     if !self.app.state.workspaces.is_empty() {
                         view_state.mode = crate::app::Mode::Terminal;
                     }
@@ -3593,6 +3588,75 @@ mod tests {
             control_rx,
             render_rx,
         )
+    }
+
+    #[test]
+    fn each_new_client_starts_with_the_configured_sidebar_overview() {
+        let mut server = test_headless_server();
+        server.app.state.group_filter_enabled = true;
+        server.app.state.sidebar_collapsed = true;
+        server.app.state.right_sidebar_collapsed = true;
+        server.app.state.agent_panel_scope = crate::app::state::AgentPanelScope::CurrentWorkspace;
+        let (writer_a, _control_a, _render_a) = test_client_writer();
+        let (writer_b, _control_b, _render_b) = test_client_writer();
+
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 1,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: None,
+            direct_attach_requested: false,
+            writer: writer_a,
+        }));
+        let first = server.clients[&1].view_state.as_ref().unwrap();
+        assert!(!first.sidebar_collapsed);
+        assert!(!first.right_sidebar_collapsed);
+        assert!(!first.group_filter_enabled);
+        assert_eq!(
+            first.agent_panel_scope,
+            crate::app::state::AgentPanelScope::AllWorkspaces
+        );
+
+        let first = server
+            .clients
+            .get_mut(&1)
+            .unwrap()
+            .view_state
+            .as_mut()
+            .unwrap();
+        first.sidebar_collapsed = true;
+        first.group_filter_enabled = true;
+        first.agent_panel_scope = crate::app::state::AgentPanelScope::CurrentWorkspace;
+
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 2,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: None,
+            direct_attach_requested: false,
+            writer: writer_b,
+        }));
+        let second = server.clients[&2].view_state.as_ref().unwrap();
+        assert!(!second.sidebar_collapsed);
+        assert!(!second.right_sidebar_collapsed);
+        assert!(!second.group_filter_enabled);
+        assert_eq!(
+            second.agent_panel_scope,
+            crate::app::state::AgentPanelScope::AllWorkspaces
+        );
+        assert!(
+            server.clients[&1]
+                .view_state
+                .as_ref()
+                .unwrap()
+                .sidebar_collapsed
+        );
     }
 
     #[test]

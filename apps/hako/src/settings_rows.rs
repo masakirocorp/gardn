@@ -745,7 +745,7 @@ fn appearance_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsList
     rows.extend(setting_group(
         "panes",
         [option(
-            layout_base + 4,
+            layout_base + 6,
             "agent border labels",
             "show detected agent names in split pane borders",
             settings
@@ -777,6 +777,12 @@ fn layout_rows_with_base(
     let arrangement = settings
         .pending_sidebar_arrangement
         .unwrap_or(app.sidebar_arrangement);
+    let initial_state = settings
+        .pending_sidebar_initial_state
+        .unwrap_or(app.sidebar_config.initial_state);
+    let initial_agent_scope = settings
+        .pending_sidebar_initial_agent_scope
+        .unwrap_or(app.sidebar_config.initial_agent_scope);
     setting_group(
         "sidebar",
         [
@@ -803,6 +809,18 @@ fn layout_rows_with_base(
                 "sidebar arrangement",
                 "where spaces and agents live on desktop",
                 arrangement.label(),
+            ),
+            value_option(
+                base + 4,
+                "initial sidebar state",
+                "expanded or collapsed when a new client connects",
+                initial_state.label(),
+            ),
+            value_option(
+                base + 5,
+                "initial agent scope",
+                "agents shown when a new client connects",
+                initial_agent_scope.label(),
             ),
         ],
     )
@@ -1349,18 +1367,21 @@ mod tests {
     fn appearance_rows_keep_blank_line_between_sidebar_and_panes() {
         let app = AppState::test_new();
         let rows = appearance_rows(&app, &app.settings);
-        let arrangement = rows
+        let initial_agent_scope = rows
             .iter()
             .position(|row| {
                 matches!(
                     row,
-                    SettingsListRow::Value { title, .. } if title.as_ref() == "sidebar arrangement"
+                    SettingsListRow::Value { title, .. } if title.as_ref() == "initial agent scope"
                 )
             })
-            .expect("sidebar arrangement row");
-        assert!(matches!(rows[arrangement + 1], SettingsListRow::Spacer));
+            .expect("initial agent scope row");
         assert!(matches!(
-            rows[arrangement + 2],
+            rows[initial_agent_scope + 1],
+            SettingsListRow::Spacer
+        ));
+        assert!(matches!(
+            rows[initial_agent_scope + 2],
             SettingsListRow::Header("panes")
         ));
     }

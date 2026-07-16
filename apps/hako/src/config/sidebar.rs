@@ -7,6 +7,30 @@ use crate::detect::Agent;
 const MAX_SIDEBAR_ROWS: usize = 16;
 const MAX_SIDEBAR_TOKENS_PER_ROW: usize = 16;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SidebarInitialStateConfig {
+    #[default]
+    Expanded,
+    Collapsed,
+}
+
+impl SidebarInitialStateConfig {
+    pub(crate) fn next(self) -> Self {
+        match self {
+            Self::Expanded => Self::Collapsed,
+            Self::Collapsed => Self::Expanded,
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Expanded => "expanded",
+            Self::Collapsed => "collapsed",
+        }
+    }
+}
+
 fn deserialize_sidebar_rows<'de, D, T>(deserializer: D) -> Result<Vec<Vec<T>>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -240,6 +264,8 @@ impl Default for SpacesSidebarConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct SidebarConfig {
+    pub initial_state: SidebarInitialStateConfig,
+    pub initial_agent_scope: crate::config::AgentPanelScopeConfig,
     pub agents: AgentsSidebarConfig,
     pub spaces: SpacesSidebarConfig,
 }

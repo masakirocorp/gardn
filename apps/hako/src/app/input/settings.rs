@@ -12,7 +12,8 @@ use crate::{
         App, Mode,
     },
     config::{
-        NewTerminalCwdConfig, SidebarArrangementConfig, TerminalAccent, ThemeMode, ToastDelivery,
+        AgentPanelScopeConfig, NewTerminalCwdConfig, SidebarArrangementConfig,
+        SidebarInitialStateConfig, TerminalAccent, ThemeMode, ToastDelivery,
     },
     settings_rows::{
         option_count, option_hit_for_visual_row, option_index_for_visual_row, rows_for_section,
@@ -44,6 +45,8 @@ pub(crate) enum SettingsAction {
         sidebar_max_width: u16,
         worktree_directory: Option<String>,
         sidebar_arrangement: SidebarArrangementConfig,
+        sidebar_initial_state: SidebarInitialStateConfig,
+        sidebar_initial_agent_scope: AgentPanelScopeConfig,
         agent_border_labels: bool,
     },
     SaveSwitchAsciiInputSourceInPrefix(bool),
@@ -105,6 +108,8 @@ impl App {
                 sidebar_min_width,
                 sidebar_max_width,
                 sidebar_arrangement,
+                sidebar_initial_state,
+                sidebar_initial_agent_scope,
                 agent_border_labels,
                 worktree_directory,
             } => {
@@ -122,6 +127,7 @@ impl App {
                 self.save_mouse_scroll_lines(mouse_scroll_lines);
                 self.save_sidebar_widths(sidebar_width, sidebar_min_width, sidebar_max_width);
                 self.save_sidebar_arrangement(sidebar_arrangement);
+                self.save_sidebar_initial_view(sidebar_initial_state, sidebar_initial_agent_scope);
                 if let Some(directory) = worktree_directory {
                     self.save_worktree_directory(&directory);
                 }
@@ -1081,6 +1087,20 @@ fn pending_sidebar_arrangement(state: &AppState) -> SidebarArrangementConfig {
         .pending_sidebar_arrangement
         .unwrap_or(state.sidebar_arrangement)
 }
+fn pending_sidebar_initial_state(state: &AppState) -> SidebarInitialStateConfig {
+    state
+        .settings
+        .pending_sidebar_initial_state
+        .unwrap_or(state.sidebar_config.initial_state)
+}
+
+fn pending_sidebar_initial_agent_scope(state: &AppState) -> AgentPanelScopeConfig {
+    state
+        .settings
+        .pending_sidebar_initial_agent_scope
+        .unwrap_or(state.sidebar_config.initial_agent_scope)
+}
+
 fn pending_agent_border_labels(state: &AppState) -> bool {
     state
         .settings
@@ -1337,6 +1357,8 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
     state.settings.pending_sidebar_arrangement = None;
+    state.settings.pending_sidebar_initial_state = None;
+    state.settings.pending_sidebar_initial_agent_scope = None;
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
@@ -1369,6 +1391,8 @@ fn current_settings_action(state: &AppState) -> SettingsAction {
         sidebar_min_width: pending_sidebar_min_width(state),
         sidebar_max_width: pending_sidebar_max_width(state),
         sidebar_arrangement: pending_sidebar_arrangement(state),
+        sidebar_initial_state: pending_sidebar_initial_state(state),
+        sidebar_initial_agent_scope: pending_sidebar_initial_agent_scope(state),
         worktree_directory: state.settings.pending_worktree_directory.clone(),
         agent_border_labels: pending_agent_border_labels(state),
     }
@@ -1445,6 +1469,14 @@ fn select_pending_layout_setting_at(state: &mut AppState, selected: usize) {
             state.settings.pending_sidebar_arrangement =
                 Some(pending_sidebar_arrangement(state).next());
         }
+        4 => {
+            state.settings.pending_sidebar_initial_state =
+                Some(pending_sidebar_initial_state(state).next());
+        }
+        5 => {
+            state.settings.pending_sidebar_initial_agent_scope =
+                Some(pending_sidebar_initial_agent_scope(state).next());
+        }
         _ => {}
     }
 }
@@ -1459,8 +1491,8 @@ fn select_pending_appearance_setting(state: &mut AppState) -> Option<SettingsAct
 
     let appearance_selected = selected - theme_count;
     match appearance_selected {
-        0..=3 => select_pending_layout_setting_at(state, appearance_selected),
-        4 => {
+        0..=5 => select_pending_layout_setting_at(state, appearance_selected),
+        6 => {
             state.settings.pending_agent_border_labels = Some(!pending_agent_border_labels(state));
         }
         _ => {}
@@ -2123,6 +2155,8 @@ pub(crate) fn prepare_general_settings_state(
     settings.pending_sidebar_min_width = Some(state.sidebar_min_width);
     settings.pending_sidebar_max_width = Some(state.sidebar_max_width);
     settings.pending_sidebar_arrangement = Some(state.sidebar_arrangement);
+    settings.pending_sidebar_initial_state = Some(state.sidebar_config.initial_state);
+    settings.pending_sidebar_initial_agent_scope = Some(state.sidebar_config.initial_agent_scope);
     settings.pending_worktree_directory = None;
     settings.pending_agent_border_labels = Some(state.agent_border_labels_enabled());
     settings.pending_agent_profile_id = None;
@@ -2181,6 +2215,8 @@ fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsSta
     settings.pending_sidebar_min_width = None;
     settings.pending_sidebar_max_width = None;
     settings.pending_sidebar_arrangement = None;
+    settings.pending_sidebar_initial_state = None;
+    settings.pending_sidebar_initial_agent_scope = None;
     settings.pending_worktree_directory = None;
     settings.pending_agent_border_labels = None;
     settings.pending_switch_ascii_input_source_in_prefix = None;
@@ -2274,6 +2310,8 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
     state.settings.pending_sidebar_arrangement = None;
+    state.settings.pending_sidebar_initial_state = None;
+    state.settings.pending_sidebar_initial_agent_scope = None;
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
@@ -2316,6 +2354,8 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
     state.settings.pending_sidebar_arrangement = None;
+    state.settings.pending_sidebar_initial_state = None;
+    state.settings.pending_sidebar_initial_agent_scope = None;
     state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
@@ -3743,6 +3783,8 @@ mod tests {
                 sidebar_min_width: 18,
                 sidebar_max_width: 36,
                 sidebar_arrangement: SidebarArrangementConfig::Auto,
+                sidebar_initial_state: SidebarInitialStateConfig::Expanded,
+                sidebar_initial_agent_scope: AgentPanelScopeConfig::All,
                 worktree_directory: None,
                 agent_border_labels: false,
             })
@@ -3977,6 +4019,40 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn settings_layout_changes_future_client_sidebar_defaults() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.sidebar_collapsed = false;
+        state.agent_panel_scope = crate::app::state::AgentPanelScope::AllWorkspaces;
+        open_settings_at(&mut state, SettingsSection::Layout);
+        state.settings.list.show();
+
+        state.settings.list.select(4);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        state.settings.list.select(5);
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+
+        assert!(matches!(
+            action,
+            Some(SettingsAction::SaveSettings {
+                sidebar_initial_state: SidebarInitialStateConfig::Collapsed,
+                sidebar_initial_agent_scope: AgentPanelScopeConfig::Group,
+                ..
+            })
+        ));
+        assert!(!state.sidebar_collapsed);
+        assert_eq!(
+            state.agent_panel_scope,
+            crate::app::state::AgentPanelScope::AllWorkspaces
+        );
     }
 
     #[test]

@@ -299,13 +299,17 @@ diff_command = "lazygit"
 # collapsed sidebar mode: "compact" (narrow rail) or "hidden" (zero-width).
 # sidebar_collapsed_mode = "compact"
 
-# agent panel scope: "current" (space), "group", or "all".
-# changing it from the agents menu saves this setting.
-# agent_panel_scope = "current"
 
 # accent color for highlights, borders, and navigation ui.
 # accepts: hex (#89b4fa), named colors (cyan, blue, magenta), or rgb(r,g,b)
 # accent = "cyan"
+[ui.sidebar]
+# Initial view for each newly connected client. Runtime changes remain client-local.
+# "expanded" or "collapsed"
+initial_state = "expanded"
+# "all", "group", or "current" (space)
+initial_agent_scope = "all"
+
 
 # background notification popup delivery
 [ui.toast]

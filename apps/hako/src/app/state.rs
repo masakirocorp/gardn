@@ -2080,6 +2080,10 @@ pub struct SettingsState {
     /// Pending maximum expanded sidebar width while settings is open.
     pub pending_sidebar_max_width: Option<u16>,
     pub pending_sidebar_arrangement: Option<crate::config::SidebarArrangementConfig>,
+    /// Pending default expansion state for newly attached clients.
+    pub pending_sidebar_initial_state: Option<crate::config::SidebarInitialStateConfig>,
+    /// Pending default agent scope for newly attached clients.
+    pub pending_sidebar_initial_agent_scope: Option<crate::config::AgentPanelScopeConfig>,
     /// Pending worktree checkout parent directory while settings is open.
     pub pending_worktree_directory: Option<String>,
     /// Pending agent border label setting while settings is open.
@@ -3537,6 +3541,8 @@ impl AppState {
                 pending_mouse_scroll_lines: None,
                 pending_sidebar_width: None,
                 pending_sidebar_arrangement: None,
+                pending_sidebar_initial_state: None,
+                pending_sidebar_initial_agent_scope: None,
                 pending_sidebar_min_width: None,
                 pending_sidebar_max_width: None,
                 pending_worktree_directory: None,
