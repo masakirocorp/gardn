@@ -3151,10 +3151,7 @@ command = ["sh", "-c", "echo bootstrap"]
 "#,
     )
     .unwrap();
-    run_git(
-        &source_repo,
-        &["add", "worktree-bootstrap/omh-plugin.toml"],
-    );
+    run_git(&source_repo, &["add", "worktree-bootstrap/omh-plugin.toml"]);
     run_git(&source_repo, &["commit", "--quiet", "-m", "add plugin"]);
 
     fs::create_dir_all(&config_home).unwrap();

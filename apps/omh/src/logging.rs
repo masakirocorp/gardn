@@ -19,8 +19,7 @@ pub(crate) fn init_file_logging(file_name: &str) {
         return;
     };
 
-    let filter =
-        EnvFilter::try_from_env("OMH_LOG").unwrap_or_else(|_| EnvFilter::new("omh=info"));
+    let filter = EnvFilter::try_from_env("OMH_LOG").unwrap_or_else(|_| EnvFilter::new("omh=info"));
 
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)

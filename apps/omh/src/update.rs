@@ -150,7 +150,9 @@ fn fetch_url(url: &str, label: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("invalid HTTP status while fetching {label} from {url}: {e}"))?;
     if !(200..300).contains(&status) {
         if url == GITHUB_LATEST_RELEASE_API_URL && status == 404 {
-            return Err("no published GitHub releases found for masakirocorp/oh-my-herdr".to_string());
+            return Err(
+                "no published GitHub releases found for masakirocorp/oh-my-herdr".to_string(),
+            );
         }
         return Err(format!("failed to fetch {label} from {url}: HTTP {status}"));
     }
@@ -1336,12 +1338,16 @@ pub(crate) fn update_install_instruction(install_command: &str) -> String {
             "detach, run `omh update`, then follow its restart guidance".to_string()
         }
         MISE_UPDATE_COMMAND => {
-            "detach, run `mise upgrade omh`, then restart this Oh My Herdr session when ready".to_string()
+            "detach, run `mise upgrade omh`, then restart this Oh My Herdr session when ready"
+                .to_string()
         }
         NIX_UPDATE_COMMAND => {
-            "detach, update through Nix, then restart this Oh My Herdr session when ready".to_string()
+            "detach, update through Nix, then restart this Oh My Herdr session when ready"
+                .to_string()
         }
-        command => format!("detach, run `{command}`, then restart this Oh My Herdr session when ready"),
+        command => {
+            format!("detach, run `{command}`, then restart this Oh My Herdr session when ready")
+        }
     }
 }
 
@@ -1962,8 +1968,7 @@ mod tests {
     fn explicit_session_update_targets_only_that_session() {
         let _guard = env_lock().lock().unwrap();
         let (config_home, _config_home_env) = set_test_config_home("explicit-session");
-        let _socket_env =
-            TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/ignored-omh.sock");
+        let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/ignored-omh.sock");
         let _session_env = TestEnvVar::remove(crate::session::SESSION_ENV_VAR);
         let _explicit_session = crate::session::explicit_session_request_guard(false);
         let args = vec![

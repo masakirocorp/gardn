@@ -246,7 +246,9 @@ fn validate_min_omh_version(value: &str) -> Result<String, (&'static str, String
     if required > current {
         return Err((
             "plugin_requires_newer_omh",
-            format!("plugin requires Oh My Herdr {required} or newer; current Oh My Herdr is {current}"),
+            format!(
+                "plugin requires Oh My Herdr {required} or newer; current Oh My Herdr is {current}"
+            ),
         ));
     }
     Ok(required.to_string())

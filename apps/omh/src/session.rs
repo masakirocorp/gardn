@@ -188,9 +188,7 @@ fn socket_path_app_dir(path: &Path) -> Option<&str> {
 
 fn socket_path_matches_current_app(path: &Path) -> bool {
     match socket_path_app_dir(path) {
-        Some("omh" | "omh-dev") => {
-            socket_path_app_dir(path) == Some(crate::config::app_dir_name())
-        }
+        Some("omh" | "omh-dev") => socket_path_app_dir(path) == Some(crate::config::app_dir_name()),
         _ => true,
     }
 }

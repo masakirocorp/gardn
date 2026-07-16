@@ -1692,10 +1692,7 @@ position = "top-center"
         let config = Config::default();
         assert_eq!(config.ui.toast.delivery, ToastDelivery::Off);
         assert_eq!(config.ui.toast.delay_seconds, 1);
-        assert_eq!(
-            config.ui.toast.omh.position,
-            ToastOmhPosition::BottomRight
-        );
+        assert_eq!(config.ui.toast.omh.position, ToastOmhPosition::BottomRight);
         assert!(config.ui.toast.clipboard.enabled);
         assert_eq!(
             config.ui.toast.clipboard.position,

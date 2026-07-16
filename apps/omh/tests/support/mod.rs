@@ -501,7 +501,7 @@ fn start_global_watchdog() {
         thread::sleep(WATCHDOG_SCAN_INTERVAL);
 
         if let Err(err) = cleanup_servers_with_missing_runtime_dir() {
-        eprintln!("omh test cleanup watchdog error: {err}");
+            eprintln!("omh test cleanup watchdog error: {err}");
         }
     });
 }

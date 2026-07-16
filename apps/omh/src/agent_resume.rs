@@ -892,8 +892,7 @@ mod tests {
         assert_eq!(plan.env, env);
         let other_env = vec![("CODEX_HOME".to_string(), "/profiles/other".to_string())];
         let other_plan =
-            plan_with_launch_context("omh:codex", "codex", &session_ref, None, &other_env)
-                .unwrap();
+            plan_with_launch_context("omh:codex", "codex", &session_ref, None, &other_env).unwrap();
         assert_ne!(plan.dedupe_key, other_plan.dedupe_key);
     }
 

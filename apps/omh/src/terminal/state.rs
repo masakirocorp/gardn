@@ -773,15 +773,12 @@ impl TerminalState {
     ) -> bool {
         matches!(
             (source, agent_label, session_start_source),
-            (
-                "omh:claude",
-                "claude",
-                Some("clear" | "resume" | "compact")
-            ) | (
-                "omh:omp",
-                "omp",
-                Some("startup" | "new" | "resume" | "fork")
-            )
+            ("omh:claude", "claude", Some("clear" | "resume" | "compact"))
+                | (
+                    "omh:omp",
+                    "omp",
+                    Some("startup" | "new" | "resume" | "fork")
+                )
         )
     }
 
@@ -2895,13 +2892,8 @@ mod tests {
             Some(20),
         );
 
-        let change = terminal.set_hook_authority(
-            "omh:pi".into(),
-            "pi".into(),
-            AgentState::Idle,
-            None,
-            None,
-        );
+        let change =
+            terminal.set_hook_authority("omh:pi".into(), "pi".into(), AgentState::Idle, None, None);
 
         assert!(change.is_none());
         assert_eq!(terminal.state, AgentState::Working);

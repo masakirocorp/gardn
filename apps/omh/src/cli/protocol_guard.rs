@@ -78,7 +78,10 @@ mod tests {
             .message
             .contains(&format!("server protocol {server_protocol}")));
         assert!(response.error.message.contains("server version 0.1.0"));
-        assert!(response.error.message.contains("Update and restart Oh My Herdr"));
+        assert!(response
+            .error
+            .message
+            .contains("Update and restart Oh My Herdr"));
     }
 
     #[test]

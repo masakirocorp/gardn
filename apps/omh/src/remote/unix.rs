@@ -156,9 +156,7 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
     let session_name = crate::session::active_name()
         .unwrap_or_else(|| crate::session::DEFAULT_SESSION_NAME.to_string());
     let local_socket = local_forward_socket_path(&remote.target, &session_name);
-    let program = std::env::args()
-        .next()
-        .unwrap_or_else(|| "omh".to_string());
+    let program = std::env::args().next().unwrap_or_else(|| "omh".to_string());
     let reattach_command = reattach_command(
         &program,
         &remote.target,
@@ -878,10 +876,7 @@ fn confirm_remote_install_with_running_server(
     Ok(true)
 }
 
-fn remote_server_status(
-    ssh: &RemoteSsh,
-    remote_omh: &RemoteOmh,
-) -> io::Result<RemoteServerStatus> {
+fn remote_server_status(ssh: &RemoteSsh, remote_omh: &RemoteOmh) -> io::Result<RemoteServerStatus> {
     let command = format!("{} status server --json", remote_omh.shell_path);
     let output = ssh.sh_output(&command)?;
     if !output.status.success() {
@@ -1997,8 +1992,8 @@ mod tests {
             os: "linux",
             arch: "x86_64",
         });
-        let remote_omh = remote_omh_from_path_discovery(&remote_omh, "/opt/omh bin/omh\n")
-            .expect("path binary");
+        let remote_omh =
+            remote_omh_from_path_discovery(&remote_omh, "/opt/omh bin/omh\n").expect("path binary");
 
         assert_eq!(
             remote_bridge_command(&remote_omh, crate::session::DEFAULT_SESSION_NAME),

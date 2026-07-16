@@ -1080,8 +1080,10 @@ platforms = ["linux", "macos", "windows"]
 "#,
             );
 
-            let plugin = load_plugin_manifest(&root.display().to_string(), true)
-                .unwrap_or_else(|err| panic!("{name}: failed to load Oh My Herdr variant: {err:?}"));
+            let plugin =
+                load_plugin_manifest(&root.display().to_string(), true).unwrap_or_else(|err| {
+                    panic!("{name}: failed to load Oh My Herdr variant: {err:?}")
+                });
             assert_example_plugin_shape(
                 &plugin,
                 expected_id,
@@ -1365,7 +1367,10 @@ platforms = ["linux", "macos", "windows"]
     fn plugin_command_output_reader_caps_and_marks_truncation() {
         let output = read_capped_plugin_output("abcdef".as_bytes(), 3);
 
-        assert_eq!(output, "abc\n[Oh My Herdr truncated plugin output after 3 bytes]");
+        assert_eq!(
+            output,
+            "abc\n[Oh My Herdr truncated plugin output after 3 bytes]"
+        );
     }
 
     #[test]

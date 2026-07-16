@@ -580,10 +580,7 @@ prunable stale
         }
 
         let default_path = expand_tilde_path_from_env("~/.omh/worktrees", true, env);
-        assert_eq!(
-            default_path,
-            PathBuf::from(r"C:\Users\omh\.omh\worktrees")
-        );
+        assert_eq!(default_path, PathBuf::from(r"C:\Users\omh\.omh\worktrees"));
         assert_eq!(
             default_path.display().to_string(),
             r"C:\Users\omh\.omh\worktrees"
@@ -657,13 +654,7 @@ prunable stale
         assert_eq!(command.program, "git");
         assert_eq!(
             command.args,
-            vec![
-                "-C",
-                "/repo/omh",
-                "worktree",
-                "remove",
-                "/w/omh/issue-137"
-            ]
+            vec!["-C", "/repo/omh", "worktree", "remove", "/w/omh/issue-137"]
         );
     }
 

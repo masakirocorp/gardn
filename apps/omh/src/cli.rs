@@ -230,7 +230,9 @@ fn config_reset_keys(args: &[String]) -> std::io::Result<i32> {
         path.display()
     );
     println!("Built-in v2 keybindings will apply after Oh My Herdr restarts or reloads config.");
-    println!("If an Oh My Herdr server is running, run `omh server reload-config` to apply this now.");
+    println!(
+        "If an Oh My Herdr server is running, run `omh server reload-config` to apply this now."
+    );
     println!(
         "To restore: cp {} {}",
         backup_path.display(),
@@ -1327,7 +1329,9 @@ fn agent_attach(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_wait(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: omh agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
+        eprintln!(
+            "usage: omh agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]"
+        );
         return Ok(2);
     };
 

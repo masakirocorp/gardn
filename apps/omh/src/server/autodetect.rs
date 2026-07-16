@@ -133,7 +133,10 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
     let mut command = build_server_daemon_command(exe);
 
     let child = command.spawn().map_err(|err: io::Error| {
-        io::Error::new(err.kind(), format!("failed to spawn Oh My Herdr server: {err}"))
+        io::Error::new(
+            err.kind(),
+            format!("failed to spawn Oh My Herdr server: {err}"),
+        )
     })?;
 
     let pid = child.id();

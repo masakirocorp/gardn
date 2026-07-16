@@ -5437,7 +5437,10 @@ mod tests {
 
         let toast = state.toast.as_ref().expect("missing integration toast");
         assert_eq!(toast.kind, ToastKind::NeedsAttention);
-        assert_eq!(toast.title, "Codex detected without Oh My Herdr integration");
+        assert_eq!(
+            toast.title,
+            "Codex detected without Oh My Herdr integration"
+        );
         assert!(toast.context.contains("manual · 1"));
         assert!(toast.context.contains("omh integration install codex"));
         assert_eq!(
